@@ -17,6 +17,7 @@ function test(name, fn) { console.log(`--- test: ${name} ---`); fn(); console.lo
 test('spec hashes equal DPOD integrations/botsystem (cross-language vectors, python3 spec_hash())', () => {
     assert.strictEqual(specHash(SPECS.full(4)), 'f085fbadb8ed23177e47c3fa326a975f92b6137fb0c23bbba34ed61d9501be50');
     assert.strictEqual(specHash(SPECS.min(4)), 'a2f361b997c9f85cd3e33e7591e2c9a6119c7fd7945446ecade12f9ce68cd6e3');
+    assert.strictEqual(specHash(SPECS.min_pitch(4)), 'cd36d198ee6accff8732129686184d68d873d5b3d6625cb7ed2359c6ae341a2c');
     assert.strictEqual(g6(15), '15'); assert.strictEqual(g6(-45), '-45'); assert.strictEqual(g6(0.5), '0.5');
 });
 

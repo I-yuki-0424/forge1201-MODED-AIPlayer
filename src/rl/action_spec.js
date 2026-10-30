@@ -37,7 +37,13 @@ function min(ticksPerStep = 4) {
     };
 }
 
-const SPECS = { full, min };
+/** `min` plus a pitch axis. A level crosshair passes ~0.6 m above a single log at feet level, so `min` (no pitch) cannot collect. */
+function minPitch(ticksPerStep = 4) {
+    const m = min(ticksPerStep);
+    return { ...m, name: 'botsystem_min_pitch', components: [...m.components, { kind: 'axis', name: 'pitch_delta_deg', values: [-15, 0, 15] }] };
+}
+
+const SPECS = { full, min, min_pitch: minPitch };
 
 /** Python's `%.6g` for the finite values used here (no exponent form: |v| in [1e-4, 1e6)). */
 const g6 = (v) => String(parseFloat(Number(v).toPrecision(6)));

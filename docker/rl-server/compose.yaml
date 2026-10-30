@@ -40,7 +40,7 @@ services:
       SPAWN_PROTECTION: "0"
       VIEW_DISTANCE: "4"
       SIMULATION_DISTANCE: "3"
-      MAX_PLAYERS: "4"
+      MAX_PLAYERS: "16"
       ONLINE_MODE: "false"
       ENFORCE_SECURE_PROFILE: "false"
       MAX_TICK_TIME: "-1"
@@ -53,7 +53,7 @@ services:
     volumes:
       - mc-data:/data
     tmpfs:
-      - /data/world:size=512m
+      - /data/world:size=512m,uid=1000,gid=1000,mode=0755
     ports:
       - "127.0.0.1:25566:25565"
     networks: [rl]

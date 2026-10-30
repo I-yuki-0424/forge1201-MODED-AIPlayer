@@ -19,9 +19,10 @@ class McEnv {
     /**
      * @param o {bot, rcon, spec, mcData, events, groundY, settleMs}
      * `groundY` is the y of the top solid layer (flat world: -61, so the bot stands at y = groundY + 1).
+     * `originX/originZ` is this bot's arena centre; bots sharing a server need arenas more than ~2 view distances apart.
      */
-    constructor({ bot, rcon, spec, mcData, events, groundY = -61, settleMs = 25 }) {
-        Object.assign(this, { bot, rcon, spec, mcData, events, groundY, settleMs });
+    constructor({ bot, rcon, spec, mcData, events, groundY = -61, settleMs = 25, originX = 0.5, originZ = 0.5 }) {
+        Object.assign(this, { bot, rcon, spec, mcData, events, groundY, settleMs, originX, originZ });
         this.controls = new Controls(bot, spec, mcData);
         this.ep = null;
         this.dead = false;
@@ -70,6 +71,21 @@ class McEnv {
         });
     }
 
+    /**
+     * Registry check before any training: a dirt item must be named `dirt` on the client (BUGFIX-20261030-015 / LESSONS L4).
+     * Throws ResetError otherwise. Leaves the inventory empty.
+     */
+    async preflight() {
+        const b = this.bot, name = b.username;
+        await this.cmd(`clear ${name}`);
+        await this.cmd(`give ${name} minecraft:dirt 1`);
+        let seen = [];
+        await this.waitFor('dirt item to arrive', () => (seen = b.inventory.items().map((i) => i.name)).length > 0, 5000);
+        await this.cmd(`clear ${name}`);
+        if (seen.length !== 1 || seen[0] !== 'dirt') throw new ResetError(`registry check failed: gave dirt, client sees ${JSON.stringify(seen)}`);
+        this.events.emit('preflight', { check: 'dirt_stays_dirt', ok: true });
+    }
+
     snapshot() {
         const p = this.bot.entity.position;
         return { pos: { x: p.x, y: p.y, z: p.z }, origin: this.ep.origin, inv: inventoryCounts(this.bot), dead: this.dead || !(this.bot.health > 0) };
@@ -88,7 +104,8 @@ class McEnv {
         const b = this.bot, name = b.username, gy = this.groundY;
         this.controls.release();
         b.physicsEnabled = false;
-        const origin = { x: 0.5, y: gy + 1, z: 0.5 };
+        const origin = { x: this.originX, y: gy + 1, z: this.originZ };
+        const cx = Math.floor(origin.x), cz = Math.floor(origin.z);
         const heading = Math.floor(rng() * 8) * 45;              // Minecraft yaw in degrees, 8 headings
         const a = ARENA_R;
         // Order matters: players first (so the arena chunks stay loaded), then the arena, then the scenario.
@@ -96,10 +113,10 @@ class McEnv {
         await this.cmd(`clear ${name}`);
         await this.cmd(`effect clear ${name}`);
         await this.cmd(`tp ${name} ${origin.x} ${origin.y} ${origin.z} ${heading} 0`);
-        await this.cmd(`fill ${-a} ${gy + 1} ${-a} ${a} ${gy + 6} ${a} air`);
-        await this.cmd(`fill ${-a} ${gy - 1} ${-a} ${a} ${gy - 1} ${a} dirt`);
-        await this.cmd(`fill ${-a} ${gy} ${-a} ${a} ${gy} ${a} grass_block`);
-        await this.cmd(`kill @e[type=item]`).catch(() => {});      // "no entity" when none: not an error here
+        await this.cmd(`fill ${cx - a} ${gy + 1} ${cz - a} ${cx + a} ${gy + 6} ${cz + a} air`);
+        await this.cmd(`fill ${cx - a} ${gy - 1} ${cz - a} ${cx + a} ${gy - 1} ${cz + a} dirt`);
+        await this.cmd(`fill ${cx - a} ${gy} ${cz - a} ${cx + a} ${gy} ${cz + a} grass_block`);
+        await this.cmd(`kill @e[type=item,x=${origin.x},y=${origin.y},z=${origin.z},distance=..${a + 6}]`).catch(() => {});   // "no entity" when none: not an error here
         await this.cmd(`effect give ${name} minecraft:instant_health 1 10 true`);
         await this.cmd(`effect give ${name} minecraft:saturation 1 10 true`);
         const logs = [];
@@ -119,7 +136,7 @@ class McEnv {
         await this.waitFor('inventory cleared', () => b.inventory.items().length === 0);
         await this.waitFor('health', () => b.health >= 19.9);
         await this.waitFor('arena', () => logs.every(([x, y, z]) => b.blockAt(new Vec3(x, y, z))?.name === 'oak_log'));
-        const ground = b.blockAt(new Vec3(0, gy, 0));
+        const ground = b.blockAt(new Vec3(cx, gy, cz));
         if (!ground || ground.name !== 'grass_block') throw new ResetError(`ground at y=${gy} is ${ground && ground.name}; set RL_GROUND_Y`);
         this.ep = { goal, origin, step: 0, episode, heading, prev: null, ret: 0 };
         await this.runTicks(3);                                    // settle: gravity, on_ground
