@@ -5,11 +5,18 @@ project_name: "Minecraft Forge 1.20.1 AI Player System"
 repo: "https://github.com/I-yuki-0424/forge1201-MODED-AIPlayer"
 current_goal: "Stable autonomous modded-Minecraft agent; real-game test bed for DPOD (see docs/core/GOAL.md)."
 
-active_tasks: []
+active_tasks:
+  - "TASK-20261030-006-log-only-debuggability"
+  - "TASK-20261030-007-fast-rebuildable-forge-server"
+  - "TASK-20261030-008-llm-instruction-to-goal-boundary"
+  - "TASK-20261030-009-subdivide-code-by-role"
+  - "TASK-20261030-013-rl-interface-and-eval-spec"
+  - "TASK-20261030-014-schedule-long-running-jobs"
 
-smoke_status: "2026-10-30 npm test (7 files) PASS on node 20.20.2 and 22.11.0 (docker node:20-slim / node:22.11-slim); FAIL at test_e2e_integration on node 22.23.4: host '\\0FML3\\0' rejected by net (null bytes). Run in docker, no network."
+smoke_status: "2026-10-30 npm test (8 files, incl. tests/test_rl_env_pure.js) PASS on node 20.20.2 (docker node:20-slim); FAIL at test_e2e_integration on node 22.23.4 (BUGFIX-20261030-002, unchanged). Game side: scripts/rl/verify_game_side.py 20/20 PASS on the live Forge 1.20.1-47.4.10 server (run verify-1793370729)."
 
 recent_changes:
+  - "2026-10-30 (late): first RL slice. src/rl (env, controls, observation, goal, RCON, DPOD file-API runner, event log), src/transport (shared login/FML3 factory, bot_actuator now uses it), docker/rl-server + scripts/rl, tests/test_rl_env_pure.js, scripts/rl/verify_game_side.py. Spec and measurements: docs/implemented/RL-INTERFACE-v1.md. DPOD side unchanged (its integrations/botsystem proposal implemented as written; sign conventions fixed here). BUGFIX-015 found on the way."
   - "2026-10-30: owner brief -> roadmap of descriptions only (TASK-20261030-006..014 in docs/proposed/ROADMAP-20261030-rl-platform.md); TASK-20261030-005 replaced by 013; no implementation started."
   - "2026-10-30: TASK-20261030-001 repo cleanup. Undid LFS damage from edd510e1 (package.json, test manifest, mod dictionary had become unfetchable LFS pointers; restored from 9d3cf2c1, sha256-checked). Untracked node_modules, jdk-17.0.2, aux_mod/build, runtime logs/state (28.5k files). Root scratch scripts moved to scripts/adhoc/. Docs restructured (docs/README.md map), MASTER_GUIDANCE v10 rewritten from the 2026-10-26 operating prompt. package-lock.json regenerated (it was never recoverable). docker compose ports bound to 127.0.0.1."
 
@@ -56,6 +63,16 @@ tasks:
     result: null
     blockers: ["Upstream fix"]
 
+  - id: "BUGFIX-20261030-015-registry-injector-on-unmodded-server"
+    created_at: "2026-10-30T23:50:00+09:00"
+    status: "done"
+    description: "On a Forge server with no content mods DynamicRegistryInjector reports 'Injected 28 MOD blocks' and the client names dirt 'forge:modid4', so inventory observations lose items."
+    spec_ref: "docs/LESSONS.md#l4"
+    validation_commands:
+      - "scripts/rl/up.sh && python3 scripts/rl/verify_game_side.py   # check 'server-side give shows in the inventory observation'"
+    result: "Worked around, not fixed in the injector: attachForgeHandshake(bot, { inject }) skips injection unless RL_PROFILE=modded (default vanilla). Before: client dirt count 0 with 3 on the server; after: 3 and 3. The injector's behaviour on an empty mod list is unchanged and still wrong; bot_actuator.js still injects unconditionally."
+    blockers: []
+
   - id: "TASK-20260409-004-experimental-world-exhaustive-validation"
     created_at: "2026-04-09T00:00:00+09:00"
     status: "queued"
@@ -67,38 +84,40 @@ tasks:
 
   - id: "TASK-20261030-006-log-only-debuggability"
     created_at: "2026-10-30T23:00:00+09:00"
-    status: "queued"
+    status: "in_progress"
     description: "Build a structured, correlated, replayable event log and query tooling so any bot behaviour can be diagnosed from logs alone, proven by a log-only diagnosis test of at least 10 injected faults."
     spec_ref: "docs/proposed/ROADMAP-20261030-rl-platform.md#task-20261030-006--log-only-debuggability-monitoring"
     validation_commands: []
-    result: null
+    result: "First slice 2026-10-30: src/rl/events.js writes schema-1 JSONL events (run_start, connected, reset, step, step_timing, episode_end, run_end, kicked, bot_error, bot_end, invalid_act) correlated by run_id/episode/step, for the RL environment only. Not done: the actuator and agent_manager, the Rust query CLI, detectors, replay metadata, the 10-fault log-only test."
     blockers: ["Component boundaries from 009 (log component = module)"]
 
   - id: "TASK-20261030-007-fast-rebuildable-forge-server"
     created_at: "2026-10-30T23:00:00+09:00"
-    status: "queued"
+    status: "in_progress"
     description: "Provide a lightweight Forge 1.20.1 server in Docker that rebuilds from scratch with one command and measurably does not bottleneck RL (TPS, steps/s, reset time published; tick-speed options evaluated)."
     spec_ref: "docs/proposed/ROADMAP-20261030-rl-platform.md#task-20261030-007--light-rebuildable-forge-1201-server-for-rl-speed"
-    validation_commands: []
-    result: null
+    validation_commands:
+      - "docker run --rm --network none -v \"$PWD\":/w -w /w node:20-slim npm test"
+      - "scripts/rl/up.sh && python3 scripts/rl/verify_game_side.py   # 20 game-side checks, exit 0 only if all pass"
+    result: "First slice 2026-10-30: docker/rl-server/compose.yaml (itzg image pinned by digest, Forge 1.20.1-47.4.10, flat fixed seed, peaceful, tmpfs world, 127.0.0.1 only, mem 3g, cpus 3) + scripts/rl/up.sh|down.sh. Measured with 1 bot, random policy, 600 steps: 20.0 TPS, 1.9 ms mean tick, 4.84 steps/s (19.4 ticks/s) at 4 ticks/step, reset 166-199 ms, server 2.28 GiB. Open: several bots per server, tick acceleration (stock Forge tick command unverified), modded profile, soak test, timed from-scratch rebuild. Details: docs/implemented/RL-INTERFACE-v1.md."
     blockers: []
 
   - id: "TASK-20261030-008-llm-instruction-to-goal-boundary"
     created_at: "2026-10-30T23:00:00+09:00"
-    status: "queued"
+    status: "in_progress"
     description: "Restrict the LLM to one-shot natural-language-instruction to schema-validated RL goal conversion that GPT-OSS 20B can do, with no access to game state or actions, and measure it on a labelled instruction set."
     spec_ref: "docs/proposed/ROADMAP-20261030-rl-platform.md#task-20261030-008--llm-role-instruction--rl-goal-nothing-else"
     validation_commands: []
-    result: null
+    result: "Goal contract implemented without the LLM: schema v1, closed type/item lists, strict validator, encoding and reward (src/rl/goal.js, tests/test_rl_env_pure.js); goals are fed directly to the environment. Not done: the LLM translation, the labelled instruction set and its measurement, the scip static check that no path leads from llm_client to per-tick code, removal of LLM planning from agent_manager.js."
     blockers: ["LLM credential (011)", "Interpretation of 'when used as content' to be confirmed by the owner"]
 
   - id: "TASK-20261030-009-subdivide-code-by-role"
     created_at: "2026-10-30T23:00:00+09:00"
-    status: "queued"
+    status: "in_progress"
     description: "Split the 6.7k-line bot_actuator.js and related modules into single-role layers with enforced dependency rules, a closed failure taxonomy and a reproducer-first bug-fix protocol."
     spec_ref: "docs/proposed/ROADMAP-20261030-rl-platform.md#task-20261030-009--subdivide-the-code-one-role-per-part"
     validation_commands: ["docker run --rm --network none -v \"$PWD\":/w -w /w node:20-slim npm test"]
-    result: null
+    result: "First step 2026-10-30: src/transport/forge_bot.js (protocol bypasses, FML3 createBot, chat hardening, handshake) extracted from bot_actuator.js and called by it and by src/rl; scip impact check: hardenClientChatParsers had one dependent (bot_actuator.js), ALLOWED. npm test 8 files PASS on node 20.20.2 including the mock-server e2e. Not done: layers and enforced dependency rules, skills, closed failure taxonomy, bug-fix protocol; bot_actuator.js is still about 6.6k lines."
     blockers: []
 
   - id: "TASK-20261030-010-vps-deployment-cloudflare-defence"
@@ -130,20 +149,20 @@ tasks:
 
   - id: "TASK-20261030-013-rl-interface-and-eval-spec"
     created_at: "2026-10-30T23:00:00+09:00"
-    status: "queued"
+    status: "in_progress"
     description: "Specify the RL observation, skill-level action space, reward, environment API and a pre-registered evaluation protocol for this bot, without implementing training (replaces the earlier TASK-20261030-005)."
     spec_ref: "docs/proposed/ROADMAP-20261030-rl-platform.md#task-20261030-013--rl-interface-and-evaluation-protocol-spec"
     validation_commands: []
-    result: null
+    result: "v1 specified and implemented at control level on DPOD's file API (docs/implemented/RL-INTERFACE-v1.md): action space, observation, goals, reward, reset, server. 20 of 20 game-side checks pass against the live server's own state (scripts/rl/verify_game_side.py, run verify-1793370729). Evaluation protocol is specified, not exercised (nothing trained). Open: owner decision whether DPOD's decision model is the policy; skill-level layer; randomised scenarios."
     blockers: ["Owner decision: is the DPOD decision model the policy here?"]
 
   - id: "TASK-20261030-014-schedule-long-running-jobs"
     created_at: "2026-10-30T23:00:00+09:00"
-    status: "queued"
+    status: "in_progress"
     description: "Make registering long-running jobs on the shared schedule (hold/session/job definition, restart-safe checkpoints) a standing rule and verify a deliberately restarted job resumes."
     spec_ref: "docs/proposed/ROADMAP-20261030-rl-platform.md#task-20261030-014--register-long-running-work-on-the-schedule"
     validation_commands: []
-    result: null
+    result: "Applied to the RL server: hold sch_6fX-4PHl9OAurlOO registered before start; compose restart policy; world is tmpfs and regenerated from a fixed seed. Not done: the deliberate-restart resume test; a checkpointing training run does not exist yet."
     blockers: []
 
 hazards:

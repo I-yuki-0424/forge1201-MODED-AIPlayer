@@ -24,6 +24,11 @@ docker run --rm -v "$PWD":/w -w /w node:20-slim npm ci
 docker run --rm -v "$PWD":/w -w /w node:20-slim npm audit --omit=dev
 ```
 
+RL environment on the VPS (docs/implemented/RL-INTERFACE-v1.md): `scripts/rl/up.sh` starts a Forge 1.20.1 server
+(rootless docker, 127.0.0.1 only, tmpfs world), `python3 scripts/rl/verify_game_side.py` runs 20 game-side checks against it
+(needs the DPOD checkout next to this repo), `scripts/rl/down.sh` removes it. The server is a long-running job: register it
+on the schedule first (MASTER_GUIDANCE `<schedule>`).
+
 On the owner's PC (Windows/WSL2): `npm ci`, `npm test`, `npm run test:e2e`, `node index.js` (or `run.bat` / `./run.sh`).
 Running the bot needs a Forge 1.20.1 server and an Ollama-compatible endpoint, which exist only on the owner's PC.
 
@@ -38,6 +43,7 @@ Copy `.env` values (file is git-ignored; never print or commit it):
 
 ```
 index.js            entry: AgentManager + WebUI (the debug WebSocket :3001 is started by each bot_actuator child)
+src/rl/             RL environment (env, controls, observation, goal, DPOD file-API runner); src/transport/ = login/FML3 factory shared with the actuator
 src/                runtime (agent_manager, bot_actuator + actuator/*, forge_handshake_state_machine, dynamic_registry_injector, middleware, llm_client, web_ui_server)
 tests/              the 7 files run by `npm test` (+ mocks, run_tests.js, smoke.js)
 public/             WebUI (static)

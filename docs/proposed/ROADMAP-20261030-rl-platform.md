@@ -1,6 +1,6 @@
 # Roadmap 2026-10-30: from LLM-driven bot to an RL platform with a narrow LLM front-end
 
-**Status: descriptions only.** Nothing here is implemented or scheduled to start. Each section is the spec
+**Status (updated 2026-10-30 late): first slice implemented**, see [RL-INTERFACE-v1.md](../implemented/RL-INTERFACE-v1.md): an RL environment on a live Forge server driven over DPOD's file API (013 interface, 007 server and first measurements, 008 goal contract without the LLM, 006 event emitter, 009 transport extraction). Everything else below is still description only; per-task status is in `core/STATE.yaml`. Each section is the spec
 behind one task in [core/STATE.yaml](../core/STATE.yaml) (`TASK-20261030-006` to `-014`; the owner's 8 items map to 006, 007, 008, 009, 010, 011, 014 (item 7) and 012 (item 8); 013 is the RL interface spec that replaces the earlier 005). Written from the
 owner's brief of 2026-10-30. Where the brief was ambiguous the interpretation is stated, and facts not
 checked are marked *unverified*.

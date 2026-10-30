@@ -20,13 +20,17 @@ Target split (details and tasks: [ROADMAP-20261030-rl-platform.md](../proposed/R
 - **LLM** (GPT-OSS 20B class) runs once per instruction, outside the control loop, only to convert a
   natural-language instruction into a schema-validated goal for the policy. No game state in, no actions out.
 - Today's code is the reverse (an LLM plans the actions, `agent_manager.js` / `llm_client.js`); moving it to
-  the target split is tasks 008, 009 and 013 in [STATE.yaml](STATE.yaml). Nothing has been implemented yet.
+  the target split is tasks 008, 009 and 013 in [STATE.yaml](STATE.yaml). The RL side now exists as an
+  environment (`src/rl/`, [RL-INTERFACE-v1.md](../implemented/RL-INTERFACE-v1.md)); the LLM front-end and the
+  removal of LLM planning from `agent_manager.js` are not done.
 
 State of the link to DPOD on 2026-10-30:
 
 - DPOD's experiments run on **Craftax-Classic**, a Minecraft-like JAX simulator, not on Minecraft itself
-  (`Decision-Process-order-driven/CLAUDE.md`). Its docs contain no reference to this repo or to Mineflayer.
-  No code connects the two.
+  (`Decision-Process-order-driven/CLAUDE.md`). Since 2026-10-30 (DPOD commit 6adee25, its TASK-20261030-029) DPOD
+  has `integrations/botsystem/`, a file API in which DPOD is the policy and this repo the environment. This repo
+  implements the environment side of it (v1, verified on a live server, 2026-10-30); no learner is connected, and
+  nothing run through it counts toward a DPOD roadmap gate.
 - Whether DPOD's decision model (Transformer + MDP) is the policy here, or another learner is, is an open
   owner decision (task 013). Results on Craftax do not carry over; this repo is the real-game evaluation side.
 - DPOD's rules (leakage and oracle checks, pre-registered experiments, positive control before a null result)

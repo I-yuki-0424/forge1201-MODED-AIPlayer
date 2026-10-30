@@ -34,3 +34,13 @@ the knowledge-DB (tag `forge1201-moded-aiplayer`).
 - **Rule:** published ports in `docker/forge-server/compose.yaml` are bound to `127.0.0.1`. To play from
   another machine on the LAN, change that deliberately; do not expose these ports to the internet.
   Fix in code: `TASK-20261030-003-webui-auth-and-bind`.
+
+## L4 — Registry injection corrupts items on a server without content mods (found 2026-10-30)
+
+- On a Forge 1.20.1 server with an empty mod list, `DynamicRegistryInjector` still logged "Mapped 0 vanilla blocks.
+  Injected 28 MOD blocks" and the client named the dirt item `forge:modid4`: a `give` of 3 dirt was invisible to
+  anything reading item names. Block categories looked right, so it only showed up in the inventory.
+- **Rule:** inject only for a modded server (`attachForgeHandshake(bot, { inject: true })`, RL profile
+  `RL_PROFILE=modded`). The vanilla-plus-Forge profile uses Prismarine's own registry. The injector itself is
+  unchanged; making it a no-op on an empty mod list is a separate fix (`BUGFIX-20261030-015`).
+- Related: `rcon-cli` appends an ANSI reset (`ESC[0m`) to every reply; strip it before parsing numbers.
