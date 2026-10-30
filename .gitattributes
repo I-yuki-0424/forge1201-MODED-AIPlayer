@@ -1,14 +1,11 @@
-
-# Force binary treatment for known binary types
+# LF everywhere; binaries untouched.
+* text=auto eol=lf
 *.png binary
 *.jpg binary
 *.jar binary
 *.class binary
 
-.gitattributes filter=
-node_modules/** filter= -text
-build/** filter=lfs diff=lfs merge=lfs -text
-out/** filter=lfs diff=lfs merge=lfs -text
+# Git LFS: archives only. Never put *.json / *.txt / *.log here: on 2026-08-18 that
+# turned package.json into an unfetchable pointer (see docs/core/LESSONS.md).
 *.tar.gz filter=lfs diff=lfs merge=lfs -text
 *.whl filter=lfs diff=lfs merge=lfs -text
-jdk-*/** filter=lfs diff=lfs merge=lfs -text

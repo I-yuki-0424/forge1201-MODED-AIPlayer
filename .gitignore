@@ -1,59 +1,45 @@
-# Python
-__pycache__/
-*.py[cod]
-*.pyo
-*.pyd
-*.egg-info/
-.eggs/
-.build/
-.dist/
-# *.whl
-# *.egg
+# Dependencies and toolchains (restore with `npm ci`; JDK comes from docker/)
+node_modules/
+jdk-*/
+*.tar.gz
+*.whl
 
-# Virtual environments
-.venv/
-venv/
+# Build output
+aux_mod/build/
+aux_mod/.gradle/
+build/
+out/
+.gradle/
+run/
+.idea/
+*.iml
 
-# Test / tooling
-.pytest_cache/
-.coverage
-.coverage.*
-htmlcov/
-.mypy_cache/
-.ruff_cache/
-.pyre/
-
-# Notebooks
-.ipynb_checkpoints/
-
-# OS / editor
-.DS_Store
-Thumbs.db
-
-# Node.js
-# node_modules/
-# package-lock.json
-
-# Local secrets
+# Secrets
 .env
 .env.*
-kaggle.json
-.kaggle/
+!.env.example
 
-# Log files and temp runtime files
-# *.log
+# Runtime output of the bot (written to the repo root or data/ at run time)
+*.log
 *.pid
-# log.txt
-# prompt_chunk.txt
-# ai_debug.json
-# test_live_results.json
-
-# Generated / heavy data
+*.jsonl
+*.jsonl.bak
+ai_debug_*.json
+live_test_*.txt
+log.txt
+prompt_chunk.txt
+test_live_results.json
+chunk_dump.json
+data/*.json
+!data/system_presets.json
+!data/junk_list.json
+data/journeymap/
 data/raw/**
 data/processed/**
 results/**
-tmp/**
 analysis/**
+tmp/**
+temp/
 
 # Keep folder placeholders / docs
 !data/raw/.gitkeep
@@ -61,6 +47,7 @@ analysis/**
 !data/sample/.gitkeep
 !data/sample/README.md
 !results/.gitkeep
+!analysis/.gitkeep
 !tmp/.gitkeep
 !tmp/locks/.gitkeep
 !tmp/orchestrator/
@@ -68,19 +55,14 @@ analysis/**
 !tmp/orchestrator/jobs/.gitkeep
 !tmp/orchestrator/archive/
 !tmp/orchestrator/archive/.gitkeep
-!analysis/.gitkeep
 
-# Java / Gradle
-# build/
-.gradle/
-# out/
-.idea/
-*.iml
-run/
-
-# JDK & Archives
-# jdk-*/
-# *.tar.gz
-
-# Temp folders
-temp/
+# Python / OS / editor
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.DS_Store
+Thumbs.db
+kaggle.json
+.kaggle/
