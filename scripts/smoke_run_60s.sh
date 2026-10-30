@@ -1,4 +1,5 @@
 #!/bin/bash
+cd "$(dirname "$0")/.."
 node index.js > bot_run.log 2>&1 &
 BOT_PID=$!
 echo $BOT_PID > bot.pid

@@ -4,7 +4,7 @@
  * and sends IPC commands directly.  Monitors ai_debug_<botId>.json for position
  * updates to measure movement speed and accuracy.
  *
- * Usage: MC_HOST=172.24.96.1 node test_live.js
+ * Usage: MC_HOST=172.24.96.1 node scripts/adhoc/test_live.js (run from the repo root)
  */
 const { fork } = require('child_process');
 const path = require('path');
@@ -43,7 +43,7 @@ async function waitForFreshDebug(botId, afterMs, maxWait = 8000) {
 
 function spawnBot(botId) {
     console.log(`[Test] Spawning bot: ${botId}`);
-    const botProcess = fork(path.join(__dirname, 'src/bot_actuator.js'), [], {
+    const botProcess = fork(path.join(__dirname, '..', '..', 'src/bot_actuator.js'), [], {
         // DEBUG=true: find_land uses /tp + /effect + /give instead of pathfinding,
         // ensuring bots start on dry land with full health and stocked with oak_log.
         env: { ...process.env, BOT_ID: botId, BOT_OPTIONS: JSON.stringify({ host, port }), DEBUG: 'true' }
@@ -464,7 +464,7 @@ async function main() {
     // Clean up stale debug files from previous runs
     for (const id of ['AI_Bot_01', 'AI_Bot_02']) {
         try { fs.unlinkSync(`ai_debug_${id}.json`); } catch (e) {}
-        try { fs.unlinkSync(path.join(__dirname, 'data', `queue_checkpoint_${id}.json`)); } catch (e) {}
+        try { fs.unlinkSync(path.join(__dirname, '..', '..', 'data', `queue_checkpoint_${id}.json`)); } catch (e) {}
     }
     await sleep(1000);
 

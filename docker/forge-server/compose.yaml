@@ -52,7 +52,7 @@ services:
       - ${SERVER_DIR:-E:/forge1201server}:/data
     ports:
       # Minecraft クライアントから localhost:25566 で接続できるように公開
-      - "25566:25566"
+      - "127.0.0.1:25566:25566"
     networks:
       - forgeaip-net
     healthcheck:
@@ -95,8 +95,8 @@ services:
       - ../../debug_trace.jsonl:/app/debug_trace.jsonl
       - ../../data:/app/data
     ports:
-      - "3000:3000"     # WebUI
-      - "3001:3001"     # Debug WebSocket
+      - "127.0.0.1:3000:3000"     # WebUI (no auth: loopback only, docs/LESSONS.md L3)
+      - "127.0.0.1:3001:3001"     # Debug WebSocket (no auth)
     networks:
       - forgeaip-net
 

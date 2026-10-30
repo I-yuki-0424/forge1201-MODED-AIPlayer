@@ -1,7 +1,7 @@
 {
   "name": "forge1201aip",
   "version": "1.0.0",
-  "description": "This archive is a reusable bootstrap repository for agent-driven projects.",
+  "description": "Autonomous Mineflayer + LLM player for modded Minecraft 1.20.1 Forge (FML3 bridge, dynamic registry).",
   "main": "index.js",
   "directories": {
     "doc": "docs"
@@ -18,15 +18,15 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/sigure-0424/ProjectBase.git"
+    "url": "git+https://github.com/I-yuki-0424/forge1201-MODED-AIPlayer.git"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "Apache-2.0",
   "bugs": {
-    "url": "https://github.com/sigure-0424/ProjectBase/issues"
+    "url": "https://github.com/I-yuki-0424/forge1201-MODED-AIPlayer/issues"
   },
-  "homepage": "https://github.com/sigure-0424/ProjectBase#readme",
+  "homepage": "https://github.com/I-yuki-0424/forge1201-MODED-AIPlayer#readme",
   "dependencies": {
     "@sentry/node": "^10.46.0",
     "dotenv": "^17.3.1",
@@ -45,5 +45,9 @@
   },
   "devDependencies": {
     "minecraft-protocol": "^1.64.0"
-  }
+  },
+  "engines": {
+    "node": ">=20 <22.12"
+  },
+  "private": true
 }
