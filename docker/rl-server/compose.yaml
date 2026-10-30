@@ -42,6 +42,8 @@ services:
       SIMULATION_DISTANCE: "3"
       MAX_PLAYERS: "16"
       ONLINE_MODE: "false"
+      # The env pauses a bot between steps, possibly mid-jump; vanilla kicks a hovering player after ~4 s ("flying").
+      ALLOW_FLIGHT: "true"
       ENFORCE_SECURE_PROFILE: "false"
       MAX_TICK_TIME: "-1"
       SYNC_CHUNK_WRITES: "false"
