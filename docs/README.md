@@ -10,7 +10,7 @@ Read order for a new session: [core/MASTER_GUIDANCE.xml](core/MASTER_GUIDANCE.xm
 | [LESSONS.md](LESSONS.md) | Incidents and the rule each one produced (read before changing LFS, Node, ports) | Append |
 | `guides/` | How-to for operators and AI agents ([AI_DEBUGGING.md](guides/AI_DEBUGGING.md)) | Edited |
 | `references/` | Facts: [variable_map.md](references/variable_map.md) (env vars, IPC), `forge-fml3/` (Forge source copies used to reverse-engineer the handshake, LGPL-2.1, not built), `PROJECTSTART_MANUAL` moved to archive | Rarely |
-| `proposed/` | Specs not yet built: goal-decomposition tree, future improvements, the pending world-validation task | Moves to `implemented/` when done |
+| `proposed/` | Specs not yet built: the 2026-10-30 RL-platform roadmap (tasks 006-014), goal-decomposition tree, future improvements, the pending world-validation task | Moves to `implemented/` when done |
 | `implemented/` | One file per finished task or bugfix (`TASK-…`, `BUGFIX-…`, `VDS-001`) | Append only |
 | `archive/` | History before the 2026-10-30 cleanup: old state, activity log, task index, plans. Not maintained | Never |
 

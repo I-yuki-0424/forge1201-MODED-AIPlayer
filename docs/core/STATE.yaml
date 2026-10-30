@@ -10,6 +10,7 @@ active_tasks: []
 smoke_status: "2026-10-30 npm test (7 files) PASS on node 20.20.2 and 22.11.0 (docker node:20-slim / node:22.11-slim); FAIL at test_e2e_integration on node 22.23.4: host '\\0FML3\\0' rejected by net (null bytes). Run in docker, no network."
 
 recent_changes:
+  - "2026-10-30: owner brief -> roadmap of descriptions only (TASK-20261030-006..014 in docs/proposed/ROADMAP-20261030-rl-platform.md); TASK-20261030-005 replaced by 013; no implementation started."
   - "2026-10-30: TASK-20261030-001 repo cleanup. Undid LFS damage from edd510e1 (package.json, test manifest, mod dictionary had become unfetchable LFS pointers; restored from 9d3cf2c1, sha256-checked). Untracked node_modules, jdk-17.0.2, aux_mod/build, runtime logs/state (28.5k files). Root scratch scripts moved to scripts/adhoc/. Docs restructured (docs/README.md map), MASTER_GUIDANCE v10 rewritten from the 2026-10-26 operating prompt. package-lock.json regenerated (it was never recoverable). docker compose ports bound to 127.0.0.1."
 
 tasks:
@@ -32,7 +33,7 @@ tasks:
     validation_commands:
       - "docker run --rm --network none -v \"$PWD\":/w -w /w node:22-slim npm test"
     result: null
-    blockers: ["Needs scip-neo4j analyze_change_impact on the createBot call before editing src/ (index must show this repo active)."]
+    blockers: ["Run scip-neo4j analyze_change_impact on the createBot call before editing src/ (index is active at 0234b86 as of 2026-10-30)."]
 
   - id: "TASK-20261030-003-webui-auth-and-bind"
     created_at: "2026-10-30T18:40:00+09:00"
@@ -64,14 +65,86 @@ tasks:
     result: "Never completed (last recorded as active in the archived state of 2026-08)."
     blockers: ["Needs a running Forge server + Ollama endpoint (owner's PC / WSL2)"]
 
-  - id: "TASK-20261030-005-dpod-action-interface-design"
-    created_at: "2026-10-30T18:40:00+09:00"
+  - id: "TASK-20261030-006-log-only-debuggability"
+    created_at: "2026-10-30T23:00:00+09:00"
     status: "queued"
-    description: "Design (not implement) how a DPOD policy would drive this agent: observation features from bot state, option/action set over the EXECUTE_ACTION verbs, reward signal, and an evaluation protocol that follows DPOD's leakage and pre-registration rules. Output: a spec in docs/proposed/ and a knowledge-DB note."
-    spec_ref: "docs/core/GOAL.md#research-role-decision-process-order-driven"
+    description: "Build a structured, correlated, replayable event log and query tooling so any bot behaviour can be diagnosed from logs alone, proven by a log-only diagnosis test of at least 10 injected faults."
+    spec_ref: "docs/proposed/ROADMAP-20261030-rl-platform.md#task-20261030-006--log-only-debuggability-monitoring"
     validation_commands: []
     result: null
-    blockers: ["Owner decision on scope; DPOD side has no Minecraft code yet"]
+    blockers: ["Component boundaries from 009 (log component = module)"]
+
+  - id: "TASK-20261030-007-fast-rebuildable-forge-server"
+    created_at: "2026-10-30T23:00:00+09:00"
+    status: "queued"
+    description: "Provide a lightweight Forge 1.20.1 server in Docker that rebuilds from scratch with one command and measurably does not bottleneck RL (TPS, steps/s, reset time published; tick-speed options evaluated)."
+    spec_ref: "docs/proposed/ROADMAP-20261030-rl-platform.md#task-20261030-007--light-rebuildable-forge-1201-server-for-rl-speed"
+    validation_commands: []
+    result: null
+    blockers: []
+
+  - id: "TASK-20261030-008-llm-instruction-to-goal-boundary"
+    created_at: "2026-10-30T23:00:00+09:00"
+    status: "queued"
+    description: "Restrict the LLM to one-shot natural-language-instruction to schema-validated RL goal conversion that GPT-OSS 20B can do, with no access to game state or actions, and measure it on a labelled instruction set."
+    spec_ref: "docs/proposed/ROADMAP-20261030-rl-platform.md#task-20261030-008--llm-role-instruction--rl-goal-nothing-else"
+    validation_commands: []
+    result: null
+    blockers: ["LLM credential (011)", "Interpretation of 'when used as content' to be confirmed by the owner"]
+
+  - id: "TASK-20261030-009-subdivide-code-by-role"
+    created_at: "2026-10-30T23:00:00+09:00"
+    status: "queued"
+    description: "Split the 6.7k-line bot_actuator.js and related modules into single-role layers with enforced dependency rules, a closed failure taxonomy and a reproducer-first bug-fix protocol."
+    spec_ref: "docs/proposed/ROADMAP-20261030-rl-platform.md#task-20261030-009--subdivide-the-code-one-role-per-part"
+    validation_commands: ["docker run --rm --network none -v \"$PWD\":/w -w /w node:20-slim npm test"]
+    result: null
+    blockers: []
+
+  - id: "TASK-20261030-010-vps-deployment-cloudflare-defence"
+    created_at: "2026-10-30T23:00:00+09:00"
+    status: "queued"
+    description: "Run the bot and Minecraft server on the VPS with no public ports, Cloudflare Tunnel + Access (+ WebAuthn) for the UI and a WARP private route for the game client, hardened without hurting availability."
+    spec_ref: "docs/proposed/ROADMAP-20261030-rl-platform.md#task-20261030-010--run-bot-system-and-server-on-the-vps-defended-with-cloudflare"
+    validation_commands: []
+    result: null
+    blockers: ["007", "TASK-20261030-003-webui-auth-and-bind", "011", "014", "Root steps go through Credential-broker"]
+
+  - id: "TASK-20261030-011-ollama-key-via-broker"
+    created_at: "2026-10-30T23:00:00+09:00"
+    status: "queued"
+    description: "Verify the suspected expiry of the Ollama API key without printing it, then provide a valid key to the LLM client through Credential-broker only."
+    spec_ref: "docs/proposed/ROADMAP-20261030-rl-platform.md#task-20261030-011--ollama-api-key-via-credential-broker"
+    validation_commands: []
+    result: null
+    blockers: ["Broker may have no Ollama entry; owner may need to create a key and add it to the vault"]
+
+  - id: "TASK-20261030-012-lfs-token-via-broker"
+    created_at: "2026-10-30T23:00:00+09:00"
+    status: "queued"
+    description: "Obtain a Hugging Face LFS credential from Credential-broker (read first) to learn whether old pointer objects exist, or decide LFS is unnecessary and remove its config."
+    spec_ref: "docs/proposed/ROADMAP-20261030-rl-platform.md#task-20261030-012--lfs-token-via-credential-broker"
+    validation_commands: []
+    result: null
+    blockers: ["Owner approval for any write scope"]
+
+  - id: "TASK-20261030-013-rl-interface-and-eval-spec"
+    created_at: "2026-10-30T23:00:00+09:00"
+    status: "queued"
+    description: "Specify the RL observation, skill-level action space, reward, environment API and a pre-registered evaluation protocol for this bot, without implementing training (replaces the earlier TASK-20261030-005)."
+    spec_ref: "docs/proposed/ROADMAP-20261030-rl-platform.md#task-20261030-013--rl-interface-and-evaluation-protocol-spec"
+    validation_commands: []
+    result: null
+    blockers: ["Owner decision: is the DPOD decision model the policy here?"]
+
+  - id: "TASK-20261030-014-schedule-long-running-jobs"
+    created_at: "2026-10-30T23:00:00+09:00"
+    status: "queued"
+    description: "Make registering long-running jobs on the shared schedule (hold/session/job definition, restart-safe checkpoints) a standing rule and verify a deliberately restarted job resumes."
+    spec_ref: "docs/proposed/ROADMAP-20261030-rl-platform.md#task-20261030-014--register-long-running-work-on-the-schedule"
+    validation_commands: []
+    result: null
+    blockers: []
 
 hazards:
   - "LFS rules on *.json/*.txt/*.log: package.json and similar become unfetchable pointers if .gitattributes regains them (no Hugging Face write credential on the VPS; objects were never pushed). See docs/LESSONS.md L1."

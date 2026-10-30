@@ -16,6 +16,7 @@
     Minecraft test bed of the owner's research on Decision-Process-order-driven (DPOD).
     Full statement: docs/core/GOAL.md.
     <constraints>
+      <item>Direction: RL policy controls actions; the LLM only translates an instruction into a goal (docs/proposed/ROADMAP-20261030-rl-platform.md). Do not add LLM calls to the per-tick path.</item>
       <item>Documentation and layout tasks must not change src/ or tests/.</item>
       <item>No secrets in git. .env is ignored; OLLAMA_API_KEY and tokens never appear in logs, docs or commits.</item>
       <item>The WebUI and debug WebSocket have no authentication. Keep them on loopback unless the owner decides otherwise (STATE.yaml hazards).</item>
@@ -43,7 +44,7 @@
 
   <mcp>
     <knowledge_db>Search before work. Write decisions, results, failures and the basis for security checks (record_memory / update_memory). Repo docs are indexed automatically after each push (repos/forge1201-MODED-AIPlayer/), so keep docs accurate: they are what future sessions will find.</knowledge_db>
-    <schedule>schedule_check at start of a longer task; schedule_add a session for long work; schedule_update as tasks finish or slip.</schedule>
+    <schedule>schedule_check at start of a longer task; schedule_add a session for long work; schedule_update as tasks finish or slip. Any job expected to run more than a few minutes (training, soak test, crawl, build, server) must be registered first: schedule_add a hold or session (renew a hold by moving its end), schedule_define_job for recurring ones, schedule_record_run for the result, and make it restart-safe (checkpoint, restart policy), because automatic maintenance restarts stop unregistered jobs (TASK-20261030-014).</schedule>
     <scip_neo4j>Before changing code run analyze_change_impact, get_symbol_dependencies, check_symbol_constraints, find_semantic_neighbors with repo = https://github.com/I-yuki-0424/forge1201-MODED-AIPlayer. Run get_index_status first; until the repo shows active, read the code.</scip_neo4j>
     <credential_broker>Use it for deployments and for any step that needs more scope than the shell has.</credential_broker>
   </mcp>
