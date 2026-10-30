@@ -5,8 +5,7 @@ project_name: "Minecraft Forge 1.20.1 AI Player System"
 repo: "https://github.com/I-yuki-0424/forge1201-MODED-AIPlayer"
 current_goal: "Stable autonomous modded-Minecraft agent; real-game test bed for DPOD (see docs/core/GOAL.md)."
 
-active_tasks:
-  - "TASK-20261030-001-repo-cleanup-and-docs"
+active_tasks: []
 
 smoke_status: "2026-10-30 npm test (7 files) PASS on node 20.20.2 and 22.11.0 (docker node:20-slim / node:22.11-slim); FAIL at test_e2e_integration on node 22.23.4: host '\\0FML3\\0' rejected by net (null bytes). Run in docker, no network."
 
@@ -16,13 +15,13 @@ recent_changes:
 tasks:
   - id: "TASK-20261030-001-repo-cleanup-and-docs"
     created_at: "2026-10-30T18:10:00+09:00"
-    status: "in_progress"
+    status: "done"
     description: "Reformat the repository to current policy: fix LFS damage, untrack generated files, tidy root, rewrite core docs, record in knowledge-DB."
     spec_ref: "docs/LESSONS.md"
     validation_commands:
       - "docker run --rm --network none -v \"$PWD\":/w -w /w node:20-slim npm test"
       - "git status --short   # clean after push"
-    result: null
+    result: "PASS: 3 commits pushed (36642d66, bb9169e2, 5a9bd638); npm test exit 0 on node 20.20.2 after the moves; 211 tracked files (was 28,766); no LFS pointers tracked. Knowledge-DB: LLM-records/2026-10-30-* (LFS incident, Node 22 host, security basis). scip-neo4j index was REPO_PENDING at push time."
     blockers: []
 
   - id: "BUGFIX-20261030-002-node-22-null-byte-host"
