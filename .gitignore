@@ -66,3 +66,6 @@ venv/
 Thumbs.db
 kaggle.json
 .kaggle/
+
+# RL environment exchange files (DPOD file API, docs/proposed/RL-INTERFACE-v1.md)
+exchange/

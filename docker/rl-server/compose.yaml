@@ -1,0 +1,94 @@
+# docker/rl-server/compose.yaml
+#
+# Light, rebuildable Forge 1.20.1 server and RL environment runner (TASK-20261030-007).
+#   scripts/rl/up.sh        create .env (random RCON password), start the server, wait until healthy
+#   scripts/rl/down.sh      stop and delete everything (the world is tmpfs, nothing persists but the Forge install cache)
+#   docker compose --profile env run --rm rl-env ...   run the environment (see scripts/rl/run_env.sh)
+#
+# Rules: nothing is published beyond 127.0.0.1 (Docker bypasses ufw); RCON is reachable only on the compose
+# network; the world is tmpfs and regenerated from a fixed seed on every start; memory and CPU are capped
+# because the VPS is shared. Design and measurements: docs/implemented/RL-INTERFACE-v1.md.
+
+name: forgeaip-rl
+
+services:
+  mc:
+    # Pinned by digest (2026-10-30, java17 tag). Forge is installed by the image on first start into the `mc-data` volume.
+    image: itzg/minecraft-server@sha256:a08cd9ced3e1c3f46a318af1fa393de21698afbf8746681f115dc923ba847ba5
+    container_name: forgeaip-rl-mc
+    restart: unless-stopped
+    stop_grace_period: 30s
+    mem_limit: 3g
+    cpus: 3
+    environment:
+      EULA: "TRUE"
+      TYPE: FORGE
+      VERSION: "1.20.1"
+      FORGE_VERSION: "47.4.10"
+      MEMORY: "2G"
+      USE_AIKAR_FLAGS: "true"
+      # Fixed, empty, daylight, peaceful: the only variation in an episode is what the reset commands build.
+      LEVEL_TYPE: flat
+      SEED: "20261030"
+      GENERATE_STRUCTURES: "false"
+      DIFFICULTY: peaceful
+      MODE: survival
+      SPAWN_MONSTERS: "false"
+      SPAWN_ANIMALS: "false"
+      SPAWN_NPCS: "false"
+      ALLOW_NETHER: "false"
+      SPAWN_PROTECTION: "0"
+      VIEW_DISTANCE: "4"
+      SIMULATION_DISTANCE: "3"
+      MAX_PLAYERS: "4"
+      ONLINE_MODE: "false"
+      ENFORCE_SECURE_PROFILE: "false"
+      MAX_TICK_TIME: "-1"
+      SYNC_CHUNK_WRITES: "false"
+      ENABLE_COMMAND_BLOCK: "false"
+      ENABLE_RCON: "true"
+      RCON_PASSWORD: ${RCON_PASSWORD:?run scripts/rl/up.sh (creates docker/rl-server/.env)}
+      # Broadcast of admin commands and console spam off: the reset commands run every episode.
+      LOG_TIMESTAMP: "false"
+    volumes:
+      - mc-data:/data
+    tmpfs:
+      - /data/world:size=512m
+    ports:
+      - "127.0.0.1:25566:25565"
+    networks: [rl]
+    healthcheck:
+      test: ["CMD", "mc-health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
+
+  rl-env:
+    # Same Node as `npm test` (docs/LESSONS.md L2). Sources and node_modules are bind-mounted read-only.
+    image: node@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0
+    profiles: [env]
+    working_dir: /app
+    mem_limit: 768m
+    cpus: 1
+    depends_on:
+      mc:
+        condition: service_healthy
+    environment:
+      MC_HOST: mc
+      MC_PORT: "25565"
+      RCON_HOST: mc
+      RCON_PORT: "25575"
+      RL_PROFILE: ${RL_PROFILE:-vanilla}      # vanilla: no registry injection (server has no content mods); modded: inject mod blocks
+      RCON_PASSWORD: ${RCON_PASSWORD:?run scripts/rl/up.sh}
+    volumes:
+      - ../..:/app:ro
+      - ${RL_EXCHANGE:-../../exchange}:/exchange
+    networks: [rl]
+    entrypoint: ["node", "src/rl/run_env.js"]
+
+volumes:
+  mc-data:
+
+networks:
+  rl:
