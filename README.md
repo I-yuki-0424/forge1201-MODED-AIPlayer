@@ -25,13 +25,17 @@ The system achieves stability in modded environments through a **Vanilla-Mapping
 
 ## Getting Started
 
-1.  **Configure**: Set your server details in environment variables or `index.js`.
-2.  **Install**: `npm install`
+1.  **Configure**: Copy your values into `.env` (git-ignored; see `docs/references/variable_map.md`) or set environment variables.
+2.  **Install**: `npm ci` (Node 20 LTS, see `.nvmrc`; Node 22.23.4 breaks the FML3 login, `docs/LESSONS.md` L2)
 3.  **Run**: `node index.js`
+4.  **Test**: `npm test` (7 files, no server needed)
+
+Project documentation starts at [`docs/README.md`](docs/README.md); agent rules at [`CLAUDE.md`](CLAUDE.md).
 
 ## WebUI Dashboard
 
 A local WebUI is available at `http://localhost:3000` after starting the bot. You can use this dashboard to view bot health, inventory, active tasks, and send chat commands directly without in-game access.
+**The dashboard has no login and listens on all interfaces; do not expose port 3000/3001 to the internet** (the Docker stack publishes them on `127.0.0.1` only; `docs/LESSONS.md` L3).
 If port `3000` is already in use, the server automatically retries on the next port (`3001`, `3002`, ...). Check `bot_system.log` for the actual line: `[WebUI] Dashboard available at http://localhost:<port>`.
 
 ## Docker Usage
@@ -41,7 +45,7 @@ Use Docker when you want a reproducible full stack (Forge server + bot + WebUI) 
 
 ## Configuration & Requirements
 
-- **Node.js**: Requires Node.js v18+. [Download here](https://nodejs.org/)
+- **Node.js**: Node 20 LTS (tested 20.20.2 and 22.11.0). [Download here](https://nodejs.org/)
 - **Ollama (Local LLM)**: For local hosting, install [Ollama](https://ollama.com/) and run `ollama run gpt-oss:20b` (recommended model).
 - **Model Switching**: Edit `OLLAMA_MODEL` and `OLLAMA_URL` in `.env` or configuration files to switch between cloud APIs (like OpenAI/Anthropic via proxies) and local hosting.
 - **Hardware Requirements**:

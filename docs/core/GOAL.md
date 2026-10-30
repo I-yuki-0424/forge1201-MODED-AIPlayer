@@ -1,64 +1,38 @@
-Hand over to "MASTER_GUIDANCE" and delete
-# Minecraft Forge 1.20.1 AI Player System Architecture and Implementation Specification
+# GOAL
 
-Note: Documents such as MASTER_GUIDANCE are designed for ML. They are not intended for mod development, so the directory structure can be overwritten by GOAL.md and user instructions.
+## Purpose
 
-## 1. Overview and Problem Statement
-This document defines the technical specifications for an autonomous AI player framework using Mineflayer and Large Language Models (LLM) within a Minecraft 1.20.1 (Forge) environment. Standard Mineflayer architectures designed for Vanilla environments cannot process the strict protocol requirements and dynamic data structures of Forge. Specifically:
-* **FML3 Handshake**: Modern Forge environments require FML3 (Forge Mod Loader) handshake packets that standard libraries (node-minecraft-protocol) do not support.
-* **Dynamic Registries**: 1.20.1 Forge servers use dynamic registry synchronization that causes packet parsing errors in standard clients.
-* **Modded Physics**: Vanilla libraries cannot account for mod-specific logic like "Vein Miner" asynchronous updates or "Create Mod" dynamic entities (Contraptions).
+An autonomous player for **modded Minecraft 1.20.1 (Forge 47.x)**: Mineflayer drives the body, an LLM
+(Ollama-compatible endpoint) chooses actions, and this repository supplies what stock Mineflayer lacks on
+Forge: the FML3 login handshake, the remapped block registry, mod-aware inventory/pathing, and a
+supervising parent process. Design detail: [ARCHITECTURE.md](../ARCHITECTURE.md).
 
-## 2. System Pipeline and File Configuration
-The system utilizes a distributed processing model split between an **Agent Manager** (main process) and **Bot Actuators** (isolated child processes).
+## Research role (Decision-Process-order-driven)
 
-### Core File Definitions
-| Filename | Layer | Primary Responsibility |
-| :--- | :--- | :--- |
-| `forge_handshake_state_machine.js` | Protocol Bridge | Intercepts socket communication to spoof/translate FML3 S2C and C2S packets. |
-| `dynamic_registry_injector.js` | Data Injector | Parses dynamic registries during handshake and injects unknown block/item definitions into the `bot.registry` object. |
-| `event_debouncer.js` | Middleware | Monitors asynchronous block updates (e.g., VeinMiner) and delays LLM callbacks until terrain synchronization is complete. |
-| `inventory_nbt_patch.js` | Middleware | Overrides the default 64-item stack limit by parsing NBT tags for storage mods. |
-| `create_contraption_hazard.js` | Middleware | Parses NBT for Create Mod Contraptions to set infinite-cost zones in A* pathfinding. |
-| `config_rag_parser.js` | Context Integration | Parses server `.toml` configs into an AST to inject physical constraints into the LLM system prompt. |
-| `agent_manager.js` | Orchestrator | Manages isolated bot processes via `child_process` to protect the system from stack overflows. |
+This repository is where the owner's research theme **Decision-Process-order-driven (DPOD)** started
+(DPOD is only a repository name, not a pseudonym). The intent is to put DPOD's decision model, a
+Transformer + MDP policy, in charge of this agent's decisions, replacing or constraining the LLM planner.
 
-## 3. FML3 Protocol Bridge Implementation
-The bridge acts as a transparent proxy. It appears as a Vanilla server to the bot instance while acting as a legitimate Forge client to the remote server.
+State of that link on 2026-10-30:
 
-### Handshake Functions
-* **`handleServerHello(packet)`**: Extracts the FML protocol version (FML3) and updates the internal state to `HELLO_RECEIVED`.
-* **`sendClientModList(packet)`**: Analyzes the server's mod list and generates a matching spoofed response including mandatory `minecraft` and `forge` entries.
-* **`acknowledgeRegistrySync(packet)`**: Extracts mapping tables between numerical IDs and namespaces (e.g., `create:andesite_alloy`) into a `registrySyncBuffer`. It must return an indexed acknowledgment to avoid timeouts.
+- DPOD's own experiments run on **Craftax-Classic**, a Minecraft-like JAX simulator, not on Minecraft
+  itself (`Decision-Process-order-driven/CLAUDE.md`). Its docs contain no reference to this repo or to
+  Mineflayer. No code connects the two yet.
+- This repo is therefore the **real-game side**: a place where a learned policy can eventually be
+  evaluated on actual Forge gameplay. It currently contains no RL training code.
+- DPOD's rules (leakage and oracle checks, pre-registered experiments, data-integrity lint) apply to any
+  RL work that is done here. Read that repo's `CLAUDE.md` and `docs/core/MASTER_GUIDANCE.xml` first, and
+  do not copy results across as if the two environments were equivalent.
 
-## 4. Dynamic Registry Injector
-The injector intervenes just before world data loads to modify the `bot.registry` (prismarine-registry) in memory.
-* **`parseRegistryPayload`**: Extracts ID mappings from the proxy buffer.
-* **`injectBlockToRegistry`**: Generates object schemas for unknown mod blocks. Since physical properties (hardness, transparency) aren't sent during handshake, it applies heuristic defaults (Hardness: 1.0, Diggable: true, BoundingBox: "block").
+Open design question for the link: DPOD's action space is discrete Craftax actions. Here, actions are the
+`EXECUTE_ACTION` verbs (`goto`, `collect`, `craft`, `kill`, ...) executed by
+[`bot_actuator.js`](../../src/bot_actuator.js), each of which is a multi-tick routine. Mapping between the two
+(a thin options layer over those verbs) is not designed yet. See the queued task in [STATE.yaml](STATE.yaml).
 
-## 5. Middleware and Mod Control
-### VeinMiner Synchronization
-`event_debouncer.js` implements a 500ms debounce timer. It transitions the bot to a `CASCADING_WAIT` state during mass destruction events, preventing the bot from attempting to move onto non-existent terrain.
+## Success criteria
 
-### Storage Mod NBT Patching
-`inventory_nbt_patch.js` applies two patches:
-1.  **Global Override**: Sets `stackSize` for all items to the Java 32-bit integer maximum ($2147483647$) to bypass internal 64-limit checks.
-2.  **NBT Interception**: Extracts the "true total" count from mod-specific NBT metadata to provide accurate context to the LLM.
-
-### Create Mod Contraption Avoidance
-`create_contraption_hazard.js` overrides the A* heuristic in `mineflayer-pathfinder`.
-* **Exclusion Sphere**: Calculates a hazard radius based on the contraption's `BoundsFront` and `BoundsBack` NBT data.
-* **Cost Intercept**: If a node falls within the Exclusion Sphere, the movement cost is set to `Infinity`.
-
-## 6. LLM Context and Resource Management
-* **RAG Pipeline**: `config_rag_parser.js` extracts limits (e.g., machine stress limits, cooldowns) from server configs and injects them into the LLM system prompt to prevent "hallucinated" commands.
-* **Process Isolation**: Each bot runs in a separate `child_process`. This prevents a single bot's pathfinding loop from triggering a `RangeError: Maximum call stack size exceeded` in the Agent Manager.
-* **Recovery**: If a process crashes or fails a task, the Agent Manager receives an IPC error code and triggers a recovery pipeline (e.g., re-evaluating the path).
-
-## 7. Error Recovery Profiles
-| Error Category | Component | Recovery Pipeline |
-| :--- | :--- | :--- |
-| Handshake Timeout | `forge_handshake...` | Identify missing channel index, update proxy rules, and restart process. |
-| Undefined Reference | `dynamic_registry...` | Catch reference error, inject a dummy "Unknown Block" object into registry at runtime. |
-| Stack Overflow | `mineflayer-pathfinder` | Terminate algorithm via hard limit, notify LLM via IPC, and add "Inaccessible Area" rule to prompt. |
-| NBT/Payload Error | `inventory_nbt_patch` | Revert to safe default values (1 item) and command the LLM to "re-open inventory" to refresh packets. |
+1. The bot logs in to a Forge 1.20.1 modded server, survives chunk/registry sync, and walks/mines without
+   pathfinder crashes (covered by `npm test`, 7 files).
+2. Actions complete or fail with a recorded reason; a stuck bot is detectable from `ai_debug_<bot>.json`
+   and the debug trace without a human watching.
+3. Anything learned or decided is recorded in the knowledge-DB so it is not re-derived.

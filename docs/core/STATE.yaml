@@ -1,12 +1,83 @@
+# Runtime state. Schema and update rules: MASTER_GUIDANCE.xml <task_tracking>.
+# History before 2026-10-30 (v1-v6 state, activity log, task index): docs/archive/.
+protocol_version: v10
+project_name: "Minecraft Forge 1.20.1 AI Player System"
+repo: "https://github.com/I-yuki-0424/forge1201-MODED-AIPlayer"
+current_goal: "Stable autonomous modded-Minecraft agent; real-game test bed for DPOD (see docs/core/GOAL.md)."
+
+active_tasks:
+  - "TASK-20261030-001-repo-cleanup-and-docs"
+
+smoke_status: "2026-10-30 npm test (7 files) PASS on node 20.20.2 and 22.11.0 (docker node:20-slim / node:22.11-slim); FAIL at test_e2e_integration on node 22.23.4: host '\\0FML3\\0' rejected by net (null bytes). Run in docker, no network."
+
+recent_changes:
+  - "2026-10-30: TASK-20261030-001 repo cleanup. Undid LFS damage from edd510e1 (package.json, test manifest, mod dictionary had become unfetchable LFS pointers; restored from 9d3cf2c1, sha256-checked). Untracked node_modules, jdk-17.0.2, aux_mod/build, runtime logs/state (28.5k files). Root scratch scripts moved to scripts/adhoc/. Docs restructured (docs/README.md map), MASTER_GUIDANCE v10 rewritten from the 2026-10-26 operating prompt. package-lock.json regenerated (it was never recoverable). docker compose ports bound to 127.0.0.1."
+
 tasks:
-  - id: "<TASK-YYYYMMDD-###-slug>"                # Example
-    created_at: "<ISO 8601 timestamp>"             # Example
-    status: "queued"                               # queued | in_progress | blocked | done
-    description: "<one-sentence objective>"        # Example
-    spec_ref: null                                 # optional path/URL to an external spec
-    validation_commands: []                        # commands supplied by the operator
-    result: null                                   # pass/fail plus a one-line summary
-    blockers: []                                   # unresolved issues, or empty
+  - id: "TASK-20261030-001-repo-cleanup-and-docs"
+    created_at: "2026-10-30T18:10:00+09:00"
+    status: "in_progress"
+    description: "Reformat the repository to current policy: fix LFS damage, untrack generated files, tidy root, rewrite core docs, record in knowledge-DB."
+    spec_ref: "docs/LESSONS.md"
+    validation_commands:
+      - "docker run --rm --network none -v \"$PWD\":/w -w /w node:20-slim npm test"
+      - "git status --short   # clean after push"
+    result: null
+    blockers: []
+
+  - id: "BUGFIX-20261030-002-node-22-null-byte-host"
+    created_at: "2026-10-30T18:40:00+09:00"
+    status: "queued"
+    description: "Node 22.23.4 rejects options.host containing \\0FML3\\0 (ERR_INVALID_ARG_VALUE; 22.11.0 and 20.20.2 pass; the exact breaking version in between is untested). The same createBot call is used by the real bot, so live login on new Node is probably broken too (not tested against a real server). Pass the FML marker through a custom `connect`/stream or the supported Mineflayer/minecraft-protocol hook instead of the host string."
+    spec_ref: "src/bot_actuator.js (createBot host suffix), docs/references/variable_map.md"
+    validation_commands:
+      - "docker run --rm --network none -v \"$PWD\":/w -w /w node:22-slim npm test"
+    result: null
+    blockers: ["Needs scip-neo4j analyze_change_impact on the createBot call before editing src/ (index must show this repo active)."]
+
+  - id: "TASK-20261030-003-webui-auth-and-bind"
+    created_at: "2026-10-30T18:40:00+09:00"
+    status: "queued"
+    description: "WebUI (23 routes: can send chat/actions to bots, PUT /api/config sets OLLAMA_URL/API_KEY in-process) and the debug WebSocket have no authentication and listen on 0.0.0.0 (src/web_ui_server.js:622,639). Add a bind-address setting defaulting to 127.0.0.1 and a shared-secret check on mutating routes; add a test that an unauthenticated mutating request is rejected."
+    spec_ref: "src/web_ui_server.js, src/debug_ws_server.js, docker/forge-server/compose.yaml"
+    validation_commands:
+      - "npm test"
+      - "curl -s -o /dev/null -w '%{http_code}' -X PUT -H 'content-type: application/json' -d '{}' http://127.0.0.1:3000/api/config   # expect 401/403 without secret"
+    result: null
+    blockers: []
+
+  - id: "TASK-20261030-004-dependency-advisories"
+    created_at: "2026-10-30T18:40:00+09:00"
+    status: "queued"
+    description: "npm audit reports 8 moderate advisories, all via uuid <14 (missing buffer bounds check in v3/v5/v6 with caller-supplied buf) pulled in by prismarine-auth -> minecraft-protocol -> mineflayer. Reachability from this code is unverified. Re-check when mineflayer/minecraft-protocol publish a fixed uuid; do not run `npm audit fix --force` (it downgrades mineflayer)."
+    spec_ref: null
+    validation_commands:
+      - "docker run --rm -v \"$PWD\":/w -w /w node:20-slim npm audit --omit=dev"
+    result: null
+    blockers: ["Upstream fix"]
+
+  - id: "TASK-20260409-004-experimental-world-exhaustive-validation"
+    created_at: "2026-04-09T00:00:00+09:00"
+    status: "queued"
+    description: "Zone-by-zone E2E validation in the generated 9-zone experimental world via the direct action API."
+    spec_ref: "docs/proposed/TASK-20260409-004-experimental-world-exhaustive-validation.md"
+    validation_commands: ["node scripts/run_experimental_instruction_suite.js --mode chat --output results/experimental_instruction_suite.json"]
+    result: "Never completed (last recorded as active in the archived state of 2026-08)."
+    blockers: ["Needs a running Forge server + Ollama endpoint (owner's PC / WSL2)"]
+
+  - id: "TASK-20261030-005-dpod-action-interface-design"
+    created_at: "2026-10-30T18:40:00+09:00"
+    status: "queued"
+    description: "Design (not implement) how a DPOD policy would drive this agent: observation features from bot state, option/action set over the EXECUTE_ACTION verbs, reward signal, and an evaluation protocol that follows DPOD's leakage and pre-registration rules. Output: a spec in docs/proposed/ and a knowledge-DB note."
+    spec_ref: "docs/core/GOAL.md#research-role-decision-process-order-driven"
+    validation_commands: []
+    result: null
+    blockers: ["Owner decision on scope; DPOD side has no Minecraft code yet"]
 
 hazards:
-  - "<condition to watch for>: <what breaks if it's ignored>"  # Example
+  - "LFS rules on *.json/*.txt/*.log: package.json and similar become unfetchable pointers if .gitattributes regains them (no Hugging Face write credential on the VPS; objects were never pushed). See docs/LESSONS.md L1."
+  - "WebUI/debug WebSocket are unauthenticated and bind 0.0.0.0: reachable by anything on the LAN, and by the internet if the host forwards the port. Docker publishes ports through its own iptables chains and bypasses ufw on a server."
+  - "Node 22.23.4 breaks the FML3 host trick (BUGFIX-20261030-002): use Node 20 or 22.11 until fixed."
+  - "Root-level and data/ runtime files are ignored (*.log, ai_debug_*.json, data/*.json except presets/junk list): do not commit them; they hold chat and coordinates."
+  - "OLLAMA_API_KEY lives only in .env (ignored). PUT /api/config can replace it in-process: never log request bodies."
+  - "Hand-edited block dictionary data/sample/configs/mod_blocks_dictionary.json (286 KB) is required by test_dynamic_registry_injector; keep it tracked as real JSON."
