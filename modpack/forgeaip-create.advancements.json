@@ -1,0 +1,3828 @@
+{
+ "advancements": {
+  "create:andesite_alloy": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:root",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 2
+  },
+  "create:andesite_casing": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:andesite_alloy",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 3
+  },
+  "create:anvil_plough": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "goal",
+   "hidden": false,
+   "parent": "create:cart_pickup",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 7
+  },
+  "create:arm_blaze_burner": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:linked_controller",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 29
+  },
+  "create:arm_many_targets": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "goal",
+   "hidden": false,
+   "parent": "create:crusher_maxed_0000",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 24
+  },
+  "create:backtank": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:steam_whistle",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 20
+  },
+  "create:belt": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:compacting",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 9
+  },
+  "create:belt_funnel_kiss": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "goal",
+   "hidden": true,
+   "parent": "create:mechanical_mixer",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 13
+  },
+  "create:brass": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:diving_suit",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 22
+  },
+  "create:brass_casing": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:brass",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 23
+  },
+  "create:burner": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:mechanical_mixer",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 13
+  },
+  "create:cardboard": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:mechanical_mixer",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 13
+  },
+  "create:cardboard_armor": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:factory_gauge",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 19
+  },
+  "create:cardboard_armor_trim": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "goal",
+   "hidden": true,
+   "parent": "create:cardboard_armor",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 20
+  },
+  "create:cart_pickup": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "goal",
+   "hidden": false,
+   "parent": "create:pulley_maxed",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 6
+  },
+  "create:chained_drain": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "goal",
+   "hidden": true,
+   "parent": "create:backtank",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 21
+  },
+  "create:chocolate_bucket": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:hose_pulley",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 19
+  },
+  "create:chute": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:funnel",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 11
+  },
+  "create:clockwork_bearing": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:haunted_bell",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 24
+  },
+  "create:compacting": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:saw_processing",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 8
+  },
+  "create:conductor": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:train",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 34
+  },
+  "create:contraption_actors": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:super_glue",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 8
+  },
+  "create:copper": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:burner",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 14
+  },
+  "create:copper_casing": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:copper",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 15
+  },
+  "create:crafter_lazy_000": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "goal",
+   "hidden": true,
+   "parent": "create:mechanical_crafter",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 30
+  },
+  "create:cross_streams": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "goal",
+   "hidden": true,
+   "parent": "create:backtank",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 21
+  },
+  "create:crusher_maxed_0000": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "goal",
+   "hidden": false,
+   "parent": "create:brass",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 23
+  },
+  "create:crushing_wheel": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:mechanical_crafter",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 30
+  },
+  "create:cuckoo_clock": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:stressometer",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 12
+  },
+  "create:deployer": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:rose_quartz",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 25
+  },
+  "create:display_board_0": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:track_signal",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 36
+  },
+  "create:display_link": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:clockwork_bearing",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 25
+  },
+  "create:diving_suit": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:backtank",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 21
+  },
+  "create:diving_suit_lava": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "goal",
+   "hidden": false,
+   "parent": "create:foods",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 18
+  },
+  "create:drain": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:spout",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 17
+  },
+  "create:ejector_maxed": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "goal",
+   "hidden": false,
+   "parent": "create:windmill_maxed",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 4
+  },
+  "create:encased_fan": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:mechanical_press",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 5
+  },
+  "create:extendo_grip": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:potato_cannon",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 27
+  },
+  "create:extendo_grip_dual": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "goal",
+   "hidden": true,
+   "parent": "create:mechanical_crafter",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 30
+  },
+  "create:factory_gauge": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:table_cloth_shop",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 18
+  },
+  "create:fan_processing": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:encased_fan",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 6
+  },
+  "create:fist_bump": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "goal",
+   "hidden": true,
+   "parent": "create:mechanical_crafter",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 30
+  },
+  "create:foods": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "goal",
+   "hidden": false,
+   "parent": "create:steam_engine_maxed",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 17
+  },
+  "create:frogport": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:stock_ticker",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 16
+  },
+  "create:funnel": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:belt",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 10
+  },
+  "create:glass_pipe": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:mechanical_pump_0",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 16
+  },
+  "create:hand_crank_000": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "goal",
+   "hidden": true,
+   "parent": "create:mechanical_mixer",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 13
+  },
+  "create:haunted_bell": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:brass",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 23
+  },
+  "create:honey_drain": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:chocolate_bucket",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 20
+  },
+  "create:hose_pulley": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:water_supply",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 18
+  },
+  "create:hose_pulley_lava": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "goal",
+   "hidden": false,
+   "parent": "create:copper",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 15
+  },
+  "create:lava_wheel_00000": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "goal",
+   "hidden": true,
+   "parent": "create:mechanical_mixer",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 13
+  },
+  "create:linked_controller": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:extendo_grip",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 28
+  },
+  "create:long_train": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "goal",
+   "hidden": false,
+   "parent": "create:track_crafting_factory",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 33
+  },
+  "create:long_travel": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "goal",
+   "hidden": false,
+   "parent": "create:long_train",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 34
+  },
+  "create:mechanical_arm": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:speed_controller",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 28
+  },
+  "create:mechanical_crafter": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:mechanical_arm",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 29
+  },
+  "create:mechanical_mixer": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:chute",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 12
+  },
+  "create:mechanical_press": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:andesite_casing",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 4
+  },
+  "create:mechanical_pump_0": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:copper",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 15
+  },
+  "create:millstone": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:shifting_gears",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 6
+  },
+  "create:musical_arm": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "goal",
+   "hidden": true,
+   "parent": "create:mechanical_crafter",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 30
+  },
+  "create:package_chute_throw": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "goal",
+   "hidden": true,
+   "parent": "create:cardboard_armor",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 20
+  },
+  "create:packager": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:cardboard",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 14
+  },
+  "create:pipe_organ": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "goal",
+   "hidden": true,
+   "parent": "create:backtank",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 21
+  },
+  "create:portable_storage_interface": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:contraption_actors",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 9
+  },
+  "create:potato_cannon": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:display_link",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 26
+  },
+  "create:potato_cannon_collide": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "goal",
+   "hidden": false,
+   "parent": "create:arm_many_targets",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 25
+  },
+  "create:precision_mechanism": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:deployer",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 26
+  },
+  "create:pulley_maxed": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "goal",
+   "hidden": false,
+   "parent": "create:ejector_maxed",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 5
+  },
+  "create:red_signal": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "goal",
+   "hidden": true,
+   "parent": "create:track_signal",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 36
+  },
+  "create:root": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": null,
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 1
+  },
+  "create:rose_quartz": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:brass_casing",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 24
+  },
+  "create:saw_processing": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:fan_processing",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 7
+  },
+  "create:self_deploying": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "goal",
+   "hidden": false,
+   "parent": "create:potato_cannon_collide",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 26
+  },
+  "create:shifting_gears": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:windmill",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 5
+  },
+  "create:speed_controller": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:precision_mechanism",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 27
+  },
+  "create:spout": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:copper_casing",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 16
+  },
+  "create:steam_engine": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:drain",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 18
+  },
+  "create:steam_engine_maxed": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "goal",
+   "hidden": false,
+   "parent": "create:hose_pulley_lava",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 16
+  },
+  "create:steam_whistle": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:steam_engine",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 19
+  },
+  "create:stock_ticker": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:packager",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 15
+  },
+  "create:stressometer": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:wrench_goggles",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 11
+  },
+  "create:stressometer_maxed": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "goal",
+   "hidden": true,
+   "parent": "create:mechanical_mixer",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 13
+  },
+  "create:sturdy_sheet": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:crushing_wheel",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 31
+  },
+  "create:super_glue": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:millstone",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 7
+  },
+  "create:table_cloth_shop": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:frogport",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 17
+  },
+  "create:track_0": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:sturdy_sheet",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 32
+  },
+  "create:track_crafting_factory": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "goal",
+   "hidden": false,
+   "parent": "create:sturdy_sheet",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 32
+  },
+  "create:track_signal": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:conductor",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 35
+  },
+  "create:train": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:train_casing_00",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 33
+  },
+  "create:train_casing_00": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:sturdy_sheet",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 32
+  },
+  "create:train_crash": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "goal",
+   "hidden": true,
+   "parent": "create:track_signal",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 36
+  },
+  "create:train_crash_backwards": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "goal",
+   "hidden": true,
+   "parent": "create:track_signal",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 36
+  },
+  "create:train_portal": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:train_whistle",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 34
+  },
+  "create:train_roadkill": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "goal",
+   "hidden": true,
+   "parent": "create:track_signal",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 36
+  },
+  "create:train_whistle": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:track_0",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 33
+  },
+  "create:water_supply": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:glass_pipe",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 17
+  },
+  "create:water_wheel": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:andesite_alloy",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 3
+  },
+  "create:windmill": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:water_wheel",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 4
+  },
+  "create:windmill_maxed": {
+   "criteria": [
+    "0"
+   ],
+   "frame": "goal",
+   "hidden": false,
+   "parent": "create:andesite_alloy",
+   "requirements": [
+    [
+     "0"
+    ]
+   ],
+   "steps": 3
+  },
+  "create:wrench_goggles": {
+   "criteria": [
+    "0",
+    "1"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "create:portable_storage_interface",
+   "requirements": [
+    [
+     "0"
+    ],
+    [
+     "1"
+    ]
+   ],
+   "steps": 10
+  },
+  "minecraft:adventure/adventuring_time": {
+   "criteria": [
+    "minecraft:badlands",
+    "minecraft:bamboo_jungle",
+    "minecraft:beach",
+    "minecraft:birch_forest",
+    "minecraft:cherry_grove",
+    "minecraft:cold_ocean",
+    "minecraft:dark_forest",
+    "minecraft:deep_cold_ocean",
+    "minecraft:deep_dark",
+    "minecraft:deep_frozen_ocean",
+    "minecraft:deep_lukewarm_ocean",
+    "minecraft:deep_ocean",
+    "minecraft:desert",
+    "minecraft:dripstone_caves",
+    "minecraft:eroded_badlands",
+    "minecraft:flower_forest",
+    "minecraft:forest",
+    "minecraft:frozen_ocean",
+    "minecraft:frozen_peaks",
+    "minecraft:frozen_river",
+    "minecraft:grove",
+    "minecraft:ice_spikes",
+    "minecraft:jagged_peaks",
+    "minecraft:jungle",
+    "minecraft:lukewarm_ocean",
+    "minecraft:lush_caves",
+    "minecraft:mangrove_swamp",
+    "minecraft:meadow",
+    "minecraft:mushroom_fields",
+    "minecraft:ocean",
+    "minecraft:old_growth_birch_forest",
+    "minecraft:old_growth_pine_taiga",
+    "minecraft:old_growth_spruce_taiga",
+    "minecraft:plains",
+    "minecraft:river",
+    "minecraft:savanna",
+    "minecraft:savanna_plateau",
+    "minecraft:snowy_beach",
+    "minecraft:snowy_plains",
+    "minecraft:snowy_slopes",
+    "minecraft:snowy_taiga",
+    "minecraft:sparse_jungle",
+    "minecraft:stony_peaks",
+    "minecraft:stony_shore",
+    "minecraft:sunflower_plains",
+    "minecraft:swamp",
+    "minecraft:taiga",
+    "minecraft:warm_ocean",
+    "minecraft:windswept_forest",
+    "minecraft:windswept_gravelly_hills",
+    "minecraft:windswept_hills",
+    "minecraft:windswept_savanna",
+    "minecraft:wooded_badlands"
+   ],
+   "frame": "challenge",
+   "hidden": false,
+   "parent": "minecraft:adventure/sleep_in_bed",
+   "requirements": [
+    [
+     "minecraft:mushroom_fields"
+    ],
+    [
+     "minecraft:deep_frozen_ocean"
+    ],
+    [
+     "minecraft:frozen_ocean"
+    ],
+    [
+     "minecraft:deep_cold_ocean"
+    ],
+    [
+     "minecraft:cold_ocean"
+    ],
+    [
+     "minecraft:deep_ocean"
+    ],
+    [
+     "minecraft:ocean"
+    ],
+    [
+     "minecraft:deep_lukewarm_ocean"
+    ],
+    [
+     "minecraft:lukewarm_ocean"
+    ],
+    [
+     "minecraft:warm_ocean"
+    ],
+    [
+     "minecraft:stony_shore"
+    ],
+    [
+     "minecraft:swamp"
+    ],
+    [
+     "minecraft:mangrove_swamp"
+    ],
+    [
+     "minecraft:snowy_slopes"
+    ],
+    [
+     "minecraft:snowy_plains"
+    ],
+    [
+     "minecraft:snowy_beach"
+    ],
+    [
+     "minecraft:windswept_gravelly_hills"
+    ],
+    [
+     "minecraft:grove"
+    ],
+    [
+     "minecraft:windswept_hills"
+    ],
+    [
+     "minecraft:snowy_taiga"
+    ],
+    [
+     "minecraft:windswept_forest"
+    ],
+    [
+     "minecraft:taiga"
+    ],
+    [
+     "minecraft:plains"
+    ],
+    [
+     "minecraft:meadow"
+    ],
+    [
+     "minecraft:beach"
+    ],
+    [
+     "minecraft:forest"
+    ],
+    [
+     "minecraft:old_growth_spruce_taiga"
+    ],
+    [
+     "minecraft:flower_forest"
+    ],
+    [
+     "minecraft:birch_forest"
+    ],
+    [
+     "minecraft:dark_forest"
+    ],
+    [
+     "minecraft:savanna_plateau"
+    ],
+    [
+     "minecraft:savanna"
+    ],
+    [
+     "minecraft:jungle"
+    ],
+    [
+     "minecraft:badlands"
+    ],
+    [
+     "minecraft:desert"
+    ],
+    [
+     "minecraft:wooded_badlands"
+    ],
+    [
+     "minecraft:jagged_peaks"
+    ],
+    [
+     "minecraft:stony_peaks"
+    ],
+    [
+     "minecraft:frozen_river"
+    ],
+    [
+     "minecraft:river"
+    ],
+    [
+     "minecraft:ice_spikes"
+    ],
+    [
+     "minecraft:old_growth_pine_taiga"
+    ],
+    [
+     "minecraft:sunflower_plains"
+    ],
+    [
+     "minecraft:old_growth_birch_forest"
+    ],
+    [
+     "minecraft:sparse_jungle"
+    ],
+    [
+     "minecraft:bamboo_jungle"
+    ],
+    [
+     "minecraft:eroded_badlands"
+    ],
+    [
+     "minecraft:windswept_savanna"
+    ],
+    [
+     "minecraft:cherry_grove"
+    ],
+    [
+     "minecraft:frozen_peaks"
+    ],
+    [
+     "minecraft:dripstone_caves"
+    ],
+    [
+     "minecraft:lush_caves"
+    ],
+    [
+     "minecraft:deep_dark"
+    ]
+   ],
+   "steps": 3
+  },
+  "minecraft:adventure/arbalistic": {
+   "criteria": [
+    "arbalistic"
+   ],
+   "frame": "challenge",
+   "hidden": true,
+   "parent": "minecraft:adventure/ol_betsy",
+   "requirements": [
+    [
+     "arbalistic"
+    ]
+   ],
+   "steps": 3
+  },
+  "minecraft:adventure/avoid_vibration": {
+   "criteria": [
+    "avoid_vibration"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:adventure/root",
+   "requirements": [
+    [
+     "avoid_vibration"
+    ]
+   ],
+   "steps": 2
+  },
+  "minecraft:adventure/bullseye": {
+   "criteria": [
+    "bullseye"
+   ],
+   "frame": "challenge",
+   "hidden": false,
+   "parent": "minecraft:adventure/shoot_arrow",
+   "requirements": [
+    [
+     "bullseye"
+    ]
+   ],
+   "steps": 4
+  },
+  "minecraft:adventure/craft_decorated_pot_using_only_sherds": {
+   "criteria": [
+    "pot_crafted_using_only_sherds"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:adventure/salvage_sherd",
+   "requirements": [
+    [
+     "pot_crafted_using_only_sherds"
+    ]
+   ],
+   "steps": 3
+  },
+  "minecraft:adventure/fall_from_world_height": {
+   "criteria": [
+    "fall_from_world_height"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:adventure/root",
+   "requirements": [
+    [
+     "fall_from_world_height"
+    ]
+   ],
+   "steps": 2
+  },
+  "minecraft:adventure/hero_of_the_village": {
+   "criteria": [
+    "hero_of_the_village"
+   ],
+   "frame": "challenge",
+   "hidden": true,
+   "parent": "minecraft:adventure/voluntary_exile",
+   "requirements": [
+    [
+     "hero_of_the_village"
+    ]
+   ],
+   "steps": 3
+  },
+  "minecraft:adventure/honey_block_slide": {
+   "criteria": [
+    "honey_block_slide"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:adventure/root",
+   "requirements": [
+    [
+     "honey_block_slide"
+    ]
+   ],
+   "steps": 2
+  },
+  "minecraft:adventure/kill_a_mob": {
+   "criteria": [
+    "minecraft:blaze",
+    "minecraft:cave_spider",
+    "minecraft:creeper",
+    "minecraft:drowned",
+    "minecraft:elder_guardian",
+    "minecraft:ender_dragon",
+    "minecraft:enderman",
+    "minecraft:endermite",
+    "minecraft:evoker",
+    "minecraft:ghast",
+    "minecraft:guardian",
+    "minecraft:hoglin",
+    "minecraft:husk",
+    "minecraft:magma_cube",
+    "minecraft:phantom",
+    "minecraft:piglin",
+    "minecraft:piglin_brute",
+    "minecraft:pillager",
+    "minecraft:ravager",
+    "minecraft:shulker",
+    "minecraft:silverfish",
+    "minecraft:skeleton",
+    "minecraft:slime",
+    "minecraft:spider",
+    "minecraft:stray",
+    "minecraft:vex",
+    "minecraft:vindicator",
+    "minecraft:witch",
+    "minecraft:wither",
+    "minecraft:wither_skeleton",
+    "minecraft:zoglin",
+    "minecraft:zombie",
+    "minecraft:zombie_villager",
+    "minecraft:zombified_piglin"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:adventure/root",
+   "requirements": [
+    [
+     "minecraft:blaze",
+     "minecraft:cave_spider",
+     "minecraft:creeper",
+     "minecraft:drowned",
+     "minecraft:elder_guardian",
+     "minecraft:ender_dragon",
+     "minecraft:enderman",
+     "minecraft:endermite",
+     "minecraft:evoker",
+     "minecraft:ghast",
+     "minecraft:guardian",
+     "minecraft:hoglin",
+     "minecraft:husk",
+     "minecraft:magma_cube",
+     "minecraft:phantom",
+     "minecraft:piglin",
+     "minecraft:piglin_brute",
+     "minecraft:pillager",
+     "minecraft:ravager",
+     "minecraft:shulker",
+     "minecraft:silverfish",
+     "minecraft:skeleton",
+     "minecraft:slime",
+     "minecraft:spider",
+     "minecraft:stray",
+     "minecraft:vex",
+     "minecraft:vindicator",
+     "minecraft:witch",
+     "minecraft:wither_skeleton",
+     "minecraft:wither",
+     "minecraft:zoglin",
+     "minecraft:zombie_villager",
+     "minecraft:zombie",
+     "minecraft:zombified_piglin"
+    ]
+   ],
+   "steps": 2
+  },
+  "minecraft:adventure/kill_all_mobs": {
+   "criteria": [
+    "minecraft:blaze",
+    "minecraft:cave_spider",
+    "minecraft:creeper",
+    "minecraft:drowned",
+    "minecraft:elder_guardian",
+    "minecraft:ender_dragon",
+    "minecraft:enderman",
+    "minecraft:endermite",
+    "minecraft:evoker",
+    "minecraft:ghast",
+    "minecraft:guardian",
+    "minecraft:hoglin",
+    "minecraft:husk",
+    "minecraft:magma_cube",
+    "minecraft:phantom",
+    "minecraft:piglin",
+    "minecraft:piglin_brute",
+    "minecraft:pillager",
+    "minecraft:ravager",
+    "minecraft:shulker",
+    "minecraft:silverfish",
+    "minecraft:skeleton",
+    "minecraft:slime",
+    "minecraft:spider",
+    "minecraft:stray",
+    "minecraft:vex",
+    "minecraft:vindicator",
+    "minecraft:witch",
+    "minecraft:wither",
+    "minecraft:wither_skeleton",
+    "minecraft:zoglin",
+    "minecraft:zombie",
+    "minecraft:zombie_villager",
+    "minecraft:zombified_piglin"
+   ],
+   "frame": "challenge",
+   "hidden": false,
+   "parent": "minecraft:adventure/kill_a_mob",
+   "requirements": [
+    [
+     "minecraft:blaze"
+    ],
+    [
+     "minecraft:cave_spider"
+    ],
+    [
+     "minecraft:creeper"
+    ],
+    [
+     "minecraft:drowned"
+    ],
+    [
+     "minecraft:elder_guardian"
+    ],
+    [
+     "minecraft:ender_dragon"
+    ],
+    [
+     "minecraft:enderman"
+    ],
+    [
+     "minecraft:endermite"
+    ],
+    [
+     "minecraft:evoker"
+    ],
+    [
+     "minecraft:ghast"
+    ],
+    [
+     "minecraft:guardian"
+    ],
+    [
+     "minecraft:hoglin"
+    ],
+    [
+     "minecraft:husk"
+    ],
+    [
+     "minecraft:magma_cube"
+    ],
+    [
+     "minecraft:phantom"
+    ],
+    [
+     "minecraft:piglin"
+    ],
+    [
+     "minecraft:piglin_brute"
+    ],
+    [
+     "minecraft:pillager"
+    ],
+    [
+     "minecraft:ravager"
+    ],
+    [
+     "minecraft:shulker"
+    ],
+    [
+     "minecraft:silverfish"
+    ],
+    [
+     "minecraft:skeleton"
+    ],
+    [
+     "minecraft:slime"
+    ],
+    [
+     "minecraft:spider"
+    ],
+    [
+     "minecraft:stray"
+    ],
+    [
+     "minecraft:vex"
+    ],
+    [
+     "minecraft:vindicator"
+    ],
+    [
+     "minecraft:witch"
+    ],
+    [
+     "minecraft:wither_skeleton"
+    ],
+    [
+     "minecraft:wither"
+    ],
+    [
+     "minecraft:zoglin"
+    ],
+    [
+     "minecraft:zombie_villager"
+    ],
+    [
+     "minecraft:zombie"
+    ],
+    [
+     "minecraft:zombified_piglin"
+    ]
+   ],
+   "steps": 3
+  },
+  "minecraft:adventure/kill_mob_near_sculk_catalyst": {
+   "criteria": [
+    "kill_mob_near_sculk_catalyst"
+   ],
+   "frame": "challenge",
+   "hidden": false,
+   "parent": "minecraft:adventure/kill_a_mob",
+   "requirements": [
+    [
+     "kill_mob_near_sculk_catalyst"
+    ]
+   ],
+   "steps": 3
+  },
+  "minecraft:adventure/lightning_rod_with_villager_no_fire": {
+   "criteria": [
+    "lightning_rod_with_villager_no_fire"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:adventure/root",
+   "requirements": [
+    [
+     "lightning_rod_with_villager_no_fire"
+    ]
+   ],
+   "steps": 2
+  },
+  "minecraft:adventure/ol_betsy": {
+   "criteria": [
+    "shot_crossbow"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:adventure/root",
+   "requirements": [
+    [
+     "shot_crossbow"
+    ]
+   ],
+   "steps": 2
+  },
+  "minecraft:adventure/play_jukebox_in_meadows": {
+   "criteria": [
+    "play_jukebox_in_meadows"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:adventure/sleep_in_bed",
+   "requirements": [
+    [
+     "play_jukebox_in_meadows"
+    ]
+   ],
+   "steps": 3
+  },
+  "minecraft:adventure/read_power_of_chiseled_bookshelf": {
+   "criteria": [
+    "chiseled_bookshelf",
+    "comparator"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:adventure/root",
+   "requirements": [
+    [
+     "chiseled_bookshelf",
+     "comparator"
+    ]
+   ],
+   "steps": 2
+  },
+  "minecraft:adventure/root": {
+   "criteria": [
+    "killed_by_something",
+    "killed_something"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": null,
+   "requirements": [
+    [
+     "killed_something",
+     "killed_by_something"
+    ]
+   ],
+   "steps": 1
+  },
+  "minecraft:adventure/salvage_sherd": {
+   "criteria": [
+    "desert_pyramid",
+    "desert_well",
+    "has_sherd",
+    "ocean_ruin_cold",
+    "ocean_ruin_warm",
+    "trail_ruins_common",
+    "trail_ruins_rare"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:adventure/root",
+   "requirements": [
+    [
+     "desert_pyramid",
+     "desert_well",
+     "ocean_ruin_cold",
+     "ocean_ruin_warm",
+     "trail_ruins_rare",
+     "trail_ruins_common"
+    ],
+    [
+     "has_sherd"
+    ]
+   ],
+   "steps": 2
+  },
+  "minecraft:adventure/shoot_arrow": {
+   "criteria": [
+    "shot_arrow"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:adventure/kill_a_mob",
+   "requirements": [
+    [
+     "shot_arrow"
+    ]
+   ],
+   "steps": 3
+  },
+  "minecraft:adventure/sleep_in_bed": {
+   "criteria": [
+    "slept_in_bed"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:adventure/root",
+   "requirements": [
+    [
+     "slept_in_bed"
+    ]
+   ],
+   "steps": 2
+  },
+  "minecraft:adventure/sniper_duel": {
+   "criteria": [
+    "killed_skeleton"
+   ],
+   "frame": "challenge",
+   "hidden": false,
+   "parent": "minecraft:adventure/shoot_arrow",
+   "requirements": [
+    [
+     "killed_skeleton"
+    ]
+   ],
+   "steps": 4
+  },
+  "minecraft:adventure/spyglass_at_dragon": {
+   "criteria": [
+    "spyglass_at_dragon"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:adventure/spyglass_at_ghast",
+   "requirements": [
+    [
+     "spyglass_at_dragon"
+    ]
+   ],
+   "steps": 4
+  },
+  "minecraft:adventure/spyglass_at_ghast": {
+   "criteria": [
+    "spyglass_at_ghast"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:adventure/spyglass_at_parrot",
+   "requirements": [
+    [
+     "spyglass_at_ghast"
+    ]
+   ],
+   "steps": 3
+  },
+  "minecraft:adventure/spyglass_at_parrot": {
+   "criteria": [
+    "spyglass_at_parrot"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:adventure/root",
+   "requirements": [
+    [
+     "spyglass_at_parrot"
+    ]
+   ],
+   "steps": 2
+  },
+  "minecraft:adventure/summon_iron_golem": {
+   "criteria": [
+    "summoned_golem"
+   ],
+   "frame": "goal",
+   "hidden": false,
+   "parent": "minecraft:adventure/trade",
+   "requirements": [
+    [
+     "summoned_golem"
+    ]
+   ],
+   "steps": 3
+  },
+  "minecraft:adventure/throw_trident": {
+   "criteria": [
+    "shot_trident"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:adventure/kill_a_mob",
+   "requirements": [
+    [
+     "shot_trident"
+    ]
+   ],
+   "steps": 3
+  },
+  "minecraft:adventure/totem_of_undying": {
+   "criteria": [
+    "used_totem"
+   ],
+   "frame": "goal",
+   "hidden": false,
+   "parent": "minecraft:adventure/kill_a_mob",
+   "requirements": [
+    [
+     "used_totem"
+    ]
+   ],
+   "steps": 3
+  },
+  "minecraft:adventure/trade": {
+   "criteria": [
+    "traded"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:adventure/root",
+   "requirements": [
+    [
+     "traded"
+    ]
+   ],
+   "steps": 2
+  },
+  "minecraft:adventure/trade_at_world_height": {
+   "criteria": [
+    "trade_at_world_height"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:adventure/trade",
+   "requirements": [
+    [
+     "trade_at_world_height"
+    ]
+   ],
+   "steps": 3
+  },
+  "minecraft:adventure/trim_with_all_exclusive_armor_patterns": {
+   "criteria": [
+    "armor_trimmed_minecraft:rib_armor_trim_smithing_template_smithing_trim",
+    "armor_trimmed_minecraft:silence_armor_trim_smithing_template_smithing_trim",
+    "armor_trimmed_minecraft:snout_armor_trim_smithing_template_smithing_trim",
+    "armor_trimmed_minecraft:spire_armor_trim_smithing_template_smithing_trim",
+    "armor_trimmed_minecraft:tide_armor_trim_smithing_template_smithing_trim",
+    "armor_trimmed_minecraft:vex_armor_trim_smithing_template_smithing_trim",
+    "armor_trimmed_minecraft:ward_armor_trim_smithing_template_smithing_trim",
+    "armor_trimmed_minecraft:wayfinder_armor_trim_smithing_template_smithing_trim"
+   ],
+   "frame": "challenge",
+   "hidden": false,
+   "parent": "minecraft:adventure/trim_with_any_armor_pattern",
+   "requirements": [
+    [
+     "armor_trimmed_minecraft:spire_armor_trim_smithing_template_smithing_trim"
+    ],
+    [
+     "armor_trimmed_minecraft:snout_armor_trim_smithing_template_smithing_trim"
+    ],
+    [
+     "armor_trimmed_minecraft:rib_armor_trim_smithing_template_smithing_trim"
+    ],
+    [
+     "armor_trimmed_minecraft:ward_armor_trim_smithing_template_smithing_trim"
+    ],
+    [
+     "armor_trimmed_minecraft:silence_armor_trim_smithing_template_smithing_trim"
+    ],
+    [
+     "armor_trimmed_minecraft:vex_armor_trim_smithing_template_smithing_trim"
+    ],
+    [
+     "armor_trimmed_minecraft:tide_armor_trim_smithing_template_smithing_trim"
+    ],
+    [
+     "armor_trimmed_minecraft:wayfinder_armor_trim_smithing_template_smithing_trim"
+    ]
+   ],
+   "steps": 3
+  },
+  "minecraft:adventure/trim_with_any_armor_pattern": {
+   "criteria": [
+    "armor_trimmed_minecraft:coast_armor_trim_smithing_template_smithing_trim",
+    "armor_trimmed_minecraft:dune_armor_trim_smithing_template_smithing_trim",
+    "armor_trimmed_minecraft:eye_armor_trim_smithing_template_smithing_trim",
+    "armor_trimmed_minecraft:host_armor_trim_smithing_template_smithing_trim",
+    "armor_trimmed_minecraft:raiser_armor_trim_smithing_template_smithing_trim",
+    "armor_trimmed_minecraft:rib_armor_trim_smithing_template_smithing_trim",
+    "armor_trimmed_minecraft:sentry_armor_trim_smithing_template_smithing_trim",
+    "armor_trimmed_minecraft:shaper_armor_trim_smithing_template_smithing_trim",
+    "armor_trimmed_minecraft:silence_armor_trim_smithing_template_smithing_trim",
+    "armor_trimmed_minecraft:snout_armor_trim_smithing_template_smithing_trim",
+    "armor_trimmed_minecraft:spire_armor_trim_smithing_template_smithing_trim",
+    "armor_trimmed_minecraft:tide_armor_trim_smithing_template_smithing_trim",
+    "armor_trimmed_minecraft:vex_armor_trim_smithing_template_smithing_trim",
+    "armor_trimmed_minecraft:ward_armor_trim_smithing_template_smithing_trim",
+    "armor_trimmed_minecraft:wayfinder_armor_trim_smithing_template_smithing_trim",
+    "armor_trimmed_minecraft:wild_armor_trim_smithing_template_smithing_trim"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:adventure/root",
+   "requirements": [
+    [
+     "armor_trimmed_minecraft:snout_armor_trim_smithing_template_smithing_trim",
+     "armor_trimmed_minecraft:raiser_armor_trim_smithing_template_smithing_trim",
+     "armor_trimmed_minecraft:dune_armor_trim_smithing_template_smithing_trim",
+     "armor_trimmed_minecraft:tide_armor_trim_smithing_template_smithing_trim",
+     "armor_trimmed_minecraft:silence_armor_trim_smithing_template_smithing_trim",
+     "armor_trimmed_minecraft:eye_armor_trim_smithing_template_smithing_trim",
+     "armor_trimmed_minecraft:spire_armor_trim_smithing_template_smithing_trim",
+     "armor_trimmed_minecraft:vex_armor_trim_smithing_template_smithing_trim",
+     "armor_trimmed_minecraft:shaper_armor_trim_smithing_template_smithing_trim",
+     "armor_trimmed_minecraft:wayfinder_armor_trim_smithing_template_smithing_trim",
+     "armor_trimmed_minecraft:coast_armor_trim_smithing_template_smithing_trim",
+     "armor_trimmed_minecraft:rib_armor_trim_smithing_template_smithing_trim",
+     "armor_trimmed_minecraft:host_armor_trim_smithing_template_smithing_trim",
+     "armor_trimmed_minecraft:ward_armor_trim_smithing_template_smithing_trim",
+     "armor_trimmed_minecraft:sentry_armor_trim_smithing_template_smithing_trim",
+     "armor_trimmed_minecraft:wild_armor_trim_smithing_template_smithing_trim"
+    ]
+   ],
+   "steps": 2
+  },
+  "minecraft:adventure/two_birds_one_arrow": {
+   "criteria": [
+    "two_birds"
+   ],
+   "frame": "challenge",
+   "hidden": false,
+   "parent": "minecraft:adventure/ol_betsy",
+   "requirements": [
+    [
+     "two_birds"
+    ]
+   ],
+   "steps": 3
+  },
+  "minecraft:adventure/very_very_frightening": {
+   "criteria": [
+    "struck_villager"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:adventure/throw_trident",
+   "requirements": [
+    [
+     "struck_villager"
+    ]
+   ],
+   "steps": 4
+  },
+  "minecraft:adventure/voluntary_exile": {
+   "criteria": [
+    "voluntary_exile"
+   ],
+   "frame": "task",
+   "hidden": true,
+   "parent": "minecraft:adventure/root",
+   "requirements": [
+    [
+     "voluntary_exile"
+    ]
+   ],
+   "steps": 2
+  },
+  "minecraft:adventure/walk_on_powder_snow_with_leather_boots": {
+   "criteria": [
+    "walk_on_powder_snow_with_leather_boots"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:adventure/sleep_in_bed",
+   "requirements": [
+    [
+     "walk_on_powder_snow_with_leather_boots"
+    ]
+   ],
+   "steps": 3
+  },
+  "minecraft:adventure/whos_the_pillager_now": {
+   "criteria": [
+    "kill_pillager"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:adventure/ol_betsy",
+   "requirements": [
+    [
+     "kill_pillager"
+    ]
+   ],
+   "steps": 3
+  },
+  "minecraft:end/dragon_breath": {
+   "criteria": [
+    "dragon_breath"
+   ],
+   "frame": "goal",
+   "hidden": false,
+   "parent": "minecraft:end/kill_dragon",
+   "requirements": [
+    [
+     "dragon_breath"
+    ]
+   ],
+   "steps": 12
+  },
+  "minecraft:end/dragon_egg": {
+   "criteria": [
+    "dragon_egg"
+   ],
+   "frame": "goal",
+   "hidden": false,
+   "parent": "minecraft:end/kill_dragon",
+   "requirements": [
+    [
+     "dragon_egg"
+    ]
+   ],
+   "steps": 12
+  },
+  "minecraft:end/elytra": {
+   "criteria": [
+    "elytra"
+   ],
+   "frame": "goal",
+   "hidden": false,
+   "parent": "minecraft:end/find_end_city",
+   "requirements": [
+    [
+     "elytra"
+    ]
+   ],
+   "steps": 14
+  },
+  "minecraft:end/enter_end_gateway": {
+   "criteria": [
+    "entered_end_gateway"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:end/kill_dragon",
+   "requirements": [
+    [
+     "entered_end_gateway"
+    ]
+   ],
+   "steps": 12
+  },
+  "minecraft:end/find_end_city": {
+   "criteria": [
+    "in_city"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:end/enter_end_gateway",
+   "requirements": [
+    [
+     "in_city"
+    ]
+   ],
+   "steps": 13
+  },
+  "minecraft:end/kill_dragon": {
+   "criteria": [
+    "killed_dragon"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:end/root",
+   "requirements": [
+    [
+     "killed_dragon"
+    ]
+   ],
+   "steps": 11
+  },
+  "minecraft:end/levitate": {
+   "criteria": [
+    "levitated"
+   ],
+   "frame": "challenge",
+   "hidden": false,
+   "parent": "minecraft:end/find_end_city",
+   "requirements": [
+    [
+     "levitated"
+    ]
+   ],
+   "steps": 14
+  },
+  "minecraft:end/respawn_dragon": {
+   "criteria": [
+    "summoned_dragon"
+   ],
+   "frame": "goal",
+   "hidden": false,
+   "parent": "minecraft:end/kill_dragon",
+   "requirements": [
+    [
+     "summoned_dragon"
+    ]
+   ],
+   "steps": 12
+  },
+  "minecraft:end/root": {
+   "criteria": [
+    "entered_end"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:story/enter_the_end",
+   "requirements": [
+    [
+     "entered_end"
+    ]
+   ],
+   "steps": 10
+  },
+  "minecraft:husbandry/allay_deliver_cake_to_note_block": {
+   "criteria": [
+    "allay_deliver_cake_to_note_block"
+   ],
+   "frame": "task",
+   "hidden": true,
+   "parent": "minecraft:husbandry/allay_deliver_item_to_player",
+   "requirements": [
+    [
+     "allay_deliver_cake_to_note_block"
+    ]
+   ],
+   "steps": 3
+  },
+  "minecraft:husbandry/allay_deliver_item_to_player": {
+   "criteria": [
+    "allay_deliver_item_to_player"
+   ],
+   "frame": "task",
+   "hidden": true,
+   "parent": "minecraft:husbandry/root",
+   "requirements": [
+    [
+     "allay_deliver_item_to_player"
+    ]
+   ],
+   "steps": 2
+  },
+  "minecraft:husbandry/axolotl_in_a_bucket": {
+   "criteria": [
+    "axolotl_bucket"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:husbandry/tactical_fishing",
+   "requirements": [
+    [
+     "axolotl_bucket"
+    ]
+   ],
+   "steps": 4
+  },
+  "minecraft:husbandry/balanced_diet": {
+   "criteria": [
+    "apple",
+    "baked_potato",
+    "beef",
+    "beetroot",
+    "beetroot_soup",
+    "bread",
+    "carrot",
+    "chicken",
+    "chorus_fruit",
+    "cod",
+    "cooked_beef",
+    "cooked_chicken",
+    "cooked_cod",
+    "cooked_mutton",
+    "cooked_porkchop",
+    "cooked_rabbit",
+    "cooked_salmon",
+    "cookie",
+    "dried_kelp",
+    "enchanted_golden_apple",
+    "glow_berries",
+    "golden_apple",
+    "golden_carrot",
+    "honey_bottle",
+    "melon_slice",
+    "mushroom_stew",
+    "mutton",
+    "poisonous_potato",
+    "porkchop",
+    "potato",
+    "pufferfish",
+    "pumpkin_pie",
+    "rabbit",
+    "rabbit_stew",
+    "rotten_flesh",
+    "salmon",
+    "spider_eye",
+    "suspicious_stew",
+    "sweet_berries",
+    "tropical_fish"
+   ],
+   "frame": "challenge",
+   "hidden": false,
+   "parent": "minecraft:husbandry/plant_seed",
+   "requirements": [
+    [
+     "apple"
+    ],
+    [
+     "mushroom_stew"
+    ],
+    [
+     "bread"
+    ],
+    [
+     "porkchop"
+    ],
+    [
+     "cooked_porkchop"
+    ],
+    [
+     "golden_apple"
+    ],
+    [
+     "enchanted_golden_apple"
+    ],
+    [
+     "cod"
+    ],
+    [
+     "salmon"
+    ],
+    [
+     "tropical_fish"
+    ],
+    [
+     "pufferfish"
+    ],
+    [
+     "cooked_cod"
+    ],
+    [
+     "cooked_salmon"
+    ],
+    [
+     "cookie"
+    ],
+    [
+     "melon_slice"
+    ],
+    [
+     "beef"
+    ],
+    [
+     "cooked_beef"
+    ],
+    [
+     "chicken"
+    ],
+    [
+     "cooked_chicken"
+    ],
+    [
+     "rotten_flesh"
+    ],
+    [
+     "spider_eye"
+    ],
+    [
+     "carrot"
+    ],
+    [
+     "potato"
+    ],
+    [
+     "baked_potato"
+    ],
+    [
+     "poisonous_potato"
+    ],
+    [
+     "golden_carrot"
+    ],
+    [
+     "pumpkin_pie"
+    ],
+    [
+     "rabbit"
+    ],
+    [
+     "cooked_rabbit"
+    ],
+    [
+     "rabbit_stew"
+    ],
+    [
+     "mutton"
+    ],
+    [
+     "cooked_mutton"
+    ],
+    [
+     "chorus_fruit"
+    ],
+    [
+     "beetroot"
+    ],
+    [
+     "beetroot_soup"
+    ],
+    [
+     "dried_kelp"
+    ],
+    [
+     "suspicious_stew"
+    ],
+    [
+     "sweet_berries"
+    ],
+    [
+     "honey_bottle"
+    ],
+    [
+     "glow_berries"
+    ]
+   ],
+   "steps": 3
+  },
+  "minecraft:husbandry/bred_all_animals": {
+   "criteria": [
+    "minecraft:axolotl",
+    "minecraft:bee",
+    "minecraft:camel",
+    "minecraft:cat",
+    "minecraft:chicken",
+    "minecraft:cow",
+    "minecraft:donkey",
+    "minecraft:fox",
+    "minecraft:frog",
+    "minecraft:goat",
+    "minecraft:hoglin",
+    "minecraft:horse",
+    "minecraft:llama",
+    "minecraft:mooshroom",
+    "minecraft:mule",
+    "minecraft:ocelot",
+    "minecraft:panda",
+    "minecraft:pig",
+    "minecraft:rabbit",
+    "minecraft:sheep",
+    "minecraft:sniffer",
+    "minecraft:strider",
+    "minecraft:turtle",
+    "minecraft:wolf"
+   ],
+   "frame": "challenge",
+   "hidden": false,
+   "parent": "minecraft:husbandry/breed_an_animal",
+   "requirements": [
+    [
+     "minecraft:horse"
+    ],
+    [
+     "minecraft:donkey"
+    ],
+    [
+     "minecraft:mule"
+    ],
+    [
+     "minecraft:sheep"
+    ],
+    [
+     "minecraft:cow"
+    ],
+    [
+     "minecraft:mooshroom"
+    ],
+    [
+     "minecraft:pig"
+    ],
+    [
+     "minecraft:chicken"
+    ],
+    [
+     "minecraft:wolf"
+    ],
+    [
+     "minecraft:ocelot"
+    ],
+    [
+     "minecraft:rabbit"
+    ],
+    [
+     "minecraft:llama"
+    ],
+    [
+     "minecraft:cat"
+    ],
+    [
+     "minecraft:panda"
+    ],
+    [
+     "minecraft:fox"
+    ],
+    [
+     "minecraft:bee"
+    ],
+    [
+     "minecraft:hoglin"
+    ],
+    [
+     "minecraft:strider"
+    ],
+    [
+     "minecraft:goat"
+    ],
+    [
+     "minecraft:axolotl"
+    ],
+    [
+     "minecraft:camel"
+    ],
+    [
+     "minecraft:turtle"
+    ],
+    [
+     "minecraft:frog"
+    ],
+    [
+     "minecraft:sniffer"
+    ]
+   ],
+   "steps": 3
+  },
+  "minecraft:husbandry/breed_an_animal": {
+   "criteria": [
+    "bred"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:husbandry/root",
+   "requirements": [
+    [
+     "bred"
+    ]
+   ],
+   "steps": 2
+  },
+  "minecraft:husbandry/complete_catalogue": {
+   "criteria": [
+    "minecraft:all_black",
+    "minecraft:black",
+    "minecraft:british_shorthair",
+    "minecraft:calico",
+    "minecraft:jellie",
+    "minecraft:persian",
+    "minecraft:ragdoll",
+    "minecraft:red",
+    "minecraft:siamese",
+    "minecraft:tabby",
+    "minecraft:white"
+   ],
+   "frame": "challenge",
+   "hidden": false,
+   "parent": "minecraft:husbandry/tame_an_animal",
+   "requirements": [
+    [
+     "minecraft:all_black"
+    ],
+    [
+     "minecraft:black"
+    ],
+    [
+     "minecraft:british_shorthair"
+    ],
+    [
+     "minecraft:calico"
+    ],
+    [
+     "minecraft:jellie"
+    ],
+    [
+     "minecraft:persian"
+    ],
+    [
+     "minecraft:ragdoll"
+    ],
+    [
+     "minecraft:red"
+    ],
+    [
+     "minecraft:siamese"
+    ],
+    [
+     "minecraft:tabby"
+    ],
+    [
+     "minecraft:white"
+    ]
+   ],
+   "steps": 3
+  },
+  "minecraft:husbandry/feed_snifflet": {
+   "criteria": [
+    "feed_snifflet"
+   ],
+   "frame": "task",
+   "hidden": true,
+   "parent": "minecraft:husbandry/obtain_sniffer_egg",
+   "requirements": [
+    [
+     "feed_snifflet"
+    ]
+   ],
+   "steps": 3
+  },
+  "minecraft:husbandry/fishy_business": {
+   "criteria": [
+    "cod",
+    "pufferfish",
+    "salmon",
+    "tropical_fish"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:husbandry/root",
+   "requirements": [
+    [
+     "cod",
+     "tropical_fish",
+     "pufferfish",
+     "salmon"
+    ]
+   ],
+   "steps": 2
+  },
+  "minecraft:husbandry/froglights": {
+   "criteria": [
+    "froglights"
+   ],
+   "frame": "challenge",
+   "hidden": false,
+   "parent": "minecraft:husbandry/leash_all_frog_variants",
+   "requirements": [
+    [
+     "froglights"
+    ]
+   ],
+   "steps": 4
+  },
+  "minecraft:husbandry/kill_axolotl_target": {
+   "criteria": [
+    "kill_axolotl_target"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:husbandry/axolotl_in_a_bucket",
+   "requirements": [
+    [
+     "kill_axolotl_target"
+    ]
+   ],
+   "steps": 5
+  },
+  "minecraft:husbandry/leash_all_frog_variants": {
+   "criteria": [
+    "minecraft:cold",
+    "minecraft:temperate",
+    "minecraft:warm"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:husbandry/tadpole_in_a_bucket",
+   "requirements": [
+    [
+     "minecraft:temperate"
+    ],
+    [
+     "minecraft:warm"
+    ],
+    [
+     "minecraft:cold"
+    ]
+   ],
+   "steps": 3
+  },
+  "minecraft:husbandry/make_a_sign_glow": {
+   "criteria": [
+    "make_a_sign_glow"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:husbandry/root",
+   "requirements": [
+    [
+     "make_a_sign_glow"
+    ]
+   ],
+   "steps": 2
+  },
+  "minecraft:husbandry/obtain_netherite_hoe": {
+   "criteria": [
+    "netherite_hoe"
+   ],
+   "frame": "challenge",
+   "hidden": false,
+   "parent": "minecraft:husbandry/plant_seed",
+   "requirements": [
+    [
+     "netherite_hoe"
+    ]
+   ],
+   "steps": 3
+  },
+  "minecraft:husbandry/obtain_sniffer_egg": {
+   "criteria": [
+    "obtain_sniffer_egg"
+   ],
+   "frame": "task",
+   "hidden": true,
+   "parent": "minecraft:husbandry/root",
+   "requirements": [
+    [
+     "obtain_sniffer_egg"
+    ]
+   ],
+   "steps": 2
+  },
+  "minecraft:husbandry/plant_any_sniffer_seed": {
+   "criteria": [
+    "pitcher_pod",
+    "torchflower"
+   ],
+   "frame": "task",
+   "hidden": true,
+   "parent": "minecraft:husbandry/feed_snifflet",
+   "requirements": [
+    [
+     "torchflower",
+     "pitcher_pod"
+    ]
+   ],
+   "steps": 4
+  },
+  "minecraft:husbandry/plant_seed": {
+   "criteria": [
+    "beetroots",
+    "melon_stem",
+    "nether_wart",
+    "pitcher_pod",
+    "pumpkin_stem",
+    "torchflower",
+    "wheat"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:husbandry/root",
+   "requirements": [
+    [
+     "wheat",
+     "pumpkin_stem",
+     "melon_stem",
+     "beetroots",
+     "nether_wart",
+     "torchflower",
+     "pitcher_pod"
+    ]
+   ],
+   "steps": 2
+  },
+  "minecraft:husbandry/ride_a_boat_with_a_goat": {
+   "criteria": [
+    "ride_a_boat_with_a_goat"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:husbandry/root",
+   "requirements": [
+    [
+     "ride_a_boat_with_a_goat"
+    ]
+   ],
+   "steps": 2
+  },
+  "minecraft:husbandry/root": {
+   "criteria": [
+    "consumed_item"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": null,
+   "requirements": [
+    [
+     "consumed_item"
+    ]
+   ],
+   "steps": 1
+  },
+  "minecraft:husbandry/safely_harvest_honey": {
+   "criteria": [
+    "safely_harvest_honey"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:husbandry/root",
+   "requirements": [
+    [
+     "safely_harvest_honey"
+    ]
+   ],
+   "steps": 2
+  },
+  "minecraft:husbandry/silk_touch_nest": {
+   "criteria": [
+    "silk_touch_nest"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:husbandry/root",
+   "requirements": [
+    [
+     "silk_touch_nest"
+    ]
+   ],
+   "steps": 2
+  },
+  "minecraft:husbandry/tactical_fishing": {
+   "criteria": [
+    "cod_bucket",
+    "pufferfish_bucket",
+    "salmon_bucket",
+    "tropical_fish_bucket"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:husbandry/fishy_business",
+   "requirements": [
+    [
+     "cod_bucket",
+     "tropical_fish_bucket",
+     "pufferfish_bucket",
+     "salmon_bucket"
+    ]
+   ],
+   "steps": 3
+  },
+  "minecraft:husbandry/tadpole_in_a_bucket": {
+   "criteria": [
+    "tadpole_bucket"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:husbandry/root",
+   "requirements": [
+    [
+     "tadpole_bucket"
+    ]
+   ],
+   "steps": 2
+  },
+  "minecraft:husbandry/tame_an_animal": {
+   "criteria": [
+    "tamed_animal"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:husbandry/root",
+   "requirements": [
+    [
+     "tamed_animal"
+    ]
+   ],
+   "steps": 2
+  },
+  "minecraft:husbandry/wax_off": {
+   "criteria": [
+    "wax_off"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:husbandry/wax_on",
+   "requirements": [
+    [
+     "wax_off"
+    ]
+   ],
+   "steps": 4
+  },
+  "minecraft:husbandry/wax_on": {
+   "criteria": [
+    "wax_on"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:husbandry/safely_harvest_honey",
+   "requirements": [
+    [
+     "wax_on"
+    ]
+   ],
+   "steps": 3
+  },
+  "minecraft:nether/all_effects": {
+   "criteria": [
+    "all_effects"
+   ],
+   "frame": "challenge",
+   "hidden": true,
+   "parent": "minecraft:nether/all_potions",
+   "requirements": [
+    [
+     "all_effects"
+    ]
+   ],
+   "steps": 13
+  },
+  "minecraft:nether/all_potions": {
+   "criteria": [
+    "all_effects"
+   ],
+   "frame": "challenge",
+   "hidden": false,
+   "parent": "minecraft:nether/brew_potion",
+   "requirements": [
+    [
+     "all_effects"
+    ]
+   ],
+   "steps": 12
+  },
+  "minecraft:nether/brew_potion": {
+   "criteria": [
+    "potion"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:nether/obtain_blaze_rod",
+   "requirements": [
+    [
+     "potion"
+    ]
+   ],
+   "steps": 11
+  },
+  "minecraft:nether/charge_respawn_anchor": {
+   "criteria": [
+    "charge_respawn_anchor"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:nether/obtain_crying_obsidian",
+   "requirements": [
+    [
+     "charge_respawn_anchor"
+    ]
+   ],
+   "steps": 10
+  },
+  "minecraft:nether/create_beacon": {
+   "criteria": [
+    "beacon"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:nether/summon_wither",
+   "requirements": [
+    [
+     "beacon"
+    ]
+   ],
+   "steps": 12
+  },
+  "minecraft:nether/create_full_beacon": {
+   "criteria": [
+    "beacon"
+   ],
+   "frame": "goal",
+   "hidden": false,
+   "parent": "minecraft:nether/create_beacon",
+   "requirements": [
+    [
+     "beacon"
+    ]
+   ],
+   "steps": 13
+  },
+  "minecraft:nether/distract_piglin": {
+   "criteria": [
+    "distract_piglin",
+    "distract_piglin_directly"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:nether/root",
+   "requirements": [
+    [
+     "distract_piglin",
+     "distract_piglin_directly"
+    ]
+   ],
+   "steps": 9
+  },
+  "minecraft:nether/explore_nether": {
+   "criteria": [
+    "minecraft:basalt_deltas",
+    "minecraft:crimson_forest",
+    "minecraft:nether_wastes",
+    "minecraft:soul_sand_valley",
+    "minecraft:warped_forest"
+   ],
+   "frame": "challenge",
+   "hidden": false,
+   "parent": "minecraft:nether/ride_strider",
+   "requirements": [
+    [
+     "minecraft:nether_wastes"
+    ],
+    [
+     "minecraft:soul_sand_valley"
+    ],
+    [
+     "minecraft:crimson_forest"
+    ],
+    [
+     "minecraft:warped_forest"
+    ],
+    [
+     "minecraft:basalt_deltas"
+    ]
+   ],
+   "steps": 10
+  },
+  "minecraft:nether/fast_travel": {
+   "criteria": [
+    "travelled"
+   ],
+   "frame": "challenge",
+   "hidden": false,
+   "parent": "minecraft:nether/root",
+   "requirements": [
+    [
+     "travelled"
+    ]
+   ],
+   "steps": 9
+  },
+  "minecraft:nether/find_bastion": {
+   "criteria": [
+    "bastion"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:nether/root",
+   "requirements": [
+    [
+     "bastion"
+    ]
+   ],
+   "steps": 9
+  },
+  "minecraft:nether/find_fortress": {
+   "criteria": [
+    "fortress"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:nether/root",
+   "requirements": [
+    [
+     "fortress"
+    ]
+   ],
+   "steps": 9
+  },
+  "minecraft:nether/get_wither_skull": {
+   "criteria": [
+    "wither_skull"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:nether/find_fortress",
+   "requirements": [
+    [
+     "wither_skull"
+    ]
+   ],
+   "steps": 10
+  },
+  "minecraft:nether/loot_bastion": {
+   "criteria": [
+    "loot_bastion_bridge",
+    "loot_bastion_hoglin_stable",
+    "loot_bastion_other",
+    "loot_bastion_treasure"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:nether/find_bastion",
+   "requirements": [
+    [
+     "loot_bastion_other",
+     "loot_bastion_treasure",
+     "loot_bastion_hoglin_stable",
+     "loot_bastion_bridge"
+    ]
+   ],
+   "steps": 10
+  },
+  "minecraft:nether/netherite_armor": {
+   "criteria": [
+    "netherite_armor"
+   ],
+   "frame": "challenge",
+   "hidden": false,
+   "parent": "minecraft:nether/obtain_ancient_debris",
+   "requirements": [
+    [
+     "netherite_armor"
+    ]
+   ],
+   "steps": 10
+  },
+  "minecraft:nether/obtain_ancient_debris": {
+   "criteria": [
+    "ancient_debris"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:nether/root",
+   "requirements": [
+    [
+     "ancient_debris"
+    ]
+   ],
+   "steps": 9
+  },
+  "minecraft:nether/obtain_blaze_rod": {
+   "criteria": [
+    "blaze_rod"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:nether/find_fortress",
+   "requirements": [
+    [
+     "blaze_rod"
+    ]
+   ],
+   "steps": 10
+  },
+  "minecraft:nether/obtain_crying_obsidian": {
+   "criteria": [
+    "crying_obsidian"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:nether/root",
+   "requirements": [
+    [
+     "crying_obsidian"
+    ]
+   ],
+   "steps": 9
+  },
+  "minecraft:nether/return_to_sender": {
+   "criteria": [
+    "killed_ghast"
+   ],
+   "frame": "challenge",
+   "hidden": false,
+   "parent": "minecraft:nether/root",
+   "requirements": [
+    [
+     "killed_ghast"
+    ]
+   ],
+   "steps": 9
+  },
+  "minecraft:nether/ride_strider": {
+   "criteria": [
+    "used_warped_fungus_on_a_stick"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:nether/root",
+   "requirements": [
+    [
+     "used_warped_fungus_on_a_stick"
+    ]
+   ],
+   "steps": 9
+  },
+  "minecraft:nether/ride_strider_in_overworld_lava": {
+   "criteria": [
+    "ride_entity_distance"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:nether/ride_strider",
+   "requirements": [
+    [
+     "ride_entity_distance"
+    ]
+   ],
+   "steps": 10
+  },
+  "minecraft:nether/root": {
+   "criteria": [
+    "entered_nether"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:story/enter_the_nether",
+   "requirements": [
+    [
+     "entered_nether"
+    ]
+   ],
+   "steps": 8
+  },
+  "minecraft:nether/summon_wither": {
+   "criteria": [
+    "summoned"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:nether/get_wither_skull",
+   "requirements": [
+    [
+     "summoned"
+    ]
+   ],
+   "steps": 11
+  },
+  "minecraft:nether/uneasy_alliance": {
+   "criteria": [
+    "killed_ghast"
+   ],
+   "frame": "challenge",
+   "hidden": false,
+   "parent": "minecraft:nether/return_to_sender",
+   "requirements": [
+    [
+     "killed_ghast"
+    ]
+   ],
+   "steps": 10
+  },
+  "minecraft:nether/use_lodestone": {
+   "criteria": [
+    "use_lodestone"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:nether/obtain_ancient_debris",
+   "requirements": [
+    [
+     "use_lodestone"
+    ]
+   ],
+   "steps": 10
+  },
+  "minecraft:story/cure_zombie_villager": {
+   "criteria": [
+    "cured_zombie"
+   ],
+   "frame": "goal",
+   "hidden": false,
+   "parent": "minecraft:story/enter_the_nether",
+   "requirements": [
+    [
+     "cured_zombie"
+    ]
+   ],
+   "steps": 8
+  },
+  "minecraft:story/deflect_arrow": {
+   "criteria": [
+    "deflected_projectile"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:story/obtain_armor",
+   "requirements": [
+    [
+     "deflected_projectile"
+    ]
+   ],
+   "steps": 6
+  },
+  "minecraft:story/enchant_item": {
+   "criteria": [
+    "enchanted_item"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:story/mine_diamond",
+   "requirements": [
+    [
+     "enchanted_item"
+    ]
+   ],
+   "steps": 7
+  },
+  "minecraft:story/enter_the_end": {
+   "criteria": [
+    "entered_end"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:story/follow_ender_eye",
+   "requirements": [
+    [
+     "entered_end"
+    ]
+   ],
+   "steps": 9
+  },
+  "minecraft:story/enter_the_nether": {
+   "criteria": [
+    "entered_nether"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:story/form_obsidian",
+   "requirements": [
+    [
+     "entered_nether"
+    ]
+   ],
+   "steps": 7
+  },
+  "minecraft:story/follow_ender_eye": {
+   "criteria": [
+    "in_stronghold"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:story/enter_the_nether",
+   "requirements": [
+    [
+     "in_stronghold"
+    ]
+   ],
+   "steps": 8
+  },
+  "minecraft:story/form_obsidian": {
+   "criteria": [
+    "obsidian"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:story/lava_bucket",
+   "requirements": [
+    [
+     "obsidian"
+    ]
+   ],
+   "steps": 6
+  },
+  "minecraft:story/iron_tools": {
+   "criteria": [
+    "iron_pickaxe"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:story/smelt_iron",
+   "requirements": [
+    [
+     "iron_pickaxe"
+    ]
+   ],
+   "steps": 5
+  },
+  "minecraft:story/lava_bucket": {
+   "criteria": [
+    "lava_bucket"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:story/smelt_iron",
+   "requirements": [
+    [
+     "lava_bucket"
+    ]
+   ],
+   "steps": 5
+  },
+  "minecraft:story/mine_diamond": {
+   "criteria": [
+    "diamond"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:story/iron_tools",
+   "requirements": [
+    [
+     "diamond"
+    ]
+   ],
+   "steps": 6
+  },
+  "minecraft:story/mine_stone": {
+   "criteria": [
+    "get_stone"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:story/root",
+   "requirements": [
+    [
+     "get_stone"
+    ]
+   ],
+   "steps": 2
+  },
+  "minecraft:story/obtain_armor": {
+   "criteria": [
+    "iron_boots",
+    "iron_chestplate",
+    "iron_helmet",
+    "iron_leggings"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:story/smelt_iron",
+   "requirements": [
+    [
+     "iron_helmet",
+     "iron_chestplate",
+     "iron_leggings",
+     "iron_boots"
+    ]
+   ],
+   "steps": 5
+  },
+  "minecraft:story/root": {
+   "criteria": [
+    "crafting_table"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": null,
+   "requirements": [
+    [
+     "crafting_table"
+    ]
+   ],
+   "steps": 1
+  },
+  "minecraft:story/shiny_gear": {
+   "criteria": [
+    "diamond_boots",
+    "diamond_chestplate",
+    "diamond_helmet",
+    "diamond_leggings"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:story/mine_diamond",
+   "requirements": [
+    [
+     "diamond_helmet",
+     "diamond_chestplate",
+     "diamond_leggings",
+     "diamond_boots"
+    ]
+   ],
+   "steps": 7
+  },
+  "minecraft:story/smelt_iron": {
+   "criteria": [
+    "iron"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:story/upgrade_tools",
+   "requirements": [
+    [
+     "iron"
+    ]
+   ],
+   "steps": 4
+  },
+  "minecraft:story/upgrade_tools": {
+   "criteria": [
+    "stone_pickaxe"
+   ],
+   "frame": "task",
+   "hidden": false,
+   "parent": "minecraft:story/mine_stone",
+   "requirements": [
+    [
+     "stone_pickaxe"
+    ]
+   ],
+   "steps": 3
+  }
+ },
+ "root_links": {
+  "minecraft:end/root": "minecraft:story/enter_the_end",
+  "minecraft:nether/root": "minecraft:story/enter_the_nether"
+ },
+ "source": [
+  "server-extra.jar",
+  "create-1.20.1-6.0.8.jar",
+  "ferritecore-6.0.1-forge.jar",
+  "modernfix-forge-5.27.91+mc1.20.1.jar",
+  "server-extra.jar"
+ ],
+ "v": 1
+}

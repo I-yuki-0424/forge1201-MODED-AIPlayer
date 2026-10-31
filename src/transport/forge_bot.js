@@ -149,6 +149,7 @@ function attachForgeHandshake(bot, { registry = 'auto', table } = {}) {
             try { sync = modRegistry.parseRegistrySync(payloads); } catch (e) {
                 return bot.emit('mod_registry', { mode: registry, error: e.message });
             }
+            bot.forgeRegistrySync = sync;   // server registry name -> id maps (statistics ids, src/rl/progress.js)
             const content = modRegistry.hasContentMods(sync);
             if (registry !== 'auto' || !content) return bot.emit('mod_registry', { mode: registry, content });
             const tab = table === undefined ? modRegistry.loadTable() : table;

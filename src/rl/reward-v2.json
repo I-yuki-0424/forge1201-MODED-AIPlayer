@@ -1,0 +1,52 @@
+{
+  "v": 2,
+  "doc": "docs/proposed/RL-TRAINING-v2.md. Unit: 1.0 = one Crafter achievement. Every term is graded from what the server sends the player (statistics, advancements, time, death), never from the bot's own prediction.",
+  "survival": {
+    "doc": "Paid at dawn, for a night the bot was alive through from its start. Slept = in a bed when the night was skipped.",
+    "night_awake": 1.0,
+    "night_slept": 2.5,
+    "death": 0.0
+  },
+  "kills": {
+    "doc": "Statistic minecraft:killed:<entity>. Score of the n-th kill of one type in an episode = base * class * decay^(n-1), so farming one type is worth at most base * class / (1 - decay).",
+    "base": 1.0,
+    "decay": 0.5,
+    "class": { "passive": 1.0, "hostile": 1.0, "neutral": 0.25 },
+    "passive": ["allay", "axolotl", "bat", "camel", "cat", "chicken", "cod", "cow", "donkey", "fox", "frog", "glow_squid", "horse", "mooshroom", "mule", "ocelot", "parrot", "pig", "pufferfish", "rabbit", "salmon", "sheep", "skeleton_horse", "sniffer", "snow_golem", "squid", "strider", "tadpole", "tropical_fish", "turtle", "villager", "wandering_trader", "zombie_horse"],
+    "neutral": ["bee", "dolphin", "enderman", "goat", "iron_golem", "llama", "panda", "piglin", "polar_bear", "trader_llama", "wolf", "zombified_piglin"],
+    "hostile": ["blaze", "cave_spider", "creeper", "drowned", "elder_guardian", "ender_dragon", "endermite", "evoker", "ghast", "guardian", "hoglin", "husk", "magma_cube", "phantom", "piglin_brute", "pillager", "ravager", "shulker", "silverfish", "skeleton", "slime", "spider", "stray", "vex", "vindicator", "warden", "witch", "wither", "wither_skeleton", "zoglin", "zombie", "zombie_villager"]
+  },
+  "notable": {
+    "doc": "Replaces the kill score for these types. Bosses (no decay) are worth far more than anything else, so the reward for effort is visible.",
+    "decay": 0.5,
+    "score": { "enderman": 5.0, "iron_golem": 5.0, "blaze": 8.0, "wither_skeleton": 8.0, "elder_guardian": 25.0, "wither": 100.0, "ender_dragon": 100.0 },
+    "boss": ["wither", "ender_dragon"]
+  },
+  "mined": {
+    "doc": "Statistic minecraft:mined:<block>. Unlisted blocks (dirt, stone, sand, netherrack, ...) get `default`. Tiers rise with rarity; the n-th block of one type in an episode = tier * decay^(n-1).",
+    "default": 0.002,
+    "decay": 0.7,
+    "tiers": [
+      { "score": 0.2, "blocks": ["oak_log", "spruce_log", "birch_log", "jungle_log", "acacia_log", "dark_oak_log", "mangrove_log", "cherry_log", "crimson_stem", "warped_stem"] },
+      { "score": 0.3, "blocks": ["copper_ore", "deepslate_copper_ore", "clay"] },
+      { "score": 0.4, "blocks": ["coal_ore", "deepslate_coal_ore", "create:zinc_ore", "create:deepslate_zinc_ore"] },
+      { "score": 0.6, "blocks": ["nether_quartz_ore", "nether_gold_ore", "glowstone"] },
+      { "score": 0.8, "blocks": ["iron_ore", "deepslate_iron_ore"] },
+      { "score": 1.0, "blocks": ["redstone_ore", "deepslate_redstone_ore"] },
+      { "score": 1.2, "blocks": ["gold_ore", "deepslate_gold_ore", "lapis_ore", "deepslate_lapis_ore"] },
+      { "score": 1.5, "blocks": ["obsidian"] },
+      { "score": 3.0, "blocks": ["diamond_ore", "deepslate_diamond_ore", "emerald_ore", "deepslate_emerald_ore"] },
+      { "score": 5.0, "blocks": ["ancient_debris"] }
+    ]
+  },
+  "achievements": {
+    "doc": "Advancements the server grants (once per episode; reset revokes them). Score = per_step * steps, steps = depth in the advancement tree (modpack/forgeaip-create.advancements.json). Create's tab is a display chain, not prerequisites, so its advancements score flat.",
+    "per_step": 1.0,
+    "flat": { "create": 1.0 }
+  },
+  "stages": {
+    "doc": "Weights per reward term, applied by the learner to reward_terms (the environment sends every term, unweighted). Stage 1 = survival; the small weight on the rest keeps the policy from settling on 'stay still and live' (DPOD 2026-09-27: noop was the best survival arm).",
+    "survive": { "survival": 1.0, "kills": 0.1, "notable": 0.1, "mined": 0.1, "achievements": 0.1 },
+    "dragon": { "survival": 1.0, "kills": 1.0, "notable": 1.0, "mined": 1.0, "achievements": 1.0 }
+  }
+}
