@@ -46,9 +46,11 @@ scripts/world/up.sh | down.sh | restart.sh            # build world (restart aft
 scripts/world/snapshot.sh <label> | --list             # also hourly (user timer) and before stop/restart/restore
 scripts/world/test-up.sh <label|latest> ; test-down.sh # disposable tmpfs copy on 127.0.0.1:25568 for bots/benchmarks
 scripts/world/restore.sh <label|latest>                # roll the build world back
+scripts/world/reset.sh [--seed N] [--type normal|flat] # new world (default random natural seed), old one snapshotted
 scripts/world/bot-up.sh | bot-down.sh                  # the LLM bot (vault record ollama/forgeaip), WebUI 127.0.0.1:3020
 scripts/world/registry-dump.sh                         # after any lock change: rebuild + commit modpack/forgeaip-create.registry.json
 (cd docker/world-server && docker compose --profile check run --rm intent-check)   # live LLM-path check on a test copy
+(cd docker/world-server && docker compose --profile bench run --rm -T --entrypoint node bench scripts/skills/bench_lv2.js --run-id l1 --seed 1101 --bots 10 --follow <player>)   # LV2: natural terrain (after --pregen 1)
 ```
 
 On the owner's PC (Windows/WSL2): `npm ci`, `npm test`, `npm run test:e2e`, `node index.js` (or `run.bat` / `./run.sh`).

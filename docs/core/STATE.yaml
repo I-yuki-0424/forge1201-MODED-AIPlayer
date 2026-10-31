@@ -12,10 +12,12 @@ active_tasks:
   - "TASK-20261030-009-subdivide-code-by-role"
   - "TASK-20261030-013-rl-interface-and-eval-spec"
   - "TASK-20261030-014-schedule-long-running-jobs"
+  - "TASK-20261101-023-aux-mod-on-the-action-layer"
 
-smoke_status: "2026-10-31 (night) npm test (11 files, incl. tests/test_mod_registry_pure.js) PASS on node 20 (docker node:20-slim); intent_check 13/13 on a fresh test copy of the Create build world; live registry probe exact (Create blocks, items, collision); one real LLM call through the vault record. Earlier 2026-10-31: action-layer benchmark 560/560, control 0/140 (vanilla Forge RL server). Earlier: 2026-10-30 FAIL at test_e2e_integration on node 22.23.4 (BUGFIX-20261030-002, unchanged); scripts/rl/verify_game_side.py 20/20 PASS."
+smoke_status: "2026-11-01 npm test (11 files, incl. the mud reproducer in tests/test_skills_pure.js) PASS on node 20 (docker node:20-slim, exit 0). Live, build world seed 205483087572977 (natural): flat-arena bench 140/140 after the fix (w3-natural-mudfix); LV2 natural-terrain bench 123/132 graded after the fix vs 109/133 before on the same 140 sites (l2-natural-mudfix, l1-natural). Earlier 2026-10-31: intent_check 13/13, bench 560/560, control 0/140. Node 22.23.4 still FAILs test_e2e_integration (BUGFIX-20261030-002)."
 
 recent_changes:
+  - "2026-11-01: TASK-20261101-021/022. Build world reset to natural terrain (scripts/world/reset.sh; seed 205483087572977, owner Seia_Y op). Flat benchmark on the natural surface: 140/140, clutter 139/140. New LV2 benchmark scripts/skills/bench_lv2.js: untouched natural sites, stations on real ground, hostile mobs, 10 bots in parallel, owner follows bot 1 with the planned path drawn in particles; 0.82 -> 0.93 after BUGFIX-022 (mud = ground, feetCell floor(y+0.2)). Harness defects found on the way: parallel RCON connections share replies (L9), mass world generation stalls the server (L10), restore on failure, spectator parking. walk phase events carry the planned cells."
   - "2026-10-31 (night): TASK-20261031-020. Mod set rebuilt (owner): vanilla + Create 6.0.8 + ModernFix + FerriteCore (client also Embeddium, EntityCulling), sha512-pinned in modpack/forgeaip-create.lock.json; server synced by up.sh, client via .mrpack or modpack/install-client.ps1. Exact mod blocks/items for the bot (src/transport/mod_registry.js + table from tools/registry-dump) replace the heuristic injector and the ping check (L7, L8). npm test 11 files. Vault record ollama/forgeaip saved by the owner and verified (018 done)."
   - "2026-10-31 (evening): TASK-20261031-017/018/019. LLM bot on the new action layer (src/skills_bot.js, intents, generated prompt; live check 13/13); Ollama credentials from the vault (record ollama/forgeaip; owner saves it); persistent build world on the tailnet (100.115.238.9:25565) with snapshots, test copies and the LLM bot. npm test 10 files. Security fix: API-key fragment no longer logged (L5)."
   - "2026-10-31: TASK-20261031-016 action layer rebuilt from player inputs (src/skills, 14 commands, closed failure taxonomy, per-tick trace) with a server-graded benchmark (scripts/skills/bench.js, report.py): 560/560 on the final code, negative control 0/140. npm test now 9 files (tests/test_skills_pure.js, 12 tests incl. 2 reproducers). Spec and measurements: docs/implemented/SKILLS-v1.md. Knowledge-DB: LLM-records/2026-10-31-mineflayer-on-forge-1-20-1-q-f-*, -minecraft-1-20-1-server-with-spawn-animals-false-*, -bot-froze-server-lost-connection-timed-out-*."
@@ -226,6 +228,36 @@ tasks:
     spec_ref: "docs/proposed/ROADMAP-20261030-rl-platform.md#task-20261030-014--register-long-running-work-on-the-schedule"
     validation_commands: []
     result: "Applied to the RL server: hold sch_6fX-4PHl9OAurlOO registered before start; compose restart policy; world is tmpfs and regenerated from a fixed seed. Run1 (hold sch_bbdE0P14gTO6IEBG, 00:14-02:44 JST) checkpointed every update (checkpoint.pkl, --resume) and ended before the window. rootwatch reboots daily (10-28..10-31, about 03:50 JST), does not read the schedule (only maint-hold stops it), and nothing restarts jobs afterwards. Not done: the deliberate-restart resume test; a restart supervisor."
+    blockers: []
+
+  - id: "TASK-20261101-021-natural-terrain-benchmark-lv2"
+    created_at: "2026-11-01T00:22:00+09:00"
+    status: "done"
+    description: "Owner request 2026-11-01: reset the build world to a random natural seed, run the action-layer test there while the owner watches; then LV2: chests, furnaces and enemies on real natural spots, a different site per trial, reproducible, 10 bots in parallel, owner follows bot 1."
+    spec_ref: "docs/implemented/SKILLS-v1.md#lv2-natural-terrain-2026-11-01-scriptsskillsbench_lv2js"
+    validation_commands:
+      - "(cd docker/world-server && docker compose --profile bench run --rm -T --entrypoint node bench scripts/skills/bench_lv2.js --pregen 1)"
+      - "(cd docker/world-server && docker compose --profile bench run --rm -T --entrypoint node bench scripts/skills/bench_lv2.js --run-id <id> --seed 1101 --bots 10 --follow Seia_Y)"
+      - "python3 scripts/skills/report.py exchange/<id>"
+    result: "PASS as a measurement. World seed 205483087572977, LV2 seed 1101, 140 trials, 10 bots, 128 s: before the fix 109/133 graded (0.82, Wilson 0.75-0.88), after 123/132 (0.93, 0.88-0.96) on the same sites of a fresh copy of the world; 7-8 harness errors = sites without dry ground. Left: 3 deaths to the mobs, 5 start cell not standable with other causes (e.g. mined its own floor), 1 equip disagreement. Flat-arena bench on the natural surface 140/140 (before and after), clutter 139/140 (#71 craft second batch not confirmed)."
+    blockers: []
+
+  - id: "BUGFIX-20261101-022-near-full-ground-blocks"
+    created_at: "2026-11-01T01:20:00+09:00"
+    status: "done"
+    description: "Bots standing on mud (collision 0.875) could not plan: the world model counted only full cubes as ground and feetCell floor(y) put the feet inside the mud cell (13 of 24 LV2 failures)."
+    spec_ref: "docs/implemented/SKILLS-v1.md#lv2-natural-terrain-2026-11-01-scriptsskillsbench_lv2js"
+    validation_commands: ["docker run --rm --network none -v \"$PWD\":/w -w /w node:20-slim npm test"]
+    result: "Fixed in src/skills/world.js (one box over the cell with top >= 0.8 is solid) and src/skills/motion.js (feetCell floor(y + 0.2)); reproducer test first (failed: mud -> partial), then PASS. scip impact: kindOf only through fromBot().kindAt; feetCell motion-internal plus export."
+    blockers: []
+
+  - id: "TASK-20261101-023-aux-mod-on-the-action-layer"
+    created_at: "2026-11-01T01:30:00+09:00"
+    status: "queued"
+    description: "Owner wants the aux mod's in-world path overlay for diagnosis. Today it is not usable: not in the mod lock (not on server or client), its DebugOverlay reads ws://localhost:3001 which only the legacy bot_actuator serves (the skills runtime and the benches send nothing), it holds one path for all bots, and the owner's client is not on the VPS. Plan: a loopback debug feed of the walk-phase cells per bot (skills_bot and bench_lv2), the overlay keyed by bot, the jar built in the pinned JDK container (like tools/registry-dump), client-only install via modpack/install-client.ps1, reached from the PC through an SSH tunnel (no new public or tailnet listener; L3)."
+    spec_ref: "docs/implemented/VDS-001.md, aux_mod/"
+    validation_commands: []
+    result: "Interim: bench_lv2.js --follow draws bot 1's planned path with particles for the watching player (vanilla client, no mod)."
     blockers: []
 
 hazards:

@@ -71,3 +71,19 @@ the knowledge-DB (tag `forge1201-moded-aiplayer`).
 - `require('prismarine-registry')('1.20.1')` returns the same cached `blocks`, `blocksByStateId`, `items` ... objects
   every time. Writing mod entries into them changes every other bot (and every later registry) in the process.
 - **Rule:** copy a map before changing it (`own()` in `src/transport/mod_registry.js`).
+
+## L9 — Parallel RCON connections get each other's replies (found 2026-11-01)
+
+- The vanilla server answers every RCON command from one shared output buffer, so commands sent on parallel connections can
+  receive another connection's output. In the first 10-bot LV2 run, one bot's failed `spreadplayers` text came back as the
+  reply to other bots' `setblock`, `effect` and `execute if` commands: 70 of 140 trials became harness errors.
+- **Rule:** one RCON connection per server, one command at a time (the `sharedRcon()` queue in `scripts/skills/bench_lv2.js`).
+
+## L10 — Many bots on new terrain stall the server (found 2026-11-01)
+
+- Ten bots entering ten never-generated sites made the 3-CPU Forge server generate about 2,900 chunks at once: it fell
+  224 ticks (11 s) behind and dropped every bot.
+- **Rule:** generate the test region first, with one scout and one view at a time, waiting for the tick time to recover
+  (`bench_lv2.js --pregen 1`, 36 views in 4-6 min). Bots then only load stored chunks. Do not park bots in spectator mode
+  while they wait: players in the world see them hanging there.
+

@@ -152,10 +152,52 @@ passes by itself.
 
 Every trial's per-tick trace and the server's measurements are in `exchange/<run>/` (git-ignored, on the VPS).
 
+## LV2: natural terrain (2026-11-01, `scripts/skills/bench_lv2.js`)
+
+The flat benchmark above carves a flat 29 x 29 arena for every trial, so it never meets real ground. LV2 keeps the terrain
+as generated. Every trial gets its own site in the build world (natural seed, `scripts/world/reset.sh`), and no site is
+used twice: a seeded permutation of a 64-block grid inside a pre-generated 1,280 x 1,280 region. At each site:
+
+- The bot stands on the nearest dry ground cell of the site centre that has at least 80 cells it can walk to (step up 1,
+  drop up to 3). "Ground" is the bot's own world model (`world.kindOf` = solid), so the harness never picks a cell the bot
+  calls invalid.
+- Targets are real terrain: walk targets and stations on reachable cells, the blocks to mine are the actual ground, trunks
+  and stone faces, and `look_at` aims at real blocks in sight.
+- Chests, barrels, furnaces and crafting tables are set on the natural ground, and 1 to 3 hostile mobs (zombie, husk,
+  skeleton, spider; helmets against daylight) attack the bot during every command.
+- Grading is the server's state over RCON, as in the flat benchmark. Each record includes the server's mean tick time.
+
+Ten bots run in parallel. One player can follow bot 1: they are teleported next to it at every trial and stay in creative,
+and its planned path is drawn for them only (white end_rod particles; a flame marks the end). Reproducible: a trial depends
+only on (seed, index) and the world, so a rerun needs a fresh world from the same seed (`reset.sh --seed <s>`, then
+`--pregen 1`). `walk` phase events now carry the planned cells (`cells`), so paths are also in every trace.
+
+| Run (world seed 205483087572977, LV2 seed 1101, 140 trials, 10 bots) | graded | pass | rate | Wilson 95 % |
+| :-- | --: | --: | --: | :-- |
+| `l1-natural`, before the fix | 133 | 109 | 0.82 | 0.75-0.88 |
+| `l2-natural-mudfix`, same 140 sites on a fresh copy of the world | 132 | 123 | 0.93 | 0.88-0.96 |
+
+Graded = trials minus harness errors: 7 and 8 sites with no usable ground in both candidates (mostly water). Server mean
+tick time 25-39 ms during the runs; no disconnects, wall time 128 s.
+
+**Defect found (fixed, reproducer in `tests/test_skills_pure.js`):** 13 of the 24 failures in `l1` were bots on **mud**
+(collision box 0.875 high, common in this jungle/mangrove world). The world model counted only full cubes as ground and
+`feetCell` used `floor(y)`, so a bot standing on mud (y = 63.875) was "inside" the mud cell: `start cell not standable`,
+or `invalid_target` for a target on mud. Now a single box over the whole cell with a top >= 0.8 (mud, soul sand, dirt
+path, farmland) is ground, and the feet cell is `floor(y + 0.2)`. Bottom slabs (0.5) are unchanged.
+
+**What is left (l2):** 3 bots killed by the mobs during `smelt`/`attack`; 5 more `start cell not standable` with other
+causes (for example #84 mined the mud under its own feet, then could not plan its way to the drop); 1 `equip` the bot
+reported done that the server did not confirm. None of these are fixed yet.
+
+The flat benchmark run on the natural world's surface (arena next to spawn): 140/140 plain (`w1-natural`), 139/140 with
+clutter (`w2-natural-clutter`; #71 `craft` of 8 planks got 4, the second craft not confirmed within 20 ticks).
+
 ## Limits (v1)
 
 - Movement: walking, one-block step-ups, drops of up to 3 blocks. No swimming, ladders, parkour, digging or bridging
-  through obstacles: such targets end as `unreachable`. Slabs, stairs, fences, doors count as obstacles.
+  through obstacles: such targets end as `unreachable`. Slabs, stairs, fences, doors count as obstacles; near-full blocks
+  (mud, soul sand, dirt path, farmland) are ground since LV2.
 - `look_at` does not walk; `mine`, `place`, `activate` and the screen commands need a standing cell that sees the target.
 - Entity reach is the vanilla client's (3 blocks); hits follow the weapon's recharge time, no critical hits or sprint knock-back tactics.
 - Passive (fleeing) animals are not in the benchmark: the RL server runs with `spawn-animals=false`, and 1.20.1 then
