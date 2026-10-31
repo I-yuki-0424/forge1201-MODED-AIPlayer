@@ -58,3 +58,16 @@ the knowledge-DB (tag `forge1201-moded-aiplayer`).
   is a subordinate uid: it cannot read coder's mode-600 files and its files are not coder's.
 - **Rule:** to read a coder-owned secret or write into a coder-owned bind mount, run that step as container root
   (`docker exec -u 0`, no `--user`); keep server data in named volumes and reach it through containers.
+
+## L7 — Forge 1.20.1 hides the mod list in the server-list ping (found 2026-10-31)
+
+- The ping's `forgeData.mods` is empty on Forge 1.20.1; the list is packed into the compressed `forgeData.d` string. The
+  bot's "content mods" check read `mods` and reported 0 on the Create server, so it never set up mod blocks.
+- **Rule:** take mods and registries from the FML3 handshake (exact, decoded field by field in
+  `src/transport/mod_registry.js`), not from the ping.
+
+## L8 — prismarine-registry shares minecraft-data between bots (found 2026-10-31)
+
+- `require('prismarine-registry')('1.20.1')` returns the same cached `blocks`, `blocksByStateId`, `items` ... objects
+  every time. Writing mod entries into them changes every other bot (and every later registry) in the process.
+- **Rule:** copy a map before changing it (`own()` in `src/transport/mod_registry.js`).

@@ -12,12 +12,11 @@ active_tasks:
   - "TASK-20261030-009-subdivide-code-by-role"
   - "TASK-20261030-013-rl-interface-and-eval-spec"
   - "TASK-20261030-014-schedule-long-running-jobs"
-  - "TASK-20261031-018-ollama-credentials-via-vault"
-  - "TASK-20261031-019-persistent-build-world"
 
-smoke_status: "2026-10-31 (evening) npm test (10 files, incl. tests/test_vault_client.js) PASS on node 20 (docker node:20-slim); intent_check 13/13 on a test copy of the build world. Earlier 2026-10-31: npm test (9 files) PASS. Action-layer benchmark on the live server: 560/560 (runs v3-plain, v3-hard-a/b/c), control 0/140. Earlier: 2026-10-30 npm test (8 files) PASS on node 20.20.2; FAIL at test_e2e_integration on node 22.23.4 (BUGFIX-20261030-002, unchanged). Game side: scripts/rl/verify_game_side.py 20/20 PASS on the live Forge 1.20.1-47.4.10 server (run verify-1793370729)."
+smoke_status: "2026-10-31 (night) npm test (11 files, incl. tests/test_mod_registry_pure.js) PASS on node 20 (docker node:20-slim); intent_check 13/13 on a fresh test copy of the Create build world; live registry probe exact (Create blocks, items, collision); one real LLM call through the vault record. Earlier 2026-10-31: action-layer benchmark 560/560, control 0/140 (vanilla Forge RL server). Earlier: 2026-10-30 FAIL at test_e2e_integration on node 22.23.4 (BUGFIX-20261030-002, unchanged); scripts/rl/verify_game_side.py 20/20 PASS."
 
 recent_changes:
+  - "2026-10-31 (night): TASK-20261031-020. Mod set rebuilt (owner): vanilla + Create 6.0.8 + ModernFix + FerriteCore (client also Embeddium, EntityCulling), sha512-pinned in modpack/forgeaip-create.lock.json; server synced by up.sh, client via .mrpack or modpack/install-client.ps1. Exact mod blocks/items for the bot (src/transport/mod_registry.js + table from tools/registry-dump) replace the heuristic injector and the ping check (L7, L8). npm test 11 files. Vault record ollama/forgeaip saved by the owner and verified (018 done)."
   - "2026-10-31 (evening): TASK-20261031-017/018/019. LLM bot on the new action layer (src/skills_bot.js, intents, generated prompt; live check 13/13); Ollama credentials from the vault (record ollama/forgeaip; owner saves it); persistent build world on the tailnet (100.115.238.9:25565) with snapshots, test copies and the LLM bot. npm test 10 files. Security fix: API-key fragment no longer logged (L5)."
   - "2026-10-31: TASK-20261031-016 action layer rebuilt from player inputs (src/skills, 14 commands, closed failure taxonomy, per-tick trace) with a server-graded benchmark (scripts/skills/bench.js, report.py): 560/560 on the final code, negative control 0/140. npm test now 9 files (tests/test_skills_pure.js, 12 tests incl. 2 reproducers). Spec and measurements: docs/implemented/SKILLS-v1.md. Knowledge-DB: LLM-records/2026-10-31-mineflayer-on-forge-1-20-1-q-f-*, -minecraft-1-20-1-server-with-spawn-animals-false-*, -bot-froze-server-lost-connection-timed-out-*."
   - "2026-10-31: RL baseline run1 recorded (docs-only; no src/ or tests/ change, smoke_status unchanged). DPOD transformer_branch + PPO, action space botsystem_min_pitch, 8 bots on one VPS server: 60 updates, 148,050 steps, 0 successes; evals (64 episodes each) learned 0, learned greedy 0, random 0, scripted 57 (0.89). Speed 26.8 kept steps/s (1 M steps = 10.4 h). The 03:53 reboot was the daily rootwatch window and hit no job; both Claude sessions died there before writing this up. Basis: LLM-records/2026-10-31-rl-baseline-run1-final-evaluations-learning-speed-and-the-03-53-reboot-task.md."
@@ -187,25 +186,38 @@ tasks:
 
   - id: "TASK-20261031-018-ollama-credentials-via-vault"
     created_at: "2026-10-31T17:50:00+09:00"
-    status: "blocked"
+    status: "done"
     description: "Owner request 2026-10-31: Ollama endpoint and token through the credential vault, read with a long-lived credential (replaces TASK-20261030-011)."
     spec_ref: "docs/implemented/WORLD-v1.md#the-llm-bot-in-the-world"
     validation_commands:
       - "docker run --rm --network none -v \"$PWD\":/w -w /w node:20-slim node tests/test_vault_client.js"
       - "curl -s -o /dev/null -w '%{http_code}' https://vault.i-yuki.com/v1/secrets/ollama/forgeaip   # expect 302 without credentials"
-    result: "Built and verified up to the record: Access service token forgeaip-llm-reads-vault (8760 h, broker audit 425, credential in git-ignored config/vault-llm.conf), CLIENT_READ grant to ollama/forgeaip only (MCP-credential-broker de9bcbd, vault version 1e887410, audit 427); live: unauthenticated 302, this client 404 for the unsaved record and for ungranted records. src/vault_client.js + index.js: vault first, .env fallback, re-read every 10 min until found; LLMClient re-reads URL/model per request. Security fix: llm_client logged 8 key characters (docs/LESSONS.md L5). Commit 703dfd19."
-    blockers: ["Owner saves the vault record ollama/forgeaip (value = Ollama API key, field url = endpoint, optional field model) in https://vault.i-yuki.com; the vault has no machine write path by design"]
+    result: "Built and verified up to the record: Access service token forgeaip-llm-reads-vault (8760 h, broker audit 425, credential in git-ignored config/vault-llm.conf), CLIENT_READ grant to ollama/forgeaip only (MCP-credential-broker de9bcbd, vault version 1e887410, audit 427); live: unauthenticated 302, this client 404 for the unsaved record and for ungranted records. src/vault_client.js + index.js: vault first, .env fallback, re-read every 10 min until found; LLMClient re-reads URL/model per request. Security fix: llm_client logged 8 key characters (docs/LESSONS.md L5). Commit 703dfd19. 2026-10-31 night: the owner saved the record (value, url https://ollama.com/api/generate, model gpt-oss:20b); one real call answered in 1.1 s; the running bot switched to it (log: LLM credentials now from the vault)."
+    blockers: []
 
   - id: "TASK-20261031-019-persistent-build-world"
     created_at: "2026-10-31T17:50:00+09:00"
-    status: "in_progress"
+    status: "done"
     description: "Owner request 2026-10-31: a world the owner joins to build ladders, water and mod blocks for the bot, with connection and access management, and reusable customised states."
     spec_ref: "docs/implemented/WORLD-v1.md"
     validation_commands:
       - "scripts/world/up.sh && scripts/world/snapshot.sh --list"
       - "python3 <server-list ping> 100.115.238.9:25565   # tailnet answers; public 25565-25568 closed (nmap -sC from the host)"
     result: "Running: forgeaip-world (Forge 1.20.1-47.4.10, creative flat world in volume forgeaip-world_data, 127.0.0.1:25567), tailscale serve tcp 25565 -> 25567 (tailnet only, broker audit 423), /mnt/data/forgeaip/{mods,snapshots} (audit 422). Snapshots: consistent (save-off + flush), manifest with mod hashes, hourly user timer (24 kept) and before stop/restart/restore; test copies in tmpfs on :25568; copy isolation verified both ways. LLM bot forgeaip-llm-bot in the world (survival), WebUI 127.0.0.1:3020. Commit 157f3218 and later."
-    blockers: ["Owner copies the server mods folder (scp -r E:\\forge1201server\\mods vps:/mnt/data/forgeaip/) and runs scripts/world/restart.sh: 9 of the 39 jars are not on Modrinth under the same file name"]
+    blockers: []
+    # 2026-10-31 night: the owner's mods step is gone; the mod set comes from the lock (TASK-20261031-020).
+
+  - id: "TASK-20261031-020-minimal-mod-set"
+    created_at: "2026-10-31T23:00:00+09:00"
+    status: "done"
+    description: "Owner request 2026-10-31: rebuild the mods for development: vanilla + common optimisation + Create as the only content mod, prerequisites only (a big pack would grow the RL action space)."
+    spec_ref: "docs/implemented/MODPACK-v1.md"
+    validation_commands:
+      - "docker run --rm --network none -v \"$PWD\":/w -w /w node:20-slim npm test"
+      - "scripts/world/registry-dump.sh   # after any lock change; commit modpack/forgeaip-create.registry.json"
+      - "scripts/world/test-up.sh latest && (cd docker/world-server && docker compose --profile check run --rm intent-check)"
+    result: "PASS. Lock: create 6.0.8 (Flywheel/Ponder/Registrate/MixinExtras inside), ModernFix 5.27.91, FerriteCore 6.0.1; client adds Embeddium 0.3.31, EntityCulling 1.11.3. Build world restarted with it (Create 6.0.8 loaded). Bot registry measured before: no name/collision for Create blocks without injection, decorated_pot + dirt->forge:modid4 with the old injector; now exact from the handshake ids + dump table (1,646 blocks, 643 Create, 55,524 states, 699 items, 0 problems): live probe names/items/collision exact, intent-check 13/13 on a fresh Create copy, npm test 11 files. Client: .mrpack on the VPS, install-client.ps1 tested on PowerShell 7.4 (not on Windows PowerShell 5.1). Not done by the owner yet: install the client set."
+    blockers: []
 
   - id: "TASK-20261030-014-schedule-long-running-jobs"
     created_at: "2026-10-30T23:00:00+09:00"

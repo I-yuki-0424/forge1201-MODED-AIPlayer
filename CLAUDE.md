@@ -15,7 +15,7 @@ run `schedule_check`. If `active_tasks` is empty, pick from `docs/proposed/`. Do
 There is **no Node.js on the VPS**. Run Node through the rootless docker (as `coder`, plain `docker`):
 
 ```bash
-# All tests (10 files, must pass before STATE.yaml claims a green state). Node 20 or 22.11; NOT 22.23.4 (docs/LESSONS.md L2).
+# All tests (11 files, must pass before STATE.yaml claims a green state). Node 20 or 22.11; NOT 22.23.4 (docs/LESSONS.md L2).
 docker run --rm --network none -v "$PWD":/w -w /w node:20-slim npm test
 # One file
 docker run --rm --network none -v "$PWD":/w -w /w node:20-slim node tests/test_fml3_handshake_logic_pure.js
@@ -38,7 +38,8 @@ python3 scripts/skills/report.py exchange/b1 --trace 12            # one trial's
 ```
 
 Build world (docs/implemented/WORLD-v1.md): persistent modded server the owner joins over the tailnet (`100.115.238.9:25565`
--> `127.0.0.1:25567`), mods in `/mnt/data/forgeaip/mods`, snapshots in `/mnt/data/forgeaip/snapshots`:
+-> `127.0.0.1:25567`), snapshots in `/mnt/data/forgeaip/snapshots`. Mods: vanilla + Create + optimisation only, pinned in
+`modpack/forgeaip-create.lock.json` (docs/implemented/MODPACK-v1.md); `up.sh` syncs them to `/mnt/data/forgeaip/mods`:
 
 ```bash
 scripts/world/up.sh | down.sh | restart.sh            # build world (restart after copying mods)
@@ -46,6 +47,7 @@ scripts/world/snapshot.sh <label> | --list             # also hourly (user timer
 scripts/world/test-up.sh <label|latest> ; test-down.sh # disposable tmpfs copy on 127.0.0.1:25568 for bots/benchmarks
 scripts/world/restore.sh <label|latest>                # roll the build world back
 scripts/world/bot-up.sh | bot-down.sh                  # the LLM bot (vault record ollama/forgeaip), WebUI 127.0.0.1:3020
+scripts/world/registry-dump.sh                         # after any lock change: rebuild + commit modpack/forgeaip-create.registry.json
 (cd docker/world-server && docker compose --profile check run --rm intent-check)   # live LLM-path check on a test copy
 ```
 
@@ -68,7 +70,9 @@ Copy `.env` values (file is git-ignored; never print or commit it):
 index.js            entry: AgentManager + WebUI (the debug WebSocket :3001 is started by each bot_actuator child)
 src/skills/         the action layer: 14 commands built only from player inputs (body, planner, runner, commands/*), intents.js + llm_prompt.js for the LLM
 src/skills_bot.js   the bot child process on the action layer (default; BOT_RUNTIME=legacy forks bot_actuator.js); src/vault_client.js reads LLM credentials
-src/rl/             RL environment (env, controls, observation, goal, DPOD file-API runner); src/transport/ = login/FML3 factory shared with the actuator
+src/rl/             RL environment (env, controls, observation, goal, DPOD file-API runner); src/transport/ = login/FML3 factory shared with the actuator, mod_registry.js = exact mod blocks/items
+modpack/            the mod set: lock (sha512), pack.py (server sync, .mrpack), install-client.ps1, the bot's block/item table
+tools/registry-dump/  server-only Forge mod (Java) that writes that table on a disposable server
 src/                runtime (agent_manager, bot_actuator + actuator/*, forge_handshake_state_machine, dynamic_registry_injector, middleware, llm_client, web_ui_server)
 tests/              the 10 files run by `npm test` (+ mocks, run_tests.js, smoke.js)
 public/             WebUI (static)
@@ -95,9 +99,12 @@ The system connects a Mineflayer bot to a Minecraft 1.20.1 Forge server, bridgin
 
 Intercepts `login_plugin_request` and acts as a transparent proxy; `fml:loginwrapper` wraps `fml:handshake`. Disc 1 → mod list reply; 3 → buffer registry sync; 4 → Ack; 6 → complete. Emits `handshake_complete` with the buffered registry payload. The trigger is the host suffix `\0FML3\0` (breaks on Node 22.23.4, BUGFIX-20261030-002).
 
-### Modded Block Registry (`src/dynamic_registry_injector.js`)
+### Modded Block Registry (`src/transport/mod_registry.js`; old: `src/dynamic_registry_injector.js`)
 
-Forge remaps state IDs, breaking Prismarine's vanilla registry. It loads `data/sample/configs/mod_blocks_dictionary.json`, parses `namespace:blockname` from handshake buffers, deep-copies vanilla templates for mod blocks, and installs a Proxy on `registry.blocksByStateId` that resolves unknown IDs by binary search to the parent block (no pathfinder crashes).
+Since TASK-20261031-020 the action layer and the RL env install mod blocks and items exactly: block/item ids decoded from the
+handshake's registry sync, state counts, properties and collision boxes from `modpack/forgeaip-create.registry.json`
+(`attachForgeHandshake(bot, {registry: 'auto'})`; vanilla Forge servers are left alone). Vanilla state ids are unchanged on
+Forge; mod states follow in block-id order. The old heuristic below is kept only for the legacy actuator: it loads `data/sample/configs/mod_blocks_dictionary.json`, parses `namespace:blockname` from handshake buffers, deep-copies vanilla templates for mod blocks, and installs a Proxy on `registry.blocksByStateId` that resolves unknown IDs by binary search to the parent block (no pathfinder crashes).
 
 ### Action layer (`src/skills/`, TASK-20261031-016)
 

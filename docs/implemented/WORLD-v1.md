@@ -10,27 +10,19 @@ on disposable copies, never on the build. The LLM-driven bot (`TASK-20261031-017
 | :-- | :-- |
 | Minecraft server address | `100.115.238.9` (port 25565, the default). `vps-160.tailfc1fac.ts.net` also works where MagicDNS resolves |
 | Who can reach it | devices on the owner's tailnet only (PC, phone): `tailscale serve --tcp 25565 tcp://localhost:25567`, the same mechanism as SSH. Not public: the server listens on `127.0.0.1:25567`, the tailnet listener is bound to `tailscale0`; `nmap -sC` of the public IP from the host: 25565-25568 closed |
-| Client | the owner's Forge 1.20.1-47.4.10 modpack (the same jars as the server). Tailscale must be connected on the PC; WARP and Tailscale both use 100.64.0.0/10 (handbook 02 §4) |
+| Client | Forge 1.20.1-47.4.10 with the client set of [MODPACK-v1.md](MODPACK-v1.md). Tailscale must be connected on the PC; WARP and Tailscale both use 100.64.0.0/10 (handbook 02 §4) |
 | Game mode | creative by default for players; `scripts/world/op.sh <name>` gives operator rights for commands |
 | Bots | offline-mode logins (no Microsoft accounts); the bot `AI_Bot_01` is set to survival |
 
 Offline mode means a client on the tailnet can join under any name. That is the same trust boundary as SSH to this host;
 nothing outside the tailnet reaches the port.
 
-## Mods (one step for the owner)
+## Mods
 
-The server needs the owner's own jars: 30 of the 39 files of the README mod list exist on Modrinth under the same file
-name, but Create Big Cannons 5.11.1, its projectile library, Create Sifter, CodeChickenLib, EnderStorage and the four
-`*AllSMP` / StorageBox mods do not, and a mismatch between client and server mod lists makes Forge refuse the login.
-From the PC (PowerShell, touch the YubiKey):
-
-```powershell
-scp -r "E:\forge1201server\mods" vps:/mnt/data/forgeaip/
-ssh vps /home/coder/projects/forge1201-MODED-AIPlayer/scripts/world/restart.sh
-```
-
-The jars are mirrored read-only into the server on every start (removed jars disappear too). `scripts/world/up.sh` prints
-how many it found. Memory: the world runs with a 3 GB heap in a 4 GB container; do not run it next to the RL server
+Since TASK-20261031-020 the world runs the minimal set of [MODPACK-v1.md](MODPACK-v1.md): vanilla + Create +
+optimisation, pinned in `modpack/forgeaip-create.lock.json`. `up.sh` / `restart.sh` sync the server jars from the lock,
+so there is nothing to copy; the client side (a `.mrpack` or `modpack/install-client.ps1`) is described there.
+Memory: the world runs with a 3 GB heap in a 4 GB container; do not run it next to the RL server
 (`scripts/rl/down.sh`) on this 12 GB host.
 
 ## Reuse a built state
@@ -59,7 +51,7 @@ and the security key; the vault has no machine write path by design):
 1. Open https://vault.i-yuki.com, add a record with id `ollama/forgeaip`, kind token.
 2. Value: the Ollama API key. Named values: `url` = the endpoint, `model` = the model (optional, default `gpt-oss:20b-cloud`).
    For Ollama's hosted API the endpoint is `https://ollama.com/api/generate` with a model name without the `-cloud`
-   suffix (e.g. `gpt-oss:20b`); this pairing is not yet verified from here (no key until the record exists).
+   suffix (e.g. `gpt-oss:20b`); verified 2026-10-31 with the saved record (one call, 1.1 s).
 3. Nothing else: the bot re-reads the vault every 10 minutes until it finds the record (log line `[Vault] LLM credentials now from the vault`).
 
 The bot reads with its own Access service token (`forgeaip-llm-reads-vault`, valid one year, in the git-ignored
@@ -70,4 +62,4 @@ Rotate it with `python3 scripts/vault-client.py forgeaip-llm <conf>` through the
 
 `docker/world-server/compose.yaml` (services `world`, `world-test` [profile test], `llm-bot` [bot], `intent-check`
 [check]); `scripts/world/*.sh`, `scripts/world/systemd/*`; volume `forgeaip-world_data` (server, world, Forge install);
-`/mnt/data/forgeaip/mods`, `/mnt/data/forgeaip/snapshots`.
+`/mnt/data/forgeaip/mods` (synced from the lock), `/mnt/data/forgeaip/snapshots`, `/mnt/data/forgeaip/forgeaip-create.mrpack`.
