@@ -68,6 +68,18 @@ const goalCell = (t) => ({ isGoal: (c) => c.x === t.x && c.y === t.y && c.z === 
         assert.strictEqual(G.aimPoints(low, { x: 3, y: 2, z: 0 }, buried.shapesAt).length, 0, 'enclosed block');
     });
 
+    await test('near-full ground (mud, soul sand, dirt path) is solid and the bot on it stands in the cell above (reproducer: LV2 l1-natural, 13 of 24 failures on mud)', () => {
+        const { feetCell } = require('../src/skills/motion');
+        for (const [name, top] of [['mud', 0.875], ['soul_sand', 0.875], ['dirt_path', 0.9375], ['farmland', 0.9375]]) {
+            assert.strictEqual(kindOf({ name, boundingBox: 'block', shapes: [[0, 0, 0, 1, top, 1]] }), 'solid', name);
+        }
+        assert.strictEqual(kindOf({ name: 'chest', boundingBox: 'block', shapes: [[0.0625, 0, 0.0625, 0.9375, 0.875, 0.9375]] }), 'partial');
+        assert.strictEqual(kindOf({ name: 'oak_slab', boundingBox: 'block', shapes: [[0, 0, 0, 1, 0.5, 1]] }), 'partial');
+        assert.deepStrictEqual(feetCell({ x: 3.5, y: 63.875, z: -2.5 }), { x: 3, y: 64, z: -3 });     // on mud at y 63
+        assert.deepStrictEqual(feetCell({ x: 3.5, y: 64, z: -2.5 }), { x: 3, y: 64, z: -3 });         // on a full block
+        assert.deepStrictEqual(feetCell({ x: 3.5, y: 63.5, z: -2.5 }), { x: 3, y: 63, z: -3 });       // on a bottom slab: unchanged
+    });
+
     await test('world kinds: full cube solid, other shapes partial, liquids and hazards apart', () => {
         assert.strictEqual(kindOf({ name: 'stone', boundingBox: 'block', shapes: CUBE }), 'solid');
         assert.strictEqual(kindOf({ name: 'oak_slab', boundingBox: 'block', shapes: [[0, 0, 0, 1, 0.5, 1]] }), 'partial');

@@ -10,7 +10,8 @@ const STUCK_TICKS = 30;        // no progress for this long -> replan
 const MAX_REPLANS = 5;
 const LOOKAHEAD = 8;
 
-const feetCell = (p) => ({ x: Math.floor(p.x), y: Math.floor(p.y + 1e-6), z: Math.floor(p.z) });
+// +0.2: on near-full ground (mud: top at 0.875) the feet are in the cell above it; on a bottom slab (0.5) they stay in its cell.
+const feetCell = (p) => ({ x: Math.floor(p.x), y: Math.floor(p.y + 0.2), z: Math.floor(p.z) });
 const centre = (c) => ({ x: c.x + 0.5, y: c.y, z: c.z + 0.5 });
 const hdist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 const same = (a, b) => a.x === b.x && a.y === b.y && a.z === b.z;
@@ -82,7 +83,7 @@ async function walk(ctx, goal, { sprint = true } = {}) {
             }
             if (r.partial && r.path.length === 1) throw new SkillError('unreachable', { goal: goal.label, expanded: r.expanded });
             path = r.path; idx = 0; best = Infinity; lastGain = ctx.t;
-            ctx.phase('walk', { nodes: path.length, partial: r.partial, to: path[path.length - 1] });
+            ctx.phase('walk', { nodes: path.length, partial: r.partial, to: path[path.length - 1], cells: path.map((n) => [n.x, n.y, n.z]) });
         }
         // Where are we on the path? Accept the current node or any of the next few.
         let k = -1;

@@ -9,7 +9,7 @@ const LIQUID = new Set(['water', 'lava', 'bubble_column']);
 const INTERACTIVE = /(^|_)(chest|barrel|crafting_table|furnace|smoker|door|trapdoor|fence_gate|lever|button|bed|anvil|shulker_box|hopper|dispenser|dropper|brewing_stand|enchanting_table|loom|grindstone|stonecutter|cartography_table|smithing_table|note_block|repeater|comparator|daylight_detector|bell|lectern|composter|cake|beacon)$/;
 
 /**
- * Walking kind of a block: 'air' (walk through), 'solid' (full collision box: stand on it), 'liquid', 'danger'
+ * Walking kind of a block: 'air' (walk through), 'solid' (full or near-full collision box: stand on it), 'liquid', 'danger'
  * (never step in or on), 'partial' (some other collision shape: slabs, fences, closed doors; treated as an obstacle),
  * 'unknown' (chunk not loaded).
  */
@@ -19,7 +19,9 @@ function kindOf(block) {
     if (LIQUID.has(block.name)) return 'liquid';
     if (block.boundingBox === 'empty') return 'air';
     const s = block.shapes || [];
-    if (s.length === 1 && s[0][0] <= 0 && s[0][1] <= 0 && s[0][2] <= 0 && s[0][3] >= 1 && s[0][4] >= 1 && s[0][5] >= 1) return 'solid';
+    // A full cube, or one box over the whole cell up to >= 0.8 (mud, soul sand, dirt path, farmland): the bot stands on
+    // top of it in the cell above (motion.feetCell), so for walking it is ground like a full block.
+    if (s.length === 1 && s[0][0] <= 0 && s[0][1] <= 0 && s[0][2] <= 0 && s[0][3] >= 1 && s[0][4] >= 0.8 && s[0][5] >= 1) return 'solid';
     return 'partial';
 }
 
