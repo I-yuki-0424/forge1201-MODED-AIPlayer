@@ -129,6 +129,20 @@ test('progress: dawn after a lived night; slept only when in bed at the skip; a 
     assert.deepStrictEqual((await t.collect()).events, [{ type: 'death' }]);
 });
 
+test('progress: raw advancements packets from the Create server (transport leaves them unparsed) grant and revoke', async () => {
+    const fs = require('fs'), path = require('path');
+    const raw = (n) => fs.readFileSync(path.join(__dirname, 'fixtures', `advancements-${n}.bin`));
+    const bot = fakeBot(), t = new ProgressTracker(bot);
+    await t.begin();
+    for (const n of ['join', 'grant-mine_stone']) bot._client.emit('advancements', raw(n));
+    const got = (await t.collect()).events.map((e) => e.id).sort();
+    assert.deepStrictEqual(got, ['minecraft:story/mine_stone']);   // 'grant only': the others arrive as visible, not done
+    bot._client.emit('advancements', raw('revoke'));
+    bot._client.emit('advancements', Buffer.from([1, 2, 3]));
+    assert.strictEqual(t.advErrors, 1);
+    assert.ok(!t.criteria.has('minecraft:story/mine_stone'));
+});
+
 function worldBot() {
     const bot = fakeBot(), reg = bot.registry;
     const blocks = new Map();

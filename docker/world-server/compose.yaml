@@ -191,7 +191,82 @@ services:
     entrypoint: ["node", "scripts/skills/bench.js"]
     networks: [world]
 
+  # ---- RL training (docs/proposed/RL-TRAINING-v2.md, scripts/train/*.sh) --------------------------------------------
+  # The training world takes the build world's place on 127.0.0.1:25567, so the owner watches it over the same tailnet
+  # route (100.115.238.9:25565) and no new listener exists; scripts/train/up.sh stops the build world first (memory).
+  # Survival, normal difficulty, structures (strongholds, fortresses, monuments, villages), natural spawning, day cycle.
+  train:
+    <<: *server
+    profiles: [train]
+    container_name: forgeaip-train
+    restart: unless-stopped
+    mem_limit: 4g
+    cpus: 3
+    environment:
+      <<: *env
+      LEVEL_TYPE: minecraft:normal
+      SEED: ${TRAIN_SEED:-20261101}
+      GENERATE_STRUCTURES: "true"
+      MODE: survival
+      FORCE_GAMEMODE: "false"
+      DIFFICULTY: normal
+      ALLOW_NETHER: "true"
+      ALLOW_FLIGHT: "true"
+      MOTD: "forgeaip RL training world"
+    volumes:
+      - train-data:/data
+      - /mnt/data/forgeaip/mods:/mods:ro
+    ports:
+      - "127.0.0.1:25567:25565"
+
+  # The environment: N bots on the skill-level action space (src/rl/run_skill_env.js). A restart is a new run_id;
+  # <base>.current tells the learner which one is live.
+  train-env:
+    image: node@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0
+    profiles: [train]
+    container_name: forgeaip-train-env
+    restart: unless-stopped
+    working_dir: /app
+    mem_limit: 2g
+    cpus: 1.5
+    environment:
+      MC_HOST: train
+      MC_PORT: "25565"
+      RCON_HOST: train
+      RCON_PORT: "25575"
+      RCON_PASSWORD: ${RCON_PASSWORD:?run scripts/world/up.sh}
+      BOT_REGISTRY: auto
+    volumes:
+      - ../..:/app:ro
+      - ../../exchange:/exchange
+    command: ["node", "src/rl/run_skill_env.js", "--base", "${TRAIN_BASE:-train}", "--bots", "${TRAIN_BOTS:-4}", "--max-steps", "${TRAIN_MAX_STEPS:-20000}", "--seed", "${TRAIN_ENV_SEED:-1}"]
+    networks: [world]
+
+  # The policy and learner: DPOD's Truck derivative on demand + asynchronous PPO with the two-stage curriculum
+  # (DPOD scripts/botsystem_skill_ppo.py). Checkpoints in exchange/<base>/train; a restart resumes from the last one.
+  train-policy:
+    image: python:3.12-slim
+    profiles: [train]
+    container_name: forgeaip-train-policy
+    restart: unless-stopped
+    ulimits:
+      core: 0              # JAX threads abort at interpreter exit; no 1 GiB core files
+    mem_limit: 2500m
+    cpus: 2
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      XLA_FLAGS: --xla_cpu_multi_thread_eigen=false intra_op_parallelism_threads=2
+    volumes:
+      - rl-jaxvenv:/venv:ro
+      - ${DPOD_DIR:-../../../Decision-Process-order-driven}:/dpod:ro
+      - ../../exchange:/x
+    command: ["/venv/bin/python", "/dpod/scripts/botsystem_skill_ppo.py", "--root", "/x", "--base", "${TRAIN_BASE:-train}", "--learn", "${TRAIN_LEARN:-1}", "--seed", "${TRAIN_POLICY_SEED:-42}"]
+    network_mode: none
+
 volumes:
+  rl-jaxvenv:
+    external: true
+  train-data:
   data:
   test-data:
   check-logs:

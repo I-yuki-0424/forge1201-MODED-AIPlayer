@@ -1,0 +1,6 @@
+[Unit]
+Description=forgeaip RL training: renew the maint-hold lease while the learner runs
+
+[Service]
+Type=oneshot
+ExecStart=%h/projects/forge1201-MODED-AIPlayer/scripts/train/hold.sh

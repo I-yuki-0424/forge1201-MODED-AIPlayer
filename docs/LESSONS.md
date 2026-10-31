@@ -87,3 +87,19 @@ the knowledge-DB (tag `forge1201-moded-aiplayer`).
   (`bench_lv2.js --pregen 1`, 36 views in 4-6 min). Bots then only load stored chunks. Do not park bots in spectator mode
   while they wait: players in the world see them hanging there.
 
+
+## L11 — The advancements packet never reaches the bot parsed (found 2026-11-01)
+
+- `src/transport/forge_bot.js` turns `advancements` (with `declare_recipes`, `tags`, ...) into a raw `restBuffer` since
+  2026-03 (it desynced on a modded server then). Anything listening for advancements gets a Buffer, not fields; RL v2's
+  first smoke run graded no advancement at all while RCON confirmed the grant.
+- **Rule:** read such packets from the raw bytes with the unmodified schema, guarded, where they are needed
+  (`parseAdvancements` in `src/rl/progress.js`, fixtures in `tests/fixtures/`), instead of removing the bypass for every bot.
+
+## L12 — spreadplayers "succeeds" into shallow water (found 2026-11-01)
+
+- On natural terrain `spreadplayers` refuses ocean sites ("Could not spread ...") but can still place a player in 1-deep
+  water. The action layer cannot swim, so every command from there ends `unreachable`. With RCON feedback off, the refusal
+  was also silently ignored and the bot stayed where it was.
+- **Rule:** check the reply (`^Spread`) and that the bot stands dry and `standable` after the teleport; draw another site
+  otherwise (`reset` in `src/rl/run_skill_env.js`).

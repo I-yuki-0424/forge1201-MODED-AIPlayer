@@ -10,6 +10,26 @@ const STAT_TYPES = ['minecraft:mined', 'minecraft:crafted', 'minecraft:used', 'm
     'minecraft:dropped', 'minecraft:killed', 'minecraft:killed_by', 'minecraft:custom'];
 const NIGHT_START = 12542, NIGHT_END = 23460;   // ticks of the day in which a bed can be used
 
+// src/transport/forge_bot.js leaves the advancements packet unparsed (restBuffer: it desynced on modded servers in 2026-03).
+// Here it is parsed from the raw bytes with the unmodified 1.20 schema, guarded: a packet that does not parse is counted
+// (tracker.advErrors) and skipped, never fatal. Verified on the Create server 2026-11-01 (grant, progress and revoke).
+let advParser = null;
+function parseAdvancements(buf) {
+    if (!advParser) {
+        const fs = require('fs'), path = require('path');
+        const { ProtoDefCompiler } = require('protodef').Compiler;
+        const file = path.join(path.dirname(require.resolve('minecraft-data')), 'minecraft-data/data/pc/1.20/protocol.json');
+        const c = new ProtoDefCompiler();
+        c.addTypes(require('minecraft-protocol/src/datatypes/compiler-minecraft'));
+        c.addProtocol(JSON.parse(fs.readFileSync(file, 'utf8')), ['play', 'toClient']);
+        require('prismarine-nbt').addTypesToCompiler('big', c);
+        advParser = c.compileProtoDefSync();
+    }
+    const r = advParser.read(buf, 0, 'packet_advancements', {});
+    if (r.size !== buf.length) throw new Error(`advancements: parsed ${r.size} of ${buf.length} bytes`);
+    return r.value;
+}
+
 function inverse(sync, name) {
     const m = sync && sync.get(name);
     return m ? new Map([...m].map(([k, v]) => [v, k])) : null;
@@ -33,7 +53,11 @@ class ProgressTracker {
         this.pending = []; this.statsWaiters = []; this.baseline = null; this.last = new Map();
         this.sleepStart = null; this.lastWake = null; this.sawNight = false; this.day = null; this.dead = false;
         const c = bot._client;
-        c.on('advancements', (p) => this._onAdvancements(p));
+        this.advErrors = 0;
+        c.on('advancements', (p) => {
+            const raw = Buffer.isBuffer(p) ? p : p && Buffer.isBuffer(p.restBuffer) ? p.restBuffer : null;
+            try { this._onAdvancements(raw ? parseAdvancements(raw) : p); } catch { this.advErrors++; }
+        });
         c.on('statistics', (p) => { const w = this.statsWaiters; this.statsWaiters = []; for (const f of w) f(p.entries); });
         bot.on('time', () => this._onTime());
         bot.on('sleep', () => { this.sleepStart = Date.now(); });
@@ -119,4 +143,4 @@ class ProgressTracker {
     }
 }
 
-module.exports = { ProgressTracker, complete, STAT_TYPES, NIGHT_START, NIGHT_END };
+module.exports = { ProgressTracker, complete, parseAdvancements, STAT_TYPES, NIGHT_START, NIGHT_END };

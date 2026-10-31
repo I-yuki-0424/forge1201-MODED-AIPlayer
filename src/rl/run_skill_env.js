@@ -16,6 +16,7 @@ const { LineWriter, LineReader } = require('./jsonl_channel');
 const { EventLog } = require('./events');
 const { mulberry32 } = require('./run_env');
 const { execute } = require('../skills');
+const { fromBot, standable } = require('../skills/world');
 const { ProgressTracker } = require('./progress');
 const { CrafterReward, TABLE, TERMS, MILESTONES, NOTABLE } = require('./crafter_reward');
 const { SkillSpace, vocab, obsSpec, actionSpec, K, CMDS, REASON_LIST } = require('./skill_space');
@@ -165,11 +166,24 @@ async function main() {
 
     async function reset(bot, name, rng) {
         if (bot.health <= 0) { try { bot.respawn(); } catch { /* auto-respawn */ } await sleep(1500); }
-        const R = o.region - 64, cx = Math.round((rng() * 2 - 1) * R), cz = Math.round((rng() * 2 - 1) * R);
         for (const c of [`gamemode survival ${name}`, `advancement revoke ${name} everything`, `clear ${name}`, `effect clear ${name}`,
-            `xp set ${name} 0 levels`, `xp set ${name} 0 points`, `spreadplayers ${cx} ${cz} 0 24 false ${name}`]) await cmd(c);
-        const pos = bot.entity.position.clone();
-        for (let t = 0; t < 200 && bot.entity.position.distanceTo(pos) < 1; t++) await sleep(50);   // the teleport arrived
+            `xp set ${name} 0 levels`, `xp set ${name} 0 points`]) await cmd(c);
+        // spreadplayers refuses sites without safe ground (ocean: "Could not spread") and may still land in shallow water,
+        // where the action layer cannot act (no swimming, SKILLS-v1 limits): draw another site until the bot stands dry.
+        const R = o.region - 64, w = fromBot(bot);
+        let why = '';
+        for (let i = 0; i < 30; i++) {
+            const pos = bot.entity.position.clone();
+            const reply = String(await cmd(`spreadplayers ${Math.round((rng() * 2 - 1) * R)} ${Math.round((rng() * 2 - 1) * R)} 0 24 false ${name}`));
+            if (!/^Spread/.test(reply)) { why = reply.slice(0, 120); continue; }
+            for (let t = 0; t < 200 && bot.entity.position.distanceTo(pos) < 1; t++) await sleep(50);   // the teleport arrived
+            for (let t = 0; t < 100 && !bot.blockAt(bot.entity.position.offset(0, -1, 0)); t++) await sleep(50);   // its chunk too
+            await sleep(300);
+            const p = bot.entity.position, x = Math.floor(p.x), y = Math.floor(p.y + 0.2), z = Math.floor(p.z);
+            if (!bot.entity.isInWater && standable(w, x, y, z)) { why = ''; break; }
+            why = 'landed in water or not on dry ground';
+        }
+        if (why) throw new Error(`reset: no dry site in 30 tries (${why})`);
         for (let t = 0; t < 200 && bot.inventory.items().length; t++) await sleep(50);
         await sleep(500);
         await cmd(`spawnpoint ${name} ${Math.floor(bot.entity.position.x)} ${Math.floor(bot.entity.position.y)} ${Math.floor(bot.entity.position.z)}`);
