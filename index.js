@@ -1,6 +1,7 @@
 const AgentManager  = require('./src/agent_manager');
 const ConfigRAGParser = require('./src/config_rag_parser');
 const WebUIServer   = require('./src/web_ui_server');
+const { loadLlmCredentials } = require('./src/vault_client');
 const sentry        = require('./src/sentry_reporter');
 const path = require('path');
 const readline = require('readline');
@@ -95,6 +96,18 @@ async function main() {
     const configParser = new ConfigRAGParser(configDir);
     configParser.parseServerConfigs();
     console.log(configParser.generateLLMPromptContext());
+
+    // 3. LLM endpoint and key: the owner's vault first (record ollama/forgeaip), .env as the fallback (src/vault_client.js).
+    const vault = await loadLlmCredentials({ file: process.env.VAULT_CONF || path.join(__dirname, 'config', 'vault-llm.conf') });
+    console.log(`[Vault] LLM credentials from ${vault.source}${vault.fields.length ? ` (${vault.fields.join(', ')})` : ''}${vault.why ? `: ${vault.why}` : ''}`);
+    // Re-read so a saved or rotated key reaches the running bot (LLMClient reads OLLAMA_API_KEY per request): every 10 min
+    // while the record is missing, every 6 h once it was read.
+    let vaultLoaded = vault.source === 'vault';
+    setInterval(async () => {
+        const r = await loadLlmCredentials({ file: process.env.VAULT_CONF || path.join(__dirname, 'config', 'vault-llm.conf') }).catch(() => null);
+        if (r && r.source === 'vault' && !vaultLoaded) console.log(`[Vault] LLM credentials now from the vault (${r.fields.join(', ')})`);
+        vaultLoaded = vaultLoaded || (r && r.source === 'vault');
+    }, 10 * 60 * 1000).unref();
 
     console.log(`Starting Agent Manager...`);
     console.log(`Target Server: ${host}:${port}`);

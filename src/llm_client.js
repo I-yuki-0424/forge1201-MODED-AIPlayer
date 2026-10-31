@@ -38,7 +38,12 @@ function resolveWslUrl(url) {
 }
 
 class LLMClient {
-    constructor(model = process.env.OLLAMA_MODEL || 'gpt-oss:20b-cloud', url = process.env.OLLAMA_URL || 'http://localhost:11434/api/generate') {
+    constructor(model, url) {
+        // Configured from the environment unless given: then OLLAMA_URL / OLLAMA_MODEL are re-read per request, so values
+        // loaded from the vault after start-up (index.js) take effect without a restart.
+        this.fromEnv = model === undefined && url === undefined;
+        model = model || process.env.OLLAMA_MODEL || 'gpt-oss:20b-cloud';
+        url = url || process.env.OLLAMA_URL || 'http://localhost:11434/api/generate';
         this.model = model;
         this.url = url; // Use URL exactly as provided, bypassing WSL remapping per user request
         this.lastError = '';
@@ -134,6 +139,10 @@ class LLMClient {
 
     async generateAction(prompt) {
         this.lastError = '';
+        if (this.fromEnv) {
+            this.url = process.env.OLLAMA_URL || this.url;
+            this.model = process.env.OLLAMA_MODEL || this.model;
+        }
         try {
             const headers = { 'Content-Type': 'application/json' };
             // Strip BOM, control chars, and surrounding whitespace — invisible
@@ -148,7 +157,8 @@ class LLMClient {
                 : 'Bearer';
             if (apiKey) {
                 headers['Authorization'] = authScheme ? `${authScheme} ${apiKey}` : apiKey;
-                console.log(`[LLMClient] Auth: ${authScheme || '<no prefix>'} ${apiKey.substring(0, 8)}...`);
+                // Never any part of the key itself (MASTER_GUIDANCE safeguards: no token in logs).
+                console.log(`[LLMClient] Auth: ${authScheme || '<no prefix>'} <key set, ${apiKey.length} chars>`);
             }
 
             const timeoutMsRaw = Number(process.env.OLLAMA_TIMEOUT_MS || 45000);
@@ -204,7 +214,7 @@ class LLMClient {
                 const body = await response.text().catch(() => '');
                 if (response.status === 401) {
                     const hint = apiKey
-                        ? `Sent: "${authScheme || '<no prefix>'} ${apiKey.substring(0, 8)}...". ` +
+                        ? `Sent scheme "${authScheme || '<no prefix>'}" with a ${apiKey.length}-character key. ` +
                           `If the scheme is wrong, set OLLAMA_AUTH_SCHEME in .env (e.g. ApiKey, Token, or "" for no prefix).`
                         : `No key found — set OLLAMA_API_KEY in .env.`;
                     throw new Error(`LLM HTTP 401 Unauthorized. ${hint}`);

@@ -34,7 +34,7 @@ class AgentManager {
         this.botConnOptions = new Map(); // Preserves host/port so restarts reconnect to the same server
         this.restartingBots = new Set();
         this.restartTimers = new Map(); // Map of botId to pending restart setTimeout handle
-        this.llm = new LLMClient(process.env.OLLAMA_MODEL || 'gpt-oss:20b-cloud');
+        this.llm = new LLMClient();
         this.activeLlmRequests = new Map(); // Concurrency control
         this.chatQueue = new Map(); // Map of botId to array of queued messages
         this.llmCooldown = new Map(); // Map of botId to timestamp of next allowed LLM request

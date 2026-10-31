@@ -117,6 +117,34 @@ services:
     entrypoint: ["node", "scripts/skills/intent_check.js"]
     networks: [world]
 
+  # The LLM-driven bot (index.js: AgentManager + skills_bot) in the build world. LLM endpoint and key from the vault
+  # (config/vault-llm.conf -> record ollama/forgeaip). WebUI unauthenticated: loopback only (docs/LESSONS.md L3).
+  llm-bot:
+    image: node@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0
+    profiles: [bot]
+    container_name: forgeaip-llm-bot
+    restart: unless-stopped
+    working_dir: /app
+    mem_limit: 768m
+    cpus: 1
+    depends_on:
+      world:
+        condition: service_healthy
+    environment:
+      MC_HOST: world
+      MC_PORT: "25565"
+      BOT_NAMES: ${LLM_BOT_NAMES:-AI_Bot_01}
+      BOT_RUNTIME: skills
+      VAULT_CONF: /run/vault-llm.conf
+      WEBUI_PORT: "3000"
+    volumes:
+      - ../..:/app
+      - ../../config/vault-llm.conf:/run/vault-llm.conf:ro
+    ports:
+      - "127.0.0.1:3020:3000"     # host 3000 is the honeypot Grafana
+    entrypoint: ["node", "index.js"]
+    networks: [world]
+
 volumes:
   data:
   test-data:
