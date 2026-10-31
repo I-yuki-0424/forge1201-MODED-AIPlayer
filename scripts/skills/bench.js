@@ -440,10 +440,19 @@ async function resetArena(S, bot, A, rng) {
     await waitFor('health and food', () => bot.health >= 19.9 && bot.food >= 20);
     await waitFor('arena', () => bot.blockAt(new Vec3(A.cx + 3, GY + 1, A.cz))?.name === 'air' && bot.blockAt(new Vec3(A.cx + 3, GY, A.cz))?.name === 'grass_block');
     await waitFor('landed', () => bot.entity.onGround);
-    // Killed mobs stay in the world for their 20-tick death animation (and on the client until the server removes them);
-    // a scenario must not start with last trial's mobs still there (bench v1-hard-a #62: a dying decoy slime in the way).
-    await waitFor('arena entities removed', () => !Object.values(bot.entities).some((e) => e !== bot.entity && e.type !== 'player'
-        && Math.abs(e.position.x - A.cx) <= R + 24 && Math.abs(e.position.z - A.cz) <= R + 24));
+    // Killed mobs stay in the world for their 20-tick death animation (and on the client until the server removes them),
+    // and late items can appear after the kill (measured in bench v2: an item entity spawned after it). A scenario must
+    // not start with leftovers (bench v1-hard-a #62: a dying decoy slime in the way), so kill until the client sees none.
+    const centre = new Vec3(A.cx, GY, A.cz);
+    const lingering = () => Object.values(bot.entities).find((e) => e !== bot.entity && e.type !== 'player' && e.position.distanceTo(centre) <= R + 20);
+    for (let round = 0; ; round++) {
+        try { await waitFor('arena entities removed', () => !lingering(), 1500); break; } catch (err) {
+            const e = lingering();
+            if (!e) break;
+            if (round >= 4) throw new Error(`${err.message}: ${e.name}${e.name === 'item' ? `(${e.getDroppedItem()?.name})` : ''} #${e.id} at ${e.position.floored()}`);
+            await S.cmd(`kill @e[type=!player,x=${A.cx},y=${GY},z=${A.cz},distance=..${R + 24}]`);
+        }
+    }
 }
 
 async function main() {
