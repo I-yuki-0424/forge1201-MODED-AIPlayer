@@ -130,17 +130,36 @@ function reachGoal(w, cell, { reach = BLOCK_REACH - 0.4, face = null, ok = () =>
     };
 }
 
+// Aim only at points this far inside the reach: the bot may still drift a few centimetres after it stops.
+const AIM_REACH = BLOCK_REACH - 0.3;
+
+/**
+ * Walk to a goal from `makeGoal(reach, ok)` until `visible()` returns something from where the bot actually stands.
+ * Goals are judged from the cell centre, the bot stands near it (settle) but not exactly on it: when the target is not
+ * visible from the real eye (bench final-hard-a: 4 of 140, just out of reach or cut by a wall), re-approach once with a
+ * tighter reach and a different cell.
+ */
+async function approachUntil(ctx, makeGoal, visible, label) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+        const here = feetCell(ctx.bot.entity.position);
+        const g = makeGoal(BLOCK_REACH - 0.4 - 0.8 * attempt, attempt ? (c) => !same(c, here) : () => true);
+        if (attempt || !(ctx.bot.entity.onGround && g.isGoal(here))) {
+            ctx.phase(attempt ? 'reapproach' : 'approach', { target: label });
+            await follow(ctx, { ...g, settle: true });
+        }
+        const v = visible();
+        if (v) return v;
+    }
+    throw new SkillError('not_visible', { target: label, from: feetCell(ctx.bot.entity.position) });
+}
+
 /** Get within reach of the block at `cell` (no movement if already there). Returns the aim points from where it stands. */
 async function approachBlock(ctx, cell, opts = {}) {
-    const here = feetCell(ctx.bot.entity.position);
-    const g = reachGoal(ctx.world, cell, opts);
-    if (!(ctx.bot.entity.onGround && g.isGoal(here))) {
-        ctx.phase('approach', { target: cell });
-        await follow(ctx, g, { sprint: true });
-    }
-    const pts = aimPoints(ctx.body.eye(), cell, ctx.world.shapesAt, { face: opts.face ?? null });
-    if (!pts.length) throw new SkillError('not_visible', { target: cell, from: feetCell(ctx.bot.entity.position) });
-    return pts;
+    const ok = opts.ok || (() => true);
+    return approachUntil(ctx, (reach, ok2) => reachGoal(ctx.world, cell, { ...opts, reach, ok: (c) => ok(c) && ok2(c) }), () => {
+        const pts = aimPoints(ctx.body.eye(), cell, ctx.world.shapesAt, { face: opts.face ?? null, reach: AIM_REACH });
+        return pts.length ? pts : null;
+    }, cell);
 }
 
 /**
@@ -148,14 +167,18 @@ async function approachBlock(ctx, cell, opts = {}) {
  * Returns the crosshair hit. Throws not_visible when no point works.
  */
 async function aimAtBlock(ctx, cell, { face = null, frame = {} } = {}) {
-    const pts = aimPoints(ctx.body.eye(), cell, ctx.world.shapesAt, { face, limit: 5 });
+    const pts = aimPoints(ctx.body.eye(), cell, ctx.world.shapesAt, { face, limit: 5, reach: AIM_REACH });
+    const seen = [];        // what the crosshair hit instead, for the failure detail
     for (const p of pts) {
         const { yaw, pitch } = lookAngles(ctx.body.eye(), p.point);
         await ctx.tick({ ...frame, yaw, pitch });
         const hit = ctx.body.crosshair();
         if (hit && hit.kind === 'block' && same(hit.block.position, cell) && (face === null || hit.face === face)) return hit;
+        const r2 = (v) => Math.round(v * 100) / 100;
+        seen.push(!hit ? { hit: null, aim_dist: r2(p.dist) } : hit.kind === 'entity' ? { hit: 'entity', name: hit.entity.name, id: hit.entity.id, dist: r2(hit.dist) }
+            : { hit: 'block', name: hit.block.name, at: [hit.block.position.x, hit.block.position.y, hit.block.position.z], face: hit.face, dist: r2(hit.dist), aim_dist: r2(p.dist) });
     }
-    throw new SkillError('not_visible', { target: cell, tried: pts.length });
+    throw new SkillError('not_visible', { target: cell, tried: pts.length, seen });
 }
 
-module.exports = { follow, cellGoal, reachGoal, approachBlock, aimAtBlock, feetCell, centre, hdist, same, eyeOf, clearLine };
+module.exports = { follow, cellGoal, reachGoal, approachUntil, approachBlock, aimAtBlock, AIM_REACH, feetCell, centre, hdist, same, eyeOf, clearLine };

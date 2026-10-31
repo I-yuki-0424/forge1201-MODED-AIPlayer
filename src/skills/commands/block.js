@@ -4,7 +4,7 @@
 const { SkillError } = require('../runner');
 const { standable, isInteractive } = require('../world');
 const { FACES, lookAngles, aimPoints, viewDir, raycast } = require('../geometry');
-const { follow, cellGoal, reachGoal, approachBlock, aimAtBlock, feetCell, centre, hdist, same } = require('../motion');
+const { follow, cellGoal, reachGoal, approachUntil, approachBlock, aimAtBlock, feetCell, centre, hdist, same, AIM_REACH } = require('../motion');
 const { holdItem, count } = require('./item');
 const { collectDrops } = require('./entity');
 
@@ -121,11 +121,12 @@ async function place(ctx, { x, y, z, item }) {
     if (count(bot, item) < 1) throw new SkillError('missing_item', { item });
     const refs = supports(w, cell);
     if (!refs.length) throw new SkillError('invalid_target', { why: 'no solid neighbour to place against', target: cell });
-    const goals = refs.map((r) => reachGoal(w, r.cell, { face: r.face }));
     const free = (c) => !(c.x === x && c.z === z && (c.y === y || c.y + 1 === y));
-    const goal = { isGoal: (c) => free(c) && goals.some((g) => g.isGoal(c)), h: (c) => Math.min(...goals.map((g) => g.h(c))), label: 'reach placement face' };
-    const here = feetCell(bot.entity.position);
-    if (!(bot.entity.onGround && goal.isGoal(here))) { ctx.phase('approach', { target: cell }); await follow(ctx, goal); }
+    const seen = () => refs.filter((r) => aimPoints(ctx.body.eye(), r.cell, w.shapesAt, { face: r.face, limit: 1, reach: AIM_REACH }).length);
+    await approachUntil(ctx, (reach, ok2) => {
+        const goals = refs.map((r) => reachGoal(w, r.cell, { face: r.face, reach }));
+        return { isGoal: (c) => free(c) && ok2(c) && goals.some((g) => g.isGoal(c)), h: (c) => Math.min(...goals.map((g) => g.h(c))), label: 'reach placement face' };
+    }, () => (seen().length ? true : null), cell);
     await holdItem(ctx, item);
     // Step to the centre of the own cell if the body pokes into the target cell (the server refuses to place into a player).
     const mid = centre(feetCell(bot.entity.position));
@@ -137,9 +138,7 @@ async function place(ctx, { x, y, z, item }) {
     }
     const placed = () => w.blockAt(x, y, z)?.name === item;
     let tried = 0;
-    for (const r of refs) {
-        const eye = ctx.body.eye();
-        if (!aimPoints(eye, r.cell, w.shapesAt, { face: r.face, limit: 1 }).length) continue;
+    for (const r of seen()) {
         const sneak = r.interactive;           // sneak-click places against chests, tables, ... instead of opening them
         ctx.phase('place', { against: r.cell, face: r.face, sneak });
         let hit;
