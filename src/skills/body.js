@@ -71,8 +71,8 @@ class Body {
             const v = !!frame[k];
             if (b.getControlState(k) !== v) b.setControlState(k, v);
         }
-        if (frame.drop) this._send('block_dig', { status: frame.drop === 'stack' ? 3 : 4, location: { x: 0, y: 0, z: 0 }, face: 0, sequence: 0 });
-        if (frame.swap) this._send('block_dig', { status: 6, location: { x: 0, y: 0, z: 0 }, face: 0, sequence: 0 });
+        if (frame.drop) this._dropHeld(frame.drop === 'stack');
+        if (frame.swap) this._swapHands();
         this._attack(!!frame.attack, !prev.attack);
         this._use(!!frame.use, !prev.use);
         this.prev = { ...frame };
@@ -85,6 +85,23 @@ class Body {
     }
 
     _send(name, data) { this.bot._client.write(name, data); }
+
+    // Q and F change the inventory on the server without a slot update back (the vanilla client predicts them; measured
+    // 2026-10-31: after Q the server had 40 of 41 dirt and sent nothing). The client copy is updated here the same way.
+    _dropHeld(stack) {
+        const inv = this.bot.inventory, slot = inv.hotbarStart + this.bot.quickBarSlot, item = inv.slots[slot];
+        this._send('block_dig', { status: stack ? 3 : 4, location: { x: 0, y: 0, z: 0 }, face: 0, sequence: 0 });
+        if (!item) return;
+        if (stack || item.count <= 1) inv.updateSlot(slot, null);
+        else { item.count--; inv.updateSlot(slot, item); }
+    }
+
+    _swapHands() {
+        const inv = this.bot.inventory, main = inv.hotbarStart + this.bot.quickBarSlot, off = 45;
+        this._send('block_dig', { status: 6, location: { x: 0, y: 0, z: 0 }, face: 0, sequence: 0 });
+        const a = inv.slots[main], b = inv.slots[off];
+        inv.updateSlot(main, b); inv.updateSlot(off, a);
+    }
 
     _cancelDig() {
         if (!this.dig) return;

@@ -102,6 +102,7 @@ async function toss(ctx, { item, count: n }) {
     while (count(bot, item) > target) {
         await holdItem(ctx, item);
         const before = count(bot, item), inHand = bot.heldItem.count, left = before - target;
+        ctx.phase('drop', { in_hand: inHand, left });
         await ctx.tick({ drop: left >= inHand ? 'stack' : 'one' });
         await ctx.until(() => count(bot, item) < before, 20);
     }

@@ -11,6 +11,10 @@ const FUEL = { coal: 8, charcoal: 8, coal_block: 80, blaze_rod: 12, lava_bucket:
 const fuelValue = (name) => FUEL[name] ?? (/_planks$|_log$|_wood$|_stem$/.test(name) ? 1.5 : 0);
 const CONTAINERS = /^(chest|trapped_chest|barrel)$/;
 
+const inContainer = (win, id) => win.containerItems().reduce((s, i) => s + (i.type === id ? i.count : 0), 0);
+// While a container or furnace is open Mineflayer keeps the player's items in the window's own slots; bot.inventory catches up on close.
+const inPlayer = (win, id) => win.items().reduce((s, i) => s + (i.type === id ? i.count : 0), 0);
+
 /** The block at {x,y,z} if it matches, else the nearest matching block within range. */
 function station(ctx, re, at, what) {
     const bot = ctx.bot;
@@ -74,15 +78,15 @@ async function smelt(ctx, { item, count: n = 1, x, y, z }) {
     await ctx.during(furnace.putInput(it.id, null, n), 40);
     ctx.phase('wait_smelt', { ticks_expected: 200 * n });
     await ctx.until(() => (furnace.outputItem()?.count || 0) - out0 >= n, 200 * n + 200, 'not_confirmed');
-    const out = furnace.outputItem().name, before = count(bot, out);
-    ctx.phase('take', { item: out });
+    const out = furnace.outputItem(), before = inPlayer(furnace, out.type);
+    ctx.phase('take', { item: out.name });
     await ctx.during(furnace.takeOutput(), 40);
+    await ctx.until(() => inPlayer(furnace, out.type) >= before + n, 20);
+    const made = inPlayer(furnace, out.type) - before;
     bot.closeWindow(furnace);
-    await ctx.until(() => count(bot, out) >= before + n, 20);
-    return { input: item, output: out, made: count(bot, out) - before, fuel: fuel.name };
+    return { input: item, output: out.name, made, fuel: fuel.name };
 }
 
-const inContainer = (win, id) => win.containerItems().reduce((s, i) => s + (i.type === id ? i.count : 0), 0);
 
 /** deposit {item, count, x, y, z}: put `count` of `item` into the container at x,y,z. */
 async function deposit(ctx, { item, count: n, x, y, z }) {
@@ -102,12 +106,12 @@ async function deposit(ctx, { item, count: n, x, y, z }) {
 async function withdraw(ctx, { item, count: n, x, y, z }) {
     const bot = ctx.bot, it = bot.registry.itemsByName[item];
     if (!it) throw new SkillError('invalid_args', { item });
-    const before = count(bot, item);
     const win = await openAt(ctx, station(ctx, CONTAINERS, { x, y, z }, 'container'), (b) => bot.openContainer(b));
     if (inContainer(win, it.id) < n) { bot.closeWindow(win); throw new SkillError('missing_item', { item, where: 'container', want: n }); }
+    const before = inPlayer(win, it.id);
     ctx.phase('withdraw', { item, count: n });
     await ctx.during(win.withdraw(it.id, null, n), 60);
-    await ctx.until(() => count(bot, item) >= before + n, 20);
+    await ctx.until(() => inPlayer(win, it.id) >= before + n, 20);
     bot.closeWindow(win);
     return { item, moved: n };
 }
