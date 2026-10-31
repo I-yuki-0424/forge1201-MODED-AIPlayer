@@ -10,6 +10,17 @@ const ARMOR_SUFFIX = { head: /_helmet$|^turtle_helmet$|_head$|^carved_pumpkin$/,
 const count = (bot, name) => bot.inventory.items().reduce((n, i) => n + (i.name === name ? i.count : 0), 0)
     + (bot.inventory.slots[SLOT.off_hand]?.name === name ? bot.inventory.slots[SLOT.off_hand].count : 0);
 
+/**
+ * The registry name for an item id as a person or an LLM writes it: "minecraft:stone" -> "stone"; a namespaced mod id is
+ * kept when the registry knows it under that name, else its bare part is tried ("create:wrench" -> "wrench").
+ */
+function resolveItemName(bot, id) {
+    const s = String(id).toLowerCase().replace(/^minecraft:/, '');
+    if (bot.registry.itemsByName[s] || !s.includes(':')) return s;
+    const bare = s.slice(s.indexOf(':') + 1);
+    return bot.registry.itemsByName[bare] ? bare : s;
+}
+
 /** Window-0 slot of a stack of `name`: the selected hotbar slot first, then the hotbar, then the main inventory. */
 function slotOf(bot, name) {
     const s = bot.inventory.slots, sel = SLOT.hotbar0 + bot.quickBarSlot;
@@ -109,4 +120,4 @@ async function toss(ctx, { item, count: n }) {
     return { item, left: count(bot, item) };
 }
 
-module.exports = { equip, eat, toss, holdItem, count, slotOf, click, SLOT };
+module.exports = { equip, eat, toss, holdItem, count, slotOf, click, resolveItemName, SLOT };

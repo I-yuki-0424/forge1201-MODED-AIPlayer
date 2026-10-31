@@ -1,5 +1,7 @@
 // agent_manager.js
 const { fork } = require('child_process');
+const { skillsPrompt } = require('./skills/llm_prompt');
+const BOT_RUNTIME = process.env.BOT_RUNTIME === 'legacy' ? 'legacy' : 'skills';
 const path = require('path');
 const LLMClient = require('./llm_client');
 const wikiRag = require('./wiki_rag');
@@ -79,7 +81,8 @@ class AgentManager {
             this.botModes.set(botId, 'normal');
         }
 
-        const botProcess = fork(path.join(__dirname, 'bot_actuator.js'), [], {
+        // The new action layer (src/skills_bot.js) unless BOT_RUNTIME=legacy (the old actuator, kept as the rollback path).
+        const botProcess = fork(path.join(__dirname, BOT_RUNTIME === 'legacy' ? 'bot_actuator.js' : 'skills_bot.js'), [], {
             env: { ...process.env, BOT_ID: botId, BOT_OPTIONS: JSON.stringify(options) }
         });
 
@@ -976,6 +979,13 @@ Storage MOD remote access:     send_custom_payload (channel from wiki)
 `;
 
 
+        if (BOT_RUNTIME === 'skills') {
+            prompt = skillsPrompt({
+                botId, issuer: data.username, instruction: data.message, isSystemFailure, environment: data.environment,
+                context: `${targetedBlockContext}${taskContext}${currentQueueContext}${otherBotsContext}${blackboardContext}${coordinatorNote}${endDimNote}`,
+            });
+        }
+
         // Issue 10: Inject relevant wiki knowledge (RAG) if available.
         // Build a richer query by combining message keywords + environment context
         // so that dimension-specific and mob-specific wiki pages surface naturally.
@@ -998,8 +1008,8 @@ Storage MOD remote access:     send_custom_payload (channel from wiki)
             if (wikiContext) prompt += wikiContext;
         } catch(e) {}
 
-        // Issue 12: Add patch_config action to prompt
-        prompt += `\n[{"action":"patch_config","preset":"combat_aggressive"}]       -- apply a named config preset\n[{"action":"patch_config","values":{"MELEE_RANGE":5}}]              -- patch specific config values at runtime\n[{"action":"patch_config","save":"my_preset"}]                       -- save current config as a named preset\n[{"action":"patch_config","list":true}]                              -- list saved presets`;
+        // Issue 12: Add patch_config action to prompt (legacy actuator only)
+        if (BOT_RUNTIME === 'legacy') prompt += `\n[{"action":"patch_config","preset":"combat_aggressive"}]       -- apply a named config preset\n[{"action":"patch_config","values":{"MELEE_RANGE":5}}]              -- patch specific config values at runtime\n[{"action":"patch_config","save":"my_preset"}]                       -- save current config as a named preset\n[{"action":"patch_config","list":true}]                              -- list saved presets`;
 
         if (retryCount > 0) {
             prompt += `\n\nYour previous response was incorrectly formatted. Please ensure you respond ONLY with a valid JSON array containing action objects.`;
@@ -1129,7 +1139,7 @@ Storage MOD remote access:     send_custom_payload (channel from wiki)
         }
 
         // If user explicitly asks for jetpack/elytra flight, promote goto to fly.
-        const wantsFlight = /(jetpack|elytra|ジェットパック|エリトラ|飛んで|飛行|飛べ)/i.test(userMsg);
+        const wantsFlight = BOT_RUNTIME === 'legacy' && /(jetpack|elytra|ジェットパック|エリトラ|飛んで|飛行|飛べ)/i.test(userMsg);
         if (wantsFlight) {
             for (const a of sanitizedActions) {
                 if (!a || typeof a !== 'object') continue;

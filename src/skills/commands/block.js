@@ -5,7 +5,7 @@ const { SkillError } = require('../runner');
 const { standable, isInteractive } = require('../world');
 const { FACES, lookAngles, aimPoints, viewDir, raycast } = require('../geometry');
 const { follow, cellGoal, reachGoal, approachUntil, approachBlock, aimAtBlock, clearOfEntities, feetCell, centre, hdist, same, AIM_REACH } = require('../motion');
-const { holdItem, count } = require('./item');
+const { holdItem, count, resolveItemName } = require('./item');
 const { collectDrops } = require('./entity');
 
 const REPLACEABLE = /^(air|cave_air|void_air|grass|tall_grass|fern|large_fern|dead_bush|snow|seagrass|vine|glow_lichen)$/;
@@ -152,22 +152,27 @@ async function place(ctx, { x, y, z, item }) {
     throw new SkillError(tried ? 'not_confirmed' : 'not_visible', { target: cell, tried });
 }
 
-/** activate {x, y, z}: right-click an interactive block (lever, door, trapdoor, gate, ...). Success = its state changed. */
-async function activate(ctx, { x, y, z }) {
+/**
+ * activate {x, y, z, item?, sneak?}: right-click an interactive block (lever, door, trapdoor, gate, chest, ...), optionally
+ * holding `item` (a mod tool such as create:wrench) and sneaking. Success = the block's state changed or a screen opened.
+ */
+async function activate(ctx, { x, y, z, item, sneak = false }) {
     const bot = ctx.bot, cell = { x, y, z };
     const b0 = ctx.world.blockAt(x, y, z);
     if (!b0) throw new SkillError('unreachable', { why: 'target chunk not loaded' });
-    if (!isInteractive(b0.name)) throw new SkillError('invalid_target', { block: b0.name });
+    // A held tool can act on any block (a wrench rotates or picks up mod blocks); without one only interactive blocks react.
+    if (!item && !isInteractive(b0.name)) throw new SkillError('invalid_target', { block: b0.name, why: 'not an interactive block (give item to use a tool on it)' });
     await approachBlock(ctx, cell);
-    const hit = await aimAtBlock(ctx, cell);
-    const look = { yaw: bot.entity.yaw, pitch: bot.entity.pitch };
-    ctx.phase('use', { block: b0.name, face: hit.face });
+    if (item) await holdItem(ctx, resolveItemName(bot, item));
+    const hit = await aimAtBlock(ctx, cell, { frame: { sneak } });
+    const look = { yaw: bot.entity.yaw, pitch: bot.entity.pitch, sneak };
+    ctx.phase('use', { block: b0.name, face: hit.face, item: item || null, sneak });
     await ctx.tick({ ...look, use: true });
     await ctx.until(() => ctx.world.blockAt(x, y, z)?.stateId !== b0.stateId || !!bot.currentWindow, 20, 'not_confirmed', look);
     const window = bot.currentWindow ? bot.currentWindow.type : null;
     if (bot.currentWindow) bot.closeWindow(bot.currentWindow);
     const b1 = ctx.world.blockAt(x, y, z);
-    return { block: b0.name, from: b0.getProperties(), to: b1.getProperties(), window };
+    return { block: b0.name, now: b1.name, from: b0.getProperties(), to: b1.getProperties(), window };
 }
 
 module.exports = { moveTo, lookAt, mine, place, activate, bestTool, dropOf, supports, overlaps, REPLACEABLE };

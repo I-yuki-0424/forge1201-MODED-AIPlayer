@@ -219,5 +219,49 @@ const goalCell = (t) => ({ isGoal: (c) => c.x === t.x && c.y === t.y && c.z === 
         } finally { clearInterval(bot.timer); }
     });
 
+    await test('intents: block name resolution, standing cells, surface search', () => {
+        const { blockNames, cellsNear, surface } = require('../src/skills/intents');
+        const reg = { blocksByName: { oak_log: {}, birch_log: {}, glass: {}, stone: {}, iron_ore: {}, deepslate_iron_ore: {} } };
+        assert.deepStrictEqual(blockNames(reg, 'oak_log'), ['oak_log']);
+        assert.deepStrictEqual(blockNames(reg, 'minecraft:stone'), ['stone']);
+        assert.deepStrictEqual(blockNames(reg, 'logs').sort(), ['birch_log', 'oak_log']);
+        assert.deepStrictEqual(blockNames(reg, 'wood').sort(), ['birch_log', 'oak_log']);
+        assert.deepStrictEqual(blockNames(reg, 'glass'), ['glass'], 'a name ending in s is kept when it exists');
+        assert.deepStrictEqual(blockNames(reg, 'iron_ore'), ['iron_ore']);
+        assert.deepStrictEqual(blockNames(reg, 'netherite'), []);
+        const w = fakeWorld({ '1,1,0': 'stone', '1,2,0': 'stone' });
+        const cells = cellsNear(w, { x: 0.5, y: 1, z: 0.5 }, 1, { x: 5, y: 1, z: 0 });
+        assert.ok(cells.length > 0 && cells.every((c) => !(c.x === 0 && c.z === 0)), 'never the target column itself');
+        assert.ok(!cells.some((c) => c.x === 1 && c.z === 0 && c.y === 1), 'not inside the pillar');
+        assert.strictEqual(surface(w, 1, 0, 10), 3, 'on top of the 2-high pillar');
+        assert.strictEqual(surface(w, 4, 4, 10), 1);
+    });
+
+    await test('intents: unknown names are refused with the supported list; feedback wording matches AgentManager', async () => {
+        const { runIntent, catalogue, INTENTS } = require('../src/skills/intents');
+        const r = await runIntent({}, { action: 'fly', x: 1, z: 2 });
+        assert.strictEqual(r.ok, false);
+        assert.match(r.message, /^Failed fly: not available in the new action layer\. Use one of: chat, status, come, goto, collect/);
+        for (const name of Object.keys(INTENTS)) assert.ok(catalogue().includes(`"action":"${name}"`), name);
+        // AgentManager decides success/failure/progress by these words (agent_manager.js SUCCESS/FAILURE/PROGRESS_PATTERNS).
+        const src = require('fs').readFileSync(require.resolve('../src/skills/intents.js'), 'utf8');
+        const msgs = [...src.matchAll(/msg: `([^`]*)`/g)].map((m) => m[1].toLowerCase());
+        assert.ok(msgs.length >= 15);
+        for (const m of msgs) assert.ok(/^(successfully|partially (collected|killed))/.test(m), m);
+        const chatBot = { chat: (t) => { chatBot.said = t; } };
+        const quiet = await runIntent(chatBot, { action: 'chat', message: 'hello' });
+        assert.deepStrictEqual([quiet.ok, quiet.quiet, quiet.message, chatBot.said], [true, true, null, 'hello']);
+    });
+
+    await test('skills prompt: catalogue from the intent table, instruction and environment inlined', () => {
+        const { skillsPrompt } = require('../src/skills/llm_prompt');
+        const p = skillsPrompt({ botId: 'B1', issuer: 'Steve', instruction: '木を集めて', isSystemFailure: false, environment: { food: 20 }, context: '\nCTX' });
+        assert.match(p, /User 'Steve' said: "木を集めて"/);
+        assert.match(p, /Current Environment: \{"food":20\}\nCTX/);
+        assert.match(p, /"action":"collect","target":"oak_log"/);
+        assert.doesNotMatch(p, /"action": ?"fly"|navigate_portal|patch_config/);
+        assert.match(skillsPrompt({ botId: 'B1', issuer: 'System', instruction: 'Failed goto: stuck.', isSystemFailure: true, environment: {} }), /SYSTEM FEEDBACK \(previous action result\): "Failed goto: stuck\."/);
+    });
+
     console.log('All skill tests passed.');
 })().catch((e) => { console.error(e); process.exit(1); });

@@ -13,6 +13,8 @@ const TYPES = {
     int: (v) => Number.isInteger(v) && Math.abs(v) <= 30000000,
     entity: (v) => Number.isInteger(v) && v >= 0,
     name: (v) => typeof v === 'string' && /^[a-z0-9_]{1,64}$/.test(v),
+    item: (v) => typeof v === 'string' && /^([a-z0-9_.-]{1,32}:)?[a-z0-9_/]{1,64}$/.test(v),      // namespaced ids allowed (create:wrench)
+    bool: (v) => typeof v === 'boolean',
     count: (v) => Number.isInteger(v) && v >= 1 && v <= 2304,
     dest: (v) => ['hand', 'off_hand', 'head', 'chest', 'legs', 'feet'].includes(v),
 };
@@ -24,7 +26,7 @@ const COMMANDS = {
     look_at: { fn: lookAt, args: { ...XYZ_OPT, entity: 'entity?' }, oneOf: [['x', 'y', 'z'], ['entity']], ticks: 40 },
     mine: { fn: mine, args: XYZ, ticks: 1200 },
     place: { fn: place, args: { ...XYZ, item: 'name' }, ticks: 1200 },
-    activate: { fn: activate, args: XYZ, ticks: 600 },
+    activate: { fn: activate, args: { ...XYZ, item: 'item?', sneak: 'bool?' }, ticks: 600 },
     pickup: { fn: pickup, args: { entity: 'entity?', item: 'name?' }, oneOf: [['entity'], ['item']], ticks: 1200 },
     attack: { fn: attack, args: { entity: 'entity' }, ticks: 2400 },
     equip: { fn: equip, args: { item: 'name', dest: 'dest?' }, ticks: 100 },

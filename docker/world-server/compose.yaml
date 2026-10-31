@@ -97,9 +97,30 @@ services:
     ports:
       - "127.0.0.1:25568:25565"
 
+  # Live check of the LLM path on the new action layer against the test copy (scripts/skills/intent_check.js).
+  intent-check:
+    image: node@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0
+    profiles: [check]
+    working_dir: /app
+    mem_limit: 768m
+    cpus: 1
+    environment:
+      MC_HOST: world-test
+      MC_PORT: "25565"
+      RCON_PASSWORD: ${RCON_PASSWORD:?run scripts/world/up.sh}
+      BOT_RUNTIME: skills
+    volumes:
+      - ../..:/app:ro
+      - check-logs:/app/logs
+    tmpfs:
+      - /tmp
+    entrypoint: ["node", "scripts/skills/intent_check.js"]
+    networks: [world]
+
 volumes:
   data:
   test-data:
+  check-logs:
 
 networks:
   world:
