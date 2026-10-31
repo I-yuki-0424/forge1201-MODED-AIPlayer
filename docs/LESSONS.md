@@ -44,3 +44,17 @@ the knowledge-DB (tag `forge1201-moded-aiplayer`).
   `RL_PROFILE=modded`). The vanilla-plus-Forge profile uses Prismarine's own registry. The injector itself is
   unchanged; making it a no-op on an empty mod list is a separate fix (`BUGFIX-20261030-015`).
 - Related: `rcon-cli` appends an ANSI reset (`ESC[0m`) to every reply; strip it before parsing numbers.
+
+## L5 — Key fragments in logs (found 2026-10-31)
+
+- `src/llm_client.js` logged `apiKey.substring(0, 8)` on every request and put the same prefix into the 401 error text,
+  which reaches the console, the WebUI chat log and Sentry. Fixed: only the key length is shown.
+- **Rule:** never log any part of a secret (prefix, suffix, hash prefix): a fragment narrows a brute force and identifies
+  the key. Log "set / not set" and the length at most.
+
+## L6 — Rootless Docker owns files as container root (found 2026-10-31)
+
+- In coder's rootless Docker, container root is host `coder`, but container uid 1000 (the itzg and node images' user)
+  is a subordinate uid: it cannot read coder's mode-600 files and its files are not coder's.
+- **Rule:** to read a coder-owned secret or write into a coder-owned bind mount, run that step as container root
+  (`docker exec -u 0`, no `--user`); keep server data in named volumes and reach it through containers.

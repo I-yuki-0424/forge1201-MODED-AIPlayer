@@ -11,7 +11,7 @@ Read order for a new session: [core/MASTER_GUIDANCE.xml](core/MASTER_GUIDANCE.xm
 | `guides/` | How-to for operators and AI agents ([AI_DEBUGGING.md](guides/AI_DEBUGGING.md)) | Edited |
 | `references/` | Facts: [variable_map.md](references/variable_map.md) (env vars, IPC), `forge-fml3/` (Forge source copies used to reverse-engineer the handshake, LGPL-2.1, not built), `PROJECTSTART_MANUAL` moved to archive | Rarely |
 | `proposed/` | Specs not yet built: the 2026-10-30 RL-platform roadmap (tasks 006-014), goal-decomposition tree, future improvements, the pending world-validation task | Moves to `implemented/` when done |
-| `implemented/` | One file per finished task or bugfix (`TASK-…`, `BUGFIX-…`, `VDS-001`); [RL-INTERFACE-v1.md](implemented/RL-INTERFACE-v1.md) is the RL environment, action space, goals, server and measurements; [SKILLS-v1.md](implemented/SKILLS-v1.md) is the action layer (14 commands from player inputs, failure taxonomy, debugging, measured success rates) | Append only |
+| `implemented/` | One file per finished task or bugfix (`TASK-…`, `BUGFIX-…`, `VDS-001`); [RL-INTERFACE-v1.md](implemented/RL-INTERFACE-v1.md) is the RL environment, action space, goals, server and measurements; [SKILLS-v1.md](implemented/SKILLS-v1.md) is the action layer (14 commands from player inputs, failure taxonomy, debugging, measured success rates, the LLM intent layer); [WORLD-v1.md](implemented/WORLD-v1.md) the persistent build world (connect, mods, snapshots, test copies, the LLM bot and its vault record) | Append only |
 | `archive/` | History before the 2026-10-30 cleanup: old state, activity log, task index, plans. Not maintained | Never |
 
 ## Knowledge-DB

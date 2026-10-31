@@ -12,10 +12,13 @@ active_tasks:
   - "TASK-20261030-009-subdivide-code-by-role"
   - "TASK-20261030-013-rl-interface-and-eval-spec"
   - "TASK-20261030-014-schedule-long-running-jobs"
+  - "TASK-20261031-018-ollama-credentials-via-vault"
+  - "TASK-20261031-019-persistent-build-world"
 
-smoke_status: "2026-10-31 npm test (9 files, incl. tests/test_skills_pure.js) PASS on node 20 (docker node:20-slim). Action-layer benchmark on the live server: 560/560 (runs v3-plain, v3-hard-a/b/c), control 0/140. Earlier: 2026-10-30 npm test (8 files) PASS on node 20.20.2; FAIL at test_e2e_integration on node 22.23.4 (BUGFIX-20261030-002, unchanged). Game side: scripts/rl/verify_game_side.py 20/20 PASS on the live Forge 1.20.1-47.4.10 server (run verify-1793370729)."
+smoke_status: "2026-10-31 (evening) npm test (10 files, incl. tests/test_vault_client.js) PASS on node 20 (docker node:20-slim); intent_check 13/13 on a test copy of the build world. Earlier 2026-10-31: npm test (9 files) PASS. Action-layer benchmark on the live server: 560/560 (runs v3-plain, v3-hard-a/b/c), control 0/140. Earlier: 2026-10-30 npm test (8 files) PASS on node 20.20.2; FAIL at test_e2e_integration on node 22.23.4 (BUGFIX-20261030-002, unchanged). Game side: scripts/rl/verify_game_side.py 20/20 PASS on the live Forge 1.20.1-47.4.10 server (run verify-1793370729)."
 
 recent_changes:
+  - "2026-10-31 (evening): TASK-20261031-017/018/019. LLM bot on the new action layer (src/skills_bot.js, intents, generated prompt; live check 13/13); Ollama credentials from the vault (record ollama/forgeaip; owner saves it); persistent build world on the tailnet (100.115.238.9:25565) with snapshots, test copies and the LLM bot. npm test 10 files. Security fix: API-key fragment no longer logged (L5)."
   - "2026-10-31: TASK-20261031-016 action layer rebuilt from player inputs (src/skills, 14 commands, closed failure taxonomy, per-tick trace) with a server-graded benchmark (scripts/skills/bench.js, report.py): 560/560 on the final code, negative control 0/140. npm test now 9 files (tests/test_skills_pure.js, 12 tests incl. 2 reproducers). Spec and measurements: docs/implemented/SKILLS-v1.md. Knowledge-DB: LLM-records/2026-10-31-mineflayer-on-forge-1-20-1-q-f-*, -minecraft-1-20-1-server-with-spawn-animals-false-*, -bot-froze-server-lost-connection-timed-out-*."
   - "2026-10-31: RL baseline run1 recorded (docs-only; no src/ or tests/ change, smoke_status unchanged). DPOD transformer_branch + PPO, action space botsystem_min_pitch, 8 bots on one VPS server: 60 updates, 148,050 steps, 0 successes; evals (64 episodes each) learned 0, learned greedy 0, random 0, scripted 57 (0.89). Speed 26.8 kept steps/s (1 M steps = 10.4 h). The 03:53 reboot was the daily rootwatch window and hit no job; both Claude sessions died there before writing this up. Basis: LLM-records/2026-10-31-rl-baseline-run1-final-evaluations-learning-speed-and-the-03-53-reboot-task.md."
   - "2026-10-30 (late): first RL slice. src/rl (env, controls, observation, goal, RCON, DPOD file-API runner, event log), src/transport (shared login/FML3 factory, bot_actuator now uses it), docker/rl-server + scripts/rl, tests/test_rl_env_pure.js, scripts/rl/verify_game_side.py. Spec and measurements: docs/implemented/RL-INTERFACE-v1.md. DPOD side unchanged (its integrations/botsystem proposal implemented as written; sign conventions fixed here). BUGFIX-015 found on the way."
@@ -133,12 +136,13 @@ tasks:
 
   - id: "TASK-20261030-011-ollama-key-via-broker"
     created_at: "2026-10-30T23:00:00+09:00"
-    status: "queued"
+    status: "done"
     description: "Verify the suspected expiry of the Ollama API key without printing it, then provide a valid key to the LLM client through Credential-broker only."
     spec_ref: "docs/proposed/ROADMAP-20261030-rl-platform.md#task-20261030-011--ollama-api-key-via-credential-broker"
     validation_commands: []
     result: null
-    blockers: ["Broker may have no Ollama entry; owner may need to create a key and add it to the vault"]
+    blockers: []
+    # 2026-10-31: superseded by TASK-20261031-018 (vault read path built; the record itself is the owner's step there).
 
   - id: "TASK-20261030-012-lfs-token-via-broker"
     created_at: "2026-10-30T23:00:00+09:00"
@@ -169,6 +173,39 @@ tasks:
       - "python3 scripts/skills/report.py exchange/<id> ..."
     result: "PASS. New action layer src/skills (body, geometry, world, planner, motion, runner, 14 commands: move_to look_at mine place activate pickup attack equip eat toss craft smelt deposit withdraw); every command is per-tick player-input frames, ends with a server-confirmed success or a reason from a closed taxonomy of 16, and records a per-tick trace (scripts/skills/report.py --trace). Final code e5543102: 560 of 560 server-graded trials (4 runs x 14 commands x 10, random order and targets; 1 flat, 3 with random walls/steps/pits/raised stations/decoy mobs), 40 of 40 per command, Wilson 95 % lower bound 0.91 per command; 0 harness errors, 0 bot/server disagreements; negative control (commands replaced by idle ticks) 0 of 140. Six defects found and fixed on the way, each with evidence (docs/implemented/SKILLS-v1.md, 'How the result was reached'). Not done: bot_actuator.js handlers still use the old code (mapping in SKILLS-v1.md); the layer is not wired into the paused-physics RL env; passive animals, swimming, ladders, modded blocks not benchmarked."
     blockers: []
+
+  - id: "TASK-20261031-017-llm-bot-on-action-layer"
+    created_at: "2026-10-31T17:50:00+09:00"
+    status: "done"
+    description: "Owner request 2026-10-31: switch the LLM-driven bot to the new action layer."
+    spec_ref: "docs/implemented/SKILLS-v1.md#old-actions"
+    validation_commands:
+      - "docker run --rm --network none -v \"$PWD\":/w -w /w node:20-slim npm test"
+      - "scripts/world/test-up.sh base-flat && (cd docker/world-server && docker compose --profile check run --rm intent-check)"
+    result: "PASS. AgentManager forks src/skills_bot.js (BOT_RUNTIME=legacy = old actuator, rollback): same IPC contract, no background loops, intents (src/skills/intents.js) resolve the LLM's name-based actions onto the 14 commands and answer in AgentManager's Successfully/Partially/Failed wording; unknown actions refused; prompt catalogue generated (src/skills/llm_prompt.js); registry injection only when the server reports content mods. Live check (real AgentManager, mock Ollama, test copy of the build world): 13/13 graded from the server, 14/14 prompts with the skills catalogue (commit 596ff0a3). Not verified with the real LLM (no key until the vault record exists) or on mod blocks (owner's mods not yet on the server)."
+    blockers: []
+
+  - id: "TASK-20261031-018-ollama-credentials-via-vault"
+    created_at: "2026-10-31T17:50:00+09:00"
+    status: "blocked"
+    description: "Owner request 2026-10-31: Ollama endpoint and token through the credential vault, read with a long-lived credential (replaces TASK-20261030-011)."
+    spec_ref: "docs/implemented/WORLD-v1.md#the-llm-bot-in-the-world"
+    validation_commands:
+      - "docker run --rm --network none -v \"$PWD\":/w -w /w node:20-slim node tests/test_vault_client.js"
+      - "curl -s -o /dev/null -w '%{http_code}' https://vault.i-yuki.com/v1/secrets/ollama/forgeaip   # expect 302 without credentials"
+    result: "Built and verified up to the record: Access service token forgeaip-llm-reads-vault (8760 h, broker audit 425, credential in git-ignored config/vault-llm.conf), CLIENT_READ grant to ollama/forgeaip only (MCP-credential-broker de9bcbd, vault version 1e887410, audit 427); live: unauthenticated 302, this client 404 for the unsaved record and for ungranted records. src/vault_client.js + index.js: vault first, .env fallback, re-read every 10 min until found; LLMClient re-reads URL/model per request. Security fix: llm_client logged 8 key characters (docs/LESSONS.md L5). Commit 703dfd19."
+    blockers: ["Owner saves the vault record ollama/forgeaip (value = Ollama API key, field url = endpoint, optional field model) in https://vault.i-yuki.com; the vault has no machine write path by design"]
+
+  - id: "TASK-20261031-019-persistent-build-world"
+    created_at: "2026-10-31T17:50:00+09:00"
+    status: "in_progress"
+    description: "Owner request 2026-10-31: a world the owner joins to build ladders, water and mod blocks for the bot, with connection and access management, and reusable customised states."
+    spec_ref: "docs/implemented/WORLD-v1.md"
+    validation_commands:
+      - "scripts/world/up.sh && scripts/world/snapshot.sh --list"
+      - "python3 <server-list ping> 100.115.238.9:25565   # tailnet answers; public 25565-25568 closed (nmap -sC from the host)"
+    result: "Running: forgeaip-world (Forge 1.20.1-47.4.10, creative flat world in volume forgeaip-world_data, 127.0.0.1:25567), tailscale serve tcp 25565 -> 25567 (tailnet only, broker audit 423), /mnt/data/forgeaip/{mods,snapshots} (audit 422). Snapshots: consistent (save-off + flush), manifest with mod hashes, hourly user timer (24 kept) and before stop/restart/restore; test copies in tmpfs on :25568; copy isolation verified both ways. LLM bot forgeaip-llm-bot in the world (survival), WebUI 127.0.0.1:3020. Commit 157f3218 and later."
+    blockers: ["Owner copies the server mods folder (scp -r E:\\forge1201server\\mods vps:/mnt/data/forgeaip/) and runs scripts/world/restart.sh: 9 of the 39 jars are not on Modrinth under the same file name"]
 
   - id: "TASK-20261030-014-schedule-long-running-jobs"
     created_at: "2026-10-30T23:00:00+09:00"

@@ -15,7 +15,7 @@ run `schedule_check`. If `active_tasks` is empty, pick from `docs/proposed/`. Do
 There is **no Node.js on the VPS**. Run Node through the rootless docker (as `coder`, plain `docker`):
 
 ```bash
-# All tests (9 files, must pass before STATE.yaml claims a green state). Node 20 or 22.11; NOT 22.23.4 (docs/LESSONS.md L2).
+# All tests (10 files, must pass before STATE.yaml claims a green state). Node 20 or 22.11; NOT 22.23.4 (docs/LESSONS.md L2).
 docker run --rm --network none -v "$PWD":/w -w /w node:20-slim npm test
 # One file
 docker run --rm --network none -v "$PWD":/w -w /w node:20-slim node tests/test_fml3_handshake_logic_pure.js
@@ -37,10 +37,25 @@ python3 scripts/skills/report.py exchange/b1 [exchange/b2 ...]    # per-command 
 python3 scripts/skills/report.py exchange/b1 --trace 12            # one trial's timeline: phases, keys, position
 ```
 
+Build world (docs/implemented/WORLD-v1.md): persistent modded server the owner joins over the tailnet (`100.115.238.9:25565`
+-> `127.0.0.1:25567`), mods in `/mnt/data/forgeaip/mods`, snapshots in `/mnt/data/forgeaip/snapshots`:
+
+```bash
+scripts/world/up.sh | down.sh | restart.sh            # build world (restart after copying mods)
+scripts/world/snapshot.sh <label> | --list             # also hourly (user timer) and before stop/restart/restore
+scripts/world/test-up.sh <label|latest> ; test-down.sh # disposable tmpfs copy on 127.0.0.1:25568 for bots/benchmarks
+scripts/world/restore.sh <label|latest>                # roll the build world back
+scripts/world/bot-up.sh | bot-down.sh                  # the LLM bot (vault record ollama/forgeaip), WebUI 127.0.0.1:3020
+(cd docker/world-server && docker compose --profile check run --rm intent-check)   # live LLM-path check on a test copy
+```
+
 On the owner's PC (Windows/WSL2): `npm ci`, `npm test`, `npm run test:e2e`, `node index.js` (or `run.bat` / `./run.sh`).
 Running the bot needs a Forge 1.20.1 server and an Ollama-compatible endpoint, which exist only on the owner's PC.
 
 ## Environment
+
+LLM credentials: the vault record `ollama/forgeaip` first (value = key, fields `url`, `model`; read with the git-ignored
+`config/vault-llm.conf`, see docs/implemented/WORLD-v1.md), `.env` as the fallback.
 
 Copy `.env` values (file is git-ignored; never print or commit it):
 - `OLLAMA_URL` full endpoint (e.g. `http://172.24.96.1:11434/api/generate`). In WSL2 `localhost` is the Linux VM, use the Windows gateway IP.
@@ -51,10 +66,11 @@ Copy `.env` values (file is git-ignored; never print or commit it):
 
 ```
 index.js            entry: AgentManager + WebUI (the debug WebSocket :3001 is started by each bot_actuator child)
-src/skills/         the action layer: 14 commands built only from player inputs (body, planner, runner, commands/*)
+src/skills/         the action layer: 14 commands built only from player inputs (body, planner, runner, commands/*), intents.js + llm_prompt.js for the LLM
+src/skills_bot.js   the bot child process on the action layer (default; BOT_RUNTIME=legacy forks bot_actuator.js); src/vault_client.js reads LLM credentials
 src/rl/             RL environment (env, controls, observation, goal, DPOD file-API runner); src/transport/ = login/FML3 factory shared with the actuator
 src/                runtime (agent_manager, bot_actuator + actuator/*, forge_handshake_state_machine, dynamic_registry_injector, middleware, llm_client, web_ui_server)
-tests/              the 9 files run by `npm test` (+ mocks, run_tests.js, smoke.js)
+tests/              the 10 files run by `npm test` (+ mocks, run_tests.js, smoke.js)
 public/             WebUI (static)
 aux_mod/            optional Forge 1.20.1 companion mod (Java/Gradle; exports the block registry, in-game launcher/HUD)
 docker/             compose for a CUDA dev box and for the full stack (docker/forge-server)
@@ -92,7 +108,8 @@ taxonomy (`REASONS`). Success is the change the server sends back, never the bot
 
 ### Bot Actuator (`src/bot_actuator.js`, ~6.7k lines, plus `src/actuator/{ctx,environment,flight,tools,utils}.js`)
 
-The LLM-driven action path (old). Its handlers are not yet switched to `src/skills`; the mapping is in SKILLS-v1.md.
+The old LLM-driven action path, kept as the rollback (`BOT_RUNTIME=legacy`). Since TASK-20261031-017 AgentManager forks
+`src/skills_bot.js` instead: same IPC contract, intents from `src/skills/intents.js`, no background loops.
 
 Initialises Mineflayer with pathfinder, collectblock, DynamicRegistryInjector and middleware.
 - **Chat dedup**: 3 s window (`_chatDedup`) against Forge's double `player_chat` + `system_chat`.

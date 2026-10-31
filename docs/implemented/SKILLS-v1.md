@@ -50,7 +50,7 @@ All coordinates are block cells (integers). "Success" is what the command waits 
 | `look_at` | `x y z` or `entity` | turn so the crosshair rests on the block (up to 64 blocks) or the entity; no walking | own ray cast hits the target | `not_visible`, `invalid_target` |
 | `mine` | `x y z` | walk into reach, pick the fastest tool that harvests it, hold attack, then collect the drop | server turns the block into something else and the drop is in the inventory | `missing_tool`, `unreachable`, `not_visible`, `not_confirmed` |
 | `place` | `x y z item` | walk to a cell that sees a face of a solid neighbour, hold the item, clear the target cell, click that face (sneaking if the neighbour is interactive) | server shows the block in the cell | `missing_item`, `invalid_target` (occupied, no support), `not_confirmed` |
-| `activate` | `x y z` | right-click an interactive block (lever, door, trapdoor, gate, ...) | the block state changed, or a screen opened | `invalid_target`, `not_confirmed` |
+| `activate` | `x y z item? sneak?` | right-click an interactive block (lever, door, trapdoor, gate, ...), optionally holding a tool (`create:wrench`) and sneaking; with a tool any block | the block state changed, or a screen opened | `invalid_target`, `not_confirmed` |
 | `pickup` | `entity` or `item` | walk onto a dropped item (nearest stack of `item`) | inventory count rose | `invalid_target`, `target_lost`, `stuck` |
 | `attack` | `entity` | equip the best melee weapon, chase, swing when the weapon is recharged and the crosshair is on the target | the server reports the entity's death | `invalid_target`, `target_lost`, `timeout` |
 | `equip` | `item`, `dest` = `hand off_hand head chest legs feet` | hotbar key, number-key swap into the hotbar, F for the off hand, shift-click or swap clicks for armour | the item is in that slot | `missing_item`, `invalid_args` (does not fit) |
@@ -92,8 +92,17 @@ runs below there were none.
 | `boat`, `fly`, `navigate_portal`, `activate_end_portal`, `explore`, `find_land`, `brew`, `enchant`, `interact_gui`, `recover_gravestone` | not in v1 (riding, flying, dimension travel, exploration, other screens, mod-specific) |
 | `chat`, `status`, `dump_chunks`, `patch_config`, `blackboard_*`, `add_waypoint`, `wiki_search`, `macro`, `send_custom_payload`, `shredder_*` | not game actions: communication, memory and operations belong outside the action layer |
 
-The actuator's handlers are unchanged: they serve the LLM path, which tasks 008/009 remove from control. Switching a
-handler means calling `execute()` with the mapping above.
+Since `TASK-20261031-017` the LLM path uses this layer: `AgentManager` forks `src/skills_bot.js` (unless
+`BOT_RUNTIME=legacy`, the rollback to `bot_actuator.js`). Its vocabulary is `src/skills/intents.js`: the old action
+names the LLM already knows (`collect`, `kill`, `come`, `goto`, `give`, `craft`, `smelt`, `place`, `eat`, `equip`,
+`equip_armor`, `withdraw[_from_container]`, `deposit[_to_container]`, `activate[_block]` with an optional mod tool and
+sneak, `pickup`, `status`, `chat`, `wait`, `stop`), each resolved by name against what the bot sees and run as the 14
+commands, answering in AgentManager's `Successfully` / `Partially collected X/Y` / `Failed <intent>: <reason>` wording.
+Every other old action is refused with the list above; nothing falls back to old code. The prompt's action list is
+generated from the intent table (`src/skills/llm_prompt.js`). The child has none of the actuator's background loops
+(auto-eat, passive defence, anti-AFK, dodging): only its intent queue moves the bot. Live check
+`scripts/skills/intent_check.js` (real AgentManager, mock Ollama, test copy of the build world, docs/implemented/WORLD-v1.md):
+13 of 13 instructions graded from the server, all 14 prompts with the generated catalogue.
 
 ## Measurement
 
@@ -154,3 +163,5 @@ Every trial's per-tick trace and the server's measurements are in `exchange/<run
   command started). Turning that on would also populate the RL arenas.
 - Vanilla blocks only; modded blocks fall back on their collision shape (world.js) and were not benchmarked.
 - The live clock only: inside the RL environment (paused physics, `src/rl/env.js`) the commands are not wired yet.
+- `activate` with `item`/`sneak` (mod tools) and the intent layer were checked on vanilla blocks only; mod blocks need the
+  owner's mods on the build world (WORLD-v1.md).
