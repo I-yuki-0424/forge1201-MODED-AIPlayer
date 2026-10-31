@@ -13,9 +13,10 @@ active_tasks:
   - "TASK-20261030-013-rl-interface-and-eval-spec"
   - "TASK-20261030-014-schedule-long-running-jobs"
 
-smoke_status: "2026-10-30 npm test (8 files, incl. tests/test_rl_env_pure.js) PASS on node 20.20.2 (docker node:20-slim); FAIL at test_e2e_integration on node 22.23.4 (BUGFIX-20261030-002, unchanged). Game side: scripts/rl/verify_game_side.py 20/20 PASS on the live Forge 1.20.1-47.4.10 server (run verify-1793370729)."
+smoke_status: "2026-10-31 npm test (9 files, incl. tests/test_skills_pure.js) PASS on node 20 (docker node:20-slim). Action-layer benchmark on the live server: 560/560 (runs v3-plain, v3-hard-a/b/c), control 0/140. Earlier: 2026-10-30 npm test (8 files) PASS on node 20.20.2; FAIL at test_e2e_integration on node 22.23.4 (BUGFIX-20261030-002, unchanged). Game side: scripts/rl/verify_game_side.py 20/20 PASS on the live Forge 1.20.1-47.4.10 server (run verify-1793370729)."
 
 recent_changes:
+  - "2026-10-31: TASK-20261031-016 action layer rebuilt from player inputs (src/skills, 14 commands, closed failure taxonomy, per-tick trace) with a server-graded benchmark (scripts/skills/bench.js, report.py): 560/560 on the final code, negative control 0/140. npm test now 9 files (tests/test_skills_pure.js, 12 tests incl. 2 reproducers). Spec and measurements: docs/implemented/SKILLS-v1.md. Knowledge-DB: LLM-records/2026-10-31-mineflayer-on-forge-1-20-1-q-f-*, -minecraft-1-20-1-server-with-spawn-animals-false-*, -bot-froze-server-lost-connection-timed-out-*."
   - "2026-10-31: RL baseline run1 recorded (docs-only; no src/ or tests/ change, smoke_status unchanged). DPOD transformer_branch + PPO, action space botsystem_min_pitch, 8 bots on one VPS server: 60 updates, 148,050 steps, 0 successes; evals (64 episodes each) learned 0, learned greedy 0, random 0, scripted 57 (0.89). Speed 26.8 kept steps/s (1 M steps = 10.4 h). The 03:53 reboot was the daily rootwatch window and hit no job; both Claude sessions died there before writing this up. Basis: LLM-records/2026-10-31-rl-baseline-run1-final-evaluations-learning-speed-and-the-03-53-reboot-task.md."
   - "2026-10-30 (late): first RL slice. src/rl (env, controls, observation, goal, RCON, DPOD file-API runner, event log), src/transport (shared login/FML3 factory, bot_actuator now uses it), docker/rl-server + scripts/rl, tests/test_rl_env_pure.js, scripts/rl/verify_game_side.py. Spec and measurements: docs/implemented/RL-INTERFACE-v1.md. DPOD side unchanged (its integrations/botsystem proposal implemented as written; sign conventions fixed here). BUGFIX-015 found on the way."
   - "2026-10-30: owner brief -> roadmap of descriptions only (TASK-20261030-006..014 in docs/proposed/ROADMAP-20261030-rl-platform.md); TASK-20261030-005 replaced by 013; no implementation started."
@@ -118,7 +119,7 @@ tasks:
     description: "Split the 6.7k-line bot_actuator.js and related modules into single-role layers with enforced dependency rules, a closed failure taxonomy and a reproducer-first bug-fix protocol."
     spec_ref: "docs/proposed/ROADMAP-20261030-rl-platform.md#task-20261030-009--subdivide-the-code-one-role-per-part"
     validation_commands: ["docker run --rm --network none -v \"$PWD\":/w -w /w node:20-slim npm test"]
-    result: "First step 2026-10-30: src/transport/forge_bot.js (protocol bypasses, FML3 createBot, chat hardening, handshake) extracted from bot_actuator.js and called by it and by src/rl; scip impact check: hardenClientChatParsers had one dependent (bot_actuator.js), ALLOWED. npm test 8 files PASS on node 20.20.2 including the mock-server e2e. Not done: layers and enforced dependency rules, skills, closed failure taxonomy, bug-fix protocol; bot_actuator.js is still about 6.6k lines."
+    result: "First step 2026-10-30: src/transport/forge_bot.js (protocol bypasses, FML3 createBot, chat hardening, handshake) extracted from bot_actuator.js and called by it and by src/rl; scip impact check: hardenClientChatParsers had one dependent (bot_actuator.js), ALLOWED. npm test 8 files PASS on node 20.20.2 including the mock-server e2e. Not done: layers and enforced dependency rules, skills, closed failure taxonomy, bug-fix protocol; bot_actuator.js is still about 6.6k lines. 2026-10-31 (TASK-20261031-016): the skills layer and the closed failure taxonomy now exist (src/skills, docs/implemented/SKILLS-v1.md), with reproducer-first fixes; bot_actuator.js does not use them yet."
     blockers: []
 
   - id: "TASK-20261030-010-vps-deployment-cloudflare-defence"
@@ -155,6 +156,18 @@ tasks:
     spec_ref: "docs/proposed/ROADMAP-20261030-rl-platform.md#task-20261030-013--rl-interface-and-evaluation-protocol-spec"
     validation_commands: []
     result: "v1 specified and implemented at control level on DPOD's file API (docs/implemented/RL-INTERFACE-v1.md): action space, observation, goals, reward, reset, server. 20 of 20 game-side checks pass against the live server's own state (scripts/rl/verify_game_side.py, run verify-1793370729). Owner decision 2026-10-31: DPOD transformer_branch is the policy (unmodified plain PPO baseline). Run1 (2026-10-31 00:20-01:52 JST, exchange/run1, run data not tracked): 148,050 steps, 987 episodes, 0 successes, entropy stuck at ln 270; final evals 64 episodes each: learned 0, learned greedy 0, random 0 (Wilson95 upper 0.057), scripted seeker 57 (0.891). Learned is indistinguishable from random; the cause on record is sparse reward plus a uniform policy (no gradient), the learner passed a synthetic control. Nothing counts toward G1.x. Open: a run that can learn (budget of millions of steps, shaping or curriculum are owner-level choices under DPOD's no-hand-specified-knowledge rule), randomised scenarios, skill-level layer."
+    blockers: []
+
+  - id: "TASK-20261031-016-action-layer-rebuild"
+    created_at: "2026-10-31T14:25:00+09:00"
+    status: "done"
+    description: "Owner brief 2026-10-31: rebuild the action mechanism from the game's real inputs (movement keys, look, left/right click and their combinations) with a precise debugger, reconsider the command set, target >= 90 % success per command; test every command 10 times in random order with random targets and report overall and per-command rates."
+    spec_ref: "docs/implemented/SKILLS-v1.md"
+    validation_commands:
+      - "docker run --rm --network none -v \"$PWD\":/w -w /w node:20-slim npm test"
+      - "(cd docker/rl-server && docker compose --profile env run --rm -T --entrypoint node rl-env scripts/skills/bench.js --run-id <id> --seed <s> --reps 10 [--clutter 1] [--control noop])"
+      - "python3 scripts/skills/report.py exchange/<id> ..."
+    result: "PASS. New action layer src/skills (body, geometry, world, planner, motion, runner, 14 commands: move_to look_at mine place activate pickup attack equip eat toss craft smelt deposit withdraw); every command is per-tick player-input frames, ends with a server-confirmed success or a reason from a closed taxonomy of 16, and records a per-tick trace (scripts/skills/report.py --trace). Final code e5543102: 560 of 560 server-graded trials (4 runs x 14 commands x 10, random order and targets; 1 flat, 3 with random walls/steps/pits/raised stations/decoy mobs), 40 of 40 per command, Wilson 95 % lower bound 0.91 per command; 0 harness errors, 0 bot/server disagreements; negative control (commands replaced by idle ticks) 0 of 140. Six defects found and fixed on the way, each with evidence (docs/implemented/SKILLS-v1.md, 'How the result was reached'). Not done: bot_actuator.js handlers still use the old code (mapping in SKILLS-v1.md); the layer is not wired into the paused-physics RL env; passive animals, swimming, ladders, modded blocks not benchmarked."
     blockers: []
 
   - id: "TASK-20261030-014-schedule-long-running-jobs"

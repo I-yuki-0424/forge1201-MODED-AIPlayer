@@ -15,7 +15,7 @@ run `schedule_check`. If `active_tasks` is empty, pick from `docs/proposed/`. Do
 There is **no Node.js on the VPS**. Run Node through the rootless docker (as `coder`, plain `docker`):
 
 ```bash
-# All tests (7 files, must pass before STATE.yaml claims a green state). Node 20 or 22.11; NOT 22.23.4 (docs/LESSONS.md L2).
+# All tests (9 files, must pass before STATE.yaml claims a green state). Node 20 or 22.11; NOT 22.23.4 (docs/LESSONS.md L2).
 docker run --rm --network none -v "$PWD":/w -w /w node:20-slim npm test
 # One file
 docker run --rm --network none -v "$PWD":/w -w /w node:20-slim node tests/test_fml3_handshake_logic_pure.js
@@ -28,6 +28,14 @@ RL environment on the VPS (docs/implemented/RL-INTERFACE-v1.md): `scripts/rl/up.
 (rootless docker, 127.0.0.1 only, tmpfs world), `python3 scripts/rl/verify_game_side.py` runs 20 game-side checks against it
 (needs the DPOD checkout next to this repo), `scripts/rl/down.sh` removes it. The server is a long-running job: register it
 on the schedule first (MASTER_GUIDANCE `<schedule>`).
+
+Action layer benchmark (docs/implemented/SKILLS-v1.md), against the same server:
+
+```bash
+(cd docker/rl-server && docker compose --profile env run --rm -T --entrypoint node rl-env scripts/skills/bench.js --run-id b1 --seed 1 --reps 10 [--clutter 1] [--control noop] [--trials 12,40])
+python3 scripts/skills/report.py exchange/b1 [exchange/b2 ...]    # per-command rates with Wilson 95 % intervals, failures
+python3 scripts/skills/report.py exchange/b1 --trace 12            # one trial's timeline: phases, keys, position
+```
 
 On the owner's PC (Windows/WSL2): `npm ci`, `npm test`, `npm run test:e2e`, `node index.js` (or `run.bat` / `./run.sh`).
 Running the bot needs a Forge 1.20.1 server and an Ollama-compatible endpoint, which exist only on the owner's PC.
@@ -43,9 +51,10 @@ Copy `.env` values (file is git-ignored; never print or commit it):
 
 ```
 index.js            entry: AgentManager + WebUI (the debug WebSocket :3001 is started by each bot_actuator child)
+src/skills/         the action layer: 14 commands built only from player inputs (body, planner, runner, commands/*)
 src/rl/             RL environment (env, controls, observation, goal, DPOD file-API runner); src/transport/ = login/FML3 factory shared with the actuator
 src/                runtime (agent_manager, bot_actuator + actuator/*, forge_handshake_state_machine, dynamic_registry_injector, middleware, llm_client, web_ui_server)
-tests/              the 7 files run by `npm test` (+ mocks, run_tests.js, smoke.js)
+tests/              the 9 files run by `npm test` (+ mocks, run_tests.js, smoke.js)
 public/             WebUI (static)
 aux_mod/            optional Forge 1.20.1 companion mod (Java/Gradle; exports the block registry, in-game launcher/HUD)
 docker/             compose for a CUDA dev box and for the full stack (docker/forge-server)
@@ -74,7 +83,16 @@ Intercepts `login_plugin_request` and acts as a transparent proxy; `fml:loginwra
 
 Forge remaps state IDs, breaking Prismarine's vanilla registry. It loads `data/sample/configs/mod_blocks_dictionary.json`, parses `namespace:blockname` from handshake buffers, deep-copies vanilla templates for mod blocks, and installs a Proxy on `registry.blocksByStateId` that resolves unknown IDs by binary search to the parent block (no pathfinder crashes).
 
+### Action layer (`src/skills/`, TASK-20261031-016)
+
+Every command is a sequence of per-tick input frames (movement keys, look, hotbar, attack/use, Q/F) applied by one `Body`;
+`runner.js` runs it on the live clock with a tick budget and a per-tick trace and ends it with `ok` or a reason from a closed
+taxonomy (`REASONS`). Success is the change the server sends back, never the bot's own prediction. `execute(bot, name, args)` in
+`src/skills/index.js` is the entry point. Spec, command reference and measured success rates: `docs/implemented/SKILLS-v1.md`.
+
 ### Bot Actuator (`src/bot_actuator.js`, ~6.7k lines, plus `src/actuator/{ctx,environment,flight,tools,utils}.js`)
+
+The LLM-driven action path (old). Its handlers are not yet switched to `src/skills`; the mapping is in SKILLS-v1.md.
 
 Initialises Mineflayer with pathfinder, collectblock, DynamicRegistryInjector and middleware.
 - **Chat dedup**: 3 s window (`_chatDedup`) against Forge's double `player_chat` + `system_chat`.
