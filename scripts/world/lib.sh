@@ -9,6 +9,7 @@ REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 COMPOSE_DIR=$REPO/docker/world-server
 SNAPS=/mnt/data/forgeaip/snapshots
 MODS=/mnt/data/forgeaip/mods
+CLIENT_PACK=/mnt/data/forgeaip/forgeaip-create.mrpack
 WORLD=forgeaip-world
 compose() { docker compose --project-directory "$COMPOSE_DIR" -f "$COMPOSE_DIR/compose.yaml" "$@"; }
 # rcon-cli appends an ANSI reset to every reply (docs/LESSONS.md L4).

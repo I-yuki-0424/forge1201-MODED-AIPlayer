@@ -2,8 +2,9 @@
 # Start the build world (idempotent) and apply its game rules. 127.0.0.1:25567; the owner's tailnet reaches it on :25565.
 source "$(dirname "$0")/lib.sh"
 [ -f "$COMPOSE_DIR/.env" ] || { umask 077; echo "RCON_PASSWORD=$(openssl rand -hex 16)" > "$COMPOSE_DIR/.env"; }
-n=$(find "$MODS" -maxdepth 1 -name '*.jar' | wc -l)
-echo "mods: $n jar(s) in $MODS$( [ "$n" = 0 ] && echo ' (none: plain Forge; copy your mods folder there, see docs/implemented/WORLD-v1.md)')"
+# Mods: exactly the server jars of modpack/forgeaip-create.lock.json (sha512-checked); the client pack is built next to them.
+python3 -I "$REPO/modpack/pack.py" server "$MODS"
+python3 -I "$REPO/modpack/pack.py" mrpack "$CLIENT_PACK" >/dev/null
 compose up -d world
 wait_healthy "$WORLD"
 # A built scene must stay as built: no natural spawning, fixed time and weather, nothing burns or griefs.

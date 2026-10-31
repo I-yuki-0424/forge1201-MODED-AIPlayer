@@ -1,0 +1,69 @@
+{
+  "name": "forgeaip-create",
+  "pack_version": "1",
+  "minecraft": "1.20.1",
+  "forge": "47.4.10",
+  "note": "Vanilla + Create + optimisation only (TASK-20261031-020). Pinned by sha512; refresh with care: client and server must match for \"both\".",
+  "mods": [
+    {
+      "slug": "create",
+      "version": "mc1.20.1-6.0.8",
+      "version_id": "8amzvn9x",
+      "file": "create-1.20.1-6.0.8.jar",
+      "url": "https://cdn.modrinth.com/data/LNytGWDc/versions/8amzvn9x/create-1.20.1-6.0.8.jar",
+      "size": 19170905,
+      "sha1": "b13d912b9247a38d66d11598c121442585a1c1e9",
+      "sha512": "5b51f5d31437d9bfbf221b67459abd87260d284874e1e23b7ed1d522b23a48059a3b1d2c1c541428da35dc6be15561b4f3c7f36aac6df3a0e8db6a278f6b0316",
+      "side": "both",
+      "why": "the one content mod (bundles Flywheel 1.0.5, Ponder 1.0.91, Registrate 1.3.3, MixinExtras 0.4.1 as jar-in-jar)"
+    },
+    {
+      "slug": "modernfix",
+      "version": "5.27.91+mc1.20.1",
+      "version_id": "OM5gX4LT",
+      "file": "modernfix-forge-5.27.91+mc1.20.1.jar",
+      "url": "https://cdn.modrinth.com/data/nmDcB62a/versions/OM5gX4LT/modernfix-forge-5.27.91%2Bmc1.20.1.jar",
+      "size": 1012942,
+      "sha1": "195d53d299a93c418c90b672c2640b4e41623f96",
+      "sha512": "23579203f4b2073331db60048f4e1cee33baf203e689b3cf2c231f274c81e7b9d0e1a6a0b5cd346f3cfeafc7715d84982f0335078c79ff097826177bc9e0f06b",
+      "side": "both",
+      "why": "faster start, less memory (server and client)"
+    },
+    {
+      "slug": "ferrite-core",
+      "version": "6.0.1",
+      "version_id": "DG5Fn9Sz",
+      "file": "ferritecore-6.0.1-forge.jar",
+      "url": "https://cdn.modrinth.com/data/uXXizFIs/versions/DG5Fn9Sz/ferritecore-6.0.1-forge.jar",
+      "size": 123034,
+      "sha1": "417fb6ce8f52abf40bd9d0390371790f9576f8ba",
+      "sha512": "a1960a7c03dc32d4ccaccaf28afdd9b078758bbd62d15a91d4039a83fa9397a098e89b69591f6bd5190254d9ee97e502504154b9aec764adb8c65f000b75ba2c",
+      "side": "both",
+      "why": "less memory for block states and models (server and client)"
+    },
+    {
+      "slug": "embeddium",
+      "version": "0.3.31+mc1.20.1",
+      "version_id": "UTbfe5d1",
+      "file": "embeddium-0.3.31+mc1.20.1.jar",
+      "url": "https://cdn.modrinth.com/data/sk9rgfiA/versions/UTbfe5d1/embeddium-0.3.31%2Bmc1.20.1.jar",
+      "size": 1320675,
+      "sha1": "bb2fa8f3e493af16af9160d049f96c614a1faf2f",
+      "sha512": "ffbf2da4685260a4d5c14c621708bd20722563f084f042d3dfb0a7b87f048e39299648c854a93939129da0d23a15a91ec628560d601e76074b08e275f6e132e9",
+      "side": "client",
+      "why": "renderer (Sodium port); Flywheel 1.0 supports it"
+    },
+    {
+      "slug": "entityculling",
+      "version": "1.11.3",
+      "version_id": "HUUJcFnt",
+      "file": "entityculling-forge-1.11.3-mc1.20.1.jar",
+      "url": "https://cdn.modrinth.com/data/NNAgCjsB/versions/HUUJcFnt/entityculling-forge-1.11.3-mc1.20.1.jar",
+      "size": 1515076,
+      "sha1": "d3c513e88ef9f5cdd7e27d17d923d4dca69c6d55",
+      "sha512": "be5be53897ae7403a202e4b0b094701bcc4ecdb94afcf2ea144cd07d9a4553a1fc6a88917732a72c477d01c33583162cffb9c4a19d259089deb018878eec1da8",
+      "side": "client",
+      "why": "skips rendering hidden entities and block entities"
+    }
+  ]
+}
