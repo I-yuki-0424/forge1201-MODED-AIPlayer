@@ -28,8 +28,9 @@ x-server: &server
     # Mods: the lock file's server jars (scripts/world/up.sh), mirrored into /data/mods on every start.
     COPY_MODS_SRC: /mods
     REMOVE_OLD_MODS: "true"
-    LEVEL_TYPE: flat
-    SEED: "20261031"
+    # Terrain of a newly generated world (scripts/world/reset.sh writes these to .env); an existing world keeps its own.
+    LEVEL_TYPE: ${WORLD_LEVEL_TYPE:-flat}
+    SEED: ${WORLD_SEED:-20261031}
     GENERATE_STRUCTURES: "false"
     MODE: creative
     FORCE_GAMEMODE: "false"
@@ -167,6 +168,27 @@ services:
     ports:
       - "127.0.0.1:3020:3000"     # host 3000 is the honeypot Grafana
     entrypoint: ["node", "index.js"]
+    networks: [world]
+
+  # The action-layer benchmark (scripts/skills/bench.js) against the build world, so the owner can watch it in game.
+  # Natural terrain: --ground auto puts the arena next to the world spawn on dry land at the measured surface height.
+  bench:
+    image: node@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0
+    profiles: [bench]
+    working_dir: /app
+    mem_limit: 2g          # up to 10 bots in one process (scripts/skills/bench_lv2.js --bots)
+    cpus: 2
+    environment:
+      MC_HOST: world
+      MC_PORT: "25565"
+      RCON_HOST: world
+      RCON_PORT: "25575"
+      RCON_PASSWORD: ${RCON_PASSWORD:?run scripts/world/up.sh}
+      BOT_REGISTRY: auto
+    volumes:
+      - ../..:/app:ro
+      - ../../exchange:/exchange
+    entrypoint: ["node", "scripts/skills/bench.js"]
     networks: [world]
 
 volumes:

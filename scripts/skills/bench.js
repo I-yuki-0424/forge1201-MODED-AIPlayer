@@ -10,6 +10,9 @@
 // Options: --reps N, --only a,b, --seed S, --clutter 1 (random walls, steps, pits, raised stations, decoy mobs around every
 // scenario), --control noop (negative control: the command is replaced by 20 idle ticks; every grade must then fail),
 // --trials 129,130 (replay only those trial indices of the seeded order: a trial's world depends only on seed and index).
+// Natural terrain (the build world, docker/world-server service `bench`): --ground auto puts the arena next to the world
+// spawn on dry land and builds it at the measured surface height, clearing --clear-height blocks above it (default 24 there);
+// --wait-login S idles S seconds after login (a player can join and watch) before the first trial.
 //
 // Output (exchange/<run-id>/): trials.jsonl (one line per trial), traces/<n>.json (per-tick trace of every trial),
 // summary.json. The arena is 2 x ARENA_R + 1 blocks wide at --origin-x (default -512), away from the RL arenas.
@@ -22,28 +25,31 @@ const { mulberry32 } = require('../../src/rl/run_env');
 const { execute, COMMANDS } = require('../../src/skills');
 
 const BOT = process.env.SKILL_BOT_NAME || 'SkillBot';
-const GY = Number(process.env.RL_GROUND_Y ?? -61);        // top solid layer of the flat world
+let GY = Number(process.env.RL_GROUND_Y ?? -61);          // top solid layer of the arena (flat world; --ground auto measures it)
 const ARENA_R = 14;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function parseArgs(argv) {
-    const o = { root: '/exchange', runId: null, seed: 1, reps: 10, only: null, originX: -512, originZ: 0, clutter: false, control: null, trials: null };
+    const o = { root: '/exchange', runId: null, seed: 1, reps: 10, only: null, originX: -512, originZ: 0, clutter: false, control: null, trials: null, ground: null, clearHeight: 8, waitLogin: 0 };
     for (let i = 0; i < argv.length; i += 2) {
         const k = argv[i], v = argv[i + 1];
         const map = { '--root': ['root'], '--run-id': ['runId'], '--seed': ['seed', Number], '--reps': ['reps', Number],
             '--only': ['only', (s) => s.split(',')], '--origin-x': ['originX', Number], '--origin-z': ['originZ', Number],
-            '--clutter': ['clutter', (s) => s === '1'], '--trials': ['trials', (s) => s.split(',').map(Number)], '--control': ['control', (s) => { if (s !== 'noop') throw new Error('--control noop'); return s; }] };
+            '--clutter': ['clutter', (s) => s === '1'], '--trials': ['trials', (s) => s.split(',').map(Number)],
+            '--ground': ['ground', (s) => { if (s !== 'auto') throw new Error('--ground auto'); return s; }], '--clear-height': ['clearHeight', Number], '--wait-login': ['waitLogin', Number], '--control': ['control', (s) => { if (s !== 'noop') throw new Error('--control noop'); return s; }] };
         if (!map[k] || v === undefined) throw new Error(`bad argument ${k}`);
         o[map[k][0]] = map[k][1] ? map[k][1](v) : v;
     }
     if (!o.runId) throw new Error('--run-id is required');
+    if (o.ground && !argv.includes('--clear-height')) o.clearHeight = 24;
+    if (o.clearHeight < 8 || o.clearHeight > 38) throw new Error('--clear-height 8..38 (fill volume limit)');
     for (const c of o.only || []) if (!COMMANDS[c]) throw new Error(`unknown command ${c}`);
     return o;
 }
 
 // ---------------------------------------------------------------- server side (RCON): build and grade
 class Server {
-    constructor(rcon) { this.rcon = rcon; }
+    constructor(rcon, name = BOT) { this.rcon = rcon; this.name = name; }
     async cmd(c) { return (await this.rcon.command(c)).replace(/\x1b\[[0-9;]*m/g, '').trim(); }
     async must(c) {
         const out = await this.cmd(c);
@@ -53,9 +59,9 @@ class Server {
         return out;
     }
     async test(c) { return /^Test passed/.test(await this.cmd(`execute if ${c}`)); }
-    async count(item) { const m = /Found (\d+) matching/.exec(await this.cmd(`clear ${BOT} minecraft:${item} 0`)); return m ? Number(m[1]) : 0; }
-    async nums(what) { return (/data: \[(.*)\]/.exec(await this.cmd(`data get entity ${BOT} ${what}`)) || [, ''])[1].split(',').map(parseFloat); }
-    async num(what) { return parseFloat((/data: (-?[\d.]+)/.exec(await this.cmd(`data get entity ${BOT} ${what}`)) || [])[1]); }
+    async count(item) { const m = /Found (\d+) matching/.exec(await this.cmd(`clear ${this.name} minecraft:${item} 0`)); return m ? Number(m[1]) : 0; }
+    async nums(what) { return (/data: \[(.*)\]/.exec(await this.cmd(`data get entity ${this.name} ${what}`)) || [, ''])[1].split(',').map(parseFloat); }
+    async num(what) { return parseFloat((/data: (-?[\d.]+)/.exec(await this.cmd(`data get entity ${this.name} ${what}`)) || [])[1]); }
     async blockIs(c, name) { return this.test(`block ${c.x} ${c.y} ${c.z} minecraft:${name}`); }
     async container(c, item) {
         const out = await this.cmd(`data get block ${c.x} ${c.y} ${c.z} Items`);
@@ -423,13 +429,52 @@ async function waitFor(what, cond, ms = 8000) {
     }
 }
 
+// ---------------------------------------------------------------- natural terrain: where to put the arena
+const NOT_GROUND = /leaves|log$|wood$|vine|mushroom_block|bamboo|cactus|sugar_cane|snow$|kelp|seagrass/;
+/** Highest solid terrain block of a column as the client sees it (trees and plants skipped), or {fluid} when a fluid is on top. */
+function surface(bot, x, z) {
+    for (let y = 319; y > -64; y--) {
+        const b = bot.blockAt(new Vec3(x, y, z));
+        if (!b) return null;
+        if (b.name === 'water' || b.name === 'lava' || b.getProperties?.().waterlogged) return { fluid: b.name };
+        if (b.boundingBox === 'block' && !NOT_GROUND.test(b.name)) return { y };
+    }
+    return null;
+}
+/** First dry candidate beside the world spawn: no fluid within the arena and 3 blocks around it; GY = median surface. */
+async function naturalArena(bot) {
+    const sp = bot.spawnPoint;
+    const R = ARENA_R + 3;
+    // Candidates on an 8-block grid inside the spawn's loaded chunks, nearest first, never containing the spawn itself.
+    const cand = [];
+    for (let dx = -96; dx <= 96; dx += 8) for (let dz = -96; dz <= 96; dz += 8) if (Math.hypot(dx, dz) >= 24) cand.push([dx, dz]);
+    cand.sort((a, b) => Math.hypot(...a) - Math.hypot(...b));
+    let skipped = 0;
+    for (const [dx, dz] of cand) {
+        const cx = Math.floor(sp.x) + dx, cz = Math.floor(sp.z) + dz;
+        await waitFor('chunks', () => bot.blockAt(new Vec3(cx - R, 0, cz - R)) && bot.blockAt(new Vec3(cx + R, 0, cz + R)), 30000).catch(() => null);
+        const ys = []; let wet = null;
+        for (let x = cx - R; x <= cx + R && !wet; x += 1) for (let z = cz - R; z <= cz + R; z += 1) {
+            const s = surface(bot, x, z);
+            if (!s) { wet = 'unloaded'; break; }
+            if (s.fluid) { wet = s.fluid; break; }
+            if (Math.abs(x - cx) % 4 === 0 && Math.abs(z - cz) % 4 === 0) ys.push(s.y);
+        }
+        if (wet) { skipped++; continue; }
+        if (skipped) console.log(`[bench] ${skipped} arena candidates nearer the spawn skipped (fluid or unloaded)`);
+        ys.sort((a, b) => a - b);
+        return { cx, cz, gy: ys[ys.length >> 1], relief: ys[ys.length - 1] - ys[0], spawn: [sp.x, sp.y, sp.z] };
+    }
+    throw new Error('no dry arena site near the world spawn');
+}
+
 async function resetArena(S, bot, A, rng) {
     const R = ARENA_R;
     await S.must(`gamemode survival ${BOT}`);
     await S.must(`clear ${BOT}`);
     await S.must(`effect clear ${BOT}`);
     await S.must(`tp ${BOT} ${A.cx + 0.5} ${GY + 1} ${A.cz + 0.5} ${int(rng, 0, 7) * 45 - 180} 0`);
-    await S.must(`fill ${A.cx - R} ${GY + 1} ${A.cz - R} ${A.cx + R} ${GY + 8} ${A.cz + R} minecraft:air`);
+    await S.must(`fill ${A.cx - R} ${GY + 1} ${A.cz - R} ${A.cx + R} ${GY + A.clear} ${A.cz + R} minecraft:air`);
     await S.must(`fill ${A.cx - R} ${GY - 2} ${A.cz - R} ${A.cx + R} ${GY - 1} ${A.cz + R} minecraft:dirt`);
     await S.must(`fill ${A.cx - R} ${GY} ${A.cz - R} ${A.cx + R} ${GY} ${A.cz + R} minecraft:grass_block`);
     await S.cmd(`kill @e[type=!player,x=${A.cx},y=${GY},z=${A.cz},distance=..${R + 24}]`);
@@ -455,6 +500,8 @@ async function resetArena(S, bot, A, rng) {
     }
 }
 
+let restoreServer = async () => {};    // set by main once it has read the server's settings; also run on a fatal error
+
 async function main() {
     const o = parseArgs(process.argv.slice(2));
     const dir = path.join(o.root, o.runId);
@@ -463,7 +510,14 @@ async function main() {
     const rcon = new Rcon({ host: process.env.RCON_HOST || 'localhost', port: Number(process.env.RCON_PORT) || 25575, password: process.env.RCON_PASSWORD || '' });
     await rcon.connect();
     const S = new Server(rcon);
-    for (const rule of ['doDaylightCycle false', 'doMobSpawning false', 'doWeatherCycle false', 'doImmediateRespawn true', 'sendCommandFeedback false', 'logAdminCommands false', 'randomTickSpeed 0', 'doTileDrops true', 'doEntityDrops true', 'doMobLoot true']) await S.cmd(`gamerule ${rule}`);
+    // The server's own settings are put back at the end (the build world is shared with players).
+    const restore = [`difficulty ${(/difficulty is (\w+)/i.exec(await S.cmd('difficulty')) || [, 'peaceful'])[1].toLowerCase()}`];
+    for (const rule of ['doDaylightCycle false', 'doMobSpawning false', 'doWeatherCycle false', 'doImmediateRespawn true', 'sendCommandFeedback false', 'logAdminCommands false', 'randomTickSpeed 0', 'doTileDrops true', 'doEntityDrops true', 'doMobLoot true']) {
+        const name = rule.split(' ')[0], was = /currently set to: (\S+)/.exec(await S.cmd(`gamerule ${name}`));
+        if (was) restore.push(`gamerule ${name} ${was[1]}`);
+        await S.cmd(`gamerule ${rule}`);
+    }
+    restoreServer = async () => { for (const c of restore) await S.cmd(c); restoreServer = async () => {}; };
     await S.cmd('time set day');
     // Hunger only drains above peaceful; hostile test mobs (husk) need it too. Restored at the end.
     await S.must('difficulty easy');
@@ -473,7 +527,19 @@ async function main() {
     bot.on('kicked', (r) => { console.error('[bench] kicked:', String(r).slice(0, 200)); process.exit(4); });
     bot.on('error', (e) => console.error('[bench] bot error:', String(e.message || e).slice(0, 200)));
     await new Promise((resolve, reject) => { bot.once('spawn', resolve); setTimeout(() => reject(new Error('no spawn within 60 s')), 60000); });
-    const A = { cx: o.originX, cz: o.originZ, hard: o.clutter };
+    const A = { cx: o.originX, cz: o.originZ, hard: o.clutter, clear: o.clearHeight };
+    let site = null;
+    if (o.ground === 'auto') {
+        site = await naturalArena(bot);
+        Object.assign(A, { cx: site.cx, cz: site.cz }); GY = site.gy;
+        console.log(`[bench] natural arena at ${site.cx} ${GY} ${site.cz} (spawn ${site.spawn.map(Math.floor).join(' ')}, surface relief ${site.relief})`);
+    }
+    if (o.waitLogin > 0) {
+        await S.cmd(`say ${BOT}: benchmark starts in ${o.waitLogin} s; arena at ${A.cx} ${GY} ${A.cz}. Please watch from outside it (spectator or 16+ blocks away).`);
+        console.log(`[bench] waiting ${o.waitLogin} s after login`);
+        await sleep(o.waitLogin * 1000);
+        await S.cmd(`say ${BOT}: benchmark starting`);
+    }
     await S.must(`tp ${BOT} ${A.cx + 0.5} ${GY + 1} ${A.cz + 0.5}`);
     await waitFor('chunks', () => bot.blockAt(new Vec3(A.cx, GY, A.cz)) != null && bot.blockAt(new Vec3(A.cx + ARENA_R, GY, A.cz + ARENA_R)) != null, 30000);
 
@@ -515,16 +581,22 @@ async function main() {
         console.log(`[bench] ${String(n + 1).padStart(3)}/${order.length} ${command.padEnd(9)} ${rec.ok ? 'PASS' : 'FAIL'} ${rec.harness_error ? `harness: ${rec.harness_error}` : `bot=${rec.bot.ok ? 'ok' : rec.bot.reason} ticks=${rec.ticks}`}`);
     }
     const total = Object.values(summary).reduce((a, s) => ({ n: a.n + s.n, ok: a.ok + s.ok }), { n: 0, ok: 0 });
-    const result = { run_id: o.runId, seed: o.seed, reps: o.reps, clutter: o.clutter, control: o.control, total: { ...total, rate: total.ok / total.n }, per_command: Object.fromEntries(Object.entries(summary).map(([k, s]) => [k, { ...s, rate: s.ok / s.n }])) };
+    const result = { run_id: o.runId, seed: o.seed, arena: { cx: A.cx, gy: GY, cz: A.cz, clear: A.clear, natural: site }, reps: o.reps, clutter: o.clutter, control: o.control, total: { ...total, rate: total.ok / total.n }, per_command: Object.fromEntries(Object.entries(summary).map(([k, s]) => [k, { ...s, rate: s.ok / s.n }])) };
     fs.writeFileSync(path.join(dir, 'summary.json'), JSON.stringify(result, null, 2));
     console.log(JSON.stringify(result.total));
-    await S.cmd('difficulty peaceful');
+    await restoreServer();
     fs.closeSync(out);
     rcon.close();
     bot.end();
     setTimeout(() => process.exit(0), 300);
 }
 
-if (require.main === module) main().catch((e) => { console.error('[bench] fatal:', e.stack || e.message); process.exit(1); });
+if (require.main === module) {
+    main().catch(async (e) => {
+        console.error('[bench] fatal:', e.stack || e.message);
+        await Promise.race([restoreServer().catch(() => {}), sleep(5000)]);
+        process.exit(1);
+    });
+}
 
-module.exports = { SCENARIOS, parseArgs };
+module.exports = { SCENARIOS, parseArgs, Server, waitFor, sleep };
