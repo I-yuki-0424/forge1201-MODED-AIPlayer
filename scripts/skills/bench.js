@@ -440,6 +440,10 @@ async function resetArena(S, bot, A, rng) {
     await waitFor('health and food', () => bot.health >= 19.9 && bot.food >= 20);
     await waitFor('arena', () => bot.blockAt(new Vec3(A.cx + 3, GY + 1, A.cz))?.name === 'air' && bot.blockAt(new Vec3(A.cx + 3, GY, A.cz))?.name === 'grass_block');
     await waitFor('landed', () => bot.entity.onGround);
+    // Killed mobs stay in the world for their 20-tick death animation (and on the client until the server removes them);
+    // a scenario must not start with last trial's mobs still there (bench v1-hard-a #62: a dying decoy slime in the way).
+    await waitFor('arena entities removed', () => !Object.values(bot.entities).some((e) => e !== bot.entity && e.type !== 'player'
+        && Math.abs(e.position.x - A.cx) <= R + 24 && Math.abs(e.position.z - A.cz) <= R + 24));
 }
 
 async function main() {

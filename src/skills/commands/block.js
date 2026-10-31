@@ -4,7 +4,7 @@
 const { SkillError } = require('../runner');
 const { standable, isInteractive } = require('../world');
 const { FACES, lookAngles, aimPoints, viewDir, raycast } = require('../geometry');
-const { follow, cellGoal, reachGoal, approachUntil, approachBlock, aimAtBlock, feetCell, centre, hdist, same, AIM_REACH } = require('../motion');
+const { follow, cellGoal, reachGoal, approachUntil, approachBlock, aimAtBlock, clearOfEntities, feetCell, centre, hdist, same, AIM_REACH } = require('../motion');
 const { holdItem, count } = require('./item');
 const { collectDrops } = require('./entity');
 
@@ -122,7 +122,7 @@ async function place(ctx, { x, y, z, item }) {
     const refs = supports(w, cell);
     if (!refs.length) throw new SkillError('invalid_target', { why: 'no solid neighbour to place against', target: cell });
     const free = (c) => !(c.x === x && c.z === z && (c.y === y || c.y + 1 === y));
-    const seen = () => refs.filter((r) => aimPoints(ctx.body.eye(), r.cell, w.shapesAt, { face: r.face, limit: 1, reach: AIM_REACH }).length);
+    const seen = () => refs.filter((r) => clearOfEntities(ctx, aimPoints(ctx.body.eye(), r.cell, w.shapesAt, { face: r.face, limit: 5, reach: AIM_REACH })).length);
     await approachUntil(ctx, (reach, ok2) => {
         const goals = refs.map((r) => reachGoal(w, r.cell, { face: r.face, reach }));
         return { isGoal: (c) => free(c) && ok2(c) && goals.some((g) => g.isGoal(c)), h: (c) => Math.min(...goals.map((g) => g.h(c))), label: 'reach placement face' };

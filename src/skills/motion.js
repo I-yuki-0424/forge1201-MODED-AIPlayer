@@ -153,11 +153,20 @@ async function approachUntil(ctx, makeGoal, visible, label) {
     throw new SkillError('not_visible', { target: label, from: feetCell(ctx.bot.entity.position) });
 }
 
+/** Aim points whose ray from the eye no entity crosses first (a mob, or a dying one, in front of the block). */
+function clearOfEntities(ctx, pts) {
+    const eye = ctx.body.eye();
+    return pts.filter((p) => {
+        const d = { x: (p.point.x - eye.x) / p.dist, y: (p.point.y - eye.y) / p.dist, z: (p.point.z - eye.z) / p.dist };
+        return !ctx.body.entityOnRay(eye, d, p.dist);
+    });
+}
+
 /** Get within reach of the block at `cell` (no movement if already there). Returns the aim points from where it stands. */
 async function approachBlock(ctx, cell, opts = {}) {
     const ok = opts.ok || (() => true);
     return approachUntil(ctx, (reach, ok2) => reachGoal(ctx.world, cell, { ...opts, reach, ok: (c) => ok(c) && ok2(c) }), () => {
-        const pts = aimPoints(ctx.body.eye(), cell, ctx.world.shapesAt, { face: opts.face ?? null, reach: AIM_REACH });
+        const pts = clearOfEntities(ctx, aimPoints(ctx.body.eye(), cell, ctx.world.shapesAt, { face: opts.face ?? null, reach: AIM_REACH }));
         return pts.length ? pts : null;
     }, cell);
 }
@@ -172,7 +181,9 @@ async function aimAtBlock(ctx, cell, { face = null, frame = {} } = {}) {
     for (const p of pts) {
         const { yaw, pitch } = lookAngles(ctx.body.eye(), p.point);
         await ctx.tick({ ...frame, yaw, pitch });
-        const hit = ctx.body.crosshair();
+        let hit = ctx.body.crosshair();
+        // An entity in the way may walk off or finish dying (a killed mob stays hittable for its 20-tick death animation).
+        for (let i = 0; i < 10 && hit && hit.kind === 'entity'; i++) { await ctx.tick({ ...frame, yaw, pitch }); hit = ctx.body.crosshair(); }
         if (hit && hit.kind === 'block' && same(hit.block.position, cell) && (face === null || hit.face === face)) return hit;
         const r2 = (v) => Math.round(v * 100) / 100;
         seen.push(!hit ? { hit: null, aim_dist: r2(p.dist) } : hit.kind === 'entity' ? { hit: 'entity', name: hit.entity.name, id: hit.entity.id, dist: r2(hit.dist) }
@@ -181,4 +192,4 @@ async function aimAtBlock(ctx, cell, { face = null, frame = {} } = {}) {
     throw new SkillError('not_visible', { target: cell, tried: pts.length, seen });
 }
 
-module.exports = { follow, cellGoal, reachGoal, approachUntil, approachBlock, aimAtBlock, AIM_REACH, feetCell, centre, hdist, same, eyeOf, clearLine };
+module.exports = { follow, cellGoal, reachGoal, approachUntil, approachBlock, aimAtBlock, clearOfEntities, AIM_REACH, feetCell, centre, hdist, same, eyeOf, clearLine };

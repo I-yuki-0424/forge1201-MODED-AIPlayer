@@ -35,7 +35,7 @@ class Body {
         const eye = this.eye();
         const d = viewDir(e.yaw, e.pitch);
         const hit = raycast(eye, d, BLOCK_REACH, (x, y, z) => shapesOf(b.blockAt(new Vec3(x, y, z), false)));
-        const ent = this._entityOnRay(eye, d, Math.min(ENTITY_REACH, hit ? hit.t : ENTITY_REACH));
+        const ent = this.entityOnRay(eye, d, Math.min(ENTITY_REACH, hit ? hit.t : ENTITY_REACH));
         if (ent) return ent;
         if (!hit) return null;
         const block = b.blockAt(new Vec3(hit.x, hit.y, hit.z));
@@ -48,7 +48,8 @@ class Body {
         return { x: p.x, y: p.y + (this.bot.getControlState('sneak') ? SNEAK_EYE : EYE), z: p.z };
     }
 
-    _entityOnRay(eye, d, maxDist) {
+    /** Nearest hittable entity whose box the ray from `eye` along unit `d` enters within `maxDist`, as a crosshair hit. */
+    entityOnRay(eye, d, maxDist) {
         let best = null;
         for (const ent of Object.values(this.bot.entities)) {
             if (ent === this.bot.entity || !ent.position || UNHITTABLE.has(ent.name)) continue;
