@@ -1,0 +1,10 @@
+[Unit]
+Description=forgeaip build world: snapshot every hour (newest 24 automatic snapshots kept)
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=120
+Persistent=false
+
+[Install]
+WantedBy=timers.target

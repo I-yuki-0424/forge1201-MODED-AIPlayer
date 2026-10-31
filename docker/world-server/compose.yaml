@@ -1,0 +1,105 @@
+# docker/world-server/compose.yaml
+#
+# The persistent build world (TASK-20261031-019): a modded Forge 1.20.1 server the owner joins to build test sites
+# (ladders, water, mod blocks, animals), and disposable copies of it for bots and benchmarks.
+#   scripts/world/up.sh                 start the build world (127.0.0.1:25567; the tailnet reaches it on :25565)
+#   scripts/world/snapshot.sh <label>   consistent snapshot to /mnt/data/forgeaip/snapshots (hourly automatic ones too)
+#   scripts/world/test-up.sh <snap>     disposable copy on 127.0.0.1:25568 (tmpfs: nothing a bot does reaches the build)
+#   scripts/world/restore.sh <snap>     roll the build world back to a snapshot (takes a snapshot of the current state first)
+#
+# Rules: published on 127.0.0.1 only (Docker bypasses ufw); the owner's route is `tailscale serve` (tailnet only, like
+# SSH). RCON stays inside the compose network. The world lives in the named volume `data` (on the data disk with the
+# rest of coder's Docker data); mods come read-only from /mnt/data/forgeaip/mods (the owner's own jars, copied 1:1).
+# Design: docs/implemented/WORLD-v1.md.
+
+name: forgeaip-world
+
+x-server: &server
+  # Same pinned image as docker/rl-server (2026-10-30, java17 tag).
+  image: itzg/minecraft-server@sha256:a08cd9ced3e1c3f46a318af1fa393de21698afbf8746681f115dc923ba847ba5
+  stop_grace_period: 60s
+  environment: &env
+    EULA: "TRUE"
+    TYPE: FORGE
+    VERSION: "1.20.1"
+    FORGE_VERSION: "47.4.10"
+    MEMORY: "3G"
+    USE_AIKAR_FLAGS: "true"
+    # Mods: the owner's jars, mirrored into /data/mods on every start (removed jars disappear too).
+    COPY_MODS_SRC: /mods
+    REMOVE_OLD_MODS: "true"
+    LEVEL_TYPE: flat
+    SEED: "20261031"
+    GENERATE_STRUCTURES: "false"
+    MODE: creative
+    FORCE_GAMEMODE: "false"
+    DIFFICULTY: easy
+    # Animals stay when spawned by egg (with spawn-animals=false 1.20.1 discards every animal); natural spawning is off
+    # through the doMobSpawning gamerule (scripts/world/up.sh), so a built scene stays as it was built.
+    SPAWN_ANIMALS: "true"
+    SPAWN_MONSTERS: "true"
+    SPAWN_NPCS: "true"
+    ALLOW_NETHER: "true"
+    SPAWN_PROTECTION: "0"
+    VIEW_DISTANCE: "8"
+    SIMULATION_DISTANCE: "6"
+    MAX_PLAYERS: "16"
+    # Bots have no Microsoft account. Who can connect is decided by the network: loopback + the owner's tailnet.
+    ONLINE_MODE: "false"
+    ALLOW_FLIGHT: "true"
+    ENFORCE_SECURE_PROFILE: "false"
+    MAX_TICK_TIME: "-1"
+    ENABLE_COMMAND_BLOCK: "true"
+    ENABLE_RCON: "true"
+    RCON_PASSWORD: ${RCON_PASSWORD:?run scripts/world/up.sh (creates docker/world-server/.env)}
+    MOTD: "forgeaip build world"
+    LOG_TIMESTAMP: "true"
+  healthcheck:
+    test: ["CMD", "mc-health"]
+    interval: 10s
+    timeout: 5s
+    retries: 60
+    start_period: 240s
+  networks: [world]
+
+services:
+  world:
+    <<: *server
+    container_name: forgeaip-world
+    restart: unless-stopped
+    mem_limit: 4g
+    cpus: 3
+    volumes:
+      - data:/data
+      - /mnt/data/forgeaip/mods:/mods:ro
+      - /mnt/data/forgeaip/snapshots:/snapshots
+    ports:
+      - "127.0.0.1:25567:25565"
+
+  # A disposable copy: unpacks SNAPSHOT into a tmpfs world at start. Nothing written here survives the container.
+  world-test:
+    <<: *server
+    profiles: [test]
+    container_name: forgeaip-world-test
+    restart: "no"
+    mem_limit: 4g
+    cpus: 3
+    entrypoint: ["/bin/sh", "-c", "set -e; tar -xzf \"/snapshots/$${SNAPSHOT:?}\" -C /data; chown -R 1000:1000 /data/world; exec /start"]
+    environment:
+      <<: *env
+      SNAPSHOT: ${SNAPSHOT:-}
+    volumes:
+      - test-data:/data
+      - /mnt/data/forgeaip/mods:/mods:ro
+      - /mnt/data/forgeaip/snapshots:/snapshots:ro
+    tmpfs:
+      - /data/world:size=1024m,uid=1000,gid=1000,mode=0755
+    ports:
+      - "127.0.0.1:25568:25565"
+
+volumes:
+  data:
+  test-data:
+
+networks:
+  world:

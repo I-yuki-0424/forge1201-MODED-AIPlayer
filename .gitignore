@@ -69,3 +69,4 @@ kaggle.json
 
 # RL environment exchange files (DPOD file API, docs/proposed/RL-INTERFACE-v1.md)
 exchange/
+docker/world-server/.env

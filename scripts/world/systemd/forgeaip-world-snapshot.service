@@ -1,0 +1,8 @@
+[Unit]
+Description=forgeaip build world: hourly automatic snapshot (no-op while the world is stopped)
+
+[Service]
+Type=oneshot
+ExecStart=%h/projects/forge1201-MODED-AIPlayer/scripts/world/snapshot.sh auto
+Nice=10
+IOSchedulingClass=idle
