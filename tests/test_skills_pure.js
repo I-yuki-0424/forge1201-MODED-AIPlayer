@@ -204,5 +204,20 @@ const goalCell = (t) => ({ isGoal: (c) => c.x === t.x && c.y === t.y && c.z === 
         } finally { clearInterval(bot.timer); }
     });
 
+    await test('pickup of an item in a hole below steps into the hole (reproducer: bench hard2 trial 118)', async () => {
+        // The drop of a mined floor block lies in the 1-deep hole; the bot stands on the rim, horizontally almost over it,
+        // but a block above it (out of pickup range). Before the fix it released forward (within 0.25 of the item) and
+        // waited on the rim until `stuck`. It must walk to the centre of the item's cell so it drops in.
+        const { pickup } = require('../src/skills/commands/entity');
+        const bot = fakeBot();
+        Object.assign(bot, { inventory: { items: () => [], slots: [] }, food: 20, heldItem: null });
+        bot.entity.position = new Vec3(0.55, 1, 1.02);          // rim: cell (0,1,1), box overlapping the hole cell (0,0,0)
+        bot.entities = { 9: { id: 9, name: 'item', position: new Vec3(0.6, 0, 0.85), getDroppedItem: () => ({ name: 'dirt', count: 1 }) } };
+        try {
+            const r = await run(bot, pickup, { entity: 9 }, { maxTicks: 3 });
+            assert.strictEqual(r.trace[0][2][0], 'F', `first frame ${r.trace[0][2]}`);
+        } finally { clearInterval(bot.timer); }
+    });
+
     console.log('All skill tests passed.');
 })().catch((e) => { console.error(e); process.exit(1); });

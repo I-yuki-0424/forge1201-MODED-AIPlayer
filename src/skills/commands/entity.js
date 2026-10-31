@@ -42,7 +42,12 @@ async function pickupEntity(ctx, id, name, before) {
         // Close by, or in the open: steer straight at it (jumping onto a block if it lies one block up).
         if (dy < 1.6 && dy > -1.5 && (d < 1.5 || (d < 8 && Math.abs(dy) < 1 && clearLine(w, pos, ip, cell.y)))) {
             if (d < 1.5 && ++close > 60) throw new SkillError('stuck', { why: 'next to the item for 3 s, not picked up', item: name, dy });
-            await ctx.tick({ forward: d > 0.25, yaw: yawTo(pos, ip), jump: bot.entity.isCollidedHorizontally && bot.entity.onGround });
+            // An item a level below or above is out of pickup range from the rim or the foot of the step: walk to the centre
+            // of its cell to drop in or step up (bench hard2 #118: stood on the rim of a 1-deep hole above the drop).
+            const other = dy < -0.4 || dy > 0.6;
+            const aim = other ? { x: Math.floor(ip.x) + 0.5, z: Math.floor(ip.z) + 0.5 } : ip;
+            const da = hdist(pos, aim);
+            await ctx.tick({ forward: da > (other ? 0.1 : 0.25), yaw: yawTo(pos, aim), jump: bot.entity.isCollidedHorizontally && bot.entity.onGround });
             continue;
         }
         const anchor = ip.clone();
