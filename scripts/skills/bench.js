@@ -469,7 +469,7 @@ async function main() {
     await S.must('difficulty easy');
 
     const bot = createForgeBot({ host: process.env.MC_HOST || 'localhost', port: Number(process.env.MC_PORT) || 25565, username: BOT });
-    attachForgeHandshake(bot, { inject: process.env.RL_PROFILE === 'modded' });
+    attachForgeHandshake(bot, { registry: process.env.BOT_REGISTRY || 'auto' });
     bot.on('kicked', (r) => { console.error('[bench] kicked:', String(r).slice(0, 200)); process.exit(4); });
     bot.on('error', (e) => console.error('[bench] bot error:', String(e.message || e).slice(0, 200)));
     await new Promise((resolve, reject) => { bot.once('spawn', resolve); setTimeout(() => reject(new Error('no spawn within 60 s')), 60000); });

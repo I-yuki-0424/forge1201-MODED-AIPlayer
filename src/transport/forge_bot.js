@@ -5,6 +5,7 @@ const mineflayer = require('mineflayer');
 const nbt = require('prismarine-nbt');
 const ForgeHandshakeStateMachine = require('../forge_handshake_state_machine');
 const DynamicRegistryInjector = require('../dynamic_registry_injector');
+const modRegistry = require('./mod_registry');
 
 let bypassesApplied = false;
 
@@ -127,21 +128,31 @@ function createForgeBot({ host = 'localhost', port = 25565, username }) {
 }
 
 /**
- * Run the FML3 handshake on `inject_allowed`. With `inject` (modded servers) the registry sync is parsed and the mod
- * blocks are added to Prismarine's registry; `onRegistry(injector, parsed)` may add more. Without it (a Forge server with
- * no content mods) the vanilla registry is already right: injecting there mislabels items (observed 2026-10-30:
- * dirt -> "forge:modid4", "Injected 28 MOD blocks" on an empty mod list).
+ * Run the FML3 handshake on `inject_allowed` and make Prismarine's registry match the server.
+ * registry 'auto' (default): on a server with content mods, install the exact mod blocks and items
+ *   (src/transport/mod_registry.js: the handshake's registry ids + the mod set's dump table); a vanilla Forge server needs
+ *   nothing. 'vanilla': never touch the registry. 'legacy': the old heuristic byte scan (src/dynamic_registry_injector.js),
+ *   which mislabels vanilla items (dirt -> "forge:modid4") and names every Create block "decorated_pot" (2026-10-31).
+ * The result is emitted once as bot 'mod_registry' {mode, content, blocks, states, items, missing, error?}.
  */
-function attachForgeHandshake(bot, { inject = true, onRegistry } = {}) {
+function attachForgeHandshake(bot, { registry = 'auto', table } = {}) {
     bot.on('inject_allowed', () => {
         hardenClientChatParsers(bot);
         const handshake = new ForgeHandshakeStateMachine(bot._client);
-        handshake.on('handshake_complete', (registrySyncBuffer) => {
-            if (!inject) return;
-            const injector = new DynamicRegistryInjector(bot.registry);
-            const parsed = injector.parseRegistryPayload(registrySyncBuffer);
-            injector.injectBlockToRegistry(parsed);
-            if (onRegistry) onRegistry(injector, parsed);
+        handshake.on('handshake_complete', (payloads) => {
+            if (registry === 'legacy') {
+                const injector = new DynamicRegistryInjector(bot.registry);
+                injector.injectBlockToRegistry(injector.parseRegistryPayload(payloads));
+                return bot.emit('mod_registry', { mode: registry });
+            }
+            let sync;
+            try { sync = modRegistry.parseRegistrySync(payloads); } catch (e) {
+                return bot.emit('mod_registry', { mode: registry, error: e.message });
+            }
+            const content = modRegistry.hasContentMods(sync);
+            if (registry !== 'auto' || !content) return bot.emit('mod_registry', { mode: registry, content });
+            const tab = table === undefined ? modRegistry.loadTable() : table;
+            bot.emit('mod_registry', { mode: registry, content, table: !!tab, ...modRegistry.install(bot.registry, sync, tab) });
         });
     });
 }

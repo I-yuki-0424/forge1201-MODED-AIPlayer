@@ -4,11 +4,10 @@
 // that moves the bot is the intent queue below. No background loops (auto-eat, auto-defence, anti-AFK, dodging): they set
 // controls in parallel with actions, which is what made the old actuator's actions unreliable. AgentManager starts this
 // file unless BOT_RUNTIME=legacy.
-// Environment: BOT_ID, BOT_OPTIONS ({host, port}), MC_HOST, MC_PORT, BOT_REGISTRY=auto|inject|vanilla (default auto: inject
-// the mod block registry only when the server reports content mods).
+// Environment: BOT_ID, BOT_OPTIONS ({host, port}), MC_HOST, MC_PORT, BOT_REGISTRY=auto|vanilla|legacy (default auto: exact
+// mod blocks and items when the server has content mods, src/transport/mod_registry.js).
 const fs = require('fs');
 const path = require('path');
-const mc = require('minecraft-protocol');
 const { createForgeBot, attachForgeHandshake } = require('./transport/forge_bot');
 const { runIntent } = require('./skills/intents');
 const { EventLog } = require('./rl/events');
@@ -27,14 +26,6 @@ const log = (s) => { console.log(`[SkillsBot ${botId}] ${s}`); };
 
 let bot = null, ready = false, closing = false;
 let queue = [], current = null, cancel = { cancelled: false }, executing = false;
-
-/** Content mods on the server (anything beyond minecraft/forge), from the server-list ping. */
-async function serverMods() {
-    try {
-        const st = await mc.ping({ host, port, version: '1.20.1', closeTimeout: 5000 });
-        return ((st.forgeData && st.forgeData.mods) || []).map((m) => m.modId).filter((id) => !['minecraft', 'forge'].includes(id));
-    } catch (e) { log(`ping failed (${e.message}); assuming no content mods`); return []; }
-}
 
 function environment() {
     const b = bot, me = b.entity.position;
@@ -142,13 +133,16 @@ function status() {
 }
 
 async function main() {
-    const mods = await serverMods();
-    const mode = process.env.BOT_REGISTRY || 'auto';
-    const inject = mode === 'inject' || (mode === 'auto' && mods.length > 0);
-    log(`connecting to ${host}:${port}; server content mods: ${mods.length}; registry injection ${inject ? 'on' : 'off'}`);
-    events.emit('run_start', { host, port, content_mods: mods.length, inject });
+    const registry = process.env.BOT_REGISTRY || 'auto';
+    log(`connecting to ${host}:${port}; registry ${registry}`);
+    events.emit('run_start', { host, port, registry });
     bot = createForgeBot({ host, port, username: botId });
-    attachForgeHandshake(bot, { inject });
+    attachForgeHandshake(bot, { registry });
+    bot.once('mod_registry', (r) => {
+        log(r.content ? `mod registry: ${r.blocks || 0} blocks, ${r.states || 0} states, ${r.items || 0} items${r.error ? `; ${r.error}` : ''}${r.note ? `; ${r.note}` : ''}`
+            : `mod registry: ${r.error || 'no content mods, vanilla registry'}`);
+        events.emit('mod_registry', { ...r, missing: (r.missing || []).length });
+    });
     const _dedup = new Map();
     bot.on('chat', (username, message) => {
         if (username === bot.username || !message.startsWith('-')) return;          // only '-' instructions, as before

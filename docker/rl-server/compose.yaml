@@ -81,7 +81,7 @@ services:
       MC_PORT: "25565"
       RCON_HOST: mc
       RCON_PORT: "25575"
-      RL_PROFILE: ${RL_PROFILE:-vanilla}      # vanilla: no registry injection (server has no content mods); modded: inject mod blocks
+      BOT_REGISTRY: ${BOT_REGISTRY:-auto}     # auto: exact mod blocks/items when the server has content mods (src/transport/mod_registry.js)
       RCON_PASSWORD: ${RCON_PASSWORD:?run scripts/rl/up.sh}
     volumes:
       - ../..:/app:ro

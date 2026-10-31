@@ -2,7 +2,7 @@
 // Entry point of the RL environment process: connects one bot to the Forge server, then serves episodes to a policy
 // over the DPOD file API (two JSON-lines files, see docs/implemented/RL-INTERFACE-v1.md).
 //   node src/rl/run_env.js --run-id r1 --root /exchange --spec min --ticks 4 --episodes 3 --goal '{"v":1,"type":"reach","offset":[5,0]}'   (--goal also takes a JSON array: episode i uses goals[i % n])
-// Environment: MC_HOST MC_PORT RCON_HOST RCON_PORT RCON_PASSWORD (optional: RL_GROUND_Y, RL_PROFILE=vanilla|modded,
+// Environment: MC_HOST MC_PORT RCON_HOST RCON_PORT RCON_PASSWORD (optional: RL_GROUND_Y, BOT_REGISTRY=auto|vanilla|legacy,
 // RL_BOT_NAME, RL_ORIGIN_X, RL_ORIGIN_Z: one bot and one arena per process when several share a server).
 // Options: --gap-ms N waits N ms after each terminal observation before the next reset (for graders that inspect the server).
 const fs = require('fs');
@@ -53,7 +53,7 @@ const state = { closing: false };
 
 async function connectBot(events, username) {
     const bot = createForgeBot({ host: process.env.MC_HOST || 'localhost', port: Number(process.env.MC_PORT) || 25565, username });
-    attachForgeHandshake(bot, { inject: process.env.RL_PROFILE === 'modded' });
+    attachForgeHandshake(bot, { registry: process.env.BOT_REGISTRY || 'auto' });
     bot.on('kicked', (r) => { if (state.closing) return; events.emit('kicked', { reason: String(r).slice(0, 200) }, 'error'); process.exit(4); });
     bot.on('error', (e) => events.emit('bot_error', { message: String(e.message || e).slice(0, 200) }, 'warn'));
     bot.on('end', (r) => { if (state.closing) return; events.emit('bot_end', { reason: String(r) }, 'error'); process.exit(5); });

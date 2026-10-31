@@ -9,7 +9,7 @@
 #
 # Rules: published on 127.0.0.1 only (Docker bypasses ufw); the owner's route is `tailscale serve` (tailnet only, like
 # SSH). RCON stays inside the compose network. The world lives in the named volume `data` (on the data disk with the
-# rest of coder's Docker data); mods come read-only from /mnt/data/forgeaip/mods (the owner's own jars, copied 1:1).
+# rest of coder's Docker data); mods come read-only from /mnt/data/forgeaip/mods, synced from modpack/forgeaip-create.lock.json.
 # Design: docs/implemented/WORLD-v1.md.
 
 name: forgeaip-world
@@ -25,7 +25,7 @@ x-server: &server
     FORGE_VERSION: "47.4.10"
     MEMORY: "3G"
     USE_AIKAR_FLAGS: "true"
-    # Mods: the owner's jars, mirrored into /data/mods on every start (removed jars disappear too).
+    # Mods: the lock file's server jars (scripts/world/up.sh), mirrored into /data/mods on every start.
     COPY_MODS_SRC: /mods
     REMOVE_OLD_MODS: "true"
     LEVEL_TYPE: flat
@@ -96,6 +96,30 @@ services:
       - /data/world:size=1024m,uid=1000,gid=1000,mode=0755
     ports:
       - "127.0.0.1:25568:25565"
+
+  # One-shot: the lock's server jars + tools/registry-dump on a tmpfs copy of SNAPSHOT; writes /data/registry.json and
+  # stops (scripts/world/registry-dump.sh copies it to modpack/). No port: nothing connects to it.
+  registry-dump:
+    <<: *server
+    profiles: [dump]
+    container_name: forgeaip-registry-dump
+    restart: "no"
+    mem_limit: 4g
+    cpus: 3
+    entrypoint: ["/bin/sh", "-c", "set -e; tar -xzf \"/snapshots/$${SNAPSHOT:?}\" -C /data; chown -R 1000:1000 /data/world; exec /start"]
+    environment:
+      <<: *env
+      SNAPSHOT: ${SNAPSHOT:-}
+      MODS: /tool/forgeaip-registrydump-1.0.0.jar
+      FORGEAIP_DUMP: /data/registry.json
+      FORGEAIP_DUMP_HALT: "1"
+    volumes:
+      - test-data:/data
+      - /mnt/data/forgeaip/mods:/mods:ro
+      - /mnt/data/forgeaip/snapshots:/snapshots:ro
+      - ../../tools/registry-dump/build/libs:/tool:ro
+    tmpfs:
+      - /data/world:size=1024m,uid=1000,gid=1000,mode=0755
 
   # Live check of the LLM path on the new action layer against the test copy (scripts/skills/intent_check.js).
   intent-check:

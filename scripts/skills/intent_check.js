@@ -65,7 +65,7 @@ async function main() {
     await cmd('gamemode survival @a'); await cmd('difficulty easy');
 
     const steve = createForgeBot({ host: HOST, port: PORT, username: ME });
-    attachForgeHandshake(steve, { inject: false });
+    attachForgeHandshake(steve);
     await new Promise((r) => steve.once('spawn', r));
     await cmd(`tp ${ME} 0.5 -60 3.5`);
 

@@ -1,0 +1,18 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="MIT"
+
+[[mods]]
+modId="forgeaip_registrydump"
+version="1.0.0"
+displayName="ForgeAIP registry dump"
+description='''Server-only tool: writes the block and item tables of the running server, then optionally stops it.'''
+# Clients need not have it.
+displayTest="IGNORE_ALL_VERSION"
+
+[[dependencies.forgeaip_registrydump]]
+    modId="forge"
+    mandatory=true
+    versionRange="[47,)"
+    ordering="NONE"
+    side="SERVER"

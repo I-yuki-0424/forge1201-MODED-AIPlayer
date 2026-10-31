@@ -71,3 +71,5 @@ kaggle.json
 exchange/
 docker/world-server/.env
 config/vault-*.conf
+tools/registry-dump/build/
+tools/registry-dump/.gradle/
