@@ -7,6 +7,9 @@
 //   scripts/rl/up.sh
 //   (cd docker/rl-server && docker compose --profile env run --rm -T --entrypoint node rl-env scripts/skills/bench.js --run-id b1 --seed 1)
 //   python3 scripts/skills/report.py exchange/b1         # per-command table, failures with their traces
+// Options: --reps N, --only a,b, --seed S, --clutter 1 (random walls, steps, pits, raised stations, decoy mobs around every
+// scenario), --control noop (negative control: the command is replaced by 20 idle ticks; every grade must then fail),
+// --trials 129,130 (replay only those trial indices of the seeded order: a trial's world depends only on seed and index).
 //
 // Output (exchange/<run-id>/): trials.jsonl (one line per trial), traces/<n>.json (per-tick trace of every trial),
 // summary.json. The arena is 2 x ARENA_R + 1 blocks wide at --origin-x (default -512), away from the RL arenas.
@@ -24,11 +27,12 @@ const ARENA_R = 14;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function parseArgs(argv) {
-    const o = { root: '/exchange', runId: null, seed: 1, reps: 10, only: null, originX: -512, originZ: 0 };
+    const o = { root: '/exchange', runId: null, seed: 1, reps: 10, only: null, originX: -512, originZ: 0, clutter: false, control: null, trials: null };
     for (let i = 0; i < argv.length; i += 2) {
         const k = argv[i], v = argv[i + 1];
         const map = { '--root': ['root'], '--run-id': ['runId'], '--seed': ['seed', Number], '--reps': ['reps', Number],
-            '--only': ['only', (s) => s.split(',')], '--origin-x': ['originX', Number], '--origin-z': ['originZ', Number] };
+            '--only': ['only', (s) => s.split(',')], '--origin-x': ['originX', Number], '--origin-z': ['originZ', Number],
+            '--clutter': ['clutter', (s) => s === '1'], '--trials': ['trials', (s) => s.split(',').map(Number)], '--control': ['control', (s) => { if (s !== 'noop') throw new Error('--control noop'); return s; }] };
         if (!map[k] || v === undefined) throw new Error(`bad argument ${k}`);
         o[map[k][0]] = map[k][1] ? map[k][1](v) : v;
     }
@@ -121,6 +125,7 @@ const SCENARIOS = {
         if (name === 'lever') c.y = GY + 1;
         await S.must(`setblock ${c.x} ${c.y} ${c.z} minecraft:${name === 'lever' ? 'lever[face=floor,facing=north]' : name}`);
         return {
+            keep: lineCells({ x: A.cx, z: A.cz }, c),
             args: c, scenario: { block: name, far }, ready: (bot) => bot.blockAt(new Vec3(c.x, c.y, c.z))?.name === name,
             async grade() {
                 // Ray from the server's eye position along the server's rotation must enter the target cell before the ground.
@@ -190,7 +195,7 @@ const SCENARIOS = {
     },
 
     async activate(S, rng, A) {
-        const c = spot(rng, A, ...NEAR, new Set([`${A.cx},${A.cz}`]));
+        const c = await maybeRaise(S, rng, spot(rng, A, ...NEAR, new Set([`${A.cx},${A.cz}`])), A.hard);
         const facing = pick(rng, ['north', 'south', 'east', 'west']);
         const kind = pick(rng, ['lever', 'oak_door', 'oak_trapdoor', 'oak_fence_gate', 'spruce_door']);
         const prop = kind === 'lever' ? 'powered' : 'open';
@@ -219,6 +224,7 @@ const SCENARIOS = {
         let seen = null;
         const find = () => (seen = Object.values(bot.entities).find((e) => e.name === 'item' && e.getDroppedItem()?.name === item && Math.hypot(e.position.x - c.x - 0.5, e.position.z - c.z - 0.5) < 1.5));
         return {
+            keep: [[c.x, c.z]],
             args: () => ({ entity: seen.id }), scenario: { item, n, how }, ready: () => !!find(),
             pre: async () => ({ valid: await S.test(`entity @e[type=item,x=${c.x + 0.5},y=${y},z=${c.z + 0.5},distance=..1.5]`) }),
             async grade() { const got = (await S.count(item)) - before; return { ok: got >= n, measured: { got, n } }; },
@@ -235,9 +241,14 @@ const SCENARIOS = {
         if (weapon) await S.must(`give ${BOT} minecraft:${weapon} 1`);
         const nbt = { zombie: ',ArmorItems:[{},{},{},{id:"minecraft:leather_helmet",Count:1b}]', skeleton: ',ArmorItems:[{},{},{},{id:"minecraft:leather_helmet",Count:1b}]', slime: ',Size:1' }[mob] || '';
         await S.must(`summon minecraft:${mob} ${c.x + 0.5} ${GY + 1} ${c.z + 0.5} {Tags:["bt"]${nbt}}`);
+        if (A.hard) for (let i = int(rng, 1, 3); i > 0; i--) {             // tiny slimes do no damage but block rays and bodies
+            const d = spot(rng, A, 2, 10, new Set([`${A.cx},${A.cz}`, `${c.x},${c.z}`]));
+            await S.must(`summon minecraft:slime ${d.x + 0.5} ${GY + 1} ${d.z + 0.5} {Size:0}`);
+        }
         let seen = null;
         const find = () => (seen = Object.values(bot.entities).find((e) => e.name === mob && Math.hypot(e.position.x - c.x - 0.5, e.position.z - c.z - 0.5) < 3));
         return {
+            keep: [[c.x, c.z]],
             args: () => ({ entity: seen.id }), scenario: { mob, weapon }, ready: () => !!find() && (!weapon || bot.inventory.items().some((i) => i.name === weapon)),
             pre: async () => ({ valid: await S.test('entity @e[tag=bt]') }),
             async grade() { const alive = await S.test('entity @e[tag=bt]'); return { ok: !alive, measured: { alive } }; },
@@ -298,11 +309,12 @@ const SCENARIOS = {
             ['wooden_pickaxe', 1, { oak_planks: 3, stick: 2 }], ['stone_pickaxe', 1, { cobblestone: 3, stick: 2 }], ['furnace', 1, { cobblestone: 8 }],
             ['torch', 4, { coal: 1, stick: 1 }], ['ladder', 3, { stick: 7 }], ['oak_planks', 8, { oak_log: 2 }]];
         const [item, n, mats] = pick(rng, R);
-        const t = spot(rng, A, ...NEAR, new Set([`${A.cx},${A.cz}`]));
+        const t = await maybeRaise(S, rng, spot(rng, A, ...NEAR, new Set([`${A.cx},${A.cz}`])), A.hard);
         await S.must(`setblock ${t.x} ${t.y} ${t.z} minecraft:crafting_table`);
         for (const [m, k] of Object.entries(mats)) await S.must(`give ${BOT} minecraft:${m} ${k + int(rng, 0, 2)}`);
         const before = await S.count(item);
         return {
+            keep: [[t.x, t.z]],
             args: { item, count: n }, scenario: { mats, table: t }, ready: () => Object.keys(mats).every((m) => bot.inventory.items().some((i) => i.name === m)),
             async grade() { const got = (await S.count(item)) - before; return { ok: got >= n, measured: { got, n } }; },
         };
@@ -314,12 +326,13 @@ const SCENARIOS = {
         const n = int(rng, 1, 2);
         // Never the output as fuel: the server-side baseline count would include it.
         const [fuel, fk] = pick(rng, [['coal', 1], ['oak_planks', 2], ['charcoal', 1]].filter(([f]) => f !== output));
-        const f = spot(rng, A, ...NEAR, new Set([`${A.cx},${A.cz}`]));
+        const f = await maybeRaise(S, rng, spot(rng, A, ...NEAR, new Set([`${A.cx},${A.cz}`])), A.hard);
         await S.must(`setblock ${f.x} ${f.y} ${f.z} minecraft:furnace[facing=${pick(rng, ['north', 'south', 'east', 'west'])}]`);
         await S.must(`give ${BOT} minecraft:${input} ${n}`);
         await S.must(`give ${BOT} minecraft:${fuel} ${fk}`);
         const before = await S.count(output);
         return {
+            keep: [[f.x, f.z]],
             args: { item: input, count: n }, scenario: { output, fuel, furnace: f }, ready: () => bot.inventory.items().some((i) => i.name === input) && !!bot.blockAt(new Vec3(f.x, f.y, f.z))?.name.includes('furnace'),
             async grade() { const got = (await S.count(output)) - before; return { ok: got >= n, measured: { got, n } }; },
         };
@@ -328,7 +341,7 @@ const SCENARIOS = {
     async deposit(S, rng, A, bot) {
         const item = pick(rng, ['dirt', 'cobblestone', 'apple', 'oak_log', 'iron_ingot']);
         const n = int(rng, 1, 64), k = int(rng, 1, n);
-        const c = spot(rng, A, ...NEAR, new Set([`${A.cx},${A.cz}`]));
+        const c = await maybeRaise(S, rng, spot(rng, A, ...NEAR, new Set([`${A.cx},${A.cz}`])), A.hard);
         const junk = rng() < 0.5 ? `{Items:[{Slot:${int(rng, 0, 26)}b,id:"minecraft:stick",Count:${int(rng, 1, 64)}b}]}` : '';
         await S.must(`setblock ${c.x} ${c.y} ${c.z} minecraft:${pick(rng, ['chest', 'barrel'])}${junk}`);
         await S.must(`give ${BOT} minecraft:${item} ${n}`);
@@ -341,7 +354,7 @@ const SCENARIOS = {
     async withdraw(S, rng, A) {
         const item = pick(rng, ['dirt', 'cobblestone', 'apple', 'oak_log', 'iron_ingot']);
         const n = int(rng, 1, 64), k = int(rng, 1, n);
-        const c = spot(rng, A, ...NEAR, new Set([`${A.cx},${A.cz}`]));
+        const c = await maybeRaise(S, rng, spot(rng, A, ...NEAR, new Set([`${A.cx},${A.cz}`])), A.hard);
         await S.must(`setblock ${c.x} ${c.y} ${c.z} minecraft:${pick(rng, ['chest', 'barrel'])}{Items:[{Slot:${int(rng, 0, 26)}b,id:"minecraft:${item}",Count:${n}b}]}`);
         return {
             args: { item, count: k, ...c }, scenario: { n }, ready: (bot) => !!bot.blockAt(new Vec3(c.x, c.y, c.z)),
@@ -349,6 +362,57 @@ const SCENARIOS = {
         };
     },
 };
+
+// ---------------------------------------------------------------- clutter: random terrain around every scenario
+/**
+ * Walls (2 or 3 high), single steps, pits (1-2 deep) and raised platforms anywhere in the arena except within one block
+ * of the start and of the scenario's own cells (`keep`, x/z pairs). Feasibility is not guaranteed by construction: a
+ * failure on cluttered terrain is reviewed by hand (scripts/skills/report.py prints its trace) before it is counted
+ * against a command.
+ */
+async function clutter(S, rng, A, keep) {
+    const blocked = (x, z) => [...keep, [A.cx, A.cz]].some(([kx, kz]) => Math.abs(kx - x) <= 1 && Math.abs(kz - z) <= 1);
+    const lim = ARENA_R - 1;
+    const anywhere = () => ({ x: A.cx + int(rng, -lim, lim), z: A.cz + int(rng, -lim, lim) });
+    const n = { walls: int(rng, 2, 6), steps: int(rng, 2, 8), pits: int(rng, 1, 3), platforms: int(rng, 0, 2) };
+    for (let i = 0; i < n.walls; i++) {
+        const s0 = anywhere(), len = int(rng, 3, 7), alongX = rng() < 0.5, h = rng() < 0.5 ? 2 : 3;
+        for (let k = 0; k < len; k++) {
+            const x = s0.x + (alongX ? k : 0), z = s0.z + (alongX ? 0 : k);
+            if (!blocked(x, z) && Math.abs(x - A.cx) <= lim && Math.abs(z - A.cz) <= lim) await S.must(`fill ${x} ${GY + 1} ${z} ${x} ${GY + h} ${z} minecraft:${pick(rng, ['stone', 'oak_planks', 'cobblestone'])}`);
+        }
+    }
+    for (let i = 0; i < n.steps; i++) { const c = anywhere(); if (!blocked(c.x, c.z)) await S.must(`setblock ${c.x} ${GY + 1} ${c.z} minecraft:${pick(rng, ['dirt', 'cobblestone', 'oak_log'])}`); }
+    for (let i = 0; i < n.pits; i++) {
+        const c = anywhere(), d = int(rng, 1, 2);
+        if (!blocked(c.x, c.z) && !blocked(c.x + 1, c.z + 1)) await S.must(`fill ${c.x} ${GY - d + 1} ${c.z} ${c.x + 1} ${GY} ${c.z + 1} minecraft:air`);
+    }
+    for (let i = 0; i < n.platforms; i++) {                               // 3x3, one block high: reachable by a step up
+        const c = anywhere();
+        if (![-1, 0, 1].some((dx) => [-1, 0, 1].some((dz) => blocked(c.x + dx, c.z + dz)))) await S.must(`fill ${c.x - 1} ${GY + 1} ${c.z - 1} ${c.x + 1} ${GY + 1} ${c.z + 1} minecraft:stone`);
+    }
+    return n;
+}
+
+/** x/z cells clutter must leave alone: the scenario's own `keep`, else its target cell. */
+function keepOf(sc) {
+    if (sc.keep) return sc.keep;
+    const a = typeof sc.args === 'object' ? sc.args : {};
+    return a.x !== undefined ? [[a.x, a.z]] : [];
+}
+
+/** x/z cells on the segment between two cells (look_at must keep its line of sight: it does not walk). */
+function lineCells(a, b) {
+    const n = Math.max(Math.abs(b.x - a.x), Math.abs(b.z - a.z)) * 2 || 1;
+    return Array.from({ length: n + 1 }, (_, i) => [Math.round(a.x + ((b.x - a.x) * i) / n), Math.round(a.z + ((b.z - a.z) * i) / n)]);
+}
+
+/** With --clutter, half of the stations and containers stand on a one-block base (the bot must step up or reach up). */
+async function maybeRaise(S, rng, c, on) {
+    if (!on || rng() < 0.5) return c;
+    await S.must(`setblock ${c.x} ${GY + 1} ${c.z} minecraft:stone`);
+    return { ...c, y: GY + 2 };
+}
 
 // ---------------------------------------------------------------- trial loop
 async function waitFor(what, cond, ms = 8000) {
@@ -396,7 +460,7 @@ async function main() {
     bot.on('kicked', (r) => { console.error('[bench] kicked:', String(r).slice(0, 200)); process.exit(4); });
     bot.on('error', (e) => console.error('[bench] bot error:', String(e.message || e).slice(0, 200)));
     await new Promise((resolve, reject) => { bot.once('spawn', resolve); setTimeout(() => reject(new Error('no spawn within 60 s')), 60000); });
-    const A = { cx: o.originX, cz: o.originZ };
+    const A = { cx: o.originX, cz: o.originZ, hard: o.clutter };
     await S.must(`tp ${BOT} ${A.cx + 0.5} ${GY + 1} ${A.cz + 0.5}`);
     await waitFor('chunks', () => bot.blockAt(new Vec3(A.cx, GY, A.cz)) != null && bot.blockAt(new Vec3(A.cx + ARENA_R, GY, A.cz + ARENA_R)) != null, 30000);
 
@@ -406,13 +470,15 @@ async function main() {
     for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
 
     const summary = {};
-    console.log(`[bench] run ${o.runId}: ${order.length} trials, seed ${o.seed}`);
+    console.log(`[bench] run ${o.runId}: ${order.length} trials, seed ${o.seed}${o.clutter ? ', clutter' : ''}${o.control ? `, control ${o.control}` : ''}`);
     for (let n = 0; n < order.length; n++) {
+        if (o.trials && !o.trials.includes(n)) continue;
         const command = order[n], trng = mulberry32((o.seed * 1000003 + n) >>> 0);
         let rec = { n, command, seed: o.seed };
         try {
             await resetArena(S, bot, A, trng);
             const sc = await SCENARIOS[command](S, trng, A, bot);
+            const clutterN = o.clutter ? await clutter(S, trng, A, keepOf(sc)) : null;
             await waitFor('scenario visible to the client', () => sc.ready(bot), 8000);
             await sleep(100);
             const args = typeof sc.args === 'function' ? sc.args() : sc.args;
@@ -420,9 +486,10 @@ async function main() {
             // harness error, never a pass.
             const pre = sc.pre ? await sc.pre() : null;
             if (pre && !pre.valid) throw new Error(`precondition failed: ${JSON.stringify(pre)}`);
-            const r = await execute(bot, command, args);
+            const r = o.control === 'noop' ? await execute(bot, 'look_at', { x: A.cx, y: GY, z: A.cz }, { maxTicks: 20 }).then(() => ({ ok: false, reason: 'control', detail: {}, ticks: 0, ms: 0, phases: [], trace: [] }))
+                : await execute(bot, command, args);
             const g = await sc.grade();
-            rec = { ...rec, args, scenario: sc.scenario, pre, bot: { ok: r.ok, reason: r.reason, detail: r.detail }, server: g, ok: g.ok, agree: r.ok === g.ok, ticks: r.ticks, ms: r.ms };
+            rec = { ...rec, args, scenario: sc.scenario, clutter: clutterN, pre, bot: { ok: r.ok, reason: r.reason, detail: r.detail }, server: g, ok: g.ok, agree: r.ok === g.ok, ticks: r.ticks, ms: r.ms };
             fs.writeFileSync(path.join(dir, 'traces', `${n}.json`), JSON.stringify({ n, command, args, result: { ok: r.ok, reason: r.reason, detail: r.detail }, server: g, phases: r.phases, trace: r.trace }));
         } catch (e) {
             rec = { ...rec, ok: false, harness_error: String(e.message || e).slice(0, 300) };
@@ -435,7 +502,7 @@ async function main() {
         console.log(`[bench] ${String(n + 1).padStart(3)}/${order.length} ${command.padEnd(9)} ${rec.ok ? 'PASS' : 'FAIL'} ${rec.harness_error ? `harness: ${rec.harness_error}` : `bot=${rec.bot.ok ? 'ok' : rec.bot.reason} ticks=${rec.ticks}`}`);
     }
     const total = Object.values(summary).reduce((a, s) => ({ n: a.n + s.n, ok: a.ok + s.ok }), { n: 0, ok: 0 });
-    const result = { run_id: o.runId, seed: o.seed, reps: o.reps, total: { ...total, rate: total.ok / total.n }, per_command: Object.fromEntries(Object.entries(summary).map(([k, s]) => [k, { ...s, rate: s.ok / s.n }])) };
+    const result = { run_id: o.runId, seed: o.seed, reps: o.reps, clutter: o.clutter, control: o.control, total: { ...total, rate: total.ok / total.n }, per_command: Object.fromEntries(Object.entries(summary).map(([k, s]) => [k, { ...s, rate: s.ok / s.n }])) };
     fs.writeFileSync(path.join(dir, 'summary.json'), JSON.stringify(result, null, 2));
     console.log(JSON.stringify(result.total));
     await S.cmd('difficulty peaceful');

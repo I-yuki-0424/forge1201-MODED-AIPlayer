@@ -39,8 +39,9 @@ async function pickupEntity(ctx, id, name, before) {
         }
         const pos = bot.entity.position, ip = ent.position, cell = feetCell(pos);
         const d = hdist(pos, ip), dy = ip.y - pos.y;
-        if (d < 8 && Math.abs(dy) < 1 && (d < 1.2 || clearLine(w, pos, ip, cell.y))) {
-            if (d < 1.2 && ++close > 60) throw new SkillError('stuck', { why: 'standing on the item, not picked up', item: name });
+        // Close by, or in the open: steer straight at it (jumping onto a block if it lies one block up).
+        if (dy < 1.6 && dy > -1.5 && (d < 1.5 || (d < 8 && Math.abs(dy) < 1 && clearLine(w, pos, ip, cell.y)))) {
+            if (d < 1.5 && ++close > 60) throw new SkillError('stuck', { why: 'next to the item for 3 s, not picked up', item: name, dy });
             await ctx.tick({ forward: d > 0.25, yaw: yawTo(pos, ip), jump: bot.entity.isCollidedHorizontally && bot.entity.onGround });
             continue;
         }

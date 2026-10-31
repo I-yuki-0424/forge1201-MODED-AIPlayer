@@ -187,5 +187,22 @@ const goalCell = (t) => ({ isGoal: (c) => c.x === t.x && c.y === t.y && c.z === 
         } finally { clearInterval(bot.timer); }
     });
 
+    await test('pickup of an item one block up never spins without a tick (reproducer: bench hard1 trial 130 froze the bot)', async () => {
+        // The item rests on a block, one block above the feet; the bot's cell already satisfies the walking goal but the item
+        // is not in pickup range (here it is never picked up at all). Before the fix pickupEntity called follow() again and
+        // again without the clock moving: a synchronous loop that froze the process. Now it must end with a named reason.
+        const { pickup } = require('../src/skills/commands/entity');
+        const bot = fakeBot();
+        Object.assign(bot, { inventory: { items: () => [], slots: [] }, food: 20, heldItem: null });
+        bot.entity.position = new Vec3(0.95, 1, 0.5);
+        bot.entities = { 7: { id: 7, name: 'item', position: new Vec3(1.45, 2, 0.5), getDroppedItem: () => ({ name: 'apple', count: 1 }) } };
+        try {
+            const r = await run(bot, pickup, { entity: 7 }, { maxTicks: 200 });
+            assert.strictEqual(r.ok, false);
+            assert.ok(['stuck', 'timeout'].includes(r.reason), r.reason);
+            assert.ok(r.ticks > 0);
+        } finally { clearInterval(bot.timer); }
+    });
+
     console.log('All skill tests passed.');
 })().catch((e) => { console.error(e); process.exit(1); });

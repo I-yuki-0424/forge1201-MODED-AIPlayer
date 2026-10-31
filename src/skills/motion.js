@@ -33,7 +33,16 @@ function clearLine(w, p, q, y) {
  * goal.abort() turned true first (moving targets).
  * goal: {isGoal(cell), h(cell), label, settle?: true to stop near the cell centre, maxNodes?, abort?()}
  */
-async function follow(ctx, goal, { sprint = true } = {}) {
+async function follow(ctx, goal, opts = {}) {
+    // Always let at least one tick pass: callers loop around follow() (moving targets), and a call that returned at once
+    // (goal already met, or aborted) made such a loop spin without the clock moving and froze the process (bench hard1).
+    const t0 = ctx.t;
+    const end = await walk(ctx, goal, opts);
+    if (ctx.t === t0) await ctx.tick({});
+    return end;
+}
+
+async function walk(ctx, goal, { sprint = true } = {}) {
     const bot = ctx.bot, w = ctx.world;
     let path = null, idx = 0, replans = 0, best = Infinity, lastGain = ctx.t, airborne = 0;
     const replan = (why) => {
