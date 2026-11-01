@@ -7,7 +7,7 @@ const { CrafterReward, TABLE, MILESTONES, NOTABLE, PROGRESS_DIM, advancementScor
 const { ProgressTracker, complete } = require('../src/rl/progress');
 const { SkillSpace, vocab, obsSpec, actionSpec, K, CMDS } = require('../src/rl/skill_space');
 const { specHash } = require('../src/rl/action_spec');
-const { parseArgs, queued, describe, StuckDetector } = require('../src/rl/run_skill_env');
+const { parseArgs, queued, describe, sector, StuckDetector } = require('../src/rl/run_skill_env');
 const { LiveBoard } = require('../src/rl/live_board');
 
 let pending = 0;
@@ -314,4 +314,18 @@ test('time scale: mineflayer still polls physics with setInterval(doPhysics) on 
     assert.ok(out.wall > 800 && out.wall < 1400, `40 polls took ${out.wall} ms of wall time (expected ~1000 at 25 ms)`);
     assert.ok(Math.abs(out.clock / out.wall - 2) < 0.1, `clock/wall ${out.clock / out.wall}`);
     assert.throws(() => require('../src/transport/time_scale').setTimeScale(11), /\[1, 10\]/);
+});
+
+test('sectors: one disjoint cell of the region per bot, inside it, centres far apart', () => {
+    for (const n of [1, 4, 8, 16]) {
+        const R = 512, cells = Array.from({ length: n }, (_, i) => sector(i, n, R));
+        for (const [x0, x1, z0, z1] of cells) assert.ok(x0 >= -R && x1 <= R && z0 >= -R && z1 <= R && x0 < x1 && z0 < z1);
+        for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+            const a = cells[i], b = cells[j];
+            assert.ok(a[1] <= b[0] || b[1] <= a[0] || a[3] <= b[2] || b[3] <= a[2], `sectors ${i} and ${j} overlap (n=${n})`);
+            const d = Math.hypot((a[0] + a[1] - b[0] - b[1]) / 2, (a[2] + a[3] - b[2] - b[3]) / 2);
+            assert.ok(d >= (2 * R) / Math.ceil(Math.sqrt(n)) - 1, `centres ${i},${j} only ${d} apart (n=${n})`);
+        }
+    }
+    assert.strictEqual(describe({ blockAt: () => null, entities: {} }, { cmd: 'tunnel', args: { dir: 'east', dy: -1 } }), 'east down');
 });

@@ -23,8 +23,13 @@ const { CrafterReward, TABLE, TERMS, MILESTONES, NOTABLE } = require('./crafter_
 const { SkillSpace, vocab, obsSpec, actionSpec, K, CMDS, REASON_LIST } = require('./skill_space');
 const { LiveBoard } = require('./live_board');
 
-const ENV_VERSION = '2026-11-01-skills-v1.2';   // v1.1: term `invalid`, live board, one tick minimum per step; v1.2: stuck cut
+// v1.1: term `invalid`, live board, one tick minimum per step; v1.2: stuck cut; v1.3: swimming, ladders, `tunnel`, candidates
+// only what the action layer can do (K 64), a sector of the region per bot, game speed (tools/tickrate + GAME_SPEED)
+const ENV_VERSION = '2026-11-01-skills-v1.3';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Chunks a bot asks the server for: it acts within about 20 blocks (candidates, the reachability flood), so 5 is ample and
+// keeps chunk sending and parsing low with many bots (mineflayer's default 'far' = 12, capped by the server's 8).
+const VIEW = Number(process.env.RL_VIEW_DISTANCE) || 5;
 const GAMERULES = ['doDaylightCycle true', 'doMobSpawning true', 'doImmediateRespawn true', 'keepInventory false',
     'playersSleepingPercentage 1', 'announceAdvancements false', 'sendCommandFeedback false', 'logAdminCommands false', 'spawnRadius 0'];
 
@@ -63,6 +68,16 @@ class StuckDetector {
     }
 }
 
+/**
+ * The part of the square region [-R, R]^2 where bot `i` of `n` is reset: a grid of ceil(sqrt(n)) columns, one cell per
+ * bot, so bots start far apart (no interference; their chunks spread over the world). Returns [x0, x1, z0, z1].
+ */
+function sector(i, n, R) {
+    const cols = Math.ceil(Math.sqrt(n)), rows = Math.ceil(n / cols), w = (2 * R) / cols, h = (2 * R) / rows;
+    const cx = i % cols, cz = Math.floor(i / cols), m = Math.min(32, w / 4, h / 4);
+    return [-R + cx * w + m, -R + (cx + 1) * w - m, -R + cz * h + m, -R + (cz + 1) * h - m];
+}
+
 /** Run `ticks` physics ticks doing nothing (the 'wait' candidate; also how a sleeping bot passes the night). */
 function idle(bot, ticks, cancel) {
     return new Promise((resolve) => {
@@ -84,6 +99,7 @@ function describe(bot, c) {
         case 'attack': case 'pickup': return ent(a.entity);
         case 'place': return `${a.item} (${a.x} ${a.y} ${a.z})`;
         case 'wait': return `${a.ticks} ticks`;
+        case 'tunnel': return `${a.dir} ${a.dy < 0 ? 'down' : a.dy > 0 ? 'up' : 'level'}`;
         default: return a.item ? `${a.item}${a.count ? ` x${a.count}` : ''}` : '';
     }
 }
@@ -123,12 +139,18 @@ async function main() {
     await rcon.connect();
     const cmd = queued(rcon);
     for (const g of GAMERULES) await cmd(`gamerule ${g}`);
+    // One clock for server and bots: the server's tick rate (tools/tickrate) is set from this process's GAME_SPEED, which
+    // also scales the bots' client physics (src/transport/time_scale.js).
+    const speed = require('../transport/time_scale').fromEnv();
+    const rate = String(await cmd(`tickrate ${speed}`));
+    if (!/^tickrate /.test(rate)) throw new Error(`server has no tick rate control (tools/tickrate): ${rate.slice(0, 120)}`);
     const mcData = require('minecraft-data')('1.20.1');
     const voc = vocab(mcData, (() => { try { return require('../../modpack/forgeaip-create.registry.json'); } catch { return null; } })());
     const hello = { env_version: ENV_VERSION, action_spec: actionSpec(), obs_spec: obsSpec(),
         vocab_sizes: { item: voc.items.length, entity: voc.entities.length, cmd: CMDS.length, reason: REASON_LIST.length, category: 11 },
         milestones: MILESTONES, notable: NOTABLE, reward_terms: TERMS, stages: TABLE.stages, reward_table_version: TABLE.v };
-    events.emit('run_start', { env_version: ENV_VERSION, bots: o.bots, max_steps: o.maxSteps, region: o.region, seed: o.seed, K });
+    events.emit('run_start', { env_version: ENV_VERSION, bots: o.bots, max_steps: o.maxSteps, region: o.region, seed: o.seed, K, speed,
+        view_distance: VIEW, sectors: Array.from({ length: o.bots }, (_, i) => sector(i, o.bots, o.region - 64).map(Math.round)) });
 
     // A bot that is lost (kick, timeout, closed socket) ends the whole run: the container restarts (unless-stopped) with all
     // bots and a new run id, which the learner follows. Waiting for the others would train on fewer bots indefinitely.
@@ -149,7 +171,7 @@ async function main() {
     finish(null);
 
     async function runBot(envId, name) {
-        const bot = createForgeBot({ host: process.env.MC_HOST || 'localhost', port: Number(process.env.MC_PORT) || 25565, username: name });
+        const bot = createForgeBot({ host: process.env.MC_HOST || 'localhost', port: Number(process.env.MC_PORT) || 25565, username: name, viewDistance: VIEW });
         attachForgeHandshake(bot, { registry: process.env.BOT_REGISTRY || 'auto' });
         const lost = new Promise((_, reject) => {
             bot.on('kicked', (r) => reject(new Error(`kicked: ${String(r).slice(0, 200)}`)));
@@ -170,7 +192,7 @@ async function main() {
 
         const rng = mulberry32((o.seed * 7919 + envId) >>> 0);
         for (let episode = 0; ; episode++) {
-            await Promise.race([reset(bot, name, rng), lost]);
+            await Promise.race([reset(bot, name, rng, sector(envId, o.bots, o.region - 64)), lost]);
             await tracker.begin(); reward.newEpisode(); cancel = { cancelled: false };
             let msg = { reward: 0, reward_terms: Object.fromEntries(TERMS.map((t) => [t, 0])), terminated: false, truncated: false };
             let last = { reason: 'ok', ticks: 0 };
@@ -224,17 +246,17 @@ async function main() {
         }
     }
 
-    async function reset(bot, name, rng) {
+    async function reset(bot, name, rng, [x0, x1, z0, z1]) {
         if (bot.health <= 0) { try { bot.respawn(); } catch { /* auto-respawn */ } await sleep(1500); }
         for (const c of [`gamemode survival ${name}`, `advancement revoke ${name} everything`, `clear ${name}`, `effect clear ${name}`,
             `xp set ${name} 0 levels`, `xp set ${name} 0 points`]) await cmd(c);
         // spreadplayers refuses sites without safe ground (ocean: "Could not spread") and may still land in shallow water,
         // where the action layer cannot act (no swimming, SKILLS-v1 limits): draw another site until the bot stands dry.
-        const R = o.region - 64, w = fromBot(bot);
+        const w = fromBot(bot);
         let why = '';
         for (let i = 0; i < 30; i++) {
             const pos = bot.entity.position.clone();
-            const reply = String(await cmd(`spreadplayers ${Math.round((rng() * 2 - 1) * R)} ${Math.round((rng() * 2 - 1) * R)} 0 24 false ${name}`));
+            const reply = String(await cmd(`spreadplayers ${Math.round(x0 + rng() * (x1 - x0))} ${Math.round(z0 + rng() * (z1 - z0))} 0 24 false ${name}`));
             if (!/^Spread/.test(reply)) { why = reply.slice(0, 120); continue; }
             for (let t = 0; t < 200 && bot.entity.position.distanceTo(pos) < 1; t++) await sleep(50);   // the teleport arrived
             for (let t = 0; t < 100 && !bot.blockAt(bot.entity.position.offset(0, -1, 0)); t++) await sleep(50);   // its chunk too
@@ -252,4 +274,4 @@ async function main() {
 
 if (require.main === module) main().catch((e) => { console.error('[skill-env] fatal:', e.message); process.exit(1); });
 
-module.exports = { parseArgs, queued, idle, describe, StuckDetector, GAMERULES, ENV_VERSION };
+module.exports = { parseArgs, queued, idle, describe, sector, StuckDetector, GAMERULES, ENV_VERSION };

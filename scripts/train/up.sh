@@ -1,19 +1,26 @@
 #!/usr/bin/env bash
 # Start RL training (docs/proposed/RL-TRAINING-v2.md): the training world replaces the build world on 127.0.0.1:25567
 # (the owner's tailnet route 100.115.238.9:25565 then shows it), then the environment (N bots) and the policy/learner.
-#   scripts/train/up.sh [--bots N] [--learn 0|1] [--base NAME] [--owner MCNAME]
-#   --learn 0 = the policy acts but never updates (smoke/test run); 1 = training. Defaults: 4 bots, learn 1, base "train".
+#   scripts/train/up.sh [--bots N] [--learn 0|1] [--base NAME] [--owner MCNAME] [--speed K] [--population M]
+#   --learn 0 = the policy acts but never updates (smoke/test run); 1 = training. Defaults: 8 bots, learn 1, base "train",
+#   speed 1. --speed K runs the whole game clock K times faster (tools/tickrate on the server, GAME_SPEED for the bots); the
+#   server reaches it only while its tick work fits in 50/K ms (scripts/train/status.sh shows the measured rate).
+#   --population M: M learners in population-based training (DPOD botsystem_skill_ppo.py; bot i acts for member i % M).
 # Restart-safe: every container has restart: unless-stopped, the learner resumes from exchange/<base>/train/checkpoint.pkl,
 # and while the learner runs, forgeaip-train-hold.timer renews a maint-hold lease so rootwatch does not reboot the VPS.
 source "$(dirname "$0")/lib.sh"
-bots=4 learn=1 base=train owner=Seia_Y
+bots=8 learn=1 base=train owner=Seia_Y speed=1 population=1
 while [ $# -gt 0 ]; do case $1 in
   --bots) bots=$2; shift 2;; --learn) learn=$2; shift 2;; --base) base=$2; shift 2;; --owner) owner=$2; shift 2;;
+  --speed) speed=$2; shift 2;; --population) population=$2; shift 2;;
   *) echo "unknown option $1" >&2; exit 2;; esac; done
 [[ $bots =~ ^[0-9]+$ && $bots -ge 1 && $bots -le 16 ]] || { echo "--bots 1..16" >&2; exit 2; }
 [[ $learn =~ ^[01]$ ]] || { echo "--learn 0|1" >&2; exit 2; }
 [[ $base =~ ^[a-z0-9_-]{1,40}$ ]] || { echo "--base: [a-z0-9_-]" >&2; exit 2; }
 [[ $owner =~ ^[A-Za-z0-9_]{3,16}$ ]] || { echo "--owner: a Minecraft name" >&2; exit 2; }
+[[ $speed =~ ^([1-9]|10)(\.[0-9]{1,2})?$ ]] && python3 -c "import sys; sys.exit(not 1 <= float('$speed') <= 10)" || { echo "--speed 1..10" >&2; exit 2; }
+[[ $population =~ ^[1-8]$ && $population -le $bots ]] || { echo "--population 1..8, at most --bots" >&2; exit 2; }
+"$REPO/tools/tickrate/build.sh" >/dev/null
 [ -f "$COMPOSE_DIR/.env" ] || { umask 077; echo "RCON_PASSWORD=$(openssl rand -hex 16)" > "$COMPOSE_DIR/.env"; }
 python3 -I "$REPO/modpack/pack.py" server "$MODS"
 
@@ -26,7 +33,7 @@ running forgeaip-llm-bot && { grep -qx llm-bot "$TRAIN_STATE" || echo llm-bot >>
 compose --profile bot stop llm-bot >/dev/null 2>&1 || true
 compose stop world >/dev/null 2>&1 || true
 
-export TRAIN_BASE=$base TRAIN_BOTS=$bots TRAIN_LEARN=$learn
+export TRAIN_BASE=$base TRAIN_BOTS=$bots TRAIN_LEARN=$learn TRAIN_SPEED=$speed TRAIN_POPULATION=$population
 # Operator by the offline-mode UUID the owner actually logs in with. `op <name>` on a server that has not seen the player
 # resolves the name at Mojang and stores the online UUID, which never matches here (online-mode=false): no OP for the owner.
 uuid=$(python3 -I -c 'import hashlib,sys,uuid; print(uuid.UUID(bytes=hashlib.md5(b"OfflinePlayer:"+sys.argv[1].encode()).digest(), version=3))' "$owner")
@@ -49,5 +56,5 @@ if [ "$learn" = 1 ]; then
   for u in service timer; do systemctl --user link "$REPO/scripts/train/systemd/forgeaip-train-hold.$u" >/dev/null 2>&1 || true; done
   systemctl --user enable --now forgeaip-train-hold.timer
 fi
-echo "training up: base=$base bots=$bots learn=$learn; world $(trcon list)"
+echo "training up: base=$base bots=$bots learn=$learn speed=$speed population=$population; world $(trcon list); $(trcon tickrate)"
 echo "watch: join 100.115.238.9:25565 (op: /gamemode spectator, /spectate Train1); page: http://100.115.238.9:3021/; logs: scripts/train/status.sh"
