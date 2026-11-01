@@ -2,7 +2,7 @@
 
 Owner brief 2026-11-01 (`TASK-20261101-024` here, `TASK-20261101-030` in DPOD): the action layer works well enough
 (SKILLS-v1: 560/560 flat, 0.93 on natural terrain), so train the policy at full scale, for up to one week, without the VPS
-being restarted. Reward after the Crafter benchmark; DPOD's Target T = the Ender Dragon is defeated; a Truck-derived model,
+being restarted. Run 3 changes (8 bots, K = 64, population, speed): see "Run 3" below; tables here describe v1.2 unless noted. Reward after the Crafter benchmark; DPOD's Target T = the Ender Dragon is defeated; a Truck-derived model,
 inference on demand; the owner's two-stage proposal (survival first). Code only: **the training run has not been started.**
 
 ## Parts
@@ -164,6 +164,38 @@ curves, last episodes with their `invalid` sum.
   (`episode_end.stuck`). Without it a trapped bot keeps collecting survival nights, as in run 1.
 - Both traps are action-layer gaps (no climbing out, no swimming), visible in the grid observation; neither is a case of the
   model being unable to see the physical constraint.
+
+## Run 3 (from 2026-11-01 17:54 JST, base `train3`): owner brief after watching run 2
+
+The brief and what changed (TASK-20261101-025 here, TASK-20261101-030 in DPOD):
+
+1. *Bot 0 keeps repeating impossible commands.* All bots share one policy; run 2's per-bot differences were terrain, and
+   the commands were impossible because the list offered them: run 2 ended with 2,811 `mine:missing_tool` and 1,100
+   `move_to:unreachable` among its failures (bot 2 chose `mine` 2,557 times at 4 % success). Since env v1.3 the list holds
+   only what the action layer can carry out from where the bot stands (`skill_space.js`: a reachability flood over the
+   planner's own moves, blocks a held tool harvests, stations in reach).
+2. *Attacking a pig until it died: was that given in advance?* Yes. `attack` is one command of the action layer
+   (`src/skills/commands/entity.js`): chase, swing when the weapon has recharged, until the server reports the death. One
+   policy choice covers the whole fight; nothing about it was learned (run 2's longest attack streak was 5 commands).
+3. *Repeating walk / dig / punch trees / place wood; diamonds with this architecture and size.* At update 11 of run 2 the
+   entropy was 2.83, close to uniform over the candidates, and the list held up to 12 `move_to` and 11 `mine` against one
+   `wait`: a near-uniform policy walks and digs ~70 % of the time by construction. Changes: a kind prior in the model
+   (uniform over command kinds when untrained), `tunnel` (stair steps down and up, corridors: the way to diamond depth, and
+   out of pits), and the owner's population idea as population-based training (greedy + cautious members, fitness on the
+   unmodified stage return). The model's limits for diamonds are listed in [MODEL-SKILLTRUCK.md](../implemented/MODEL-SKILLTRUCK.md).
+4. *Double the bots, spread apart.* 8 bots, each reset in its own sector of the region (a 3 x 3 grid; ocean sectors fall
+   back on the whole region), bot view distance 5; the environment's CPU per step fell (L14: 60 % of it was building `Block`
+   objects). Server: simulation distance 5, view distance 6.
+5. *Ladders and swimming, carefully.* In the action layer, tested on the bot's own physics before going live, then 85/85 on
+   the live server (SKILLS-v1.md, v1.1).
+6. *Speed everything up by one factor.* `tools/tickrate` + GAME_SPEED (85/85 live at 2x and 3x on the test server). On the
+   training world the factor is bounded by one server tick thread shared by all bots: 8 bots use 29-33 ms of the 50 ms tick
+   at 1x, so 8 bots x 1.5 is about the ceiling (bots x speed is the budget, not either alone).
+7. *Model summary in MLflow form.* [MODEL-SKILLTRUCK.md](../implemented/MODEL-SKILLTRUCK.md); every training execution is
+   indexed into DPOD's MLflow store (experiment `side-botsystem`, `scripts/train/mlflow.sh`).
+
+Found in the first minutes of run 3 and fixed: an ocean sector ended the run (no dry site in 30 tries); a bot reset onto a
+tree top, cleared it and stood on a one-block trunk, waiting (L15).
 
 ## Not done
 

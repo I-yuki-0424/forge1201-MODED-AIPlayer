@@ -103,3 +103,38 @@ the knowledge-DB (tag `forge1201-moded-aiplayer`).
   was also silently ignored and the bot stayed where it was.
 - **Rule:** check the reply (`^Spread`) and that the bot stands dry and `standable` after the teleport; draw another site
   otherwise (`reset` in `src/rl/run_skill_env.js`).
+
+## L13 — The walker never counted progress (found 2026-11-01)
+
+- `motion.walk` started every plan with `best = Infinity` and recorded progress only when `progress > best + 0.02`, which never
+  held: every walk replanned every 30 ticks ("no progress") and ended `stuck` after the 6th replan, i.e. any walk longer than
+  about 9 s failed whatever the terrain. The benchmarks never walked that long (targets within 12 blocks); the RL chases did.
+- **Rule:** a "best so far" that must be beaten starts at `-Infinity`. Reproducer: the 60-block walk in
+  `tests/test_skills_motion_sim.js` (fails on the old code with 5 replans).
+
+## L14 — mineflayer's findBlock reads every cell of a 1.18+ world (found 2026-11-01)
+
+- `bot.findBlocks` skips a chunk section when `section.palette` has no match, but prismarine-chunk's 1.18 sections keep the
+  palette in `section.data` (`.value` for single-value sections, `.palette` for indirect ones), so no section is skipped and
+  every cell becomes a full `Block` (biome, block entity). Three such searches per RL step were 30 % of the environment's
+  CPU; `bot.blockAt` per cell another 30 % (CPU profile through the inspector, 20 s, run 2).
+- **Rule:** search with `findStates` (`src/skills/world.js`: palette-aware, state ids only) and read cells through
+  `fromBot(bot).kindAt/shapesAt/nameAt` (one `Block` per distinct state, cached). Never `findBlock` with a function matcher
+  in a per-step path.
+
+## L15 — spreadplayers lands on tree tops (found 2026-11-01)
+
+- Leaves count as safe ground for `spreadplayers`. A bot reset onto a tree cleared the leaves and logs around itself and
+  ended on a one-block trunk 6+ blocks up: no move, every `mine` of a leaf or log `not_confirmed` (the drop is random or falls
+  out of reach), and `wait` always succeeding kept the stuck cut from firing (run train3, Train6).
+- **Rule:** after a reset the block under the feet must not be leaves, a log or wood; `mine` succeeds on the confirmed break
+  (drop pickup is best effort); the stuck cut counts only successful commands other than `wait`.
+
+## L16 — A faster clock shortens every reply wait counted in ticks (found 2026-11-01)
+
+- With the server and the bots at 2x (tools/tickrate + GAME_SPEED), waits for the server's reply that were budgeted in
+  ticks halved in wall time while the round trip did not: `craft`'s 20-tick confirmation missed (bench full-x2 #75), and
+  mineflayer's multi-batch craft lost a batch now and then.
+- **Rule:** `ctx.until`/`during` budgets scale with the clock (`time_scale.scale`), the dig-confirm window too; craft one batch
+  per call. The server must keep up with the factor it is given: bots x speed share its one tick thread (training world,
+  8 bots: 29-33 ms per tick at 1x).

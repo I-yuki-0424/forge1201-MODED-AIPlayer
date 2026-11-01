@@ -48,7 +48,9 @@ All coordinates are block cells (integers). "Success" is what the command waits 
 | :-- | :-- | :-- | :-- | :-- |
 | `move_to` | `x y z` | walk until the feet are in that cell | feet cell = target, speed settled | `invalid_target` (cannot stand there), `unreachable`, `stuck` |
 | `look_at` | `x y z` or `entity` | turn so the crosshair rests on the block (up to 64 blocks) or the entity; no walking | own ray cast hits the target | `not_visible`, `invalid_target` |
-| `mine` | `x y z` | walk into reach, pick the fastest tool that harvests it, hold attack, then collect the drop | server turns the block into something else and the drop is in the inventory | `missing_tool`, `unreachable`, `not_visible`, `not_confirmed` |
+| `move_to` (water, ladders) | | since v1.1 the walk also swims at the surface (holding jump) and climbs ladders and vines | as above | as above |
+| `mine` | `x y z` | walk into reach, pick the fastest tool that harvests it, hold attack, then collect the drop | server turns the block into something else (since 2026-11-01 the drop is collected when it can be: `got`, `drop_missed` in the detail) | `missing_tool`, `unreachable`, `not_visible`, `not_confirmed` |
+| `tunnel` | `dir` (north south east west), `dy` (-1 0 1) | dig the neighbouring column (stair step down, corridor step, stair step up; top cell first so falling sand/gravel is dug again) and step in | feet in the new cell | `invalid_target` (no floor, fluid behind, nothing to dig), `missing_tool`, `not_confirmed` |
 | `place` | `x y z item` | walk to a cell that sees a face of a solid neighbour, hold the item, clear the target cell, click that face (sneaking if the neighbour is interactive) | server shows the block in the cell | `missing_item`, `invalid_target` (occupied, no support), `not_confirmed` |
 | `activate` | `x y z item? sneak?` | right-click an interactive block (lever, door, trapdoor, gate, ...), optionally holding a tool (`create:wrench`) and sneaking; with a tool any block | the block state changed, or a screen opened | `invalid_target`, `not_confirmed` |
 | `pickup` | `entity` or `item` | walk onto a dropped item (nearest stack of `item`) | inventory count rose | `invalid_target`, `target_lost`, `stuck` |
@@ -193,11 +195,40 @@ reported done that the server did not confirm. None of these are fixed yet.
 The flat benchmark run on the natural world's surface (arena next to spawn): 140/140 plain (`w1-natural`), 139/140 with
 clutter (`w2-natural-clutter`; #71 `craft` of 8 planks got 4, the second craft not confirmed within 20 ticks).
 
-## Limits (v1)
+## v1.1: swimming, ladders, tunnel, game speed (2026-11-01, TASK-20261101-025)
 
-- Movement: walking, one-block step-ups, drops of up to 3 blocks. No swimming, ladders, parkour, digging or bridging
-  through obstacles: such targets end as `unreachable`. Slabs, stairs, fences, doors count as obstacles; near-full blocks
-  (mud, soul sand, dirt path, farmland) are ground since LV2.
+Owner brief: enable climbing ladders and swimming, carefully (an earlier swimming change once broke the whole movement
+system); speed the whole game up by one factor.
+
+- **Planner nodes** (`planner.js`): a node is a cell where the body can be held: standing (solid below), swimming in the
+  surface band (feet in water, air at most two cells above: never deeper, so never without air), or hanging on a ladder or
+  vine. Moves: walk (into, out of and through water and ladders; swimming costs 2.5x), step up (also out of water and off a
+  ladder top), drop (onto ground up to 3, into water up to 8, onto a ladder), climb, descend, swim up/down in the band.
+  Kinds in `world.js`: `water` (water, seagrass, kelp), `climb` (ladder, vine), bubble columns stay `liquid`.
+- **Walker** (`motion.js`): holds jump in water (keeps the head up, and against a bank the client's out-of-water impulse lifts
+  the body out) and on ladders (the 1.14+ client climbs on jump); releases everything to slide down; a submerged bot rises
+  before planning; swim nodes match their column while the body bobs.
+- **Tested before going live**: `tests/test_skills_motion_sim.js` runs the real `move_to` and `tunnel` on prismarine-physics
+  (the bot's own client physics) over synthetic 1.20.1 worlds: pool crossing, bank -> deep water -> bank, ladder up, ladder
+  down from a ledge, a pool with no exit (unreachable, no drowning), a 3-step stair down + corridor + walk back up, refusal
+  next to water. 4 of the 6 movement scenes fail on the previous code; all pass now. One defect found on the way that predates
+  this work: the walker never counted progress (docs/LESSONS.md L13).
+- **Live** (RL test server, `bench.js` scenarios `swim` (closed corridor across a 3-6 wide, 2-3 deep pool), `ladder` (5-6
+  high tower, up or down; the planner refuses drops over 3, so the ladder is the only way) and `tunnel` (one random step,
+  graded on the server's position and cleared cells)): seed 21, all 17 scenarios x 5 = 85 trials: **85/85 at 1x, 85/85 at 2x,
+  85/85 at 3x** (server measured 40.0 and 58.8 ticks/s). Found and fixed on the way: a drop from above the head (first cell of
+  a stair step up) was walked to while still falling; at 2x, reply waits counted in ticks became too short and mineflayer's
+  multi-batch craft lost a batch (L16).
+- **Game speed**: `tools/tickrate` (server-only Forge mod: one mixin replaces the tick length 50 ms in
+  `MinecraftServer.runServer`; `/tickrate [factor]`, measured rate in the reply) + `src/transport/time_scale.js` (GAME_SPEED:
+  mineflayer's physics clock and poll run k times faster). Day length, movement, mining, growth and mobs all scale together.
+  The server reaches the factor only while one tick's work fits in 50/k ms.
+
+## Limits (v1.1)
+
+- Movement: walking, one-block step-ups, drops (3 onto ground, 8 into water), surface swimming, ladders and vines, and
+  `tunnel` for digging through. No diving, parkour, bridging or pillaring up. Slabs, stairs, fences, doors count as obstacles;
+  near-full blocks (mud, soul sand, dirt path, farmland) are ground since LV2.
 - `look_at` does not walk; `mine`, `place`, `activate` and the screen commands need a standing cell that sees the target.
 - Entity reach is the vanilla client's (3 blocks); hits follow the weapon's recharge time, no critical hits or sprint knock-back tactics.
 - Passive (fleeing) animals are not in the benchmark: the RL server runs with `spawn-animals=false`, and 1.20.1 then
