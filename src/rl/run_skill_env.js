@@ -253,10 +253,15 @@ async function main() {
         // spreadplayers refuses sites without safe ground (ocean: "Could not spread") and may still land in shallow water,
         // where the action layer cannot act (no swimming, SKILLS-v1 limits): draw another site until the bot stands dry.
         const w = fromBot(bot);
+        // The bot's own sector first; a sector that is mostly ocean (run train3, Train4: 30 wet sites) falls back on the
+        // whole region after 40 tries, logged.
         let why = '';
-        for (let i = 0; i < 30; i++) {
+        const R = o.region - 64;
+        for (let i = 0; i < 80; i++) {
             const pos = bot.entity.position.clone();
-            const reply = String(await cmd(`spreadplayers ${Math.round(x0 + rng() * (x1 - x0))} ${Math.round(z0 + rng() * (z1 - z0))} 0 24 false ${name}`));
+            if (i === 40) events.emit('sector_fallback', { bot: name, sector: [x0, x1, z0, z1].map(Math.round) }, 'warn');
+            const [ax, bx, az, bz] = i < 40 ? [x0, x1, z0, z1] : [-R, R, -R, R];
+            const reply = String(await cmd(`spreadplayers ${Math.round(ax + rng() * (bx - ax))} ${Math.round(az + rng() * (bz - az))} 0 24 false ${name}`));
             if (!/^Spread/.test(reply)) { why = reply.slice(0, 120); continue; }
             for (let t = 0; t < 200 && bot.entity.position.distanceTo(pos) < 1; t++) await sleep(50);   // the teleport arrived
             for (let t = 0; t < 100 && !bot.blockAt(bot.entity.position.offset(0, -1, 0)); t++) await sleep(50);   // its chunk too
@@ -265,7 +270,7 @@ async function main() {
             if (!bot.entity.isInWater && standable(w, x, y, z)) { why = ''; break; }
             why = 'landed in water or not on dry ground';
         }
-        if (why) throw new Error(`reset: no dry site in 30 tries (${why})`);
+        if (why) throw new Error(`reset: no dry site in 80 tries (${why})`);
         for (let t = 0; t < 200 && bot.inventory.items().length; t++) await sleep(50);
         await sleep(500);
         await cmd(`spawnpoint ${name} ${Math.floor(bot.entity.position.x)} ${Math.floor(bot.entity.position.y)} ${Math.floor(bot.entity.position.z)}`);
