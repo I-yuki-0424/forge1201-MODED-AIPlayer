@@ -321,7 +321,7 @@ services:
     restart: unless-stopped
     ulimits:
       core: 0              # JAX threads abort at interpreter exit; no 1 GiB core files
-    mem_limit: 2500m
+    mem_limit: 3200m      # GoalWM + plan: update peaks reached 2.48 GB of 2.5 with the replay rings 10 % full (run 5, 2026-11-02)
     cpus: 2
     environment:
       PYTHONDONTWRITEBYTECODE: "1"
