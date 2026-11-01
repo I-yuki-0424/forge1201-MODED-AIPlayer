@@ -152,6 +152,19 @@ curves, last episodes with their `invalid` sum.
   and the page shows whether the remaining refuge is `wait`.
 - Train1 and Train2 timed out at 12:02 (server: "Timed out") and were not replaced; fixed (a lost bot restarts the run).
 
+## Run 2 (from 2026-11-01 15:54 JST, base `train2`): the traps, found on the page in the first minutes
+
+- Pit: Train1 mined the two blocks under its feet (steps 24-25) and stood in a 1x1 hole two deep. `mine` offered only the
+  nearest block of each type, which was the one underfoot (unreachable); the head-height wall block that makes a step out was
+  never a candidate, and there is no pillar-up command. Fixed in the candidate list: never the block under the feet, and per
+  type also the nearest block at head height or above (test: a bot in a pit is offered the step out).
+- Water: Train2 chased a mob 80 blocks (`attack`, 702 ticks) into a stone hollow beside water; the action layer cannot swim
+  (SKILLS-v1 limits), so every command failed. Not fixable in the candidate list; the **stuck cut** ends such episodes:
+  200 commands under 10 % success within 2 blocks -> truncated (not a death), the bot is reset elsewhere
+  (`episode_end.stuck`). Without it a trapped bot keeps collecting survival nights, as in run 1.
+- Both traps are action-layer gaps (no climbing out, no swimming), visible in the grid observation; neither is a case of the
+  model being unable to see the physical constraint.
+
 ## Not done
 
 - The training run itself (owner's go-ahead).
