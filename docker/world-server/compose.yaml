@@ -326,11 +326,19 @@ services:
     environment:
       PYTHONDONTWRITEBYTECODE: "1"
       XLA_FLAGS: --xla_cpu_multi_thread_eigen=false intra_op_parallelism_threads=2
+      TRAIN_POLICY: ${TRAIN_POLICY:-botsystem_goal_ppo.py}
+      TRAIN_POLICY_INIT: ${TRAIN_POLICY_INIT:-}
+      TRAIN_BASE: ${TRAIN_BASE:-train}
+      TRAIN_LEARN: ${TRAIN_LEARN:-1}
+      TRAIN_POLICY_SEED: ${TRAIN_POLICY_SEED:-42}
+      TRAIN_POPULATION: ${TRAIN_POPULATION:-1}
     volumes:
       - rl-jaxvenv:/venv:ro
       - ${DPOD_DIR:-../../../Decision-Process-order-driven}:/dpod:ro
       - ../../exchange:/x
-    command: ["/venv/bin/python", "/dpod/scripts/botsystem_skill_ppo.py", "--root", "/x", "--base", "${TRAIN_BASE:-train}", "--learn", "${TRAIN_LEARN:-1}", "--seed", "${TRAIN_POLICY_SEED:-42}", "--population", "${TRAIN_POPULATION:-1}"]
+    # TRAIN_POLICY: botsystem_skill_ppo.py (SkillTruck) or botsystem_goal_ppo.py (GoalWM, DPOD TASK-20261101-031; scripts/train/up.sh
+    # --policy); TRAIN_POLICY_INIT: the goal learner's offline-pretrained parameters (empty = none).
+    command: ["sh", "-c", 'exec /venv/bin/python /dpod/scripts/"$$TRAIN_POLICY" --root /x --base "$$TRAIN_BASE" --learn "$$TRAIN_LEARN" --seed "$$TRAIN_POLICY_SEED" --population "$$TRAIN_POPULATION" $${TRAIN_POLICY_INIT:+--init "$$TRAIN_POLICY_INIT"}']
     network_mode: none
 
   # The watcher's page (tools/train-dash, Rust std only, read-only): what each bot is doing, what happened, success rates,

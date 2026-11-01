@@ -11,8 +11,9 @@
 const Vec3 = require('vec3');
 const { kindOf, standable, fromBot, findStates, isInteractive } = require('../skills/world');
 const { reachable } = require('../skills/planner');
+const { reachGoal } = require('../skills/motion');
 const { bestTool, tunnelProblem, tunnelCells, DIRS } = require('../skills/commands/block');
-const { EYE } = require('../skills/geometry');
+const { EYE, viewDir, raycast } = require('../skills/geometry');
 const { categoryOf, CATEGORIES } = require('./observation');
 const { fuelValue } = require('../skills/commands/gui');
 const { REASONS } = require('../skills/runner');
@@ -31,6 +32,12 @@ const CAND_F = 8;   // dx dy dz dist (/16, clipped), count/64, in_reach, is_nigh
 const GRID_R = 4, GRID_Y0 = -2, GRID_Y1 = 2;
 const GRID_N = (2 * GRID_R + 1) ** 2 * (GRID_Y1 - GRID_Y0 + 1);
 const INV_N = 36, ENT_N = 8, ENT_R = 16, ENT_F = 5, SELF_N = 20;
+// v2.0 view (owner 2026-11-01): what the player sees in front, as a semantic image. One ray per cell of a VIEW_W x VIEW_H grid
+// over the field of view, first block hit within VIEW_R (no x-ray: blocks behind others are never seen): block category, the
+// block's item id (ores keep their identity, which the category loses) and the distance. Rays that hit nothing: air, 1.0.
+const VIEW_W = 16, VIEW_H = 8, VIEW_R = 24, VIEW_FOV_X = (110 * Math.PI) / 180, VIEW_PITCH = [-60, 40].map((d) => (d * Math.PI) / 180);
+const VIEW_N = VIEW_W * VIEW_H;
+const CLOCK_N = 2;   // episode age in days /10 (clipped), log1p(step)/10
 // Furnace inputs a player sees in the furnace recipe book (vanilla 1.20.1, the common ones).
 const SMELTABLE = new Set(['raw_iron', 'raw_gold', 'raw_copper', 'iron_ore', 'gold_ore', 'copper_ore', 'deepslate_iron_ore',
     'deepslate_gold_ore', 'sand', 'red_sand', 'cobblestone', 'cobbled_deepslate', 'clay_ball', 'netherrack', 'ancient_debris',
@@ -48,13 +55,17 @@ function vocab(mcData, table) {
 }
 
 const f = (name, shape, dtype) => ({ name, shape, dtype });
-function obsSpec() {
+/** nEntities = length of the entity vocabulary (killed counts are one per entity type, index 0 = none). */
+function obsSpec(nEntities) {
+    if (!Number.isInteger(nEntities) || nEntities < 1) throw new Error('obsSpec(nEntities): entity vocabulary size required');
     return {
         fields: [
             f('grid', [GRID_N], 'int'), f('self', [SELF_N], 'float'),
             f('inv_item', [INV_N], 'int'), f('inv_count', [INV_N], 'float'),
             f('ent_type', [ENT_N], 'int'), f('ent_feat', [ENT_N, ENT_F], 'float'),
             f('progress', [PROGRESS_DIM], 'float'),
+            f('view_cat', [VIEW_N], 'int'), f('view_item', [VIEW_N], 'int'), f('view_dist', [VIEW_N], 'float'),
+            f('killed', [nEntities], 'float'), f('clock', [CLOCK_N], 'float'),
             f('cand_cmd', [K], 'int'), f('cand_item', [K], 'int'), f('cand_ent', [K], 'int'), f('cand_feat', [K, CAND_F], 'float'), f('cand_mask', [K], 'bool'),
             f('last_reason', [], 'int'), f('dt_ticks', [], 'float'),
         ],
@@ -93,7 +104,26 @@ class SkillSpace {
     item(name) { return this.itemIx.get(String(name).replace(/^minecraft:/, '')) || 0; }
     ent(name) { return this.entIx.get(name) || 0; }
 
-    observe(progress, last) {
+    /** The semantic first-hit image of the field of view (no block is seen through another). */
+    view(w) {
+        const bot = this.bot, e = bot.entity, p = e.position, eye = { x: p.x, y: p.y + EYE, z: p.z };
+        const cat = [], item = [], dist = [];
+        for (let j = 0; j < VIEW_H; j++) {
+            const pitch = VIEW_PITCH[1] - (j + 0.5) * (VIEW_PITCH[1] - VIEW_PITCH[0]) / VIEW_H;
+            for (let i = 0; i < VIEW_W; i++) {
+                const yaw = e.yaw + VIEW_FOV_X / 2 - (i + 0.5) * VIEW_FOV_X / VIEW_W;
+                const h = raycast(eye, viewDir(yaw, pitch), VIEW_R, w.shapesAt);
+                if (!h) { cat.push(0); item.push(0); dist.push(1); continue; }
+                cat.push(this.cat(w, h.x, h.y, h.z));
+                item.push(this.item((w.nameAt ? w.nameAt(h.x, h.y, h.z) : w.blockAt(h.x, h.y, h.z)?.name) || 'none'));
+                dist.push(r(h.t / VIEW_R));
+            }
+        }
+        return { cat, item, dist };
+    }
+
+    /** killed: Map(short entity name -> kills this episode); clock: {ticks (episode age), step}. */
+    observe(progress, last, killed = new Map(), clock = { ticks: 0, step: 0 }) {
         const bot = this.bot, e = bot.entity, p = e.position;
         const fx = Math.floor(p.x), fy = Math.floor(p.y + 0.2), fz = Math.floor(p.z), w = fromBot(bot);
         const grid = [];
@@ -119,12 +149,17 @@ class SkillSpace {
                 x.position.distanceTo(p) / ENT_R, x.type === 'player' ? 1 : 0].map(r) : [0, 0, 0, 0, 0]);
         }
         this.cands = this.candidates();
+        const view = this.view(w);
+        const kills = new Array(this.voc.entities.length).fill(0);
+        for (const [n, k] of killed) { const i = this.ent(n); if (i) kills[i] = r(Math.min(k, 64) / 8); }
         const pad = (arr, n, z) => arr.concat(Array.from({ length: n - arr.length }, () => (typeof z === 'function' ? z() : z)));
         return {
             grid, self,
             inv_item: slots.map((s) => (s ? this.item(s.name) : 0)), inv_count: slots.map((s) => (s ? r(s.count / 64) : 0)),
             ent_type: entType, ent_feat: entFeat,
             progress: progress.map(r),
+            view_cat: view.cat, view_item: view.item, view_dist: view.dist, killed: kills,
+            clock: [r(Math.min(clock.ticks / 24000, 10) / 10), r(Math.log1p(clock.step) / 10)],
             cand_cmd: pad(this.cands.map((c) => CMD[c.cmd]), K, 0), cand_item: pad(this.cands.map((c) => c.item), K, 0),
             cand_ent: pad(this.cands.map((c) => c.ent), K, 0), cand_feat: pad(this.cands.map((c) => c.feat), K, () => new Array(CAND_F).fill(0)),
             cand_mask: pad(this.cands.map(() => true), K, false),
@@ -154,7 +189,17 @@ class SkillSpace {
         const nodes = reach ? reach.cells : [];
         const canStand = (x, y, z) => !reach || reach.has(x, y, z);
         const reachFrom = (list) => (x, y, z) => !reach || list.some(([a, b, c]) => (a - x) ** 2 + (b + EYE - y - 0.5) ** 2 + (c - z) ** 2 <= BLOCK_REACH * BLOCK_REACH);
-        const inReach = reachFrom(nodes), inReachNear = reachFrom(nodes.filter(([a, b, c]) => Math.abs(a - fx) <= 10 && Math.abs(c - fz) <= 10 && Math.abs(b - fy) <= 8));
+        const inReach = reachFrom(nodes);
+        // A block is offered to `mine` only if the command's own goal holds at some reachable node: within reach and an aim
+        // point visible from that node's eye (motion.reachGoal). The old test (eye within 4.1 of the centre) offered blocks
+        // that touch cave air behind a wall; mine then failed `unreachable` in one tick (run train3: 1,314 failures, bot 8
+        // 1,037 of them). It also kept unseen blocks out of the list.
+        const nearNodes = reach ? nodes.filter(([a, b, c]) => Math.abs(a - fx) <= 10 && Math.abs(c - fz) <= 10 && Math.abs(b - fy) <= 8) : [];
+        const minable = (x, y, z) => {
+            if (!reach) return true;
+            const g = reachGoal(w, { x, y, z }, { ok: (c) => !(c.x === x && c.z === z && c.y === y + 1) });
+            return nearNodes.some(([a, b, c]) => Math.hypot(a + 0.5 - x - 0.5, b + EYE - y - 0.5, c + 0.5 - z - 0.5) <= 5 && g.isGoal({ x: a, y: b, z: c }));
+        };
         const nearNode = (q, r) => !reach || nodes.some(([a, b, c]) => Math.hypot(a + 0.5 - q.x, c + 0.5 - q.z) <= r && Math.abs(b - q.y) <= 1.5);
 
         // move_to: 8 headings x near (6) + 4 headings far (16); the reachable node nearest to the bot's height in that column.
@@ -189,7 +234,7 @@ class SkillSpace {
             const d = dx * dx + dy * dy + dz * dz;
             const cur = best.get(name), curUp = up.get(name);
             if ((cur && cur.d <= d) && (dy < 1 || (curUp && curUp.d <= d))) continue;
-            if (!inReachNear(x, y, z)) continue;
+            if (!minable(x, y, z)) continue;
             if (!cur || cur.d > d) best.set(name, { d, pos: new Vec3(x, y, z) });
             if (dy >= 1 && (!curUp || curUp.d > d)) up.set(name, { d, pos: new Vec3(x, y, z) });
         }
@@ -294,4 +339,5 @@ class SkillSpace {
     }
 }
 
-module.exports = { SkillSpace, vocab, obsSpec, actionSpec, K, CMDS, CMD, QUOTA, WAIT_TICKS, REASON_LIST, GRID_N, INV_N, ENT_N, CAND_F, SELF_N, CATEGORIES };
+module.exports = { SkillSpace, vocab, obsSpec, actionSpec, K, CMDS, CMD, QUOTA, WAIT_TICKS, REASON_LIST, GRID_N, INV_N, ENT_N, CAND_F, SELF_N, CATEGORIES,
+    VIEW_W, VIEW_H, VIEW_N, VIEW_R, CLOCK_N };

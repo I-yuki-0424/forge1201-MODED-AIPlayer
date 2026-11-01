@@ -20,12 +20,14 @@ const { fromBot, standable } = require('../skills/world');
 const { Vec3 } = require('vec3');
 const { ProgressTracker } = require('./progress');
 const { CrafterReward, TABLE, TERMS, MILESTONES, NOTABLE } = require('./crafter_reward');
-const { SkillSpace, vocab, obsSpec, actionSpec, K, CMDS, REASON_LIST } = require('./skill_space');
+const { SkillSpace, vocab, obsSpec, actionSpec, K, CMDS, REASON_LIST, VIEW_H, VIEW_W } = require('./skill_space');
 const { LiveBoard } = require('./live_board');
 
 // v1.1: term `invalid`, live board, one tick minimum per step; v1.2: stuck cut; v1.3: swimming, ladders, `tunnel`, candidates
-// only what the action layer can do (K 64), a sector of the region per bot, game speed (tools/tickrate + GAME_SPEED)
-const ENV_VERSION = '2026-11-01-skills-v1.3';
+// only what the action layer can do (K 64), a sector of the region per bot, game speed (tools/tickrate + GAME_SPEED);
+// v2.0 (DPOD TASK-20261101-031): observation fields view_* (first-hit image of the field of view), killed (kills this episode
+// per entity type), clock (episode age, step); mine candidates use the command's own reach-and-visibility goal
+const ENV_VERSION = '2026-11-01-skills-v2.0';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // Chunks a bot asks the server for: it acts within about 20 blocks (candidates, the reachability flood), so 5 is ample and
 // keeps chunk sending and parsing low with many bots (mineflayer's default 'far' = 12, capped by the server's 8).
@@ -151,9 +153,12 @@ async function main() {
     if (!/^tickrate /.test(rate)) throw new Error(`server has no tick rate control (tools/tickrate): ${rate.slice(0, 120)}`);
     const mcData = require('minecraft-data')('1.20.1');
     const voc = vocab(mcData, (() => { try { return require('../../modpack/forgeaip-create.registry.json'); } catch { return null; } })());
-    const hello = { env_version: ENV_VERSION, action_spec: actionSpec(), obs_spec: obsSpec(),
+    const hello = { env_version: ENV_VERSION, action_spec: actionSpec(), obs_spec: obsSpec(voc.entities.length),
         vocab_sizes: { item: voc.items.length, entity: voc.entities.length, cmd: CMDS.length, reason: REASON_LIST.length, category: 11 },
-        milestones: MILESTONES, notable: NOTABLE, reward_terms: TERMS, stages: TABLE.stages, reward_table_version: TABLE.v };
+        milestones: MILESTONES, notable: NOTABLE, reward_terms: TERMS, stages: TABLE.stages, reward_table_version: TABLE.v,
+        // v2.0: id -> name tables (the learner names the owner's task goals, e.g. 'diamond'; the policy sees ids only) and the
+        // view image's rows x columns.
+        vocab: { items: voc.items, entities: voc.entities }, view_shape: [VIEW_H, VIEW_W] };
     events.emit('run_start', { env_version: ENV_VERSION, bots: o.bots, shard: o.shard, env_id_offset: off, max_steps: o.maxSteps, region: o.region, seed: o.seed, K, speed,
         view_distance: VIEW, sectors: Array.from({ length: o.bots }, (_, i) => sector(i, o.bots, o.region - 64).map(Math.round)) });
 
@@ -200,11 +205,11 @@ async function main() {
             await Promise.race([reset(bot, name, rng, sector(envId - off, o.bots, o.region - 64)), lost]);
             await tracker.begin(); reward.newEpisode(); cancel = { cancelled: false };
             let msg = { reward: 0, reward_terms: Object.fromEntries(TERMS.map((t) => [t, 0])), terminated: false, truncated: false };
-            let last = { reason: 'ok', ticks: 0 };
+            let last = { reason: 'ok', ticks: 0 }, epTicks = 0;
             const ep = { ret: 0, nights: 0, slept: 0, t0: Date.now(), cmds: {}, stuck: false };
             const stuck = new StuckDetector();
             for (let step = 0; ; step++) {
-                send(envId, 'obs', { episode, step, obs: space.observe(reward.progress(), last), ...msg });
+                send(envId, 'obs', { episode, step, obs: space.observe(reward.progress(), last, reward.kills, { ticks: epTicks, step }), ...msg });
                 if (msg.terminated || msg.truncated) break;
                 const act = await Promise.race([nextAct(envId, episode, step), lost]);
                 if (!act) throw new Error(`no act for episode ${episode} step ${step} within ${o.actTimeout} s`);
@@ -231,6 +236,7 @@ async function main() {
                 ep.stuck = !dead && stuck.push(res.ok, bot.entity && bot.entity.position, c ? c.cmd : null);
                 msg = { reward: sc.total, reward_terms: sc.terms, terminated: dead, truncated: !dead && (ep.stuck || step + 1 >= o.maxSteps) };
                 last = { reason: res.ok ? 'ok' : res.reason, ticks: Math.max(ticks, 1) };
+                epTicks += last.ticks;
                 ep.ret += sc.total; ep.cmds[c ? c.cmd : 'invalid'] = (ep.cmds[c ? c.cmd : 'invalid'] || 0) + 1;
                 let nights = 0, slept = 0;
                 for (const e of evs) if (e.type === 'dawn') { nights++; if (e.slept) slept++; }

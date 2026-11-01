@@ -230,8 +230,8 @@ test('candidates: never the block underfoot; a bot in a pit is offered the head-
 
 test('observation matches the declared spec exactly (shapes, dtypes, masks)', () => {
     const bot = worldBot(), space = new SkillSpace(bot, vocab(bot.registry, null));
-    const o = space.observe(new CrafterReward().progress(), { reason: 'not_visible', ticks: 37 });
-    const spec = obsSpec().fields;
+    const o = space.observe(new CrafterReward().progress(), { reason: 'not_visible', ticks: 37 }, new Map([['zombie', 2]]), { ticks: 12000, step: 5 });
+    const spec = obsSpec(space.voc.entities.length).fields;
     assert.deepStrictEqual(Object.keys(o).sort(), spec.map((f) => f.name).sort());
     const shapeOf = (v) => (Array.isArray(v) ? [v.length, ...shapeOf(v[0])] : []);
     for (const f of spec) {
@@ -243,6 +243,36 @@ test('observation matches the declared spec exactly (shapes, dtypes, masks)', ()
     assert.ok(o.cand_cmd.every((x, i) => (o.cand_mask[i] ? x > 0 : x === 0)));
     assert.ok(o.last_reason > 0 && o.dt_ticks === 37);
     assert.strictEqual(CMDS[o.cand_cmd[space.cands.length - 1]], 'wait');
+    assert.strictEqual(o.killed[space.voc.entities.indexOf('zombie')], 0.25);
+    assert.strictEqual(o.clock[0], 0.05);
+});
+
+test('view: first hit only (a wall hides what is behind it), item identity kept, nothing hit = air at full range', () => {
+    // A stone wall at z = -3 in front of the bot (yaw 0 looks along -z), an iron ore right behind it.
+    const wall = (x, y, z) => (z === -3 && y >= 64 && y <= 68 ? 'stone' : z === -4 && y === 65 ? 'iron_ore' : flatLayout(x, y, z));
+    const bot = worldBot(wall), voc = vocab(bot.registry, null), space = new SkillSpace(bot, voc);
+    bot.entity.yaw = 0; bot.entity.pitch = 0;
+    const v = space.view(require('../src/skills/world').fromBot(bot));
+    const { VIEW_N } = require('../src/rl/skill_space');
+    assert.strictEqual(v.cat.length, VIEW_N);
+    assert.ok(!v.item.includes(voc.items.indexOf('iron_ore')), 'ore behind the wall was seen');
+    assert.ok(v.item.includes(voc.items.indexOf('stone')), 'wall not seen');
+    assert.ok(v.dist.every((d) => d >= 0 && d <= 1));
+});
+
+test('candidates: a block next to hidden cave air behind a wall is not offered to mine (no visible aim point)', () => {
+    // Bot in a closed pocket of stone; a dirt block (hand-harvestable) two blocks inside the wall touches a sealed air pocket.
+    const lay = (x, y, z) => {
+        if (y < 64) return flatLayout(x, y, z);
+        if (y > 66) return 'air';
+        if (x === 0 && z === 0 && (y === 64 || y === 65)) return 'air';
+        if (x === 3 && z === 0 && y === 65) return 'dirt';
+        if (x === 4 && z === 0 && y === 65) return 'air';
+        return 'stone';
+    };
+    const bot = worldBot(lay, new Vec3(0.5, 64, 0.5)), voc = vocab(bot.registry, null);
+    const c = new SkillSpace(bot, voc).candidates();
+    assert.ok(!c.some((x) => x.cmd === 'mine' && voc.items[x.item] === 'dirt'), 'hidden dirt offered');
 });
 
 test('skills_v1 action spec: one select over K candidates; hash equals DPOD ActionSpec.spec_hash()', () => {
