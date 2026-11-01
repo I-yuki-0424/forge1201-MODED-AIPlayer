@@ -34,7 +34,7 @@ class LiveBoard {
         const b = this.bots.get(envId);
         if (!b || !b.cur) return;
         const p = b.bot && b.bot.entity && b.bot.entity.position;
-        b.ring.push({ t: Date.now(), cmd: b.cur.cmd, label: b.cur.label, ok: !!ok, reason: ok ? 'ok' : reason, ms, ticks, reward: round(reward, 4),
+        b.ring.push({ t: Date.now(), episode: b.episode, cmd: b.cur.cmd, label: b.cur.label, ok: !!ok, reason: ok ? 'ok' : reason, ms, ticks, reward: round(reward, 4),
             offered: b.cur.offered, pos: p ? [round(p.x, 1), round(p.y, 1), round(p.z, 1)] : null });
         if (b.ring.length > this.window) b.ring.shift();
         b.total.n++; if (ok) b.total.ok++;
@@ -50,7 +50,7 @@ class LiveBoard {
     }
 
     /** Per-bot statistics over the rolling window. */
-    static stats(ring) {
+    static stats(ring, episode) {
         const n = ring.length, by = {}, reasons = {};
         let ok = 0;
         for (const s of ring) {
@@ -75,12 +75,12 @@ class LiveBoard {
             offered: n ? round(e.offered_steps / n) : 0, uniform_share: n ? round(e.uniform / n) : 0,
             bias: e.uniform ? round(e.n / e.uniform, 2) : null,
         }]).sort((a, b) => b[1].n - a[1].n));
-        const pos = ring.map((s) => s.pos).filter(Boolean);
+        const pos = ring.filter((s) => episode === undefined || s.episode === episode).map((s) => s.pos).filter(Boolean);   // this episode: resets teleport
         let spread = null;
         if (pos.length) spread = round(Math.max(...[0, 1, 2].map((i) => Math.max(...pos.map((q) => q[i])) - Math.min(...pos.map((q) => q[i])))), 1);
         const span = n > 1 ? (ring[n - 1].t - ring[0].t) / 1000 : 0;
         return { n, ok_rate: n ? round(ok / n) : null, cmds, reasons: Object.fromEntries(Object.entries(reasons).sort((a, b) => b[1] - a[1]).slice(0, 8)),
-            spread, steps_per_min: span > 0 ? round((n - 1) / span * 60, 1) : null };
+            spread, spread_n: pos.length, steps_per_min: span > 0 ? round((n - 1) / span * 60, 1) : null };
     }
 
     /** Warning signs the watcher asked for: repeated failure, one command dominating, not moving. */
@@ -89,14 +89,14 @@ class LiveBoard {
         if (st.n >= 50 && st.ok_rate !== null && st.ok_rate < 0.3) w.push(`fails ${Math.round((1 - st.ok_rate) * 100)}% of the last ${st.n} commands`);
         const top = Object.entries(st.cmds)[0];
         if (st.n >= 50 && top && top[1].share >= 0.7 && top[1].bias !== null && top[1].bias >= 2) w.push(`${top[0]} is ${Math.round(top[1].share * 100)}% of choices (${top[1].bias}x a uniform pick)`);
-        if (st.n >= 100 && st.spread !== null && st.spread < 3) w.push(`moved less than 3 blocks in the last ${st.n} commands`);
+        if (st.spread_n >= 100 && st.spread !== null && st.spread < 3) w.push(`moved less than 3 blocks in the last ${st.spread_n} commands`);
         return w;
     }
 
     snapshot() {
         const bots = [];
         for (const [envId, b] of [...this.bots.entries()].sort((a, c) => a[0] - c[0])) {
-            const bot = b.bot, e = bot && bot.entity, st = LiveBoard.stats(b.ring);
+            const bot = b.bot, e = bot && bot.entity, st = LiveBoard.stats(b.ring, b.episode);
             bots.push({
                 env_id: envId, name: b.name, connected: b.connected, lost: b.lostWhy,
                 episode: b.episode, step: b.step,
@@ -106,7 +106,7 @@ class LiveBoard {
                 episode_now: { return: round(b.ep.ret, 3), nights: b.ep.nights, slept: b.ep.slept, wall_s: Math.round((Date.now() - b.ep.t0) / 1000) },
                 total: { n: b.total.n, ok_rate: b.total.n ? round(b.total.ok / b.total.n) : null },
                 window: st, warnings: LiveBoard.warnings(st),
-                recent: b.ring.slice(-RECENT).reverse().map(({ offered, ...s }) => s),
+                recent: b.ring.slice(-RECENT).reverse().map(({ offered, episode, ...s }) => s),
                 episodes: b.episodes.slice().reverse(),
             });
         }

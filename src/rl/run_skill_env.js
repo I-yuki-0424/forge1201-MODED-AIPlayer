@@ -23,7 +23,7 @@ const { CrafterReward, TABLE, TERMS, MILESTONES, NOTABLE } = require('./crafter_
 const { SkillSpace, vocab, obsSpec, actionSpec, K, CMDS, REASON_LIST } = require('./skill_space');
 const { LiveBoard } = require('./live_board');
 
-const ENV_VERSION = '2026-11-01-skills-v1.1';   // v1.1: reward term `invalid`, live board, one tick minimum per step
+const ENV_VERSION = '2026-11-01-skills-v1.2';   // v1.1: term `invalid`, live board, one tick minimum per step; v1.2: stuck cut
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const GAMERULES = ['doDaylightCycle true', 'doMobSpawning true', 'doImmediateRespawn true', 'keepInventory false',
     'playersSleepingPercentage 1', 'announceAdvancements false', 'sendCommandFeedback false', 'logAdminCommands false', 'spawnRadius 0'];
@@ -46,6 +46,21 @@ function parseArgs(argv) {
 function queued(rcon) {
     let tail = Promise.resolve();
     return (cmd) => { const p = tail.then(() => rcon.command(cmd)); tail = p.catch(() => {}); return p; };
+}
+
+/** Stuck detector: true once the last `n` commands of an episode almost all failed (< minOk) and the bot stayed within
+ *  `radius` blocks. The action layer cannot act there (a pit, water: no swimming), so the episode is cut (truncated) and the
+ *  bot reset; otherwise a trapped bot keeps living through nights, which the survival term pays for (run 1). */
+class StuckDetector {
+    constructor({ n = 200, minOk = 0.1, radius = 2 } = {}) { this.n = n; this.minOk = minOk; this.radius = radius; this.reset(); }
+    reset() { this.ring = []; }
+    push(ok, pos) {
+        this.ring.push({ ok: !!ok, pos: pos ? [pos.x, pos.y, pos.z] : null });
+        if (this.ring.length > this.n) this.ring.shift();
+        if (this.ring.length < this.n || this.ring.some((r) => !r.pos)) return false;
+        if (this.ring.filter((r) => r.ok).length / this.n >= this.minOk) return false;
+        return [0, 1, 2].every((i) => Math.max(...this.ring.map((r) => r.pos[i])) - Math.min(...this.ring.map((r) => r.pos[i])) <= this.radius);
+    }
 }
 
 /** Run `ticks` physics ticks doing nothing (the 'wait' candidate; also how a sleeping bot passes the night). */
@@ -159,7 +174,8 @@ async function main() {
             await tracker.begin(); reward.newEpisode(); cancel = { cancelled: false };
             let msg = { reward: 0, reward_terms: Object.fromEntries(TERMS.map((t) => [t, 0])), terminated: false, truncated: false };
             let last = { reason: 'ok', ticks: 0 };
-            const ep = { ret: 0, nights: 0, slept: 0, t0: Date.now(), cmds: {} };
+            const ep = { ret: 0, nights: 0, slept: 0, t0: Date.now(), cmds: {}, stuck: false };
+            const stuck = new StuckDetector();
             for (let step = 0; ; step++) {
                 send(envId, 'obs', { episode, step, obs: space.observe(reward.progress(), last), ...msg });
                 if (msg.terminated || msg.truncated) break;
@@ -185,7 +201,8 @@ async function main() {
                 if (!res.ok) evs.push({ type: 'failed', reason: res.reason });   // scored by reward term `invalid`
                 const sc = reward.score(evs);
                 const dead = tracker.dead;
-                msg = { reward: sc.total, reward_terms: sc.terms, terminated: dead, truncated: !dead && step + 1 >= o.maxSteps };
+                ep.stuck = !dead && stuck.push(res.ok, bot.entity && bot.entity.position);
+                msg = { reward: sc.total, reward_terms: sc.terms, terminated: dead, truncated: !dead && (ep.stuck || step + 1 >= o.maxSteps) };
                 last = { reason: res.ok ? 'ok' : res.reason, ticks: Math.max(ticks, 1) };
                 ep.ret += sc.total; ep.cmds[c ? c.cmd : 'invalid'] = (ep.cmds[c ? c.cmd : 'invalid'] || 0) + 1;
                 let nights = 0, slept = 0;
@@ -197,7 +214,7 @@ async function main() {
                     progress_events: evs.length ? evs : undefined, stats_ok: statsOk || undefined, health: bot.health, food: bot.food });
             }
             const rec = { env_id: envId, episode, return: Math.round(ep.ret * 1e4) / 1e4, nights: ep.nights, slept: ep.slept,
-                wall_s: Math.round((Date.now() - ep.t0) / 1000), terminated: msg.terminated, cmds: ep.cmds };
+                wall_s: Math.round((Date.now() - ep.t0) / 1000), terminated: msg.terminated, stuck: ep.stuck || undefined, cmds: ep.cmds };
             events.emit('episode_end', rec);
             board.episodeEnd(envId, rec);
             if (msg.terminated) {
@@ -235,4 +252,4 @@ async function main() {
 
 if (require.main === module) main().catch((e) => { console.error('[skill-env] fatal:', e.message); process.exit(1); });
 
-module.exports = { parseArgs, queued, idle, describe, GAMERULES, ENV_VERSION };
+module.exports = { parseArgs, queued, idle, describe, StuckDetector, GAMERULES, ENV_VERSION };

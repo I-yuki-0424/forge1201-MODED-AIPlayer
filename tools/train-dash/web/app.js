@@ -61,7 +61,7 @@ function botCard(b, now) {
     }), [3, 4]));
     if (b.episodes.length) {
         card.append(el('h3', null, 'last episodes'));
-        card.append(table(['episode', 'return', 'nights', 'alive', 'end'], b.episodes.slice(0, 5).map((e) => [e.episode, e.return, `${e.nights} (${e.slept})`, ago(e.wall_s * 1000), e.terminated ? 'died' : 'cut']), [1]));
+        card.append(table(['episode', 'return', 'nights', 'alive', 'end'], b.episodes.slice(0, 5).map((e) => [e.episode, e.return, `${e.nights} (${e.slept})`, ago(e.wall_s * 1000), e.terminated ? 'died' : e.stuck ? 'stuck (cut)' : 'cut']), [1]));
     }
     return card;
 }

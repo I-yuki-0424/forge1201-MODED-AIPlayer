@@ -7,7 +7,7 @@ const { CrafterReward, TABLE, MILESTONES, NOTABLE, PROGRESS_DIM, advancementScor
 const { ProgressTracker, complete } = require('../src/rl/progress');
 const { SkillSpace, vocab, obsSpec, actionSpec, K, CMDS } = require('../src/rl/skill_space');
 const { specHash } = require('../src/rl/action_spec');
-const { parseArgs, queued, describe } = require('../src/rl/run_skill_env');
+const { parseArgs, queued, describe, StuckDetector } = require('../src/rl/run_skill_env');
 const { LiveBoard } = require('../src/rl/live_board');
 
 let pending = 0;
@@ -250,7 +250,7 @@ test('live board: success rates, bias against a uniform pick, warnings for faili
     near(s.window.ok_rate, 0.8);
     near(s.window.cmds.wait.share, 0.8); near(s.window.cmds.wait.uniform_share, 0.125); near(s.window.cmds.wait.bias, 6.4);
     near(s.window.cmds.move_to.ok_rate, 0); near(s.window.reasons['move_to:unreachable'], 20);
-    assert.strictEqual(s.window.spread, 0);
+    assert.strictEqual(s.window.spread, 0); assert.strictEqual(s.window.spread_n, 100);
     assert.ok(s.warnings.some((w) => /wait is 80%/.test(w)) && s.warnings.some((w) => /moved less than 3/.test(w)), s.warnings.join('; '));
     assert.ok(!s.warnings.some((w) => /^fails/.test(w)));
     near(s.episode_now.return, -2);
@@ -259,6 +259,16 @@ test('live board: success rates, bias against a uniform pick, warnings for faili
     const named = { entity: { position: new Vec3(0, 64, 0) }, entities: { 7: { name: 'zombie' } }, blockAt: () => ({ name: 'oak_log' }) };
     assert.strictEqual(describe(named, { cmd: 'mine', args: { x: 3, y: 64, z: 0 } }), 'oak_log (3 64 0) 4 m');
     assert.strictEqual(describe(named, { cmd: 'attack', args: { entity: 7 } }), 'zombie');
+});
+
+test('stuck detector: cuts an episode only when nearly every command failed and the bot stayed put', () => {
+    const at = (x) => new Vec3(x, 64, 0);
+    let d = new StuckDetector({ n: 10 });
+    const run = (f) => { let hit = false; for (let i = 0; i < 10; i++) hit = d.push(...f(i)); return hit; };
+    assert.strictEqual(run(() => [false, at(0)]), true);                       // trapped
+    d = new StuckDetector({ n: 10 }); assert.strictEqual(run((i) => [i === 0, at(0)]), false);   // 10 % succeeded
+    d = new StuckDetector({ n: 10 }); assert.strictEqual(run((i) => [false, at(i)]), false);     // failing but moving
+    d = new StuckDetector({ n: 10 }); for (let i = 0; i < 9; i++) assert.strictEqual(d.push(false, at(0)), false);   // not enough history
 });
 
 process.on('exit', (code) => { if (!code && pending) { console.error(`${pending} async tests did not finish`); process.exitCode = 1; } });
