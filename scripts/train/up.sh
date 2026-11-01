@@ -18,16 +18,22 @@ while [ $# -gt 0 ]; do case $1 in
 python3 -I "$REPO/modpack/pack.py" server "$MODS"
 
 # The build world and its LLM bot step aside (snapshot first); down.sh restores exactly what was running.
-: > "$TRAIN_STATE"
-if running "$WORLD"; then scripts_world=$REPO/scripts/world; "$scripts_world/snapshot.sh" before-train; echo world >> "$TRAIN_STATE"; fi
-running forgeaip-llm-bot && echo llm-bot >> "$TRAIN_STATE"
+# The state file is kept across repeated up.sh runs (smoke run, then training): a second run finds the world already stopped
+# and must not forget that the first one stopped it. down.sh removes the file.
+touch "$TRAIN_STATE"
+if running "$WORLD"; then scripts_world=$REPO/scripts/world; "$scripts_world/snapshot.sh" before-train; grep -qx world "$TRAIN_STATE" || echo world >> "$TRAIN_STATE"; fi
+running forgeaip-llm-bot && { grep -qx llm-bot "$TRAIN_STATE" || echo llm-bot >> "$TRAIN_STATE"; }
 compose --profile bot stop llm-bot >/dev/null 2>&1 || true
 compose stop world >/dev/null 2>&1 || true
 
 export TRAIN_BASE=$base TRAIN_BOTS=$bots TRAIN_LEARN=$learn
+# Operator by the offline-mode UUID the owner actually logs in with. `op <name>` on a server that has not seen the player
+# resolves the name at Mojang and stores the online UUID, which never matches here (online-mode=false): no OP for the owner.
+uuid=$(python3 -I -c 'import hashlib,sys,uuid; print(uuid.UUID(bytes=hashlib.md5(b"OfflinePlayer:"+sys.argv[1].encode()).digest(), version=3))' "$owner")
+printf '[{"uuid":"%s","name":"%s","level":4,"bypassesPlayerLimit":false}]\n' "$uuid" "$owner" |
+  compose --profile train run --rm --no-deps -T -u 1000:1000 --entrypoint sh train -c 'cat > /data/ops.json'
 compose --profile train up -d train
 wait_healthy "$TRAIN"
-trcon "op $owner" >/dev/null
 # Generate the region the bots are spread over once per world (docs/LESSONS.md L10), then start bots and learner.
 compose --profile bench run --rm -T -e MC_HOST=train -e RCON_HOST=train --entrypoint node bench scripts/skills/bench_lv2.js --pregen 1
 compose --profile train up -d train-env train-policy

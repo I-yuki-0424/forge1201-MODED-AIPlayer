@@ -93,15 +93,23 @@ async function main() {
         milestones: MILESTONES, notable: NOTABLE, reward_terms: TERMS, stages: TABLE.stages, reward_table_version: TABLE.v };
     events.emit('run_start', { env_version: ENV_VERSION, bots: o.bots, max_steps: o.maxSteps, region: o.region, seed: o.seed, K });
 
-    let fatal = null;
+    // A bot that is lost (kick, timeout, closed socket) ends the whole run: the container restarts (unless-stopped) with all
+    // bots and a new run id, which the learner follows. Waiting for the others would train on fewer bots indefinitely.
+    let ended = false;
+    const finish = (fatal) => {
+        if (ended) return; ended = true;
+        events.emit('run_end', { reason: fatal || 'done' }, fatal ? 'error' : 'info');
+        for (let i = 0; i < o.bots; i++) send(i, 'bye', {});
+        out.close(); events.close(); rcon.close();
+        setTimeout(() => process.exit(fatal ? 6 : 0), 300);
+    };
     const prefix = process.env.RL_BOT_PREFIX || 'Train';
-    await Promise.all(Array.from({ length: o.bots }, (_, i) => sleep(i * 4000).then(() => runBot(i, `${prefix}${i}`)).catch((e) => {
-        fatal = `${prefix}${i}: ${e.message}`; events.emit('bot_fatal', { env_id: i, message: String(e.message).slice(0, 300) }, 'error');
+    await Promise.all(Array.from({ length: o.bots }, (_, i) => sleep(i * 4000).then(() => !ended && runBot(i, `${prefix}${i}`)).catch((e) => {
+        if (ended) return;
+        events.emit('bot_fatal', { env_id: i, message: String(e.message).slice(0, 300) }, 'error');
+        finish(`${prefix}${i}: ${e.message}`);
     })));
-    events.emit('run_end', { reason: fatal || 'done' }, fatal ? 'error' : 'info');
-    for (let i = 0; i < o.bots; i++) send(i, 'bye', {});
-    out.close(); events.close(); rcon.close();
-    setTimeout(() => process.exit(fatal ? 6 : 0), 300);
+    finish(null);
 
     async function runBot(envId, name) {
         const bot = createForgeBot({ host: process.env.MC_HOST || 'localhost', port: Number(process.env.MC_PORT) || 25565, username: name });
