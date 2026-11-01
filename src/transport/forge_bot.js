@@ -112,8 +112,9 @@ function hardenClientChatParsers(bot) {
 }
 
 /** createBot with the FML3 host marker, then the chat hardening. `host` is the plain host name. */
-function createForgeBot({ host = 'localhost', port = 25565, username }) {
+function createForgeBot({ host = 'localhost', port = 25565, username, viewDistance }) {
     applyProtocolBypasses();
+    require('./time_scale').fromEnv();    // GAME_SPEED: a server running tools/tickrate needs the client clock to match
     const bot = mineflayer.createBot({
         host: host + '\0FML3\0',
         port,
@@ -121,7 +122,8 @@ function createForgeBot({ host = 'localhost', port = 25565, username }) {
         version: '1.20.1',
         maxPacketSize: 10 * 1024 * 1024,
         disableChatSigning: true,
-        hideErrors: true
+        hideErrors: true,
+        ...(viewDistance ? { viewDistance } : {})
     });
     hardenClientChatParsers(bot);
     return bot;

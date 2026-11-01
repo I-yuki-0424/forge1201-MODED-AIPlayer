@@ -84,6 +84,17 @@ async function collectDrops(ctx, cell, name, before) {
         .sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position));
     ctx.phase('collect_drop', { item: name });
     await ctx.until(() => count(bot, name) > before || near().length > 0, 30, 'not_confirmed');
+    // A drop from above the head (the first cell of a stair step up) falls onto the bot: let it come down, where it is
+    // either picked up on its own or lies on the floor; walking to it while it is still in the air finds no cell
+    // (bench s1-x1 #6: unreachable).
+    // Items report their position about once a second, so "still falling" is judged by the cell under the item.
+    const w = ctx.world;
+    await ctx.until(() => {
+        const e = near()[0];
+        if (count(bot, name) > before || !e) return true;
+        const p = e.position, k = w.kindAt(Math.floor(p.x), Math.floor(p.y - 0.05), Math.floor(p.z));
+        return k !== 'air' && k !== 'climb';
+    }, 40, 'not_confirmed').catch(() => {});
     for (let i = 0; i < 3 && count(bot, name) <= before; i++) {
         const e = near()[0];
         if (!e) { await ctx.idle(5); continue; }

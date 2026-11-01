@@ -10,6 +10,7 @@
 // so this file is the only place where input becomes packets (window clicks excepted: commands/gui.js).
 const Vec3 = require('vec3');
 const { isInteractive, fromBot } = require('./world');
+const timeScale = require('../transport/time_scale');
 const { EYE, BLOCK_REACH, ENTITY_REACH, FACES, viewDir, raycast, rayBox, entityBox } = require('./geometry');
 
 const MOVE = ['forward', 'back', 'left', 'right', 'jump', 'sprint', 'sneak'];
@@ -126,7 +127,7 @@ class Body {
             if (this.dig.finished) {
                 // Waiting for the server: the block update to air arrives as a normal block change. If it never comes the
                 // server refused the break; start over.
-                if (this.tickNo - this.dig.finished > DIG_CONFIRM_TICKS) this.dig = null;
+                if (this.tickNo - this.dig.finished > DIG_CONFIRM_TICKS * timeScale.scale) this.dig = null;   // a reply: wall time
                 return;
             }
             b.swingArm();

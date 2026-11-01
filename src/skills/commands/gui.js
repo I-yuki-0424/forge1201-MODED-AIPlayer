@@ -62,9 +62,14 @@ async function craft(ctx, { item, count: n = 1, x, y, z }) {
         await aimAtBlock(ctx, c);
         table = ctx.world.blockAt(c.x, c.y, c.z);
     }
-    ctx.phase('craft', { item, times, table: !!table });
-    await ctx.during(bot.craft(recipe, times, table), 60 + 40 * times);
-    await ctx.until(() => count(bot, item) >= before + n, 20);
+    // One batch per call, each confirmed before the next: mineflayer's multi-batch craft lost the second batch now and then
+    // against a server ticking at 2x (bench full-x2 #75, 1 of 3 repeats; never at 1x).
+    for (let i = 0; i < times; i++) {
+        ctx.phase('craft', { item, batch: i + 1, of: times, table: !!table });
+        const c0 = count(bot, item);
+        await ctx.during(bot.craft(recipe, 1, table), 100);
+        await ctx.until(() => count(bot, item) >= c0 + recipe.result.count, 20);
+    }
     return { item, made: count(bot, item) - before, table: !!table };
 }
 

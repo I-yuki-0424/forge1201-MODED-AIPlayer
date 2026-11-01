@@ -52,8 +52,12 @@ services:
       RCON_PASSWORD: ${RCON_PASSWORD:?run scripts/rl/up.sh (creates docker/rl-server/.env)}
       # Broadcast of admin commands and console spam off: the reset commands run every episode.
       LOG_TIMESTAMP: "false"
+      # tools/tickrate (server clock x GAME_SPEED; scripts/rl/up.sh builds it). The bots read the same GAME_SPEED.
+      MODS: /tool/forgeaip-tickrate-1.0.0.jar
+      FORGEAIP_TICKRATE: ${GAME_SPEED:-1}
     volumes:
       - mc-data:/data
+      - ../../tools/tickrate/build/libs:/tool:ro
     tmpfs:
       - /data/world:size=512m,uid=1000,gid=1000,mode=0755
     ports:
@@ -83,6 +87,7 @@ services:
       RCON_PORT: "25575"
       BOT_REGISTRY: ${BOT_REGISTRY:-auto}     # auto: exact mod blocks/items when the server has content mods (src/transport/mod_registry.js)
       RCON_PASSWORD: ${RCON_PASSWORD:?run scripts/rl/up.sh}
+      GAME_SPEED: ${GAME_SPEED:-1}
     volumes:
       - ../..:/app:ro
       - ${RL_EXCHANGE:-../../exchange}:/exchange

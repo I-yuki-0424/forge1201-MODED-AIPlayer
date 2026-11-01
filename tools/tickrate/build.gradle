@@ -1,0 +1,34 @@
+// Server-only mod: runs the server clock k times faster (tools/tickrate/README.md). Built by scripts/train/tickrate-build.sh
+// in a JDK 17 container; installed only on the training world.
+plugins {
+    id 'java'
+    id 'net.minecraftforge.gradle' version '[6.0,6.2)'
+    id 'org.spongepowered.mixin' version '0.7.+'
+}
+
+version = '1.0.0'
+group = 'com.forgeaip.tickrate'
+base { archivesName = 'forgeaip-tickrate' }
+
+java { toolchain.languageVersion = JavaLanguageVersion.of(17) }
+
+minecraft { mappings channel: 'official', version: '1.20.1' }
+
+mixin {
+    add sourceSets.main, 'forgeaip_tickrate.refmap.json'
+    config 'forgeaip_tickrate.mixins.json'
+}
+
+repositories { mavenCentral() }
+
+dependencies {
+    minecraft 'net.minecraftforge:forge:1.20.1-47.4.10'
+    annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
+}
+
+jar {
+    manifest { attributes('MixinConfigs': 'forgeaip_tickrate.mixins.json') }
+    finalizedBy('reobfJar')
+}
+
+tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }

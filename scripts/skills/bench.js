@@ -23,6 +23,7 @@ const { createForgeBot, attachForgeHandshake } = require('../../src/transport/fo
 const { Rcon } = require('../../src/rl/rcon');
 const { mulberry32 } = require('../../src/rl/run_env');
 const { execute, COMMANDS } = require('../../src/skills');
+const { tunnelCells } = require('../../src/skills/commands/block');
 
 const BOT = process.env.SKILL_BOT_NAME || 'SkillBot';
 let GY = Number(process.env.RL_GROUND_Y ?? -61);          // top solid layer of the arena (flat world; --ground auto measures it)
@@ -43,7 +44,7 @@ function parseArgs(argv) {
     if (!o.runId) throw new Error('--run-id is required');
     if (o.ground && !argv.includes('--clear-height')) o.clearHeight = 24;
     if (o.clearHeight < 8 || o.clearHeight > 38) throw new Error('--clear-height 8..38 (fill volume limit)');
-    for (const c of o.only || []) if (!COMMANDS[c]) throw new Error(`unknown command ${c}`);
+    for (const c of o.only || []) if (!SCENARIOS[c]) throw new Error(`unknown scenario ${c}`);
     return o;
 }
 
@@ -92,7 +93,66 @@ function spot(rng, A, dmin, dmax, used) {
 const NEAR = [2, 7];      // stations, containers, blocks to act on
 const FAR = [4, 12];      // walking targets, mobs, items
 
+/** Grade: the bot's feet are in cell t (server position). */
+async function feetIn(S, t) {
+    const [x, y, z] = await S.nums('Pos');
+    return { ok: Math.floor(x) === t.x && Math.floor(z) === t.z && Math.abs(y - t.y) < 0.6, measured: { pos: [x, y, z] } };
+}
+
+// Scenarios named after a command run that command; `swim` and `ladder` run move_to through water and up/down a ladder.
 const SCENARIOS = {
+    async swim(S, rng, A) {
+        // A closed corridor across a pool 3..6 wide and 2..3 deep: the only way to the far bank is through the water.
+        const w = int(rng, 3, 6), depth = int(rng, 2, 3), x0 = A.cx + 2, x1 = x0 + w - 1, xe = x1 + 4;
+        await S.must(`fill ${A.cx - 2} ${GY + 1} ${A.cz - 4} ${xe} ${GY + 3} ${A.cz - 4} minecraft:stone`);
+        await S.must(`fill ${A.cx - 2} ${GY + 1} ${A.cz + 4} ${xe} ${GY + 3} ${A.cz + 4} minecraft:stone`);
+        await S.must(`fill ${A.cx - 2} ${GY + 1} ${A.cz - 4} ${A.cx - 2} ${GY + 3} ${A.cz + 4} minecraft:stone`);
+        await S.must(`fill ${xe} ${GY + 1} ${A.cz - 4} ${xe} ${GY + 3} ${A.cz + 4} minecraft:stone`);
+        await S.must(`fill ${x0} ${GY - depth + 1} ${A.cz - 3} ${x1} ${GY} ${A.cz + 3} minecraft:water`);
+        const t = { x: x1 + 2, y: GY + 1, z: A.cz + int(rng, -2, 2) };
+        return {
+            command: 'move_to', args: t, scenario: { width: w, depth }, noClutter: true,
+            ready: (bot) => bot.blockAt(new Vec3(x0, GY, A.cz))?.name === 'water' && bot.blockAt(new Vec3(x1, GY - depth + 1, A.cz + 3))?.name === 'water',
+            grade: () => feetIn(S, t),
+        };
+    },
+
+    async ladder(S, rng, A, bot) {
+        // A 3x3 stone tower 5..6 high with a ladder on the face toward the start: up onto it, or (down) from its top to the
+        // start; a drop of 5+ is refused by the planner, so the ladder is the only way either way.
+        const h = int(rng, 5, 6), down = rng() < 0.5, lx = A.cx + 2;
+        await S.must(`fill ${lx + 1} ${GY + 1} ${A.cz - 1} ${lx + 3} ${GY + h} ${A.cz + 1} minecraft:stone`);
+        await S.must(`fill ${lx} ${GY + 1} ${A.cz} ${lx} ${GY + h} ${A.cz} minecraft:ladder[facing=west]`);
+        const top = { x: lx + 2, y: GY + h + 1, z: A.cz }, ground = { x: A.cx, y: GY + 1, z: A.cz };
+        if (down) await S.must(`tp ${BOT} ${top.x + 0.5} ${top.y} ${top.z + 0.5}`);
+        const t = down ? ground : top, from = down ? top : ground;
+        return {
+            command: 'move_to', args: t, scenario: { height: h, down }, noClutter: true,
+            ready: (b) => b.blockAt(new Vec3(lx, GY + h, A.cz))?.name === 'ladder' && Math.floor(b.entity.position.y + 0.2) === from.y && b.entity.onGround,
+            grade: () => feetIn(S, t),
+        };
+    },
+
+    async tunnel(S, rng, A, bot) {
+        // One step of a stair (down/up) or corridor through stone, dirt and cobblestone, with a stone pickaxe.
+        const dir = pick(rng, ['north', 'south', 'east', 'west']), dy = pick(rng, [-1, 0, 1]);
+        const f = { x: A.cx, y: GY + 1, z: A.cz }, { to, clear, floor } = tunnelCells(f, dir, dy);
+        await S.must(`give ${BOT} minecraft:stone_pickaxe`);
+        if (dy === 1) await S.must(`setblock ${floor.x} ${floor.y} ${floor.z} minecraft:stone`);
+        const mats = [];
+        for (const c of clear) { if (c.y <= GY) { mats.push('grass_block'); continue; } const m = pick(rng, ['stone', 'dirt', 'cobblestone']); mats.push(m); await S.must(`setblock ${c.x} ${c.y} ${c.z} minecraft:${m}`); }
+        return {
+            args: { dir, dy }, scenario: { mats, to }, noClutter: true,
+            ready: (b) => b.inventory.items().some((i) => i.name === 'stone_pickaxe') && clear.every((c, i) => b.blockAt(new Vec3(c.x, c.y, c.z))?.name === mats[i]),
+            async grade() {
+                const pos = await feetIn(S, to);
+                const cleared = [];
+                for (const c of clear) cleared.push(await S.test(`block ${c.x} ${c.y} ${c.z} minecraft:air`));
+                return { ok: pos.ok && cleared.every(Boolean), measured: { ...pos.measured, cleared } };
+            },
+        };
+    },
+
     async move_to(S, rng, A) {
         const used = new Set([`${A.cx},${A.cz}`]);
         const t = spot(rng, A, ...FAR, used);
@@ -544,7 +604,7 @@ async function main() {
     await waitFor('chunks', () => bot.blockAt(new Vec3(A.cx, GY, A.cz)) != null && bot.blockAt(new Vec3(A.cx + ARENA_R, GY, A.cz + ARENA_R)) != null, 30000);
 
     const rng = mulberry32(o.seed >>> 0);
-    const cmds = o.only || Object.keys(COMMANDS);
+    const cmds = o.only || [...Object.keys(COMMANDS), 'swim', 'ladder'];
     const order = cmds.flatMap((c) => Array(o.reps).fill(c));
     for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
 
@@ -557,7 +617,7 @@ async function main() {
         try {
             await resetArena(S, bot, A, trng);
             const sc = await SCENARIOS[command](S, trng, A, bot);
-            const clutterN = o.clutter ? await clutter(S, trng, A, keepOf(sc)) : null;
+            const clutterN = o.clutter && !sc.noClutter ? await clutter(S, trng, A, keepOf(sc)) : null;   // built scenes take none
             await waitFor('scenario visible to the client', () => sc.ready(bot), 8000);
             await sleep(100);
             const args = typeof sc.args === 'function' ? sc.args() : sc.args;
@@ -566,7 +626,7 @@ async function main() {
             const pre = sc.pre ? await sc.pre() : null;
             if (pre && !pre.valid) throw new Error(`precondition failed: ${JSON.stringify(pre)}`);
             const r = o.control === 'noop' ? await execute(bot, 'look_at', { x: A.cx, y: GY, z: A.cz }, { maxTicks: 20 }).then(() => ({ ok: false, reason: 'control', detail: {}, ticks: 0, ms: 0, phases: [], trace: [] }))
-                : await execute(bot, command, args);
+                : await execute(bot, sc.command || command, args);
             const g = await sc.grade();
             rec = { ...rec, args, scenario: sc.scenario, clutter: clutterN, pre, bot: { ok: r.ok, reason: r.reason, detail: r.detail }, server: g, ok: g.ok, agree: r.ok === g.ok, ticks: r.ticks, ms: r.ms };
             fs.writeFileSync(path.join(dir, 'traces', `${n}.json`), JSON.stringify({ n, command, args, result: { ok: r.ok, reason: r.reason, detail: r.detail }, server: g, phases: r.phases, trace: r.trace }));

@@ -76,3 +76,5 @@ tools/registry-dump/.gradle/
 
 # Rust build output (tools/train-dash)
 tools/train-dash/target/
+tools/tickrate/build/
+tools/tickrate/.gradle/

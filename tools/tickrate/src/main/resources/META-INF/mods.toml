@@ -1,0 +1,18 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="MIT"
+
+[[mods]]
+modId="forgeaip_tickrate"
+version="1.0.0"
+displayName="ForgeAIP tick rate"
+description='''Server-only: the server clock runs k times faster (time, movement, mining, growth, mobs alike).'''
+# Clients need not have it.
+displayTest="IGNORE_ALL_VERSION"
+
+[[dependencies.forgeaip_tickrate]]
+    modId="forge"
+    mandatory=true
+    versionRange="[47,)"
+    ordering="NONE"
+    side="SERVER"

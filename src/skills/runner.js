@@ -5,6 +5,7 @@
 // from the closed list below. Nothing else ends a command: the runner turns budget overruns, death, disconnects and
 // unexpected exceptions into reasons too, so every outcome is named.
 const { Body } = require('./body');
+const timeScale = require('../transport/time_scale');
 const world = require('./world');
 
 // Closed failure taxonomy shared by every command (docs/implemented/SKILLS-v1.md).
@@ -86,8 +87,13 @@ class Ctx {
     /** `n` ticks with no keys (look unchanged). */
     async idle(n) { for (let i = 0; i < n; i++) await this.tick({}); }
 
-    /** Tick with `frame` until pred() holds; throws SkillError(reason) after `ticks`. */
+    /**
+     * Tick with `frame` until pred() holds; throws SkillError(reason) after `ticks`. Waits are mostly for the server's reply
+     * (a window click, a block change, an item), which takes wall time, not ticks: with a faster clock (GAME_SPEED=k) the
+     * budget is k times as many ticks (bench full-x2 #75: craft confirmation missed after 20 ticks = 0.5 s at 2x).
+     */
     async until(pred, ticks, reason = 'not_confirmed', frame = {}) {
+        ticks = Math.ceil(ticks * timeScale.scale);
         for (let i = 0; i < ticks; i++) {
             if (pred()) return i;
             await this.tick(typeof frame === 'function' ? frame() : frame);

@@ -298,3 +298,20 @@ test('stuck detector: cuts an episode only when nearly every command failed and 
 });
 
 process.on('exit', (code) => { if (!code && pending) { console.error(`${pending} async tests did not finish`); process.exitCode = 1; } });
+
+test('time scale: mineflayer still polls physics with setInterval(doPhysics) on perf_hooks time; GAME_SPEED=2 halves the poll and doubles the clock', async () => {
+    // src/transport/time_scale.js depends on these two lines of mineflayer's physics plugin; an upgrade that changes them
+    // must fail here, not silently run the bots at the wrong speed against a fast server.
+    const src = require('fs').readFileSync(require.resolve('mineflayer/lib/plugins/physics.js'), 'utf8');
+    assert.ok(/const \{ performance \} = require\('perf_hooks'\)/.test(src), 'physics.js no longer reads perf_hooks performance');
+    assert.ok(/setInterval\(doPhysics, PHYSICS_INTERVAL_MS\)/.test(src), 'physics.js no longer polls with setInterval(doPhysics, ...)');
+    const { execFile } = require('child_process');   // async: the other tests' timers keep running meanwhile
+    const probe = `const { performance } = require('perf_hooks'); require('./src/transport/time_scale').fromEnv();
+        const t0 = performance.now(), w0 = Date.now(); let n = 0;
+        const id = setInterval(function doPhysics() { if (++n === 40) { clearInterval(id);
+            console.log(JSON.stringify({ wall: Date.now() - w0, clock: performance.now() - t0 })); } }, 50);`;
+    const out = JSON.parse(await new Promise((res, rej) => execFile(process.execPath, ['-e', probe], { cwd: require('path').join(__dirname, '..'), env: { ...process.env, GAME_SPEED: '2' } }, (e, so) => (e ? rej(e) : res(so)))));
+    assert.ok(out.wall > 800 && out.wall < 1400, `40 polls took ${out.wall} ms of wall time (expected ~1000 at 25 ms)`);
+    assert.ok(Math.abs(out.clock / out.wall - 2) < 0.1, `clock/wall ${out.clock / out.wall}`);
+    assert.throws(() => require('../src/transport/time_scale').setTimeScale(11), /\[1, 10\]/);
+});
