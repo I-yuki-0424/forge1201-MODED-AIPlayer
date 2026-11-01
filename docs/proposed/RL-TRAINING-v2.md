@@ -190,7 +190,7 @@ The brief and what changed (TASK-20261101-025 here, TASK-20261101-030 in DPOD):
    the live server (SKILLS-v1.md, v1.1).
 6. *Speed everything up by one factor.* `tools/tickrate` + GAME_SPEED (85/85 live at 2x and 3x on the test server). On the
    training world the factor is bounded by one server tick thread shared by all bots: 8 bots use 29-33 ms of the 50 ms tick
-   at 1x, so 8 bots x 1.5 is about the ceiling (bots x speed is the budget, not either alone).
+   at 1x, and measured live 1.5x fell to 20 of 30 ticks/s while 1.25x held 23.8 of 25 (95 % command success, 3.6 steps/s): run 3 runs at 1.25x (bots x speed is the budget, not either alone).
 7. *Model summary in MLflow form.* [MODEL-SKILLTRUCK.md](../implemented/MODEL-SKILLTRUCK.md); every training execution is
    indexed into DPOD's MLflow store (experiment `side-botsystem`, `scripts/train/mlflow.sh`).
 
