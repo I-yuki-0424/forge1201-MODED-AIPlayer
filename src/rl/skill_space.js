@@ -139,9 +139,12 @@ class SkillSpace {
         }
         add('move_to', moves);
 
-        // mine: nearest exposed block of each type within 5 blocks.
-        const best = new Map();
+        // mine: per block type the nearest exposed block within 5, and the nearest at head height or above (so a bot in a pit
+        // is always offered the wall block that makes a step out). Never the block under the feet: digging straight down made
+        // the pits that trapped run 1's and run 2's bots (move_to unreachable, the only dirt offered was the one underfoot).
+        const best = new Map(), up = new Map();
         for (let dy = -3; dy <= 4; dy++) for (let dz = -5; dz <= 5; dz++) for (let dx = -5; dx <= 5; dx++) {
+            if (dx === 0 && dz === 0 && dy < 0) continue;
             const b = bot.blockAt(new Vec3(fx + dx, fy + dy, fz + dz), false);
             if (!b || b.name === 'bedrock' || /air$|^water$|^lava$|^fire$/.test(b.name) || b.diggable === false) continue;
             const k = kindOf(b);
@@ -150,8 +153,11 @@ class SkillSpace {
             if (!exposed) continue;
             const d = dx * dx + dy * dy + dz * dz;
             if (!best.has(b.name) || best.get(b.name).d > d) best.set(b.name, { d, pos: b.position });
+            if (dy >= 1 && (!up.has(b.name) || up.get(b.name).d > d)) up.set(b.name, { d, pos: b.position });
         }
-        add('mine', [...best.entries()].sort((a, b) => a[1].d - b[1].d).map(([name, v]) => ({ args: { x: v.pos.x, y: v.pos.y, z: v.pos.z }, item: this.item(name), ent: 0, feat: this.feat(v.pos.offset(0.5, 0.5, 0.5)) })));
+        const mines = [...best.entries()].map(([name, v]) => ({ name, ...v }));
+        for (const [name, v] of up) if (!best.get(name).pos.equals(v.pos)) mines.push({ name, ...v, d: v.d + 0.5 });
+        add('mine', mines.sort((a, b) => a.d - b.d).map((v) => ({ args: { x: v.pos.x, y: v.pos.y, z: v.pos.z }, item: this.item(v.name), ent: 0, feat: this.feat(v.pos.offset(0.5, 0.5, 0.5)) })));
 
         // attack: nearest mob of each type within 16; pickup: nearest dropped stacks within 12.
         const ents = Object.values(bot.entities).filter((x) => x !== bot.entity && x.position).map((x) => ({ x, d: x.position.distanceTo(p) })).sort((a, b) => a.d - b.d);

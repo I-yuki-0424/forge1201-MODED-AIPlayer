@@ -188,6 +188,20 @@ test('candidates: generic nearest-of-each-kind, within K, wait always present, e
     for (const x of c) if (x.cmd !== 'wait') validateArgs(x.cmd, x.args);
 });
 
+test('candidates: never the block underfoot; a bot in a pit is offered the head-height wall block (the step out)', () => {
+    const reg = require('minecraft-data')('1.20.1');
+    // A 1x1 pit two deep in dirt: the bot stands at y 62, ground level is 64, walls of dirt around y 62..63.
+    const bot = worldBot();
+    const dirt = (x, y, z) => { if (x === 0 && z === 0) return y <= 61; return y <= 63; };
+    bot.blockAt = (v) => { const solid = dirt(v.x, v.y, v.z); const b = solid ? reg.blocksByName.dirt : reg.blocksByName.air;
+        return { name: b.name, type: b.id, position: v, boundingBox: solid ? 'block' : 'empty', diggable: solid, shapes: solid ? [[0, 0, 0, 1, 1, 1]] : [], stateId: b.defaultState }; };
+    bot.entity = { position: new Vec3(0.5, 62, 0.5), yaw: 0, onGround: true };
+    const space = new SkillSpace(bot, vocab(bot.registry, null));
+    const mine = space.candidates().filter((c) => c.cmd === 'mine').map((c) => c.args);
+    assert.ok(!mine.some((a) => a.x === 0 && a.z === 0 && a.y < 62), 'block under the feet offered');
+    assert.ok(mine.some((a) => a.y === 63 && Math.abs(a.x) + Math.abs(a.z) === 1), `no head-height wall block: ${JSON.stringify(mine)}`);
+});
+
 test('observation matches the declared spec exactly (shapes, dtypes, masks)', () => {
     const bot = worldBot(), space = new SkillSpace(bot, vocab(bot.registry, null));
     const o = space.observe(new CrafterReward().progress(), { reason: 'not_visible', ticks: 37 });
