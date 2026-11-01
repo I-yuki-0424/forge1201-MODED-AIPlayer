@@ -1,7 +1,7 @@
 'use strict';
 // Walking and aiming, built from frames: steer with yaw, hold forward, jump onto a step, sprint on long straight runs.
 // Shared by every command that has to get somewhere or look at something.
-const { plan } = require('./planner');
+const { plan, nodeKind } = require('./planner');
 const { standable } = require('./world');
 const { SkillError } = require('./runner');
 const { EYE, BLOCK_REACH, lookAngles, aimPoints, angleDiff } = require('./geometry');
@@ -43,9 +43,12 @@ async function follow(ctx, goal, opts = {}) {
     return end;
 }
 
+// A node on the path matches the feet cell; in water the feet bob up and down by a cell, so a swim node matches its column.
+const onNode = (n, c) => same(n, c) || (n.kind === 'swim' && n.x === c.x && n.z === c.z && Math.abs(n.y - c.y) <= 1);
+
 async function walk(ctx, goal, { sprint = true } = {}) {
     const bot = ctx.bot, w = ctx.world;
-    let path = null, idx = 0, replans = 0, best = Infinity, lastGain = ctx.t, airborne = 0;
+    let path = null, idx = 0, replans = 0, best = -Infinity, lastGain = ctx.t, airborne = 0, sunk = 0;
     const replan = (why) => {
         if (path && ++replans > MAX_REPLANS) throw new SkillError('stuck', { goal: goal.label, why, replans: replans - 1 });
         path = null;
@@ -54,14 +57,22 @@ async function walk(ctx, goal, { sprint = true } = {}) {
     for (;;) {
         const e = bot.entity, pos = e.position, cell = feetCell(pos);
         if (goal.abort && goal.abort()) return null;
-        if (!e.onGround && !e.isInWater) {
-            // In the air (step-up jump, drop): keep steering toward the current target, nothing else to decide.
+        const onClimb = w.kindAt(cell.x, cell.y, cell.z) === 'climb';
+        if (!e.onGround && !e.isInWater && !onClimb) {
+            // In the air (step-up jump, drop, jump onto a ladder): keep steering toward the current target.
             if (++airborne > 80) throw new SkillError('stuck', { goal: goal.label, why: 'airborne for 4 s' });
             const tgt = path && path[Math.min(idx + 1, path.length - 1)];
-            await ctx.tick(tgt ? { forward: hdist(pos, centre(tgt)) > 0.2, yaw: Math.atan2(-(tgt.x + 0.5 - pos.x), -(tgt.z + 0.5 - pos.z)) } : {});
+            await ctx.tick(tgt ? { forward: hdist(pos, centre(tgt)) > 0.2, jump: tgt.move === 'climb', yaw: Math.atan2(-(tgt.x + 0.5 - pos.x), -(tgt.z + 0.5 - pos.z)) } : {});
             continue;
         }
         airborne = 0;
+        if (e.isInWater && !path && !nodeKind(w, cell.x, cell.y, cell.z)) {
+            // Under the surface band (just fell in): hold jump until the head is up; no air means no plan.
+            if (++sunk > 60) throw new SkillError('stuck', { goal: goal.label, why: 'under water for 3 s' });
+            await ctx.tick({ jump: true });
+            continue;
+        }
+        sunk = 0;
         if (goal.isGoal(cell)) {
             const c = centre(cell), d = hdist(pos, c);
             if (!goal.settle || d < 0.25) {
@@ -82,18 +93,19 @@ async function walk(ctx, goal, { sprint = true } = {}) {
                 throw new SkillError('unreachable', { goal: goal.label, why: 'start cell not standable', cell });
             }
             if (r.partial && r.path.length === 1) throw new SkillError('unreachable', { goal: goal.label, expanded: r.expanded });
-            path = r.path; idx = 0; best = Infinity; lastGain = ctx.t;
+            path = r.path; idx = 0; best = -Infinity; lastGain = ctx.t;
             ctx.phase('walk', { nodes: path.length, partial: r.partial, to: path[path.length - 1], cells: path.map((n) => [n.x, n.y, n.z]) });
         }
         // Where are we on the path? Accept the current node or any of the next few.
         let k = -1;
-        for (let j = idx; j < Math.min(path.length, idx + 4); j++) if (same(path[j], cell)) k = j;
+        for (let j = idx; j < Math.min(path.length, idx + 4); j++) if (onNode(path[j], cell)) k = j;
         if (k >= 0) idx = k;
         else if (!path.slice(idx, idx + 3).some((n) => Math.abs(n.x - cell.x) <= 1 && Math.abs(n.z - cell.z) <= 1 && Math.abs(n.y - cell.y) <= 1)) { replan('off path'); continue; }
         if (idx === path.length - 1) {
             // End of a partial path, or a goal cell we passed through without stopping: plan again from here.
             if (!goal.isGoal(cell)) { replan('end of partial path'); continue; }
         }
+        const here = path[idx];
         const next = path[Math.min(idx + 1, path.length - 1)];
         // Look ahead along straight walkable stretches so the bot does not zig-zag from cell centre to cell centre.
         let j = Math.min(idx + 1, path.length - 1);
@@ -106,10 +118,21 @@ async function walk(ctx, goal, { sprint = true } = {}) {
         if (ctx.t - lastGain > STUCK_TICKS) { replan('no progress'); continue; }
         const yaw = Math.atan2(-(tgt.x - pos.x), -(tgt.z - pos.z));
         const up = next.move === 'up' && next.y > cell.y;
-        const jump = up && (hdist(pos, centre(next)) < 1.3 || e.isCollidedHorizontally) && Math.abs(angleDiff(yaw, e.yaw)) < 0.6;
+        const wet = e.isInWater || here.kind === 'swim' || next.kind === 'swim';
+        if (next.move === 'climb' || next.move === 'descend' || (next.move === 'swim' && next.x === cell.x && next.z === cell.z)) {
+            // Vertical move in the same column: hold jump to climb or rise (the client climbs ladders on jump since 1.14),
+            // nothing to slide down a ladder or sink; stay on the column centre.
+            const c = centre(cell), off = hdist(pos, c);
+            const rise = next.move === 'climb' || (next.move === 'swim' && next.y > cell.y);
+            await ctx.tick({ forward: off > 0.15, jump: rise, yaw: off > 0.15 ? Math.atan2(-(c.x - pos.x), -(c.z - pos.z)) : e.yaw });
+            continue;
+        }
+        // In water hold jump the whole time: it keeps the head above the surface and, against a bank, lifts the body out.
+        // Leaving a ladder at its top is the same: keep climbing while walking onto the ledge.
+        const jump = wet || (onClimb && up) || (up && (hdist(pos, centre(next)) < 1.3 || e.isCollidedHorizontally) && Math.abs(angleDiff(yaw, e.yaw)) < 0.6);
         const straight = j - idx >= 4 && !path.slice(idx + 1, j + 3).some((n) => n.move !== 'walk');
         const last = j === path.length - 1;
-        await ctx.tick({ forward: !(last && d < 0.3), jump, sprint: sprint && straight && !last && bot.food > 6, yaw });
+        await ctx.tick({ forward: !(last && d < 0.3), jump, sprint: sprint && straight && !last && !wet && bot.food > 6, yaw });
     }
 }
 

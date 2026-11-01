@@ -70,7 +70,7 @@ async function mine(ctx, { x, y, z }) {
     const bot = ctx.bot, cell = { x, y, z };
     const b0 = ctx.world.blockAt(x, y, z);
     if (!b0) throw new SkillError('unreachable', { why: 'target chunk not loaded' });
-    if (/^(air|cave_air|void_air)$/.test(b0.name) || !b0.diggable || ctx.world.kindAt(x, y, z) === 'liquid') throw new SkillError('invalid_target', { block: b0.name, target: cell });
+    if (/^(air|cave_air|void_air)$/.test(b0.name) || !b0.diggable || ['liquid', 'water'].includes(ctx.world.kindAt(x, y, z))) throw new SkillError('invalid_target', { block: b0.name, target: cell });
     const tool = bestTool(bot, b0);
     if (!tool) throw new SkillError('missing_tool', { block: b0.name });
     const drop = dropOf(bot, b0), before = drop ? count(bot, drop) : 0;

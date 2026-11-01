@@ -1,13 +1,19 @@
 'use strict';
-// A* over standing cells (integer feet positions). Pure: the world comes in as the interface of world.js.
-// Moves, all of them things a walking player does with forward + jump:
-//   walk      to one of the 8 neighbours at the same height (diagonals only when both side cells are free, no corner clipping)
-//   step up   one block, cardinal only, with head room above the start cell
-//   drop      walk off an edge and fall 1..MAX_DROP blocks, cardinal only
-// No digging, no placing, no swimming, no parkour: a target that needs them is reported unreachable.
-const { standable } = require('./world');
+// A* over body cells (integer feet positions). Pure: the world comes in as the interface of world.js.
+// A node is a cell where the body can be held: standing (solid below), swimming at the surface (world.swimmable), or hanging
+// on a ladder/vine (world.climbable). Moves, all of them things a player does with forward + jump (+ nothing):
+//   walk      to one of the 8 neighbours at the same height (diagonals only when both side cells are open, no corner
+//             clipping); into, out of and through water and climbable cells too (swimming costs SWIM per block)
+//   up        one block up onto ground, cardinal only, with head room above the start (from ground, water or a ladder top)
+//   drop      walk off an edge and fall 1..MAX_DROP blocks onto ground, or up to MAX_DROP_WATER into water or onto a
+//             ladder/vine (which catches the fall), cardinal only
+//   climb     one cell up a ladder/vine (hold jump), descend one cell down it (nothing held: the client slides down)
+//   swim      one cell up or down inside the surface band of a water column
+// No digging, no placing, no diving, no parkour: a target that needs them is reported unreachable.
+const { standable, swimmable, climbable, passable } = require('./world');
 
-const MAX_DROP = 3;
+const MAX_DROP = 3, MAX_DROP_WATER = 8;
+const SWIM = 2.5, CLIMB = 1.5;      // costs per block relative to walking (water and ladders are 2-4 times slower)
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
 
 class Heap {
@@ -33,26 +39,51 @@ class Heap {
     }
 }
 
-const free = (w, x, y, z) => w.kindAt(x, y, z) === 'air';
+const free = (w, x, y, z) => passable(w.kindAt(x, y, z));
+// The body can be moved through the cell (air, ladder, or water: water slows but does not block).
+const open = (w, x, y, z) => { const k = w.kindAt(x, y, z); return passable(k) || k === 'water'; };
 
-/** Neighbour cells of a standing cell with their move kind and cost. */
+/** What holds the body in this cell: 'stand', 'swim', 'climb', or null (no node). */
+function nodeKind(w, x, y, z) {
+    if (standable(w, x, y, z)) return 'stand';
+    if (swimmable(w, x, y, z)) return 'swim';
+    if (climbable(w, x, y, z)) return 'climb';
+    return null;
+}
+
+/** Neighbour nodes of a node with their move kind and cost. */
 function neighbours(w, n) {
     const out = [];
+    const here = n.kind || nodeKind(w, n.x, n.y, n.z);
+    const push = (x, y, z, kind, move, cost) => out.push({ x, y, z, kind, move, cost: kind === 'swim' || here === 'swim' ? cost * SWIM : cost });
     for (const [dx, dz] of DIRS) {
         const x = n.x + dx, z = n.z + dz, diag = dx && dz;
-        if (standable(w, x, n.y, z)) {
-            if (diag && !(free(w, n.x + dx, n.y, n.z) && free(w, n.x + dx, n.y + 1, n.z) && free(w, n.x, n.y, n.z + dz) && free(w, n.x, n.y + 1, n.z + dz))) continue;
-            out.push({ x, y: n.y, z, move: 'walk', cost: diag ? Math.SQRT2 : 1 });
+        const k = nodeKind(w, x, n.y, z);
+        if (k) {
+            if (diag && !(open(w, n.x + dx, n.y, n.z) && open(w, n.x + dx, n.y + 1, n.z) && open(w, n.x, n.y, n.z + dz) && open(w, n.x, n.y + 1, n.z + dz))) continue;
+            push(x, n.y, z, k, 'walk', diag ? Math.SQRT2 : 1);
             continue;
         }
         if (diag) continue;
-        if (standable(w, x, n.y + 1, z) && free(w, n.x, n.y + 2, n.z)) { out.push({ x, y: n.y + 1, z, move: 'up', cost: 2 }); continue; }
-        if (free(w, x, n.y, z) && free(w, x, n.y + 1, z) && w.kindAt(x, n.y - 1, z) === 'air') {
-            for (let k = 1; k <= MAX_DROP; k++) {
-                if (standable(w, x, n.y - k, z)) { out.push({ x, y: n.y - k, z, move: 'drop', cost: 1 + 0.5 * k }); break; }
-                if (!free(w, x, n.y - k, z)) break;
+        if (standable(w, x, n.y + 1, z) && open(w, n.x, n.y + 2, n.z)) { push(x, n.y + 1, z, 'stand', 'up', 2); continue; }
+        if (here !== 'swim' && free(w, x, n.y, z) && free(w, x, n.y + 1, z)) {
+            for (let d = 1; d <= MAX_DROP_WATER; d++) {
+                if (d <= MAX_DROP && standable(w, x, n.y - d, z)) { push(x, n.y - d, z, 'stand', 'drop', 1 + 0.5 * d); break; }
+                if (swimmable(w, x, n.y - d, z)) { push(x, n.y - d, z, 'swim', 'drop', 1 + 0.2 * d); break; }
+                if (climbable(w, x, n.y - d, z)) { push(x, n.y - d, z, 'climb', 'drop', 1 + 0.5 * d); break; }   // caught by a ladder
+                if (!free(w, x, n.y - d, z)) break;
             }
         }
+    }
+    // Vertical: up a ladder (from the ladder, the ground at its foot, or the water at its foot), down a ladder, inside the
+    // surface band of a water column.
+    if (climbable(w, n.x, n.y + 1, n.z) && open(w, n.x, n.y + 2, n.z)) push(n.x, n.y + 1, n.z, 'climb', 'climb', CLIMB);
+    if (here === 'climb') {
+        const k = nodeKind(w, n.x, n.y - 1, n.z);
+        if (k === 'climb' || k === 'stand') out.push({ x: n.x, y: n.y - 1, z: n.z, kind: k, move: 'descend', cost: CLIMB });
+    }
+    if (here === 'swim') {
+        for (const dy of [1, -1]) if (swimmable(w, n.x, n.y + dy, n.z)) out.push({ x: n.x, y: n.y + dy, z: n.z, kind: 'swim', move: 'swim', cost: 1 });
     }
     return out;
 }
@@ -61,13 +92,14 @@ function neighbours(w, n) {
  * Plan from `start` (a standing cell) to the nearest cell satisfying `isGoal(cell)`, guided by the admissible-ish
  * estimate `h(cell)`. Returns {path: [cells from start to goal, each with .move], partial, expanded}; when the goal is
  * not found within `maxNodes`, `path` leads to the expanded cell with the lowest h and `partial` is true.
- * Returns null when start itself is not standable.
+ * Returns null when start itself is no node (not standing, swimming or climbing).
  */
 function plan(w, start, isGoal, h, { maxNodes = 20000 } = {}) {
-    if (!standable(w, start.x, start.y, start.z)) return null;
+    const k0 = nodeKind(w, start.x, start.y, start.z);
+    if (!k0) return null;
     const key = (c) => `${c.x},${c.y},${c.z}`;
     const open = new Heap(), seen = new Map();
-    const s = { x: start.x, y: start.y, z: start.z, g: 0, f: h(start), parent: null, move: 'start' };
+    const s = { x: start.x, y: start.y, z: start.z, kind: k0, g: 0, f: h(start), parent: null, move: 'start' };
     seen.set(key(s), s); open.push(s);
     let best = s, expanded = 0;
     while (open.size && expanded < maxNodes) {
@@ -88,8 +120,31 @@ function plan(w, start, isGoal, h, { maxNodes = 20000 } = {}) {
 
 function unwind(n) {
     const out = [];
-    for (; n; n = n.parent) out.push({ x: n.x, y: n.y, z: n.z, move: n.move });
+    for (; n; n = n.parent) out.push({ x: n.x, y: n.y, z: n.z, kind: n.kind, move: n.move });
     return out.reverse();
 }
 
-module.exports = { plan, neighbours, MAX_DROP };
+/**
+ * Every node reachable from `start` within `maxNodes` expansions and `radius` blocks (Dijkstra over the same moves as plan),
+ * as a Map "x,y,z" -> cost. What the RL candidate list uses to leave out targets the walker cannot reach.
+ */
+function reachable(w, start, { maxNodes = 3000, radius = 24 } = {}) {
+    const k0 = nodeKind(w, start.x, start.y, start.z);
+    const out = new Map();
+    if (!k0) return out;
+    const key = (c) => `${c.x},${c.y},${c.z}`;
+    const open = new Heap();
+    open.push({ x: start.x, y: start.y, z: start.z, kind: k0, f: 0 });
+    for (let n = 0; open.size && n < maxNodes;) {
+        const c = open.pop(), k = key(c);
+        if (out.has(k)) continue;
+        out.set(k, c.f); n++;
+        for (const m of neighbours(w, c)) {
+            if (Math.abs(m.x - start.x) > radius || Math.abs(m.z - start.z) > radius || out.has(key(m))) continue;
+            open.push({ ...m, f: c.f + m.cost });
+        }
+    }
+    return out;
+}
+
+module.exports = { plan, neighbours, reachable, nodeKind, MAX_DROP, MAX_DROP_WATER };

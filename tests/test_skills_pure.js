@@ -84,7 +84,12 @@ const goalCell = (t) => ({ isGoal: (c) => c.x === t.x && c.y === t.y && c.z === 
         assert.strictEqual(kindOf({ name: 'stone', boundingBox: 'block', shapes: CUBE }), 'solid');
         assert.strictEqual(kindOf({ name: 'oak_slab', boundingBox: 'block', shapes: [[0, 0, 0, 1, 0.5, 1]] }), 'partial');
         assert.strictEqual(kindOf({ name: 'grass', boundingBox: 'empty', shapes: [] }), 'air');
-        assert.strictEqual(kindOf({ name: 'water', boundingBox: 'empty', shapes: [] }), 'liquid');
+        assert.strictEqual(kindOf({ name: 'water', boundingBox: 'empty', shapes: [] }), 'water');
+        assert.strictEqual(kindOf({ name: 'kelp_plant', boundingBox: 'empty', shapes: [] }), 'water');
+        assert.strictEqual(kindOf({ name: 'bubble_column', boundingBox: 'empty', shapes: [] }), 'liquid');
+        assert.strictEqual(kindOf({ name: 'ladder', boundingBox: 'block', shapes: [[0, 0, 0.8125, 1, 1, 1]] }), 'climb');
+        assert.strictEqual(kindOf({ name: 'vine', boundingBox: 'empty', shapes: [] }), 'climb');
+        assert.strictEqual(kindOf({ name: 'lava', boundingBox: 'empty', shapes: [] }), 'danger');
         assert.strictEqual(kindOf({ name: 'magma_block', boundingBox: 'block', shapes: CUBE }), 'danger');
         assert.strictEqual(kindOf(null), 'unknown');
     });
