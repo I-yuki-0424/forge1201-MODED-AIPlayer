@@ -73,3 +73,6 @@ docker/world-server/.env
 config/vault-*.conf
 tools/registry-dump/build/
 tools/registry-dump/.gradle/
+
+# Rust build output (tools/train-dash)
+tools/train-dash/target/

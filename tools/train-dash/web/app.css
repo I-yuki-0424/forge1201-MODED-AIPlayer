@@ -1,0 +1,30 @@
+:root { --bg: #f6f7f9; --card: #fff; --fg: #1d2330; --muted: #6a7282; --line: #e2e5ea; --ok: #1f8a4c; --bad: #c0392b; --warn: #b7791f; --accent: #2f6fde; --bar: #d6e2fb; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #12151b; --card: #1b2029; --fg: #e6e9ef; --muted: #959cab; --line: #2b313d; --ok: #4cc27f; --bad: #ef6b5b; --warn: #e0a84a; --accent: #6d9bff; --bar: #26385c; } }
+:root[data-theme="dark"] { --bg: #12151b; --card: #1b2029; --fg: #e6e9ef; --muted: #959cab; --line: #2b313d; --ok: #4cc27f; --bad: #ef6b5b; --warn: #e0a84a; --accent: #6d9bff; --bar: #26385c; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { padding: 12px 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; border-bottom: 1px solid var(--line); }
+h1 { font-size: 18px; margin: 0; }
+h2 { font-size: 16px; margin: 0 0 6px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+h3 { font-size: 12px; margin: 10px 0 4px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+main { padding: 12px 16px; display: grid; gap: 12px; }
+.grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 430px), 1fr)); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px; min-width: 0; }
+.card.lost { opacity: .6; }
+.muted { color: var(--muted); }
+.ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--warn); }
+.now { font-size: 15px; padding: 6px 8px; border-left: 3px solid var(--accent); background: var(--bg); border-radius: 4px; overflow-wrap: anywhere; }
+.kv { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.kv span b { font-weight: 600; }
+.alert { background: var(--card); border: 1px solid var(--bad); color: var(--bad); border-radius: 6px; padding: 6px 10px; margin-bottom: 6px; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+td, th { padding: 2px 6px 2px 0; text-align: left; white-space: nowrap; }
+th { color: var(--muted); font-weight: 500; font-size: 12px; }
+td.num, th.num { text-align: right; }
+td.wrap { white-space: normal; overflow-wrap: anywhere; }
+.scroll { overflow-x: auto; }
+.bar { position: relative; min-width: 60px; }
+.bar i { position: absolute; left: 0; top: 3px; bottom: 3px; background: var(--bar); border-radius: 2px; }
+.bar span { position: relative; }
+svg.spark { width: 100%; height: 48px; display: block; }
+svg.spark polyline { fill: none; stroke: var(--accent); stroke-width: 1.5; }

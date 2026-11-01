@@ -18,6 +18,7 @@ inference on demand; the owner's two-stage proposal (survival first). Code only:
 | Model | DPOD `scripts/botsystem_skill_truck.py` | SkillTruck (Truck derivative) |
 | Learner | DPOD `scripts/botsystem_skill_ppo.py` | on-demand server, asynchronous PPO, curriculum, checkpoints |
 | Operation | `docker/world-server/compose.yaml` (`train*`), `scripts/train/{up,down,status,hold}.sh` | training world, restart safety, reboot hold |
+| Watching | `src/rl/live_board.js` -> `exchange/<base>.live.json`; `tools/train-dash` (Rust, std only) | per-bot page for the human watcher |
 
 ## Reward (unit: 1.0 = one Crafter achievement)
 
@@ -32,6 +33,8 @@ sends the five terms unweighted in `reward_terms`; the learner weights them by c
 | `notable` | replaces `kills` for these types; bosses never decay | enderman 5, iron golem 5, blaze 8, wither skeleton 8, elder guardian 25, **wither 100, ender dragon 100** |
 | `mined` | statistic `mined:<block>`; n-th block of a type = tier x 0.7^(n-1) | **unlisted (dirt, stone, sand, ...) 0.002**; logs 0.2, copper/clay 0.3, coal/zinc 0.4, quartz/nether gold/glowstone 0.6, iron 0.8, redstone 1.0, gold/lapis 1.2, obsidian 1.5, diamond/emerald 3.0, ancient debris 5.0 |
 | `achievements` | advancement granted (once per episode; the reset revokes all) | `steps` = depth in the advancement tree, itself included; tab roots chained to the advancement that opens them (Nether root <- enter the Nether, End root <- enter the End). Craft a table 1, stone 2, iron 4, diamonds 6, Nether 7, End 9, **kill the dragon 11**, elytra 14. Recipe unlocks excluded. Create's tab is a display chain, not prerequisites: flat 1.0 each |
+
+| `invalid` | a command that could not be executed, by its reason (owner 2026-11-01, after run 1) | **-0.1** precondition failures (unreachable, missing tool/item/materials, no station, invalid target/args, not visible); -0.05 stuck, timeout, not confirmed; -0.02 target lost; 0 for died, disconnected, cancelled, internal. Weight 1.0 in both stages |
 
 Why the decays: without them the cheapest return is farming one passive type or one log (place and mine again); with them
 farming one type is worth at most twice its first kill (blocks: 3.3 times).
@@ -122,6 +125,32 @@ scripts/train/down.sh                                   # learner first (last ch
 - Throughput estimate (not measured at scale): commands average a few seconds, so 4 bots give roughly 1-2 steps/s,
   0.1-0.2 M steps per day, about 1 M in the week. That is Crafter's usual budget; whether it reaches the dragon is the
   experiment, and the honest prior is that it does not.
+
+## Watching (owner 2026-11-01)
+
+The environment keeps a live board (`src/rl/live_board.js`) and rewrites `exchange/<base>.live.json` every second;
+`tools/train-dash` (Rust, standard library only, read-only, five fixed GET paths, strict CSP) serves it with a page on
+127.0.0.1:3021, routed to the tailnet by `tailscale serve --tcp 3021` like the game: **http://100.115.238.9:3021/**. Per
+bot (BOT #n = Train n): the command running now and for how long, the last 20 commands with result, success rate overall and
+over the last 200, per command the chosen share against the share a uniform pick among the offered candidates would give
+(bias), failure reasons, distance moved over the window, the episode's return and nights. Warnings: failing >= 70 % of the
+last 50+, one command >= 70 % of choices at >= 2x uniform, moved < 3 blocks over 100+ commands. Learner: entropy and reward
+curves, last episodes with their `invalid` sum.
+
+## Run 1 (2026-11-01 10:20-15:29 JST, base `train`): what happened
+
+108,530 steps, 214 updates, 79 episodes; stopped by the owner. Findings, from `exchange/train-20261101T012004/events.jsonl`:
+
+- Failures already rose from 12-53 % (first 10 min, untrained) to 70-81 % in the next half hour, i.e. within the first
+  ~10 updates; afterwards 90-100 % on the bots that stayed connected.
+- The long episodes were bots **trapped** in a pocket (6-8 candidates, nearly all failing in ~5 ms: `move_to:unreachable`,
+  `mine:unreachable`, `mine:missing_tool`); Train0 episode 11 (8 nights, 18 k steps) and Train3 episode 22 (4 nights, 16.5 k)
+  collected most of the survival reward of the run while trapped. Failing cost nothing (no time, no reward), and being
+  stuck is safe, so the survival stage paid for it: DPOD's "do nothing is the best survival arm" again, found by the policy.
+- So the model was not blind to the physical constraint; it used it. Not separable from run 1: whether it would have
+  learned to avoid failing commands had they cost something. Run 2 tests that (term `invalid`, one tick minimum per step),
+  and the page shows whether the remaining refuge is `wait`.
+- Train1 and Train2 timed out at 12:02 (server: "Timed out") and were not replaced; fixed (a lost bot restarts the run).
 
 ## Not done
 

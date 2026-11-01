@@ -1,5 +1,5 @@
 {
-  "v": 2,
+  "v": 3,
   "doc": "docs/proposed/RL-TRAINING-v2.md. Unit: 1.0 = one Crafter achievement. Every term is graded from what the server sends the player (statistics, advancements, time, death), never from the bot's own prediction.",
   "survival": {
     "doc": "Paid at dawn, for a night the bot was alive through from its start. Slept = in a bed when the night was skipped.",
@@ -44,9 +44,13 @@
     "per_step": 1.0,
     "flat": { "create": 1.0 }
   },
+  "invalid": {
+    "doc": "Owner 2026-11-01, after the first training run collapsed onto commands that fail at once: a command that cannot be executed scores negative, charged per failed command by its reason. Failures the policy did not cause (died, disconnected, cancelled, internal) are free.",
+    "reasons": { "invalid_args": -0.1, "invalid_target": -0.1, "missing_item": -0.1, "missing_tool": -0.1, "missing_materials": -0.1, "no_station": -0.1, "unreachable": -0.1, "not_visible": -0.1, "stuck": -0.05, "timeout": -0.05, "not_confirmed": -0.05, "target_lost": -0.02 }
+  },
   "stages": {
     "doc": "Weights per reward term, applied by the learner to reward_terms (the environment sends every term, unweighted). Stage 1 = survival; the small weight on the rest keeps the policy from settling on 'stay still and live' (DPOD 2026-09-27: noop was the best survival arm).",
-    "survive": { "survival": 1.0, "kills": 0.1, "notable": 0.1, "mined": 0.1, "achievements": 0.1 },
-    "dragon": { "survival": 1.0, "kills": 1.0, "notable": 1.0, "mined": 1.0, "achievements": 1.0 }
+    "survive": { "survival": 1.0, "kills": 0.1, "notable": 0.1, "mined": 0.1, "achievements": 0.1, "invalid": 1.0 },
+    "dragon": { "survival": 1.0, "kills": 1.0, "notable": 1.0, "mined": 1.0, "achievements": 1.0, "invalid": 1.0 }
   }
 }

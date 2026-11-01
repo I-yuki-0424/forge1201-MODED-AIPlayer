@@ -37,9 +37,17 @@ wait_healthy "$TRAIN"
 # Generate the region the bots are spread over once per world (docs/LESSONS.md L10), then start bots and learner.
 compose --profile bench run --rm -T -e MC_HOST=train -e RCON_HOST=train --entrypoint node bench scripts/skills/bench_lv2.js --pregen 1
 compose --profile train up -d train-env train-policy
+# The watcher's page (tools/train-dash): build when missing or older than its sources, serve on loopback, route the tailnet
+# to it the way the game is routed (tailscale serve, tailnet only; nothing listens on the public address).
+dash=$REPO/tools/train-dash
+if [ ! -x "$dash/target/bookworm/release/train-dash" ] || [ -n "$(find "$dash/src" "$dash/web" "$dash/Cargo.toml" -newer "$dash/target/bookworm/release/train-dash" 2>/dev/null)" ]; then
+  docker run --rm --network none -e CARGO_TARGET_DIR=/w/target/bookworm -v "$dash":/w -w /w rust:1-bookworm cargo build --release --offline --quiet
+fi
+compose --profile train up -d train-dash
+tailscale serve --bg --tcp 3021 tcp://localhost:3021 >/dev/null 2>&1 || echo "tailscale serve failed: the page is on 127.0.0.1:3021 only" >&2
 if [ "$learn" = 1 ]; then
   for u in service timer; do systemctl --user link "$REPO/scripts/train/systemd/forgeaip-train-hold.$u" >/dev/null 2>&1 || true; done
   systemctl --user enable --now forgeaip-train-hold.timer
 fi
 echo "training up: base=$base bots=$bots learn=$learn; world $(trcon list)"
-echo "watch: join 100.115.238.9:25565 (op: /gamemode spectator, /tp $owner Train0); logs: scripts/train/status.sh"
+echo "watch: join 100.115.238.9:25565 (op: /gamemode spectator, /spectate Train1); page: http://100.115.238.9:3021/; logs: scripts/train/status.sh"

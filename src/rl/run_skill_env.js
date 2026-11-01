@@ -17,11 +17,13 @@ const { EventLog } = require('./events');
 const { mulberry32 } = require('./run_env');
 const { execute } = require('../skills');
 const { fromBot, standable } = require('../skills/world');
+const { Vec3 } = require('vec3');
 const { ProgressTracker } = require('./progress');
 const { CrafterReward, TABLE, TERMS, MILESTONES, NOTABLE } = require('./crafter_reward');
 const { SkillSpace, vocab, obsSpec, actionSpec, K, CMDS, REASON_LIST } = require('./skill_space');
+const { LiveBoard } = require('./live_board');
 
-const ENV_VERSION = '2026-11-01-skills-v1';
+const ENV_VERSION = '2026-11-01-skills-v1.1';   // v1.1: reward term `invalid`, live board, one tick minimum per step
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const GAMERULES = ['doDaylightCycle true', 'doMobSpawning true', 'doImmediateRespawn true', 'keepInventory false',
     'playersSleepingPercentage 1', 'announceAdvancements false', 'sendCommandFeedback false', 'logAdminCommands false', 'spawnRadius 0'];
@@ -55,6 +57,22 @@ function idle(bot, ticks, cancel) {
     });
 }
 
+/** What a candidate is about, in words, for the live board (block, entity or item names; never sent to the policy). */
+function describe(bot, c) {
+    const a = c.args || {};
+    const at = (x, y, z) => { const b = bot.blockAt(new Vec3(x, y, z)); return b ? b.name : '?'; };
+    const ent = (id) => { const e = bot.entities[id]; return e ? (e.name === 'item' && e.getDroppedItem && e.getDroppedItem() ? `item ${e.getDroppedItem().name}` : e.name) : `#${id}`; };
+    const dist = (x, y, z) => (bot.entity ? Math.round(bot.entity.position.distanceTo(new Vec3(x + 0.5, y, z + 0.5))) : '?');
+    switch (c.cmd) {
+        case 'move_to': return `(${a.x} ${a.y} ${a.z}) ${dist(a.x, a.y, a.z)} m`;
+        case 'mine': case 'activate': return `${at(a.x, a.y, a.z)} (${a.x} ${a.y} ${a.z}) ${dist(a.x, a.y, a.z)} m`;
+        case 'attack': case 'pickup': return ent(a.entity);
+        case 'place': return `${a.item} (${a.x} ${a.y} ${a.z})`;
+        case 'wait': return `${a.ticks} ticks`;
+        default: return a.item ? `${a.item}${a.count ? ` x${a.count}` : ''}` : '';
+    }
+}
+
 async function main() {
     const o = parseArgs(process.argv.slice(2));
     const runId = `${o.base}-${new Date().toISOString().replace(/[-:]/g, '').slice(0, 15)}`;
@@ -65,6 +83,10 @@ async function main() {
     const inp = new LineReader(path.join(dir, 'policy_to_env.jsonl'), { runId, allowed: ['hello_ack', 'act'] });
     const events = new EventLog(path.join(dir, 'events.jsonl'), { runId, botId: 'all', component: 'skill_env' });
     let seq = 0;
+    // The live board for the human watcher: <root>/<base>.live.json, rewritten once a second (tools/train-dash serves it).
+    const board = new LiveBoard({ run: runId, base: o.base });
+    const liveFile = path.join(o.root, `${o.base}.live.json`);
+    setInterval(() => { try { board.write(liveFile); } catch (e) { /* the next second retries */ } }, 1000).unref();
     const send = (envId, type, fields) => out.send({ v: 1, type, run_id: runId, env_id: envId, seq: seq++, t: Math.round(Date.now()) / 1000, ...fields });
 
     // Acts are routed to the waiting bot by (env_id, episode, step); anything else is logged and dropped.
@@ -121,7 +143,9 @@ async function main() {
         lost.catch(() => {});
         bot.on('error', (e) => events.emit('bot_error', { env_id: envId, message: String(e.message || e).slice(0, 200) }, 'warn'));
         await Promise.race([new Promise((r) => bot.once('spawn', r)), lost, sleep(90000).then(() => { throw new Error('no spawn within 90 s'); })]);
+        lost.catch((e) => board.lost(envId, e.message));
         const tracker = new ProgressTracker(bot), space = new SkillSpace(bot, voc), reward = new CrafterReward();
+        board.attach(envId, name, bot);
         let cancel = { cancelled: false };
         bot.on('death', () => { cancel.cancelled = true; });
         events.emit('connected', { env_id: envId, username: name });
@@ -144,27 +168,38 @@ async function main() {
                 const c = space.cands[act.action && act.action.candidate];
                 let res;
                 const t0 = Date.now();
+                board.begin(envId, { episode, step, cmd: c ? c.cmd : 'invalid', label: c ? describe(bot, c) : '', index: act.action && act.action.candidate,
+                    offered: space.cands.map((x) => x.cmd) });
                 let ticks = 0;
                 const count = () => { ticks++; };
                 bot.on('physicsTick', count);
                 if (!c) { events.emit('invalid_candidate', { env_id: envId, episode, step, candidate: act.action && act.action.candidate }, 'warn'); res = await idle(bot, 20, cancel); res.reason = 'invalid_args'; }
                 else if (c.cmd === 'wait') res = await idle(bot, c.args.ticks, cancel);
                 else res = await Promise.race([execute(bot, c.cmd, c.args, { cancel }), lost]);
+                // A command refused before any input (unreachable, missing tool, ...) still costs one game tick, so a policy
+                // that keeps choosing such commands cannot spin hundreds of steps a second (run train-20261101T012004: 5 ms).
+                if (ticks === 0) await Promise.race([new Promise((r) => bot.once('physicsTick', r)), sleep(200)]);
                 bot.removeListener('physicsTick', count);
                 if (tracker.dead || bot.health <= 0) await sleep(300);   // let the death packet and the last statistics arrive
                 const { events: evs, statsOk } = await tracker.collect();
+                if (!res.ok) evs.push({ type: 'failed', reason: res.reason });   // scored by reward term `invalid`
                 const sc = reward.score(evs);
                 const dead = tracker.dead;
                 msg = { reward: sc.total, reward_terms: sc.terms, terminated: dead, truncated: !dead && step + 1 >= o.maxSteps };
                 last = { reason: res.ok ? 'ok' : res.reason, ticks: Math.max(ticks, 1) };
                 ep.ret += sc.total; ep.cmds[c ? c.cmd : 'invalid'] = (ep.cmds[c ? c.cmd : 'invalid'] || 0) + 1;
-                for (const e of evs) if (e.type === 'dawn') { ep.nights++; if (e.slept) ep.slept++; }
+                let nights = 0, slept = 0;
+                for (const e of evs) if (e.type === 'dawn') { nights++; if (e.slept) slept++; }
+                ep.nights += nights; ep.slept += slept;
+                board.end(envId, { ok: !!res.ok, reason: last.reason, ms: Date.now() - t0, ticks: last.ticks, reward: sc.total, nights, slept });
                 events.emit('step', { env_id: envId, episode, step: step + 1, cmd: c ? c.cmd : null, args: c ? c.args : null, ok: !!res.ok,
                     reason: last.reason, ticks: last.ticks, ms: Date.now() - t0, reward: sc.total, terms: sc.terms,
                     progress_events: evs.length ? evs : undefined, stats_ok: statsOk || undefined, health: bot.health, food: bot.food });
             }
-            events.emit('episode_end', { env_id: envId, episode, return: Math.round(ep.ret * 1e4) / 1e4, nights: ep.nights, slept: ep.slept,
-                wall_s: Math.round((Date.now() - ep.t0) / 1000), terminated: msg.terminated, cmds: ep.cmds });
+            const rec = { env_id: envId, episode, return: Math.round(ep.ret * 1e4) / 1e4, nights: ep.nights, slept: ep.slept,
+                wall_s: Math.round((Date.now() - ep.t0) / 1000), terminated: msg.terminated, cmds: ep.cmds };
+            events.emit('episode_end', rec);
+            board.episodeEnd(envId, rec);
             if (msg.terminated) {
                 for (let t = 0; bot.health <= 0 && t < 600; t++) await sleep(50);   // auto-respawn
                 await sleep(1000);
@@ -200,4 +235,4 @@ async function main() {
 
 if (require.main === module) main().catch((e) => { console.error('[skill-env] fatal:', e.message); process.exit(1); });
 
-module.exports = { parseArgs, queued, idle, GAMERULES, ENV_VERSION };
+module.exports = { parseArgs, queued, idle, describe, GAMERULES, ENV_VERSION };

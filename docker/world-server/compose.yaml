@@ -263,6 +263,25 @@ services:
     command: ["/venv/bin/python", "/dpod/scripts/botsystem_skill_ppo.py", "--root", "/x", "--base", "${TRAIN_BASE:-train}", "--learn", "${TRAIN_LEARN:-1}", "--seed", "${TRAIN_POLICY_SEED:-42}"]
     network_mode: none
 
+  # The watcher's page (tools/train-dash, Rust std only, read-only): what each bot is doing, what happened, success rates,
+  # command bias, the learner's curves. Loopback only; scripts/train/up.sh adds the tailnet route (tailscale serve, port 3021).
+  train-dash:
+    image: gcr.io/distroless/cc-debian12:nonroot
+    profiles: [train]
+    container_name: forgeaip-train-dash
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 64m
+    cpus: 0.25
+    ports: ["127.0.0.1:3021:3021"]
+    volumes:
+      - ../../tools/train-dash/target/bookworm/release/train-dash:/train-dash:ro
+      - ../../exchange:/x:ro
+    command: ["/train-dash", "--root", "/x", "--base", "${TRAIN_BASE:-train}", "--bind", "0.0.0.0:3021"]
+    networks: [dash]
+
 volumes:
   rl-jaxvenv:
     external: true
@@ -272,4 +291,5 @@ volumes:
   check-logs:
 
 networks:
+  dash:
   world:

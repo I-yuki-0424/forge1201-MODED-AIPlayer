@@ -1,11 +1,11 @@
 'use strict';
 // Reward v2 (Crafter-style, docs/proposed/RL-TRAINING-v2.md): survival nights, kills, notable kills, mined blocks and
-// advancements, each a separate term. Pure: it scores progress events (src/rl/progress.js) and keeps per-episode counts.
+// advancements, each a separate term, plus `invalid`: the penalty for a command that could not be executed. Pure: it scores progress events (src/rl/progress.js) and keeps per-episode counts.
 // The environment sends every term unweighted; the learner applies the curriculum stage's weights (TABLE.stages).
 const TABLE = require('./reward-v2.json');
 const ADV = require('../../modpack/forgeaip-create.advancements.json').advancements;
 
-const TERMS = ['survival', 'kills', 'notable', 'mined', 'achievements'];
+const TERMS = ['survival', 'kills', 'notable', 'mined', 'achievements', 'invalid'];
 const short = (id) => String(id).replace(/^minecraft:/, '');
 
 const KILL_CLASS = new Map();
@@ -36,7 +36,8 @@ class CrafterReward {
         this.nights = 0; this.slept = 0;
     }
 
-    /** events: [{type:'killed', entity, n}, {type:'mined', block, n}, {type:'advancement', id}, {type:'dawn', slept}, {type:'death'}] */
+    /** events: [{type:'killed', entity, n}, {type:'mined', block, n}, {type:'advancement', id}, {type:'dawn', slept}, {type:'death'},
+     *  {type:'failed', reason}] (the last from the command's own result, every other one from the server) */
     score(events) {
         const terms = Object.fromEntries(TERMS.map((t) => [t, 0]));
         for (const e of events) {
@@ -64,6 +65,8 @@ class CrafterReward {
                     this.mined.set(name, k + 1);
                     terms.mined += base * TABLE.mined.decay ** k;
                 }
+            } else if (e.type === 'failed') {
+                terms.invalid += TABLE.invalid.reasons[e.reason] || 0;
             } else if (e.type === 'advancement') {
                 const s = advancementScore(e.id);
                 if (s !== null && !this.done.has(e.id)) { this.done.add(e.id); terms.achievements += s; }

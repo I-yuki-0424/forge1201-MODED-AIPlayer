@@ -7,7 +7,8 @@ const { CrafterReward, TABLE, MILESTONES, NOTABLE, PROGRESS_DIM, advancementScor
 const { ProgressTracker, complete } = require('../src/rl/progress');
 const { SkillSpace, vocab, obsSpec, actionSpec, K, CMDS } = require('../src/rl/skill_space');
 const { specHash } = require('../src/rl/action_spec');
-const { parseArgs, queued } = require('../src/rl/run_skill_env');
+const { parseArgs, queued, describe } = require('../src/rl/run_skill_env');
+const { LiveBoard } = require('../src/rl/live_board');
 
 let pending = 0;
 function test(name, fn) {
@@ -67,6 +68,15 @@ test('achievements: once per episode, score = steps; newEpisode resets', () => {
     near(r.score([{ type: 'advancement', id: 'minecraft:recipes/misc/stick' }]).total, 0);
     r.newEpisode();
     near(r.score([{ type: 'advancement', id: 'minecraft:story/smelt_iron' }]).total, 4);
+});
+
+test('invalid: a command that cannot be executed scores negative; failures the policy did not cause are free', () => {
+    const r = new CrafterReward();
+    near(r.score([{ type: 'failed', reason: 'unreachable' }]).terms.invalid, -0.1);
+    near(r.score([{ type: 'failed', reason: 'missing_tool' }, { type: 'failed', reason: 'stuck' }]).total, -0.15);
+    for (const why of ['died', 'cancelled', 'disconnected', 'internal']) near(r.score([{ type: 'failed', reason: why }]).total, 0);
+    for (const st of ['survive', 'dragon']) assert.strictEqual(TABLE.stages[st].invalid, 1.0);   // full weight in both stages
+    near(stageReward({ invalid: -0.1 }, 'survive'), -0.1);
 });
 
 test('curriculum: targets live in the progress space; stage weights from the table', () => {
@@ -209,6 +219,32 @@ test('runner: args, RCON queue keeps order and one command at a time', async () 
     const cmd = queued({ command: async (c) => { active++; maxActive = Math.max(maxActive, active); await new Promise((r) => setTimeout(r, 5)); log.push(c); active--; return c; } });
     await Promise.all(['a', 'b', 'c'].map(cmd));
     assert.deepStrictEqual(log, ['a', 'b', 'c']); assert.strictEqual(maxActive, 1);
+});
+
+test('live board: success rates, bias against a uniform pick, warnings for failing, dominating and standing still', () => {
+    const bot = { entity: { position: new Vec3(0, 64, 0) }, health: 20, food: 20, time: { timeOfDay: 1000 }, game: { dimension: 'overworld' } };
+    const b = new LiveBoard({ run: 'r', base: 'b' });
+    b.attach(1, 'Train1', bot);
+    // 100 steps: offered 7 move_to + 1 wait each time, chose wait 80 times (all ok) and move_to 20 times (all fail).
+    for (let i = 0; i < 100; i++) {
+        const wait = i % 5 !== 0;
+        b.begin(1, { episode: 0, step: i, cmd: wait ? 'wait' : 'move_to', label: '', index: 0, offered: [...Array(7).fill('move_to'), 'wait'] });
+        b.end(1, { ok: wait, reason: wait ? 'ok' : 'unreachable', ms: 5, ticks: 1, reward: wait ? 0 : -0.1 });
+    }
+    const s = b.snapshot().bots[0];
+    assert.strictEqual(s.name, 'Train1'); assert.strictEqual(s.total.n, 100);
+    near(s.window.ok_rate, 0.8);
+    near(s.window.cmds.wait.share, 0.8); near(s.window.cmds.wait.uniform_share, 0.125); near(s.window.cmds.wait.bias, 6.4);
+    near(s.window.cmds.move_to.ok_rate, 0); near(s.window.reasons['move_to:unreachable'], 20);
+    assert.strictEqual(s.window.spread, 0);
+    assert.ok(s.warnings.some((w) => /wait is 80%/.test(w)) && s.warnings.some((w) => /moved less than 3/.test(w)), s.warnings.join('; '));
+    assert.ok(!s.warnings.some((w) => /^fails/.test(w)));
+    near(s.episode_now.return, -2);
+    assert.strictEqual(s.recent.length, 20); assert.ok(!('offered' in s.recent[0]));
+    b.lost(1, 'kicked'); assert.strictEqual(b.snapshot().bots[0].connected, false);
+    const named = { entity: { position: new Vec3(0, 64, 0) }, entities: { 7: { name: 'zombie' } }, blockAt: () => ({ name: 'oak_log' }) };
+    assert.strictEqual(describe(named, { cmd: 'mine', args: { x: 3, y: 64, z: 0 } }), 'oak_log (3 64 0) 4 m');
+    assert.strictEqual(describe(named, { cmd: 'attack', args: { entity: 7 } }), 'zombie');
 });
 
 process.on('exit', (code) => { if (!code && pending) { console.error(`${pending} async tests did not finish`); process.exitCode = 1; } });
