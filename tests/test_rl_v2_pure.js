@@ -295,6 +295,9 @@ test('stuck detector: cuts an episode only when nearly every command failed and 
     d = new StuckDetector({ n: 10 }); assert.strictEqual(run((i) => [i === 0, at(0)]), false);   // 10 % succeeded
     d = new StuckDetector({ n: 10 }); assert.strictEqual(run((i) => [false, at(i)]), false);     // failing but moving
     d = new StuckDetector({ n: 10 }); for (let i = 0; i < 9; i++) assert.strictEqual(d.push(false, at(0)), false);   // not enough history
+    // Reproducer (run train3, Train6 on a tree top): waits always succeed and must not count as acting.
+    d = new StuckDetector({ n: 10 }); assert.strictEqual(run((i) => [true, at(0), i % 5 ? 'wait' : 'mine']).valueOf(), false);   // 2 of 10 mined
+    d = new StuckDetector({ n: 10 }); assert.strictEqual(run(() => [true, at(0), 'wait']), true);   // only waiting, in place
 });
 
 process.on('exit', (code) => { if (!code && pending) { console.error(`${pending} async tests did not finish`); process.exitCode = 1; } });

@@ -53,14 +53,15 @@ function queued(rcon) {
     return (cmd) => { const p = tail.then(() => rcon.command(cmd)); tail = p.catch(() => {}); return p; };
 }
 
-/** Stuck detector: true once the last `n` commands of an episode almost all failed (< minOk) and the bot stayed within
- *  `radius` blocks. The action layer cannot act there (a pit, water: no swimming), so the episode is cut (truncated) and the
- *  bot reset; otherwise a trapped bot keeps living through nights, which the survival term pays for (run 1). */
+/** Stuck detector: true once fewer than `minOk` of the last `n` commands were successful commands other than `wait` and the
+ *  bot stayed within `radius` blocks. The action layer cannot act there (a pit, a tree top), so the episode is cut (truncated)
+ *  and the bot reset; otherwise a trapped bot keeps living through nights, which the survival term pays for (run 1). Waiting
+ *  always succeeds, so it does not count as acting (run train3: Train6 waited 183 times on a tree top, 91 % "success"). */
 class StuckDetector {
     constructor({ n = 200, minOk = 0.1, radius = 2 } = {}) { this.n = n; this.minOk = minOk; this.radius = radius; this.reset(); }
     reset() { this.ring = []; }
-    push(ok, pos) {
-        this.ring.push({ ok: !!ok, pos: pos ? [pos.x, pos.y, pos.z] : null });
+    push(ok, pos, cmd) {
+        this.ring.push({ ok: !!ok && cmd !== 'wait', pos: pos ? [pos.x, pos.y, pos.z] : null });
         if (this.ring.length > this.n) this.ring.shift();
         if (this.ring.length < this.n || this.ring.some((r) => !r.pos)) return false;
         if (this.ring.filter((r) => r.ok).length / this.n >= this.minOk) return false;
@@ -223,7 +224,7 @@ async function main() {
                 if (!res.ok) evs.push({ type: 'failed', reason: res.reason });   // scored by reward term `invalid`
                 const sc = reward.score(evs);
                 const dead = tracker.dead;
-                ep.stuck = !dead && stuck.push(res.ok, bot.entity && bot.entity.position);
+                ep.stuck = !dead && stuck.push(res.ok, bot.entity && bot.entity.position, c ? c.cmd : null);
                 msg = { reward: sc.total, reward_terms: sc.terms, terminated: dead, truncated: !dead && (ep.stuck || step + 1 >= o.maxSteps) };
                 last = { reason: res.ok ? 'ok' : res.reason, ticks: Math.max(ticks, 1) };
                 ep.ret += sc.total; ep.cmds[c ? c.cmd : 'invalid'] = (ep.cmds[c ? c.cmd : 'invalid'] || 0) + 1;
@@ -267,8 +268,11 @@ async function main() {
             for (let t = 0; t < 100 && !bot.blockAt(bot.entity.position.offset(0, -1, 0)); t++) await sleep(50);   // its chunk too
             await sleep(300);
             const p = bot.entity.position, x = Math.floor(p.x), y = Math.floor(p.y + 0.2), z = Math.floor(p.z);
-            if (!bot.entity.isInWater && standable(w, x, y, z)) { why = ''; break; }
-            why = 'landed in water or not on dry ground';
+            // Not on a tree either: spreadplayers counts leaves as safe ground, and a bot on a tree top ends up on a one-block
+            // trunk with no way down (run train3, Train6).
+            const under = w.nameAt(x, y - 1, z) || '';
+            if (!bot.entity.isInWater && standable(w, x, y, z) && !/_(leaves|log|wood)$/.test(under)) { why = ''; break; }
+            why = `landed in water, on a tree or not on dry ground (${under})`;
         }
         if (why) throw new Error(`reset: no dry site in 80 tries (${why})`);
         for (let t = 0; t < 200 && bot.inventory.items().length; t++) await sleep(50);

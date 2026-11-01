@@ -93,8 +93,14 @@ async function mine(ctx, { x, y, z }) {
         }
     }
     await ctx.tick({});
-    if (drop) await collectDrops(ctx, cell, drop, before);
-    return { block: b0.name, tool: tool.name, drop, got: drop ? count(bot, drop) - before : 0 };
+    // Success is the break the server confirmed. The drop is collected when it can be: many drops are random (leaves,
+    // gravel, grass) or fall out of reach (a log felled from a tree top), and the server counts the block as mined either
+    // way (run train3, Train6: every leaf/log on a tree top ended not_confirmed while the statistic rose).
+    let missed = null;
+    if (drop) {
+        try { await collectDrops(ctx, cell, drop, before); } catch (e) { if (e.reason !== 'not_confirmed' && e.reason !== 'unreachable' && e.reason !== 'stuck') throw e; missed = e.reason; }
+    }
+    return { block: b0.name, tool: tool.name, drop, got: drop ? count(bot, drop) - before : 0, ...(missed ? { drop_missed: missed } : {}) };
 }
 
 /** Cells (with the face toward `cell`) of solid neighbours a block can be placed against. */
