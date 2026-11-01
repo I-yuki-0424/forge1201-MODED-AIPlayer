@@ -195,15 +195,17 @@ services:
   # The training world takes the build world's place on 127.0.0.1:25567, so the owner watches it over the same tailnet
   # route (100.115.238.9:25565) and no new listener exists; scripts/train/up.sh stops the build world first (memory).
   # Survival, normal difficulty, structures (strongholds, fortresses, monuments, villages), natural spawning, day cycle.
-  train:
+  train: &train
     <<: *server
     profiles: [train]
     container_name: forgeaip-train
     restart: unless-stopped
-    mem_limit: 4g
+    mem_limit: ${TRAIN_MEM_LIMIT:-4g}
     cpus: 3
-    environment:
+    environment: &trainenv
       <<: *env
+      # Heap per server: 3G alone; 2G each when several shards share the box (scripts/train/up.sh --shards).
+      MEMORY: ${TRAIN_MEMORY:-3G}
       LEVEL_TYPE: minecraft:normal
       SEED: ${TRAIN_SEED:-20261101}
       GENERATE_STRUCTURES: "true"
@@ -229,7 +231,7 @@ services:
 
   # The environment: N bots on the skill-level action space (src/rl/run_skill_env.js). A restart is a new run_id;
   # <base>.current tells the learner which one is live.
-  train-env:
+  train-env: &trainenv_svc
     image: node@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0
     profiles: [train]
     container_name: forgeaip-train-env
@@ -250,6 +252,65 @@ services:
       - ../../exchange:/exchange
     command: ["node", "src/rl/run_skill_env.js", "--base", "${TRAIN_BASE:-train}", "--bots", "${TRAIN_BOTS:-8}", "--max-steps", "${TRAIN_MAX_STEPS:-20000}", "--seed", "${TRAIN_ENV_SEED:-1}"]
     networks: [world]
+
+  # ---- Shards 1-3 (scripts/train/up.sh --shards N): one more server + environment each, a copy of shard 0's world, no
+  # host port (the owner watches shard 0). Bot ids are global (shard x bots + k); the learner follows <base>.s<i>.current.
+  train-s1: &shard
+    <<: *train
+    profiles: [shard1]
+    container_name: forgeaip-train-s1
+    ports: []
+    volumes:
+      - train-data-s1:/data
+      - /mnt/data/forgeaip/mods:/mods:ro
+      - ../../tools/tickrate/build/libs:/tool:ro
+  train-s2:
+    <<: *shard
+    profiles: [shard2]
+    container_name: forgeaip-train-s2
+    volumes:
+      - train-data-s2:/data
+      - /mnt/data/forgeaip/mods:/mods:ro
+      - ../../tools/tickrate/build/libs:/tool:ro
+  train-s3:
+    <<: *shard
+    profiles: [shard3]
+    container_name: forgeaip-train-s3
+    volumes:
+      - train-data-s3:/data
+      - /mnt/data/forgeaip/mods:/mods:ro
+      - ../../tools/tickrate/build/libs:/tool:ro
+  train-env-s1: &shardenv
+    <<: *trainenv_svc
+    profiles: [shard1]
+    container_name: forgeaip-train-env-s1
+    environment: &shardenvvars
+      MC_HOST: train-s1
+      MC_PORT: "25565"
+      RCON_HOST: train-s1
+      RCON_PORT: "25575"
+      RCON_PASSWORD: ${RCON_PASSWORD:?run scripts/world/up.sh}
+      BOT_REGISTRY: auto
+      GAME_SPEED: ${TRAIN_SPEED:-1}
+    command: ["node", "src/rl/run_skill_env.js", "--base", "${TRAIN_BASE:-train}", "--bots", "${TRAIN_BOTS:-8}", "--shard", "1", "--max-steps", "${TRAIN_MAX_STEPS:-20000}", "--seed", "11"]
+  train-env-s2:
+    <<: *shardenv
+    profiles: [shard2]
+    container_name: forgeaip-train-env-s2
+    environment:
+      <<: *shardenvvars
+      MC_HOST: train-s2
+      RCON_HOST: train-s2
+    command: ["node", "src/rl/run_skill_env.js", "--base", "${TRAIN_BASE:-train}", "--bots", "${TRAIN_BOTS:-8}", "--shard", "2", "--max-steps", "${TRAIN_MAX_STEPS:-20000}", "--seed", "21"]
+  train-env-s3:
+    <<: *shardenv
+    profiles: [shard3]
+    container_name: forgeaip-train-env-s3
+    environment:
+      <<: *shardenvvars
+      MC_HOST: train-s3
+      RCON_HOST: train-s3
+    command: ["node", "src/rl/run_skill_env.js", "--base", "${TRAIN_BASE:-train}", "--bots", "${TRAIN_BOTS:-8}", "--shard", "3", "--max-steps", "${TRAIN_MAX_STEPS:-20000}", "--seed", "31"]
 
   # The policy and learner: DPOD's Truck derivative on demand + asynchronous PPO with the two-stage curriculum
   # (DPOD scripts/botsystem_skill_ppo.py). Checkpoints in exchange/<base>/train; a restart resumes from the last one.
@@ -295,6 +356,9 @@ volumes:
   rl-jaxvenv:
     external: true
   train-data:
+  train-data-s1:
+  train-data-s2:
+  train-data-s3:
   data:
   test-data:
   check-logs:

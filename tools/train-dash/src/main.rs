@@ -2,16 +2,18 @@
 //!
 //!   train-dash --root <exchange dir> --base <run base> [--bind 127.0.0.1:3021]
 //!
-//! Serves exactly five paths with GET or HEAD: the page (`/`, `/app.js`, `/app.css`, compiled in), `/live.json` (the
-//! environment's `<root>/<base>.live.json`) and `/learner.json` (the tail of the learner's train_log.jsonl and
-//! episodes.jsonl). It never writes, never runs anything, and reads no path derived from the request. Standard library only.
+//! Serves exactly six paths with GET or HEAD: the page (`/`, `/app.js`, `/app.css`, compiled in), `/live.json` (the live
+//! boards of all environment shards: `<root>/<base>.live.json` and `<root>/<base>.s<1..15>.live.json`, as
+//! `{"shards":[...]}`), `/learner.json` (the tail of the learner's train_log.jsonl and episodes.jsonl) and `/events`
+//! (Server-Sent Events: `live` and `learner` pushed as soon as a file changes, checked every 250 ms). It never writes, never
+//! runs anything, and reads no path derived from the request. Standard library only.
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime};
 
 const PAGE: &str = include_str!("../web/index.html");
 const APP_JS: &str = include_str!("../web/app.js");
@@ -20,12 +22,15 @@ const MAX_REQUEST: usize = 8 * 1024;
 const MAX_CONNS: usize = 32;
 const LIVE_MAX: u64 = 4 * 1024 * 1024;
 const TAIL_BYTES: u64 = 256 * 1024;
+const SHARDS: usize = 16;
+const PUSH_EVERY: Duration = Duration::from_millis(250);
+const STREAM_MAX: Duration = Duration::from_secs(3600); // a stream ends after an hour; EventSource reconnects
 const CSP: &str =
     "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; \
                    base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 struct Config {
-    live: PathBuf,
+    live: Vec<PathBuf>,
     train_log: PathBuf,
     episodes: PathBuf,
 }
@@ -55,7 +60,12 @@ fn parse_args() -> Result<(Config, String), String> {
     let train = root.join(&base).join("train");
     Ok((
         Config {
-            live: root.join(format!("{base}.live.json")),
+            live: (0..SHARDS)
+                .map(|i| match i {
+                    0 => root.join(format!("{base}.live.json")),
+                    _ => root.join(format!("{base}.s{i}.live.json")),
+                })
+                .collect(),
             train_log: train.join("train_log.jsonl"),
             episodes: train.join("episodes.jsonl"),
         },
@@ -107,11 +117,75 @@ fn learner_json(c: &Config) -> String {
     )
 }
 
+/// The live boards that exist, as `{"shards":[board, ...]}` (each board is the environment's own one-line JSON object).
 fn read_live(c: &Config) -> Option<Vec<u8>> {
-    let f = File::open(&c.live).ok()?;
-    let mut buf = Vec::new();
-    f.take(LIVE_MAX).read_to_end(&mut buf).ok()?;
-    Some(buf)
+    let mut parts = Vec::new();
+    for p in &c.live {
+        let Ok(f) = File::open(p) else { continue };
+        let mut buf = Vec::new();
+        if f.take(LIVE_MAX).read_to_end(&mut buf).is_ok() {
+            let t = buf.trim_ascii();
+            if t.starts_with(b"{") && t.ends_with(b"}") && !t.contains(&b'\n') {
+                parts.push(t.to_vec());
+            }
+        }
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    let mut out = b"{\"shards\":[".to_vec();
+    out.extend(parts.join(&b","[..]));
+    out.extend_from_slice(b"]}");
+    Some(out)
+}
+
+/// Modification times of the watched files: a change means a push.
+fn stamp(paths: &[&Path]) -> Vec<Option<SystemTime>> {
+    paths
+        .iter()
+        .map(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok())
+        .collect()
+}
+
+/// Server-Sent Events: `live` and `learner` once at the start, then whenever their files change.
+fn stream(s: &mut TcpStream, c: &Config) {
+    let hdr = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n\
+         Content-Security-Policy: {CSP}\r\nConnection: close\r\n\r\nretry: 2000\n\n"
+    );
+    if s.write_all(hdr.as_bytes()).is_err() {
+        return;
+    }
+    let live: Vec<&Path> = c.live.iter().map(PathBuf::as_path).collect();
+    let learn = [c.train_log.as_path(), c.episodes.as_path()];
+    let (mut seen_live, mut seen_learn) = (None, None);
+    let (start, mut quiet) = (Instant::now(), Instant::now());
+    while start.elapsed() < STREAM_MAX {
+        let (sl, sn) = (stamp(&live), stamp(&learn));
+        let mut msg = Vec::new();
+        if seen_live.as_ref() != Some(&sl) {
+            if let Some(b) = read_live(c) {
+                msg.extend_from_slice(b"event: live\ndata: ");
+                msg.extend(b);
+                msg.extend_from_slice(b"\n\n");
+            }
+            seen_live = Some(sl);
+        }
+        if seen_learn.as_ref() != Some(&sn) {
+            msg.extend_from_slice(format!("event: learner\ndata: {}\n\n", learner_json(c)).as_bytes());
+            seen_learn = Some(sn);
+        }
+        if msg.is_empty() && quiet.elapsed() > Duration::from_secs(15) {
+            msg.extend_from_slice(b": keep-alive\n\n");
+        }
+        if !msg.is_empty() {
+            if s.write_all(&msg).is_err() {
+                return; // the page went away
+            }
+            quiet = Instant::now();
+        }
+        std::thread::sleep(PUSH_EVERY);
+    }
 }
 
 fn respond(s: &mut TcpStream, status: &str, ctype: &str, body: &[u8], head: bool) {
@@ -193,6 +267,7 @@ fn handle(mut s: TcpStream, c: &Config) {
                 head,
             ),
         },
+        "/events" if !head => stream(&mut s, c),
         "/learner.json" => respond(
             &mut s,
             "200 OK",
@@ -219,7 +294,7 @@ fn main() {
             std::process::exit(1);
         }
     };
-    eprintln!("train-dash: serving {} on {bind}", cfg.live.display());
+    eprintln!("train-dash: serving {} (+ shard boards) on {bind}", cfg.live[0].display());
     let cfg = Arc::new(cfg);
     let active = Arc::new(AtomicUsize::new(0));
     for conn in listener.incoming() {
@@ -266,6 +341,31 @@ mod tests {
             vec!["{\"event\": \"update\", \"u\": 2}"]
         );
         assert!(tail_lines(&dir.join("missing"), 5, |_| true).is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn live_merges_existing_shard_boards_and_skips_broken_ones() {
+        let dir = std::env::temp_dir().join(format!("train-dash-live-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let c = Config {
+            live: (0..SHARDS)
+                .map(|i| match i {
+                    0 => dir.join("b.live.json"),
+                    _ => dir.join(format!("b.s{i}.live.json")),
+                })
+                .collect(),
+            train_log: dir.join("x"),
+            episodes: dir.join("y"),
+        };
+        assert!(read_live(&c).is_none());
+        std::fs::write(dir.join("b.live.json"), "{\"run\":\"r0\"}\n").unwrap();
+        std::fs::write(dir.join("b.s1.live.json"), "{\"run\":\"r1\"}").unwrap();
+        std::fs::write(dir.join("b.s2.live.json"), "{\"run\":").unwrap(); // half written: skipped
+        assert_eq!(
+            String::from_utf8(read_live(&c).unwrap()).unwrap(),
+            "{\"shards\":[{\"run\":\"r0\"},{\"run\":\"r1\"}]}"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

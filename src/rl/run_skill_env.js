@@ -34,9 +34,9 @@ const GAMERULES = ['doDaylightCycle true', 'doMobSpawning true', 'doImmediateRes
     'playersSleepingPercentage 1', 'announceAdvancements false', 'sendCommandFeedback false', 'logAdminCommands false', 'spawnRadius 0'];
 
 function parseArgs(argv) {
-    const o = { root: '/exchange', base: null, bots: 4, maxSteps: 20000, region: 576, seed: 1, actTimeout: 600 };
+    const o = { root: '/exchange', base: null, bots: 4, maxSteps: 20000, region: 576, seed: 1, actTimeout: 600, shard: -1 };
     const map = { '--root': ['root'], '--base': ['base'], '--bots': ['bots', Number], '--max-steps': ['maxSteps', Number],
-        '--region': ['region', Number], '--seed': ['seed', Number], '--act-timeout': ['actTimeout', Number] };
+        '--region': ['region', Number], '--seed': ['seed', Number], '--act-timeout': ['actTimeout', Number], '--shard': ['shard', Number] };
     for (let i = 0; i < argv.length; i += 2) {
         const m = map[argv[i]];
         if (!m || argv[i + 1] === undefined) throw new Error(`bad argument ${argv[i]}`);
@@ -44,6 +44,7 @@ function parseArgs(argv) {
     }
     if (!/^[a-z0-9_-]{1,40}$/i.test(o.base || '')) throw new Error('--base <name> is required ([a-z0-9_-])');
     if (!(o.bots >= 1 && o.bots <= 16)) throw new Error('--bots must be 1..16');
+    if (!(Number.isInteger(o.shard) && o.shard >= -1 && o.shard <= 15)) throw new Error('--shard must be 0..15');
     return o;
 }
 
@@ -107,18 +108,21 @@ function describe(bot, c) {
 
 async function main() {
     const o = parseArgs(process.argv.slice(2));
-    const runId = `${o.base}-${new Date().toISOString().replace(/[-:]/g, '').slice(0, 15)}`;
+    // Shards (--shard i): several environment processes, each with its own server, feed one learner. Bot ids are global
+    // (i * bots + k), files are per shard: run <base>-s<i>-<time>, <base>.s<i>.current, <base>.s<i>.live.json.
+    const sh = o.shard >= 0, off = sh ? o.shard * o.bots : 0, tag = sh ? `${o.base}.s${o.shard}` : o.base;
+    const runId = `${o.base}${sh ? `-s${o.shard}` : ''}-${new Date().toISOString().replace(/[-:]/g, '').slice(0, 15)}`;
     const dir = path.join(o.root, runId);
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(o.root, `${o.base}.current`), runId + '\n');
+    fs.writeFileSync(path.join(o.root, `${tag}.current`), runId + '\n');
     const out = new LineWriter(path.join(dir, 'env_to_policy.jsonl'));
     const inp = new LineReader(path.join(dir, 'policy_to_env.jsonl'), { runId, allowed: ['hello_ack', 'act'] });
     const events = new EventLog(path.join(dir, 'events.jsonl'), { runId, botId: 'all', component: 'skill_env' });
     let seq = 0;
     // The live board for the human watcher: <root>/<base>.live.json, rewritten once a second (tools/train-dash serves it).
     const board = new LiveBoard({ run: runId, base: o.base });
-    const liveFile = path.join(o.root, `${o.base}.live.json`);
-    setInterval(() => { try { board.write(liveFile); } catch (e) { /* the next second retries */ } }, 1000).unref();
+    const liveFile = path.join(o.root, `${tag}.live.json`);
+    setInterval(() => { try { board.write(liveFile); } catch (e) { /* the next tick retries */ } }, 500).unref();
     const send = (envId, type, fields) => out.send({ v: 1, type, run_id: runId, env_id: envId, seq: seq++, t: Math.round(Date.now()) / 1000, ...fields });
 
     // Acts are routed to the waiting bot by (env_id, episode, step); anything else is logged and dropped.
@@ -150,7 +154,7 @@ async function main() {
     const hello = { env_version: ENV_VERSION, action_spec: actionSpec(), obs_spec: obsSpec(),
         vocab_sizes: { item: voc.items.length, entity: voc.entities.length, cmd: CMDS.length, reason: REASON_LIST.length, category: 11 },
         milestones: MILESTONES, notable: NOTABLE, reward_terms: TERMS, stages: TABLE.stages, reward_table_version: TABLE.v };
-    events.emit('run_start', { env_version: ENV_VERSION, bots: o.bots, max_steps: o.maxSteps, region: o.region, seed: o.seed, K, speed,
+    events.emit('run_start', { env_version: ENV_VERSION, bots: o.bots, shard: o.shard, env_id_offset: off, max_steps: o.maxSteps, region: o.region, seed: o.seed, K, speed,
         view_distance: VIEW, sectors: Array.from({ length: o.bots }, (_, i) => sector(i, o.bots, o.region - 64).map(Math.round)) });
 
     // A bot that is lost (kick, timeout, closed socket) ends the whole run: the container restarts (unless-stopped) with all
@@ -159,15 +163,15 @@ async function main() {
     const finish = (fatal) => {
         if (ended) return; ended = true;
         events.emit('run_end', { reason: fatal || 'done' }, fatal ? 'error' : 'info');
-        for (let i = 0; i < o.bots; i++) send(i, 'bye', {});
+        for (let i = 0; i < o.bots; i++) send(off + i, 'bye', {});
         out.close(); events.close(); rcon.close();
         setTimeout(() => process.exit(fatal ? 6 : 0), 300);
     };
     const prefix = process.env.RL_BOT_PREFIX || 'Train';
-    await Promise.all(Array.from({ length: o.bots }, (_, i) => sleep(i * 4000).then(() => !ended && runBot(i, `${prefix}${i}`)).catch((e) => {
+    await Promise.all(Array.from({ length: o.bots }, (_, i) => sleep(i * 4000).then(() => !ended && runBot(off + i, `${prefix}${off + i}`)).catch((e) => {
         if (ended) return;
-        events.emit('bot_fatal', { env_id: i, message: String(e.message).slice(0, 300) }, 'error');
-        finish(`${prefix}${i}: ${e.message}`);
+        events.emit('bot_fatal', { env_id: off + i, message: String(e.message).slice(0, 300) }, 'error');
+        finish(`${prefix}${off + i}: ${e.message}`);
     })));
     finish(null);
 
@@ -193,7 +197,7 @@ async function main() {
 
         const rng = mulberry32((o.seed * 7919 + envId) >>> 0);
         for (let episode = 0; ; episode++) {
-            await Promise.race([reset(bot, name, rng, sector(envId, o.bots, o.region - 64)), lost]);
+            await Promise.race([reset(bot, name, rng, sector(envId - off, o.bots, o.region - 64)), lost]);
             await tracker.begin(); reward.newEpisode(); cancel = { cancelled: false };
             let msg = { reward: 0, reward_terms: Object.fromEntries(TERMS.map((t) => [t, 0])), terminated: false, truncated: false };
             let last = { reason: 'ok', ticks: 0 };
