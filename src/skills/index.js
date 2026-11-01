@@ -1,9 +1,9 @@
 'use strict';
-// The command set: 14 commands over the player's primitive inputs (body.js), each with a closed argument schema and a
+// The command set: 15 commands over the player's primitive inputs (body.js), each with a closed argument schema and a
 // tick budget. execute() validates, runs on the live clock (runner.js) and returns a result with a named reason.
 // Reference: docs/implemented/SKILLS-v1.md.
 const { run, SkillError, REASONS } = require('./runner');
-const { moveTo, lookAt, mine, place, activate } = require('./commands/block');
+const { moveTo, lookAt, mine, place, activate, tunnel } = require('./commands/block');
 const { pickup, attack } = require('./commands/entity');
 const { equip, eat, toss } = require('./commands/item');
 const { craft, smelt, deposit, withdraw } = require('./commands/gui');
@@ -17,6 +17,8 @@ const TYPES = {
     bool: (v) => typeof v === 'boolean',
     count: (v) => Number.isInteger(v) && v >= 1 && v <= 2304,
     dest: (v) => ['hand', 'off_hand', 'head', 'chest', 'legs', 'feet'].includes(v),
+    dir: (v) => ['north', 'south', 'east', 'west'].includes(v),
+    dy: (v) => v === -1 || v === 0 || v === 1,
 };
 const XYZ = { x: 'int', y: 'int', z: 'int' };
 const XYZ_OPT = { x: 'int?', y: 'int?', z: 'int?' };
@@ -25,6 +27,7 @@ const COMMANDS = {
     move_to: { fn: moveTo, args: XYZ, ticks: 1200 },
     look_at: { fn: lookAt, args: { ...XYZ_OPT, entity: 'entity?' }, oneOf: [['x', 'y', 'z'], ['entity']], ticks: 40 },
     mine: { fn: mine, args: XYZ, ticks: 1200 },
+    tunnel: { fn: tunnel, args: { dir: 'dir', dy: 'dy' }, ticks: 2400 },
     place: { fn: place, args: { ...XYZ, item: 'name' }, ticks: 1200 },
     activate: { fn: activate, args: { ...XYZ, item: 'item?', sneak: 'bool?' }, ticks: 600 },
     pickup: { fn: pickup, args: { entity: 'entity?', item: 'name?' }, oneOf: [['entity'], ['item']], ticks: 1200 },

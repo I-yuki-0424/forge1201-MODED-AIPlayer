@@ -153,22 +153,37 @@ test('progress: raw advancements packets from the Create server (transport leave
     assert.ok(!t.criteria.has('minecraft:story/mine_stone'));
 });
 
-function worldBot() {
-    const bot = fakeBot(), reg = bot.registry;
-    const blocks = new Map();
-    const set = (x, y, z, name) => blocks.set(`${x},${y},${z}`, name);
-    for (let x = -12; x <= 12; x++) for (let z = -12; z <= 12; z++) { set(x, 63, z, 'grass_block'); set(x, 62, z, 'stone'); }
-    set(2, 64, 0, 'oak_log'); set(3, 63, 1, 'iron_ore');
-    bot.blockAt = (v) => {
-        const name = blocks.get(`${v.x},${v.y},${v.z}`) || 'air', b = reg.blocksByName[name];
-        return { name, position: new Vec3(v.x, v.y, v.z), boundingBox: b.boundingBox, shapes: name === 'air' ? [] : [[0, 0, 0, 1, 1, 1]], diggable: b.diggable };
-    };
-    bot.entity = { position: new Vec3(0.5, 64, 0.5), yaw: 0, onGround: true };
-    const items = [{ name: 'oak_planks', type: reg.itemsByName.oak_planks.id, count: 4 }, { name: 'bread', type: reg.itemsByName.bread.id, count: 2 }];
-    bot.inventory = { items: () => items, slots: Array.from({ length: 46 }, (_, i) => (i === 36 ? items[0] : i === 37 ? items[1] : null)) };
+// The test bot stands in a real prismarine-world of 1.20.1 chunks (the bot's own world implementation): candidates run on
+// the same fast path as live (state ids, palettes, the reachability flood, tool checks).
+const viaMf = (m) => require(require.resolve(m, { paths: [require.resolve('mineflayer')] }));
+function flatLayout(x, y, z) {
+    if (x === 2 && y === 64 && z === 0) return 'oak_log';
+    if (x === 3 && y === 63 && z === 1) return 'iron_ore';
+    return y === 63 ? 'grass_block' : y <= 62 ? 'stone' : 'air';
+}
+function worldBot(nameAt = flatLayout, pos = new Vec3(0.5, 64, 0.5), extraItems = []) {
+    const bot = fakeBot();
+    const reg = bot.registry = require('prismarine-registry')('1.20.1');
+    const Chunk = viaMf('prismarine-chunk')(reg), World = viaMf('prismarine-world')(reg);
+    const world = new World(null).sync;
+    for (let cx = -2; cx <= 1; cx++) for (let cz = -2; cz <= 1; cz++) {
+        const c = new Chunk({ minY: -64, worldHeight: 384 });
+        for (let x = 0; x < 16; x++) for (let z = 0; z < 16; z++) for (let y = 50; y <= 72; y++) {
+            const n = nameAt(cx * 16 + x, y, cz * 16 + z);
+            if (n !== 'air') c.setBlockStateId(new Vec3(x, y, z), reg.blocksByName[n].defaultState);
+        }
+        world.setColumn(cx, cz, c);
+    }
+    bot.world = world;
+    bot.blockAt = (v) => world.getBlock(new Vec3(Math.floor(v.x), Math.floor(v.y), Math.floor(v.z)));
+    bot.entity = { position: pos, yaw: 0, onGround: true };
+    const items = [{ name: 'oak_planks', type: reg.itemsByName.oak_planks.id, count: 4 }, { name: 'bread', type: reg.itemsByName.bread.id, count: 2 },
+        ...extraItems.map((n) => ({ name: n, type: reg.itemsByName[n].id, count: 1 }))];
+    bot.inventory = { items: () => items, slots: Array.from({ length: 46 }, (_, i) => items[i - 36] || null) };
     bot.entities = { 7: { id: 7, name: 'zombie', type: 'hostile', position: new Vec3(5, 64, 5) }, 8: { id: 8, name: 'item', type: 'other', position: new Vec3(-2, 64, 1), getDroppedItem: () => ({ name: 'stick', count: 1 }) } };
-    bot.health = 20; bot.food = 15; bot.game = { dimension: 'minecraft:overworld' };
-    bot.findBlock = () => null; bot.findBlocks = () => [];
+    bot.health = 20; bot.food = 15; bot.game = { dimension: 'minecraft:overworld', minY: -64 };
+    bot.findBlock = () => { throw new Error('findBlock is the slow path (every cell a Block): not used'); };
+    bot.findBlocks = bot.findBlock;
     bot.recipesFor = (id) => (reg.items[id].name === 'stick' || reg.items[id].name === 'crafting_table' ? [{}] : []);
     return bot;
 }
@@ -179,27 +194,38 @@ test('candidates: generic nearest-of-each-kind, within K, wait always present, e
     assert.ok(c.length <= K && byCmd('wait').length === 1);
     assert.ok(byCmd('move_to').length >= 8);
     const mined = byCmd('mine').map((m) => voc.items[m.item]);
-    assert.ok(mined.includes('oak_log') && mined.includes('iron_ore') && mined.includes('grass_block'));
+    assert.ok(mined.includes('oak_log') && mined.includes('grass_block'), mined.join());
+    assert.ok(!mined.includes('iron_ore'), 'iron ore offered without a pickaxe (it would end missing_tool)');
+    assert.deepStrictEqual(byCmd('tunnel').map((t) => `${t.args.dir}${t.args.dy}`).sort(), ['east-1', 'north-1', 'south-1', 'west-1']);
     assert.deepStrictEqual(byCmd('attack').map((a) => a.args.entity), [7]);
     assert.deepStrictEqual(byCmd('pickup').map((a) => a.args.entity), [8]);
     assert.deepStrictEqual(byCmd('craft').map((a) => a.args.item).sort(), ['crafting_table', 'stick']);
     assert.deepStrictEqual(byCmd('eat').map((a) => a.args.item), ['bread']);
     const { validateArgs } = require('../src/skills');
     for (const x of c) if (x.cmd !== 'wait') validateArgs(x.cmd, x.args);
+    const withPick = new SkillSpace(worldBot(flatLayout, new Vec3(0.5, 64, 0.5), ['stone_pickaxe']), voc).candidates();
+    assert.ok(withPick.some((x) => x.cmd === 'mine' && voc.items[x.item] === 'iron_ore'), 'iron ore with a stone pickaxe');
 });
 
-test('candidates: never the block underfoot; a bot in a pit is offered the head-height wall block (the step out)', () => {
-    const reg = require('minecraft-data')('1.20.1');
+test('candidates: only what the walker can reach (a walled-in bot is offered no move and no far block)', () => {
+    // A 3x3 room of stone walls 3 high around the bot: every move_to target outside is unreachable, as is the log outside.
+    const room = (x, y, z) => (Math.max(Math.abs(x), Math.abs(z)) === 2 && y >= 64 && y <= 66 ? 'stone' : flatLayout(x, y, z));
+    const bot = worldBot(room), voc = vocab(bot.registry, null);
+    const c = new SkillSpace(bot, voc).candidates();
+    assert.deepStrictEqual(c.filter((x) => x.cmd === 'move_to'), []);
+    assert.ok(!c.some((x) => x.cmd === 'mine' && voc.items[x.item] === 'oak_log'), 'log outside the room offered');
+    assert.ok(!c.some((x) => x.cmd === 'pickup' || x.cmd === 'attack'), 'entities outside the room offered');
+});
+
+test('candidates: never the block underfoot; a bot in a pit is offered the head-height wall block and the stair step up', () => {
     // A 1x1 pit two deep in dirt: the bot stands at y 62, ground level is 64, walls of dirt around y 62..63.
-    const bot = worldBot();
-    const dirt = (x, y, z) => { if (x === 0 && z === 0) return y <= 61; return y <= 63; };
-    bot.blockAt = (v) => { const solid = dirt(v.x, v.y, v.z); const b = solid ? reg.blocksByName.dirt : reg.blocksByName.air;
-        return { name: b.name, type: b.id, position: v, boundingBox: solid ? 'block' : 'empty', diggable: solid, shapes: solid ? [[0, 0, 0, 1, 1, 1]] : [], stateId: b.defaultState }; };
-    bot.entity = { position: new Vec3(0.5, 62, 0.5), yaw: 0, onGround: true };
-    const space = new SkillSpace(bot, vocab(bot.registry, null));
-    const mine = space.candidates().filter((c) => c.cmd === 'mine').map((c) => c.args);
+    const pit = (x, y, z) => ((x === 0 && z === 0) ? (y <= 61 ? 'dirt' : 'air') : (y <= 63 ? 'dirt' : 'air'));
+    const bot = worldBot(pit, new Vec3(0.5, 62, 0.5));
+    const c = new SkillSpace(bot, vocab(bot.registry, null)).candidates();
+    const mine = c.filter((x) => x.cmd === 'mine').map((x) => x.args);
     assert.ok(!mine.some((a) => a.x === 0 && a.z === 0 && a.y < 62), 'block under the feet offered');
     assert.ok(mine.some((a) => a.y === 63 && Math.abs(a.x) + Math.abs(a.z) === 1), `no head-height wall block: ${JSON.stringify(mine)}`);
+    assert.deepStrictEqual(c.filter((x) => x.cmd === 'tunnel' && x.args.dy === 1).length, 4, 'stair step up out of the pit');
 });
 
 test('observation matches the declared spec exactly (shapes, dtypes, masks)', () => {
@@ -222,7 +248,7 @@ test('observation matches the declared spec exactly (shapes, dtypes, masks)', ()
 test('skills_v1 action spec: one select over K candidates; hash equals DPOD ActionSpec.spec_hash()', () => {
     const s = actionSpec();
     assert.deepStrictEqual(s.components, [{ kind: 'select', name: 'candidate', n: K }]);
-    assert.strictEqual(specHash(s), '3d35ee5859e21a04b5c1eaa81ffc9048a1c6e716db872f173a90348295ec0558');
+    assert.strictEqual(specHash(s), '18d6d5c401a4c695c1f6b4229c2dec4da1413917680db86934d170ef5fde87ed');
 });
 
 test('runner: args, RCON queue keeps order and one command at a time', async () => {

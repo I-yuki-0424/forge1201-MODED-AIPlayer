@@ -125,26 +125,26 @@ function unwind(n) {
 }
 
 /**
- * Every node reachable from `start` within `maxNodes` expansions and `radius` blocks (Dijkstra over the same moves as plan),
- * as a Map "x,y,z" -> cost. What the RL candidate list uses to leave out targets the walker cannot reach.
+ * Every node reachable from `start` within `maxNodes` expansions and `radius` blocks (Dijkstra over the same moves as plan):
+ * {has(x, y, z), cells: [[x, y, z, cost], ...]}. What the RL candidate list uses to leave out targets the walker cannot reach.
  */
-function reachable(w, start, { maxNodes = 3000, radius = 24 } = {}) {
+function reachable(w, start, { maxNodes = 1500, radius = 20 } = {}) {
+    const R = radius, side = 2 * R + 1;
+    const key = (x, y, z) => ((x - start.x + R) * side + (z - start.z + R)) * 1024 + (y - start.y + 512);
+    const inside = (x, y, z) => Math.abs(x - start.x) <= R && Math.abs(z - start.z) <= R && Math.abs(y - start.y) < 512;
+    const done = new Map(), cells = [];
     const k0 = nodeKind(w, start.x, start.y, start.z);
-    const out = new Map();
-    if (!k0) return out;
-    const key = (c) => `${c.x},${c.y},${c.z}`;
-    const open = new Heap();
-    open.push({ x: start.x, y: start.y, z: start.z, kind: k0, f: 0 });
-    for (let n = 0; open.size && n < maxNodes;) {
-        const c = open.pop(), k = key(c);
-        if (out.has(k)) continue;
-        out.set(k, c.f); n++;
-        for (const m of neighbours(w, c)) {
-            if (Math.abs(m.x - start.x) > radius || Math.abs(m.z - start.z) > radius || out.has(key(m))) continue;
-            open.push({ ...m, f: c.f + m.cost });
+    if (k0) {
+        const open = new Heap();
+        open.push({ x: start.x, y: start.y, z: start.z, kind: k0, f: 0 });
+        while (open.size && cells.length < maxNodes) {
+            const c = open.pop(), k = key(c.x, c.y, c.z);
+            if (done.has(k)) continue;
+            done.set(k, c.f); cells.push([c.x, c.y, c.z, c.f]);
+            for (const m of neighbours(w, c)) if (inside(m.x, m.y, m.z) && !done.has(key(m.x, m.y, m.z))) { m.f = c.f + m.cost; open.push(m); }
         }
     }
-    return out;
+    return { has: (x, y, z) => inside(x, y, z) && done.has(key(x, y, z)), cells };
 }
 
 module.exports = { plan, neighbours, reachable, nodeKind, MAX_DROP, MAX_DROP_WATER };

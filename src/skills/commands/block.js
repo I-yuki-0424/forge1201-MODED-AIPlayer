@@ -2,7 +2,7 @@
 // Commands on blocks: move_to, look_at, mine, place, activate. Each one walks (motion.js), aims the crosshair, and
 // presses attack or use; success is the block change the server sends back, never the bot's own prediction.
 const { SkillError } = require('../runner');
-const { standable, isInteractive } = require('../world');
+const { standable, isInteractive, passable } = require('../world');
 const { FACES, lookAngles, aimPoints, viewDir, raycast } = require('../geometry');
 const { follow, cellGoal, reachGoal, approachUntil, approachBlock, aimAtBlock, clearOfEntities, feetCell, centre, hdist, same, AIM_REACH } = require('../motion');
 const { holdItem, count, resolveItemName } = require('./item');
@@ -175,4 +175,65 @@ async function activate(ctx, { x, y, z, item, sneak = false }) {
     return { block: b0.name, now: b1.name, from: b0.getProperties(), to: b1.getProperties(), window };
 }
 
-module.exports = { moveTo, lookAt, mine, place, activate, bestTool, dropOf, supports, overlaps, REPLACEABLE };
+const DIRS = { north: [0, -1], south: [0, 1], west: [-1, 0], east: [1, 0] };
+
+/**
+ * The cells `tunnel` clears (top first, so sand and gravel falling from above are dug again), the cell the feet end in, and
+ * the cell that must carry them. dy 0: a 1x2 corridor step; -1: a stair step down (the head passes the cell above the
+ * target); +1: a stair step up (head room above the bot for the jump).
+ */
+function tunnelCells(f, dir, dy) {
+    const [dx, dz] = DIRS[dir], x = f.x + dx, z = f.z + dz;
+    const to = { x, y: f.y + dy, z };
+    const clear = dy === 0 ? [{ x, y: f.y + 1, z }, { x, y: f.y, z }]
+        : dy < 0 ? [{ x, y: f.y + 1, z }, { x, y: f.y, z }, { x, y: f.y - 1, z }]
+            : [{ x: f.x, y: f.y + 2, z: f.z }, { x, y: f.y + 2, z }, { x, y: f.y + 1, z }];
+    return { to, clear, floor: { x, y: to.y - 1, z } };
+}
+
+/** Why a tunnel step cannot be dug from feet cell `f` (world only, no inventory), or null. Shared with the RL candidates. */
+function tunnelProblem(w, f, dir, dy) {
+    const { clear, floor } = tunnelCells(f, dir, dy);
+    if (w.kindAt(floor.x, floor.y, floor.z) !== 'solid') return 'no floor to stand on';
+    const inClear = (c) => clear.some((q) => q.x === c.x && q.y === c.y && q.z === c.z);
+    let solid = 0;
+    for (const c of clear) {
+        const k = w.kindAt(c.x, c.y, c.z);
+        if (k === 'unknown') return 'not loaded';
+        if (passable(k)) continue;
+        if (k !== 'solid' && k !== 'partial') return `cell holds ${k}`;
+        solid++;
+        // Opening this cell must not let water or lava in: none of its other neighbours may hold a fluid.
+        for (const [a, b, e] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
+            const n = { x: c.x + a, y: c.y + b, z: c.z + e };
+            if (inClear(n)) continue;
+            const kn = w.kindAt(n.x, n.y, n.z);
+            if (kn === 'water' || kn === 'liquid' || /lava/.test(w.nameAt ? w.nameAt(n.x, n.y, n.z) || '' : '')) return 'fluid behind';
+        }
+    }
+    return solid ? null : 'nothing to dig (a walk)';
+}
+
+/** tunnel {dir, dy}: dig the neighbouring cells toward `dir` (level, one down or one up) and step into them. */
+async function tunnel(ctx, { dir, dy }) {
+    const w = ctx.world, f = feetCell(ctx.bot.entity.position);
+    if (!standable(w, f.x, f.y, f.z)) throw new SkillError('invalid_target', { why: 'not standing on ground', at: f });
+    const why = tunnelProblem(w, f, dir, dy);
+    if (why) throw new SkillError('invalid_target', { why, dir, dy });
+    const { to, clear } = tunnelCells(f, dir, dy);
+    let mined = 0;
+    for (const c of clear) {
+        for (let n = 0; !passable(w.kindAt(c.x, c.y, c.z)); n++) {
+            if (n >= 6) throw new SkillError('not_confirmed', { why: 'cell keeps filling (falling blocks)', cell: c });
+            ctx.phase('tunnel_dig', { cell: c });
+            await mine(ctx, c);
+            mined++;
+            await ctx.idle(4);    // let sand or gravel above fall into the cell
+        }
+    }
+    ctx.phase('tunnel_step', { to });
+    const end = await follow(ctx, cellGoal(to, `tunnel ${dir} ${dy}`));
+    return { to: end, mined };
+}
+
+module.exports = { moveTo, lookAt, mine, place, activate, tunnel, tunnelCells, tunnelProblem, bestTool, dropOf, supports, overlaps, REPLACEABLE, DIRS };

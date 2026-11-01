@@ -84,7 +84,18 @@ function fromBot(bot) {
             }
             return i;
         };
-        const sid = (x, y, z) => { v.x = x; v.y = y; v.z = z; return bot.world.getColumnAt(v) ? bot.world.getBlockStateId(v) : -1; };
+        // The column of the last lookup is kept (neighbouring cells share it); a chunk load or unload forgets it.
+        let mx = NaN, mz = NaN, col = null;
+        const forget = () => { mx = NaN; };
+        if (typeof bot.world.on === 'function') { bot.world.on('chunkColumnLoad', forget); bot.world.on('chunkColumnUnload', forget); }
+        const lp = { x: 0, y: 0, z: 0 };
+        const sid = (x, y, z) => {
+            const cx = x >> 4, cz = z >> 4;
+            if (cx !== mx || cz !== mz) { v.x = x; v.y = 0; v.z = z; col = bot.world.getColumnAt(v) || null; mx = cx; mz = cz; }
+            if (!col) return -1;
+            lp.x = x & 15; lp.y = y; lp.z = z & 15;
+            return col.getBlockStateId(lp);
+        };
         w = { blockAt, sid, info,
             kindAt: (x, y, z) => { const s = sid(x, y, z); return s < 0 ? 'unknown' : info(s).kind; },
             shapesAt: (x, y, z) => { const s = sid(x, y, z); return s < 0 ? [] : info(s).shapes; },

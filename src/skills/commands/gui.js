@@ -4,6 +4,7 @@
 // (bot.craft, openFurnace, openContainer: sequences of window clicks), run while the game clock keeps ticking.
 const { SkillError } = require('../runner');
 const { approachBlock, aimAtBlock } = require('../motion');
+const { findStates } = require('../world');
 const { count } = require('./item');
 
 const STATION_RANGE = 16;
@@ -15,6 +16,10 @@ const inContainer = (win, id) => win.containerItems().reduce((s, i) => s + (i.ty
 // While a container or furnace is open Mineflayer keeps the player's items in the window's own slots; bot.inventory catches up on close.
 const inPlayer = (win, id) => win.items().reduce((s, i) => s + (i.type === id ? i.count : 0), 0);
 
+// One predicate object per pattern, so findStates' per-state memo is reused across calls.
+const PREDS = new Map();
+const stationPred = (re) => PREDS.get(re.source) || PREDS.set(re.source, (i) => re.test(i.name)).get(re.source);
+
 /** The block at {x,y,z} if it matches, else the nearest matching block within range. */
 function station(ctx, re, at, what) {
     const bot = ctx.bot;
@@ -23,7 +28,9 @@ function station(ctx, re, at, what) {
         if (!b || !re.test(b.name)) throw new SkillError('invalid_target', { want: what, found: b && b.name, at });
         return b;
     }
-    const b = bot.findBlock({ matching: (blk) => re.test(blk.name), maxDistance: STATION_RANGE });
+    const w = ctx.world;
+    const hit = w.sid ? findStates(bot, w, bot.entity.position, STATION_RANGE, stationPred(re), { count: 1 })[0] : null;
+    const b = w.sid ? (hit ? w.blockAt(hit.x, hit.y, hit.z) : null) : bot.findBlock({ matching: (blk) => re.test(blk.name), maxDistance: STATION_RANGE });
     if (!b) throw new SkillError('no_station', { want: what, range: STATION_RANGE });
     return b;
 }

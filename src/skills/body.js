@@ -9,7 +9,7 @@
 // Keys not named in a frame are released. Every command in src/skills/commands is a sequence of frames plus waits,
 // so this file is the only place where input becomes packets (window clicks excepted: commands/gui.js).
 const Vec3 = require('vec3');
-const { isInteractive, shapesOf } = require('./world');
+const { isInteractive, fromBot } = require('./world');
 const { EYE, BLOCK_REACH, ENTITY_REACH, FACES, viewDir, raycast, rayBox, entityBox } = require('./geometry');
 
 const MOVE = ['forward', 'back', 'left', 'right', 'jump', 'sprint', 'sneak'];
@@ -34,7 +34,7 @@ class Body {
         const b = this.bot, e = b.entity;
         const eye = this.eye();
         const d = viewDir(e.yaw, e.pitch);
-        const hit = raycast(eye, d, BLOCK_REACH, (x, y, z) => shapesOf(b.blockAt(new Vec3(x, y, z), false)));
+        const hit = raycast(eye, d, BLOCK_REACH, fromBot(b).shapesAt);
         const ent = this.entityOnRay(eye, d, Math.min(ENTITY_REACH, hit ? hit.t : ENTITY_REACH));
         if (ent) return ent;
         if (!hit) return null;

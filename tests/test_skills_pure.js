@@ -140,14 +140,15 @@ const goalCell = (t) => ({ isGoal: (c) => c.x === t.x && c.y === t.y && c.z === 
     });
 
     await test('argument schemas are closed', () => {
-        assert.strictEqual(Object.keys(COMMANDS).length, 14);
+        assert.strictEqual(Object.keys(COMMANDS).length, 15);
+        validateArgs('tunnel', { dir: 'north', dy: -1 });
         validateArgs('move_to', { x: 1, y: -60, z: 3 });
         validateArgs('look_at', { entity: 7 });
         validateArgs('craft', { item: 'stick', count: 4 });
         const bad = [['move_to', { x: 1, y: 2 }], ['move_to', { x: 1.5, y: 2, z: 3 }], ['move_to', { x: 1, y: 2, z: 3, fast: true }],
             ['look_at', { x: 1, y: 2, z: 3, entity: 4 }], ['look_at', { x: 1 }], ['pickup', {}], ['equip', { item: 'Stone' }],
             ['equip', { item: 'shield', dest: 'back' }], ['toss', { item: 'dirt', count: 0 }], ['craft', { item: 'stick', x: 1 }],
-            ['fly', {}], ['mine', null]];
+            ['fly', {}], ['mine', null], ['tunnel', { dir: 'up', dy: 0 }], ['tunnel', { dir: 'east', dy: 2 }], ['tunnel', { dir: 'east' }]];
         for (const [n, a] of bad) assert.throws(() => validateArgs(n, a), (e) => e instanceof SkillError && e.reason === 'invalid_args', `${n} ${JSON.stringify(a)}`);
     });
 

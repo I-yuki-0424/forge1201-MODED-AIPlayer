@@ -21,30 +21,49 @@ const state = (name, props = {}) => {
 const S = { air: state('air'), stone: state('stone'), water: state('water', { level: 0 }), ladderWest: state('ladder', { facing: 'west', waterlogged: false }) };
 
 /** A world of state ids: stone at y <= 0 unless set, air above. */
-function scene(cells) {
+function scene(cells, { groundTop = 0 } = {}) {
     const key = (x, y, z) => `${x},${y},${z}`;
-    const sid = (x, y, z) => cells.get(key(x, y, z)) ?? (y <= 0 ? S.stone : S.air);
+    const sid = (x, y, z) => cells.get(key(x, y, z)) ?? (y <= groundTop ? S.stone : S.air);
     const getBlock = (p) => { const x = Math.floor(p.x), y = Math.floor(p.y), z = Math.floor(p.z); const b = Block.fromStateId(sid(x, y, z), 0); b.position = new Vec3(x, y, z); return b; };
     const set = (x, y, z, s) => cells.set(key(x, y, z), s);
     return { getBlock, set };
 }
 const fill = (w, [x0, x1], [y0, y1], [z0, z1], s) => { for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) w.set(x, y, z, s); };
 
-/** A bot with prismarine-physics as its client physics, ticking as fast as the event loop allows. */
-function simBot(world, pos) {
+/**
+ * A bot with prismarine-physics as its client physics, ticking as fast as the event loop allows. `items` go to the hotbar.
+ * The only server behaviour modelled is digging: a finish-dig packet clears the cell and puts its drop in the inventory.
+ */
+function simBot(world, pos, items = []) {
     const bot = new EventEmitter();
     const controls = { forward: false, back: false, left: false, right: false, jump: false, sprint: false, sneak: false };
     const physics = Physics(registry, world);
     Object.assign(bot, {
         version: '1.20.1', registry, food: 20, jumpTicks: 0, jumpQueued: false, quickBarSlot: 0, entities: {},
         entity: { position: pos.clone(), velocity: new Vec3(0, 0, 0), yaw: 0, pitch: 0, onGround: false, isInWater: false, attributes: {}, effects: {}, height: 1.8, width: 0.6 },
-        inventory: { slots: [], items: () => [] },
+        inventory: { slots: [], items: () => bot.inventory.slots.slice(9, 45).filter(Boolean) },
         setControlState: (k, v) => { controls[k] = v; }, getControlState: (k) => !!controls[k],
         look: async (y, p) => { bot.entity.yaw = y; bot.entity.pitch = p; },
         setQuickBarSlot: (s) => { bot.quickBarSlot = s; },
         blockAt: (p) => world.getBlock(p),
-        _client: { write: () => {} },
+        _client: { write: (name, d) => {
+            if (name !== 'block_dig' || d.status !== 2) return;
+            const b = world.getBlock(d.location), drop = b.drops && b.drops[0];
+            world.set(d.location.x, d.location.y, d.location.z, S.air);
+            const id = drop === undefined ? null : typeof drop === 'object' ? (drop.drop?.id ?? drop.id) : drop;
+            if (id !== null && id !== undefined) give(registry.items[id].name);
+        } },
+        swingArm: () => {}, attack: () => {},
+        digTime: (block) => block.digTime(bot.heldItem ? bot.heldItem.type : null, false, false, false, [], {}),
     });
+    Object.defineProperty(bot, 'heldItem', { get: () => bot.inventory.slots[36 + bot.quickBarSlot] || null });
+    const give = (name) => {
+        const s = bot.inventory.slots, have = s.findIndex((i) => i && i.name === name);
+        if (have >= 0) { s[have].count++; return; }
+        const free = [...Array(36).keys()].map((i) => 36 - 27 + ((i + 27) % 36)).find((i) => !s[i]);
+        s[free] = { name, type: registry.itemsByName[name].id, count: 1, slot: free };
+    };
+    for (const n of items) give(n);
     bot.entity.position.y += 0;
     bot.oxygen = 300; bot.minAir = 300;
     let stop = false;
@@ -63,11 +82,16 @@ function simBot(world, pos) {
     return bot;
 }
 
-async function moveTo(world, from, to, maxTicks = 1500) {
-    const bot = simBot(world, from);
+async function settled(world, from, items) {
+    const bot = simBot(world, from, items);
     bot.start();
     // Let the body settle on the ground first, as after a spawn.
     await new Promise((r) => { let n = 0; bot.on('physicsTick', function f() { if (++n > 10) { bot.removeListener('physicsTick', f); r(); } }); });
+    return bot;
+}
+
+async function moveTo(world, from, to, maxTicks = 1500) {
+    const bot = await settled(world, from);
     try {
         const r = await execute(bot, 'move_to', to, { maxTicks });
         const p = bot.entity.position;
@@ -137,6 +161,41 @@ async function moveTo(world, from, to, maxTicks = 1500) {
         assert.strictEqual(r.reason, 'unreachable');
         assert.ok(r.ticks < 300, `${r.ticks} ticks`);
         assert.ok(r.minAir > 200, `air ${r.minAir}`);
+    });
+
+    await test('tunnel: three stair steps down and a corridor step through stone, then walk back up the stairs', async () => {
+        const w = scene(new Map(), { groundTop: 0 });
+        fill(w, [-3, 8], [1, 4], [-3, 3], S.stone);                   // solid rock above the ground too: all digging
+        fill(w, [-1, 1], [5, 5], [-1, 1], S.stone);
+        fill(w, [0, 0], [5, 6], [0, 0], S.air);                        // the bot's own shaft cell at y 5..6, standing on y 4
+        const bot = await settled(w, new Vec3(0.5, 5, 0.5), ['stone_pickaxe']);
+        try {
+            const steps = [['east', -1], ['east', -1], ['east', -1], ['east', 0]];
+            for (const [dir, dy] of steps) {
+                const r = await execute(bot, 'tunnel', { dir, dy });
+                assert.strictEqual(r.ok, true, `${dir} ${dy}: ${r.reason} ${JSON.stringify(r.detail)}`);
+            }
+            const p = bot.entity.position;
+            assert.deepStrictEqual([Math.floor(p.x), Math.floor(p.y + 0.2), Math.floor(p.z)], [4, 2, 0]);
+            const cobble = bot.inventory.items().find((i) => i.name === 'cobblestone');
+            assert.ok(cobble && cobble.count >= 9, `cobblestone ${cobble && cobble.count}`);
+            const back = await execute(bot, 'move_to', { x: 0, y: 5, z: 0 }, { maxTicks: 600 });
+            assert.strictEqual(back.ok, true, `back up: ${back.reason} ${JSON.stringify(back.detail)}`);
+        } finally { bot.stop(); }
+    });
+
+    await test('tunnel refuses to open a cell next to water, and needs a floor', async () => {
+        const w = scene(new Map(), { groundTop: 0 });
+        fill(w, [1, 1], [1, 2], [0, 0], S.stone);
+        w.set(2, 1, 0, S.water);                                       // behind the cell to dig
+        const bot = await settled(w, new Vec3(0.5, 1, 0.5), ['stone_pickaxe']);
+        try {
+            const r = await execute(bot, 'tunnel', { dir: 'east', dy: 0 });
+            assert.deepStrictEqual([r.ok, r.reason, r.detail.why], [false, 'invalid_target', 'fluid behind']);
+            assert.strictEqual(w.getBlock(new Vec3(1, 1, 0)).name, 'stone', 'nothing was dug');
+            const up = await execute(bot, 'tunnel', { dir: 'west', dy: 1 });
+            assert.deepStrictEqual([up.ok, up.detail.why], [false, 'no floor to stand on']);
+        } finally { bot.stop(); }
     });
 
     console.log('all motion simulation tests passed');
