@@ -197,6 +197,19 @@ The brief and what changed (TASK-20261101-025 here, TASK-20261101-030 in DPOD):
 Found in the first minutes of run 3 and fixed: an ocean sector ended the run (no dry site in 30 tries); a bot reset onto a
 tree top, cleared it and stood on a one-block trunk, waiting (L15).
 
+## Run 3 shards (2026-11-01 19:31 JST)
+
+Owner: about 16k steps in the first hour; speeding up backfires through lag, so parallelise (32 bots, 1.5 M steps per hour).
+`scripts/train/up.sh --shards S` runs S servers, each with its own environment process (bot ids global, a copy of shard 0's
+world, no host port), all feeding one learner (DPOD follows `<base>.current` and `<base>.s<i>.current`). Run 3 continues on its
+checkpoint as 2 x 10 bots at 1x: **5.61 steps/s = 20.2 k/h** (8 bots at 1.25x: 3.63 = 13.1 k/h), 94 % command success,
+mean command 62 ticks. The VPS is the limit: load ~12 on 6 vCPU, both servers 38-72 ms per tick, the learner 170 % CPU
+while updating, swap +1.3 GB.
+
+Arithmetic of the target: 1.5 M/h = 417 steps/s; a bot completes 0.4-0.5 steps/s (51-62 game ticks per command), so about
+900 bots, i.e. ~90 server threads at ~10 bots each. Real Minecraft does not get there on any machine held; 32 bots (4 shards x
+8) fit the owner's PC (8 cores, 48 GB) rather than this box.
+
 ## Not done
 
 - The training run itself (owner's go-ahead).
