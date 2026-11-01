@@ -138,3 +138,11 @@ the knowledge-DB (tag `forge1201-moded-aiplayer`).
 - **Rule:** `ctx.until`/`during` budgets scale with the clock (`time_scale.scale`), the dig-confirm window too; craft one batch
   per call. The server must keep up with the factor it is given: bots x speed share its one tick thread (training world,
   8 bots: 29-33 ms per tick at 1x).
+
+## L17 — A candidate filter that is looser than the command fails in one tick (found 2026-11-01)
+
+- RL v1.3 offered a block to `mine` when some reachable cell's eye was within 4.1 blocks of its centre. The command itself
+  needs a visible aim point within 3.7 (`motion.reachGoal`). Blocks touching cave air behind a wall passed the filter and
+  failed `unreachable` in ~1 tick: 1,314 failures in run train3, 1,037 of them on one bot.
+- **Rule:** a candidate generator decides availability with the command's own goal test (`reachGoal(...).isGoal`), never a
+  cheaper look-alike; test it with a case the look-alike accepts (tests/test_rl_v2_pure.js, hidden dirt behind a wall).

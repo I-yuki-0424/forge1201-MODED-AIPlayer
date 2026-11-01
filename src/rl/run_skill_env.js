@@ -50,10 +50,18 @@ function parseArgs(argv) {
     return o;
 }
 
-/** One RCON connection, one command at a time (docs/LESSONS.md L9). */
-function queued(rcon) {
+/** One RCON connection, one command at a time (docs/LESSONS.md L9). A command that times out is sent again (up to `retries`
+ *  times): replies are matched by request id and late ones dropped (src/rl/rcon.js), and every command the environment sends
+ *  is safe to repeat. A lagging server used to end the whole run on one 5 s timeout (run train4: 8 restarts of shard 0 in an
+ *  hour, every bot reset each time). */
+function queued(rcon, { retries = 2 } = {}) {
     let tail = Promise.resolve();
-    return (cmd) => { const p = tail.then(() => rcon.command(cmd)); tail = p.catch(() => {}); return p; };
+    const once = async (cmd) => {
+        for (let i = 0; ; i++) {
+            try { return await rcon.command(cmd); } catch (e) { if (i >= retries || !/timeout/.test(String(e.message))) throw e; }
+        }
+    };
+    return (cmd) => { const p = tail.then(() => once(cmd)); tail = p.catch(() => {}); return p; };
 }
 
 /** Stuck detector: true once fewer than `minOk` of the last `n` commands were successful commands other than `wait` and the
@@ -142,7 +150,8 @@ async function main() {
         waiters.set(envId, { episode, step, resolve: (m) => { clearTimeout(timer); resolve(m); } });
     });
 
-    const rcon = new Rcon({ host: process.env.RCON_HOST || 'localhost', port: Number(process.env.RCON_PORT) || 25575, password: process.env.RCON_PASSWORD || '' });
+    const rcon = new Rcon({ host: process.env.RCON_HOST || 'localhost', port: Number(process.env.RCON_PORT) || 25575, password: process.env.RCON_PASSWORD || '',
+        timeoutMs: Number(process.env.RCON_TIMEOUT_MS) || 10000 });
     await rcon.connect();
     const cmd = queued(rcon);
     for (const g of GAMERULES) await cmd(`gamerule ${g}`);
@@ -231,6 +240,9 @@ async function main() {
                 if (tracker.dead || bot.health <= 0) await sleep(300);   // let the death packet and the last statistics arrive
                 const { events: evs, statsOk } = await tracker.collect();
                 if (!res.ok) evs.push({ type: 'failed', reason: res.reason });   // scored by reward term `invalid`
+                // Tool multiplier of `mined` (owner 2026-11-02): which blocks this command broke with a tool (action-layer result).
+                const used = res.ok && c ? (c.cmd === 'mine' ? [res.detail && res.detail.tool] : c.cmd === 'tunnel' ? (res.detail && res.detail.tools) || [] : []) : [];
+                if (used.length) evs.push({ type: 'tool', frac: used.filter(Boolean).length / used.length });
                 const sc = reward.score(evs);
                 const dead = tracker.dead;
                 ep.stuck = !dead && stuck.push(res.ok, bot.entity && bot.entity.position, c ? c.cmd : null);

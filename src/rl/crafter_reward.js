@@ -37,9 +37,12 @@ class CrafterReward {
     }
 
     /** events: [{type:'killed', entity, n}, {type:'mined', block, n}, {type:'advancement', id}, {type:'dawn', slept}, {type:'death'},
-     *  {type:'failed', reason}] (the last from the command's own result, every other one from the server) */
+     *  {type:'failed', reason}, {type:'tool', frac}] (failed and tool from the command's own result: frac = share of the blocks
+     *  it broke with a tool; every other one from the server) */
     score(events) {
         const terms = Object.fromEntries(TERMS.map((t) => [t, 0]));
+        const tool = events.find((e) => e.type === 'tool');
+        const toolMult = 1 + ((TABLE.mined.tool_multiplier ?? 1) - 1) * (tool ? Math.max(0, Math.min(1, tool.frac)) : 0);
         for (const e of events) {
             if (e.type === 'dawn') {
                 this.nights++; if (e.slept) this.slept++;
@@ -63,7 +66,7 @@ class CrafterReward {
                 for (let i = 0; i < e.n; i++) {
                     const k = this.mined.get(name) || 0;
                     this.mined.set(name, k + 1);
-                    terms.mined += base * TABLE.mined.decay ** k;
+                    terms.mined += base * TABLE.mined.decay ** k * toolMult;
                 }
             } else if (e.type === 'failed') {
                 terms.invalid += TABLE.invalid.reasons[e.reason] || 0;

@@ -188,6 +188,28 @@ function worldBot(nameAt = flatLayout, pos = new Vec3(0.5, 64, 0.5), extraItems 
     return bot;
 }
 
+test('reward v2, owner rule 2026-11-02: thousands of trivial blocks in one episode are worth less than one log', () => {
+    const r = new CrafterReward();
+    let trivial = 0;
+    for (const block of ['dirt', 'grass_block', 'gravel', 'sand']) trivial += r.score([{ type: 'mined', block: `minecraft:${block}`, n: 1000 }]).terms.mined;
+    const log = new CrafterReward().score([{ type: 'mined', block: 'minecraft:oak_log', n: 1 }]).terms.mined;
+    assert.ok(log >= 0.2, `log ${log}`);
+    assert.ok(trivial < log, `4 x 1000 trivial blocks ${trivial} >= one log ${log}`);
+    // placing earns nothing: only server statistics (mined, killed), advancements, nights and failures are scored
+    assert.strictEqual(r.score([{ type: 'placed', block: 'dirt', n: 1000 }]).total, 0);
+});
+
+test('reward v2: blocks broken with a tool score x tool_multiplier (owner 2026-11-02), a tunnel by the share of tool cells', () => {
+    const m = TABLE.mined.tool_multiplier;
+    assert.ok(m > 1 && m <= 1.5, `slight multiplier ${m}`);
+    const ev = [{ type: 'mined', block: 'minecraft:coal_ore', n: 1 }];
+    const hand = new CrafterReward().score(ev).terms.mined;
+    const tool = new CrafterReward().score([...ev, { type: 'tool', frac: 1 }]).terms.mined;
+    const half = new CrafterReward().score([...ev, { type: 'tool', frac: 0.5 }]).terms.mined;
+    near(tool, hand * m); near(half, hand * (1 + (m - 1) / 2));
+    assert.strictEqual(new CrafterReward().score([{ type: 'tool', frac: 1 }]).total, 0);   // a tool alone earns nothing
+});
+
 test('candidates: generic nearest-of-each-kind, within K, wait always present, every one passes the command schema', () => {
     const bot = worldBot(), voc = vocab(bot.registry, null), space = new SkillSpace(bot, voc);
     const c = space.candidates(), byCmd = (k) => c.filter((x) => x.cmd === k);
@@ -289,6 +311,16 @@ test('runner: args, RCON queue keeps order and one command at a time', async () 
     const cmd = queued({ command: async (c) => { active++; maxActive = Math.max(maxActive, active); await new Promise((r) => setTimeout(r, 5)); log.push(c); active--; return c; } });
     await Promise.all(['a', 'b', 'c'].map(cmd));
     assert.deepStrictEqual(log, ['a', 'b', 'c']); assert.strictEqual(maxActive, 1);
+    // a timeout is retried (twice), any other error is not
+    let calls = 0;
+    const flaky = queued({ command: async (c) => { calls++; if (calls < 3) throw new Error('rcon: timeout after 5000 ms'); return `ok ${c}`; } });
+    assert.strictEqual(await flaky('x'), 'ok x'); assert.strictEqual(calls, 3);
+    let n2 = 0;
+    const broken = queued({ command: async () => { n2++; throw new Error('rcon: socket closed'); } });
+    await assert.rejects(broken('y'), /socket closed/); assert.strictEqual(n2, 1);
+    let n3 = 0;
+    const dead = queued({ command: async () => { n3++; throw new Error('rcon: timeout after 5000 ms'); } });
+    await assert.rejects(dead('z'), /timeout/); assert.strictEqual(n3, 3);
 });
 
 test('live board: success rates, bias against a uniform pick, warnings for failing, dominating and standing still', () => {

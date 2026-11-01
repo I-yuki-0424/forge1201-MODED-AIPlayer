@@ -228,18 +228,19 @@ async function tunnel(ctx, { dir, dy }) {
     if (why) throw new SkillError('invalid_target', { why, dir, dy });
     const { to, clear } = tunnelCells(f, dir, dy);
     let mined = 0;
+    const tools = [];
     for (const c of clear) {
         for (let n = 0; !passable(w.kindAt(c.x, c.y, c.z)); n++) {
             if (n >= 6) throw new SkillError('not_confirmed', { why: 'cell keeps filling (falling blocks)', cell: c });
             ctx.phase('tunnel_dig', { cell: c });
-            await mine(ctx, c);
+            tools.push((await mine(ctx, c)).tool || null);
             mined++;
             await ctx.idle(4);    // let sand or gravel above fall into the cell
         }
     }
     ctx.phase('tunnel_step', { to });
     const end = await follow(ctx, cellGoal(to, `tunnel ${dir} ${dy}`));
-    return { to: end, mined };
+    return { to: end, mined, tools };
 }
 
 module.exports = { moveTo, lookAt, mine, place, activate, tunnel, tunnelCells, tunnelProblem, bestTool, dropOf, supports, overlaps, REPLACEABLE, DIRS };

@@ -26,6 +26,8 @@
     "doc": "Statistic minecraft:mined:<block>. Unlisted blocks (dirt, stone, sand, netherrack, ...) get `default`. Tiers rise with rarity; the n-th block of one type in an episode = tier * decay^(n-1).",
     "default": 0.002,
     "decay": 0.7,
+    "tool_multiplier": 1.25,
+    "tool_doc": "Owner 2026-11-02: blocks broken with a tool (the action layer's bestTool: the fastest held tool that harvests the block; null = the hand) score x tool_multiplier, so building tools first is worth slightly more. Tunnel: scaled by the share of its cells broken with a tool.",
     "tiers": [
       { "score": 0.2, "blocks": ["oak_log", "spruce_log", "birch_log", "jungle_log", "acacia_log", "dark_oak_log", "mangrove_log", "cherry_log", "crimson_stem", "warped_stem"] },
       { "score": 0.3, "blocks": ["copper_ore", "deepslate_copper_ore", "clay"] },

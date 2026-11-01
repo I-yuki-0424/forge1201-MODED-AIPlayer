@@ -94,8 +94,10 @@ class ProgressTracker {
     async begin() {
         this.pending = []; this.granted.clear(); this.dead = false; this.sawNight = false;
         this.day = this.bot.time ? this.bot.time.day : null; this.lastWake = null;
-        const s = await this.stats();
-        if (!s) throw new Error('statistics: no reply from the server');
+        // A lagging server can miss the first request (run train4: 'no reply' ended the run); ask up to 3 times.
+        let s = null;
+        for (let i = 0; i < 3 && !s; i++) s = await this.stats();
+        if (!s) throw new Error('statistics: no reply from the server (3 requests)');
         this.last = s;
     }
 

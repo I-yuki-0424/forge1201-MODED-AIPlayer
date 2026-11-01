@@ -52,10 +52,18 @@ up = [x for x in tl if x.get("event") == "update"]
 model = [x for x in tl if x.get("event") == "model"]
 if model:
     m = model[-1]
-    print(f"learner: {m['name']} params {m['params_total']}, learn={m['learn']}, stage {m['stage']}")
+    print(f"learner: {m['name']} params {m['params_total']}, learn={m['learn']}" + (f", stage {m['stage']}" if "stage" in m else "")
+          + (f", init {m['init']}" if m.get("init") else ""))
 if up:
     u = up[-1]
-    print(f"  update {u['update']}: steps {u['total_steps']}, stage {u['stage']}, entropy {u['ent']:.3f}, kl {u['kl']:.4f}, staleness {u['staleness_mean']}")
+    print(f"  update {u['update']}: steps {u['total_steps']}" + (f", stage {u['stage']}" if "stage" in u else "")
+          + f", entropy {u['ent']:.3f}, kl {u['kl']:.4f}, staleness {u['staleness_mean']}")
+    if "goals" in u:   # GoalWM learner (DPOD botsystem_goal_ppo.py)
+        g = u["goals"]
+        print(f"  goals: reached {g['reached']} of {g['assigned']} assigned (task goals {g['task_reached']} of {g['task_assigned']}), "
+              f"archive {u['archive']} dims, replay {u['replay']}; world model ok {u['aux_ok']:.3f} inv {u['aux_inv']:.3f} reach {u['aux_reach']:.3f}; "
+              f"u_gain {u['u_gain']:.3f}")
+        print(f"  most tried goals: {u['top_goals']}")
 for x in tl:
     if x.get("event") == "stage_switch":
         print(f"  stage switch -> {x['to']}: {x['reason']}")

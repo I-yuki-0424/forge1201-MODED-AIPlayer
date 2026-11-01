@@ -220,3 +220,28 @@ Arithmetic of the target: 1.5 M/h = 417 steps/s; a bot completes 0.4-0.5 steps/s
   dragon to be reachable in principle.
 - Live measurement of the statistics decoding on Forge (registry sync of `stat_type`/`entity_type`), dawn/sleep detection and
   advancement grading: checked in the smoke run, see STATE.yaml.
+
+## Owner review 2026-11-02 (watching run 4): "OK rewards mistakes", dirt farming
+
+Knowledge: `forge1201aiplayersystem_rl_whatwrong_ilook.md`. Checked against the logs before changing anything:
+
+- **Is OK rewarded?** No term pays success. Reward-v2 pays server statistics (mined, killed), advancements, nights and death,
+  and charges failures (`invalid` -0.1 / -0.05), so OK means "not charged". Every command's OK is a server-confirmed effect:
+  move_to position reached, place block present, craft/pickup/smelt count up, eat item consumed and food up, attack target
+  dead, tunnel every cell's break confirmed and the bot in the new cell. Two loose ends, both earning nothing: `mine` is OK on
+  the confirmed break even when the drop is lost (`drop_missed`, L15), and `wait` is always OK.
+- **Tunnel "digs 3 and stops":** one tunnel command is one stair step by specification (head, body and floor-1 cells, then step
+  in). The holes are the untrained policy: uniform over command kinds, it chose tunnel 13 % of run 4's first 17 k steps, each
+  a single step in a random direction. That is exploration cost, not a judging error.
+- **Dirt farming learned?** Not in the environment reward: unlisted blocks pay 0.002 x 0.7^(n-1) per type and episode, so
+  4 x 1000 trivial blocks are worth less than one log (now a regression test). Run 3 (109 k trained steps) *reduced* dirt:
+  mining dirt 17.1 % -> 8.5 % of steps, placing dirt 9.8 % -> 5.1 % (first vs last quarter, shard 0; shard 1 alike). The
+  dirt you see is the starting distribution (the nearest blocks offered to `mine` are mostly grass and dirt).
+- **Where the owner was right:** GoalWM's flat goal bonus (1.0 per reached goal, DPOD a74caba) paid "+1 dirt" five times a log
+  and could be collected by place-then-mine or a tunnel. Fixed in DPOD: bonus = 0.5 x (1 - p) x 0.5^n, p = max(reach head at
+  assignment, past success rate), n = repeats of the dimension this episode; 1000 trivial goals < one log (test). The
+  `invalid` charge still makes always-OK commands relatively safe; kept (owner decision after run 1), watched.
+- **Not done:** "pay for dirt only if a batch-generated plan uses it" needs plan generation, which the candidate-list
+  environment cannot support yet (MODEL-GOALWM.md); as the owner noted, it could also misjudge.
+- Also fixed on the way: an RCON or statistics timeout on a lagging server ended the whole run (train4 shard 0: 8 restarts in
+  an hour, every bot reset); timeouts are now retried (ids matched, late replies dropped), RCON timeout 10 s.
