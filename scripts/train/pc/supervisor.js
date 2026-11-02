@@ -1,8 +1,9 @@
 'use strict';
-// Training groups on the owner's PC (owner 2026-11-02: bots from 11 on use the PC). One Forge server (127.0.0.1 only) and one
-// environment process (src/rl/run_skill_env.js) per group, kept running the way the VPS containers are (restart on exit, with
-// back-off); the learner on the VPS reaches the environments through scripts/train/pc/relay.js. Started detached by
-// scripts/train/pc.sh; stops when <home>/STOP exists. Node 20 (portable, <home>/node), Java 17 from PATH.
+// Training on the owner's PC (owner 2026-11-02: bots from 11 on and the training itself use the PC). One Forge server (127.0.0.1
+// only) and one environment process (src/rl/run_skill_env.js) per group, plus the learner (DPOD scripts/botsystem_goal_ppo.py in
+// <home>/venv), kept running the way the VPS containers are (restart on exit, with back-off). The VPS groups reach the learner
+// through scripts/train/relay.py. Started detached by scripts/train/pc.sh; stops when <home>/STOP exists. Node 20 (portable,
+// <home>/node), Java 17 from PATH.
 //   node supervisor.js <home>       config: <home>/config.json (written by pc.sh), RCON password: <home>/rcon.txt
 // A group whose site candidates are used up (environment exit code 7) gets a new world of the same seed: the server is stopped,
 // its world and the world's used-site record are deleted, and both start again (owner: regenerate only when the list runs out).
@@ -80,6 +81,16 @@ async function tend(g) {
     }
 }
 
+// The learner (one process for every group on both machines; resumes from <root>/<base>/train/checkpoint.pkl).
+const learner = { proc: null, fails: 0, next: 0 };
+function tendLearner() {
+    if (!cfg.learner || learner.proc || Date.now() < learner.next) return;
+    const py = path.join(home, 'venv', 'Scripts', 'python.exe');
+    learner.proc = run('learner', py, [path.join(home, 'dpod', 'scripts', 'botsystem_goal_ppo.py'), '--root', root, '--base', cfg.base,
+        '--learn', String(cfg.learn), '--seed', '42', '--population', '1'], { cwd: path.join(home, 'dpod'), env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } });
+    learner.proc.on('exit', (code) => { log(`learner exit ${code}`); learner.proc = null; learner.fails++; learner.next = Date.now() + Math.min(300000, 5000 * 2 ** Math.min(learner.fails, 6)); });
+}
+
 async function main() {
     fs.writeFileSync(path.join(home, 'supervisor.pid'), String(process.pid));
     log(`supervisor up: ${cfg.groups} groups x ${cfg.bots} bots, base ${cfg.base}, shards ${cfg.shard0}..${cfg.shard0 + cfg.groups - 1}, speed ${cfg.speed}`);
@@ -90,13 +101,15 @@ async function main() {
             busy.add(g);
             tend(g).catch((e) => log(`g${g.g}: ${e.message}`)).finally(() => busy.delete(g));
         }
+        tendLearner();
         fs.writeFileSync(path.join(home, 'status.json'), JSON.stringify({ t: Date.now(), groups: groups.map((g) => ({ g: g.g, shard: g.shard,
-            server: g.server ? g.server.pid : null, env: g.env ? g.env.pid : null, fails: g.fails })) }));
+            server: g.server ? g.server.pid : null, env: g.env ? g.env.pid : null, fails: g.fails })), learner: learner.proc ? learner.proc.pid : null }));
         for (const g of groups) if (g.env && g.fails) g.fails = Math.max(0, g.fails - 0.01);   // decays while running
         await sleep(2000);
     }
     log('STOP: stopping environments and servers');
     for (const g of groups) if (g.env) g.env.kill();
+    if (learner.proc) learner.proc.kill();   // its checkpoint is written after every update
     await Promise.all(groups.map(stopServer));
     fs.rmSync(path.join(home, 'supervisor.pid'), { force: true });
     log('supervisor down');

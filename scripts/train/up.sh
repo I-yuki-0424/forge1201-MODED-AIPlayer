@@ -11,7 +11,8 @@
 #     reaches it only while its tick work fits in 50/K ms (scripts/train/status.sh shows the measured rate).
 #   --learn 0 = the policy acts but never updates (smoke run); 1 = training.
 #   --fresh-world: new worlds from the same seed (old shard-0 world archived to $SNAPS) and the used-site records cleared.
-#   --pc G: also start G groups on the owner's PC (scripts/train/pc.sh up; bots from 11 on), relayed into exchange/.
+#   --pc G: also start G groups on the owner's PC (scripts/train/pc.sh up; bots from 11 on) and run the learner there (8 cores,
+#     48 GB: 'train with abundant resources'); scripts/train/relay.py mirrors what each side reads.
 # Start sites: every episode, every bot at a new candidate of exchange/sites-<seed>.json (tools/site-finder, generated here once).
 # Restart-safe: every container has restart: unless-stopped, the learner resumes from exchange/<base>/train/checkpoint.pkl, and
 # while it runs forgeaip-train-hold.timer renews a maint-hold lease so rootwatch does not reboot the VPS.
@@ -45,9 +46,9 @@ running forgeaip-llm-bot && { grep -qx llm-bot "$TRAIN_STATE" || echo llm-bot >>
 compose --profile bot stop llm-bot >/dev/null 2>&1 || true
 compose stop world >/dev/null 2>&1 || true
 
-# Heap per server: one alone gets 3G; five on this box (11 GB, shared with the learner and other services) get 1.25G each,
-# enough for two players at view distance 6 (measured in docs/proposed/RL-TRAINING-v2.md, run 7).
-case $shards in 1) mem=3G lim=4g;; 2) mem=2G lim=2800m;; *) mem=1280M lim=1900m;; esac
+# Heap per server: one alone gets 3G; five on this box (11 GB, shared with the learner and other services) get 1G each (1.25G
+# drove the box into a global OOM that killed the learner, run train7 2026-11-02; two players at view distance 6 need little).
+case $shards in 1) mem=3G lim=4g;; 2) mem=2G lim=2800m;; *) mem=1G lim=1600m;; esac
 export TRAIN_BASE=$base TRAIN_BOTS=$bots TRAIN_LEARN=$learn TRAIN_SPEED=$speed TRAIN_DAYS=$days TRAIN_CANDIDATES=$cands \
   TRAIN_MEMORY=$mem TRAIN_MEM_LIMIT=$lim TRAIN_POLICY=botsystem_goal_ppo.py TRAIN_POLICY_INIT= TRAIN_POPULATION=1
 # The settings of this run, for scripts/train/restart.sh (a bare `compose up` would recreate a container with the defaults).
@@ -73,7 +74,9 @@ if [ "$fresh" = 1 ]; then
 fi
 compose "${profiles[@]}" up -d "${servers[@]}"
 for s in "${servers[@]}"; do wait_healthy "forgeaip-$s"; done
-compose "${profiles[@]}" up -d "${envs[@]}" train-policy
+# The learner: on this VPS (container train-policy), or with --pc on the owner's PC (scripts/train/pc.sh), serving every group.
+learner=(train-policy); [ "$pc" -gt 0 ] && learner=()
+compose "${profiles[@]}" up -d "${envs[@]}" "${learner[@]}"
 # The watcher's page (tools/train-dash): build when missing or older than its sources, serve on loopback, route the tailnet to
 # it the way the game is routed (tailscale serve, tailnet only; nothing listens on the public address).
 dash=$REPO/tools/train-dash

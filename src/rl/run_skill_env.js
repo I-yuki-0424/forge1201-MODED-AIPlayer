@@ -104,7 +104,13 @@ class SiteBook {
     save() {
         fs.mkdirSync(path.dirname(this.file), { recursive: true });
         fs.writeFileSync(`${this.file}.tmp`, JSON.stringify({ seed: this.seed, next: this.next, used: this.used }) + '\n');
-        fs.renameSync(`${this.file}.tmp`, this.file);
+        // Windows: the relay reading the file blocks the rename for a moment (EPERM/EBUSY); try again shortly.
+        for (let i = 0; ; i++) {
+            try { fs.renameSync(`${this.file}.tmp`, this.file); return; } catch (e) {
+                if (i >= 50 || !/EPERM|EBUSY|EACCES/.test(e.code || '')) throw e;
+                Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+            }
+        }
     }
 }
 
@@ -266,7 +272,10 @@ async function main() {
     finish(null);
 
     async function connect(envId, name) {
-        const bot = createForgeBot({ host: process.env.MC_HOST || 'localhost', port: Number(process.env.MC_PORT) || 25565, username: name, viewDistance: VIEW });
+        // Keep-alive tolerance 180 s (mineflayer: 30): a new site's terrain is generated when a bot first goes there, and the
+        // server's tick thread can stall for tens of seconds meanwhile (run train7: 22 s), which dropped the partner bot.
+        const bot = createForgeBot({ host: process.env.MC_HOST || 'localhost', port: Number(process.env.MC_PORT) || 25565, username: name, viewDistance: VIEW,
+            checkTimeoutInterval: 180000 });
         attachForgeHandshake(bot, { registry: process.env.BOT_REGISTRY || 'auto' });
         const lost = new Promise((_, reject) => {
             bot.on('kicked', (r) => reject(new Error(`${name} kicked: ${String(r).slice(0, 200)}`)));

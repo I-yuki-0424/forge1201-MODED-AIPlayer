@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
-# Training groups on the owner's PC (owner 2026-11-02: "from bot 11 on, use the PC"; SSH key ~/.ssh/id_ed25519_pc, the PC allows
-# only the VPS's tailnet address). Each group: a Forge 1.20.1 server bound to 127.0.0.1 on the PC + one environment process, kept
-# alive by scripts/train/pc/supervisor.js; the learner on the VPS reaches them through scripts/train/pc_relay.py (systemd user unit
-# forgeaip-train-pc-relay), which mirrors their files into exchange/. Nothing on the PC listens beyond loopback.
+# Training on the owner's PC (owner 2026-11-02: "from bot 11 on, use the PC ... train with abundant resources"; SSH key
+# ~/.ssh/id_ed25519_pc, the PC allows only the VPS's tailnet address). Each PC group: a Forge 1.20.1 server bound to 127.0.0.1
+# + one environment process; plus the learner for every group (DPOD botsystem_goal_ppo.py in a venv with the VPS's pinned jax).
+# scripts/train/pc/supervisor.js keeps them alive; scripts/train/relay.py (systemd user unit forgeaip-train-pc-relay) mirrors
+# between the two exchange/ directories what the other side reads. Nothing on the PC listens beyond loopback.
 #   scripts/train/pc.sh up --groups G [--fresh-world]     (base, bots, days, speed: exchange/.train-env from up.sh)
 #   scripts/train/pc.sh down | status
 # PC layout C:\forgeaip: node\ (portable Node 20, sha256-checked), forge-base\ (Forge installer output, sha1-checked), mods\,
-# app\ (src + scripts/train/pc + production node_modules), servers\g<k>\ (one per group), exchange\, logs\, rcon.txt (random).
+# app\ (src + scripts/train/pc + relay.py + production node_modules), dpod\ (the learner's files), venv\ (Python 3.14, jax pinned),
+# servers\g<k>\ (one per group), exchange\, logs\, rcon.txt (random).
+DPOD=${DPOD_DIR:-$(cd "$(dirname "$0")/../../../Decision-Process-order-driven" && pwd)}
+PYPKG='jax==0.12.0.1 jaxlib==0.12.0.1 optax==0.2.8 numpy==2.5.4 ml_dtypes==0.6.0'   # = the VPS learner's venv (rl-jaxvenv)
 source "$(dirname "$0")/lib.sh"
 HOST=${FORGEAIP_PC:-sigure@100.113.219.35}
 KEY=${FORGEAIP_PC_KEY:-$HOME/.ssh/id_ed25519_pc}
@@ -82,8 +86,14 @@ if (-not (Test-Path "\$h\forge-base\libraries\net\minecraftforge\forge\\$FORGE\w
   Invoke-WebRequest -UseBasicParsing "https://maven.minecraftforge.net/net/minecraftforge/forge/$FORGE/forge-$FORGE-installer.jar" -OutFile "\$h\dl\forge-installer.jar"
   if ((Get-FileHash -Algorithm SHA1 "\$h\dl\forge-installer.jar").Hash -ne '$FORGE_SHA1') { throw 'forge installer: sha1 mismatch' }
   New-Item -ItemType Directory -Force "\$h\forge-base" | Out-Null
-  Push-Location "\$h\forge-base"; & java -jar "\$h\dl\forge-installer.jar" --installServer "\$h\forge-base" *> "\$h\logs\forge-install.log"; Pop-Location
+  cmd /c "cd /d \$h\forge-base && java -jar \$h\dl\forge-installer.jar --installServer \$h\forge-base > \$h\logs\forge-install.log 2>&1"
   if (-not (Test-Path "\$h\forge-base\libraries\net\minecraftforge\forge\\$FORGE\win_args.txt")) { throw 'forge install failed: logs\forge-install.log' }
+}
+if ((Get-Content "\$h\venv\pinned.txt" -ErrorAction SilentlyContinue) -ne '$PYPKG') {
+  if (-not (Test-Path "\$h\venv\Scripts\python.exe")) { & py -3.14 -m venv "\$h\venv" }
+  cmd /c "\$h\venv\Scripts\python.exe -m pip install --disable-pip-version-check -q $PYPKG > \$h\logs\pip.log 2>&1"
+  if (\$LASTEXITCODE -ne 0) { throw 'pip install failed: logs\pip.log' }
+  Set-Content -NoNewline "\$h\venv\pinned.txt" '$PYPKG'
 }
 if (-not (Test-Path "\$h\rcon.txt")) { -join ((48..57) + (97..102) | Get-Random -Count 32 | % { [char]\$_ }) | Set-Content -NoNewline "\$h\rcon.txt" }
 'pc: tools ready'
@@ -91,8 +101,10 @@ EOF
 
 # 2. The application (environment code, the supervisor and relay) and its production dependencies; mods; site candidates.
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
-tar -C "$REPO" -cf "$tmp/app.tar" package.json package-lock.json src modpack/forgeaip-create.registry.json modpack/forgeaip-create.advancements.json scripts/train/pc
-scp_to "$tmp/app.tar" "$MODS"/*.jar "$REPO/tools/tickrate/build/libs/forgeaip-tickrate-1.0.0.jar" "$HOST:C:/forgeaip/dl/"
+tar -C "$REPO" -cf "$tmp/app.tar" package.json package-lock.json src modpack/forgeaip-create.registry.json modpack/forgeaip-create.advancements.json scripts/train/pc scripts/train/relay.py
+tar -C "$DPOD" -cf "$tmp/dpod.tar" scripts/botsystem_goal_ppo.py scripts/botsystem_goal_wm.py scripts/botsystem_skill_ppo.py scripts/botsystem_skill_truck.py \
+  integrations/__init__.py integrations/botsystem src/__init__.py src/model/epa_policies.py
+scp_to "$tmp/app.tar" "$tmp/dpod.tar" "$MODS"/*.jar "$REPO/tools/tickrate/build/libs/forgeaip-tickrate-1.0.0.jar" "$HOST:C:/forgeaip/dl/"
 scp_to "$cands" "$HOST:C:/forgeaip/exchange/"
 ps <<EOF
 \$ErrorActionPreference = 'Stop'
@@ -100,9 +112,12 @@ ps <<EOF
 \$env:Path = "\$h\node;" + \$env:Path
 Remove-Item -Recurse -Force "\$h\app\src", "\$h\app\scripts" -ErrorAction SilentlyContinue
 tar -xf "\$h\dl\app.tar" -C "\$h\app"
+Remove-Item -Recurse -Force "\$h\dpod" -ErrorAction SilentlyContinue; New-Item -ItemType Directory -Force "\$h\dpod" | Out-Null
+tar -xf "\$h\dl\dpod.tar" -C "\$h\dpod"
 \$lock = (Get-FileHash "\$h\app\package-lock.json").Hash
 if (-not (Test-Path "\$h\app\node_modules") -or ((Get-Content "\$h\app\.lockhash" -ErrorAction SilentlyContinue) -ne \$lock)) {
-  Push-Location "\$h\app"; & "\$h\node\npm.cmd" ci --omit=dev --no-audit --no-fund *> "\$h\logs\npm.log"; \$rc = \$LASTEXITCODE; Pop-Location
+  # through cmd: PowerShell 5 turns a native command's stderr (npm's warnings) into terminating errors under 'Stop'
+  cmd /c "cd /d \$h\app && \$h\node\npm.cmd ci --omit=dev --no-audit --no-fund > \$h\logs\npm.log 2>&1"; \$rc = \$LASTEXITCODE
   if (\$rc -ne 0) { throw 'npm ci failed: logs\npm.log' }
   Set-Content -NoNewline "\$h\app\.lockhash" \$lock
 }
@@ -136,7 +151,7 @@ for (\$k = 0; \$k -lt $groups; \$k++) {
   '-Xms2G -Xmx2G -XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200 -XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC -XX:G1NewSizePercent=30 -XX:G1MaxNewSizePercent=40 -XX:G1HeapRegionSize=8M -XX:G1ReservePercent=20' | Set-Content -Encoding ascii "\$d\user_jvm_args.txt"
   "@user_jvm_args.txt @libraries/net/minecraftforge/forge/$FORGE/win_args.txt" | Set-Content -Encoding ascii "\$d\args.txt"
 }
-@{ base = '$TRAIN_BASE'; groups = $groups; shard0 = $SHARD0; bots = $TRAIN_BOTS; days = $TRAIN_DAYS; speed = $TRAIN_SPEED; candidates = 'sites-$seed.json' } | ConvertTo-Json | Set-Content -Encoding ascii "\$h\config.json"
+@{ base = '$TRAIN_BASE'; groups = $groups; shard0 = $SHARD0; bots = $TRAIN_BOTS; days = $TRAIN_DAYS; speed = $TRAIN_SPEED; candidates = 'sites-$seed.json'; learner = \$true; learn = $TRAIN_LEARN } | ConvertTo-Json | Set-Content -Encoding ascii "\$h\config.json"
 Remove-Item -Force "\$h\STOP" -ErrorAction SilentlyContinue
 \$cl = '"' + "\$h\node\node.exe" + '" "' + "\$h\app\scripts\train\pc\supervisor.js" + '" "' + \$h + '"'
 \$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = \$cl; CurrentDirectory = \$h }
@@ -147,8 +162,9 @@ if (\$r.ReturnValue -ne 0) { throw "supervisor start failed: \$(\$r.ReturnValue)
 "pc: supervisor pid \$(\$r.ProcessId), $groups groups"
 EOF
 
-# 4. The relay on this side (restarts by itself; a mirror of the PC's runs in exchange/).
-printf 'PC_BASE=%s\nPC_SHARD0=%s\n' "$TRAIN_BASE" "$SHARD0" > "$REPO/exchange/.train-pc-env"
+# 4. The relay on this side (restarts by itself). The VPS learner container steps aside: the PC's learner serves every group.
+compose --profile train stop -t 60 train-policy >/dev/null 2>&1 || true
+printf 'PC_BASE=%s\nPC_SHARD0=%s\nPC_HOST=%s\nPC_KEY=%s\n' "$TRAIN_BASE" "$SHARD0" "$HOST" "$KEY" > "$REPO/exchange/.train-pc-env"
 systemctl --user link "$REPO/scripts/train/systemd/forgeaip-train-pc-relay.service" >/dev/null 2>&1 || true
 systemctl --user daemon-reload
 systemctl --user enable forgeaip-train-pc-relay.service >/dev/null 2>&1

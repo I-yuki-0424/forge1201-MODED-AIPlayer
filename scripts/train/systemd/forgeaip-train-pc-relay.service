@@ -1,10 +1,10 @@
 [Unit]
-Description=forgeaip RL training: relay between the PC's training groups and the learner's exchange/ (scripts/train/pc.sh)
+Description=forgeaip RL training: relay between the VPS's and the PC's exchange/ (scripts/train/relay.py, scripts/train/pc.sh)
 After=network-online.target
 
 [Service]
 EnvironmentFile=%h/projects/forge1201-MODED-AIPlayer/exchange/.train-pc-env
-ExecStart=/usr/bin/python3 -I %h/projects/forge1201-MODED-AIPlayer/scripts/train/pc_relay.py %h/projects/forge1201-MODED-AIPlayer/exchange ${PC_BASE} ${PC_SHARD0}
+ExecStart=/usr/bin/python3 -I %h/projects/forge1201-MODED-AIPlayer/scripts/train/relay.py %h/projects/forge1201-MODED-AIPlayer/exchange ${PC_BASE} ${PC_SHARD0} vps --ssh ${PC_HOST} --key ${PC_KEY} --remote "C:\\forgeaip\\venv\\Scripts\\python.exe -u C:\\forgeaip\\app\\scripts\\train\\relay.py C:\\forgeaip\\exchange ${PC_BASE} ${PC_SHARD0} pc"
 Restart=always
 RestartSec=5
 MemoryMax=256M
