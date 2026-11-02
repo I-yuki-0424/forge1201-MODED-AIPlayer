@@ -1,0 +1,30 @@
+{
+  "v": 1,
+  "doc": "Progress list (owner 2026-11-02): what counts as progress within one episode, judged by the environment from the player's server statistics (deltas since the episode began), not from in-game advancements, so nothing has to be revoked by command between episodes. Each entry counts once per episode. Ordered from the easiest to the hardest: the learner gives goals in this order (the easiest entry not yet achieved first). `stat` = the statistics type (mined: block names; crafted / used / picked_up: item names; killed: entity names), `any` = the names any one of which raises it by 1; `event: slept` = a dawn the bot was in bed for (src/rl/progress.js). `used` counts a block item placed or a food eaten. Order and entries are the environment's definition of progress (hand-specified game knowledge, owner's instruction; BOTSYSTEM results never count toward a DPOD gate).",
+  "entries": [
+    { "id": "collect_wood", "stat": "mined", "any": ["oak_log", "spruce_log", "birch_log", "jungle_log", "acacia_log", "dark_oak_log", "mangrove_log", "cherry_log"] },
+    { "id": "craft_planks", "stat": "crafted", "any": ["oak_planks", "spruce_planks", "birch_planks", "jungle_planks", "acacia_planks", "dark_oak_planks", "mangrove_planks", "cherry_planks"] },
+    { "id": "craft_crafting_table", "stat": "crafted", "any": ["crafting_table"] },
+    { "id": "place_crafting_table", "stat": "used", "any": ["crafting_table"] },
+    { "id": "craft_stick", "stat": "crafted", "any": ["stick"] },
+    { "id": "craft_wooden_pickaxe", "stat": "crafted", "any": ["wooden_pickaxe"] },
+    { "id": "craft_wooden_sword", "stat": "crafted", "any": ["wooden_sword"] },
+    { "id": "collect_stone", "stat": "picked_up", "any": ["cobblestone", "cobbled_deepslate"] },
+    { "id": "craft_stone_pickaxe", "stat": "crafted", "any": ["stone_pickaxe"] },
+    { "id": "craft_stone_sword", "stat": "crafted", "any": ["stone_sword"] },
+    { "id": "craft_furnace", "stat": "crafted", "any": ["furnace"] },
+    { "id": "place_furnace", "stat": "used", "any": ["furnace"] },
+    { "id": "eat_food", "stat": "used", "any": ["apple", "bread", "beef", "cooked_beef", "porkchop", "cooked_porkchop", "chicken", "cooked_chicken", "mutton", "cooked_mutton", "rabbit", "cooked_rabbit", "cod", "cooked_cod", "salmon", "cooked_salmon", "carrot", "potato", "baked_potato", "beetroot", "sweet_berries", "glow_berries", "melon_slice", "cookie", "dried_kelp", "pumpkin_pie", "mushroom_stew", "rabbit_stew", "beetroot_soup", "golden_apple", "golden_carrot"] },
+    { "id": "collect_coal", "stat": "picked_up", "any": ["coal"] },
+    { "id": "craft_torch", "stat": "crafted", "any": ["torch"] },
+    { "id": "defeat_hostile", "stat": "killed", "any": ["zombie", "husk", "drowned", "skeleton", "stray", "spider", "cave_spider", "creeper", "slime", "witch", "zombie_villager", "pillager", "enderman"] },
+    { "id": "collect_iron", "stat": "picked_up", "any": ["raw_iron"] },
+    { "id": "smelt_iron", "stat": "crafted", "any": ["iron_ingot"] },
+    { "id": "craft_iron_pickaxe", "stat": "crafted", "any": ["iron_pickaxe"] },
+    { "id": "craft_iron_sword", "stat": "crafted", "any": ["iron_sword"] },
+    { "id": "craft_bed", "stat": "crafted", "any": ["white_bed", "orange_bed", "magenta_bed", "light_blue_bed", "yellow_bed", "lime_bed", "pink_bed", "gray_bed", "light_gray_bed", "cyan_bed", "purple_bed", "blue_bed", "brown_bed", "green_bed", "red_bed", "black_bed"] },
+    { "id": "sleep_in_bed", "event": "slept" },
+    { "id": "collect_diamond", "stat": "picked_up", "any": ["diamond"] },
+    { "id": "craft_diamond_pickaxe", "stat": "crafted", "any": ["diamond_pickaxe"] }
+  ]
+}

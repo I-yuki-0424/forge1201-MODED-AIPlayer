@@ -37,7 +37,7 @@ const INV_N = 36, ENT_N = 8, ENT_R = 16, ENT_F = 5, SELF_N = 20;
 // block's item id (ores keep their identity, which the category loses) and the distance. Rays that hit nothing: air, 1.0.
 const VIEW_W = 16, VIEW_H = 8, VIEW_R = 24, VIEW_FOV_X = (110 * Math.PI) / 180, VIEW_PITCH = [-60, 40].map((d) => (d * Math.PI) / 180);
 const VIEW_N = VIEW_W * VIEW_H;
-const CLOCK_N = 2;   // episode age in days /10 (clipped), log1p(step)/10
+const CLOCK_N = 3;   // share of the episode's days gone (env v3.0: the episode ends at 1, so time left is observed), log1p(step)/10, time of day
 // Furnace inputs a player sees in the furnace recipe book (vanilla 1.20.1, the common ones).
 const SMELTABLE = new Set(['raw_iron', 'raw_gold', 'raw_copper', 'iron_ore', 'gold_ore', 'copper_ore', 'deepslate_iron_ore',
     'deepslate_gold_ore', 'sand', 'red_sand', 'cobblestone', 'cobbled_deepslate', 'clay_ball', 'netherrack', 'ancient_debris',
@@ -122,8 +122,9 @@ class SkillSpace {
         return { cat, item, dist };
     }
 
-    /** killed: Map(short entity name -> kills this episode); clock: {ticks (episode age), step}. */
-    observe(progress, last, killed = new Map(), clock = { ticks: 0, step: 0 }) {
+    /** killed: Map(short entity name -> kills this episode); clock: {frac (share of the episode's days gone), step, tod (time of
+     *  day 0..1)}. */
+    observe(progress, last, killed = new Map(), clock = { frac: 0, step: 0, tod: 0 }) {
         const bot = this.bot, e = bot.entity, p = e.position;
         const fx = Math.floor(p.x), fy = Math.floor(p.y + 0.2), fz = Math.floor(p.z), w = fromBot(bot);
         const grid = [];
@@ -159,7 +160,7 @@ class SkillSpace {
             ent_type: entType, ent_feat: entFeat,
             progress: progress.map(r),
             view_cat: view.cat, view_item: view.item, view_dist: view.dist, killed: kills,
-            clock: [r(Math.min(clock.ticks / 24000, 10) / 10), r(Math.log1p(clock.step) / 10)],
+            clock: [r(Math.min(Math.max(clock.frac, 0), 1)), r(Math.log1p(clock.step) / 10), r(clock.tod)],
             cand_cmd: pad(this.cands.map((c) => CMD[c.cmd]), K, 0), cand_item: pad(this.cands.map((c) => c.item), K, 0),
             cand_ent: pad(this.cands.map((c) => c.ent), K, 0), cand_feat: pad(this.cands.map((c) => c.feat), K, () => new Array(CAND_F).fill(0)),
             cand_mask: pad(this.cands.map(() => true), K, false),

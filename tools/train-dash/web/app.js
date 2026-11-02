@@ -37,7 +37,7 @@ function bar(v, label) { const d = el('div', 'bar'), i = el('i'); i.style.width 
 function botHead(b, partners) {
     const f = document.createDocumentFragment(), h = el('h2');
     h.append(el('span', null, `BOT #${b.env_id}`), el('span', 'muted', `${b.name} · episode ${b.episode} · step ${b.step}`));
-    if (b.start) h.append(el('span', 'muted', `site ${b.start.site + 1} (${b.start.pos.join(' ')})${partners.length ? ` · pair of #${partners.join(', #')}` : ''}`));
+    if (b.start) h.append(el('span', 'muted', `group ${b.start.pair ?? b.start.shard}${b.start.pos ? ` · site ${b.start.site ?? '?'} (${b.start.pos.join(' ')})` : ''}${partners.length ? ` · pair of #${partners.join(', #')}` : ''}`));
     if (!b.connected) h.append(el('span', 'bad', `disconnected: ${b.lost || ''}`));
     const n = b.now, body = b.body || {};
     f.append(h, el('div', 'now', n ? `${n.cmd} ${n.label} — for ${n.for_s}s (candidate ${n.candidate} of ${n.of})` : 'between commands (waiting for the policy or resetting)'),
@@ -50,7 +50,7 @@ function botBody(b, now) {
     const f = document.createDocumentFragment(), w = b.window;
     f.append(kv([['success all', rate(b.total.ok_rate)], [`last ${w.n}`, rate(w.ok_rate)], ['moved', w.spread === null ? '–' : `${w.spread} blocks`],
         ['pace', w.steps_per_min === null ? '–' : `${w.steps_per_min}/min`], ['episode return', b.episode_now.return],
-        ['nights', `${b.episode_now.nights} (slept ${b.episode_now.slept})`], ['alive', ago(b.episode_now.wall_s * 1000)]]));
+        ['days', `${b.episode_now.nights} (slept ${b.episode_now.slept})`], ['episode for', ago(b.episode_now.wall_s * 1000)]]));
     for (const x of b.warnings) f.append(el('div', 'alert', x));
     f.append(el('h3', null, `commands, last ${w.n} (bias = chosen share / share of a uniform pick among the offered)`));
     f.append(table(['command', 'chosen', 'uniform', 'bias', 'success', 'offered'],
@@ -65,7 +65,8 @@ function botBody(b, now) {
     }), [3, 4]));
     if (b.episodes.length) {
         f.append(el('h3', null, 'last episodes'));
-        f.append(table(['episode', 'return', 'nights', 'alive', 'end'], b.episodes.slice(0, 5).map((e) => [e.episode, e.return, `${e.nights} (${e.slept})`, ago(e.wall_s * 1000), e.terminated ? 'died' : e.stuck ? 'stuck (cut)' : 'cut']), [1]));
+        f.append(table(['episode', 'return', 'days', 'deaths', 'progress', 'wall'], b.episodes.slice(0, 5).map((e) => [e.episode, e.return, `${e.days ?? e.nights} (${e.slept})`,
+            e.deaths ?? (e.terminated ? 1 : 0), e.progress ? e.progress.length : '–', ago(e.wall_s * 1000)]), [1, 3, 4]));
     }
     return f;
 }
@@ -111,13 +112,14 @@ function renderBots(bots, now) {
     const keep = new Set();
     let prev = null;
     const bySite = new Map();
-    for (const b of bots) if (b.start) bySite.set(b.start.site, [...(bySite.get(b.start.site) || []), b.env_id]);
+    const pairOf = (st) => st.pair ?? st.site;   // env v3.0: the group; before: the shared start site
+    for (const b of bots) if (b.start) bySite.set(pairOf(b.start), [...(bySite.get(pairOf(b.start)) || []), b.env_id]);
     for (const b of bots) {
         keep.add(b.env_id);
         let c = cards.get(b.env_id);
         if (!c) { c = { card: el('article', 'card'), head: el('div'), goal: el('div'), body: el('div'), kHead: '', kGoal: '', kBody: '' }; c.card.append(c.head, c.goal, c.body); cards.set(b.env_id, c); }
         c.card.className = `card${b.connected ? '' : ' lost'}`;
-        const partners = b.start ? (bySite.get(b.start.site) || []).filter((i) => i !== b.env_id) : [];
+        const partners = b.start ? (bySite.get(pairOf(b.start)) || []).filter((i) => i !== b.env_id) : [];
         const { now: n, body, ...rest } = b, kHead = JSON.stringify([b.name, b.episode, b.step, b.connected, n, body, b.start, partners]);
         const kBody = JSON.stringify([rest.window, rest.total, rest.episode_now, rest.warnings, rest.recent, rest.episodes]);
         const g = goalsDoc && goalsDoc.bots ? goalsDoc.bots[String(b.env_id)] : null;
@@ -158,20 +160,22 @@ function learner(L) {
     f.append(el('h3', null, 'mean reward per step'), spark(ups.map((u) => u.reward_mean)));
     const paired = L.episodes.filter((e) => e.pair !== undefined);
     if (paired.length) {
-        // Pairs: the same start site in different shards (same seed). The latest episode of each bot side by side.
+        // Pairs (env v3.0): the two bots of one group (one world), given the same goals. Their latest episodes side by side.
         const last = new Map();
-        for (const e of paired) last.set(`${e.pair}/${e.shard}`, e);
-        const sites = [...new Set(paired.map((e) => e.pair))].sort((a, b) => a - b), shards = [...new Set(paired.map((e) => e.shard))].sort();
-        f.append(el('h3', null, 'pairs: latest episode per start site and shard (task return, steps, end)'));
-        f.append(table(['site', ...shards.map((s) => `shard ${s}`)], sites.map((p) => [p + 1, ...shards.map((s) => {
-            const e = last.get(`${p}/${s}`);
-            return e ? `#${e.env_id}: ${e.return_task} · ${e.steps} · ${e.terminated ? 'died' : 'cut'}` : '–';
-        })])));
+        for (const e of paired) last.set(e.env_id, e);
+        const groups = [...new Set(paired.map((e) => e.pair))].sort((a, b) => a - b);
+        f.append(el('h3', null, 'pairs: latest episode of each bot of a group (task return · progress entries · deaths · days)'));
+        f.append(table(['group', 'bot', 'partner'], groups.map((p) => {
+            const es = [...last.values()].filter((e) => e.pair === p).sort((a, b) => a.env_id - b.env_id);
+            const cell = (e) => (e ? `#${e.env_id}: ${e.return_task} · ${e.achievements} · ${e.deaths ?? '–'} · ${e.nights}` : '–');
+            return [p, cell(es[0]), cell(es[1])];
+        })));
     }
     if (L.episodes.length) {
         f.append(el('h3', null, 'episodes (newest first)'));
-        f.append(table(['bot', 'member', 'episode', 'steps', 'nights', 'return', 'invalid', 'end'], L.episodes.slice().reverse().slice(0, 12).map((e) =>
-            [`#${e.env_id}`, e.member ?? 0, e.episode, e.steps, `${e.nights} (${e.slept})`, e.return_stage ?? e.return_task, (e.terms && e.terms.invalid !== undefined) ? e.terms.invalid : '–', e.terminated ? 'died' : 'cut']), [3, 4, 5, 6]));
+        f.append(table(['bot', 'episode', 'steps', 'days', 'deaths', 'progress', 'return', 'invalid'], L.episodes.slice().reverse().slice(0, 12).map((e) =>
+            [`#${e.env_id}`, e.episode, e.steps, `${e.nights} (${e.slept})`, e.deaths ?? (e.terminated ? 'died' : '–'), e.achievements ?? '–',
+                e.return_stage ?? e.return_task, (e.terms && e.terms.invalid !== undefined) ? e.terms.invalid : '–']), [2, 3, 4, 5, 6, 7]));
     }
     box.replaceChildren(f);
 }

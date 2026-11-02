@@ -1,13 +1,13 @@
-// Pure-logic tests of RL v2 (docs/proposed/RL-TRAINING-v2.md): reward table and scoring, progress events from server
-// packets, skill-level candidates and observation contract. No server; the live run is scripts/train/smoke.sh.
+// Pure-logic tests of the RL environment (docs/proposed/RL-TRAINING-v2.md; env v3.0): reward v5 and the progress list,
+// progress events from server packets, skill-level candidates, observation contract, start sites. No server.
 const assert = require('assert');
 const { EventEmitter } = require('events');
 const Vec3 = require('vec3');
-const { CrafterReward, TABLE, MILESTONES, NOTABLE, PROGRESS_DIM, advancementScore, targetVector, stageReward } = require('../src/rl/crafter_reward');
+const { CrafterReward, TABLE, LIST, MILESTONES, PROGRESS_DIM, stageReward } = require('../src/rl/crafter_reward');
 const { ProgressTracker, complete } = require('../src/rl/progress');
 const { SkillSpace, vocab, obsSpec, actionSpec, K, CMDS } = require('../src/rl/skill_space');
 const { specHash } = require('../src/rl/action_spec');
-const { parseArgs, queued, describe, sector, ring, StuckDetector } = require('../src/rl/run_skill_env');
+const { parseArgs, queued, describe, ring, SiteBook, countLogs, groundCell, StuckDetector, SITE_GAP } = require('../src/rl/run_skill_env');
 const { LiveBoard } = require('../src/rl/live_board');
 
 let pending = 0;
@@ -18,87 +18,44 @@ function test(name, fn) {
 }
 const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-6, `${a} != ${b}`);
 
-test('advancement table: tree depth as steps, tab roots chained, recipes excluded, Create flat', () => {
-    assert.strictEqual(advancementScore('minecraft:story/root'), 1);
-    assert.strictEqual(advancementScore('minecraft:story/mine_stone'), 2);
-    assert.strictEqual(advancementScore('minecraft:story/enter_the_nether'), 7);
-    assert.strictEqual(advancementScore('minecraft:end/kill_dragon'), 11);      // end/root chained to story/enter_the_end (9)
-    assert.strictEqual(advancementScore('minecraft:recipes/misc/stick'), null);
-    assert.strictEqual(advancementScore('create:root'), null);       // v4: awarded for free on joining
-    assert.strictEqual(advancementScore('create:andesite_alloy'), 1);
-    assert.ok(MILESTONES.length === 110 && MILESTONES.every((m) => m.startsWith('minecraft:')));
-});
-
-test('survival: a slept night is worth more than one awake', () => {
+test('progress list (owner 2026-11-02): ordered easiest first, judged from statistics, each entry once per episode', () => {
+    assert.strictEqual(MILESTONES[0], 'collect_wood');
+    assert.strictEqual(MILESTONES[MILESTONES.length - 1], 'craft_diamond_pickaxe');
+    assert.strictEqual(new Set(MILESTONES).size, MILESTONES.length);
+    assert.strictEqual(PROGRESS_DIM, MILESTONES.length + 2);
+    for (const e of LIST.entries) assert.ok(e.event === 'slept' || (['mined', 'crafted', 'used', 'picked_up', 'killed'].includes(e.stat) && e.any.length), e.id);
     const r = new CrafterReward();
-    assert.ok(TABLE.survival.night_slept > TABLE.survival.night_awake);
-    near(r.score([{ type: 'dawn', slept: false }]).terms.survival, TABLE.survival.night_awake);
-    near(r.score([{ type: 'dawn', slept: true }]).terms.survival, TABLE.survival.night_slept);
-    assert.deepStrictEqual(r.progress().slice(-2), [0.2, 0.1]);
-});
-
-test('kills: class weights, per-type decay, notable replaces, bosses never decay', () => {
-    const r = new CrafterReward();
-    near(r.score([{ type: 'killed', entity: 'minecraft:cow', n: 3 }]).terms.kills, 1 + 0.5 + 0.25);      // passive: no multiplier
-    near(r.score([{ type: 'killed', entity: 'minecraft:wolf', n: 1 }]).terms.kills, 0.25);              // neutral: low
-    near(r.score([{ type: 'killed', entity: 'minecraft:zombie', n: 1 }]).terms.kills, 1);
-    const n = r.score([{ type: 'killed', entity: 'minecraft:blaze', n: 2 }]);
-    near(n.terms.notable, 8 + 4); near(n.terms.kills, 0);
-    near(r.score([{ type: 'killed', entity: 'minecraft:ender_dragon', n: 1 }]).terms.notable, 100);
-    near(r.score([{ type: 'killed', entity: 'minecraft:ender_dragon', n: 1 }]).terms.notable, 100);
-    for (const [name, s] of Object.entries(TABLE.notable.score)) if (!TABLE.notable.boss.includes(name)) assert.ok(s < 100);
-    const v = r.progress();
-    assert.strictEqual(v[MILESTONES.length + NOTABLE.indexOf('blaze')], 1);
-    assert.strictEqual(v[MILESTONES.length + NOTABLE.indexOf('wither')], 0);
-});
-
-test('mined: dirt and stone extremely low, rarity tiers rise, decay per type', () => {
-    const r = new CrafterReward();
-    assert.ok(r.score([{ type: 'mined', block: 'minecraft:dirt', n: 100 }]).terms.mined < 0.01);
-    near(r.score([{ type: 'mined', block: 'minecraft:stone', n: 1 }]).terms.mined, TABLE.mined.default);
-    const tiers = TABLE.mined.tiers.map((t) => t.score);
-    assert.deepStrictEqual(tiers, [...tiers].sort((a, b) => a - b));
-    near(r.score([{ type: 'mined', block: 'minecraft:diamond_ore', n: 2 }]).terms.mined, 3 + 3 * 0.7);
-    near(r.score([{ type: 'mined', block: 'create:zinc_ore', n: 1 }]).terms.mined, 0.4);
-});
-
-test('achievements: once per episode, score = steps; newEpisode resets', () => {
-    const r = new CrafterReward();
-    near(r.score([{ type: 'advancement', id: 'minecraft:story/smelt_iron' }]).terms.achievements, 4);
-    near(r.score([{ type: 'advancement', id: 'minecraft:story/smelt_iron' }]).terms.achievements, 0);
-    near(r.score([{ type: 'advancement', id: 'minecraft:recipes/misc/stick' }]).total, 0);
+    let sc = r.score([{ type: 'mined', block: 'minecraft:oak_log', n: 3 }, { type: 'stat', stat: 'minecraft:crafted', name: 'minecraft:oak_planks', n: 4 }]);
+    near(sc.terms.progress, 2 * TABLE.progress.per_entry);
+    sc = r.score([{ type: 'mined', block: 'minecraft:birch_log', n: 1 }]);       // the same entry again: nothing
+    near(sc.total, 0);
+    sc = r.score([{ type: 'stat', stat: 'minecraft:used', name: 'minecraft:crafting_table', n: 1 }, { type: 'stat', stat: 'minecraft:picked_up', name: 'minecraft:diamond', n: 1 }]);
+    near(sc.terms.progress, 2);
+    assert.deepStrictEqual(r.progress().slice(0, 4), [1, 1, 0, 1]);
+    assert.strictEqual(r.progress()[MILESTONES.indexOf('collect_diamond')], 1);
+    // negative controls: dirt, a placed dirt block, a crafted item off the list, an advancement: no progress
+    near(new CrafterReward().score([{ type: 'mined', block: 'minecraft:dirt', n: 1000 }, { type: 'stat', stat: 'minecraft:used', name: 'minecraft:dirt', n: 500 },
+        { type: 'stat', stat: 'minecraft:crafted', name: 'minecraft:oak_button', n: 9 }, { type: 'advancement', id: 'minecraft:story/mine_stone' }]).total, 0);
     r.newEpisode();
-    near(r.score([{ type: 'advancement', id: 'minecraft:story/smelt_iron' }]).total, 4);
+    near(r.score([{ type: 'mined', block: 'minecraft:oak_log', n: 1 }]).terms.progress, 1);   // a new episode counts it again
 });
 
-test('achievements v4: nothing is paid for dying (adventure/root is granted by being killed); a kill still pays it', () => {
+test('reward v5: a death costs the penalty and voids that day; a day survived pays at dawn, slept more; failures cost', () => {
     const r = new CrafterReward();
-    near(r.score([{ type: 'death' }, { type: 'advancement', id: 'minecraft:adventure/root' }]).total, 0);
-    r.newEpisode();
-    // Control: the same advancement earned by a kill, without a death in that step, pays its depth.
-    near(r.score([{ type: 'advancement', id: 'minecraft:adventure/root' }]).terms.achievements, 1);
-    near(r.score([{ type: 'advancement', id: 'create:root' }]).total, 0);
-});
-
-test('invalid: a command that cannot be executed scores negative; failures the policy did not cause are free', () => {
-    const r = new CrafterReward();
-    near(r.score([{ type: 'failed', reason: 'unreachable' }]).terms.invalid, -0.1);
-    near(r.score([{ type: 'failed', reason: 'missing_tool' }, { type: 'failed', reason: 'stuck' }]).total, -0.15);
-    for (const why of ['died', 'cancelled', 'disconnected', 'internal']) near(r.score([{ type: 'failed', reason: why }]).total, 0);
-    for (const st of ['survive', 'dragon']) assert.strictEqual(TABLE.stages[st].invalid, 1.0);   // full weight in both stages
-    near(stageReward({ invalid: -0.1 }, 'survive'), -0.1);
-});
-
-test('curriculum: targets live in the progress space; stage weights from the table', () => {
-    const s = targetVector('survive'), d = targetVector('dragon');
-    assert.strictEqual(s.length, PROGRESS_DIM); assert.strictEqual(d.length, PROGRESS_DIM);
-    assert.strictEqual(d[MILESTONES.indexOf('minecraft:end/kill_dragon')], 1);
-    assert.strictEqual(d.reduce((a, b) => a + b), 2);
-    assert.deepStrictEqual(s.slice(-2), [1, 1]);
-    const terms = { survival: 1, kills: 2, notable: 0, mined: 1, achievements: 4 };
-    near(stageReward(terms, 'survive'), 1 + 0.1 * 7);
-    near(stageReward(terms, 'dragon'), 8);
-    assert.throws(() => targetVector('x'));
+    near(r.score([{ type: 'dawn', slept: false }]).terms.survival, TABLE.survival.day_awake);
+    near(r.score([{ type: 'dawn', slept: true }]).terms.survival, TABLE.survival.day_slept);
+    assert.ok(TABLE.survival.day_slept > TABLE.survival.day_awake && TABLE.death.penalty < 0);
+    const d = r.score([{ type: 'death' }]);
+    near(d.terms.death, TABLE.death.penalty);
+    near(r.score([{ type: 'dawn', slept: false }]).terms.survival, 0);          // died that day
+    near(r.score([{ type: 'dawn', slept: false }]).terms.survival, 1);          // the next day survived
+    assert.deepStrictEqual([r.days, r.slept, r.deaths], [3, 1, 1]);
+    assert.strictEqual(r.progress()[MILESTONES.indexOf('sleep_in_bed')], 1);    // the slept dawn reached the bed entry
+    near(r.progress()[PROGRESS_DIM - 2], 0.3);
+    const f = new CrafterReward().score([{ type: 'failed', reason: 'unreachable' }, { type: 'failed', reason: 'died' }]);
+    near(f.terms.invalid, -0.1);
+    near(stageReward(d.terms, 'days'), TABLE.death.penalty);
+    assert.throws(() => stageReward(d.terms, 'dragon'));
 });
 
 function fakeBot() {
@@ -120,6 +77,20 @@ test('progress: statistics deltas become kill/mine events (vanilla ids)', async 
     bot.stats = [{ categoryId: 6, statisticId: zombie, value: 5 }, { categoryId: 0, statisticId: iron, value: 4 }, { categoryId: 8, statisticId: 1, value: 99 }];
     const { events } = await t.collect();
     assert.deepStrictEqual(events, [{ type: 'killed', entity: 'minecraft:zombie', n: 1 }, { type: 'mined', block: 'minecraft:iron_ore', n: 2 }]);
+});
+
+test('progress: crafted / used / picked_up deltas become stat events with item names (vanilla ids); custom stats are ignored', async () => {
+    const bot = fakeBot(), reg = bot.registry;
+    const it = (n) => reg.itemsByName[n].id;
+    bot.stats = [{ categoryId: 1, statisticId: it('oak_planks'), value: 8 }];
+    const t = new ProgressTracker(bot);
+    await t.begin();
+    bot.stats = [{ categoryId: 1, statisticId: it('oak_planks'), value: 12 }, { categoryId: 2, statisticId: it('crafting_table'), value: 1 },
+        { categoryId: 4, statisticId: it('cobblestone'), value: 3 }, { categoryId: 8, statisticId: 5, value: 7 }];
+    const { events } = await t.collect();
+    assert.deepStrictEqual(events, [{ type: 'stat', stat: 'minecraft:crafted', name: 'minecraft:oak_planks', n: 4 },
+        { type: 'stat', stat: 'minecraft:used', name: 'minecraft:crafting_table', n: 1 }, { type: 'stat', stat: 'minecraft:picked_up', name: 'minecraft:cobblestone', n: 3 }]);
+    near(new CrafterReward().score(events).terms.progress, 3);   // planks, place table, stone
 });
 
 test('progress: advancement completion follows requirement groups; revoke re-arms it', async () => {
@@ -146,6 +117,8 @@ test('progress: dawn after a lived night; slept only when in bed at the skip; a 
     time(100, 6);   // the episode began after the night: no dawn reward
     assert.deepStrictEqual((await t.collect()).events, []);
     bot.emit('death'); bot.emit('death');
+    assert.deepStrictEqual((await t.collect()).events, [{ type: 'death' }]);
+    t.revive(); bot.emit('death');                     // env v3.0: play goes on after the respawn, the next death counts
     assert.deepStrictEqual((await t.collect()).events, [{ type: 'death' }]);
 });
 
@@ -198,28 +171,6 @@ function worldBot(nameAt = flatLayout, pos = new Vec3(0.5, 64, 0.5), extraItems 
     return bot;
 }
 
-test('reward v2, owner rule 2026-11-02: thousands of trivial blocks in one episode are worth less than one log', () => {
-    const r = new CrafterReward();
-    let trivial = 0;
-    for (const block of ['dirt', 'grass_block', 'gravel', 'sand']) trivial += r.score([{ type: 'mined', block: `minecraft:${block}`, n: 1000 }]).terms.mined;
-    const log = new CrafterReward().score([{ type: 'mined', block: 'minecraft:oak_log', n: 1 }]).terms.mined;
-    assert.ok(log >= 0.2, `log ${log}`);
-    assert.ok(trivial < log, `4 x 1000 trivial blocks ${trivial} >= one log ${log}`);
-    // placing earns nothing: only server statistics (mined, killed), advancements, nights and failures are scored
-    assert.strictEqual(r.score([{ type: 'placed', block: 'dirt', n: 1000 }]).total, 0);
-});
-
-test('reward v2: blocks broken with a tool score x tool_multiplier (owner 2026-11-02), a tunnel by the share of tool cells', () => {
-    const m = TABLE.mined.tool_multiplier;
-    assert.ok(m > 1 && m <= 1.5, `slight multiplier ${m}`);
-    const ev = [{ type: 'mined', block: 'minecraft:coal_ore', n: 1 }];
-    const hand = new CrafterReward().score(ev).terms.mined;
-    const tool = new CrafterReward().score([...ev, { type: 'tool', frac: 1 }]).terms.mined;
-    const half = new CrafterReward().score([...ev, { type: 'tool', frac: 0.5 }]).terms.mined;
-    near(tool, hand * m); near(half, hand * (1 + (m - 1) / 2));
-    assert.strictEqual(new CrafterReward().score([{ type: 'tool', frac: 1 }]).total, 0);   // a tool alone earns nothing
-});
-
 test('candidates: generic nearest-of-each-kind, within K, wait always present, every one passes the command schema', () => {
     const bot = worldBot(), voc = vocab(bot.registry, null), space = new SkillSpace(bot, voc);
     const c = space.candidates(), byCmd = (k) => c.filter((x) => x.cmd === k);
@@ -262,7 +213,7 @@ test('candidates: never the block underfoot; a bot in a pit is offered the head-
 
 test('observation matches the declared spec exactly (shapes, dtypes, masks)', () => {
     const bot = worldBot(), space = new SkillSpace(bot, vocab(bot.registry, null));
-    const o = space.observe(new CrafterReward().progress(), { reason: 'not_visible', ticks: 37 }, new Map([['zombie', 2]]), { ticks: 12000, step: 5 });
+    const o = space.observe(new CrafterReward().progress(), { reason: 'not_visible', ticks: 37 }, new Map([['zombie', 2]]), { frac: 0.25, step: 5, tod: 0.5 });
     const spec = obsSpec(space.voc.entities.length).fields;
     assert.deepStrictEqual(Object.keys(o).sort(), spec.map((f) => f.name).sort());
     const shapeOf = (v) => (Array.isArray(v) ? [v.length, ...shapeOf(v[0])] : []);
@@ -276,7 +227,7 @@ test('observation matches the declared spec exactly (shapes, dtypes, masks)', ()
     assert.ok(o.last_reason > 0 && o.dt_ticks === 37);
     assert.strictEqual(CMDS[o.cand_cmd[space.cands.length - 1]], 'wait');
     assert.strictEqual(o.killed[space.voc.entities.indexOf('zombie')], 0.25);
-    assert.strictEqual(o.clock[0], 0.05);
+    assert.deepStrictEqual([o.clock[0], o.clock[2]], [0.25, 0.5]);
 });
 
 test('view: first hit only (a wall hides what is behind it), item identity kept, nothing hit = air at full range', () => {
@@ -315,7 +266,7 @@ test('skills_v1 action spec: one select over K candidates; hash equals DPOD Acti
 
 test('runner: args, RCON queue keeps order and one command at a time', async () => {
     assert.throws(() => parseArgs(['--bots', '2']), /--base/);
-    assert.strictEqual(parseArgs(['--base', 'train1', '--bots', '3']).bots, 3);
+    assert.strictEqual(parseArgs(['--base', 'train1', '--bots', '3', '--candidates', 'c.json']).bots, 3);
     let active = 0, maxActive = 0;
     const log = [];
     const cmd = queued({ command: async (c) => { active++; maxActive = Math.max(maxActive, active); await new Promise((r) => setTimeout(r, 5)); log.push(c); active--; return c; } });
@@ -391,37 +342,44 @@ test('time scale: mineflayer still polls physics with setInterval(doPhysics) on 
     assert.throws(() => require('../src/transport/time_scale').setTimeScale(11), /\[1, 10\]/);
 });
 
-test('sectors: one disjoint cell of the region per bot, inside it, centres far apart', () => {
-    for (const n of [1, 4, 8, 16]) {
-        const R = 512, cells = Array.from({ length: n }, (_, i) => sector(i, n, R));
-        for (const [x0, x1, z0, z1] of cells) assert.ok(x0 >= -R && x1 <= R && z0 >= -R && z1 <= R && x0 < x1 && z0 < z1);
-        for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
-            const a = cells[i], b = cells[j];
-            assert.ok(a[1] <= b[0] || b[1] <= a[0] || a[3] <= b[2] || b[3] <= a[2], `sectors ${i} and ${j} overlap (n=${n})`);
-            const d = Math.hypot((a[0] + a[1] - b[0] - b[1]) / 2, (a[2] + a[3] - b[2] - b[3]) / 2);
-            assert.ok(d >= (2 * R) / Math.ceil(Math.sqrt(n)) - 1, `centres ${i},${j} only ${d} apart (n=${n})`);
-        }
-    }
-    assert.strictEqual(describe({ blockAt: () => null, entities: {} }, { cmd: 'tunnel', args: { dir: 'east', dy: -1 } }), 'east down');
-});
-
-test('sites (owner 2026-11-02): the committed file parses, one site per bot, bounds checked; the search order is fixed', () => {
-    const fs = require('fs'), path = require('path');
-    const f = path.join(__dirname, '..', 'config', 'train-sites.json');
-    const o = parseArgs(['--base', 't', '--bots', '10', '--sites', f]);
-    assert.strictEqual(o.sites.length, 10);
-    assert.deepStrictEqual(o.sites[1], [20137, 69, 99842]);
-    assert.throws(() => parseArgs(['--base', 't', '--bots', '11', '--sites', f]), /10 sites for 11 bots/);
-    assert.strictEqual(parseArgs(['--base', 't', '--sites', '']).sites, null);       // compose passes '' when unset
-    const bad = path.join(require('os').tmpdir(), `sites-bad-${process.pid}.json`);
-    fs.writeFileSync(bad, JSON.stringify({ sites: [[1.5, 70, 2]] }));
-    assert.throws(() => parseArgs(['--base', 't', '--bots', '1', '--sites', bad]), /integers/);
-    fs.writeFileSync(bad, JSON.stringify({ sites: [[30000000, 70, 2]] }));
-    assert.throws(() => parseArgs(['--base', 't', '--bots', '1', '--sites', bad]), /integers/);
-    fs.unlinkSync(bad);
+test('sites (owner 2026-11-02): candidates in order, never reused (state survives a restart), 500+ from the partner, exhausted -> null', () => {
+    const fs = require('fs'), path = require('path'), os = require('os');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sites-')), file = path.join(dir, 'w.json');
+    const cands = { seed: 5, sites: [[0, 0, 70], [640, 0, 71], [700, 100, 72], [2000, 0, 73]] };
+    const a = new SiteBook(file, cands);
+    assert.deepStrictEqual(a.take([], { bot: 0 }), { i: 0, x: 0, y: 70, z: 0 });
+    assert.deepStrictEqual(a.take([[650, 50]], { bot: 1 }), { i: 3, x: 2000, y: 73, z: 0 });   // 1 and 2 are within 500 of the partner
+    assert.deepStrictEqual(a.used.map((u) => u.outcome), ['taken', `another bot within ${SITE_GAP}`, `another bot within ${SITE_GAP}`, 'taken']);
+    a.mark(3, 'rejected: 3 logs');
+    const b = new SiteBook(file, cands);                     // a restarted environment continues, it does not start over
+    assert.strictEqual(b.next, 4);
+    assert.strictEqual(b.used.find((u) => u.i === 3).outcome, 'rejected: 3 logs');
+    assert.strictEqual(b.take(), null);
+    assert.throws(() => new SiteBook(file, { seed: 6, sites: [] }), /seed 5/);
+    fs.rmSync(dir, { recursive: true });
+    // the committed site finder's spacing keeps every two candidates 512+ apart (spacing 640, jitter 64)
+    assert.ok(640 - 2 * 64 >= SITE_GAP);
     const r = ring(10, 20, 2);
     assert.strictEqual(r.length, 25);
     assert.deepStrictEqual(r[0], [10, 20]);
     assert.deepStrictEqual(r.slice(1, 5), [[9, 20], [10, 19], [10, 21], [11, 20]]);
-    assert.deepStrictEqual(ring(10, 20, 2), r);
+    assert.strictEqual(describe({ blockAt: () => null, entities: {} }, { cmd: 'tunnel', args: { dir: 'east', dy: -1 } }), 'east down');
+    const o = parseArgs(['--base', 't', '--shard', '3', '--candidates', 'c.json']);
+    assert.deepStrictEqual([o.bots, o.days, o.world], [2, 3, 't-s3']);
+    assert.throws(() => parseArgs(['--base', 't']), /--candidates/);
+});
+
+test('sites: logs are counted around the site, the start cell is on the forest floor, never on leaves, a log or water', () => {
+    const forest = (x, y, z) => {
+        if ((x === 3 || x === -4) && z === 0 && y >= 64 && y <= 67) return 'oak_log';        // two trunks, 4 logs each
+        if (x >= -1 && x <= 1 && z >= -1 && z <= 1 && y === 68) return 'oak_leaves';         // a canopy over the site
+        return y === 63 ? 'grass_block' : y <= 62 ? 'stone' : 'air';
+    };
+    const w = require('../src/skills/world').fromBot(worldBot(forest));
+    assert.strictEqual(countLogs(w, 0, 64, 0), 8);
+    assert.deepStrictEqual(groundCell(w, 0, 64, 0), [0, 64, 0]);          // under the canopy, on the grass
+    const wet = (x, y, z) => (y === 63 ? (x === 0 && z === 0 ? 'water' : 'grass_block') : y <= 62 ? 'stone' : 'air');
+    assert.deepStrictEqual(groundCell(require('../src/skills/world').fromBot(worldBot(wet)), 0, 64, 0), [-1, 64, 0]);   // not above the pool
+    const sea = (x, y, z) => (y <= 63 && y >= 60 ? 'water' : y < 60 ? 'stone' : 'air');
+    assert.strictEqual(groundCell(require('../src/skills/world').fromBot(worldBot(sea)), 0, 64, 0), null);
 });

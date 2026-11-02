@@ -1,0 +1,14 @@
+[package]
+name = "site-finder"
+version = "0.1.0"
+edition = "2021"
+description = "Start-site candidates for the RL training bots, read from the world seed (cubiomes); std only"
+publish = false
+
+[dependencies]
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true
+panic = "abort"

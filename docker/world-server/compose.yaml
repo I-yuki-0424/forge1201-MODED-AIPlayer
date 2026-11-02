@@ -191,20 +191,21 @@ services:
     entrypoint: ["node", "scripts/skills/bench.js"]
     networks: [world]
 
-  # ---- RL training (docs/proposed/RL-TRAINING-v2.md, scripts/train/*.sh) --------------------------------------------
-  # The training world takes the build world's place on 127.0.0.1:25567, so the owner watches it over the same tailnet
-  # route (100.115.238.9:25565) and no new listener exists; scripts/train/up.sh stops the build world first (memory).
-  # Survival, normal difficulty, structures (strongholds, fortresses, monuments, villages), natural spawning, day cycle.
+  # ---- RL training (docs/proposed/RL-TRAINING-v2.md, scripts/train/*.sh; env v3.0) -------------------------------------
+  # Groups (owner 2026-11-02): each group = one server (its own world, clock and tick thread) + one environment process with
+  # TRAIN_BOTS bots (2: a pair). scripts/train/up.sh --shards S starts shards 0..S-1 (VPS: 5). Shard 0 takes the build world's
+  # place on 127.0.0.1:25567, so the owner watches it over the same tailnet route (100.115.238.9:25565); the others have no
+  # host port. Survival, normal difficulty, structures, natural spawning, day cycle; every world from the same seed.
   train: &train
     <<: *server
     profiles: [train]
     container_name: forgeaip-train
     restart: unless-stopped
     mem_limit: ${TRAIN_MEM_LIMIT:-4g}
-    cpus: 3
+    cpus: 2
     environment: &trainenv
       <<: *env
-      # Heap per server: 3G alone; 2G each when several shards share the box (scripts/train/up.sh --shards).
+      # Heap per server (scripts/train/up.sh: 3G alone, less when several groups share the box).
       MEMORY: ${TRAIN_MEMORY:-3G}
       LEVEL_TYPE: minecraft:normal
       SEED: ${TRAIN_SEED:-20261101}
@@ -216,7 +217,7 @@ services:
       ALLOW_FLIGHT: "true"
       MOTD: "forgeaip RL training world"
       # Bots act within about 20 blocks: a smaller ticking area is less work per tick, and per-tick work is the budget that
-      # bots x speed share (one server thread). The owner still sees 6 chunks when watching.
+      # bots x speed share (one server thread).
       SIMULATION_DISTANCE: "5"
       VIEW_DISTANCE: "6"
       # tools/tickrate: the clock runs TRAIN_SPEED times faster (the environment sets it again at its start).
@@ -229,17 +230,18 @@ services:
     ports:
       - "127.0.0.1:25567:25565"
 
-  # The environment: N bots on the skill-level action space (src/rl/run_skill_env.js). A restart is a new run_id;
-  # <base>.current tells the learner which one is live. TRAIN_SITES (scripts/train/up.sh --sites): fixed start per bot, '' = sectors.
+  # The environment of a group (src/rl/run_skill_env.js): its bots, episodes of TRAIN_DAYS days, a new start site per bot per
+  # episode from the seed's candidate list (exchange/TRAIN_CANDIDATES, tools/site-finder), used sites in exchange/sites/vps-s<i>.json.
+  # A restart is a new run_id; <base>.s<i>.current tells the learner which one is live.
   train-env: &trainenv_svc
     image: node@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0
     profiles: [train]
     container_name: forgeaip-train-env
     restart: unless-stopped
     working_dir: /app
-    mem_limit: 2g
-    cpus: 2
-    environment:
+    mem_limit: 1g
+    cpus: 1
+    environment: &shardenvvars
       MC_HOST: train
       MC_PORT: "25565"
       RCON_HOST: train
@@ -248,14 +250,11 @@ services:
       BOT_REGISTRY: auto
       GAME_SPEED: ${TRAIN_SPEED:-1}
     volumes:
-      - ../..:/app:ro
+      - ../../:/app:ro
       - ../../exchange:/exchange
-    command: ["node", "src/rl/run_skill_env.js", "--base", "${TRAIN_BASE:-train}", "--bots", "${TRAIN_BOTS:-8}", "--max-steps", "${TRAIN_MAX_STEPS:-20000}", "--sites", "${TRAIN_SITES:-}", "--seed", "${TRAIN_ENV_SEED:-1}"]
+    command: ["node", "src/rl/run_skill_env.js", "--base", "${TRAIN_BASE:-train}", "--bots", "${TRAIN_BOTS:-2}", "--shard", "0", "--days", "${TRAIN_DAYS:-3}", "--candidates", "/exchange/${TRAIN_CANDIDATES:-sites-20261101.json}", "--world", "vps-s0", "--seed", "0"]
     networks: [world]
-
-  # ---- Shards 1-3 (scripts/train/up.sh --shards N): one more server + environment each, a copy of shard 0's world, no
-  # host port (the owner watches shard 0). Bot ids are global (shard x bots + k); the learner follows <base>.s<i>.current.
-  train-s1: &shard
+  train-s1:
     <<: *train
     profiles: [shard1]
     container_name: forgeaip-train-s1
@@ -264,53 +263,69 @@ services:
       - train-data-s1:/data
       - /mnt/data/forgeaip/mods:/mods:ro
       - ../../tools/tickrate/build/libs:/tool:ro
+  train-env-s1:
+    <<: *trainenv_svc
+    profiles: [shard1]
+    container_name: forgeaip-train-env-s1
+    environment:
+      <<: *shardenvvars
+      MC_HOST: train-s1
+      RCON_HOST: train-s1
+    command: ["node", "src/rl/run_skill_env.js", "--base", "${TRAIN_BASE:-train}", "--bots", "${TRAIN_BOTS:-2}", "--shard", "1", "--days", "${TRAIN_DAYS:-3}", "--candidates", "/exchange/${TRAIN_CANDIDATES:-sites-20261101.json}", "--world", "vps-s1", "--seed", "1"]
   train-s2:
-    <<: *shard
+    <<: *train
     profiles: [shard2]
     container_name: forgeaip-train-s2
+    ports: []
     volumes:
       - train-data-s2:/data
       - /mnt/data/forgeaip/mods:/mods:ro
       - ../../tools/tickrate/build/libs:/tool:ro
-  train-s3:
-    <<: *shard
-    profiles: [shard3]
-    container_name: forgeaip-train-s3
-    volumes:
-      - train-data-s3:/data
-      - /mnt/data/forgeaip/mods:/mods:ro
-      - ../../tools/tickrate/build/libs:/tool:ro
-  train-env-s1: &shardenv
-    <<: *trainenv_svc
-    profiles: [shard1]
-    container_name: forgeaip-train-env-s1
-    environment: &shardenvvars
-      MC_HOST: train-s1
-      MC_PORT: "25565"
-      RCON_HOST: train-s1
-      RCON_PORT: "25575"
-      RCON_PASSWORD: ${RCON_PASSWORD:?run scripts/world/up.sh}
-      BOT_REGISTRY: auto
-      GAME_SPEED: ${TRAIN_SPEED:-1}
-    command: ["node", "src/rl/run_skill_env.js", "--base", "${TRAIN_BASE:-train}", "--bots", "${TRAIN_BOTS:-8}", "--shard", "1", "--max-steps", "${TRAIN_MAX_STEPS:-20000}", "--sites", "${TRAIN_SITES:-}", "--seed", "11"]
   train-env-s2:
-    <<: *shardenv
+    <<: *trainenv_svc
     profiles: [shard2]
     container_name: forgeaip-train-env-s2
     environment:
       <<: *shardenvvars
       MC_HOST: train-s2
       RCON_HOST: train-s2
-    command: ["node", "src/rl/run_skill_env.js", "--base", "${TRAIN_BASE:-train}", "--bots", "${TRAIN_BOTS:-8}", "--shard", "2", "--max-steps", "${TRAIN_MAX_STEPS:-20000}", "--sites", "${TRAIN_SITES:-}", "--seed", "21"]
+    command: ["node", "src/rl/run_skill_env.js", "--base", "${TRAIN_BASE:-train}", "--bots", "${TRAIN_BOTS:-2}", "--shard", "2", "--days", "${TRAIN_DAYS:-3}", "--candidates", "/exchange/${TRAIN_CANDIDATES:-sites-20261101.json}", "--world", "vps-s2", "--seed", "2"]
+  train-s3:
+    <<: *train
+    profiles: [shard3]
+    container_name: forgeaip-train-s3
+    ports: []
+    volumes:
+      - train-data-s3:/data
+      - /mnt/data/forgeaip/mods:/mods:ro
+      - ../../tools/tickrate/build/libs:/tool:ro
   train-env-s3:
-    <<: *shardenv
+    <<: *trainenv_svc
     profiles: [shard3]
     container_name: forgeaip-train-env-s3
     environment:
       <<: *shardenvvars
       MC_HOST: train-s3
       RCON_HOST: train-s3
-    command: ["node", "src/rl/run_skill_env.js", "--base", "${TRAIN_BASE:-train}", "--bots", "${TRAIN_BOTS:-8}", "--shard", "3", "--max-steps", "${TRAIN_MAX_STEPS:-20000}", "--sites", "${TRAIN_SITES:-}", "--seed", "31"]
+    command: ["node", "src/rl/run_skill_env.js", "--base", "${TRAIN_BASE:-train}", "--bots", "${TRAIN_BOTS:-2}", "--shard", "3", "--days", "${TRAIN_DAYS:-3}", "--candidates", "/exchange/${TRAIN_CANDIDATES:-sites-20261101.json}", "--world", "vps-s3", "--seed", "3"]
+  train-s4:
+    <<: *train
+    profiles: [shard4]
+    container_name: forgeaip-train-s4
+    ports: []
+    volumes:
+      - train-data-s4:/data
+      - /mnt/data/forgeaip/mods:/mods:ro
+      - ../../tools/tickrate/build/libs:/tool:ro
+  train-env-s4:
+    <<: *trainenv_svc
+    profiles: [shard4]
+    container_name: forgeaip-train-env-s4
+    environment:
+      <<: *shardenvvars
+      MC_HOST: train-s4
+      RCON_HOST: train-s4
+    command: ["node", "src/rl/run_skill_env.js", "--base", "${TRAIN_BASE:-train}", "--bots", "${TRAIN_BOTS:-2}", "--shard", "4", "--days", "${TRAIN_DAYS:-3}", "--candidates", "/exchange/${TRAIN_CANDIDATES:-sites-20261101.json}", "--world", "vps-s4", "--seed", "4"]
 
   # The policy and learner: DPOD's Truck derivative on demand + asynchronous PPO with the two-stage curriculum
   # (DPOD scripts/botsystem_skill_ppo.py). Checkpoints in exchange/<base>/train; a restart resumes from the last one.
@@ -367,6 +382,7 @@ volumes:
   train-data-s1:
   train-data-s2:
   train-data-s3:
+  train-data-s4:
   data:
   test-data:
   check-logs:

@@ -1,21 +1,28 @@
 'use strict';
-// RL v2 environment process (docs/proposed/RL-TRAINING-v2.md): N bots in one survival world, skill-level actions, reward v2.
-// Serves the DPOD file API (PROTOCOL.md v1) with env_id = bot index. Inference is on demand: a bot sends its observation
-// when its previous command has ended, so bots step at their own pace and the policy answers each one as it arrives.
-//   node src/rl/run_skill_env.js --base train1 --bots 4 [--root /exchange] [--max-steps 20000] [--region 576] [--seed 1]
-// Every start is a new run (<base>-<UTC time>, PROTOCOL.md: a new environment process = a new run_id); <root>/<base>.current
-// names the latest, so a learner can follow restarts. An episode is one life: it ends on death (terminated) or after
-// --max-steps commands (truncated). Reset over RCON: revoke advancements, clear inventory and effects, xp 0, survival, a
-// random site in the pre-generated region (scripts/skills/bench_lv2.js --pregen 1, docs/LESSONS.md L10), or with --sites FILE
-// a fixed start per bot (bot k of every shard at sites[k]: pairs with the same start in different worlds, owner 2026-11-02).
-// Environment: MC_HOST MC_PORT RCON_HOST RCON_PORT RCON_PASSWORD, BOT_REGISTRY (default auto), RL_BOT_PREFIX (default Train).
+// RL environment process (docs/proposed/RL-TRAINING-v2.md, env v3.0): one group of bots in one world (one server), skill-level
+// actions, reward v5. Serves the DPOD file API (PROTOCOL.md v1) with env_id = global bot index. Inference is on demand: a bot
+// sends its observation when its previous command has ended, so bots step at their own pace.
+//   node src/rl/run_skill_env.js --base train7 --shard 0 --bots 2 --candidates /exchange/sites-20261101.json [--days 3]
+// Every start is a new run (<base>-s<i>-<UTC time>); <root>/<base>.s<i>.current names the latest, so the learner follows
+// restarts. Owner 2026-11-02 (env v3.0):
+//   - Groups: the bots of one process share one world and form a pair (`start.pair` = the shard: the learner gives both the
+//     same goal). Each group has its own server, so its clock is its own.
+//   - An episode is --days in-game days for the whole group: the clock is set to morning at the start and every bot's episode
+//     ends (terminated: the time left is in the observation) at the first observation past days x 24000 ticks. A death costs
+//     the death penalty and play goes on from the respawn at the episode's site; every dawn reached alive since the last pays.
+//   - Progress is judged here from server statistics (src/rl/progress-list.json), so no advancement is revoked between episodes.
+//   - Every episode starts each bot at a new site: the next candidate of the seed's list (tools/site-finder: tree biome, not
+//     an island, 512+ blocks from every other candidate), checked on arrival (logs within 16 blocks, a dry standable cell,
+//     500+ blocks from the partner's site). Used candidates are recorded per world (<root>/sites/<world>.json), so no site is
+//     used twice in a world; when the list is used up the process stops with exit code 7 (scripts/train: new world).
+// Environment: MC_HOST MC_PORT RCON_HOST RCON_PORT RCON_PASSWORD, BOT_REGISTRY (default auto), RL_BOT_PREFIX (default Train),
+// GAME_SPEED (src/transport/time_scale.js).
 const fs = require('fs');
 const path = require('path');
 const { createForgeBot, attachForgeHandshake } = require('../transport/forge_bot');
 const { Rcon } = require('./rcon');
 const { LineWriter, LineReader } = require('./jsonl_channel');
 const { EventLog } = require('./events');
-const { mulberry32 } = require('./run_env');
 const { execute } = require('../skills');
 const { fromBot, standable } = require('../skills/world');
 const { Vec3 } = require('vec3');
@@ -24,25 +31,24 @@ const { CrafterReward, TABLE, TERMS, MILESTONES, NOTABLE } = require('./crafter_
 const { SkillSpace, vocab, obsSpec, actionSpec, K, CMDS, REASON_LIST, VIEW_H, VIEW_W } = require('./skill_space');
 const { LiveBoard } = require('./live_board');
 
-// v1.1: term `invalid`, live board, one tick minimum per step; v1.2: stuck cut; v1.3: swimming, ladders, `tunnel`, candidates
-// only what the action layer can do (K 64), a sector of the region per bot, game speed (tools/tickrate + GAME_SPEED);
-// v2.0 (DPOD TASK-20261101-031): observation fields view_* (first-hit image of the field of view), killed (kills this episode
-// per entity type), clock (episode age, step); mine candidates use the command's own reach-and-visibility goal;
-// v2.1: --sites (fixed start per bot, `start` in hello: site index = pair across shards), reward table v4 (no achievement
-// paid in the step of a death, create:root unscored)
-const ENV_VERSION = '2026-11-02-skills-v2.1';
+// v1.1-v2.1: see git history. v3.0 (owner 2026-11-02): groups (one world per pair), episodes of --days in-game days with play
+// after death, progress list judged from statistics (reward v5), a new seed-derived start site per bot per episode, clock
+// [share of the episode gone, log step, time of day].
+const ENV_VERSION = '2026-11-02-skills-v3.0';
+const DAY = 24000;
+const SITE_GAP = 500;   // owner: no start within 500 blocks of a used one or of another bot
+const LOG = /_log$/;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-// Chunks a bot asks the server for: it acts within about 20 blocks (candidates, the reachability flood), so 5 is ample and
-// keeps chunk sending and parsing low with many bots (mineflayer's default 'far' = 12, capped by the server's 8).
+// Chunks a bot asks the server for: it acts within about 20 blocks, so 5 is ample with many bots.
 const VIEW = Number(process.env.RL_VIEW_DISTANCE) || 5;
 const GAMERULES = ['doDaylightCycle true', 'doMobSpawning true', 'doImmediateRespawn true', 'keepInventory false',
     'playersSleepingPercentage 1', 'announceAdvancements false', 'sendCommandFeedback false', 'logAdminCommands false', 'spawnRadius 0'];
 
 function parseArgs(argv) {
-    const o = { root: '/exchange', base: null, bots: 4, maxSteps: 20000, region: 576, seed: 1, actTimeout: 600, shard: -1, sites: null };
-    const map = { '--root': ['root'], '--base': ['base'], '--bots': ['bots', Number], '--max-steps': ['maxSteps', Number],
-        '--region': ['region', Number], '--seed': ['seed', Number], '--act-timeout': ['actTimeout', Number], '--shard': ['shard', Number],
-        '--sites': ['sites', (f) => (f ? loadSites(f) : null)] };
+    const o = { root: '/exchange', base: null, bots: 2, days: 3, seed: 1, actTimeout: 600, shard: 0, candidates: null, world: null, minLogs: 12 };
+    const map = { '--root': ['root'], '--base': ['base'], '--bots': ['bots', Number], '--days': ['days', Number], '--seed': ['seed', Number],
+        '--act-timeout': ['actTimeout', Number], '--shard': ['shard', Number], '--candidates': ['candidates'], '--world': ['world'],
+        '--min-logs': ['minLogs', Number] };
     for (let i = 0; i < argv.length; i += 2) {
         const m = map[argv[i]];
         if (!m || argv[i + 1] === undefined) throw new Error(`bad argument ${argv[i]}`);
@@ -50,30 +56,84 @@ function parseArgs(argv) {
     }
     if (!/^[a-z0-9_-]{1,40}$/i.test(o.base || '')) throw new Error('--base <name> is required ([a-z0-9_-])');
     if (!(o.bots >= 1 && o.bots <= 16)) throw new Error('--bots must be 1..16');
-    if (!(Number.isInteger(o.shard) && o.shard >= -1 && o.shard <= 15)) throw new Error('--shard must be 0..15');
-    if (o.sites && o.sites.length < o.bots) throw new Error(`--sites: ${o.sites.length} sites for ${o.bots} bots`);
+    if (!(Number.isInteger(o.shard) && o.shard >= 0 && o.shard <= 31)) throw new Error('--shard must be 0..31');
+    if (!(o.days > 0 && o.days <= 100)) throw new Error('--days must be in (0, 100]');
+    if (!o.candidates) throw new Error('--candidates <site-finder output> is required');
+    o.world = o.world || `${o.base}-s${o.shard}`;
+    if (!/^[a-z0-9_.-]{1,60}$/i.test(o.world)) throw new Error('--world: [a-z0-9_.-]');
     return o;
 }
 
-/** Start sites: {"sites": [[x, y, z], ...]} with integer block coordinates inside the world border (y = the feet). */
-function loadSites(file) {
-    const j = JSON.parse(fs.readFileSync(file, 'utf8'));
-    const ok = (v) => Array.isArray(v) && v.length === 3 && v.every(Number.isInteger) && Math.abs(v[0]) < 29999984 && Math.abs(v[2]) < 29999984 && v[1] > -64 && v[1] < 320;
-    if (!Array.isArray(j.sites) || !j.sites.length || !j.sites.every(ok)) throw new Error(`--sites ${file}: "sites" must be [[x, y, z], ...] of integers`);
-    return j.sites;
-}
-
-/** Columns around (x, z) out to radius r, nearest first, ties in a fixed order (the same search in every world). */
+/** Columns around (x, z) out to radius r, nearest first, ties in a fixed order. */
 function ring(x, z, r) {
     const out = [];
     for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) out.push([dx * dx + dz * dz, dx, dz]);
     return out.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]).map(([, dx, dz]) => [x + dx, z + dz]);
 }
 
-/** One RCON connection, one command at a time (docs/LESSONS.md L9). A command that times out is sent again (up to `retries`
- *  times): replies are matched by request id and late ones dropped (src/rl/rcon.js), and every command the environment sends
- *  is safe to repeat. A lagging server used to end the whole run on one 5 s timeout (run train4: 8 restarts of shard 0 in an
- *  hour, every bot reset each time). */
+/**
+ * The start-site candidates of one world, consumed in order (owner 2026-11-02: never a site already used or within 500 blocks of
+ * one; the site finder's cells already keep candidates 512+ apart). Every candidate taken is recorded with its outcome, rejected
+ * ones too, and the state is written before the bot goes there, so a restart never reuses a site.
+ */
+class SiteBook {
+    constructor(file, candidates) {
+        this.file = file; this.cands = candidates.sites; this.seed = candidates.seed;
+        let st = null;
+        try { st = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* new world */ }
+        if (st && st.seed !== this.seed) throw new Error(`${file}: seed ${st.seed}, candidates are for ${this.seed}`);
+        this.next = st ? st.next : 0; this.used = st ? st.used : [];
+    }
+    get left() { return this.cands.length - this.next; }
+    /** The next candidate at least SITE_GAP from every point in `avoid` ([x, z]); skipped ones are recorded as used. */
+    take(avoid = [], who = {}) {
+        while (this.next < this.cands.length) {
+            const i = this.next++, [x, z, y] = this.cands[i];
+            const near = avoid.find(([ax, az]) => Math.hypot(ax - x, az - z) < SITE_GAP);
+            this.mark(i, near ? `another bot within ${SITE_GAP}` : 'taken', who);
+            if (!near) return { i, x, y, z };
+        }
+        return null;
+    }
+    mark(i, outcome, who = {}) {
+        const u = this.used.find((r) => r.i === i);
+        if (u) u.outcome = outcome;
+        else this.used.push({ i, x: this.cands[i][0], z: this.cands[i][1], outcome, ...who, t: Math.round(Date.now() / 1000) });
+        this.save();
+    }
+    save() {
+        fs.mkdirSync(path.dirname(this.file), { recursive: true });
+        fs.writeFileSync(`${this.file}.tmp`, JSON.stringify({ seed: this.seed, next: this.next, used: this.used }) + '\n');
+        fs.renameSync(`${this.file}.tmp`, this.file);
+    }
+}
+
+/** Log blocks within a horizontal radius r around (x, z), between y0 - 6 and y0 + 24 (loaded cells only). */
+function countLogs(w, x, y0, z, r = 16) {
+    let n = 0;
+    for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) {
+        if (dx * dx + dz * dz > r * r) continue;
+        for (let y = y0 - 6; y <= y0 + 24; y++) if (LOG.test(w.nameAt(x + dx, y, z + dz) || '')) n++;
+    }
+    return n;
+}
+
+/** A dry standable cell on the ground near (x, z): columns nearest first, each scanned from y0 + 30 down to y0 - 20, the first
+ *  standable cell whose floor is not leaves, a log or fluid (under a canopy the scan passes through to the forest floor). */
+function groundCell(w, x, y0, z, r = 8) {
+    const dry = (cx, cy, cz) => standable(w, cx, cy, cz) && !/water|lava/.test(w.nameAt(cx, cy, cz) || '') && !/_(leaves|log|wood)$|water|lava|ice/.test(w.nameAt(cx, cy - 1, cz) || '');
+    for (const [cx, cz] of ring(x, z, r)) {
+        for (let cy = y0 + 30; cy >= y0 - 20; cy--) {
+            const name = w.nameAt(cx, cy - 1, cz);
+            if (name === null) break;   // not loaded
+            if (dry(cx, cy, cz)) return [cx, cy, cz];
+            if (name && name !== 'air' && !/_(leaves|log)$|vine/.test(name)) break;   // ground reached without a dry cell
+        }
+    }
+    return null;
+}
+
+/** One RCON connection, one command at a time (docs/LESSONS.md L9); a command that times out is sent again (safe to repeat). */
 function queued(rcon, { retries = 2 } = {}) {
     let tail = Promise.resolve();
     const once = async (cmd) => {
@@ -85,9 +145,8 @@ function queued(rcon, { retries = 2 } = {}) {
 }
 
 /** Stuck detector: true once fewer than `minOk` of the last `n` commands were successful commands other than `wait` and the
- *  bot stayed within `radius` blocks. The action layer cannot act there (a pit, a tree top), so the episode is cut (truncated)
- *  and the bot reset; otherwise a trapped bot keeps living through nights, which the survival term pays for (run 1). Waiting
- *  always succeeds, so it does not count as acting (run train3: Train6 waited 183 times on a tree top, 91 % "success"). */
+ *  bot stayed within `radius` blocks (a pit, a tree top: the action layer cannot act there). v3.0: the environment then kills
+ *  the bot (death penalty, respawn at the site), so hiding cannot collect days (run 1). */
 class StuckDetector {
     constructor({ n = 200, minOk = 0.1, radius = 2 } = {}) { this.n = n; this.minOk = minOk; this.radius = radius; this.reset(); }
     reset() { this.ring = []; }
@@ -98,16 +157,6 @@ class StuckDetector {
         if (this.ring.filter((r) => r.ok).length / this.n >= this.minOk) return false;
         return [0, 1, 2].every((i) => Math.max(...this.ring.map((r) => r.pos[i])) - Math.min(...this.ring.map((r) => r.pos[i])) <= this.radius);
     }
-}
-
-/**
- * The part of the square region [-R, R]^2 where bot `i` of `n` is reset: a grid of ceil(sqrt(n)) columns, one cell per
- * bot, so bots start far apart (no interference; their chunks spread over the world). Returns [x0, x1, z0, z1].
- */
-function sector(i, n, R) {
-    const cols = Math.ceil(Math.sqrt(n)), rows = Math.ceil(n / cols), w = (2 * R) / cols, h = (2 * R) / rows;
-    const cx = i % cols, cz = Math.floor(i / cols), m = Math.min(32, w / 4, h / 4);
-    return [-R + cx * w + m, -R + (cx + 1) * w - m, -R + cz * h + m, -R + (cz + 1) * h - m];
 }
 
 /** Run `ticks` physics ticks doing nothing (the 'wait' candidate; also how a sleeping bot passes the night). */
@@ -136,20 +185,20 @@ function describe(bot, c) {
     }
 }
 
+class SitesExhausted extends Error {}
+
 async function main() {
     const o = parseArgs(process.argv.slice(2));
-    // Shards (--shard i): several environment processes, each with its own server, feed one learner. Bot ids are global
-    // (i * bots + k), files are per shard: run <base>-s<i>-<time>, <base>.s<i>.current, <base>.s<i>.live.json.
-    const sh = o.shard >= 0, off = sh ? o.shard * o.bots : 0, tag = sh ? `${o.base}.s${o.shard}` : o.base;
-    const runId = `${o.base}${sh ? `-s${o.shard}` : ''}-${new Date().toISOString().replace(/[-:]/g, '').slice(0, 15)}`;
+    const off = o.shard * o.bots, tag = `${o.base}.s${o.shard}`;
+    const runId = `${o.base}-s${o.shard}-${new Date().toISOString().replace(/[-:]/g, '').slice(0, 15)}`;
     const dir = path.join(o.root, runId);
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(o.root, `${tag}.current`), runId + '\n');
     const out = new LineWriter(path.join(dir, 'env_to_policy.jsonl'));
     const inp = new LineReader(path.join(dir, 'policy_to_env.jsonl'), { runId, allowed: ['hello_ack', 'act'] });
     const events = new EventLog(path.join(dir, 'events.jsonl'), { runId, botId: 'all', component: 'skill_env' });
+    const book = new SiteBook(path.join(o.root, 'sites', `${o.world}.json`), JSON.parse(fs.readFileSync(o.candidates, 'utf8')));
     let seq = 0;
-    // The live board for the human watcher: <root>/<base>.live.json, rewritten once a second (tools/train-dash serves it).
     const board = new LiveBoard({ run: runId, base: o.base });
     const liveFile = path.join(o.root, `${tag}.live.json`);
     setInterval(() => { try { board.write(liveFile); } catch (e) { /* the next tick retries */ } }, 500).unref();
@@ -175,8 +224,8 @@ async function main() {
     await rcon.connect();
     const cmd = queued(rcon);
     for (const g of GAMERULES) await cmd(`gamerule ${g}`);
-    // One clock for server and bots: the server's tick rate (tools/tickrate) is set from this process's GAME_SPEED, which
-    // also scales the bots' client physics (src/transport/time_scale.js).
+    // One clock for server and bots: the server's tick rate (tools/tickrate) is set from GAME_SPEED, which also scales the bots'
+    // client physics (src/transport/time_scale.js).
     const speed = require('../transport/time_scale').fromEnv();
     const rate = String(await cmd(`tickrate ${speed}`));
     if (!/^tickrate /.test(rate)) throw new Error(`server has no tick rate control (tools/tickrate): ${rate.slice(0, 120)}`);
@@ -185,189 +234,158 @@ async function main() {
     const hello = { env_version: ENV_VERSION, action_spec: actionSpec(), obs_spec: obsSpec(voc.entities.length),
         vocab_sizes: { item: voc.items.length, entity: voc.entities.length, cmd: CMDS.length, reason: REASON_LIST.length, category: 11 },
         milestones: MILESTONES, notable: NOTABLE, reward_terms: TERMS, stages: TABLE.stages, reward_table_version: TABLE.v,
-        // v2.0: id -> name tables (the learner names the owner's task goals, e.g. 'diamond'; the policy sees ids only) and the
-        // view image's rows x columns.
-        vocab: { items: voc.items, entities: voc.entities }, view_shape: [VIEW_H, VIEW_W] };
-    events.emit('run_start', { env_version: ENV_VERSION, bots: o.bots, shard: o.shard, env_id_offset: off, max_steps: o.maxSteps, region: o.region, seed: o.seed, K, speed,
-        view_distance: VIEW, sites: o.sites ? o.sites.slice(0, o.bots) : undefined,
-        sectors: o.sites ? undefined : Array.from({ length: o.bots }, (_, i) => sector(i, o.bots, o.region - 64).map(Math.round)) });
+        vocab: { items: voc.items, entities: voc.entities }, view_shape: [VIEW_H, VIEW_W], days: o.days };
+    events.emit('run_start', { env_version: ENV_VERSION, bots: o.bots, shard: o.shard, env_id_offset: off, days: o.days, seed: o.seed, K, speed,
+        view_distance: VIEW, world: o.world, sites_left: book.left });
 
-    // A bot that is lost (kick, timeout, closed socket) ends the whole run: the container restarts (unless-stopped) with all
-    // bots and a new run id, which the learner follows. Waiting for the others would train on fewer bots indefinitely.
+    // A bot that is lost (kick, timeout, closed socket) ends the whole run: the process restarts with all bots and a new run id.
     let ended = false;
-    const finish = (fatal) => {
+    const finish = (fatal, code) => {
         if (ended) return; ended = true;
         events.emit('run_end', { reason: fatal || 'done' }, fatal ? 'error' : 'info');
         for (let i = 0; i < o.bots; i++) send(off + i, 'bye', {});
         out.close(); events.close(); rcon.close();
-        setTimeout(() => process.exit(fatal ? 6 : 0), 300);
+        setTimeout(() => process.exit(code ?? (fatal ? 6 : 0)), 300);
     };
     const prefix = process.env.RL_BOT_PREFIX || 'Train';
-    await Promise.all(Array.from({ length: o.bots }, (_, i) => sleep(i * 4000).then(() => !ended && runBot(off + i, `${prefix}${off + i}`)).catch((e) => {
-        if (ended) return;
-        events.emit('bot_fatal', { env_id: off + i, message: String(e.message).slice(0, 300) }, 'error');
-        finish(`${prefix}${off + i}: ${e.message}`);
-    })));
+    try {
+        const bots = await Promise.all(Array.from({ length: o.bots }, (_, k) => sleep(k * 4000).then(() => connect(off + k, `${prefix}${off + k}`))));
+        for (let episode = 0; !ended; episode++) {
+            const sites = [];
+            for (const b of bots) sites.push(b.site = await place(b, episode, sites));
+            await cmd('time set 0'); await cmd('weather clear');
+            for (let t = 0; t < 100 && bots.some((b) => !(b.bot.time && b.bot.time.time < DAY / 2)); t++) await sleep(50);   // the clock arrived
+            await Promise.all(bots.map((b) => Promise.race([play(b, episode), b.lost])));
+        }
+    } catch (e) {
+        if (e instanceof SitesExhausted) { events.emit('sites_exhausted', { world: o.world, used: book.used.length }, 'error'); finish(e.message, 7); return; }
+        events.emit('bot_fatal', { message: String(e.message).slice(0, 300) }, 'error');
+        finish(String(e.message));
+        return;
+    }
     finish(null);
 
-    async function runBot(envId, name) {
+    async function connect(envId, name) {
         const bot = createForgeBot({ host: process.env.MC_HOST || 'localhost', port: Number(process.env.MC_PORT) || 25565, username: name, viewDistance: VIEW });
         attachForgeHandshake(bot, { registry: process.env.BOT_REGISTRY || 'auto' });
         const lost = new Promise((_, reject) => {
-            bot.on('kicked', (r) => reject(new Error(`kicked: ${String(r).slice(0, 200)}`)));
-            bot.on('end', (r) => reject(new Error(`connection ended: ${r}`)));
+            bot.on('kicked', (r) => reject(new Error(`${name} kicked: ${String(r).slice(0, 200)}`)));
+            bot.on('end', (r) => reject(new Error(`${name} connection ended: ${r}`)));
         });
-        lost.catch(() => {});
-        bot.on('error', (e) => events.emit('bot_error', { env_id: envId, message: String(e.message || e).slice(0, 200) }, 'warn'));
-        await Promise.race([new Promise((r) => bot.once('spawn', r)), lost, sleep(90000).then(() => { throw new Error('no spawn within 90 s'); })]);
         lost.catch((e) => board.lost(envId, e.message));
-        const tracker = new ProgressTracker(bot), space = new SkillSpace(bot, voc), reward = new CrafterReward();
+        bot.on('error', (e) => events.emit('bot_error', { env_id: envId, message: String(e.message || e).slice(0, 200) }, 'warn'));
+        await Promise.race([new Promise((r) => bot.once('spawn', r)), lost, sleep(90000).then(() => { throw new Error(`${name}: no spawn within 90 s`); })]);
+        const b = { envId, name, bot, lost, tracker: new ProgressTracker(bot), space: new SkillSpace(bot, voc), reward: new CrafterReward(), cancel: { cancelled: false } };
         board.attach(envId, name, bot);
-        let cancel = { cancelled: false };
-        bot.on('death', () => { cancel.cancelled = true; });
+        bot.on('death', () => { b.cancel.cancelled = true; });
         events.emit('connected', { env_id: envId, username: name });
-        // `start`: where this bot's episodes begin. Bookkeeping for the learner and the page (pairs: the same site in other
-        // shards), never part of the observation.
-        const site = o.sites ? envId - off : null;
-        board.site(envId, site === null ? null : { site, pos: o.sites[site], shard: Math.max(o.shard, 0) });
-        send(envId, 'hello', { ...hello, start: site === null ? null : { site, pos: o.sites[site], shard: Math.max(o.shard, 0) } });
-        for (let t = 0; !acks.has(envId); t++) { if (t > 6000) throw new Error('no hello_ack within 60 s'); await sleep(10); }
+        // `start`: the pair (= this group) and member, bookkeeping for the learner and the page, never part of the observation.
+        const start = { pair: o.shard, shard: o.shard, member: envId - off, world: o.world };
+        board.site(envId, start);
+        send(envId, 'hello', { ...hello, start });
+        for (let t = 0; !acks.has(envId); t++) { if (t > 6000) throw new Error(`${name}: no hello_ack within 60 s`); await sleep(10); }
         if (!acks.get(envId).accepted) throw new Error(`hello refused: ${acks.get(envId).reason}`);
-
-        const rng = mulberry32((o.seed * 7919 + envId) >>> 0);
-        for (let episode = 0; ; episode++) {
-            await Promise.race([site === null ? reset(bot, name, rng, sector(envId - off, o.bots, o.region - 64)) : resetAt(bot, name, o.sites[site]), lost]);
-            await tracker.begin(); reward.newEpisode(); cancel = { cancelled: false };
-            let msg = { reward: 0, reward_terms: Object.fromEntries(TERMS.map((t) => [t, 0])), terminated: false, truncated: false };
-            let last = { reason: 'ok', ticks: 0 }, epTicks = 0;
-            const ep = { ret: 0, nights: 0, slept: 0, t0: Date.now(), cmds: {}, stuck: false };
-            const stuck = new StuckDetector();
-            for (let step = 0; ; step++) {
-                send(envId, 'obs', { episode, step, obs: space.observe(reward.progress(), last, reward.kills, { ticks: epTicks, step }), ...msg });
-                if (msg.terminated || msg.truncated) break;
-                const act = await Promise.race([nextAct(envId, episode, step), lost]);
-                if (!act) throw new Error(`no act for episode ${episode} step ${step} within ${o.actTimeout} s`);
-                const c = space.cands[act.action && act.action.candidate];
-                let res;
-                const t0 = Date.now();
-                board.begin(envId, { episode, step, cmd: c ? c.cmd : 'invalid', label: c ? describe(bot, c) : '', index: act.action && act.action.candidate,
-                    offered: space.cands.map((x) => x.cmd) });
-                let ticks = 0;
-                const count = () => { ticks++; };
-                bot.on('physicsTick', count);
-                if (!c) { events.emit('invalid_candidate', { env_id: envId, episode, step, candidate: act.action && act.action.candidate }, 'warn'); res = await idle(bot, 20, cancel); res.reason = 'invalid_args'; }
-                else if (c.cmd === 'wait') res = await idle(bot, c.args.ticks, cancel);
-                else res = await Promise.race([execute(bot, c.cmd, c.args, { cancel }), lost]);
-                // A command refused before any input (unreachable, missing tool, ...) still costs one game tick, so a policy
-                // that keeps choosing such commands cannot spin hundreds of steps a second (run train-20261101T012004: 5 ms).
-                if (ticks === 0) await Promise.race([new Promise((r) => bot.once('physicsTick', r)), sleep(200)]);
-                bot.removeListener('physicsTick', count);
-                if (tracker.dead || bot.health <= 0) await sleep(300);   // let the death packet and the last statistics arrive
-                const { events: evs, statsOk } = await tracker.collect();
-                if (!res.ok) evs.push({ type: 'failed', reason: res.reason });   // scored by reward term `invalid`
-                // Tool multiplier of `mined` (owner 2026-11-02): which blocks this command broke with a tool (action-layer result).
-                const used = res.ok && c ? (c.cmd === 'mine' ? [res.detail && res.detail.tool] : c.cmd === 'tunnel' ? (res.detail && res.detail.tools) || [] : []) : [];
-                if (used.length) evs.push({ type: 'tool', frac: used.filter(Boolean).length / used.length });
-                const sc = reward.score(evs);
-                const dead = tracker.dead;
-                ep.stuck = !dead && stuck.push(res.ok, bot.entity && bot.entity.position, c ? c.cmd : null);
-                msg = { reward: sc.total, reward_terms: sc.terms, terminated: dead, truncated: !dead && (ep.stuck || step + 1 >= o.maxSteps) };
-                last = { reason: res.ok ? 'ok' : res.reason, ticks: Math.max(ticks, 1) };
-                epTicks += last.ticks;
-                ep.ret += sc.total; ep.cmds[c ? c.cmd : 'invalid'] = (ep.cmds[c ? c.cmd : 'invalid'] || 0) + 1;
-                let nights = 0, slept = 0;
-                for (const e of evs) if (e.type === 'dawn') { nights++; if (e.slept) slept++; }
-                ep.nights += nights; ep.slept += slept;
-                board.end(envId, { ok: !!res.ok, reason: last.reason, ms: Date.now() - t0, ticks: last.ticks, reward: sc.total, nights, slept });
-                events.emit('step', { env_id: envId, episode, step: step + 1, cmd: c ? c.cmd : null, args: c ? c.args : null, ok: !!res.ok,
-                    reason: last.reason, ticks: last.ticks, ms: Date.now() - t0, reward: sc.total, terms: sc.terms,
-                    progress_events: evs.length ? evs : undefined, stats_ok: statsOk || undefined, health: bot.health, food: bot.food });
-            }
-            const rec = { env_id: envId, episode, return: Math.round(ep.ret * 1e4) / 1e4, nights: ep.nights, slept: ep.slept,
-                wall_s: Math.round((Date.now() - ep.t0) / 1000), terminated: msg.terminated, stuck: ep.stuck || undefined, cmds: ep.cmds };
-            events.emit('episode_end', rec);
-            board.episodeEnd(envId, rec);
-            if (msg.terminated) {
-                for (let t = 0; bot.health <= 0 && t < 600; t++) await sleep(50);   // auto-respawn
-                await sleep(1000);
-            }
-        }
+        return b;
     }
 
-    async function clean(bot, name) {
-        if (bot.health <= 0) { try { bot.respawn(); } catch { /* auto-respawn */ } await sleep(1500); }
-        for (const c of [`gamemode survival ${name}`, `advancement revoke ${name} everything`, `clear ${name}`, `effect clear ${name}`,
-            `xp set ${name} 0 levels`, `xp set ${name} 0 points`]) await cmd(c);
-    }
-
-    async function settle(bot, name) {
-        for (let t = 0; t < 200 && bot.inventory.items().length; t++) await sleep(50);
-        await sleep(500);
-        await cmd(`spawnpoint ${name} ${Math.floor(bot.entity.position.x)} ${Math.floor(bot.entity.position.y)} ${Math.floor(bot.entity.position.z)}`);
-    }
-
-    /** Teleport and wait until the bot is there and its chunk has arrived. */
+    /** Teleport and wait until the bot is there and the cell's chunk has arrived. */
     async function tpTo(bot, name, x, y, z) {
         const pos = bot.entity.position.clone(), far = pos.distanceTo(new Vec3(x + 0.5, y, z + 0.5)) >= 1;
         await cmd(`tp ${name} ${x + 0.5} ${y} ${z + 0.5}`);
         for (let t = 0; far && t < 400 && bot.entity.position.distanceTo(pos) < 1; t++) await sleep(50);
-        for (let t = 0; t < 400 && !bot.blockAt(new Vec3(x, y - 1, z)); t++) await sleep(50);
+        for (let t = 0; t < 400 && !bot.blockAt(new Vec3(x, Math.min(y, 300) - 1, z)); t++) await sleep(50);
         await sleep(300);
     }
 
-    /** Fixed start (--sites): the site's own cell when it is dry standable ground, else the nearest such cell found by the same
-     *  deterministic search in every world (columns nearest first, heights nearest the site's first), so paired bots start
-     *  alike as long as their worlds are alike there. Earlier episodes may have dug or built at the site. */
-    async function resetAt(bot, name, [sx, sy, sz]) {
-        await clean(bot, name);
-        await tpTo(bot, name, sx, sy, sz);
-        const w = fromBot(bot);
-        const dry = (x, y, z) => standable(w, x, y, z) && !/water|lava/.test(w.nameAt(x, y, z) || '') && !/_(leaves|log|wood)$|water|lava/.test(w.nameAt(x, y - 1, z) || '');
-        const dys = [0, 1, -1, 2, -2, 3, -3, 4, -4, 5, -5, 6, -6, 8, -8, 12, -12];
-        let cell = null;
-        for (const [x, z] of ring(sx, sz, 6)) {
-            const y = dys.map((d) => sy + d).find((yy) => dry(x, yy, z));
-            if (y !== undefined) { cell = [x, y, z]; break; }
-        }
-        if (!cell) throw new Error(`reset: no dry standable cell within 6 blocks of site ${sx} ${sy} ${sz}`);
-        if (cell.some((v, i) => v !== [sx, sy, sz][i])) {
-            events.emit('site_moved', { bot: name, site: [sx, sy, sz], cell }, 'info');
+    /** Start of an episode for one bot: respawned, emptied, then the next candidate site that passes the checks on arrival. The
+     *  bot looks from above in spectator mode (no fall, chunks load around it), then stands on the chosen cell in survival. */
+    async function place(b, episode, taken) {
+        const { bot, name } = b;
+        if (bot.health <= 0) { try { bot.respawn(); } catch { /* auto-respawn */ } await sleep(1500); }
+        for (const c of [`gamemode spectator ${name}`, `clear ${name}`, `effect clear ${name}`, `xp set ${name} 0 levels`, `xp set ${name} 0 points`]) await cmd(c);
+        const avoid = taken.map((s) => [s.x, s.z]);
+        for (;;) {
+            const s = book.take(avoid, { bot: b.envId, episode });
+            if (!s) throw new SitesExhausted(`${o.world}: the ${book.cands.length} site candidates are used up`);
+            await tpTo(bot, name, s.x, s.y + 40, s.z);
+            const corners = [[16, 16], [16, -16], [-16, 16], [-16, -16]].map(([dx, dz]) => new Vec3(s.x + dx, s.y, s.z + dz));
+            for (let t = 0; t < 200 && corners.some((v) => !bot.blockAt(v)); t++) await sleep(50);   // the cells counted below
+            const w = fromBot(bot), logs = countLogs(w, s.x, s.y, s.z), cell = groundCell(w, s.x, s.y, s.z);
+            const why = logs < o.minLogs ? `${logs} logs within 16 blocks (< ${o.minLogs})` : !cell ? 'no dry ground cell within 8 blocks' : null;
+            if (why) { book.mark(s.i, `rejected: ${why}`, { bot: b.envId, episode }); events.emit('site_rejected', { bot: name, site: [s.x, s.z], why }, 'info'); continue; }
             await tpTo(bot, name, ...cell);
+            await cmd(`gamemode survival ${name}`);
+            await sleep(500);
+            if (bot.entity.isInWater) { book.mark(s.i, 'rejected: in water on arrival', { bot: b.envId, episode }); continue; }
+            await cmd(`spawnpoint ${name} ${cell[0]} ${cell[1]} ${cell[2]}`);
+            book.mark(s.i, 'used', { bot: b.envId, episode, cell, logs });
+            events.emit('site', { bot: name, episode, i: s.i, cell, logs, left: book.left });
+            board.site(b.envId, { pair: o.shard, shard: o.shard, member: b.envId - off, world: o.world, site: s.i, pos: cell });
+            return { ...s, cell };
         }
-        if (bot.entity.isInWater) throw new Error(`reset: in water at site ${sx} ${sy} ${sz}`);
-        await settle(bot, name);
     }
 
-    async function reset(bot, name, rng, [x0, x1, z0, z1]) {
-        await clean(bot, name);
-        // spreadplayers refuses sites without safe ground (ocean: "Could not spread") and may still land in shallow water,
-        // where the action layer cannot act (no swimming, SKILLS-v1 limits): draw another site until the bot stands dry.
-        const w = fromBot(bot);
-        // The bot's own sector first; a sector that is mostly ocean (run train3, Train4: 30 wet sites) falls back on the
-        // whole region after 40 tries, logged.
-        let why = '';
-        const R = o.region - 64;
-        for (let i = 0; i < 80; i++) {
-            const pos = bot.entity.position.clone();
-            if (i === 40) events.emit('sector_fallback', { bot: name, sector: [x0, x1, z0, z1].map(Math.round) }, 'warn');
-            const [ax, bx, az, bz] = i < 40 ? [x0, x1, z0, z1] : [-R, R, -R, R];
-            const reply = String(await cmd(`spreadplayers ${Math.round(ax + rng() * (bx - ax))} ${Math.round(az + rng() * (bz - az))} 0 24 false ${name}`));
-            if (!/^Spread/.test(reply)) { why = reply.slice(0, 120); continue; }
-            for (let t = 0; t < 200 && bot.entity.position.distanceTo(pos) < 1; t++) await sleep(50);   // the teleport arrived
-            for (let t = 0; t < 100 && !bot.blockAt(bot.entity.position.offset(0, -1, 0)); t++) await sleep(50);   // its chunk too
-            await sleep(300);
-            const p = bot.entity.position, x = Math.floor(p.x), y = Math.floor(p.y + 0.2), z = Math.floor(p.z);
-            // Not on a tree either: spreadplayers counts leaves as safe ground, and a bot on a tree top ends up on a one-block
-            // trunk with no way down (run train3, Train6).
-            const under = w.nameAt(x, y - 1, z) || '';
-            if (!bot.entity.isInWater && standable(w, x, y, z) && !/_(leaves|log|wood)$/.test(under)) { why = ''; break; }
-            why = `landed in water, on a tree or not on dry ground (${under})`;
+    /** One episode of one bot: until the group's clock passes days x 24000 ticks. */
+    async function play(b, episode) {
+        const { bot, name, envId, tracker, space, reward } = b;
+        const limit = o.days * DAY;
+        await tracker.begin(); reward.newEpisode(); b.cancel = { cancelled: false };
+        let msg = { reward: 0, reward_terms: Object.fromEntries(TERMS.map((t) => [t, 0])), terminated: false, truncated: false };
+        let last = { reason: 'ok', ticks: 0 };
+        const ep = { ret: 0, days: 0, slept: 0, deaths: 0, stuck: 0, t0: Date.now(), cmds: {} };
+        const stuck = new StuckDetector();
+        const clock = (step) => ({ frac: (bot.time.time || 0) / limit, step, tod: (bot.time.timeOfDay || 0) / DAY });
+        for (let step = 0; ; step++) {
+            send(envId, 'obs', { episode, step, obs: space.observe(reward.progress(), last, reward.kills, clock(step)), ...msg });
+            if (msg.terminated) break;
+            const act = await nextAct(envId, episode, step);
+            if (!act) throw new Error(`${name}: no act for episode ${episode} step ${step} within ${o.actTimeout} s`);
+            const c = space.cands[act.action && act.action.candidate];
+            let res;
+            const t0 = Date.now();
+            board.begin(envId, { episode, step, cmd: c ? c.cmd : 'invalid', label: c ? describe(bot, c) : '', index: act.action && act.action.candidate,
+                offered: space.cands.map((x) => x.cmd) });
+            let ticks = 0;
+            const count = () => { ticks++; };
+            bot.on('physicsTick', count);
+            if (!c) { events.emit('invalid_candidate', { env_id: envId, episode, step, candidate: act.action && act.action.candidate }, 'warn'); res = await idle(bot, 20, b.cancel); res.reason = 'invalid_args'; }
+            else if (c.cmd === 'wait') res = await idle(bot, c.args.ticks, b.cancel);
+            else res = await execute(bot, c.cmd, c.args, { cancel: b.cancel });
+            // A command refused before any input still costs one game tick (run train-20261101T012004: 5 ms per step).
+            if (ticks === 0) await Promise.race([new Promise((r) => bot.once('physicsTick', r)), sleep(200)]);
+            bot.removeListener('physicsTick', count);
+            if (tracker.dead || bot.health <= 0) await sleep(300);   // the death packet and the last statistics
+            const { events: evs, statsOk } = await tracker.collect();
+            if (!res.ok) evs.push({ type: 'failed', reason: res.reason });
+            const sc = reward.score(evs);
+            const died = evs.some((e) => e.type === 'death');
+            if (died) {
+                ep.deaths++;
+                for (let t = 0; (bot.health <= 0 || !bot.entity) && t < 600; t++) await sleep(50);   // auto-respawn at the site
+                await sleep(500);
+                tracker.revive(); b.cancel = { cancelled: false }; stuck.reset();
+            } else if (stuck.push(res.ok, bot.entity && bot.entity.position, c ? c.cmd : null)) {
+                ep.stuck++; stuck.reset();
+                events.emit('stuck_kill', { env_id: envId, episode, step }, 'info');
+                await cmd(`kill ${name}`);   // reported as a death with the next command's events
+            }
+            msg = { reward: sc.total, reward_terms: sc.terms, terminated: (bot.time.time || 0) >= limit, truncated: false };
+            last = { reason: res.ok ? 'ok' : res.reason, ticks: Math.max(ticks, 1) };
+            ep.ret += sc.total; ep.cmds[c ? c.cmd : 'invalid'] = (ep.cmds[c ? c.cmd : 'invalid'] || 0) + 1;
+            let days = 0, slept = 0;
+            for (const e of evs) if (e.type === 'dawn') { days++; if (e.slept) slept++; }
+            board.end(envId, { ok: !!res.ok, reason: last.reason, ms: Date.now() - t0, ticks: last.ticks, reward: sc.total, nights: days, slept });
+            events.emit('step', { env_id: envId, episode, step: step + 1, cmd: c ? c.cmd : null, args: c ? c.args : null, ok: !!res.ok,
+                reason: last.reason, ticks: last.ticks, ms: Date.now() - t0, reward: sc.total, terms: sc.terms,
+                progress_events: evs.length ? evs : undefined, stats_ok: statsOk || undefined, health: bot.health, food: bot.food });
         }
-        if (why) throw new Error(`reset: no dry site in 80 tries (${why})`);
-        await settle(bot, name);
+        const rec = { env_id: envId, episode, return: Math.round(ep.ret * 1e4) / 1e4, days: reward.days, slept: reward.slept, deaths: ep.deaths,
+            stuck_kills: ep.stuck || undefined, progress: [...reward.done], wall_s: Math.round((Date.now() - ep.t0) / 1000), site: b.site && b.site.i, cmds: ep.cmds };
+        events.emit('episode_end', rec);
+        board.episodeEnd(envId, rec);
     }
 }
 
 if (require.main === module) main().catch((e) => { console.error('[skill-env] fatal:', e.message); process.exit(1); });
 
-module.exports = { parseArgs, queued, idle, describe, sector, ring, loadSites, StuckDetector, GAMERULES, ENV_VERSION };
+module.exports = { parseArgs, queued, idle, describe, ring, SiteBook, countLogs, groundCell, StuckDetector, GAMERULES, ENV_VERSION, SITE_GAP };

@@ -1,103 +1,67 @@
 'use strict';
-// Reward v2 (Crafter-style, docs/proposed/RL-TRAINING-v2.md): survival nights, kills, notable kills, mined blocks and
-// advancements, each a separate term, plus `invalid`: the penalty for a command that could not be executed. Pure: it scores progress events (src/rl/progress.js) and keeps per-episode counts.
-// The environment sends every term unweighted; the learner applies the curriculum stage's weights (TABLE.stages).
-const TABLE = require('./reward-v2.json');
-const ADV = require('../../modpack/forgeaip-create.advancements.json').advancements;
+// Reward v5 (src/rl/reward-v5.json, owner 2026-11-02): episodes of a fixed number of in-game days. Terms: `survival` (each
+// dawn reached without a death since the previous one), `death` (per death; play goes on after the respawn), `progress`
+// (each entry of the progress list, src/rl/progress-list.json, the first time it is reached in the episode, judged here from
+// the player's server statistics) and `invalid` (a command that could not be executed). Pure: it scores progress events
+// (src/rl/progress.js) and keeps per-episode counts. The environment sends every term unweighted; the learner weights them.
+const TABLE = require('./reward-v5.json');
+const LIST = require('./progress-list.json');
 
-const TERMS = ['survival', 'kills', 'notable', 'mined', 'achievements', 'invalid'];
+const TERMS = ['survival', 'death', 'progress', 'invalid'];
 const short = (id) => String(id).replace(/^minecraft:/, '');
 
-const KILL_CLASS = new Map();
-for (const c of ['passive', 'neutral', 'hostile']) for (const e of TABLE.kills[c]) KILL_CLASS.set(e, c);
-const MINED = new Map();
-for (const t of TABLE.mined.tiers) for (const b of t.blocks) MINED.set(b, t.score);
-
-/** Score of one advancement: per_step * steps (vanilla tree depth) or the namespace's flat score; null = not an achievement. */
-function advancementScore(id) {
-    const a = ADV[id];
-    if (!a || (TABLE.achievements.unscored || []).includes(id)) return null;
-    const ns = id.split(':')[0];
-    return ns in TABLE.achievements.flat ? TABLE.achievements.flat[ns] : TABLE.achievements.per_step * a.steps;
-}
-
-// Progress vector: what the player can read on the advancement and statistics screens, in a fixed order. The learner's
-// target T lives in the same space (targetVector).
-const MILESTONES = Object.keys(ADV).filter((id) => id.startsWith('minecraft:')).sort();
-const NOTABLE = Object.keys(TABLE.notable.score).sort();
-const PROGRESS_DIM = MILESTONES.length + NOTABLE.length + 2;
-const NIGHTS_SCALE = 10;
+// Progress space: one flag per list entry in list order (easiest first), then days survived and days slept (/10, clipped).
+// The learner's goals are dimensions of this space.
+const ENTRIES = LIST.entries.map((e) => ({ ...e, set: new Set(e.any || []) }));
+const MILESTONES = ENTRIES.map((e) => e.id);
+const NOTABLE = [];
+const PROGRESS_DIM = MILESTONES.length + 2;
+const DAYS_SCALE = 10;
 
 class CrafterReward {
     constructor() { this.newEpisode(); }
 
     newEpisode() {
-        this.kills = new Map(); this.mined = new Map(); this.done = new Set();
-        this.nights = 0; this.slept = 0;
+        this.done = new Set(); this.kills = new Map();
+        this.days = 0; this.slept = 0; this.deaths = 0; this.diedToday = false;
     }
 
-    /** events: [{type:'killed', entity, n}, {type:'mined', block, n}, {type:'advancement', id}, {type:'dawn', slept}, {type:'death'},
-     *  {type:'failed', reason}, {type:'tool', frac}] (failed and tool from the command's own result: frac = share of the blocks
-     *  it broke with a tool; every other one from the server) */
+    /** Entries an event reaches (statistics deltas from progress.js; `dawn` with slept for the bed entry). */
+    static entriesOf(e) {
+        if (e.type === 'dawn') return e.slept ? ENTRIES.filter((x) => x.event === 'slept') : [];
+        const stat = e.type === 'mined' ? 'mined' : e.type === 'killed' ? 'killed' : e.type === 'stat' ? short(e.stat) : null;
+        const name = short(e.type === 'mined' ? e.block : e.type === 'killed' ? e.entity : e.name);
+        return stat && e.n > 0 ? ENTRIES.filter((x) => x.stat === stat && x.set.has(name)) : [];
+    }
+
+    /** events: [{type:'stat', stat, name, n} | {type:'mined', block, n} | {type:'killed', entity, n} | {type:'dawn', slept} |
+     *  {type:'death'} | {type:'failed', reason}]; anything else (advancements, tool) is not scored. */
     score(events) {
         const terms = Object.fromEntries(TERMS.map((t) => [t, 0]));
-        const tool = events.find((e) => e.type === 'tool');
-        const toolMult = 1 + ((TABLE.mined.tool_multiplier ?? 1) - 1) * (tool ? Math.max(0, Math.min(1, tool.frac)) : 0);
-        // v4: dying grants nothing (minecraft:adventure/root is awarded for being killed); the flag stays unset, so the
-        // advancement can still pay in a later step of the same episode, which cannot happen after a death (episode end).
-        const died = events.some((e) => e.type === 'death');
         for (const e of events) {
-            if (e.type === 'dawn') {
-                this.nights++; if (e.slept) this.slept++;
-                terms.survival += e.slept ? TABLE.survival.night_slept : TABLE.survival.night_awake;
-            } else if (e.type === 'death') {
-                terms.survival += TABLE.survival.death;
-            } else if (e.type === 'killed') {
-                const name = short(e.entity), notable = TABLE.notable.score[name];
-                for (let i = 0; i < e.n; i++) {
-                    const k = this.kills.get(name) || 0;
-                    this.kills.set(name, k + 1);
-                    if (notable !== undefined) {
-                        terms.notable += notable * (TABLE.notable.boss.includes(name) ? 1 : TABLE.notable.decay ** k);
-                    } else {
-                        const cls = KILL_CLASS.get(name) || 'hostile';
-                        terms.kills += TABLE.kills.base * TABLE.kills.class[cls] * TABLE.kills.decay ** k;
-                    }
-                }
-            } else if (e.type === 'mined') {
-                const name = short(e.block), base = MINED.get(name) ?? MINED.get(e.block) ?? TABLE.mined.default;
-                for (let i = 0; i < e.n; i++) {
-                    const k = this.mined.get(name) || 0;
-                    this.mined.set(name, k + 1);
-                    terms.mined += base * TABLE.mined.decay ** k * toolMult;
-                }
+            if (e.type === 'death') {
+                this.deaths++; this.diedToday = true; terms.death += TABLE.death.penalty;
             } else if (e.type === 'failed') {
                 terms.invalid += TABLE.invalid.reasons[e.reason] || 0;
-            } else if (e.type === 'advancement') {
-                const s = advancementScore(e.id);
-                if (s !== null && !died && !this.done.has(e.id)) { this.done.add(e.id); terms.achievements += s; }
+            } else if (e.type === 'killed') {
+                this.kills.set(short(e.entity), (this.kills.get(short(e.entity)) || 0) + e.n);
+            }
+            if (e.type === 'dawn') {
+                if (!this.diedToday) { this.days++; if (e.slept) this.slept++; terms.survival += e.slept ? TABLE.survival.day_slept : TABLE.survival.day_awake; }
+                this.diedToday = false;
+            }
+            for (const x of CrafterReward.entriesOf(e)) {
+                if (!this.done.has(x.id)) { this.done.add(x.id); terms.progress += TABLE.progress.per_entry; }
             }
         }
         for (const t of TERMS) terms[t] = Math.round(terms[t] * 1e6) / 1e6;
         return { total: Math.round(TERMS.reduce((s, t) => s + terms[t], 0) * 1e6) / 1e6, terms };
     }
 
-    /** This episode's progress in the milestone space (advancement flags, notable kill flags, nights, slept nights). */
+    /** This episode's position in the progress space. */
     progress() {
-        const v = MILESTONES.map((id) => (this.done.has(id) ? 1 : 0));
-        for (const n of NOTABLE) v.push(this.kills.get(n) ? 1 : 0);
-        v.push(Math.min(this.nights / NIGHTS_SCALE, 1), Math.min(this.slept / NIGHTS_SCALE, 1));
-        return v;
+        return [...MILESTONES.map((id) => (this.done.has(id) ? 1 : 0)), Math.min(this.days / DAYS_SCALE, 1), Math.min(this.slept / DAYS_SCALE, 1)];
     }
-}
-
-/** Target T of a curriculum stage in the progress space: 'survive' = ten nights, all slept; 'dragon' = the dragon is dead. */
-function targetVector(stage) {
-    const v = new Array(PROGRESS_DIM).fill(0);
-    if (stage === 'survive') { v[PROGRESS_DIM - 2] = 1; v[PROGRESS_DIM - 1] = 1; }
-    else if (stage === 'dragon') { v[MILESTONES.indexOf('minecraft:end/kill_dragon')] = 1; v[MILESTONES.length + NOTABLE.indexOf('ender_dragon')] = 1; }
-    else throw new Error(`unknown stage ${stage}`);
-    return v;
 }
 
 /** Weighted scalar of reward_terms for a stage (the learner does the same in Python). */
@@ -107,4 +71,4 @@ function stageReward(terms, stage) {
     return TERMS.reduce((s, t) => s + (w[t] || 0) * (terms[t] || 0), 0);
 }
 
-module.exports = { CrafterReward, TABLE, TERMS, MILESTONES, NOTABLE, PROGRESS_DIM, advancementScore, targetVector, stageReward, KILL_CLASS };
+module.exports = { CrafterReward, TABLE, LIST, TERMS, MILESTONES, NOTABLE, PROGRESS_DIM, DAYS_SCALE, stageReward };

@@ -1,13 +1,15 @@
 'use strict';
 // Progress events for reward v2, all graded by the server (docs/proposed/RL-TRAINING-v2.md):
 //   killed / mined   deltas of the player's statistics (the client asks with client_command 1, as the Statistics screen does)
+//   stat             the same for crafted / used / picked_up (item statistics; reward v5's progress list, env v3.0)
 //   advancement      an advancement whose requirements the server reports complete (advancements packet)
-//   dawn             the day counter advanced after a night the bot lived through from its start; slept = in bed at that moment
-//   death            the bot died
+//   dawn             the day counter advanced after a night seen (deaths in it are the reward's business, v5); slept = in bed
+//   death            the bot died (once per life: revive() re-arms it after the respawn)
 // Ids in the statistics packet are registry ids: they are named with the handshake's registry sync where Forge sent it,
 // else with vanilla minecraft-data (the order vanilla registers them).
 const STAT_TYPES = ['minecraft:mined', 'minecraft:crafted', 'minecraft:used', 'minecraft:broken', 'minecraft:picked_up',
     'minecraft:dropped', 'minecraft:killed', 'minecraft:killed_by', 'minecraft:custom'];
+const ITEM_STATS = new Set(['minecraft:crafted', 'minecraft:used', 'minecraft:picked_up']);
 const NIGHT_START = 12542, NIGHT_END = 23460;   // ticks of the day in which a bed can be used
 
 // src/transport/forge_bot.js leaves the advancements packet unparsed (restBuffer: it desynced on modded servers in 2026-03).
@@ -48,6 +50,7 @@ class ProgressTracker {
             type: inverse(sync, 'minecraft:stat_type'),
             block: inverse(sync, 'minecraft:block'),
             entity: inverse(sync, 'minecraft:entity_type'),
+            item: inverse(sync, 'minecraft:item'),
         };
         this.requirements = new Map(); this.criteria = new Map(); this.granted = new Set();
         this.pending = []; this.statsWaiters = []; this.baseline = null; this.last = new Map();
@@ -70,10 +73,12 @@ class ProgressTracker {
         const reg = this.bot.registry;
         if (t === 'minecraft:mined') return [t, (this.names.block && this.names.block.get(id)) || (reg.blocks[id] && `minecraft:${reg.blocks[id].name}`)];
         if (t === 'minecraft:killed') return [t, (this.names.entity && this.names.entity.get(id)) || (reg.entities[id] && `minecraft:${reg.entities[id].name}`)];
+        if (ITEM_STATS.has(t)) return [t, (this.names.item && this.names.item.get(id)) || (reg.items[id] && `minecraft:${reg.items[id].name}`)];
         return [t, null];
     }
 
-    /** Ask the server for the statistics; resolves to Map('<type> <name>' -> value) of mined and killed, or null on timeout. */
+    /** Ask the server for the statistics; resolves to Map('<type> <name>' -> value) of mined, killed, crafted, used and
+     *  picked_up, or null on timeout. */
     async stats() {
         const entries = await new Promise((resolve) => {
             const timer = setTimeout(() => { this.statsWaiters = this.statsWaiters.filter((f) => f !== done); resolve(null); }, this.statsTimeoutMs);
@@ -85,7 +90,7 @@ class ProgressTracker {
         const out = new Map();
         for (const e of entries) {
             const [t, name] = this.statName(e.categoryId, e.statisticId);
-            if (name && (t === 'minecraft:mined' || t === 'minecraft:killed')) out.set(`${t} ${name}`, e.value);
+            if (name && (t === 'minecraft:mined' || t === 'minecraft:killed' || ITEM_STATS.has(t))) out.set(`${t} ${name}`, e.value);
         }
         return out;
     }
@@ -109,7 +114,8 @@ class ProgressTracker {
                 const d = v - (this.last.get(k) || 0);
                 if (d <= 0) continue;
                 const [t, name] = k.split(' ');
-                this.pending.push(t === 'minecraft:mined' ? { type: 'mined', block: name, n: d } : { type: 'killed', entity: name, n: d });
+                this.pending.push(t === 'minecraft:mined' ? { type: 'mined', block: name, n: d } : t === 'minecraft:killed' ? { type: 'killed', entity: name, n: d }
+                    : { type: 'stat', stat: t, name, n: d });
             }
             this.last = s;
         }
@@ -131,9 +137,12 @@ class ProgressTracker {
         }
     }
 
+    /** After the respawn (an episode goes on past a death, env v3.0): the next death is reported again. */
+    revive() { this.dead = false; }
+
     _onTime() {
         const t = this.bot.time;
-        if (!t || this.dead) return;
+        if (!t) return;
         if (t.timeOfDay >= NIGHT_START && t.timeOfDay < NIGHT_END) this.sawNight = true;
         if (this.day !== null && t.day > this.day && this.sawNight) {
             const w = this.lastWake, inBed = this.bot.isSleeping;

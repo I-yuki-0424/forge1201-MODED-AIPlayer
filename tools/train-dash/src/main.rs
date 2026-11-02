@@ -62,11 +62,9 @@ fn parse_args() -> Result<(Config, String), String> {
     let train = root.join(&base).join("train");
     Ok((
         Config {
-            live: (0..SHARDS)
-                .map(|i| match i {
-                    0 => root.join(format!("{base}.live.json")),
-                    _ => root.join(format!("{base}.s{i}.live.json")),
-                })
+            // env < v3.0 wrote shard 0 unsuffixed; v3.0 writes <base>.s0 too (groups 0..4 on the VPS, 5.. relayed from the PC).
+            live: std::iter::once(root.join(format!("{base}.live.json")))
+                .chain((0..SHARDS).map(|i| root.join(format!("{base}.s{i}.live.json"))))
                 .collect(),
             train_log: train.join("train_log.jsonl"),
             episodes: train.join("episodes.jsonl"),
