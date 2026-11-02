@@ -18,6 +18,9 @@ class LiveBoard {
             ep: { ret: 0, nights: 0, slept: 0, t0: Date.now() }, episodes: [], connected: true });
     }
 
+    /** Where this bot's episodes start ({site, pos, shard}; null = a random site in its sector). */
+    site(envId, start) { const b = this.bots.get(envId); if (b) b.start = start; }
+
     lost(envId, why) { const b = this.bots.get(envId); if (b) { b.connected = false; b.lostWhy = String(why).slice(0, 200); } }
 
     /** A command starts. offered: the candidate list's commands, in order. */
@@ -98,7 +101,7 @@ class LiveBoard {
         for (const [envId, b] of [...this.bots.entries()].sort((a, c) => a[0] - c[0])) {
             const bot = b.bot, e = bot && bot.entity, st = LiveBoard.stats(b.ring, b.episode);
             bots.push({
-                env_id: envId, name: b.name, connected: b.connected, lost: b.lostWhy,
+                env_id: envId, name: b.name, connected: b.connected, lost: b.lostWhy, start: b.start || null,
                 episode: b.episode, step: b.step,
                 now: b.cur ? { cmd: b.cur.cmd, label: b.cur.label, candidate: b.cur.index, of: b.cur.offered.length, for_s: round((Date.now() - b.cur.t) / 1000, 1) } : null,
                 body: e ? { pos: [round(e.position.x, 1), round(e.position.y, 1), round(e.position.z, 1)], health: round(bot.health || 0, 1), food: bot.food,

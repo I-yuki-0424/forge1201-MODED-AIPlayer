@@ -6,7 +6,8 @@
 // Every start is a new run (<base>-<UTC time>, PROTOCOL.md: a new environment process = a new run_id); <root>/<base>.current
 // names the latest, so a learner can follow restarts. An episode is one life: it ends on death (terminated) or after
 // --max-steps commands (truncated). Reset over RCON: revoke advancements, clear inventory and effects, xp 0, survival, a
-// random site in the pre-generated region (scripts/skills/bench_lv2.js --pregen 1, docs/LESSONS.md L10).
+// random site in the pre-generated region (scripts/skills/bench_lv2.js --pregen 1, docs/LESSONS.md L10), or with --sites FILE
+// a fixed start per bot (bot k of every shard at sites[k]: pairs with the same start in different worlds, owner 2026-11-02).
 // Environment: MC_HOST MC_PORT RCON_HOST RCON_PORT RCON_PASSWORD, BOT_REGISTRY (default auto), RL_BOT_PREFIX (default Train).
 const fs = require('fs');
 const path = require('path');
@@ -26,8 +27,10 @@ const { LiveBoard } = require('./live_board');
 // v1.1: term `invalid`, live board, one tick minimum per step; v1.2: stuck cut; v1.3: swimming, ladders, `tunnel`, candidates
 // only what the action layer can do (K 64), a sector of the region per bot, game speed (tools/tickrate + GAME_SPEED);
 // v2.0 (DPOD TASK-20261101-031): observation fields view_* (first-hit image of the field of view), killed (kills this episode
-// per entity type), clock (episode age, step); mine candidates use the command's own reach-and-visibility goal
-const ENV_VERSION = '2026-11-01-skills-v2.0';
+// per entity type), clock (episode age, step); mine candidates use the command's own reach-and-visibility goal;
+// v2.1: --sites (fixed start per bot, `start` in hello: site index = pair across shards), reward table v4 (no achievement
+// paid in the step of a death, create:root unscored)
+const ENV_VERSION = '2026-11-02-skills-v2.1';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // Chunks a bot asks the server for: it acts within about 20 blocks (candidates, the reachability flood), so 5 is ample and
 // keeps chunk sending and parsing low with many bots (mineflayer's default 'far' = 12, capped by the server's 8).
@@ -36,9 +39,10 @@ const GAMERULES = ['doDaylightCycle true', 'doMobSpawning true', 'doImmediateRes
     'playersSleepingPercentage 1', 'announceAdvancements false', 'sendCommandFeedback false', 'logAdminCommands false', 'spawnRadius 0'];
 
 function parseArgs(argv) {
-    const o = { root: '/exchange', base: null, bots: 4, maxSteps: 20000, region: 576, seed: 1, actTimeout: 600, shard: -1 };
+    const o = { root: '/exchange', base: null, bots: 4, maxSteps: 20000, region: 576, seed: 1, actTimeout: 600, shard: -1, sites: null };
     const map = { '--root': ['root'], '--base': ['base'], '--bots': ['bots', Number], '--max-steps': ['maxSteps', Number],
-        '--region': ['region', Number], '--seed': ['seed', Number], '--act-timeout': ['actTimeout', Number], '--shard': ['shard', Number] };
+        '--region': ['region', Number], '--seed': ['seed', Number], '--act-timeout': ['actTimeout', Number], '--shard': ['shard', Number],
+        '--sites': ['sites', (f) => (f ? loadSites(f) : null)] };
     for (let i = 0; i < argv.length; i += 2) {
         const m = map[argv[i]];
         if (!m || argv[i + 1] === undefined) throw new Error(`bad argument ${argv[i]}`);
@@ -47,7 +51,23 @@ function parseArgs(argv) {
     if (!/^[a-z0-9_-]{1,40}$/i.test(o.base || '')) throw new Error('--base <name> is required ([a-z0-9_-])');
     if (!(o.bots >= 1 && o.bots <= 16)) throw new Error('--bots must be 1..16');
     if (!(Number.isInteger(o.shard) && o.shard >= -1 && o.shard <= 15)) throw new Error('--shard must be 0..15');
+    if (o.sites && o.sites.length < o.bots) throw new Error(`--sites: ${o.sites.length} sites for ${o.bots} bots`);
     return o;
+}
+
+/** Start sites: {"sites": [[x, y, z], ...]} with integer block coordinates inside the world border (y = the feet). */
+function loadSites(file) {
+    const j = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const ok = (v) => Array.isArray(v) && v.length === 3 && v.every(Number.isInteger) && Math.abs(v[0]) < 29999984 && Math.abs(v[2]) < 29999984 && v[1] > -64 && v[1] < 320;
+    if (!Array.isArray(j.sites) || !j.sites.length || !j.sites.every(ok)) throw new Error(`--sites ${file}: "sites" must be [[x, y, z], ...] of integers`);
+    return j.sites;
+}
+
+/** Columns around (x, z) out to radius r, nearest first, ties in a fixed order (the same search in every world). */
+function ring(x, z, r) {
+    const out = [];
+    for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) out.push([dx * dx + dz * dz, dx, dz]);
+    return out.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]).map(([, dx, dz]) => [x + dx, z + dz]);
 }
 
 /** One RCON connection, one command at a time (docs/LESSONS.md L9). A command that times out is sent again (up to `retries`
@@ -169,7 +189,8 @@ async function main() {
         // view image's rows x columns.
         vocab: { items: voc.items, entities: voc.entities }, view_shape: [VIEW_H, VIEW_W] };
     events.emit('run_start', { env_version: ENV_VERSION, bots: o.bots, shard: o.shard, env_id_offset: off, max_steps: o.maxSteps, region: o.region, seed: o.seed, K, speed,
-        view_distance: VIEW, sectors: Array.from({ length: o.bots }, (_, i) => sector(i, o.bots, o.region - 64).map(Math.round)) });
+        view_distance: VIEW, sites: o.sites ? o.sites.slice(0, o.bots) : undefined,
+        sectors: o.sites ? undefined : Array.from({ length: o.bots }, (_, i) => sector(i, o.bots, o.region - 64).map(Math.round)) });
 
     // A bot that is lost (kick, timeout, closed socket) ends the whole run: the container restarts (unless-stopped) with all
     // bots and a new run id, which the learner follows. Waiting for the others would train on fewer bots indefinitely.
@@ -205,13 +226,17 @@ async function main() {
         let cancel = { cancelled: false };
         bot.on('death', () => { cancel.cancelled = true; });
         events.emit('connected', { env_id: envId, username: name });
-        send(envId, 'hello', hello);
+        // `start`: where this bot's episodes begin. Bookkeeping for the learner and the page (pairs: the same site in other
+        // shards), never part of the observation.
+        const site = o.sites ? envId - off : null;
+        board.site(envId, site === null ? null : { site, pos: o.sites[site], shard: Math.max(o.shard, 0) });
+        send(envId, 'hello', { ...hello, start: site === null ? null : { site, pos: o.sites[site], shard: Math.max(o.shard, 0) } });
         for (let t = 0; !acks.has(envId); t++) { if (t > 6000) throw new Error('no hello_ack within 60 s'); await sleep(10); }
         if (!acks.get(envId).accepted) throw new Error(`hello refused: ${acks.get(envId).reason}`);
 
         const rng = mulberry32((o.seed * 7919 + envId) >>> 0);
         for (let episode = 0; ; episode++) {
-            await Promise.race([reset(bot, name, rng, sector(envId - off, o.bots, o.region - 64)), lost]);
+            await Promise.race([site === null ? reset(bot, name, rng, sector(envId - off, o.bots, o.region - 64)) : resetAt(bot, name, o.sites[site]), lost]);
             await tracker.begin(); reward.newEpisode(); cancel = { cancelled: false };
             let msg = { reward: 0, reward_terms: Object.fromEntries(TERMS.map((t) => [t, 0])), terminated: false, truncated: false };
             let last = { reason: 'ok', ticks: 0 }, epTicks = 0;
@@ -269,10 +294,52 @@ async function main() {
         }
     }
 
-    async function reset(bot, name, rng, [x0, x1, z0, z1]) {
+    async function clean(bot, name) {
         if (bot.health <= 0) { try { bot.respawn(); } catch { /* auto-respawn */ } await sleep(1500); }
         for (const c of [`gamemode survival ${name}`, `advancement revoke ${name} everything`, `clear ${name}`, `effect clear ${name}`,
             `xp set ${name} 0 levels`, `xp set ${name} 0 points`]) await cmd(c);
+    }
+
+    async function settle(bot, name) {
+        for (let t = 0; t < 200 && bot.inventory.items().length; t++) await sleep(50);
+        await sleep(500);
+        await cmd(`spawnpoint ${name} ${Math.floor(bot.entity.position.x)} ${Math.floor(bot.entity.position.y)} ${Math.floor(bot.entity.position.z)}`);
+    }
+
+    /** Teleport and wait until the bot is there and its chunk has arrived. */
+    async function tpTo(bot, name, x, y, z) {
+        const pos = bot.entity.position.clone(), far = pos.distanceTo(new Vec3(x + 0.5, y, z + 0.5)) >= 1;
+        await cmd(`tp ${name} ${x + 0.5} ${y} ${z + 0.5}`);
+        for (let t = 0; far && t < 400 && bot.entity.position.distanceTo(pos) < 1; t++) await sleep(50);
+        for (let t = 0; t < 400 && !bot.blockAt(new Vec3(x, y - 1, z)); t++) await sleep(50);
+        await sleep(300);
+    }
+
+    /** Fixed start (--sites): the site's own cell when it is dry standable ground, else the nearest such cell found by the same
+     *  deterministic search in every world (columns nearest first, heights nearest the site's first), so paired bots start
+     *  alike as long as their worlds are alike there. Earlier episodes may have dug or built at the site. */
+    async function resetAt(bot, name, [sx, sy, sz]) {
+        await clean(bot, name);
+        await tpTo(bot, name, sx, sy, sz);
+        const w = fromBot(bot);
+        const dry = (x, y, z) => standable(w, x, y, z) && !/water|lava/.test(w.nameAt(x, y, z) || '') && !/_(leaves|log|wood)$|water|lava/.test(w.nameAt(x, y - 1, z) || '');
+        const dys = [0, 1, -1, 2, -2, 3, -3, 4, -4, 5, -5, 6, -6, 8, -8, 12, -12];
+        let cell = null;
+        for (const [x, z] of ring(sx, sz, 6)) {
+            const y = dys.map((d) => sy + d).find((yy) => dry(x, yy, z));
+            if (y !== undefined) { cell = [x, y, z]; break; }
+        }
+        if (!cell) throw new Error(`reset: no dry standable cell within 6 blocks of site ${sx} ${sy} ${sz}`);
+        if (cell.some((v, i) => v !== [sx, sy, sz][i])) {
+            events.emit('site_moved', { bot: name, site: [sx, sy, sz], cell }, 'info');
+            await tpTo(bot, name, ...cell);
+        }
+        if (bot.entity.isInWater) throw new Error(`reset: in water at site ${sx} ${sy} ${sz}`);
+        await settle(bot, name);
+    }
+
+    async function reset(bot, name, rng, [x0, x1, z0, z1]) {
+        await clean(bot, name);
         // spreadplayers refuses sites without safe ground (ocean: "Could not spread") and may still land in shallow water,
         // where the action layer cannot act (no swimming, SKILLS-v1 limits): draw another site until the bot stands dry.
         const w = fromBot(bot);
@@ -297,12 +364,10 @@ async function main() {
             why = `landed in water, on a tree or not on dry ground (${under})`;
         }
         if (why) throw new Error(`reset: no dry site in 80 tries (${why})`);
-        for (let t = 0; t < 200 && bot.inventory.items().length; t++) await sleep(50);
-        await sleep(500);
-        await cmd(`spawnpoint ${name} ${Math.floor(bot.entity.position.x)} ${Math.floor(bot.entity.position.y)} ${Math.floor(bot.entity.position.z)}`);
+        await settle(bot, name);
     }
 }
 
 if (require.main === module) main().catch((e) => { console.error('[skill-env] fatal:', e.message); process.exit(1); });
 
-module.exports = { parseArgs, queued, idle, describe, sector, StuckDetector, GAMERULES, ENV_VERSION };
+module.exports = { parseArgs, queued, idle, describe, sector, ring, loadSites, StuckDetector, GAMERULES, ENV_VERSION };

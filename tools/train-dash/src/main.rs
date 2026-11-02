@@ -2,10 +2,11 @@
 //!
 //!   train-dash --root <exchange dir> --base <run base> [--bind 127.0.0.1:3021]
 //!
-//! Serves exactly six paths with GET or HEAD: the page (`/`, `/app.js`, `/app.css`, compiled in), `/live.json` (the live
+//! Serves exactly seven paths with GET or HEAD: the page (`/`, `/app.js`, `/app.css`, compiled in), `/live.json` (the live
 //! boards of all environment shards: `<root>/<base>.live.json` and `<root>/<base>.s<1..15>.live.json`, as
-//! `{"shards":[...]}`), `/learner.json` (the tail of the learner's train_log.jsonl and episodes.jsonl) and `/events`
-//! (Server-Sent Events: `live` and `learner` pushed as soon as a file changes, checked every 250 ms). It never writes, never
+//! `{"shards":[...]}`), `/learner.json` (the tail of the learner's train_log.jsonl and episodes.jsonl), `/goals.json` (the
+//! goal learner's provenance board `<root>/<base>/train/goals.json`: each bot's plan, why and how it was generated, its goal)
+//! and `/events` (Server-Sent Events: `live`, `learner` and `goals` pushed as soon as a file changes, checked every 250 ms). It never writes, never
 //! runs anything, and reads no path derived from the request. Standard library only.
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -33,6 +34,7 @@ struct Config {
     live: Vec<PathBuf>,
     train_log: PathBuf,
     episodes: PathBuf,
+    goals: PathBuf,
 }
 
 fn parse_args() -> Result<(Config, String), String> {
@@ -68,6 +70,7 @@ fn parse_args() -> Result<(Config, String), String> {
                 .collect(),
             train_log: train.join("train_log.jsonl"),
             episodes: train.join("episodes.jsonl"),
+            goals: train.join("goals.json"),
         },
         bind,
     ))
@@ -117,19 +120,22 @@ fn learner_json(c: &Config) -> String {
     )
 }
 
+/// One complete one-line JSON object file (written by tmp + rename), or None (missing, too large, half written).
+fn read_object(p: &Path) -> Option<Vec<u8>> {
+    let f = File::open(p).ok()?;
+    let mut buf = Vec::new();
+    f.take(LIVE_MAX + 1).read_to_end(&mut buf).ok()?;
+    let t = buf.trim_ascii();
+    (buf.len() as u64 <= LIVE_MAX
+        && t.starts_with(b"{")
+        && t.ends_with(b"}")
+        && !t.contains(&b'\n'))
+    .then(|| t.to_vec())
+}
+
 /// The live boards that exist, as `{"shards":[board, ...]}` (each board is the environment's own one-line JSON object).
 fn read_live(c: &Config) -> Option<Vec<u8>> {
-    let mut parts = Vec::new();
-    for p in &c.live {
-        let Ok(f) = File::open(p) else { continue };
-        let mut buf = Vec::new();
-        if f.take(LIVE_MAX).read_to_end(&mut buf).is_ok() {
-            let t = buf.trim_ascii();
-            if t.starts_with(b"{") && t.ends_with(b"}") && !t.contains(&b'\n') {
-                parts.push(t.to_vec());
-            }
-        }
-    }
+    let parts: Vec<Vec<u8>> = c.live.iter().filter_map(|p| read_object(p)).collect();
     if parts.is_empty() {
         return None;
     }
@@ -158,7 +164,8 @@ fn stream(s: &mut TcpStream, c: &Config) {
     }
     let live: Vec<&Path> = c.live.iter().map(PathBuf::as_path).collect();
     let learn = [c.train_log.as_path(), c.episodes.as_path()];
-    let (mut seen_live, mut seen_learn) = (None, None);
+    let goals = [c.goals.as_path()];
+    let (mut seen_live, mut seen_learn, mut seen_goals) = (None, None, None);
     let (start, mut quiet) = (Instant::now(), Instant::now());
     while start.elapsed() < STREAM_MAX {
         let (sl, sn) = (stamp(&live), stamp(&learn));
@@ -172,8 +179,19 @@ fn stream(s: &mut TcpStream, c: &Config) {
             seen_live = Some(sl);
         }
         if seen_learn.as_ref() != Some(&sn) {
-            msg.extend_from_slice(format!("event: learner\ndata: {}\n\n", learner_json(c)).as_bytes());
+            msg.extend_from_slice(
+                format!("event: learner\ndata: {}\n\n", learner_json(c)).as_bytes(),
+            );
             seen_learn = Some(sn);
+        }
+        let sg = stamp(&goals);
+        if seen_goals.as_ref() != Some(&sg) {
+            if let Some(b) = read_object(&c.goals) {
+                msg.extend_from_slice(b"event: goals\ndata: ");
+                msg.extend(b);
+                msg.extend_from_slice(b"\n\n");
+            }
+            seen_goals = Some(sg);
         }
         if msg.is_empty() && quiet.elapsed() > Duration::from_secs(15) {
             msg.extend_from_slice(b": keep-alive\n\n");
@@ -267,6 +285,16 @@ fn handle(mut s: TcpStream, c: &Config) {
                 head,
             ),
         },
+        "/goals.json" => match read_object(&c.goals) {
+            Some(b) => respond(&mut s, "200 OK", "application/json", &b, head),
+            None => respond(
+                &mut s,
+                "503 Service Unavailable",
+                "application/json",
+                b"{\"error\":\"no goal board yet\"}",
+                head,
+            ),
+        },
         "/events" if !head => stream(&mut s, c),
         "/learner.json" => respond(
             &mut s,
@@ -294,7 +322,10 @@ fn main() {
             std::process::exit(1);
         }
     };
-    eprintln!("train-dash: serving {} (+ shard boards) on {bind}", cfg.live[0].display());
+    eprintln!(
+        "train-dash: serving {} (+ shard boards) on {bind}",
+        cfg.live[0].display()
+    );
     let cfg = Arc::new(cfg);
     let active = Arc::new(AtomicUsize::new(0));
     for conn in listener.incoming() {
@@ -357,6 +388,7 @@ mod tests {
                 .collect(),
             train_log: dir.join("x"),
             episodes: dir.join("y"),
+            goals: dir.join("goals.json"),
         };
         assert!(read_live(&c).is_none());
         std::fs::write(dir.join("b.live.json"), "{\"run\":\"r0\"}\n").unwrap();
@@ -366,6 +398,11 @@ mod tests {
             String::from_utf8(read_live(&c).unwrap()).unwrap(),
             "{\"shards\":[{\"run\":\"r0\"},{\"run\":\"r1\"}]}"
         );
+        assert!(read_object(&c.goals).is_none());
+        std::fs::write(&c.goals, "{\"bots\":{}}\n").unwrap();
+        assert_eq!(read_object(&c.goals).unwrap(), b"{\"bots\":{}}");
+        std::fs::write(&c.goals, "{\"bots\":").unwrap(); // half written: skipped
+        assert!(read_object(&c.goals).is_none());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

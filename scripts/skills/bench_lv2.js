@@ -16,6 +16,7 @@
 //   (cd docker/world-server && docker compose --profile bench run --rm -T --entrypoint node bench \
 //       scripts/skills/bench_lv2.js --run-id l1 --seed 1 --bots 10 --follow Seia_Y --wait-login 120)
 //   (... same, once per world: scripts/skills/bench_lv2.js --pregen 1)      generate the test region first
+//   (... scripts/skills/bench_lv2.js --pregen 1 --sites config/train-sites.json)   generate the training start sites instead
 //   python3 scripts/skills/report.py exchange/l1
 // Options: --reps N (per command, default 10), --only a,b, --bots N (parallel bots, default 10), --trials i,j (replay),
 // --follow <player> (teleported next to bot 1 at every trial, stays in creative; bot 1's planned path is drawn for that
@@ -38,10 +39,10 @@ const HOSTILE = ['zombie', 'husk', 'skeleton', 'spider'];
 const HELMET = ',ArmorItems:[{},{},{},{id:"minecraft:leather_helmet",Count:1b}]';   // no burning in daylight
 
 function parseArgs(argv) {
-    const o = { root: '/exchange', runId: null, seed: 1, reps: 10, only: null, bots: 10, trials: null, follow: null, waitLogin: 0, pregen: false };
+    const o = { root: '/exchange', runId: null, seed: 1, reps: 10, only: null, bots: 10, trials: null, follow: null, waitLogin: 0, pregen: false, sites: null };
     const map = { '--root': ['root'], '--run-id': ['runId'], '--seed': ['seed', Number], '--reps': ['reps', Number], '--bots': ['bots', Number],
         '--only': ['only', (s) => s.split(',')], '--trials': ['trials', (s) => s.split(',').map(Number)], '--follow': ['follow'],
-        '--wait-login': ['waitLogin', Number], '--pregen': ['pregen', (v) => v === '1'] };
+        '--wait-login': ['waitLogin', Number], '--pregen': ['pregen', (v) => v === '1'], '--sites': ['sites'] };
     for (let i = 0; i < argv.length; i += 2) {
         const [k, v] = [argv[i], argv[i + 1]];
         if (!map[k] || v === undefined) throw new Error(`bad argument ${k}`);
@@ -109,24 +110,33 @@ function siteCandidates(seed, n, T) {
 /** Generate the test region once per world: a spectator scout visits a grid of points and waits for each view to load. */
 async function pregen(o) {
     const B = await connectBot('MapScout', o), { bot, S } = B;
-    const mark = path.join(o.root, `pregen-${(/\[(-?\d+)\]/.exec(await S.cmd('seed')) || [])[1]}.json`);
-    if (fs.existsSync(mark)) { console.log(`[lv2] region already generated (${mark})`); return finish(); }
+    // --sites: the training start sites (src/rl/run_skill_env.js --sites) instead of the region; also records what stands at
+    // each site in the marker (the ground under the owner's feet coordinates), so a wrong seed or a wet site shows before training.
+    const sites = o.sites ? require('../../src/rl/run_skill_env').loadSites(o.sites) : null;
+    const mark = path.join(o.root, `pregen-${(/\[(-?\d+)\]/.exec(await S.cmd('seed')) || [])[1]}${sites ? '-sites' : ''}.json`);
+    if (fs.existsSync(mark)) { console.log(`[lv2] already generated (${mark})`); return finish(); }
     await S.must(`gamemode spectator ${S.name}`);
     // A view loads +-8 chunks; points at most 224 blocks apart, ends at +-(REGION - 112), cover |x|, |z| <= REGION.
     const k = Math.ceil((2 * (REGION - 112)) / 224) + 1, axis = Array.from({ length: k }, (_, i) => Math.round(-REGION + 112 + (i * 2 * (REGION - 112)) / (k - 1)));
-    const pts = axis.flatMap((x) => axis.map((z) => [x, z]));
+    const pts = sites ? sites.map(([x, , z]) => [x, z]) : axis.flatMap((x) => axis.map((z) => [x, z]));
+    const ground = [];
     const t0 = Date.now();
     for (const [i, [x, z]] of pts.entries()) {
         await S.must(`tp ${S.name} ${x} 200 ${z}`);
-        await waitFor(`region ${x},${z}`, () => [[-112, -112], [112, 112], [-112, 112], [112, -112]].every(([dx, dz]) => bot.blockAt(new Vec3(x + dx, 0, z + dz))), 180000);
+        const r = sites ? 48 : 112;                                      // a site: the bot's own area (it views +-5 chunks)
+        await waitFor(`region ${x},${z}`, () => [[-r, -r], [r, r], [-r, r], [r, -r]].every(([dx, dz]) => bot.blockAt(new Vec3(x + dx, 0, z + dz))), 180000);
         for (;;) {                                                       // let the server catch up before the next view
             const ms = parseFloat((/Mean tick time: ([\d.]+)/.exec(await S.cmd('forge tps overworld')) || [])[1]);
             if (!(ms > 40)) break;
             await sleep(2000);
         }
-        console.log(`[lv2] pregen ${i + 1}/${pts.length} at ${x},${z} (${Math.round((Date.now() - t0) / 1000)} s)`);
+        if (sites) {
+            const y = sites[i][1], name = (dy) => (at(bot, x, y + dy, z) || {}).name;
+            ground.push({ site: sites[i], below: name(-1), feet: name(0), head: name(1), standable: standable(bot, x, y, z) });
+        }
+        console.log(`[lv2] pregen ${i + 1}/${pts.length} at ${x},${z} (${Math.round((Date.now() - t0) / 1000)} s)${sites ? ` ${JSON.stringify(ground[i])}` : ''}`);
     }
-    fs.writeFileSync(mark, JSON.stringify({ region: REGION, points: pts.length, seconds: Math.round((Date.now() - t0) / 1000) }));
+    fs.writeFileSync(mark, JSON.stringify({ region: sites ? undefined : REGION, points: pts.length, seconds: Math.round((Date.now() - t0) / 1000), ground: sites ? ground : undefined }));
     return finish();
     function finish() { shared.close(); bot.end(); setTimeout(() => process.exit(0), 500); }
 }

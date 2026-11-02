@@ -1,5 +1,5 @@
 {
-  "v": 3,
+  "v": 4,
   "doc": "docs/proposed/RL-TRAINING-v2.md. Unit: 1.0 = one Crafter achievement. Every term is graded from what the server sends the player (statistics, advancements, time, death), never from the bot's own prediction.",
   "survival": {
     "doc": "Paid at dawn, for a night the bot was alive through from its start. Slept = in a bed when the night was skipped.",
@@ -44,7 +44,9 @@
   "achievements": {
     "doc": "Advancements the server grants (once per episode; reset revokes them). Score = per_step * steps, steps = depth in the advancement tree (modpack/forgeaip-create.advancements.json). Create's tab is a display chain, not prerequisites, so its advancements score flat.",
     "per_step": 1.0,
-    "flat": { "create": 1.0 }
+    "flat": { "create": 1.0 },
+    "unscored": ["create:root"],
+    "unscored_doc": "v4 (2026-11-02, run train5: 1,767 grants in 2,133 episodes): Create's root is awarded for free on joining, so it paid 1.0 per episode for nothing. Also from v4, advancements granted in the step the bot died are not scored: minecraft:adventure/root is granted by being killed (killed_by_something), and paid 1.0 for 2,022 deaths in that run, the opposite of survival.death = 0."
   },
   "invalid": {
     "doc": "Owner 2026-11-01, after the first training run collapsed onto commands that fail at once: a command that cannot be executed scores negative, charged per failed command by its reason. Failures the policy did not cause (died, disconnected, cancelled, internal) are free.",

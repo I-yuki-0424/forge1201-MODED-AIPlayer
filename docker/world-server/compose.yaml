@@ -230,7 +230,7 @@ services:
       - "127.0.0.1:25567:25565"
 
   # The environment: N bots on the skill-level action space (src/rl/run_skill_env.js). A restart is a new run_id;
-  # <base>.current tells the learner which one is live.
+  # <base>.current tells the learner which one is live. TRAIN_SITES (scripts/train/up.sh --sites): fixed start per bot, '' = sectors.
   train-env: &trainenv_svc
     image: node@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0
     profiles: [train]
@@ -250,7 +250,7 @@ services:
     volumes:
       - ../..:/app:ro
       - ../../exchange:/exchange
-    command: ["node", "src/rl/run_skill_env.js", "--base", "${TRAIN_BASE:-train}", "--bots", "${TRAIN_BOTS:-8}", "--max-steps", "${TRAIN_MAX_STEPS:-20000}", "--seed", "${TRAIN_ENV_SEED:-1}"]
+    command: ["node", "src/rl/run_skill_env.js", "--base", "${TRAIN_BASE:-train}", "--bots", "${TRAIN_BOTS:-8}", "--max-steps", "${TRAIN_MAX_STEPS:-20000}", "--sites", "${TRAIN_SITES:-}", "--seed", "${TRAIN_ENV_SEED:-1}"]
     networks: [world]
 
   # ---- Shards 1-3 (scripts/train/up.sh --shards N): one more server + environment each, a copy of shard 0's world, no
@@ -292,7 +292,7 @@ services:
       RCON_PASSWORD: ${RCON_PASSWORD:?run scripts/world/up.sh}
       BOT_REGISTRY: auto
       GAME_SPEED: ${TRAIN_SPEED:-1}
-    command: ["node", "src/rl/run_skill_env.js", "--base", "${TRAIN_BASE:-train}", "--bots", "${TRAIN_BOTS:-8}", "--shard", "1", "--max-steps", "${TRAIN_MAX_STEPS:-20000}", "--seed", "11"]
+    command: ["node", "src/rl/run_skill_env.js", "--base", "${TRAIN_BASE:-train}", "--bots", "${TRAIN_BOTS:-8}", "--shard", "1", "--max-steps", "${TRAIN_MAX_STEPS:-20000}", "--sites", "${TRAIN_SITES:-}", "--seed", "11"]
   train-env-s2:
     <<: *shardenv
     profiles: [shard2]
@@ -301,7 +301,7 @@ services:
       <<: *shardenvvars
       MC_HOST: train-s2
       RCON_HOST: train-s2
-    command: ["node", "src/rl/run_skill_env.js", "--base", "${TRAIN_BASE:-train}", "--bots", "${TRAIN_BOTS:-8}", "--shard", "2", "--max-steps", "${TRAIN_MAX_STEPS:-20000}", "--seed", "21"]
+    command: ["node", "src/rl/run_skill_env.js", "--base", "${TRAIN_BASE:-train}", "--bots", "${TRAIN_BOTS:-8}", "--shard", "2", "--max-steps", "${TRAIN_MAX_STEPS:-20000}", "--sites", "${TRAIN_SITES:-}", "--seed", "21"]
   train-env-s3:
     <<: *shardenv
     profiles: [shard3]
@@ -310,7 +310,7 @@ services:
       <<: *shardenvvars
       MC_HOST: train-s3
       RCON_HOST: train-s3
-    command: ["node", "src/rl/run_skill_env.js", "--base", "${TRAIN_BASE:-train}", "--bots", "${TRAIN_BOTS:-8}", "--shard", "3", "--max-steps", "${TRAIN_MAX_STEPS:-20000}", "--seed", "31"]
+    command: ["node", "src/rl/run_skill_env.js", "--base", "${TRAIN_BASE:-train}", "--bots", "${TRAIN_BOTS:-8}", "--shard", "3", "--max-steps", "${TRAIN_MAX_STEPS:-20000}", "--sites", "${TRAIN_SITES:-}", "--seed", "31"]
 
   # The policy and learner: DPOD's Truck derivative on demand + asynchronous PPO with the two-stage curriculum
   # (DPOD scripts/botsystem_skill_ppo.py). Checkpoints in exchange/<base>/train; a restart resumes from the last one.

@@ -1,5 +1,6 @@
 'use strict';
-// The watcher's page. Data arrives by push (/events, Server-Sent Events: `live` = every environment shard's board, `learner`)
+// The watcher's page. Data arrives by push (/events, Server-Sent Events: `live` = every environment shard's board, `learner`,
+// `goals` = the goal learner's provenance board: each bot's plan, why and how it was generated, its goal)
 // as soon as the files change; polling every 2 s only if the stream cannot be opened. Rendering is asynchronous and partial:
 // at most once per animation frame, only the cards whose data changed are rebuilt, nothing while the tab is hidden.
 // DOM built with textContent only.
@@ -33,9 +34,10 @@ function bar(v, label) { const d = el('div', 'bar'), i = el('i'); i.style.width 
 
 // A card has a head (what the bot does now: changes every push) and a body (statistics, history: changes when a command
 // ends). Each part is rebuilt only when its own data changed.
-function botHead(b) {
+function botHead(b, partners) {
     const f = document.createDocumentFragment(), h = el('h2');
     h.append(el('span', null, `BOT #${b.env_id}`), el('span', 'muted', `${b.name} · episode ${b.episode} · step ${b.step}`));
+    if (b.start) h.append(el('span', 'muted', `site ${b.start.site + 1} (${b.start.pos.join(' ')})${partners.length ? ` · pair of #${partners.join(', #')}` : ''}`));
     if (!b.connected) h.append(el('span', 'bad', `disconnected: ${b.lost || ''}`));
     const n = b.now, body = b.body || {};
     f.append(h, el('div', 'now', n ? `${n.cmd} ${n.label} — for ${n.for_s}s (candidate ${n.candidate} of ${n.of})` : 'between commands (waiting for the policy or resetting)'),
@@ -68,18 +70,60 @@ function botBody(b, now) {
     return f;
 }
 
-const cards = new Map();   // env_id -> {card, head, body, kHead, kBody}
+// What the learner generated for this bot and why (goals.json): the plan with its trigger, the reason its target was chosen,
+// the beams and R(s, step) at generation, the goal now with its source and price, and how the last plans and goals ended.
+function botGoal(g) {
+    const f = document.createDocumentFragment();
+    if (!g) { f.append(el('div', 'muted', 'no goal data (learner without goals, or not yet written)')); return f; }
+    const pl = g.plan;
+    f.append(el('h3', null, 'plan (batch-generated)'));
+    if (pl) {
+        f.append(el('div', 'now', `target ${pl.target}`),
+            kv([['why this target', pl.why], ['generated because', pl.trigger], ['beam log-prob', pl.logp ?? '–'], ['age', `${pl.commands} commands`]]));
+        f.append(table(['#', 'subgoal', 'R at generation', 'state'], pl.steps.map((st, i) => [i + 1, st.dim,
+            el('span', st.r_at_start < 0.05 ? 'bad' : st.r_at_start < 0.3 ? 'warn' : 'ok', st.r_at_start.toFixed(3)),
+            el('span', i < pl.k ? 'ok' : i === pl.k ? 'warn' : 'muted', i < pl.k ? 'reached' : i === pl.k ? 'now' : 'pending')]), [0, 2]));
+        if (pl.beams && pl.beams.length > 1) f.append(el('div', 'muted wrap', `other beams: ${pl.beams.slice(1).map((b) => `[${b.steps.join(' → ')}] ${b.logp}`).join(' · ')}`));
+    } else f.append(el('div', 'muted', 'none: the goal comes from the archive (exploration share) or plan generation gave up this episode'));
+    const go = g.goal;
+    f.append(el('h3', null, 'goal now'));
+    if (go) {
+        f.append(el('div', 'now', go.tokens.map((t) => `${t.dim} ${t.from} → ${t.to} (now ${t.now})`).join(' and ') + (go.context.length ? `, toward ${go.context.join(', ')}` : '')),
+            kv([['from', go.src], ['p (reach)', go.p], ['bonus if reached', go.bonus_if_reached], ['repeat', go.repeat], ['age', `${go.age} of ${go.horizon}`]]));
+    } else f.append(el('div', 'muted', 'none'));
+    if (g.plans.length) {
+        f.append(el('h3', null, 'last plans'));
+        f.append(table(['target', 'generated because', 'reached', 'outcome'], g.plans.map((p) => {
+            const o = el('span', p.outcome === 'completed' ? 'ok' : /infeasible|expired/.test(p.outcome) ? 'warn' : 'muted', p.outcome); o.title = p.steps.join(' → ');
+            return [p.target, el('span', 'wrap', p.trigger), `${p.reached}/${p.steps.length}`, o];
+        })));
+    }
+    if (g.goals.length) {
+        f.append(el('h3', null, 'last goals'));
+        f.append(table(['goal', 'from', 'p', 'outcome', 'bonus', 'cmds'], g.goals.map((x) => [x.goal.join(' + '), el('span', 'wrap', x.src), x.p,
+            el('span', x.outcome === 'reached' ? 'ok' : 'muted', x.outcome), x.bonus, x.commands]), [2, 4, 5]));
+    }
+    return f;
+}
+
+const cards = new Map();   // env_id -> {card, head, goal, body, kHead, kGoal, kBody}
 function renderBots(bots, now) {
     const keep = new Set();
     let prev = null;
+    const bySite = new Map();
+    for (const b of bots) if (b.start) bySite.set(b.start.site, [...(bySite.get(b.start.site) || []), b.env_id]);
     for (const b of bots) {
         keep.add(b.env_id);
         let c = cards.get(b.env_id);
-        if (!c) { c = { card: el('article', 'card'), head: el('div'), body: el('div'), kHead: '', kBody: '' }; c.card.append(c.head, c.body); cards.set(b.env_id, c); }
+        if (!c) { c = { card: el('article', 'card'), head: el('div'), goal: el('div'), body: el('div'), kHead: '', kGoal: '', kBody: '' }; c.card.append(c.head, c.goal, c.body); cards.set(b.env_id, c); }
         c.card.className = `card${b.connected ? '' : ' lost'}`;
-        const { now: n, body, ...rest } = b, kHead = JSON.stringify([b.name, b.episode, b.step, b.connected, n, body]);
+        const partners = b.start ? (bySite.get(b.start.site) || []).filter((i) => i !== b.env_id) : [];
+        const { now: n, body, ...rest } = b, kHead = JSON.stringify([b.name, b.episode, b.step, b.connected, n, body, b.start, partners]);
         const kBody = JSON.stringify([rest.window, rest.total, rest.episode_now, rest.warnings, rest.recent, rest.episodes]);
-        if (kHead !== c.kHead) { c.head.replaceChildren(botHead(b)); c.kHead = kHead; }
+        const g = goalsDoc && goalsDoc.bots ? goalsDoc.bots[String(b.env_id)] : null;
+        const { start: _s, ...gk } = g || {}, kGoal = JSON.stringify(gk);
+        if (kHead !== c.kHead) { c.head.replaceChildren(botHead(b, partners)); c.kHead = kHead; }
+        if (kGoal !== c.kGoal) { c.goal.replaceChildren(botGoal(g)); c.kGoal = kGoal; }
         if (kBody !== c.kBody) { c.body.replaceChildren(botBody(b, now)); c.kBody = kBody; }
         // Keep the cards in env_id order, moving only what is out of place.
         const want = prev ? prev.nextSibling : $('bots').firstChild;
@@ -112,16 +156,28 @@ function learner(L) {
     for (const s of L.updates.filter((u) => u.event === 'stage_switch')) f.append(el('div', 'alert', `stage switch to ${s.to}`));
     f.append(el('h3', null, `policy entropy over the last ${ups.length} updates (falling fast = choices collapsing)`), spark(ups.map((u) => u.ent)));
     f.append(el('h3', null, 'mean reward per step'), spark(ups.map((u) => u.reward_mean)));
+    const paired = L.episodes.filter((e) => e.pair !== undefined);
+    if (paired.length) {
+        // Pairs: the same start site in different shards (same seed). The latest episode of each bot side by side.
+        const last = new Map();
+        for (const e of paired) last.set(`${e.pair}/${e.shard}`, e);
+        const sites = [...new Set(paired.map((e) => e.pair))].sort((a, b) => a - b), shards = [...new Set(paired.map((e) => e.shard))].sort();
+        f.append(el('h3', null, 'pairs: latest episode per start site and shard (task return, steps, end)'));
+        f.append(table(['site', ...shards.map((s) => `shard ${s}`)], sites.map((p) => [p + 1, ...shards.map((s) => {
+            const e = last.get(`${p}/${s}`);
+            return e ? `#${e.env_id}: ${e.return_task} · ${e.steps} · ${e.terminated ? 'died' : 'cut'}` : '–';
+        })])));
+    }
     if (L.episodes.length) {
         f.append(el('h3', null, 'episodes (newest first)'));
         f.append(table(['bot', 'member', 'episode', 'steps', 'nights', 'return', 'invalid', 'end'], L.episodes.slice().reverse().slice(0, 12).map((e) =>
-            [`#${e.env_id}`, e.member ?? 0, e.episode, e.steps, `${e.nights} (${e.slept})`, e.return_stage, (e.terms && e.terms.invalid !== undefined) ? e.terms.invalid : '–', e.terminated ? 'died' : 'cut']), [3, 4, 5, 6]));
+            [`#${e.env_id}`, e.member ?? 0, e.episode, e.steps, `${e.nights} (${e.slept})`, e.return_stage ?? e.return_task, (e.terms && e.terms.invalid !== undefined) ? e.terms.invalid : '–', e.terminated ? 'died' : 'cut']), [3, 4, 5, 6]));
     }
     box.replaceChildren(f);
 }
 
 // ---- data in, frames out
-let live = null, learn = null, dirty = { live: false, learn: false }, frame = 0, rates = [];
+let live = null, learn = null, goalsDoc = null, dirty = { live: false, learn: false }, frame = 0, rates = [];
 function draw() {
     frame = 0;
     if (document.hidden) return;
@@ -143,13 +199,15 @@ function draw() {
 const schedule = () => { if (!frame) frame = requestAnimationFrame(draw); };
 const gotLive = (d) => { live = d; dirty.live = true; schedule(); };
 const gotLearn = (d) => { learn = d; dirty.learn = true; schedule(); };
+const gotGoals = (d) => { goalsDoc = d; dirty.live = true; schedule(); };   // drawn into the bot cards
 document.addEventListener('visibilitychange', () => { if (!document.hidden) { dirty.live = dirty.learn = true; schedule(); } });
 
 async function poll() {
     try {
-        const [lr, ll] = await Promise.all([fetch('/live.json', { cache: 'no-store' }), fetch('/learner.json', { cache: 'no-store' })]);
+        const [lr, ll, lg] = await Promise.all(['/live.json', '/learner.json', '/goals.json'].map((u) => fetch(u, { cache: 'no-store' })));
         if (lr.ok) gotLive(await lr.json()); else $('run').textContent = 'no live data yet (environment starting?)';
         if (ll.ok) gotLearn(await ll.json());
+        if (lg.ok) gotGoals(await lg.json());
     } catch (e) { $('run').textContent = `cannot reach the server: ${e.message}`; }
     setTimeout(poll, 2000);
 }
@@ -158,6 +216,7 @@ if (window.EventSource) {
     const es = new EventSource('/events');
     es.addEventListener('live', (e) => gotLive(JSON.parse(e.data)));
     es.addEventListener('learner', (e) => gotLearn(JSON.parse(e.data)));
+    es.addEventListener('goals', (e) => gotGoals(JSON.parse(e.data)));
     let opened = false;
     es.onopen = () => { opened = true; };
     es.onerror = () => { if (!opened) { es.close(); poll(); } else $('run').append(el('span', 'warn', ' · reconnecting…')); };

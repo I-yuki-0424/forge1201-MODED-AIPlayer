@@ -28,3 +28,6 @@ td.wrap { white-space: normal; overflow-wrap: anywhere; }
 .bar span { position: relative; }
 svg.spark { width: 100%; height: 48px; display: block; }
 svg.spark polyline { fill: none; stroke: var(--accent); stroke-width: 1.5; }
+.card > div + div { margin-top: 6px; }
+div.wrap { white-space: normal; overflow-wrap: anywhere; }
+span.wrap { white-space: normal; overflow-wrap: anywhere; }

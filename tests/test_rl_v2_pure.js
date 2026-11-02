@@ -7,7 +7,7 @@ const { CrafterReward, TABLE, MILESTONES, NOTABLE, PROGRESS_DIM, advancementScor
 const { ProgressTracker, complete } = require('../src/rl/progress');
 const { SkillSpace, vocab, obsSpec, actionSpec, K, CMDS } = require('../src/rl/skill_space');
 const { specHash } = require('../src/rl/action_spec');
-const { parseArgs, queued, describe, sector, StuckDetector } = require('../src/rl/run_skill_env');
+const { parseArgs, queued, describe, sector, ring, StuckDetector } = require('../src/rl/run_skill_env');
 const { LiveBoard } = require('../src/rl/live_board');
 
 let pending = 0;
@@ -24,7 +24,8 @@ test('advancement table: tree depth as steps, tab roots chained, recipes exclude
     assert.strictEqual(advancementScore('minecraft:story/enter_the_nether'), 7);
     assert.strictEqual(advancementScore('minecraft:end/kill_dragon'), 11);      // end/root chained to story/enter_the_end (9)
     assert.strictEqual(advancementScore('minecraft:recipes/misc/stick'), null);
-    assert.strictEqual(advancementScore('create:root'), 1);
+    assert.strictEqual(advancementScore('create:root'), null);       // v4: awarded for free on joining
+    assert.strictEqual(advancementScore('create:andesite_alloy'), 1);
     assert.ok(MILESTONES.length === 110 && MILESTONES.every((m) => m.startsWith('minecraft:')));
 });
 
@@ -68,6 +69,15 @@ test('achievements: once per episode, score = steps; newEpisode resets', () => {
     near(r.score([{ type: 'advancement', id: 'minecraft:recipes/misc/stick' }]).total, 0);
     r.newEpisode();
     near(r.score([{ type: 'advancement', id: 'minecraft:story/smelt_iron' }]).total, 4);
+});
+
+test('achievements v4: nothing is paid for dying (adventure/root is granted by being killed); a kill still pays it', () => {
+    const r = new CrafterReward();
+    near(r.score([{ type: 'death' }, { type: 'advancement', id: 'minecraft:adventure/root' }]).total, 0);
+    r.newEpisode();
+    // Control: the same advancement earned by a kill, without a death in that step, pays its depth.
+    near(r.score([{ type: 'advancement', id: 'minecraft:adventure/root' }]).terms.achievements, 1);
+    near(r.score([{ type: 'advancement', id: 'create:root' }]).total, 0);
 });
 
 test('invalid: a command that cannot be executed scores negative; failures the policy did not cause are free', () => {
@@ -393,4 +403,25 @@ test('sectors: one disjoint cell of the region per bot, inside it, centres far a
         }
     }
     assert.strictEqual(describe({ blockAt: () => null, entities: {} }, { cmd: 'tunnel', args: { dir: 'east', dy: -1 } }), 'east down');
+});
+
+test('sites (owner 2026-11-02): the committed file parses, one site per bot, bounds checked; the search order is fixed', () => {
+    const fs = require('fs'), path = require('path');
+    const f = path.join(__dirname, '..', 'config', 'train-sites.json');
+    const o = parseArgs(['--base', 't', '--bots', '10', '--sites', f]);
+    assert.strictEqual(o.sites.length, 10);
+    assert.deepStrictEqual(o.sites[1], [20137, 68, 99842]);
+    assert.throws(() => parseArgs(['--base', 't', '--bots', '11', '--sites', f]), /10 sites for 11 bots/);
+    assert.strictEqual(parseArgs(['--base', 't', '--sites', '']).sites, null);       // compose passes '' when unset
+    const bad = path.join(require('os').tmpdir(), `sites-bad-${process.pid}.json`);
+    fs.writeFileSync(bad, JSON.stringify({ sites: [[1.5, 70, 2]] }));
+    assert.throws(() => parseArgs(['--base', 't', '--bots', '1', '--sites', bad]), /integers/);
+    fs.writeFileSync(bad, JSON.stringify({ sites: [[30000000, 70, 2]] }));
+    assert.throws(() => parseArgs(['--base', 't', '--bots', '1', '--sites', bad]), /integers/);
+    fs.unlinkSync(bad);
+    const r = ring(10, 20, 2);
+    assert.strictEqual(r.length, 25);
+    assert.deepStrictEqual(r[0], [10, 20]);
+    assert.deepStrictEqual(r.slice(1, 5), [[9, 20], [10, 19], [10, 21], [11, 20]]);
+    assert.deepStrictEqual(ring(10, 20, 2), r);
 });

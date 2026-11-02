@@ -16,7 +16,7 @@ for (const t of TABLE.mined.tiers) for (const b of t.blocks) MINED.set(b, t.scor
 /** Score of one advancement: per_step * steps (vanilla tree depth) or the namespace's flat score; null = not an achievement. */
 function advancementScore(id) {
     const a = ADV[id];
-    if (!a) return null;
+    if (!a || (TABLE.achievements.unscored || []).includes(id)) return null;
     const ns = id.split(':')[0];
     return ns in TABLE.achievements.flat ? TABLE.achievements.flat[ns] : TABLE.achievements.per_step * a.steps;
 }
@@ -43,6 +43,9 @@ class CrafterReward {
         const terms = Object.fromEntries(TERMS.map((t) => [t, 0]));
         const tool = events.find((e) => e.type === 'tool');
         const toolMult = 1 + ((TABLE.mined.tool_multiplier ?? 1) - 1) * (tool ? Math.max(0, Math.min(1, tool.frac)) : 0);
+        // v4: dying grants nothing (minecraft:adventure/root is awarded for being killed); the flag stays unset, so the
+        // advancement can still pay in a later step of the same episode, which cannot happen after a death (episode end).
+        const died = events.some((e) => e.type === 'death');
         for (const e of events) {
             if (e.type === 'dawn') {
                 this.nights++; if (e.slept) this.slept++;
@@ -72,7 +75,7 @@ class CrafterReward {
                 terms.invalid += TABLE.invalid.reasons[e.reason] || 0;
             } else if (e.type === 'advancement') {
                 const s = advancementScore(e.id);
-                if (s !== null && !this.done.has(e.id)) { this.done.add(e.id); terms.achievements += s; }
+                if (s !== null && !died && !this.done.has(e.id)) { this.done.add(e.id); terms.achievements += s; }
             }
         }
         for (const t of TERMS) terms[t] = Math.round(terms[t] * 1e6) / 1e6;
