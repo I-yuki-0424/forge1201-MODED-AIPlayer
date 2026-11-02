@@ -461,3 +461,79 @@ impl With for Out {
     fn with(mut self, s: &mut Sim, mut ev: Vec<Ev>) -> Out { s.advance(self.ticks, &mut ev); if s.dead { self.ok = false; self.reason = "died"; } self.ev = ev; self }
     fn with_slept(mut self, _skip: i64, s: &mut Sim) -> Out { for e in self.ev.iter_mut() { if let Ev::Dawn(sl) = e { *sl = true; } } if !self.ev.iter().any(|e| matches!(e, Ev::Dawn(_))) && !s.dead { self.ev.push(Ev::Dawn(true)); } self }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tile::{Chunk, Section};
+    fn flat() -> Sim {
+        let d = Rc::new(Data::load());
+        let (stone, air) = (d.bid("stone"), d.air);
+        let chunks = (0..9).map(|_| Some(Chunk { secs: (0..crate::tile::SECS).map(|i| Section::Uniform(if i < 8 { stone } else { air })).collect() })).collect();
+        let tile = Rc::new(Tile { name: "flat".into(), site: [24, 64, 24], cx0: 0, cz0: 0, w: 3, h: 3, chunks });
+        let mut s = Sim::new(d, tile, 7);
+        s.pos = [24, 64, 24]; s.site = s.pos;
+        s
+    }
+    #[test]
+    fn walking_and_standing() {
+        let mut s = flat();
+        assert!(s.standable(24, 64, 24) && !s.standable(24, 63, 24));
+        let o = s.do_move([30, 64, 24]);
+        assert!(o.ok && s.pos == [30, 64, 24]);
+        assert!((o.ticks - (6.0f64 / (4.317 / 20.0)).ceil() as i64 - 2).abs() <= 1, "ticks {}", o.ticks);
+        assert_eq!(s.do_move([30, 64, 60]).reason, "unreachable");          // beyond the flood radius / tile
+    }
+    #[test]
+    fn mining_needs_the_tool_and_costs_vanilla_time() {
+        let mut s = flat();
+        let stone = s.d.bid("stone");
+        s.set(26, 64, 24, stone);
+        assert_eq!(s.do_mine([26, 64, 24]).reason, "missing_tool");
+        s.give("wooden_pickaxe", 1);
+        let o = s.do_mine([26, 64, 24]);
+        assert!(o.ok, "{}", o.reason);
+        assert_eq!(s.count("cobblestone"), 1);
+        let plan = s.dig_plan(stone).unwrap();
+        assert_eq!(plan.1, 23);                                              // ceil(1 / (2.0 / 1.5 / 30))
+        assert!(o.ev.iter().any(|e| matches!(e, Ev::Stat("picked_up", n, 1) if n == "cobblestone")));
+    }
+    #[test]
+    fn wood_to_table_chain() {
+        let mut s = flat();
+        let log = s.d.bid("oak_log");
+        for y in 64..68 { s.set(28, y, 24, log); }
+        for y in 64..67 { assert!(s.do_mine([28, y, 24]).ok); }
+        assert_eq!(s.count("oak_log"), 3);
+        assert!(s.do_craft("oak_planks", None).ok && s.count("oak_planks") == 4);
+        assert!(s.do_craft("crafting_table", None).ok && s.count("crafting_table") == 1);
+        let t = [s.pos[0], 64, s.pos[2] + 1];
+        assert!(s.do_place(t, "crafting_table").ok);
+        assert_eq!(s.name(t[0], t[1], t[2]), "crafting_table");
+        s.do_craft("oak_planks", None);
+        assert!(s.do_craft("stick", None).ok);
+        assert_eq!(s.do_craft("wooden_pickaxe", None).reason, "missing_materials");     // 3x3 recipe: needs the table argument
+        s.do_craft("oak_planks", None);
+        assert!(s.do_craft("wooden_pickaxe", Some(t)).ok, "pickaxe at the table");
+    }
+    #[test]
+    fn night_brings_zombies_and_sleep_needs_a_bed() {
+        let mut s = flat();
+        let mut ev = vec![];
+        s.advance(13000, &mut ev);
+        assert!(s.is_night());
+        s.advance(2000, &mut ev);
+        assert!(s.mobs.iter().any(|m| m.hostile), "no zombie after 2000 night ticks");
+        s.respawn();                                                       // idle at night with nothing to fight back: dead by now
+        assert_eq!(s.do_sleep([25, 64, 24]).reason, "invalid_target");
+    }
+    #[test]
+    fn json_roundtrip_and_inflate() {
+        let j = crate::json::parse(r#"{"a":[1,2.5,"x\n"],"b":{"c":true,"d":null}}"#).unwrap();
+        assert_eq!(crate::json::parse(&j.dump()).unwrap(), j);
+        // a real zlib stream (python zlib, level 9, dynamic Huffman) of 300 random words
+        let z = [120,218,117,148,107,114,195,32,12,132,175,194,213,218,212,237,100,106,155,153,196,157,92,191,17,50,236,39,192,63,140,65,214,99,89,173,188,221,247,37,221,30,31,223,71,58,254,246,125,89,83,126,44,105,205,63,233,121,228,247,39,59,189,114,254,74,155,57,150,197,76,246,124,174,249,246,123,198,110,74,227,102,143,182,60,110,245,115,201,132,173,210,112,53,107,128,36,56,110,54,135,82,177,36,241,32,108,125,61,99,253,80,188,79,11,234,15,85,148,181,44,102,178,167,94,217,246,240,38,3,200,74,20,130,238,107,192,38,98,7,122,106,101,63,21,31,220,19,224,221,225,76,24,95,236,135,152,21,46,128,157,178,89,150,64,90,64,79,211,4,139,213,138,120,90,203,73,72,136,105,30,44,29,154,20,14,140,2,248,94,46,162,89,187,9,69,149,242,152,188,73,222,93,225,208,190,40,107,215,177,80,132,87,66,22,34,208,69,64,222,133,188,71,246,33,36,245,185,51,18,68,67,220,164,14,231,65,119,52,215,81,232,233,37,38,201,120,100,65,26,32,148,134,71,169,213,52,10,76,183,195,216,244,10,150,107,144,43,117,33,136,218,9,90,61,205,132,135,107,177,39,100,119,144,154,68,198,234,115,43,70,104,236,246,213,148,245,131,142,22,138,28,253,182,208,219,235,63,73,139,169,45,23,222,225,223,172,33,25,100,243,118,250,7,54,138,92,140];
+        let want = "mine craft tunnel ore log stone ore wood mine mine ore ore block craft mine craft block stone log craft stone wood stone wood ore block block block ore craft tunnel log stone craft ore mine wood block wood block block tunnel block mine tunnel stone wood craft tunnel log mine wood wood log log ore ore log tunnel log block craft stone wood block block log stone stone block tunnel wood mine stone wood stone log log stone mine block wood wood craft stone tunnel tunnel tunnel craft block block ore block log wood block mine wood block wood wood tunnel stone block tunnel stone block craft stone tunnel ore tunnel tunnel wood ore stone stone stone tunnel wood ore wood tunnel craft tunnel craft tunnel tunnel wood wood block log stone craft wood mine wood mine tunnel craft block log log tunnel tunnel mine ore craft log tunnel mine ore wood mine log stone mine tunnel craft wood tunnel log tunnel craft block wood wood ore tunnel block wood block block stone block craft mine stone ore block mine stone ore wood tunnel mine log wood log mine stone stone mine block stone stone ore log craft wood mine stone block stone log tunnel craft wood ore stone tunnel mine mine log log craft mine wood craft stone ore block stone wood mine wood block stone ore tunnel stone stone craft stone log stone log ore stone log ore tunnel craft tunnel log tunnel block block wood tunnel wood mine tunnel block log craft stone block log craft stone tunnel ore block stone block stone tunnel ore tunnel block block ore stone mine mine wood log block mine block craft stone tunnel tunnel wood log ore log block log tunnel log stone ore craft mine block stone log";
+        assert_eq!(String::from_utf8(crate::inflate::zlib(&z).unwrap()).unwrap(), want);
+    }
+}
