@@ -410,7 +410,7 @@ test('sites (owner 2026-11-02): the committed file parses, one site per bot, bou
     const f = path.join(__dirname, '..', 'config', 'train-sites.json');
     const o = parseArgs(['--base', 't', '--bots', '10', '--sites', f]);
     assert.strictEqual(o.sites.length, 10);
-    assert.deepStrictEqual(o.sites[1], [20137, 68, 99842]);
+    assert.deepStrictEqual(o.sites[1], [20137, 69, 99842]);
     assert.throws(() => parseArgs(['--base', 't', '--bots', '11', '--sites', f]), /10 sites for 11 bots/);
     assert.strictEqual(parseArgs(['--base', 't', '--sites', '']).sites, null);       // compose passes '' when unset
     const bad = path.join(require('os').tmpdir(), `sites-bad-${process.pid}.json`);

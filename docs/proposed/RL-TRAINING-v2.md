@@ -109,6 +109,7 @@ Two decisions here deviate from a literal reading and are open to the owner:
 scripts/train/up.sh --bots 3 --learn 0 --base smoke     # owner-watched test run: the policy acts, never learns
 scripts/train/up.sh --bots 4 --learn 1 --base train     # the training run (one week)
 scripts/train/status.sh [base]                          # containers, holds, per-bot command success, rewards, learner
+scripts/train/restart.sh train-policy [train-dash]      # recreate with the running settings (exchange/.train-env) after a code change
 scripts/train/down.sh                                   # learner first (last checkpoint), then the build world comes back
 ```
 
@@ -245,3 +246,73 @@ Knowledge: `forge1201aiplayersystem_rl_whatwrong_ilook.md`. Checked against the 
   environment cannot support yet (MODEL-GOALWM.md); as the owner noted, it could also misjudge.
 - Also fixed on the way: an RCON or statistics timeout on a lagging server ended the whole run (train4 shard 0: 8 restarts in
   an hour, every bot reset); timeouts are now retried (ids matched, late replies dropped), RCON timeout 10 s.
+
+## Run 6 (from 2026-11-02 14:38 JST, base `train6`): owner review of run 5
+
+Owner (after 5 h / ~240 k steps of run 5): the bots still dig dirt, chop wood and place it; the crafting table is rare and a
+tool was used once, so learning is worse than the numbers; the world is bumpy and the start area nearly empty; use ten given
+sites, 20 bots in two groups of ten with the same seed and starts (pairs for self-imitation); show which goal each generated
+plan was made for, and how.
+
+**Why the numbers looked better than the behaviour** (run 5, 2,133 episodes, 266 k steps, `exchange/train5*`):
+
+- 96 % of episodes ended in death (2,045), after 111 commands on average. Per episode the reward was achievements 3.11,
+  kills 1.61, mined 0.42, survival 0.24.
+- The achievements were nearly all tab roots: `minecraft:adventure/root` (1,877 grants), `create:root` (1,767),
+  `story/root` (729, crafting table), `husbandry/root` (472, eat anything). Real progress was rare: `mine_stone` 114,
+  `smelt_iron` 7, `upgrade_tools` 3.
+- `adventure/root` is granted by *being killed* (criterion `killed_by_something`), so **every death paid +1.0** although
+  `survival.death` is 0. `create:root` is awarded for free on joining, so every episode paid +1.0 for nothing. Together that
+  is two thirds of the achievement term. Fixed in reward table v4: no achievement is paid in the step of a death (a kill
+  still pays `adventure/root`; test with that control), and `create:root` is unscored.
+- The goal proposer kept choosing "+1 dirt" (833 of 4,468 assigned goals). The p(1-p) weight favours a goal with p 0.83
+  (w 0.14) over the hard ones (p near 0, w near 0.03). Plans are learned from hindsight orders of what bots happened to do:
+  a "diamond" plan read `sand -> kill tropical_fish -> diamond`. Only 46 of 2,173 plans were completed (2 %); most ended
+  with the bot's death. The policy did not learn the tech tree; it learned the cheap, always-OK loop plus free roots.
+
+**Sites, pairs, a fresh world** (`config/train-sites.json`, env v2.1):
+
+- Bot k of every shard starts every episode at site k (owner's ten coordinates; the decimals were dropped, which was one
+  block off at five sites; the file now holds the measured standing cells). Bot k of shard 0 and bot k of shard 1 are a
+  pair: seed 20261101, the same start, different worlds. When a site has been dug or built on, the reset takes the nearest
+  dry standable cell in a fixed search order, so paired bots stay alike as long as their worlds are alike there.
+  Measured: all ten pairs landed on identical cells in the first episode (`site_moved` events).
+- `up.sh --fresh-world` archives the old shard-0 world (`/mnt/data/forgeaip/snapshots/train-world-20261102-143452.tar.gz`),
+  removes every shard's world and generates the seed anew. Shards 1+ are copied from shard 0 *before any bot joins*.
+  Earlier up.sh copied the world after shard 0's bots had started, so shard worlds were never identical.
+- `--sites` pre-generates the ten sites (107 s) and records the ground under each in `exchange/pregen-20261101-sites.json`.
+- `hello.start` = {site, pos, shard}. It is bookkeeping, never observed by the policy. The learner writes it to every
+  episode record as `pair`, and the page shows each bot's partner and a pairs table.
+- Not done: the self-imitation loss itself (which partner's actions to copy, and from when the two worlds diverge, since
+  mobs and drops differ from the first tick). The pairs make it possible; the rule is the owner's to choose.
+
+**Provenance on the page** (DPOD `goals.json`, `tools/train-dash` `/goals.json` and the `goals` stream event): each bot
+card shows its plan: the target T and why it was chosen (owner task goal, or an archive dimension with its success rate),
+what triggered the generation (episode start / the previous plan completed / a step expired / a step judged infeasible with
+its R), the beam's log-probability and the other beams, R(s, step) of every step at generation, and the progress. It also
+shows the goal now (source, p, the bonus it would pay, age of horizon) and the last five plans and eight goals with their
+outcomes.
+
+**Plans were never judged infeasible** (DPOD fix, 2026-11-02, found on the new board): the test "R(s, step) < --plan-tau =
+physically too early" used max(R, the dimension's Laplace success rate), and an untried dimension's rate is
+(0 + 1)/(0 + 2) = 0.5, so the test could never fire (run 5: 0 infeasible replans in 2,173 plans). It now tests the reach head
+R alone (regression test with a negative control on the old code). The goal's price and proposal weight keep max(R, rate)
+(owner rule). The board shows R per step.
+
+**Learner restart replayed the whole run** (DPOD fix, 2026-11-02): a restarted learner read the run's message file from
+the start and served every old observation. That answered steps the bots had already carried out with other actions, and
+it would have trained on transitions it never chose (the first restart of run 6 replayed 18 k observations; stopped before
+any update, checkpoint still at update 46). Earlier restarts mid-run (the run 5 crash fix) went this way. Now the first read
+of a run keeps the hellos and, per bot, only the last observation, if no act answered it yet (test: 61 replayed steps on the
+old code, 1 now). `scripts/train/restart.sh <service>` recreates a container with the running training's settings
+(`exchange/.train-env`, written by up.sh). A bare `compose up` had recreated the learner and the page with base `train`,
+which followed the dead run 1 and wrote 4 hello refusals into its files (removed).
+
+**Server load:** with sites pre-generated to +-48 only, both servers ran at 104-140 ms per tick (budget 50), because bots
+view +-80 blocks and generated terrain at the edge. Sites are now pre-generated as a 3 x 3 grid of views (+-176 blocks; 405-443 s
+per shard on the live servers, `--max-tick 160`: a server with bots never gets under the default 40 ms). About 2,000 entities
+per shard (about 600 hostiles over the ten separate areas, about 300-400 dropped items). Throughput over 15 min: 16.7 k
+steps/h, against 19.3 k/h at the end of run 5.
+
+**Learner:** GoalWM, initialised from run 5's encoder, world model, reach head, goal embeddings and plan decoder
+(`exchange/pretrain/train5_u594.pkl`). The policy head starts fresh, since it was trained under the leaky reward.

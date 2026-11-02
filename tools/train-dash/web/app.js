@@ -81,7 +81,7 @@ function botGoal(g) {
         f.append(el('div', 'now', `target ${pl.target}`),
             kv([['why this target', pl.why], ['generated because', pl.trigger], ['beam log-prob', pl.logp ?? '–'], ['age', `${pl.commands} commands`]]));
         f.append(table(['#', 'subgoal', 'R at generation', 'state'], pl.steps.map((st, i) => [i + 1, st.dim,
-            el('span', st.r_at_start < 0.05 ? 'bad' : st.r_at_start < 0.3 ? 'warn' : 'ok', st.r_at_start.toFixed(3)),
+            st.r_at_start === null ? el('span', 'muted', '–') : el('span', st.r_at_start < 0.05 ? 'bad' : st.r_at_start < 0.3 ? 'warn' : 'ok', st.r_at_start.toFixed(3)),
             el('span', i < pl.k ? 'ok' : i === pl.k ? 'warn' : 'muted', i < pl.k ? 'reached' : i === pl.k ? 'now' : 'pending')]), [0, 2]));
         if (pl.beams && pl.beams.length > 1) f.append(el('div', 'muted wrap', `other beams: ${pl.beams.slice(1).map((b) => `[${b.steps.join(' → ')}] ${b.logp}`).join(' · ')}`));
     } else f.append(el('div', 'muted', 'none: the goal comes from the archive (exploration share) or plan generation gave up this episode'));

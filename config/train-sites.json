@@ -1,16 +1,16 @@
 {
-  "doc": "Start sites of the training bots (owner, 2026-11-02: good training locations, decimals ignored). Bot k of every shard starts every episode at sites[k], so bot k of shard 0 and bot k of shard 1 form a pair: the same seed, the same start, different worlds (self-imitation). Owner's coordinates are feet positions read in the training world, seed 20261101 (checked: site 2 is grass at y 68, air at y 69). src/rl/run_skill_env.js --sites.",
+  "doc": "Start sites of the training bots (owner, 2026-11-02: good training locations, decimals ignored). Bot k of every shard starts every episode at sites[k], so bot k of shard 0 and bot k of shard 1 form a pair: the same seed, the same start, different worlds (self-imitation). Training world seed 20261101. y = the standing cell measured on the fresh world (run train6, events site_moved): the owner's y with the decimals cut was one block low at sites 1, 2 and 4 (70.97 -> 71) and one high at sites 3 and 10. src/rl/run_skill_env.js --sites.",
   "seed": 20261101,
   "sites": [
-    [-184, 70, -283],
-    [20137, 68, 99842],
-    [-24308, 70, 99985],
-    [23893, 63, 100296],
+    [-184, 71, -283],
+    [20137, 69, 99842],
+    [-24308, 69, 99985],
+    [23893, 64, 100296],
     [24223, 62, -9933],
     [1921615, 86, -9957],
     [-1921687, 104, -9887],
     [-1921691, 69, 10016],
     [-112349, 63, 10002],
-    [20261061, 66, 9999]
+    [20261061, 65, 9999]
   ]
 }

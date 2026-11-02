@@ -62,6 +62,9 @@ compose stop world >/dev/null 2>&1 || true
 export TRAIN_BASE=$base TRAIN_BOTS=$bots TRAIN_LEARN=$learn TRAIN_SPEED=$speed TRAIN_POPULATION=$population TRAIN_POLICY TRAIN_POLICY_INIT
 # Several servers on one box: 2G heap each (the JVM touches its whole heap at start, Aikar flags), else 3G.
 if [ "$shards" -gt 1 ]; then export TRAIN_MEMORY=2G TRAIN_MEM_LIMIT=2800m; else export TRAIN_MEMORY=3G TRAIN_MEM_LIMIT=4g; fi
+# The settings of this run, for scripts/train/restart.sh: a bare `compose up` would recreate a container with the defaults
+# (base "train"; 2026-11-02 the learner followed run 1 that way).
+env | grep -E '^TRAIN_(BASE|BOTS|LEARN|SPEED|POPULATION|POLICY|POLICY_INIT|SITES|MEMORY|MEM_LIMIT)=' > "$TRAIN_ENV"
 # Operator by the offline-mode UUID the owner actually logs in with. `op <name>` on a server that has not seen the player
 # resolves the name at Mojang and stores the online UUID, which never matches here (online-mode=false): no OP for the owner.
 uuid=$(python3 -I -c 'import hashlib,sys,uuid; print(uuid.UUID(bytes=hashlib.md5(b"OfflinePlayer:"+sys.argv[1].encode()).digest(), version=3))' "$owner")
@@ -76,7 +79,7 @@ if [ "$fresh" = 1 ]; then
     docker run --rm -v "forgeaip-world_$v":/d alpine:3.20 sh -c 'rm -rf /d/world' 2>/dev/null || true
   done
   seed=$(compose config --format json 2>/dev/null | python3 -I -c 'import json,sys; print(json.load(sys.stdin)["services"]["train"]["environment"]["SEED"])' 2>/dev/null || echo "${TRAIN_SEED:-20261101}")
-  rm -f "$REPO/exchange/pregen-$seed.json" "$REPO/exchange/pregen-$seed-sites.json"
+  rm -f "$REPO/exchange/pregen-$seed.json" "$REPO/exchange/pregen-$seed"-sites*.json
   echo "training worlds removed (old shard-0 world in $SNAPS/$arch); seed $seed is generated anew"
 fi
 compose --profile train up -d train
