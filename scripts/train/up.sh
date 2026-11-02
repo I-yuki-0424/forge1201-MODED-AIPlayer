@@ -89,6 +89,9 @@ if [ "$learn" = 1 ]; then
   for u in service timer; do systemctl --user link "$REPO/scripts/train/systemd/forgeaip-train-hold.$u" >/dev/null 2>&1 || true; done
   systemctl --user enable --now forgeaip-train-hold.timer
 fi
+# Quiet hours 12:00-18:00 JST (owner 2026-11-02): scripts/train/window.sh pauses and resumes both machines.
+for u in service timer; do systemctl --user link "$REPO/scripts/train/systemd/forgeaip-train-window.$u" >/dev/null 2>&1 || true; done
+systemctl --user enable --now forgeaip-train-window.timer
 if [ "$pc" -gt 0 ]; then pcargs=(up --groups "$pc"); [ "$fresh" = 1 ] && pcargs+=(--fresh-world); "$REPO/scripts/train/pc.sh" "${pcargs[@]}"; fi
 echo "training up: base=$base groups=$shards x $bots bots (+ $pc on the PC) days=$days speed=$speed learn=$learn seed=$seed"
 echo "watch: join 100.115.238.9:25565 (op: /gamemode spectator, /spectate Train0); page: http://100.115.238.9:3021/; logs: scripts/train/status.sh $base"

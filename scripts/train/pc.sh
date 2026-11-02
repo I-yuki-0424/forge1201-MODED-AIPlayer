@@ -5,7 +5,11 @@
 # scripts/train/pc/supervisor.js keeps them alive; scripts/train/relay.py (systemd user unit forgeaip-train-pc-relay) mirrors
 # between the two exchange/ directories what the other side reads. Nothing on the PC listens beyond loopback.
 #   scripts/train/pc.sh up --groups G [--fresh-world]     (base, bots, days, speed: exchange/.train-env from up.sh)
-#   scripts/train/pc.sh down | status
+#   scripts/train/pc.sh down | status | pause | resume | gpu-setup
+#   pause/resume: create/remove C:\forgeaip\PAUSE (the supervisor stops everything gracefully / starts it again). The supervisor also
+#     pauses by itself 12:00-18:00 JST every day (owner 2026-11-02); scripts/train/window.sh does the same for the VPS side.
+#   gpu-setup: CUDA jax for the learner in WSL2 (the only supported GPU route for jax on Windows); needs WSL installed first by the
+#     owner (elevated PowerShell: wsl --install -d Ubuntu-22.04, then reboot), prints that if it is missing.
 # PC layout C:\forgeaip: node\ (portable Node 20, sha256-checked), forge-base\ (Forge installer output, sha1-checked), mods\,
 # app\ (src + scripts/train/pc + relay.py + production node_modules), dpod\ (the learner's files), venv\ (Python 3.14, jax pinned),
 # servers\g<k>\ (one per group), exchange\, logs\, rcon.txt (random).
@@ -47,6 +51,44 @@ EOF
 }
 
 case $cmd in
+pause) ps <<'EOF'
+New-Item -ItemType File -Force 'C:\forgeaip\PAUSE' | Out-Null
+'pc: PAUSE set'
+EOF
+  exit 0;;
+resume) ps <<'EOF'
+Remove-Item -Force -ErrorAction SilentlyContinue 'C:\forgeaip\PAUSE'
+'pc: PAUSE removed'
+EOF
+  exit 0;;
+gpu-setup)
+  out=$(ps <<'EOF'
+$d = ((& wsl.exe -l -q 2>$null) -join '') -replace "`0", ''
+if ($LASTEXITCODE -ne 0 -or -not ($d -match 'Ubuntu-22.04')) { 'NOWSL'; exit 3 }
+'WSL_OK'
+EOF
+  ) || true
+  if ! grep -q WSL_OK <<<"$out"; then
+    cat >&2 <<'MSG'
+pc gpu-setup: WSL2 with Ubuntu-22.04 is not installed on the PC. jax has no native-Windows CUDA wheels, so the GPU learner needs it.
+Owner, once, in PowerShell started as Administrator:   wsl.exe --install -d Ubuntu-22.04      (then reboot; finish the Ubuntu first-run user setup)
+Also needed: the current Windows NVIDIA driver (WSL CUDA support is part of the normal Game Ready/Studio driver).
+Then run again:   scripts/train/pc.sh gpu-setup
+MSG
+    exit 3
+  fi
+  scp_to "$REPO/scripts/train/pc/wsl-gpu-setup.sh" "$HOST:C:/forgeaip/dl/wsl-gpu-setup.sh"
+  ps <<'EOF'
+$ErrorActionPreference = 'Stop'
+$h = 'C:\forgeaip'
+$o = (& wsl.exe -d Ubuntu-22.04 -- bash /mnt/c/forgeaip/dl/wsl-gpu-setup.sh 2>&1 | Out-String)
+$o
+$m = [regex]::Match($o, 'PYTHON=(\S+)')
+if (-not $m.Success) { throw 'gpu-setup failed (see output above)' }
+@{ distro = 'Ubuntu-22.04'; python = $m.Groups[1].Value } | ConvertTo-Json | Set-Content -Encoding ascii "$h\gpu.json"
+'pc: learner will use the GPU from its next start (gpu.json written)'
+EOF
+  exit 0;;
 down)
   systemctl --user disable --now forgeaip-train-pc-relay.service 2>/dev/null || true
   stop_pc
@@ -60,7 +102,7 @@ Get-Content -Tail 5 "$h\logs\supervisor.log" -ErrorAction SilentlyContinue
 EOF
   exit 0;;
 up) ;;
-*) echo "usage: $0 up --groups G [--fresh-world] | down | status" >&2; exit 2;;
+*) echo "usage: $0 up --groups G [--fresh-world] | down | status | pause | resume | gpu-setup" >&2; exit 2;;
 esac
 
 [[ $groups =~ ^[1-9]$ ]] || { echo "--groups 1..9" >&2; exit 2; }
@@ -102,7 +144,7 @@ EOF
 # 2. The application (environment code, the supervisor and relay) and its production dependencies; mods; site candidates.
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 tar -C "$REPO" -cf "$tmp/app.tar" package.json package-lock.json src modpack/forgeaip-create.registry.json modpack/forgeaip-create.advancements.json scripts/train/pc scripts/train/relay.py
-tar -C "$DPOD" -cf "$tmp/dpod.tar" scripts/botsystem_goal_ppo.py scripts/botsystem_goal_wm.py scripts/botsystem_skill_ppo.py scripts/botsystem_skill_truck.py \
+tar -C "$DPOD" -cf "$tmp/dpod.tar" scripts/botsystem_goal_ppo.py scripts/botsystem_goal_wm.py scripts/botsystem_skill_ppo.py scripts/botsystem_skill_truck.py scripts/botsystem_teacher.py \
   integrations/__init__.py integrations/botsystem src/__init__.py src/model/epa_policies.py
 scp_to "$tmp/app.tar" "$tmp/dpod.tar" "$MODS"/*.jar "$REPO/tools/tickrate/build/libs/forgeaip-tickrate-1.0.0.jar" "$HOST:C:/forgeaip/dl/"
 scp_to "$cands" "$HOST:C:/forgeaip/exchange/"
@@ -151,7 +193,7 @@ for (\$k = 0; \$k -lt $groups; \$k++) {
   '-Xms2G -Xmx2G -XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200 -XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC -XX:G1NewSizePercent=30 -XX:G1MaxNewSizePercent=40 -XX:G1HeapRegionSize=8M -XX:G1ReservePercent=20' | Set-Content -Encoding ascii "\$d\user_jvm_args.txt"
   "@user_jvm_args.txt @libraries/net/minecraftforge/forge/$FORGE/win_args.txt" | Set-Content -Encoding ascii "\$d\args.txt"
 }
-@{ base = '$TRAIN_BASE'; groups = $groups; shard0 = $SHARD0; bots = $TRAIN_BOTS; days = $TRAIN_DAYS; speed = $TRAIN_SPEED; candidates = 'sites-$seed.json'; learner = \$true; learn = $TRAIN_LEARN } | ConvertTo-Json | Set-Content -Encoding ascii "\$h\config.json"
+@{ base = '$TRAIN_BASE'; groups = $groups; shard0 = $SHARD0; bots = $TRAIN_BOTS; days = $TRAIN_DAYS; speed = $TRAIN_SPEED; candidates = 'sites-$seed.json'; learner = \$true; learn = $TRAIN_LEARN; quiet = @{ from = 12; to = 18 } } | ConvertTo-Json | Set-Content -Encoding ascii "\$h\config.json"
 Remove-Item -Force "\$h\STOP" -ErrorAction SilentlyContinue
 \$cl = '"' + "\$h\node\node.exe" + '" "' + "\$h\app\scripts\train\pc\supervisor.js" + '" "' + \$h + '"'
 \$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = \$cl; CurrentDirectory = \$h }

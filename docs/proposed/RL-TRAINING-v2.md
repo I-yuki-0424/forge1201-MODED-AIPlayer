@@ -357,3 +357,37 @@ seed (55-87 logs at 640,-640: feature placement depends on chunk generation orde
 up" when a group generates terrain for new sites (24-99 s stalls during the first episodes, while a DPOD test suite also ran);
 measured at 19:27 JST (no test suite running): the VPS servers reach 23-39 of 40 ticks/s at speed 2 (effective 1.2-1.9x).
 Throughput 36,129 steps in the first ~45 min (~48k/h; run 6 ~20k/h); the PC learner keeps the queue near 15 segments.
+
+## Run 7 stopped, run 8 prepared (2026-11-02 23:30 JST, owner instructions 1-5)
+
+**Run 7 result** (stopped by the owner after 4.55 h: 220,776 steps, 435 updates, 164 episodes, 48.6k steps/h): progress per episode
+7.56 / 7.65 / 8.33 of 24 entries (first / middle / last third; stalls at `collect_stone` and the stone pickaxe, best episode 14, no bot
+ever slept), deaths per episode 18.4 / 17.0 / 10.4 (death term -36.7 / -33.9 / -20.8, so the return counted deaths), 18 % of assigned
+goals reached, policy entropy 2.27-2.46 (uniform over ~23 candidates is 3.1), `wait` 25-38 % of commands (bias +5 over uniform),
+clipfrac 0.26-0.40. The learner took 22 s per 458 steps (~20 steps/s) and was already close to the limit of the generation rate
+(13.5 steps/s). The VPS ran at load 19 on 6 vCPU with 3.9 GB swap (released afterwards: `swapoff -a && swapon -a` through the broker).
+
+**Changes for run 8** (the order of the owner's list):
+
+1. **Reward v6**: death -2.0 -> -0.25 (`src/rl/reward-v6.json`; the lost inventory is the real penalty). Env `skills-v3.1`.
+2. **Learner on the PC's GPU.** jax has no native-Windows CUDA wheels; the supported route is WSL2 with the Windows NVIDIA driver.
+   The PC has no WSL yet (checked 2026-11-02: `wsl -l` reports it is not installed; Windows 11 Pro build 26300, virtualisation
+   enabled in firmware, RTX 3060 Ti 8 GB, ~1.9 GB used by the desktop). **Owner, once, in PowerShell started as Administrator:**
+   `wsl.exe --install -d Ubuntu-22.04`, reboot, finish the Ubuntu first-run setup. Then `scripts/train/pc.sh gpu-setup` (untested)
+   builds a Python 3.12 venv with `jax[cuda12]==0.12.0.1` there, checks that jax sees the GPU and writes `C:\forgeaip\gpu.json`; the
+   supervisor starts the learner inside WSL from then on (`XLA_PYTHON_CLIENT_PREALLOCATE=false`, 50 % memory fraction) and falls
+   back to the CPU venv while the file is absent. The unofficial `winjax` package claims native Windows CUDA; not used (unverified
+   binary plugin, Python 3.13 only).
+3. **Rust simulator**: design only, `docs/proposed/SIM-RUST-v1.md`.
+4. **Quiet hours.** `scripts/train/window.sh check` (user timer `forgeaip-train-window.timer`, every 5 min, started by `up.sh`)
+   pauses both machines between 12:00 and 18:00 JST and resumes afterwards; the PC supervisor also pauses by itself in that window
+   and while `C:\forgeaip\PAUSE` exists (`pc.sh pause|resume`), stops everything gracefully (servers `stop`, learner checkpoint after
+   every update) and runs its children at below-normal priority. A reboot or crash is covered by the same restart rules as before.
+5. **Teacher, then self-imitation.** DPOD `scripts/botsystem_teacher.py` (wood and stone tier only, reads only the policy's inputs)
+   executes with probability 0.3 x level and labels every step it has an opinion on (behaviour cloning, weight 0.5 x level, also on
+   the policy's own states). The level fades by 0.97 per update once the policy, acting alone, picks the teacher's candidate at
+   >= 55 % (EMA) and never rises again; 0 below 0.02. Self-imitation is unchanged. "Merging/pruning of pairs" is read as: pairs in the
+   bottom quarter by progress per episode feed no self-imitation data (the shared buffer is the merge point); to be confirmed by
+   the owner. This is hand-specified game knowledge and counts toward no DPOD gate; run 8 results are labelled "with teacher".
+
+Not started: run 8 waits for the WSL install (a CPU-learner start is possible but would repeat run 7's learner limit).

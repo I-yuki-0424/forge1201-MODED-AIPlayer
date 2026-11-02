@@ -1,0 +1,7 @@
+[Unit]
+Description=forgeaip RL training: pause in the owner's quiet hours (12:00-18:00 JST), resume after
+
+[Service]
+Type=oneshot
+ExecStart=%h/projects/forge1201-MODED-AIPlayer/scripts/train/window.sh check
+TimeoutStartSec=600

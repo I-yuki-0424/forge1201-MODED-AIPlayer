@@ -5,12 +5,18 @@
 // through scripts/train/relay.py. Started detached by scripts/train/pc.sh; stops when <home>/STOP exists. Node 20 (portable,
 // <home>/node), Java 17 from PATH.
 //   node supervisor.js <home>       config: <home>/config.json (written by pc.sh), RCON password: <home>/rcon.txt
+// Quiet hours (owner 2026-11-02: the PC is also for private life and work): between cfg.quiet.from and .to o'clock JST (default
+// 12-18), or while <home>/PAUSE exists (the owner may create it any time), everything is stopped gracefully (servers save with
+// `stop`, the learner's checkpoint is written after every update) and nothing runs; it resumes by itself. Children run at
+// below-normal priority. The learner runs on the GPU when <home>/gpu.json ({"distro","python"}, written by `pc.sh gpu-setup`)
+// names a WSL2 distro with CUDA jax; otherwise on the CPU in <home>/venv (jax has no native-Windows CUDA wheels).
 // A group whose site candidates are used up (environment exit code 7) gets a new world of the same seed: the server is stopped,
 // its world and the world's used-site record are deleted, and both start again (owner: regenerate only when the list runs out).
 const fs = require('fs');
 const path = require('path');
 const net = require('net');
-const { spawn } = require('child_process');
+const os = require('os');
+const { spawn, spawnSync } = require('child_process');
 
 const home = path.resolve(process.argv[2] || 'C:\\forgeaip');
 const cfg = JSON.parse(fs.readFileSync(path.join(home, 'config.json'), 'utf8'));
@@ -22,6 +28,10 @@ fs.mkdirSync(logs, { recursive: true });
 const log = (m) => fs.appendFileSync(path.join(logs, 'supervisor.log'), `${new Date().toISOString()} ${m}\n`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const stopping = () => fs.existsSync(path.join(home, 'STOP'));
+const QUIET = { from: 12, to: 18, ...(cfg.quiet || {}) };
+const jstHour = () => Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Tokyo', hour: '2-digit', hourCycle: 'h23' }).format(new Date()));
+const quiet = () => (QUIET.from <= jstHour() && jstHour() < QUIET.to) || fs.existsSync(path.join(home, 'PAUSE'));
+let paused = false;
 
 const groups = Array.from({ length: cfg.groups }, (_, g) => ({
     g, shard: cfg.shard0 + g, dir: path.join(home, 'servers', `g${g}`), port: 25600 + g, rport: 25700 + g, world: `pc-s${cfg.shard0 + g}`,
@@ -31,6 +41,7 @@ const groups = Array.from({ length: cfg.groups }, (_, g) => ({
 function run(name, cmd, args, opts) {
     const out = fs.openSync(path.join(logs, `${name}.log`), 'a');
     const p = spawn(cmd, args, { ...opts, stdio: ['ignore', out, out], windowsHide: true });
+    try { os.setPriority(p.pid, os.constants.priority.PRIORITY_BELOW_NORMAL); } catch (e) { log(`priority ${name}: ${e.message}`); }
     p.on('exit', () => fs.closeSync(out));
     log(`start ${name} pid ${p.pid}`);
     return p;
@@ -54,7 +65,7 @@ function startEnv(g) {
         '--days', String(cfg.days), '--candidates', path.join(root, cfg.candidates), '--world', g.world, '--seed', String(g.shard)];
     g.env = run(`g${g.g}-env`, node, args, { cwd: app, env: { ...process.env, MC_HOST: '127.0.0.1', MC_PORT: String(g.port), RCON_HOST: '127.0.0.1',
         RCON_PORT: String(g.rport), RCON_PASSWORD: pass, BOT_REGISTRY: 'auto', GAME_SPEED: String(cfg.speed) } });
-    g.env.on('exit', (code) => { log(`g${g.g} env exit ${code}`); g.env = null; if (code === 7) g.regen = true; else g.fails++; });
+    g.env.on('exit', (code) => { log(`g${g.g} env exit ${code}`); g.env = null; if (code === 7) g.regen = true; else if (!paused) g.fails++; });
 }
 
 async function stopServer(g) {
@@ -83,12 +94,38 @@ async function tend(g) {
 
 // The learner (one process for every group on both machines; resumes from <root>/<base>/train/checkpoint.pkl).
 const learner = { proc: null, fails: 0, next: 0 };
+const wslPath = (p) => p.replace(/^([A-Za-z]):\\/, (_, d) => `/mnt/${d.toLowerCase()}/`).replace(/\\/g, '/');
+const gpuCfg = () => { try { return JSON.parse(fs.readFileSync(path.join(home, 'gpu.json'), 'utf8')); } catch { return null; } };
+const learnerArgs = (dpod, rootDir) => [path.join(dpod, 'scripts', 'botsystem_goal_ppo.py'), '--root', rootDir, '--base', cfg.base,
+    '--learn', String(cfg.learn), '--seed', '42', '--population', '1', ...(cfg.learner_args || [])];
 function tendLearner() {
     if (!cfg.learner || learner.proc || Date.now() < learner.next) return;
-    const py = path.join(home, 'venv', 'Scripts', 'python.exe');
-    learner.proc = run('learner', py, [path.join(home, 'dpod', 'scripts', 'botsystem_goal_ppo.py'), '--root', root, '--base', cfg.base,
-        '--learn', String(cfg.learn), '--seed', '42', '--population', '1'], { cwd: path.join(home, 'dpod'), env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } });
-    learner.proc.on('exit', (code) => { log(`learner exit ${code}`); learner.proc = null; learner.fails++; learner.next = Date.now() + Math.min(300000, 5000 * 2 ** Math.min(learner.fails, 6)); });
+    const gpu = gpuCfg();
+    if (gpu && gpu.distro && gpu.python) {
+        const j = (...x) => x.join('/');
+        learner.proc = run('learner', 'wsl.exe', ['-d', gpu.distro, '--', 'env', 'XLA_PYTHON_CLIENT_PREALLOCATE=false', 'XLA_PYTHON_CLIENT_MEM_FRACTION=0.5',
+            'PYTHONDONTWRITEBYTECODE=1', gpu.python, ...learnerArgs(j(wslPath(home), 'dpod'), wslPath(root))], { cwd: home });
+    } else {
+        learner.proc = run('learner', path.join(home, 'venv', 'Scripts', 'python.exe'), learnerArgs(path.join(home, 'dpod'), root),
+            { cwd: path.join(home, 'dpod'), env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } });
+    }
+    learner.proc.on('exit', (code) => { log(`learner exit ${code}`); learner.proc = null; if (!paused) { learner.fails++; learner.next = Date.now() + Math.min(300000, 5000 * 2 ** Math.min(learner.fails, 6)); } });
+}
+async function stopLearner() {
+    if (!learner.proc) return;
+    const gpu = gpuCfg();
+    if (gpu && gpu.distro) spawnSync('wsl.exe', ['-d', gpu.distro, '--', 'pkill', '-TERM', '-f', 'botsystem_goal_ppo.py']);
+    else learner.proc.kill();
+    for (let t = 0; t < 120 && learner.proc; t++) await sleep(500);
+    if (learner.proc) { spawnSync('taskkill', ['/T', '/F', '/PID', String(learner.proc.pid)]); }
+}
+
+async function pauseAll() {
+    paused = true;
+    log(`quiet hours (${QUIET.from}-${QUIET.to} JST) or PAUSE: stopping everything`);
+    await stopLearner();
+    for (const g of groups) if (g.env) g.env.kill();
+    await Promise.all(groups.map(stopServer));
 }
 
 async function main() {
@@ -96,6 +133,13 @@ async function main() {
     log(`supervisor up: ${cfg.groups} groups x ${cfg.bots} bots, base ${cfg.base}, shards ${cfg.shard0}..${cfg.shard0 + cfg.groups - 1}, speed ${cfg.speed}`);
     const busy = new Set();
     while (!stopping()) {
+        if (quiet()) {
+            if (!paused) await pauseAll();
+            fs.writeFileSync(path.join(home, 'status.json'), JSON.stringify({ t: Date.now(), paused: true, groups: [], learner: null }));
+            await sleep(5000);
+            continue;
+        }
+        if (paused) { paused = false; log('quiet hours over: resuming'); for (const g of groups) g.fails = 0; learner.fails = 0; learner.next = 0; }
         for (const g of groups) {
             if (busy.has(g)) continue;
             busy.add(g);
@@ -109,7 +153,7 @@ async function main() {
     }
     log('STOP: stopping environments and servers');
     for (const g of groups) if (g.env) g.env.kill();
-    if (learner.proc) learner.proc.kill();   // its checkpoint is written after every update
+    await stopLearner();   // its checkpoint is written after every update
     await Promise.all(groups.map(stopServer));
     fs.rmSync(path.join(home, 'supervisor.pid'), { force: true });
     log('supervisor down');
