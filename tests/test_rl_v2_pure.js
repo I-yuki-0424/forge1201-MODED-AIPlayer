@@ -40,7 +40,7 @@ test('progress list (owner 2026-11-02): ordered easiest first, judged from stati
     near(r.score([{ type: 'mined', block: 'minecraft:oak_log', n: 1 }]).terms.progress, 1);   // a new episode counts it again
 });
 
-test('reward v5: a death costs the penalty and voids that day; a day survived pays at dawn, slept more; failures cost', () => {
+test('reward v6: a death costs the small penalty and voids that day; a day survived pays at dawn, slept more; failures cost', () => {
     const r = new CrafterReward();
     near(r.score([{ type: 'dawn', slept: false }]).terms.survival, TABLE.survival.day_awake);
     near(r.score([{ type: 'dawn', slept: true }]).terms.survival, TABLE.survival.day_slept);

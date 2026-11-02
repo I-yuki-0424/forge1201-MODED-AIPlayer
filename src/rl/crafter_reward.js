@@ -1,10 +1,10 @@
 'use strict';
-// Reward v5 (src/rl/reward-v5.json, owner 2026-11-02): episodes of a fixed number of in-game days. Terms: `survival` (each
+// Reward v5 (src/rl/reward-v6.json, owner 2026-11-02): episodes of a fixed number of in-game days. Terms: `survival` (each
 // dawn reached without a death since the previous one), `death` (per death; play goes on after the respawn), `progress`
 // (each entry of the progress list, src/rl/progress-list.json, the first time it is reached in the episode, judged here from
 // the player's server statistics) and `invalid` (a command that could not be executed). Pure: it scores progress events
 // (src/rl/progress.js) and keeps per-episode counts. The environment sends every term unweighted; the learner weights them.
-const TABLE = require('./reward-v5.json');
+const TABLE = require('./reward-v6.json');
 const LIST = require('./progress-list.json');
 
 const TERMS = ['survival', 'death', 'progress', 'invalid'];

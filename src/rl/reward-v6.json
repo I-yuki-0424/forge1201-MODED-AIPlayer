@@ -1,14 +1,14 @@
 {
-  "v": 5,
-  "doc": "Reward v5 (owner 2026-11-02): an episode is a fixed number of in-game days (run_skill_env --days), not one life. Death is penalised and play goes on after the respawn; every day survived is paid; progress = entries of the progress list (src/rl/progress-list.json) reached within the episode, judged by the environment from server statistics. Unit: 1.0 = one progress entry. Kills and mined blocks are no longer paid (they were the dirt/wood loops of runs 3-6); they reach the learner through the progress list only.",
+  "v": 6,
+  "doc": "Reward v6 (owner 2026-11-02, after run 7: 10-18 deaths per episode at -2 made the return a count of deaths; v5 otherwise): an episode is a fixed number of in-game days (run_skill_env --days), not one life. Death costs little (the lost inventory is the real penalty) and play goes on after the respawn; every day survived is paid; progress = entries of the progress list (src/rl/progress-list.json) reached within the episode, judged by the environment from server statistics. Unit: 1.0 = one progress entry. Kills and mined blocks are no longer paid (they were the dirt/wood loops of runs 3-6); they reach the learner through the progress list only.",
   "survival": {
     "doc": "Paid at each dawn of the episode if the bot did not die since the previous dawn (or the episode start). Slept = in a bed when the night was skipped.",
     "day_awake": 1.0,
     "day_slept": 1.5
   },
   "death": {
-    "doc": "Per death (the bot respawns at its episode site with an empty inventory; keepInventory false). A bot the stuck detector finds trapped is killed by the environment and pays this too: hiding in a pit must not be a way to collect days (run 1).",
-    "penalty": -2.0
+    "doc": "Per death, -0.25 (v5: -2.0, which outweighed the whole progress list; owner: the inventory loss is penalty enough). The bot respawns at its episode site with an empty inventory (keepInventory false). A bot the stuck detector finds trapped is killed by the environment and pays this too: hiding in a pit must not be a way to collect days (run 1).",
+    "penalty": -0.25
   },
   "progress": {
     "doc": "Per progress-list entry, the first time it is reached in the episode.",

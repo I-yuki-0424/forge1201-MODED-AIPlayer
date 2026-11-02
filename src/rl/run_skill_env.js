@@ -34,7 +34,7 @@ const { LiveBoard } = require('./live_board');
 // v1.1-v2.1: see git history. v3.0 (owner 2026-11-02): groups (one world per pair), episodes of --days in-game days with play
 // after death, progress list judged from statistics (reward v5), a new seed-derived start site per bot per episode, clock
 // [share of the episode gone, log step, time of day].
-const ENV_VERSION = '2026-11-02-skills-v3.0';
+const ENV_VERSION = '2026-11-02-skills-v3.1';
 const DAY = 24000;
 const SITE_GAP = 500;   // owner: no start within 500 blocks of a used one or of another bot
 const LOG = /_log$/;
