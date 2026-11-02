@@ -355,4 +355,5 @@ use the PC from bot 11 on; never start in dug terrain. Implemented as instructed
 First hour: all 20 bots stepping on both machines; sites 82-151 logs; tree counts of the same site differ between worlds of one
 seed (55-87 logs at 640,-640: feature placement depends on chunk generation order). Open: the VPS servers still log "can't keep
 up" when a group generates terrain for new sites (24-99 s stalls during the first episodes, while a DPOD test suite also ran);
-whether speed 2 holds on the VPS in steady state is not measured yet.
+measured at 19:27 JST (no test suite running): the VPS servers reach 23-39 of 40 ticks/s at speed 2 (effective 1.2-1.9x).
+Throughput 36,129 steps in the first ~45 min (~48k/h; run 6 ~20k/h); the PC learner keeps the queue near 15 segments.
