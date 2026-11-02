@@ -316,3 +316,43 @@ steps/h, against 19.3 k/h at the end of run 5.
 
 **Learner:** GoalWM, initialised from run 5's encoder, world model, reach head, goal embeddings and plan decoder
 (`exchange/pretrain/train5_u594.pkl`). The policy head starts fresh, since it was trained under the leaky reward.
+
+## Run 7 (from 2026-11-02 18:03 JST, base `train7`): owner instructions 1-5 of 2026-11-02, rebuilt from scratch
+
+Owner (after run 6): more bots did not mean more learning; one life per episode yields little; paired bots did different things;
+use the PC from bot 11 on; never start in dug terrain. Implemented as instructed (env v3.0, DPOD `--goal-mode list`, S12):
+
+1. **Groups.** VPS: 5 groups of 2 bots, each group its own server and world (same seed 20261101), its own clock and environment
+   process (`scripts/train/up.sh --shards 5 --bots 2`). Game speed 2 (was 1). Heaps 1 GB per server: at 1.25 GB the box hit a
+   global OOM that killed the learner (2.27 GB anon) at 18:10 and 18:15 JST; at 1 GB a server is 1.2-1.3 GB resident.
+2. **Episodes of days.** An episode is `--days 3` in-game days for the whole group (clock set to morning at the start; it ends
+   at the first observation past 3 x 24000 ticks, `terminated`, with the share of the episode gone in `clock[0]`, so the end is
+   observed). Death: -2.0 (`death` term), play goes on from the respawn at the episode's site with an empty inventory; a trapped
+   bot (stuck detector) is killed, so hiding pays nothing. Survival: +1.0 per dawn reached without a death since the last one
+   (+1.5 slept). Progress: the progress list `src/rl/progress-list.json` (24 entries, easiest first: wood, planks, table, ...,
+   iron pickaxe, bed, sleep, diamond, diamond pickaxe), judged by the environment from server statistics deltas (mined, crafted,
+   used, picked_up, killed; `slept` from the dawn event), +1.0 per entry once per episode. In-game advancements are no longer
+   read or revoked. Kills and mined blocks are not paid any more (reward v5). Goals: the learner gives the easiest entry not yet
+   reached (DPOD `--goal-mode list`).
+3. **Pairs do the same thing.** The two bots of a group are a pair (`start.pair`); both always pursue the same list entry; when
+   either reaches it both move on; an entry that expires (150 commands) is skipped by the pair until it reaches something new.
+   Self-imitation (Oh et al. 2018) on every goal-reaching trajectory: `-log pi(a|s,g) max(R - V, 0)` (+0.01 x value term), weight
+   0.5; the pair shares one policy, so either partner's success trains both.
+4. **PC.** `scripts/train/pc.sh up --groups 5`: 5 more groups (shards 5-9, bots 11-20) on the owner's PC (Forge 1.20.1 + mods,
+   portable Node 20, servers on 127.0.0.1 only, `scripts/train/pc/supervisor.js` restarts what stops, a hidden logon start in the
+   owner's startup folder). The learner runs there too (venv with the VPS's pinned jax 0.12.0.1): the VPS learner needed 396 s for
+   its first update with 5 servers on the box (run 6: 42 s). `scripts/train/relay.py` (systemd user unit
+   `forgeaip-train-pc-relay`) mirrors between the two `exchange/` directories what the other side reads.
+5. **New site per episode.** `tools/site-finder` (Rust + vendored cubiomes, Minecraft 1.20 generation from the seed alone):
+   20,000 candidates on a 640-block grid (any two 512+ apart), each in a tree biome with 7 of 8 points at 24 blocks also tree
+   biomes, at most 30 % water/beach within 256 blocks (no island), approximate surface 63-110. Checked against the live server:
+   12 of 12 predicted sites were the predicted biome type (forest/taiga/jungle/windswept, `locate biome`, distance 0). On
+   arrival the environment counts logs within 16 blocks (>= 12), finds a dry cell on the forest floor and keeps 500+ blocks from
+   the partner's site; rejected candidates are recorded too. Used sites per world: `exchange/sites/<vps|pc>-s<i>.json` (never
+   reused, survives restarts). When a world's list is used up the environment exits 7 and the PC supervisor regenerates that
+   world (on the VPS: `--fresh-world`); at about 2 sites per group per episode the list lasts months.
+
+First hour: all 20 bots stepping on both machines; sites 82-151 logs; tree counts of the same site differ between worlds of one
+seed (55-87 logs at 640,-640: feature placement depends on chunk generation order). Open: the VPS servers still log "can't keep
+up" when a group generates terrain for new sites (24-99 s stalls during the first episodes, while a DPOD test suite also ran);
+whether speed 2 holds on the VPS in steady state is not measured yet.
