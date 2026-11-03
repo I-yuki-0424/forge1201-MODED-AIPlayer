@@ -18,6 +18,7 @@ case $mode in
 real)
   touch "$TRAIN_STATE"
   if running "$WORLD"; then "$REPO/scripts/world/snapshot.sh" before-train; grep -qx world "$TRAIN_STATE" || echo world >> "$TRAIN_STATE"; fi
+  running forgeaip-llm-bot && { grep -qx llm-bot "$TRAIN_STATE" || echo llm-bot >> "$TRAIN_STATE"; }   # down.sh brings it back (it did not, 2026-11-03)
   compose --profile bot stop llm-bot >/dev/null 2>&1 || true; compose stop world >/dev/null 2>&1 || true
   export TRAIN_BASE=val TRAIN_BOTS=2 TRAIN_LEARN=0 TRAIN_SPEED=2 TRAIN_DAYS=3 TRAIN_CANDIDATES=sites-val.json TRAIN_MEMORY=2G TRAIN_MEM_LIMIT=2800m
   # The site books are named by world (exchange/sites/vps-s<i>.json), not by base: set the training books aside (the run needs fresh

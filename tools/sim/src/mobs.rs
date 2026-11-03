@@ -10,14 +10,14 @@ pub enum Atk { Melee, Bow, Fuse }
 pub struct Spec { pub name: &'static str, pub hp: f64, pub speed: f64, pub follow: f64, pub burns: bool, pub atk: Atk, pub reach: f64, pub dmg: f64, pub every: f64, pub weight: f64, pub day_neutral: bool }
 // speed in blocks/s, reach = horizontal distance for melee and the shooting range for the bow, every = seconds between attacks
 pub const SPECS: [Spec; 4] = [
-    Spec { name: "zombie", hp: 20.0, speed: 3.6, follow: 35.0, burns: true, atk: Atk::Melee, reach: 1.9, dmg: 3.0, every: 1.0, weight: 4.0, day_neutral: false },
+    Spec { name: "zombie", hp: 20.0, speed: 3.6, follow: 35.0, burns: true, atk: Atk::Melee, reach: 1.9, dmg: 3.0, every: 1.0, weight: 1.4, day_neutral: false },
     Spec { name: "skeleton", hp: 20.0, speed: 3.6, follow: 16.0, burns: true, atk: Atk::Bow, reach: 15.0, dmg: 3.5, every: 2.5, weight: 3.0, day_neutral: false },
-    Spec { name: "creeper", hp: 20.0, speed: 3.6, follow: 16.0, burns: false, atk: Atk::Fuse, reach: 3.0, dmg: 0.0, every: 0.0, weight: 1.5, day_neutral: false },
-    Spec { name: "spider", hp: 16.0, speed: 5.0, follow: 16.0, burns: false, atk: Atk::Melee, reach: 1.7, dmg: 2.0, every: 1.0, weight: 1.2, day_neutral: true },
+    Spec { name: "creeper", hp: 20.0, speed: 3.6, follow: 16.0, burns: false, atk: Atk::Fuse, reach: 3.0, dmg: 0.0, every: 0.0, weight: 1.4, day_neutral: false },
+    Spec { name: "spider", hp: 16.0, speed: 5.0, follow: 16.0, burns: false, atk: Atk::Melee, reach: 1.7, dmg: 2.0, every: 1.0, weight: 0.4, day_neutral: true },
 ];
 /// Spawn attempts per second (fitted): on an exposed surface at night, and with rock overhead (caves, own tunnels, any time of day).
-pub const SPAWN_NIGHT: f64 = 0.14;
-pub const SPAWN_DARK: f64 = 0.09;
+pub const SPAWN_NIGHT: f64 = 0.05;
+pub const SPAWN_DARK: f64 = 0.07;
 pub const HOSTILE_CAP: usize = 10;
 
 impl Mob {
@@ -50,6 +50,21 @@ impl Sim {
             }
         }
     }
+    /// One step of a mob along the shortest way to the bot: the neighbouring cell (8 directions, up to one block higher or three lower)
+    /// with the smallest walking distance in the bot's reach field. None when the mob is outside the field.
+    fn downhill(&mut self, from: [i32; 3]) -> Option<[i32; 3]> {
+        self.reach();
+        let r = self.reach_ref();
+        let here = r.get(&from).copied();
+        let mut best: Option<([i32; 3], f32)> = None;
+        for (dx, dz) in [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)] {
+            for dy in [1, 0, -1, -2, -3] {
+                let c = [from[0] + dx, from[1] + dy, from[2] + dz];
+                if let Some(&d) = r.get(&c) { if here.map_or(true, |h| d < h) && best.map_or(true, |b| d < b.1) { best = Some((c, d)); } }
+            }
+        }
+        best.map(|b| b.0)
+    }
     fn los(&self, from: [i32; 3], to: [i32; 3]) -> bool {
         let a = [from[0] as f64 + 0.5, from[1] as f64 + 1.6, from[2] as f64 + 0.5];
         let b = [to[0] as f64 + 0.5, to[1] as f64 + 1.62, to[2] as f64 + 0.5];
@@ -73,7 +88,8 @@ impl Sim {
             let sp = &SPECS[m.spec];
             let hdist = |m: &Mob| (((m.pos[0] - bx) as f64).powi(2) + ((m.pos[2] - bz) as f64).powi(2)).sqrt();
             let mut h = hdist(&m);
-            if h > 70.0 || (sp.burns && day_surface && self.rng.f() < 0.1 * frac) { continue; }
+            // Despawn as in the game: instantly beyond 128 blocks, beyond 32 blocks with 1/800 per tick (2.5 % per second).
+            if h > 70.0 || (h > 32.0 && self.rng.f() < 0.0247 * frac) || (sp.burns && day_surface && self.rng.f() < 0.1 * frac) { continue; }
             m.cd -= frac;
             let aggro = h <= sp.follow && !(sp.day_neutral && !self.is_night() && !dark_day);
             let stop = match sp.atk { Atk::Melee => 1.5, Atk::Bow => 8.0, Atk::Fuse => 2.0 };
@@ -85,6 +101,11 @@ impl Sim {
                 if !aggro && self.rng.f() > 0.4 * frac { break; }
                 let (mut sx, mut sz) = ((tx - m.pos[0]).signum(), (tz - m.pos[2]).signum());
                 if away { sx = -sx; sz = -sz; }
+                // Chasing: down the walker's own distance field when the mob stands inside it (it goes round walls and up one-block
+                // steps like the game's pathfinding), else straight at the bot; fleeing and wandering stay straight.
+                if aggro && !away {
+                    if let Some(next) = self.downhill(m.pos) { m.pos = next; h = hdist(&m); continue; }
+                }
                 let opts = if (tx - m.pos[0]).abs() >= (tz - m.pos[2]).abs() { [(sx, 0), (0, sz)] } else { [(0, sz), (sx, 0)] };
                 for (a, b) in opts { if (a, b) == (0, 0) { continue; }
                     if let Some(y) = self.find_stand(m.pos[0] + a, m.pos[2] + b, m.pos[1]).filter(|y| (y - m.pos[1]).abs() <= 1) { m.pos = [m.pos[0] + a, y, m.pos[2] + b]; break; } }

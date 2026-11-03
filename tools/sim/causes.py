@@ -33,7 +33,7 @@ def damage(rows):
     return hp, n, ticks, deaths, msgs
 
 def exposure(dirs, ents):
-    tot = [0, 0]; night = [0, 0]; day = [0, 0]; near = 0; kinds = collections.Counter(); n = 0
+    tot = [0, 0]; night = [0, 0]; day = [0, 0]; near = 0; kinds = collections.Counter(); n = 0; bk = collections.Counter()
     for d in dirs:
         try: f = open(d + '/env_to_policy.jsonl')
         except FileNotFoundError: continue
@@ -46,8 +46,10 @@ def exposure(dirs, ents):
             if hs:
                 (night if nt else day)[1] += 1
                 for nm in {h[0] for h in hs}: kinds[nm] += 1
-                if min(h[1] for h in hs) <= 4: near += 1
-    return n, day, night, near, kinds
+                nd = min(h[1] for h in hs)
+                if nd <= 4: near += 1
+                bk['<=2' if nd <= 2 else '<=4' if nd <= 4 else '<=8' if nd <= 8 else '<=16'] += 1
+    return n, day, night, near, kinds, bk
 
 def fails(rows):
     out = collections.defaultdict(collections.Counter); hurt = collections.defaultdict(collections.Counter); cnt = collections.Counter()
@@ -59,7 +61,7 @@ def fails(rows):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--real', nargs='+', required=True); ap.add_argument('--sim', nargs='+', required=True); ap.add_argument('--data', default='tools/sim/data/data.json')
+    ap.add_argument('--real', nargs='+', required=True); ap.add_argument('--sim', nargs='+', required=True); ap.add_argument('--data', default='tools/sim/data/data.json'); ap.add_argument('--real-obs', nargs='*', default=None, help='more real run directories for the exposure section only (runs without the damage log)')
     a = ap.parse_args()
     ents = json.load(open(a.data))['entities']
     R, S = list(steps(a.real)), list(steps(a.sim))
@@ -71,12 +73,12 @@ def main():
         print(f"   {k[0]:18} {k[1]:14} {hr[k] / max(hours(tr), 1e-9):8.1f} ({nr[k]:4d} hits)  {hs[k] / max(hours(ts), 1e-9):8.1f} ({ns[k]:5d} hits)")
     print(f"   total{'':28} {sum(hr.values()) / max(hours(tr), 1e-9):8.1f}              {sum(hs.values()) / max(hours(ts), 1e-9):8.1f}")
     print(f"   deaths per bot-hour: real {dr / max(hours(tr), 1e-9):.2f}  sim {ds / max(hours(ts), 1e-9):.2f}   real death messages: {dict(mr.most_common(6))}\n")
-    er, es = exposure(a.real, ents), exposure(a.sim, ents)
+    er, es = exposure(a.real + (a.real_obs or []), ents), exposure(a.sim, ents)
     print("2. exposure (observations with a hostile within 16 blocks)       real            sim")
     p = lambda x, y: x / y if y else 0.0
     print(f"   day   {p(er[1][1], er[1][0]):.3f}  ({er[1][0]} obs)                  {p(es[1][1], es[1][0]):.3f}  ({es[1][0]} obs)")
     print(f"   night {p(er[2][1], er[2][0]):.3f}  ({er[2][0]} obs)                  {p(es[2][1], es[2][0]):.3f}  ({es[2][0]} obs)")
-    print(f"   within 4 blocks, all hours {p(er[3], er[0]):.3f}                      {p(es[3], es[0]):.3f}")
+    print(f"   nearest hostile, share of all observations: " + "  ".join(f"{b} real {p(er[5][b], er[0]):.3f} / sim {p(es[5][b], es[0]):.3f}" for b in ('<=2', '<=4', '<=8', '<=16')))
     for k in sorted(set(er[4]) | set(es[4]), key=lambda k: -(er[4][k] + es[4][k]))[:8]:
         print(f"   {k:14} {p(er[4][k], er[0]):.3f}                               {p(es[4][k], es[0]):.3f}")
     print("\n3. non-ok outcomes per command (share of that command's steps; in brackets: share of the failures in a command that also took damage)")

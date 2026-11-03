@@ -391,3 +391,13 @@ clipfrac 0.26-0.40. The learner took 22 s per 458 steps (~20 steps/s) and was al
    the owner. This is hand-specified game knowledge and counts toward no DPOD gate; run 8 results are labelled "with teacher".
 
 **Run 8 started (2026-11-03 00:16 JST, base `sim1`) on the Rust simulator** (owner: implement it and run the training to completion): `scripts/train/sim.sh up --base sim1 --shards 6 --cpus 5 --max-steps 1000000`; 6 simulator shards x 2 bots (tiles of the five training worlds), the learner on the VPS CPU with `--max-queue 48` (the simulator is far faster than the learner, so unread observations wait in the files) and the teacher on. Learner speed ~12 steps/s (updates of ~500 steps in 38-68 s), so the 1,000,000-step budget takes about 24 h. At the budget the learner writes the final checkpoint and `exchange/sim1.done`, the shards exit, and the `forgeaip-sim-watch` user unit brings the build world and the LLM bot back. The GPU learner (item 2) and the quiet hours (item 4) belong to the PC; this run uses no PC resources. Results: `exchange/sim1/train/{train_log,episodes}.jsonl`, `checkpoint.pkl`. What the result means is limited by the simulator's unmeasured fidelity (SIM-RUST-v1 section 9); the real-server evaluation arm is still to be run.
+
+## Run 8 (sim1) result and what follows (2026-11-03)
+
+Run sim1 was stopped at 910,447 of 1,000,000 steps: progress per episode 14.1 / 13.3 / 13.7 / 13.8 / 14.3 in blocks of 60 episodes, verdict
+`stalled` ([TRAIN-STATUS-v1](TRAIN-STATUS-v1.md); the same rule says `stalled` from the first judgeable point, 10.9 h into the 15.7 h run).
+Its numbers are simulator numbers: the simulator was too lenient ([SIM-RUST-v1](SIM-RUST-v1.md) sections 10-11: no skeletons, creepers or
+drowning, placement without the action layer's rules) and the learner was the whole cycle at 15 steps/s ([LEARNER-GPU-v1](LEARNER-GPU-v1.md)).
+No new training run should start before (1) the simulator's remaining differences in section 11.7 are accepted or removed and (2) the
+learner runs on the GPU or at least at the measured 22 steps/s; every run records its learning status with `scripts/train/tb.sh`.
+The checkpoint of sim1 (`/mnt/data/forgeaip/sim1-final-checkpoint-910k.pkl`) has not been run in the real game (`--init` on a `--learn 0` run).

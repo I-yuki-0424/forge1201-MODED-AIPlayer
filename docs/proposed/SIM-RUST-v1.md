@@ -115,7 +115,7 @@ file API (the Python policy is the limit, not the simulator); the scripted teach
 steps ended in death. Real Forge runs reached 8 of 24 without a teacher, so these numbers say the simulator is *playable*, not
 that it is *faithful*.
 
-**Not done / known gaps** (do not read the simulator's success rates as the real server's):
+**Not done / known gaps** (as of 2026-11-03 morning; section 11 removes several of them and lists what remains):
 - No differential test against the Forge server yet (phase 2 of section 7): break times, walking speed (4.317 b/s), fight
   length, mob damage and spawn rates are formula- or estimate-based; commands never fail at random, whereas the real action
   layer fails ~2-6 % of the time (`stuck`, `not_confirmed`).
@@ -168,3 +168,145 @@ Calibration targets, in order of effect (each needs a re-run of this comparison 
 
 Not tested: the *learned* policy of `sim1` in the real game (the checkpoint is kept in `/mnt/data/forgeaip/sim1-final-checkpoint-910k.pkl`;
 `--init` on a `--learn 0` run of the real environment is the test).
+
+## 11. Why it was too safe and too lenient: causes measured on the real server (2026-11-03)
+
+Owner brief 2026-11-03: "too safe: separate the causes (spawn rate? knockback or being trapped? damage calculation?); placement and
+destruction succeed too often, the real line of sight is blocked or the view is shifted by attacks; the learning status is unknown;
+no stopgaps, find the root causes". Section 10 compared rates. This section compares **causes**, and changes the simulator only
+where a cause is a rule of the game or of the action layer, never to fit a rate.
+
+### 11.1 Method
+
+- The real environment now logs, per command, what hurt the bot (`damage_event` of the server: damage type and attacker, amount
+  from the next health packet; `death_combat_event`: the death message; `src/rl/damage_log.js`), why a command failed (the
+  `SkillError` detail and the phases it went through) and where the ticks went (`ph`); env `2026-11-03-skills-v3.2`.
+- Two real runs of the same stand-in policy (the scripted teacher), same worlds and sites: **A** (section 10; 19,302 steps, 8.71
+  bot-hours = 8.7 three-day episodes of game time, no cause log) and **B** (this session; 6,808 steps, 4.76 bot-hours, with the cause log).
+- The simulator writes the same `events.jsonl` rows; `tools/sim/causes.py` tabulates damage by cause, exposure (observations with
+  a hostile within 16 blocks, by kind and distance) and failures by command, real and sim side by side.
+
+### 11.2 The target is heavy-tailed: one real run is not a number
+
+Deaths per bot-hour (= per 3-day episode): run A **22.2** (193 deaths), run B **4.0** (19 deaths; 6 of them the environment's own
+stuck kills). Poisson intervals do not overlap (A 19-26, B 2.4-6.2). Section 10's "five times too safe" compared the simulator with
+run A alone. The honest target is the pooled rate, **15.7** per bot-hour (212 deaths in 13.5 bot-hours), with the knowledge that a
+single run can land anywhere between 4 and 22. Hit points lost per bot-hour: A about 223 (attributed to the nearest hostile in
+the observation stream), B 97.
+
+### 11.3 Cause 1 of "too safe": it was not the spawn rate and not the zombie damage
+
+From run A's observations (nearest hostile within 16 blocks, hit points lost between consecutive observations, per game minute):
+
+| | real | simulator before |
+|---|---:|---:|
+| bot with a zombie within 2 blocks (share of observations) | 1.2 % | 1.2 % |
+| hostile of any kind within 16 blocks, day / night | 4.7 % / 17.4 % | 25.0 % / 28.5 % |
+| hp lost per minute with a zombie within 2 blocks | 72 | 66 |
+| P(any loss in that interval) | 0.60 | 0.62 |
+| hp lost per minute with a zombie 2-4 blocks away | 20.5 | 4.4 |
+
+Contact with zombies and the damage of a zombie in contact agreed; the simulator had more hostile presence than the game, not less.
+What differed: **(a) kinds**: real hp loss by nearest hostile kind was zombie 52 %, skeleton 22 %, drowned 7 %, creeper 5 %, spider
+4.5 %, enderman 2 %, nothing in view 7 %; the simulator had zombies only. In run B (damage events): arrows 39 %, drowning 31 %,
+zombie melee 14 %, creeper 7 %, fall 4 %, spider 3 %, starvation 2 % of the attributed hit points. **(b) the zone just outside
+contact**: arrows land at 4-8 blocks (24-44 hp/min), a zombie that has just been knocked back or is closing in still hits.
+Deaths grow faster than damage (a death needs 20 hp inside the regeneration window), so 0.42x of the damage gave about 0.2x of the deaths.
+
+**Knockback and trapping**: knockback was absent but cannot be the main cause, since damage in contact already matched without
+it. Trapping was present in the real game and absent in the simulator, for a reason outside combat (11.4).
+
+### 11.4 Cause 2: placement and mining fail by the action layer's rules, and the policy repeats the failure
+
+Run B, failures of the commands that matter, counted as failures and as distinct (bot, episode, target):
+
+| command and reason | failures | distinct targets | what it is |
+|---|---:|---:|---|
+| place `unreachable` | 401 | 5 (181 on one) | one bot sealed in a one-block pit: crafting tables W and N, soil E and S, a leaf canopy two blocks above the rim; the planner expanded 1 node, no placement face is visible from inside the column |
+| place `invalid_target` | 338 | 5 | `cell holds torch` (and similar): the candidate list treats a torch as free air, `place` accepts only REPLACEABLE blocks |
+| mine `unreachable` | 255 | 10 (198 on one) | the planner searched 20,000 nodes and found no stand cell with an aim point: geometry allows the aim from the candidate's node, but the command's re-approach (reach 3.3) probably has none (not verified); the new `entity_in_the_way` marker in the next real run will say whether a mob or a dropped item stands on every ray |
+
+So the high failure rates are a few degenerate states counted hundreds of times, each created by a **mismatch between what the candidate
+list offers and what the command requires**, and kept alive by a policy that repeats the same command. "The view was shifted by a
+monster attack" is not supported by the data: of 2,921 `mine` and `place` commands in run B, 23 (0.8 %) took any damage; 4 of the 5
+failures among the 17 damaged `mine` commands were deaths (`cancelled`), the `place` ones succeeded 3 of 6; none of the 401 + 338 + 255
+failures of the table happened in a command that took damage. Knockback may matter in other states; here it cannot explain more
+than a percent of the failures.
+
+The simulator accepted any air cell with a floor, regardless of the cell's block, of placement faces, and of whether anyone could
+stand where a face is visible, so none of these states could exist.
+
+### 11.5 What changed in the simulator (each item a rule, with its source)
+
+1. Aim points and reach goals ported from `geometry.js aimPoints` / `motion.js reachGoal`: `mine`, `place`, `craft` at a table, `smelt`,
+   sleeping need a stand cell reachable on the walker's graph with a visible aim point (face centre and four inner points, faces turned
+   away skipped); the candidate list uses the same predicate for `mine` as `skill_space.js minable`.
+2. `place`: target must be REPLACEABLE (`block.js`), needs a solid neighbour and a stand cell outside the target's column from which an
+   aim point on that neighbour's face toward the target is visible; a mob in the cell makes it `not_confirmed`. Unit test: the 9x5x9
+   block categories of the recorded trap rebuild the pit, and `place` ends `unreachable`, as in the game; the same cell with a sapling
+   ends `invalid_target`.
+3. Mobs by the game's rules (`tools/sim/src/mobs.rs`): zombie (reach 1.9, 3 hp, 1 s), skeleton (arrows need a line of sight, 15
+   blocks, one per 2.5 s, hit chance falls with distance), creeper (fuse 1.5 s inside 3 blocks, cancelled beyond 7, damage
+   floor((i^2+i)/2 x 42 + 1) with i = (1 - distance/6) x exposure), spider (neutral by day); melee knockback shoves the bot; mobs
+   chase down the walker's own distance field (round walls, up one block); despawn 2.5 % per second beyond 32 blocks. Fights run through
+   the world clock; a death in a command ends it `cancelled` (what the real runner reports).
+4. Hunger as in the game: no passive drain (it was 0.57 food per 1,000 ticks, real 0.25), exhaustion from actions, saturation,
+   healing 6 exhaustion per hp, fast healing while food is full; drowning (15 s of air, then 2 hp per second); darkness from opaque
+   blocks overhead (leaves do not count: under a canopy the old rule spawned monsters in daylight).
+5. **Fitted, and only these**: `SPAWN_NIGHT` 0.05 and `SPAWN_DARK` 0.07 attempts per second, the spawn weights per kind (zombie 1.4,
+   skeleton 3.0, creeper 1.4, spider 0.4) and the exhaustion per walked block 0.02: set so that the share of observations with a
+   hostile within 16 blocks, by kind and distance, and the food loss per tick match the real server (run A + B pooled). The game's own
+   spawn algorithm (light levels, 70-mob cap, pack sizes, biome lists) is not reproduced.
+
+### 11.6 Result (same stand-in policy, same 14 sites; simulator 14 min = 405,496 steps = 217 bot-hours = 216 finished episodes)
+
+| Measure | real A | real B | simulator before | simulator now |
+|---|---:|---:|---:|---:|
+| `place` success | 0.22 | 0.46 | 1.00 | **0.35** |
+| `place` failures: `unreachable` / `invalid_target` | 19 % / 53 % | 29 % / 24 % | 0 | 45 % / 17 % |
+| `craft` median ticks / success | 1 / 0.82 | 2 / 0.98 | 5 / - | **1 / 0.85** |
+| `mine` success | 0.79 | 0.82 | 1.00 | 0.99 |
+| `mine` median ticks | 76 | 72 | 27 | 51 |
+| `tunnel` median ticks | 70 | 71 | 42 | 84 |
+| `attack` success | 0.35 | 0.53 (n = 17) | 0.94 | 0.80 |
+| steps per finished episode | 2,036 | 1,287 | 2,063 | **1,867** |
+| progress entries at the end of an episode | 12.0 | 11.75 | 14.2 | **12.95** |
+| progress at 1/3 of the run | 8.6 | 10.75 | 12.3 | 10.2 |
+| deaths per finished episode (= per bot-hour) | 20.6 | 4.0 | 4.3 | **9.5** (pooled real 15.7) |
+| days survived of 3 (reward) | 0.25 | 1.0 | 1.51 | **0.80** |
+| hp lost per bot-hour | ~223 | 97 | ~88 (zombies only) | **206** |
+| share of observations with a hostile within 4 blocks | 2.3 % | 0.4 % | 2.8 % | 1.4 % (pooled real 1.8 %) |
+| ... within 16 blocks, day / night | 4.7 / 17.4 % | 4.3 / 6.3 % | 25 / 29 % | 5.6 / 26 % (pooled real 4.6 / 14.5 %) |
+| food lost per 1,000 ticks | | 0.25 | 0.57 | 0.35 |
+
+The pooled real deaths (15.7 per bot-hour) lie between the two real runs (22.2 and 4.0); the simulator's 9.5 lies between them too, and
+the progress, survival and return of the simulator are now inside the range of the two real runs where before they were outside it on
+every line. Rates that were wrong by construction (`place` 1.00, `craft` 5 ticks, zombie-only damage) are no longer wrong; rates that
+depend on the real server's heavy tail (deaths, return) can only be matched in range with two real runs.
+
+### 11.7 What is still different (do not read simulator numbers past this list)
+
+1. **`mine` never fails** in the simulator (0.99) and fails 17-18 % in the game (`unreachable`, 255 failures from 10 targets): the
+   cause is not geometry (the candidate list and the command use the same predicate) but something the simulator does not have, most
+   likely an entity on every ray (a dropped item, a mob) or the second approach with the smaller reach; the next real run logs
+   `entity_in_the_way` and the phase ticks and will say which. Until then the simulator is too kind to the policy exactly where the
+   real policy loses most `invalid` reward.
+2. **Timing of `mine` / `tunnel`** (51 vs 72-76 and 84 vs 70 ticks) comes from three constants estimated from the command's own waits
+   (`MINE_HOLD`, `MINE_AIM`, `MINE_COLLECT`); the per-phase ticks of the next real run replace them.
+3. **Combat**: `attack` succeeds 0.80 against 0.35-0.53; the simulator fights deterministically at 12 ticks per swing without
+   cooldown misses, retreats, or the mob walking away (`target_lost`, `stuck`).
+4. **Lethality by kind**: zombie melee 101 hp/h against 10 (B) and about 117 (A, by attribution), creepers 45 against 5 (B) and
+   about 11 (A), drowning 3.5 against 23 (B) and 7 % of A's loss: the simulator has no swimming through deep water and floods only
+   one cell, and falls are not modelled (4 % in B). Starvation is now 0 (real 1.5 hp/h) and food loss 0.35 against 0.25 per 1,000 ticks. Hostile presence at night is 26 % against
+   14.5 % pooled and within 16 blocks overall 8.6 % against 5.0 %, skeletons (7.6 %) hover at the distance the model gives them
+   (8 blocks) where the real ones are seen 3.3 % of the time. Contact (within 2 blocks) matches.
+5. **Mobs**: no endermen, witches, drowned, husks, slimes, phantoms, no pack spawns, no armour, no light levels from torches;
+   hostile mobs never leave the tile edge's 112 blocks.
+6. Section 9's other gaps (block ids only, no fluids spreading, no natural stations or beds, drops without item entities) stand.
+
+### 11.8 What this means for the next training run
+
+The verdict `stalled` of run sim1 (TRAIN-STATUS-v1) was reached on a simulator that let the policy place, craft and survive more than the
+game does; it does not say what the policy would do in the game, and it does not say the design is wrong. A run on the corrected
+simulator can be judged with the same rule. Open items before trusting a simulator number as a game number: the list above, one real
+run with the new logging (`ph`, `entity_in_the_way`), and the sim1 checkpoint played in the real game with `--learn 0`.

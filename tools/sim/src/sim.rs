@@ -57,6 +57,10 @@ fn interactive(n: &str) -> bool { n.ends_with("_bed") || n.ends_with("chest") ||
     || matches!(n, "crafting_table" | "furnace" | "blast_furnace" | "smoker" | "barrel" | "lever" | "anvil" | "enchanting_table" | "brewing_stand" | "loom" | "grindstone" | "smithing_table" | "cartography_table" | "stonecutter" | "fletching_table") }
 /// Protocol face normals (0 down, 1 up, 2 north, 3 south, 4 west, 5 east), geometry.js FACES.
 pub const FACES: [[i32; 3]; 6] = [[0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 1], [-1, 0, 0], [1, 0, 0]];
+/// Ticks the action layer spends around the digging itself, per block (src/skills/commands/block.js `mine`): the hotbar swap to the
+/// tool, the first aim, one tick to settle, and `collect_drop` (entity.js): wait for the item to appear and land, then walk into it.
+/// Estimated from those waits (the item's pickup delay is 10 ticks); the real run's per-phase ticks (`ph`) will replace them.
+pub const MINE_HOLD: i64 = 3; pub const MINE_AIM: i64 = 4; pub const MINE_COLLECT: i64 = 18;
 pub const AIM_REACH: f64 = 4.2;               // motion.js AIM_REACH = BLOCK_REACH 4.5 - 0.3
 pub fn tool_rank(n: &str) -> i32 { ["wooden", "golden", "stone", "iron", "diamond", "netherite"].iter().position(|t| n.starts_with(t)).map(|p| p as i32).unwrap_or(-1) }
 
@@ -97,6 +101,7 @@ impl Sim {
         true
     }
     // ---- walking ----
+    pub(crate) fn reach_ref(&self) -> &HashMap<[i32; 3], f32> { &self.reach.as_ref().expect("reach() first").dist }
     pub fn reach(&mut self) -> &Reach {
         if self.reach.is_none() { self.reach = Some(self.flood()); }
         self.reach.as_ref().unwrap()
@@ -303,7 +308,7 @@ impl Sim {
         let d = self.reach().dist.get(&t).copied();
         match d {
             None => Out::fail("unreachable", 1, vec![]).with(self, vec![]),
-            Some(dd) => { let ticks = self.ticks_for(dd); self.look_at(t); self.exh += 0.06 * dd as f64; self.pos = t; self.reach = None; let o = Out::ok(ticks, vec![]); self.finish(o, vec![]) }
+            Some(dd) => { let ticks = self.ticks_for(dd); self.look_at(t); self.exh += 0.02 * dd as f64; self.pos = t; self.reach = None; let o = Out::ok(ticks, vec![]); self.finish(o, vec![]) }
         }
     }
     pub(crate) fn look_at(&mut self, t: [i32; 3]) { let (dx, dz) = ((t[0] - self.pos[0]) as f64, (t[2] - self.pos[2]) as f64); if dx != 0.0 || dz != 0.0 { self.yaw = (-dx).atan2(-dz); } }
@@ -314,12 +319,16 @@ impl Sim {
         let plan = match self.dig_plan(bid) { Some(p) => p, None => { let r = if self.d.block(bid).harvest.is_some() && self.d.block(bid).diggable { "missing_tool" } else { "invalid_target" }; return Out::fail(r, 1, vec![]).with(self, vec![]); } };
         let (node, cost) = match self.dig_node(t[0], t[1], t[2]) { Some(n) => n, None => return Out::fail("unreachable", 2, vec![]).with(self, vec![]) };
         let mut ev = vec![];
-        let ticks = self.ticks_for(cost) + plan.1.max(1) + 2;
+        let ticks = self.ticks_for(cost) + plan.1.max(1) + self.mine_overhead(bid, plan.2);
         self.look_at([t[0], node[1], t[2]]);
         self.pos = node; self.exh += 0.005;
         self.break_block(t[0], t[1], t[2], &mut ev);
         self.reach = None;
         self.finish(Out::ok(ticks, vec![]), ev)
+    }
+    /// Fixed ticks around one mined block: swap, aim, settle, and collecting the drop when the block yields one the tool harvests.
+    fn mine_overhead(&self, bid: u16, harvests: bool) -> i64 {
+        MINE_HOLD + MINE_AIM + 1 + if harvests && !self.d.block(bid).drops.is_empty() { MINE_COLLECT } else { 0 }
     }
     pub fn tunnel_cells(f: [i32; 3], dir: &str, dy: i32) -> (Vec<[i32; 3]>, [i32; 3], [i32; 3]) {
         let (dx, dz) = match dir { "north" => (0, -1), "south" => (0, 1), "west" => (-1, 0), _ => (1, 0) };
@@ -356,12 +365,12 @@ impl Sim {
         for c in &clear {
             if self.kind(c[0], c[1], c[2]) == Kind::Solid {
                 let bid = self.blk(c[0], c[1], c[2]).unwrap();
-                match self.dig_plan(bid) { Some(p) => ticks += p.1.max(1) + 2, None => { let r = if self.d.block(bid).diggable { "missing_tool" } else { "invalid_target" }; return Out::fail(r, ticks, ev.clone()).with(self, ev); } }
+                match self.dig_plan(bid) { Some(p) => ticks += p.1.max(1) + self.mine_overhead(bid, p.2), None => { let r = if self.d.block(bid).diggable { "missing_tool" } else { "invalid_target" }; return Out::fail(r, ticks, ev.clone()).with(self, ev); } }
                 self.break_block(c[0], c[1], c[2], &mut ev);
             }
         }
         if !self.standable(to[0], to[1], to[2]) { return Out::fail("stuck", ticks, ev.clone()).with(self, ev); }
-        self.look_at(to); self.pos = to; self.reach = None; self.exh += 0.08;
+        self.look_at(to); self.pos = to; self.reach = None; self.exh += 0.03;
         self.finish(Out::ok(ticks, vec![]), ev)
     }
     fn held_map(&self) -> HashMap<String, u32> { let mut m = HashMap::new(); for (n, c) in self.held() { m.insert(n, c); } m }
