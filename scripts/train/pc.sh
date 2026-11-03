@@ -6,7 +6,7 @@
 # between the two exchange/ directories what the other side reads. Nothing on the PC listens beyond loopback.
 #   scripts/train/pc.sh up --groups G [--fresh-world]     (base, bots, days, speed: exchange/.train-env from up.sh)
 #   scripts/train/pc.sh down | status | pause | resume | gpu-setup
-#   scripts/train/pc.sh wsl-install | wsl-up [--base B --shards S --max-steps N --learner-args "..."] | wsl-down | wsl-status   (sim shards + GPU learner, all in WSL2; pc/wsl-sim.sh)
+#   scripts/train/pc.sh wsl-install | wsl-up --base B [--seed N --shards S --max-steps N --gpu-fraction F --learner-args "..."] | wsl-down [--base B] | wsl-status | wsl-pull   (sim shards + GPU learner, all in WSL2; pc/wsl-sim.sh)
 #   pause/resume: create/remove C:\forgeaip\PAUSE (the supervisor stops everything gracefully / starts it again). The supervisor also
 #     pauses by itself 12:00-18:00 JST every day (owner 2026-11-02); scripts/train/window.sh does the same for the VPS side.
 #   gpu-setup: CUDA jax for the learner in WSL2 (the only supported GPU route for jax on Windows); needs WSL installed first by the
@@ -74,6 +74,8 @@ wsl-install)   # everything the WSL training needs, from this checkout (tiles 83
   ssh_dir='if not exist C:\forgeaip\dl\sim-tiles mkdir C:\forgeaip\dl\sim-tiles'; "${SSH[@]}" "$ssh_dir" >/dev/null
   [ -x "$REPO/tools/sim/target/bookworm/release/forgeaip-sim" ] || "$REPO/tools/sim/build.sh"
   T=$(mktemp -d); (cd "$DPOD" && tar czf "$T/dpod.tgz" --exclude=__pycache__ scripts/botsystem_*.py integrations src)
+  [ -x "$REPO/tools/tblog/target/bookworm/release/forgeaip-tblog" ] || "$REPO/tools/tblog/build.sh"
+  scp_to "$REPO/tools/tblog/target/bookworm/release/forgeaip-tblog" "$HOST:C:/forgeaip/dl/"
   scp_to "$REPO/tools/sim/target/bookworm/release/forgeaip-sim" "$REPO/src/rl/reward-v6.json" "$REPO/src/rl/progress-list.json" "$T/dpod.tgz" "$REPO/scripts/train/pc/wsl-sim.sh" "$REPO/scripts/train/profile_learner.py" "$HOST:C:/forgeaip/dl/"
   have=$("${SSH[@]}" 'dir /b C:\forgeaip\dl\sim-tiles' | wc -l); want=$(ls /mnt/data/forgeaip/sim-tiles/*.tile | wc -l)
   [ "$have" -ge "$want" ] || scp_to /mnt/data/forgeaip/sim-tiles/*.tile "$HOST:C:/forgeaip/dl/sim-tiles/"
@@ -81,7 +83,7 @@ wsl-install)   # everything the WSL training needs, from this checkout (tiles 83
 set -e
 D=/mnt/c/forgeaip/dl
 mkdir -p ~/sim/tiles ~/sim/r ~/x/logs ~/dpod
-cp "$D/forgeaip-sim" ~/sim/ && chmod +x ~/sim/forgeaip-sim
+cp "$D/forgeaip-sim" ~/sim/forgeaip-sim.new && mv -f ~/sim/forgeaip-sim.new ~/sim/forgeaip-sim; cp "$D/forgeaip-tblog" ~/sim/forgeaip-tblog.new && mv -f ~/sim/forgeaip-tblog.new ~/sim/forgeaip-tblog; chmod +x ~/sim/forgeaip-sim ~/sim/forgeaip-tblog
 cp "$D/reward-v6.json" "$D/progress-list.json" ~/sim/r/
 [ "$(ls ~/sim/tiles | wc -l)" -ge "$(ls $D/sim-tiles | wc -l)" ] || cp "$D"/sim-tiles/*.tile ~/sim/tiles/
 rm -rf ~/dpod/scripts ~/dpod/integrations ~/dpod/src; (cd ~/dpod && tar xzf "$D/dpod.tgz")
@@ -89,6 +91,14 @@ cp "$D/wsl-sim.sh" ~/sim/wsl-sim.sh && chmod +x ~/sim/wsl-sim.sh; cp "$D/profile
 echo "installed: $(ls ~/sim/tiles | wc -l) tiles"
 EOS
   wsl_run "$T/install.sh"; rm -rf "$T"; exit 0;;
+wsl-pull)   # the learning-status files of every run on the PC -> exchange/tb/<base>/ here (tb.sh then shows them next to the VPS runs)
+  f=$(mktemp); cat > "$f" <<'EOS'
+rm -rf /mnt/c/forgeaip/dl/tbpull; mkdir -p /mnt/c/forgeaip/dl/tbpull
+for d in ~/x/tb/*/; do b=$(basename "$d"); mkdir -p /mnt/c/forgeaip/dl/tbpull/$b; cp "$d"status.json "$d"events.out.tfevents.0.forgeaip "$d"metrics.csv /mnt/c/forgeaip/dl/tbpull/$b/ 2>/dev/null; done
+cp ~/x/status.*.txt /mnt/c/forgeaip/dl/tbpull/ 2>/dev/null; ls /mnt/c/forgeaip/dl/tbpull
+EOS
+  wsl_run "$f" >/dev/null; rm -f "$f"; mkdir -p "$REPO/exchange/tb"
+  scp -q -r -o BatchMode=yes -o IdentitiesOnly=yes -i "$KEY" "$HOST:C:/forgeaip/dl/tbpull/*" "$REPO/exchange/tb/" && echo "pulled: $(ls "$REPO/exchange/tb" | tr '\n' ' ')"; exit 0;;
 wsl-up|wsl-down|wsl-status)
   f=$(mktemp); { printf 'exec ~/sim/wsl-sim.sh %s' "${cmd#wsl-}"; for a in "${WSLARGS[@]}"; do printf ' %q' "$a"; done; echo; } > "$f"
   # a hidden `sleep infinity` keeps the WSL2 VM from idling out while processes run in it

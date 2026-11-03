@@ -1,71 +1,122 @@
 #!/usr/bin/env bash
-# Training on the owner's PC entirely inside WSL2 (Ubuntu 22.04): S simulator shards (the Linux binary of tools/sim, 16 threads of the
-# Ryzen) and the GPU learner (DPOD botsystem_goal_ppo.py, CUDA jax from `pc.sh gpu-setup`) next to each other, so the file API stays on
-# one ext4 disk. Driven from the VPS by `scripts/train/pc.sh wsl-up|wsl-down|wsl-status`.
-#   wsl-sim.sh up [--base pc1] [--shards 8] [--bots 2] [--days 3] [--max-steps 1000000] [--learner-args "..."]
-#   wsl-sim.sh down | status
-# Layout in WSL: ~/sim/{forgeaip-sim,tiles/,r/} ~/dpod/ ~/gpuvenv/ ; run files in ~/x/<base>*, logs ~/x/logs/*.log, pids ~/x/pids.
-# --max-queue (unread observations wait in the files while this many finished segments wait for training) must exceed one update's
-# --batch-segs (128 at --scale 8) or the learner stops reading before it can ever train: it did, with 64, on 2026-11-03.
-# Quiet hours (owner 2026-11-02): 12:00-18:00 JST every process is stopped (SIGSTOP) and resumed afterwards; `touch ~/x/PAUSE` pauses too.
+# Training on the owner's PC entirely inside WSL2 (Ubuntu 22.04): per run S simulator shards (the Linux binary of tools/sim) and one GPU learner
+# (DPOD botsystem_goal_ppo.py, CUDA jax from `pc.sh gpu-setup`), all on one ext4 disk. Several runs can share the machine (own base name, own
+# GPU memory share). Each run has a supervisor that restarts whatever dies, pauses in the quiet hours and writes the status. Driven from the VPS by
+# `scripts/train/pc.sh wsl-up|wsl-down|wsl-status`.
+#   wsl-sim.sh up --base A [--seed 42] [--shards 8] [--bots 2] [--days 3] [--max-steps 2000000] [--gpu-fraction 0.38] [--learner-args "..."]
+#   wsl-sim.sh down [--base A]      (no base: every run)        wsl-sim.sh status
+# Layout in WSL: ~/sim/{forgeaip-sim,forgeaip-tblog,tiles/,r/} ~/dpod/ ~/gpuvenv/ ; run files ~/x/<base>*, logs ~/x/logs/<base>-*.log, status ~/x/status.<base>.txt
+# (all runs together also in C:\forgeaip\status.txt), learning-status files ~/x/tb/<base>/ (TensorBoard: http://localhost:6006 in the Windows browser).
+# --max-queue must exceed one update's --batch-segs (the learner stops reading otherwise: it did with 64 < 128 on 2026-11-03).
+# Quiet hours (owner 2026-11-02): 12:00-18:00 JST every process of a run is stopped (SIGSTOP) and resumed afterwards; `touch ~/x/PAUSE` pauses too.
 set -u
 X=$HOME/x PY=$HOME/gpuvenv/bin/python SIM=$HOME/sim
 cmd=${1:-status}; shift || true
-base=pc1 shards=8 bots=2 days=3 maxsteps=1000000 largs="--scale 8 --tf32 1 --n-max 256 --enc-chunk 256 --aux-batch 128 --max-queue 400"
-while [ $# -gt 0 ]; do case $1 in --base) base=$2; shift 2;; --shards) shards=$2; shift 2;; --bots) bots=$2; shift 2;; --days) days=$2; shift 2;;
-  --max-steps) maxsteps=$2; shift 2;; --learner-args) largs=$2; shift 2;; *) echo "unknown option $1" >&2; exit 2;; esac; done
-[[ $base =~ ^[a-z0-9_-]{1,40}$ && $shards =~ ^[0-9]+$ && $bots =~ ^[1-8]$ && $days =~ ^[0-9]+$ && $maxsteps =~ ^[0-9]+$ && $largs =~ ^[-a-z0-9\ .]*$ ]] || { echo "bad option value" >&2; exit 2; }
+base="" seed=42 shards=8 bots=2 days=3 maxsteps=2000000 frac=0.38 largs="--scale 4 --tf32 1 --n-max 256 --enc-chunk 128 --aux-batch 64 --max-queue 200"
+while [ $# -gt 0 ]; do case $1 in --base) base=$2; shift 2;; --seed) seed=$2; shift 2;; --shards) shards=$2; shift 2;; --bots) bots=$2; shift 2;; --days) days=$2; shift 2;;
+  --max-steps) maxsteps=$2; shift 2;; --gpu-fraction) frac=$2; shift 2;; --learner-args) largs=$2; shift 2;; *) echo "unknown option $1" >&2; exit 2;; esac; done
+[[ ${base:-x} =~ ^[a-z0-9_-]{1,40}$ && $seed =~ ^[0-9]+$ && $shards =~ ^[0-9]+$ && $bots =~ ^[1-8]$ && $days =~ ^[0-9]+$ && $maxsteps =~ ^[0-9]+$ && $frac =~ ^0\.[0-9]+$ && $largs =~ ^[-a-z0-9\ .]*$ ]] || { echo "bad option value" >&2; exit 2; }
+mkdir -p "$X/logs" "$X/tb"
+
+launch_learner() {  # appends to the log; resumes from the checkpoint if there is one
+  XLA_PYTHON_CLIENT_PREALLOCATE=false XLA_PYTHON_CLIENT_MEM_FRACTION=$frac PYTHONDONTWRITEBYTECODE=1 setsid nohup "$PY" "$HOME/dpod/scripts/botsystem_goal_ppo.py" --root "$X" --base "$base" --learn 1 --seed "$seed" \
+    --population 1 --max-steps "$maxsteps" $largs >> "$X/logs/$base-learner.log" 2>&1 < /dev/null &
+  LPID=$!
+}
+launch_shard() {  # launch_shard <i>
+  setsid nohup "$SIM/forgeaip-sim" run --root "$X" --base "$base" --shard "$1" --bots "$bots" --days "$days" --tiles "$SIM/tiles" --world "vps-s$(($1 % 5))" \
+    --reward "$SIM/r/reward-v6.json" --progress "$SIM/r/progress-list.json" --seed "$((seed * 100 + $1))" >> "$X/logs/$base-shard$1.log" 2>&1 < /dev/null &
+  SPID[$1]=$!
+}
+status_text() {
+  python3 - "$X" "$base" "$1" <<'PY'
+import json, os, sys, time
+X, base, note = sys.argv[1:4]
+def jl(p):
+    out = []
+    try:
+        for l in open(p):
+            try: out.append(json.loads(l))
+            except Exception: pass
+    except OSError: pass
+    return out
+u = [r for r in jl(f"{X}/{base}/train/train_log.jsonl") if r.get("event") == "update"]
+st = {}
+try: st = json.load(open(f"{X}/tb/{base}/status.json"))
+except Exception: pass
+print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} JST  run {base}: {note}")
+if u:
+    a, b = u[0], u[-1]; dt = b["t"] - a["t"]; recent = u[-10:]; dr = recent[-1]["t"] - recent[0]["t"]
+    print(f"  steps {b['total_steps']:,}   updates {b['update']}   speed {((b['total_steps'] - a['total_steps']) / dt if dt > 0 else 0):.0f} steps/s overall, "
+          f"{((recent[-1]['total_steps'] - recent[0]['total_steps']) / dr if dr > 0 else 0):.0f} now   device {b.get('devices')}")
+    print(f"  policy: entropy {b.get('ent', 0):.2f}  clipfrac {b.get('clipfrac', 0):.2f}  kl {b.get('kl', 0):.3f}  critic explained variance {b.get('expl_var', float('nan')):.2f}  teacher level {b.get('teacher', {}).get('level', float('nan')):.2f}")
+if st:
+    print(f"  VERDICT: {st['verdict'].upper()}  after {st['episodes']} episodes;  progress per block of {st['block']} episodes (mean +- 95 %): " + "  ".join(f"{m:.1f}+-{1.96 * e:.1f}" for m, e in st["progress_blocks"][-5:]) + f";  deaths/episode {st['deaths_per_episode_last_block']:.1f}")
+    for f in st.get("flags", []): print("  ! " + f)
+    print("  (STALLED = no gain of two standard errors over the earlier best in the last three blocks: stop and rethink the design; LEARNING = keep going)")
+PY
+}
 case $cmd in
 up)
-  mkdir -p "$X/logs"; [ -f "$X/pids" ] && "$0" down >/dev/null 2>&1
-  rm -f "$X/$base.done"; : > "$X/pids"
-  XLA_PYTHON_CLIENT_PREALLOCATE=false XLA_PYTHON_CLIENT_MEM_FRACTION=0.8 PYTHONDONTWRITEBYTECODE=1 setsid nohup "$PY" "$HOME/dpod/scripts/botsystem_goal_ppo.py" --root "$X" --base "$base" --learn 1 --seed 42 \
-    --population 1 --max-steps "$maxsteps" $largs > "$X/logs/learner.log" 2>&1 < /dev/null &
-  echo $! >> "$X/pids"
-  sleep 5
-  launch() {  # launch <shard>: one simulator process; its pid is appended to the pid file
-    setsid nohup "$SIM/forgeaip-sim" run --root "$X" --base "$base" --shard "$1" --bots "$bots" --days "$days" --tiles "$SIM/tiles" --world "vps-s$(($1 % 5))" \
-      --reward "$SIM/r/reward-v6.json" --progress "$SIM/r/progress-list.json" --seed "$((3000 + $1))" >> "$X/logs/shard$1.log" 2>&1 < /dev/null &
-    echo $! >> "$X/pids"; eval "pid$1=$!"
-  }
-  for i in $(seq 0 $((shards - 1))); do launch "$i"; sleep 0.5; done
-  # a shard that died at once (3 of 8 did in the first try, silently) is started again, up to three times
-  for round in 1 2 3; do
-    sleep 6; again=0
-    for i in $(seq 0 $((shards - 1))); do eval "p=\$pid$i"; kill -0 "$p" 2>/dev/null || { echo "shard $i died at start (round $round), starting it again"; launch "$i"; again=1; }; done
-    [ $again = 0 ] && break
-  done
-  # quiet hours watcher: stop everything 12:00-18:00 JST (or while ~/x/PAUSE exists), continue afterwards
-  setsid nohup bash -c 'while :; do h=$(TZ=Asia/Tokyo date +%H); h=${h#0}; if { [ "$h" -ge 12 ] && [ "$h" -lt 18 ]; } || [ -f "$HOME/x/PAUSE" ]; then s=STOP; else s=CONT; fi
-    for p in $(cat "$HOME/x/pids"); do kill -$s $p 2>/dev/null; done; sleep 30; done' > /dev/null 2>&1 < /dev/null &
-  echo $! >> "$X/pids"
-  echo "wsl-sim up: base=$base shards=$shards x $bots bots, learner args: $largs";;
-down)
-  [ -f "$X/pids" ] || { echo "not running"; exit 0; }
-  # the watcher first (it would CONT what we stop), then the shards, then the learner with time to write its checkpoint
-  pids=$(tac "$X/pids"); for p in $pids; do kill -CONT $p 2>/dev/null; done
-  for p in $pids; do kill -TERM $p 2>/dev/null; done
-  for t in $(seq 1 60); do alive=0; for p in $pids; do kill -0 $p 2>/dev/null && alive=1; done; [ $alive = 0 ] && break; sleep 1; done
-  for p in $pids; do kill -KILL $p 2>/dev/null; done; rm -f "$X/pids"; echo "wsl-sim down";;
-status)
-  n=0; [ -f "$X/pids" ] && for p in $(cat "$X/pids"); do kill -0 $p 2>/dev/null && n=$((n + 1)); done
-  echo "processes alive: $n"; nvidia-smi --query-gpu=utilization.gpu,memory.used --format=csv,noheader 2>/dev/null
-  b=$(ls -dt "$X"/*/train 2>/dev/null | head -1)   # the newest base
-  if [ -n "$b" ]; then python3 - "$b/train_log.jsonl" <<'PY'
-import json, sys
-rows = []
-try:
-    for l in open(sys.argv[1]):
-        try: rows.append(json.loads(l))
-        except Exception: pass
-except OSError: pass
-u = [r for r in rows if r.get("event") == "update"]
-if u:
-    a, b = u[0], u[-1]; dt = b["t"] - a["t"]
-    print(f"updates {b['update']}  steps {b['total_steps']}  last update {b['seconds']:.1f} s  queue {b.get('queue')}  devices {b.get('devices')}  mean {((b['total_steps'] - a['total_steps']) / dt if dt > 0 else 0):.0f} steps/s since the first update  ent {b.get('ent', 0):.2f} clipfrac {b.get('clipfrac', 0):.2f} expl_var {b.get('expl_var', float('nan')):.2f}")
-else: print("no update yet")
-PY
+  [ -n "$base" ] || { echo "--base required" >&2; exit 2; }
+  [ -f "$X/$base.sup.pid" ] && kill -0 "$(cat "$X/$base.sup.pid")" 2>/dev/null && { echo "run $base is already running"; exit 1; }
+  rm -f "${X:?}/${base:?}.done"
+  setsid nohup "$0" supervise --base "$base" --seed "$seed" --shards "$shards" --bots "$bots" --days "$days" --max-steps "$maxsteps" --gpu-fraction "$frac" --learner-args "$largs" > "$X/logs/$base-supervisor.log" 2>&1 < /dev/null &
+  echo $! > "$X/$base.sup.pid"
+  # the learning-status viewer, once for every run: TensorBoard on the PC's own localhost
+  if ! pgrep -f "tensorboard --logdir $X/tb" >/dev/null; then
+    [ -x "$HOME/gpuvenv/bin/tensorboard" ] || "$HOME/.local/bin/uv" pip install --python "$PY" -q tensorboard >> "$X/logs/tensorboard.log" 2>&1
+    setsid nohup "$HOME/gpuvenv/bin/tensorboard" --logdir "$X/tb" --host 0.0.0.0 --port 6006 --reload_interval 30 --samples_per_plugin scalars=100000 >> "$X/logs/tensorboard.log" 2>&1 < /dev/null &
   fi
-  tail -2 "$X/logs/learner.log" 2>/dev/null | cut -c1-200;;
-*) echo "usage: $0 up|down|status" >&2; exit 2;;
+  echo "wsl-sim up: run $base, $shards shards x $bots bots, budget $maxsteps steps, gpu share $frac; learner args: $largs";;
+supervise)
+  mkdir -p "$X/$base/train" "$X/tb/$base"
+  trap 'exit 0' TERM
+  declare -a SPID; restarts=0; lrestarts=0; last_status=0; paused=0
+  launch_learner; sleep 5
+  for i in $(seq 0 $((shards - 1))); do launch_shard "$i"; sleep 0.5; done
+  setsid nohup "$SIM/forgeaip-tblog" --dir "$X/$base/train" --out "$X/tb/$base" --follow --block 60 > "$X/logs/$base-tblog.log" 2>&1 < /dev/null &
+  TPID=$!
+  allpids() { echo $LPID $TPID ${SPID[@]}; }
+  note="running"
+  while :; do
+    h=$(TZ=Asia/Tokyo date +%H); h=${h#0}
+    if { [ "$h" -ge 12 ] && [ "$h" -lt 18 ]; } || [ -f "$X/PAUSE" ]; then
+      [ $paused = 0 ] && { for p in $(allpids); do kill -STOP "$p" 2>/dev/null; done; paused=1; }
+      note="PAUSED (quiet hours 12:00-18:00 JST or ~/x/PAUSE)"
+    else
+      [ $paused = 1 ] && { for p in $(allpids); do kill -CONT "$p" 2>/dev/null; done; paused=0; }
+      note="running"
+      if [ ! -f "$X/$base.done" ]; then
+        kill -0 "$LPID" 2>/dev/null || {
+          lrestarts=$((lrestarts + 1)); echo "$(date +%T) learner died (restart $lrestarts); last log lines:" >> "$X/logs/$base-supervisor.log"; tail -3 "$X/logs/$base-learner.log" >> "$X/logs/$base-supervisor.log"
+          if [ $lrestarts -gt 30 ]; then note="FAILED: the learner died 30 times, see ~/x/logs/$base-learner.log"; status_text "$note" > "$X/status.$base.txt"; exit 1; fi
+          launch_learner; note="learner restarted ($lrestarts so far)"; }
+        for i in $(seq 0 $((shards - 1))); do kill -0 "${SPID[$i]}" 2>/dev/null || { restarts=$((restarts + 1)); echo "$(date +%T) shard $i died, restart $restarts" >> "$X/logs/$base-supervisor.log"; launch_shard "$i"; }; done
+        kill -0 "$TPID" 2>/dev/null || { setsid nohup "$SIM/forgeaip-tblog" --dir "$X/$base/train" --out "$X/tb/$base" --follow --block 60 >> "$X/logs/$base-tblog.log" 2>&1 < /dev/null & TPID=$!; }
+      else
+        kill -0 "$LPID" 2>/dev/null || { note="DONE: step budget reached ($(cat "$X/$base.done") steps), final checkpoint written"; status_text "$note" > "$X/status.$base.txt"; cat "$X"/status.*.txt > /mnt/c/forgeaip/status.txt 2>/dev/null; exit 0; }
+      fi
+    fi
+    now=$(date +%s)
+    if [ $((now - last_status)) -ge 60 ]; then last_status=$now; { status_text "$note (learner restarts $lrestarts, shard restarts $restarts)"; } > "$X/status.$base.txt"; cat "$X"/status.*.txt > /mnt/c/forgeaip/status.txt 2>/dev/null; fi
+    sleep 15
+  done;;
+down)
+  for s in "$X"/*.sup.pid; do [ -f "$s" ] || continue; b=$(basename "$s" .sup.pid); [ -n "$base" ] && [ "$base" != "$b" ] && continue
+    kill -CONT "$(cat "$s")" 2>/dev/null; kill -TERM "$(cat "$s")" 2>/dev/null; rm -f "${s:?}"
+    for p in $(pgrep -f -- "--base $b "); do kill -CONT "$p" 2>/dev/null; done
+    for p in $(pgrep -f -- "forgeaip-sim run --root $X --base $b "); do kill -TERM "$p" 2>/dev/null; done
+    for p in $(pgrep -f -- "botsystem_goal_ppo.py --root $X --base $b "); do kill -TERM "$p" 2>/dev/null; done      # checkpoint after the current update
+    for p in $(pgrep -f -- "forgeaip-tblog --dir $X/$b/"); do kill -TERM "$p" 2>/dev/null; done
+    echo "run $b: stop requested"
+  done
+  for t in $(seq 1 90); do pgrep -f "botsystem_goal_ppo.py --root $X" > /dev/null || break; sleep 1; done
+  pkill -KILL -f "botsystem_goal_ppo.py --root $X" 2>/dev/null; pkill -KILL -f "forgeaip-sim run --root $X" 2>/dev/null
+  [ -z "$base" ] && pkill -f "tensorboard --logdir $X/tb" 2>/dev/null
+  echo "wsl-sim down";;
+status)
+  for f in "$X"/status.*.txt; do [ -f "$f" ] && cat "$f"; done
+  echo "processes: learners $(pgrep -fc 'botsystem_goal_ppo.py --root') shards $(pgrep -fc 'forgeaip-sim run')"; nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader 2>/dev/null;;
+*) echo "usage: $0 up|down|status [options]" >&2; exit 2;;
 esac
