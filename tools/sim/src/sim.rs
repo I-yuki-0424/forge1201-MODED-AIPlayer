@@ -38,9 +38,9 @@ impl Ord for Qn { fn cmp(&self, o: &Self) -> Ordering { o.0.partial_cmp(&self.0)
 
 pub struct Sim {
     pub d: Rc<Data>, pub tile: Rc<Tile>, pub edits: HashMap<(i32, i32, i32), u16>,
-    pub pos: [i32; 3], pub yaw: f64, pub hp: f64, pub food: f64, pub exh: f64, pub inv: Vec<Option<Stack>>,
+    pub pos: [i32; 3], pub yaw: f64, pub hp: f64, pub food: f64, pub sat: f64, pub exh: f64, pub inv: Vec<Option<Stack>>,
     pub tick: i64, pub mobs: Vec<Mob>, pub next_id: u32, pub rng: Rng, pub site: [i32; 3], pub fuel: f64,
-    pub dead: bool, pub hits: u32, day_seen: i64, regen_t: f64, pub kills: HashMap<String, u32>,
+    pub dead: bool, pub air: f64, pub hits: u32, pub dmg: Vec<(&'static str, &'static str, f64, f64)>, day_seen: i64, regen_t: f64, pub kills: HashMap<String, u32>,
     reach: Option<Reach>,
 }
 pub const PASSIVE: [(&str, f64); 4] = [("cow", 10.0), ("pig", 10.0), ("sheep", 8.0), ("chicken", 4.0)];
@@ -62,15 +62,15 @@ pub fn tool_rank(n: &str) -> i32 { ["wooden", "golden", "stone", "iron", "diamon
 
 impl Sim {
     pub fn new(d: Rc<Data>, tile: Rc<Tile>, seed: u64) -> Sim {
-        Sim { d, tile, edits: HashMap::new(), pos: [0; 3], yaw: 0.0, hp: 20.0, food: 20.0, exh: 0.0, inv: vec![None; 36], tick: 0, mobs: vec![], next_id: 1, rng: Rng(seed | 1),
-            site: [0; 3], fuel: 0.0, dead: false, hits: 0, day_seen: 0, regen_t: 0.0, kills: HashMap::new(), reach: None }
+        Sim { d, tile, edits: HashMap::new(), pos: [0; 3], yaw: 0.0, hp: 20.0, food: 20.0, sat: 5.0, exh: 0.0, inv: vec![None; 36], tick: 0, mobs: vec![], next_id: 1, rng: Rng(seed | 1),
+            site: [0; 3], fuel: 0.0, dead: false, air: 300.0, hits: 0, dmg: vec![], day_seen: 0, regen_t: 0.0, kills: HashMap::new(), reach: None }
     }
     // ---- world access ----
     #[inline] pub fn blk(&self, x: i32, y: i32, z: i32) -> Option<u16> { if let Some(&b) = self.edits.get(&(x, y, z)) { Some(b) } else { self.tile.get(x, y, z) } }
     pub fn kind(&self, x: i32, y: i32, z: i32) -> Kind { match self.blk(x, y, z) { Some(b) => self.d.block(b).kind, None => Kind::Solid } }
     pub fn name(&self, x: i32, y: i32, z: i32) -> &str { match self.blk(x, y, z) { Some(b) => &self.d.block(b).name, None => "unloaded" } }
     pub fn is_air(&self, x: i32, y: i32, z: i32) -> bool { matches!(self.kind(x, y, z), Kind::Air | Kind::Passable) }
-    fn lava(&self, x: i32, y: i32, z: i32) -> bool { self.name(x, y, z) == "lava" }
+    pub(crate) fn lava(&self, x: i32, y: i32, z: i32) -> bool { self.name(x, y, z) == "lava" }
     pub fn standable(&self, x: i32, y: i32, z: i32) -> bool {
         let (f, h) = (self.kind(x, y, z), self.kind(x, y + 1, z));
         if f == Kind::Solid || h == Kind::Solid || self.lava(x, y, z) || self.lava(x, y + 1, z) || self.blk(x, y, z).is_none() { return false; }
@@ -257,18 +257,28 @@ impl Sim {
             self.tick += c;
             let frac = c as f64 / 20.0;
             if self.tick / DAY > before / DAY { ev.push(Ev::Dawn(false)); }
-            self.exh += 0.002 * c as f64;
-            if self.exh >= 4.0 { self.exh -= 4.0; if self.food > 0.0 { self.food -= 1.0; } }
+            // Hunger as in the game: no passive drain; exhaustion comes from actions (walking, digging, fighting, damage, healing) and
+            // empties the saturation first, then the food bar. Fast healing (every 10 ticks) while food is full and saturation lasts.
+            while self.exh >= 4.0 { self.exh -= 4.0; if self.sat > 0.0 { self.sat = (self.sat - 1.0).max(0.0); } else if self.food > 0.0 { self.food -= 1.0; } }
             self.regen_t += c as f64;
-            if self.regen_t >= 80.0 {
-                self.regen_t -= 80.0;
-                if self.food >= 18.0 && self.hp < 20.0 { self.hp += 1.0; self.exh += 0.6; } else if self.food <= 0.0 && self.hp > 1.0 { self.hp -= 1.0; }
+            let thr = if self.food >= 20.0 && self.sat > 0.0 { 10.0 } else { 80.0 };
+            while self.regen_t >= thr {
+                self.regen_t -= thr;
+                if self.food >= 18.0 && self.hp < 20.0 { self.hp += 1.0; self.exh += 6.0; } else if self.food <= 0.0 && self.hp > 1.0 { self.hp -= 1.0; self.dmg.push(("starve", "", 1.0, 0.0)); }
             }
+            // Air: 15 s under water, then 2 hp per second.
+            if self.kind(self.pos[0], self.pos[1] + 1, self.pos[2]) == Kind::Liquid && !self.lava(self.pos[0], self.pos[1] + 1, self.pos[2]) {
+                self.air -= c as f64;
+                if self.air < 0.0 { self.air += 20.0; self.hp -= 2.0; self.dmg.push(("drown", "", 2.0, 0.0)); self.hits += 1; }
+            } else { self.air = (self.air + 4.0 * c as f64).min(300.0); }
             self.mobs_step(frac);
             if self.hp <= 0.0 { self.dead = true; ev.push(Ev::Death); }
         }
     }
-    pub(crate) fn surface_exposed(&self) -> bool { let [x, y, z] = self.pos; (y + 2..y + 40).all(|yy| !matches!(self.kind(x, yy, z), Kind::Solid)) }
+    /// Rock, dirt, planks or the like overhead within 40 blocks: no sky light. Leaves let light through (the game lowers it one level per
+    /// layer, a canopy of a few layers stays far above the level monsters need).
+    pub(crate) fn sky_blocked(&self, x: i32, y: i32, z: i32) -> bool { (y + 2..y + 40).any(|yy| self.kind(x, yy, z) == Kind::Solid && !self.name(x, yy, z).ends_with("_leaves")) }
+    pub(crate) fn surface_exposed(&self) -> bool { !self.sky_blocked(self.pos[0], self.pos[1], self.pos[2]) }
     pub(crate) fn find_stand(&self, x: i32, z: i32, y0: i32) -> Option<i32> { (y0 - 10..=y0 + 10).rev().find(|&y| self.standable(x, y, z)) }
     pub(crate) fn invalidate(&mut self) { self.reach = None; }
     pub fn spawn_animals(&mut self) {
@@ -293,7 +303,7 @@ impl Sim {
         let d = self.reach().dist.get(&t).copied();
         match d {
             None => Out::fail("unreachable", 1, vec![]).with(self, vec![]),
-            Some(dd) => { let ticks = self.ticks_for(dd); self.look_at(t); self.exh += 0.01 * dd as f64; self.pos = t; self.reach = None; let o = Out::ok(ticks, vec![]); self.finish(o, vec![]) }
+            Some(dd) => { let ticks = self.ticks_for(dd); self.look_at(t); self.exh += 0.06 * dd as f64; self.pos = t; self.reach = None; let o = Out::ok(ticks, vec![]); self.finish(o, vec![]) }
         }
     }
     pub(crate) fn look_at(&mut self, t: [i32; 3]) { let (dx, dz) = ((t[0] - self.pos[0]) as f64, (t[2] - self.pos[2]) as f64); if dx != 0.0 || dz != 0.0 { self.yaw = (-dx).atan2(-dz); } }
@@ -351,7 +361,7 @@ impl Sim {
             }
         }
         if !self.standable(to[0], to[1], to[2]) { return Out::fail("stuck", ticks, ev.clone()).with(self, ev); }
-        self.look_at(to); self.pos = to; self.reach = None; self.exh += 0.01;
+        self.look_at(to); self.pos = to; self.reach = None; self.exh += 0.08;
         self.finish(Out::ok(ticks, vec![]), ev)
     }
     fn held_map(&self) -> HashMap<String, u32> { let mut m = HashMap::new(); for (n, c) in self.held() { m.insert(n, c); } m }
@@ -435,7 +445,7 @@ impl Sim {
     pub fn do_eat(&mut self, item: &str) -> Out {
         let f = match self.d.foods.get(item) { Some(f) => *f, None => return Out::fail("invalid_args", 1, vec![]).with(self, vec![]) };
         if self.count(item) == 0 { return Out::fail("missing_item", 1, vec![]).with(self, vec![]); }
-        self.take(item, 1); self.food = (self.food + f.0).min(20.0);
+        self.take(item, 1); self.food = (self.food + f.0).min(20.0); self.sat = (self.sat + f.1).min(self.food);
         self.finish(Out::ok(32, vec![]), vec![Ev::Stat("used", item.to_string(), 1)])
     }
     pub fn do_sleep(&mut self, t: [i32; 3]) -> Out {
@@ -455,7 +465,7 @@ impl Sim {
     /// Distance cost to the cheapest reach node within `r` of a point (the walker can get near it), or None.
     pub(crate) fn near_cell_cost(&mut self, t: [i32; 3], r: f64) -> Option<f32> { self.near_cell(t, r) }
     /// Respawn after death: empty inventory, full health, back at the site.
-    pub fn respawn(&mut self) { self.inv = vec![None; 36]; self.hp = 20.0; self.food = 20.0; self.exh = 0.0; self.pos = self.site; self.dead = false; self.reach = None; self.mobs.retain(|m| !m.hostile); self.fuel = 0.0; }
+    pub fn respawn(&mut self) { self.inv = vec![None; 36]; self.hp = 20.0; self.food = 20.0; self.sat = 5.0; self.exh = 0.0; self.air = 300.0; self.pos = self.site; self.dead = false; self.reach = None; self.mobs.retain(|m| !m.hostile); self.fuel = 0.0; }
     pub fn day_index(&self) -> i64 { self.day_seen }
 }
 trait With { fn with(self, s: &mut Sim, ev: Vec<Ev>) -> Out; fn with_slept(self, skip: i64, s: &mut Sim) -> Out; }

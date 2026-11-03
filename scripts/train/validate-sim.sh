@@ -37,7 +37,7 @@ sim)
   rm -f "$REPO"/exchange/val-sim-s*.jsonl
   for i in 0 1; do
     docker run -d --rm --name forgeaip-val-sim-$i --network none --read-only --tmpfs /tmp --memory 900m --cpus 1 -v "$REPO/exchange":/x -v /mnt/data/forgeaip/sim-tiles-val:/tiles:ro \
-      -v "$REPO/src/rl":/r:ro -v "$REPO/tools/sim/target/bookworm/release/forgeaip-sim":/forgeaip-sim:ro debian:bookworm-slim /forgeaip-sim run --root /x --base valsim --shard $i --bots 2 --days 3 \
+      -v "$REPO/src/rl":/r:ro -v "$REPO/tools/sim/target/bookworm/release/forgeaip-sim":/forgeaip-sim:ro debian:bookworm-slim timeout $((mins * 60 + 30)) /forgeaip-sim run --root /x --base valsim --shard $i --bots 2 --days 3 \
       --tiles /tiles --world vps-s$i --reward /r/reward-v6.json --progress /r/progress-list.json --seed $((77 + i)) >/dev/null
     pol $i valsim val-sim-s$i.jsonl $((mins * 60))
   done

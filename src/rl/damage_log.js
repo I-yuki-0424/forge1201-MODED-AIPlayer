@@ -54,7 +54,9 @@ class DamageLog {
     }
 
     onHealth() {
-        const hp = this.bot.health, drop = this.hp - hp;
+        const hp = this.bot.health;
+        if (!Number.isFinite(this.hp)) { this.hp = hp; return; }    // the first health packet after connecting is a baseline, not damage
+        const drop = this.hp - hp;
         this.hp = hp;
         if (drop <= 0) return;
         // The amount belongs to the newest hit row without one from the last 3 ticks; a drop with no hit event (starvation,

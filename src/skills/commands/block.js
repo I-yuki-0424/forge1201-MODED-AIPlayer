@@ -128,7 +128,11 @@ async function place(ctx, { x, y, z, item }) {
     const refs = supports(w, cell);
     if (!refs.length) throw new SkillError('invalid_target', { why: 'no solid neighbour to place against', target: cell });
     const free = (c) => !(c.x === x && c.z === z && (c.y === y || c.y + 1 === y));
-    const seen = () => refs.filter((r) => clearOfEntities(ctx, aimPoints(ctx.body.eye(), r.cell, w.shapesAt, { face: r.face, limit: 5, reach: AIM_REACH })).length);
+    const seen = () => {
+        const out = refs.filter((r) => clearOfEntities(ctx, aimPoints(ctx.body.eye(), r.cell, w.shapesAt, { face: r.face, limit: 5, reach: AIM_REACH })).length);
+        if (!out.length && refs.some((r) => aimPoints(ctx.body.eye(), r.cell, w.shapesAt, { face: r.face, limit: 1, reach: AIM_REACH }).length)) ctx.phase('entity_in_the_way');
+        return out;
+    };
     await approachUntil(ctx, (reach, ok2) => {
         const goals = refs.map((r) => reachGoal(w, r.cell, { face: r.face, reach }));
         return { isGoal: (c) => free(c) && ok2(c) && goals.some((g) => g.isGoal(c)), h: (c) => Math.min(...goals.map((g) => g.h(c))), label: 'reach placement face' };

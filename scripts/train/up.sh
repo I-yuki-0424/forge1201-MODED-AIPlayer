@@ -84,6 +84,8 @@ if [ ! -x "$dash/target/bookworm/release/train-dash" ] || [ -n "$(find "$dash/sr
   docker run --rm --network none -e CARGO_TARGET_DIR=/w/target/bookworm -v "$dash":/w -w /w rust:1-bookworm cargo build --release --offline --quiet
 fi
 compose --profile train up -d train-dash
+# The learning-status record (tools/tblog, TensorBoard on 127.0.0.1:6006): scripts/train/tb.sh status prints the verdict.
+"$REPO/scripts/train/tb.sh" start --base "$base" || echo "tb: not started (the training is unaffected)" >&2
 tailscale serve status 2>/dev/null | grep -q "localhost:3021" || tailscale serve --bg --tcp 3021 tcp://localhost:3021 >/dev/null 2>&1 || echo "tailscale serve failed: the page is on 127.0.0.1:3021 only" >&2
 if [ "$learn" = 1 ]; then
   for u in service timer; do systemctl --user link "$REPO/scripts/train/systemd/forgeaip-train-hold.$u" >/dev/null 2>&1 || true; done

@@ -190,7 +190,11 @@ function clearOfEntities(ctx, pts) {
 async function approachBlock(ctx, cell, opts = {}) {
     const ok = opts.ok || (() => true);
     return approachUntil(ctx, (reach, ok2) => reachGoal(ctx.world, cell, { ...opts, reach, ok: (c) => ok(c) && ok2(c) }), () => {
-        const pts = clearOfEntities(ctx, aimPoints(ctx.body.eye(), cell, ctx.world.shapesAt, { face: opts.face ?? null, reach: AIM_REACH }));
+        const raw = aimPoints(ctx.body.eye(), cell, ctx.world.shapesAt, { face: opts.face ?? null, reach: AIM_REACH });
+        const pts = clearOfEntities(ctx, raw);
+        // Marker for the event log (run val: 136 `mine` failures `unreachable` after an exhaustive search came from 5 targets): the
+        // geometry allows the aim, an entity (a mob, a dropped item) stands on every ray.
+        if (!pts.length && raw.length) ctx.phase('entity_in_the_way', { aim_points: raw.length });
         return pts.length ? pts : null;
     }, cell);
 }

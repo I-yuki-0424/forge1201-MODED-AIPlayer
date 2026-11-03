@@ -42,7 +42,7 @@ impl Sim {
             let (x, z) = (bx + (ang.cos() * dd) as i32, bz + (ang.sin() * dd) as i32);
             if let Some(y) = self.find_stand(x, z, by) {
                 // dark enough: night under open sky, or rock overhead at any hour
-                let covered = (y + 2..y + 24).any(|yy| self.kind(x, yy, z) == Kind::Solid);
+                let covered = self.sky_blocked(x, y, z);
                 if !(covered || self.is_night()) { continue; }
                 let id = self.next_id; self.next_id += 1;
                 self.mobs.push(Mob::hostile_of(id, kind, [x, y, z]));
@@ -57,7 +57,8 @@ impl Sim {
         let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
         self.ray(a, d, len).is_none()
     }
-    fn hurt(&mut self, d: f64) { self.hp -= d; self.hits += 1; }
+    /// Damage with its cause, in the names of the real server's damage_event log (src/rl/damage_log.js) so the two can be tabulated together.
+    fn hurt(&mut self, d: f64, src: &'static str, by: &'static str, dist: f64) { self.hp -= d; self.exh += 0.1; self.hits += 1; self.dmg.push((src, by, d, dist)); }
     /// Mobs act for `frac` seconds (<= 1): arrival, movement, attacks; the bot is knocked back by a melee hit.
     pub(crate) fn mobs_step(&mut self, frac: f64) {
         self.spawn_hostile(frac);
@@ -92,10 +93,10 @@ impl Sim {
             let dy = (m.pos[1] - by).abs();
             if aggro {
                 match sp.atk {
-                    Atk::Melee => if h <= sp.reach && dy <= 1 && m.cd <= 0.0 { m.cd = sp.every; self.hurt(sp.dmg); shove = Some(m.pos); },
+                    Atk::Melee => if h <= sp.reach && dy <= 1 && m.cd <= 0.0 { m.cd = sp.every; self.hurt(sp.dmg, "mob_attack", sp.name, h); shove = Some(m.pos); },
                     Atk::Bow => if h <= sp.reach && m.cd <= 0.0 && self.los(m.pos, self.pos) {
                         m.cd = sp.every * (0.8 + 0.4 * self.rng.f());
-                        if self.rng.f() < (0.85 - 0.04 * h).clamp(0.15, 0.8) { let d = sp.dmg - 0.5 + self.rng.f() * 1.5; self.hurt(d); }
+                        if self.rng.f() < (0.85 - 0.04 * h).clamp(0.15, 0.8) { let d = sp.dmg - 0.5 + self.rng.f() * 1.5; self.hurt(d, "arrow", sp.name, h); }
                     },
                     Atk::Fuse => {
                         if m.fuse < 0.0 { if h <= sp.reach { m.fuse = 1.5; } }
@@ -107,7 +108,7 @@ impl Sim {
                                 let dd = (((m.pos[0] - bx) as f64).powi(2) + ((m.pos[1] - by) as f64).powi(2) + ((m.pos[2] - bz) as f64).powi(2)).sqrt();
                                 let expo = if self.los(m.pos, self.pos) { 1.0 } else { 0.25 };
                                 let i = (1.0 - dd / 6.0).max(0.0) * expo;
-                                if i > 0.0 { let d = ((i * i + i) / 2.0 * 42.0 + 1.0).floor(); self.hurt(d); }
+                                if i > 0.0 { let d = ((i * i + i) / 2.0 * 42.0 + 1.0).floor(); self.hurt(d, "player_explosion", sp.name, dd); }
                                 continue;
                             }
                         }

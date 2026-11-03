@@ -157,6 +157,7 @@ pub fn run(argv: &[String]) -> Result<(), String> {
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     std::fs::write(format!("{}/{}.s{}.current", root, base, shard), format!("{}\n", run_id)).map_err(|e| e.to_string())?;
     let out = std::fs::OpenOptions::new().create(true).append(true).open(format!("{}/env_to_policy.jsonl", dir)).map_err(|e| e.to_string())?;
+    let mut events = std::fs::OpenOptions::new().create(true).append(true).open(format!("{}/events.jsonl", dir)).map_err(|e| e.to_string())?;
     let mut ch = Chan { out, inp: format!("{}/policy_to_env.jsonl", dir), pos: 0, rest: vec![], seq: 0, run_id: run_id.clone() };
     let cfg = Cfg { root, base, shard, bots, days, tiles, seed, entries, table, d: d.clone(), run_id };
     eprintln!("[sim] {} tiles of {}, run {}", cfg.tiles.len(), world, cfg.run_id);
@@ -230,6 +231,15 @@ pub fn run(argv: &[String]) -> Result<(), String> {
             if cand.is_none() { o.ok = false; o.reason = "invalid_args"; }
             let mut ev = std::mem::take(&mut b.pending);
             ev.extend(o.ev.drain(..));
+            // The same step record as the real environment's events.jsonl (cmd, reason, ticks, damage by cause, position, health), so
+            // tools/sim/compare.py reads both.
+            { let dm: Vec<J> = b.sim.dmg.drain(..).map(|(src, by, d, dist)| J::o(vec![("k", J::st("hit")), ("src", J::st(src)), ("by", J::st(by)), ("d", J::n((d * 100.0).round() / 100.0)), ("dist", J::n((dist * 10.0).round() / 10.0))])).collect();
+              let mut row = vec![("event", J::st("step")), ("env_id", J::n(b.env_id as f64)), ("episode", J::n(b.episode as f64)), ("step", J::n(b.step as f64 + 1.0)),
+                  ("cmd", J::st(cand.as_ref().map_or("invalid", |c| obs::CMDS[c.cmd]))), ("reason", J::st(if o.ok { "ok" } else { o.reason })), ("ticks", J::n(o.ticks as f64)),
+                  ("health", J::n((b.sim.hp.max(0.0) * 10.0).round() / 10.0)), ("pos", J::nums(&[b.sim.pos[0] as f64, b.sim.pos[1] as f64, b.sim.pos[2] as f64]))];
+              if !dm.is_empty() { row.push(("dmg", J::Arr(dm))); }
+              if ev.iter().any(|e| matches!(e, Ev::Death)) { row.push(("died", J::Bool(true))); }
+              let _ = writeln!(events, "{}", J::o(row).dump()); }
             let died = ev.iter().any(|e| matches!(e, Ev::Death));
             let (terms, total_r) = b.rew.score(&ev, if o.ok { None } else { Some(o.reason) }, &cfg.table, &cfg.entries);
             if died { b.deaths += 1; b.sim.respawn(); b.ring.clear(); }

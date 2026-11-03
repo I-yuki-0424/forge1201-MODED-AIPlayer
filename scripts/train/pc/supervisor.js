@@ -101,7 +101,7 @@ const wslPath = (p) => p.replace(/^([A-Za-z]):\\/, (_, d) => `/mnt/${d.toLowerCa
 const gpuCfg = () => { try { return JSON.parse(fs.readFileSync(path.join(home, 'gpu.json'), 'utf8')); } catch { return null; } };
 // On a GPU the matrices must be large to fill it (profile_learner.py: 64 segments x 32 steps is one tiny launch): 8x the batch sizes,
 // TensorFloat-32 matmuls, a wide serving batch. Anything the config's learner_args set itself is left alone (argparse: the last wins).
-const GPU_ARGS = ['--scale', '8', '--tf32', '1', '--n-max', '256', '--enc-chunk', '1024'];
+const GPU_ARGS = ['--scale', '8', '--tf32', '1', '--n-max', '256', '--enc-chunk', '512'];
 const learnerArgs = (dpod, rootDir, gpu = false) => [path.join(dpod, 'scripts', 'botsystem_goal_ppo.py'), '--root', rootDir, '--base', cfg.base,
     '--learn', String(cfg.learn), '--seed', '42', '--population', '1', ...(gpu ? GPU_ARGS : []), ...(cfg.learner_args || [])];
 function tendLearner() {

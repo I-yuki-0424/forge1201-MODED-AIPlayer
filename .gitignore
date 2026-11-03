@@ -79,3 +79,4 @@ tools/train-dash/target/
 tools/site-finder/target/
 tools/tickrate/build/
 tools/tickrate/.gradle/
+tools/tblog/target/
