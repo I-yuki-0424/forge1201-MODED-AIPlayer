@@ -50,6 +50,16 @@ verdict on an unfaithful simulator means the policy learns the simulator.
 earlier 1.5). Flag: clipfrac 0.30 (the threshold). The same conclusion the previous session drew by hand from three 2-hour windows;
 the tool reaches it from the log in under a second, and replayed over the log it says `stalled` from the first judgeable point (4 blocks, 10.9 h into the 15.7 h run; z 1.25), not `learning`, at every later point too.
 
+## Training on the PC (2026-11-04)
+
+`scripts/train/pc/wsl-sim.sh` (driven by `scripts/train/pc.sh wsl-up|wsl-down|wsl-status|wsl-pull`) runs each run under a supervisor that restarts a dead
+learner (from its checkpoint) or shard, pauses in the quiet hours (12:00-18:00 JST), and writes the status where the owner looks:
+
+- `C:\forgeaip\status.txt` (one block per run, every minute): steps, steps/s, entropy / clipfrac / kl / explained variance, the verdict with the
+  progress blocks, the flags, and what STALLED / LEARNING mean;
+- TensorBoard on the PC itself: <http://localhost:6006> in the Windows browser (all runs, scalars as in the VPS one); on the VPS the same files after `pc.sh wsl-pull`;
+- stop with `scripts/train/pc.sh wsl-down [--base runa]` (the learner writes its checkpoint first).
+
 ## Files
 
 `tools/tblog/{Cargo.toml,build.sh,src/main.rs}`, `scripts/train/tb.sh`, DPOD `scripts/botsystem_goal_ppo.py` (`expl_var`).

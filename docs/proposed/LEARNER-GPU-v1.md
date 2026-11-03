@@ -68,25 +68,22 @@ validation 10 %, goal bookkeeping and `handle` 13 %, one-time compilation 12 %. 
 learner process tops out near **500 steps/s whatever the device**; beyond that the observation transport (JSON text) and the
 per-step bookkeeping would have to be batched or split over processes. Not needed before the GPU removes the other two terms.
 
-## 4. The GPU: what is ready, what is not
+## 4. The GPU, measured (2026-11-03/04, RTX 3060 Ti in WSL2 Ubuntu 22.04, CUDA jax 0.12.0.1)
 
-Ready: the learner picks a CUDA device by itself (JAX does; the log row `devices` shows it), the large-matrix path is the same code
-as the CPU path (the tests above), `--scale 8 --tf32 1` are applied by the supervisor when `gpu.json` exists,
-`scripts/train/pc.sh gpu-setup` installs CUDA JAX into WSL2.
+The owner reinstalled WSL2; `scripts/train/pc.sh gpu-setup` (PowerShell-stderr bug fixed) built the venv; `profile_learner.py` ran there unchanged.
 
-Not done, and why: **the PC has no WSL2** (`pc.sh gpu-setup` says so), and JAX has no CUDA wheels for native Windows, so no GPU
-run was possible in this session; the GPU speed-up is a prediction, not a measurement. The prediction: ~0.7 TFLOP per update at
-a realistic 3-5 TFLOPS of the RTX 3060 Ti for matrices of this size is 0.15-0.25 s instead of 23 s; with `--scale 8` (4,096
-transitions per update) about 1-2 s. Memory: one 512-sample chunk needs ~1-2 GB with attention scores (4 heads x 194 x 194 x 4 B
-x 512 per layer), the supervisor leaves the learner half of the 8 GB.
+| | CPU (VPS, 4 threads) | GPU |
+|---|---:|---:|
+| one update of 512 steps (default sizes) | 22.8 s = 22 steps/s | **1.10 s = 465 steps/s** (21x) |
+| one update of 4,096 steps (`--scale 8`) | - | 5.0-5.8 s = 700-820 steps/s |
+| policy forward, 16 / 256 / 1,024 observations | 24 ms / 322 ms / ~1.9 s | 4.5 ms / 14.7 ms / 44 ms (**17,500 obs/s at 256**) |
+| encoder forward + backward, 1,024 samples | - | 127 ms |
 
-Owner, once, in PowerShell started as Administrator: `wsl.exe --install -d Ubuntu-22.04`, reboot, finish the Ubuntu first-run user
-setup; then on the VPS `scripts/train/pc.sh gpu-setup` and check that the learner log's `devices` row says `cuda`. Then run
-`scripts/train/profile_learner.py` inside WSL (same file, same command) to replace the prediction above by a number.
+The update stops getting faster per step beyond a few thousand steps and does not depend on `--enc-chunk` (256/512), nor on TF32: the GPU is not matmul-bound at d = 64; freezing the embedding tables changes nothing either (no scatter-add problem). What does depend on the batch is memory: a 512-sample encoder chunk with attention needs ~3 GB, and the world-model batch (`--aux-batch`, 1,955-wide item tables) is what ran the 8 GB card out of memory at `--scale 8` with the default 512; hence `--aux-batch 64-128`, `--enc-chunk 128-256`, and `XLA_PYTHON_CLIENT_MEM_FRACTION` per run.
 
-The better use of the PC after that is to run the simulator shards in the same WSL2 (the Linux binary runs unchanged, the file API
-stays on one ext4 disk, 16 threads for ~30 shards) and the learner next to them, instead of mirroring files between machines.
-Written down, not built: it cannot be tested before WSL2 exists.
+**End to end** (simulator shards and learner both in WSL2, `scripts/train/pc/wsl-sim.sh`): one run, 8 shards x 2 bots, `--scale 8`: **356 steps/s** over the first 30 updates (the VPS CPU run was 15); two runs at once (`--scale 4`, 0.38 of the card each): **~265 steps/s each, 530 together**, GPU 99-100 %, 7.3 of 8 GB, CPU a fraction of the 16 threads. That is the ceiling of one learner process (Python work per step, section 3), not of the card; the card is full with two runs, the CPU is not.
+
+Found on the way: with `--scale 8` the learner needs 128 finished segments per update, but `--max-queue 64` made it stop reading before it could ever train (a silent stall; now `--max-queue` is set above one update's `--batch-segs`).
 
 ## 5. Files
 
