@@ -17,11 +17,13 @@ from pathlib import Path
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--obs", required=True)
-ap.add_argument("--dpod", default=str(Path(__file__).resolve().parents[3] / "Decision-Process-order-driven"))
+ap.add_argument("--dpod", default=os.environ.get("DPOD_DIR", str(Path(__file__).resolve().parent.parent.parent.parent / "Decision-Process-order-driven")))
 ap.add_argument("--out", default="")
 ap.add_argument("--serve-n", default="1,4,16,64,256,1024")
 ap.add_argument("--segs", default="16,64,256")
 ap.add_argument("--reps", type=int, default=3)
+ap.add_argument("--learner-args", default="", help="flags given to every learner, e.g. '--scale 8 --tf32 1 --enc-chunk 512'")
+ap.add_argument("--only-update", action="store_true", help="skip the serve and parts stages")
 a = ap.parse_args()
 sys.path.insert(0, a.dpod); sys.path.insert(0, str(Path(a.dpod) / "scripts"))
 import numpy as np, jax, jax.numpy as jnp
@@ -61,7 +63,7 @@ res = {"device": f"{dev.platform}:{dev.device_kind}", "serve": {}, "parts": {}, 
 
 # -- serve: one forward for N observations
 serve = jax.jit(model.step)
-for n in map(int, a.serve_n.split(",")):
+for n in ([] if a.only_update else map(int, a.serve_n.split(","))):
     batch = {k: np.stack([pool[i % len(pool)][k] for i in range(n)]) for k in pool[0]}
     h = np.zeros((n, model.width), np.float32)
     t = timeit(lambda: serve(params, h, batch))
@@ -95,32 +97,34 @@ def sil_chunks(n):
     return out
 
 def learner(extra=()):
-    args = G.parse_args(["--root", "/tmp", "--base", "p", *extra])
+    args = G.parse_args(["--root", "/tmp", "--base", "p", *a.learner_args.split(), *extra])
+    if a.learner_args and "--tf32" in a.learner_args and args.tf32: jax.config.update("jax_default_matmul_precision", "tensorfloat32")
     return args, G.GoalLearner(args, model, params)
 
 # -- parts: forward+backward of each loss term at the sizes of one gradient step (default flags)
-args, L = learner()
-B = args.batch_segs; mb = max(1, B // args.minibatches)
-def stack(ss, T=32):
-    return {"obs": {k: np.stack([np.stack([o[k] for o in s["obs"]]) for s in ss]) for k in ss[0]["obs"][0]}, "h0": np.stack([s["h0"] for s in ss]),
-            "act": np.stack([np.asarray(s["act"], np.int32) for s in ss])}
-sb_ = stack(segs(mb)); ret = np.zeros((mb, 32), np.float32); valid = np.ones((mb, 32), np.float32)
-ppo = jax.jit(jax.value_and_grad(lambda P: L._unroll(P, sb_["h0"], sb_["obs"])[0].sum()))
-t = timeit(lambda: ppo(params)); res["parts"]["ppo_unroll"] = {"samples": mb * 32, "ms": t * 1e3}
-print(f"parts  ppo unroll   {mb}x32 = {mb*32:5d} samples  {t*1e3:8.1f} ms", flush=True)
-sil_s = stack(segs(args.sil_batch))
-silf = jax.jit(jax.value_and_grad(lambda P: L._unroll(P, sil_s["h0"], sil_s["obs"])[0].sum()))
-t = timeit(lambda: silf(params)); res["parts"]["sil_unroll"] = {"samples": args.sil_batch * 32, "ms": t * 1e3}
-print(f"parts  sil unroll   {args.sil_batch}x32 = {args.sil_batch*32:5d} samples  {t*1e3:8.1f} ms", flush=True)
-rep = G.Replay(2000); fill_replay(rep, 600)
-ao, al = rep.sample(args.aux_batch, rng)
-auxf = jax.jit(jax.value_and_grad(lambda P: model.aux_loss(P, ao, al)[0]))
-t = timeit(lambda: auxf(params)); res["parts"]["aux"] = {"samples": args.aux_batch, "ms": t * 1e3}
-print(f"parts  world-model aux {args.aux_batch:5d} samples  {t*1e3:8.1f} ms", flush=True)
-po, pl = G.dummy_plan(pool[0], args.plan_batch, model.L)
-plf = jax.jit(jax.value_and_grad(lambda P: model.plan_loss(P, po, pl["task"], pl["seq"], pl["mask"])[0]))
-t = timeit(lambda: plf(params)); res["parts"]["plan"] = {"samples": args.plan_batch, "ms": t * 1e3}
-print(f"parts  plan loss    {args.plan_batch:5d} samples  {t*1e3:8.1f} ms", flush=True)
+if not a.only_update:
+    args, L = learner()
+    B = args.batch_segs; mb = max(1, B // args.minibatches)
+    def stack(ss, T=32):
+        return {"obs": {k: np.stack([np.stack([o[k] for o in s["obs"]]) for s in ss]) for k in ss[0]["obs"][0]}, "h0": np.stack([s["h0"] for s in ss]),
+                "act": np.stack([np.asarray(s["act"], np.int32) for s in ss])}
+    sb_ = stack(segs(mb)); ret = np.zeros((mb, 32), np.float32); valid = np.ones((mb, 32), np.float32)
+    ppo = jax.jit(jax.value_and_grad(lambda P: L._unroll(P, sb_["h0"], sb_["obs"])[0].sum()))
+    t = timeit(lambda: ppo(params)); res["parts"]["ppo_unroll"] = {"samples": mb * 32, "ms": t * 1e3}
+    print(f"parts  ppo unroll   {mb}x32 = {mb*32:5d} samples  {t*1e3:8.1f} ms", flush=True)
+    sil_s = stack(segs(args.sil_batch))
+    silf = jax.jit(jax.value_and_grad(lambda P: L._unroll(P, sil_s["h0"], sil_s["obs"])[0].sum()))
+    t = timeit(lambda: silf(params)); res["parts"]["sil_unroll"] = {"samples": args.sil_batch * 32, "ms": t * 1e3}
+    print(f"parts  sil unroll   {args.sil_batch}x32 = {args.sil_batch*32:5d} samples  {t*1e3:8.1f} ms", flush=True)
+    rep = G.Replay(2000); fill_replay(rep, 600)
+    ao, al = rep.sample(args.aux_batch, rng)
+    auxf = jax.jit(jax.value_and_grad(lambda P: model.aux_loss(P, ao, al)[0]))
+    t = timeit(lambda: auxf(params)); res["parts"]["aux"] = {"samples": args.aux_batch, "ms": t * 1e3}
+    print(f"parts  world-model aux {args.aux_batch:5d} samples  {t*1e3:8.1f} ms", flush=True)
+    po, pl = G.dummy_plan(pool[0], args.plan_batch, model.L)
+    plf = jax.jit(jax.value_and_grad(lambda P: model.plan_loss(P, po, pl["task"], pl["seq"], pl["mask"])[0]))
+    t = timeit(lambda: plf(params)); res["parts"]["plan"] = {"samples": args.plan_batch, "ms": t * 1e3}
+    print(f"parts  plan loss    {args.plan_batch:5d} samples  {t*1e3:8.1f} ms", flush=True)
 
 # -- update(): the whole thing, defaults and scaled
 for B in map(int, a.segs.split(",")):

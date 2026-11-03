@@ -6,6 +6,7 @@
 # between the two exchange/ directories what the other side reads. Nothing on the PC listens beyond loopback.
 #   scripts/train/pc.sh up --groups G [--fresh-world]     (base, bots, days, speed: exchange/.train-env from up.sh)
 #   scripts/train/pc.sh down | status | pause | resume | gpu-setup
+#   scripts/train/pc.sh wsl-install | wsl-up [--base B --shards S --max-steps N --learner-args "..."] | wsl-down | wsl-status   (sim shards + GPU learner, all in WSL2; pc/wsl-sim.sh)
 #   pause/resume: create/remove C:\forgeaip\PAUSE (the supervisor stops everything gracefully / starts it again). The supervisor also
 #     pauses by itself 12:00-18:00 JST every day (owner 2026-11-02); scripts/train/window.sh does the same for the VPS side.
 #   gpu-setup: CUDA jax for the learner in WSL2 (the only supported GPU route for jax on Windows); needs WSL installed first by the
@@ -33,7 +34,15 @@ ps() {
   "${SSH[@]}" 'powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File C:\forgeaip\dl\step.ps1' | tr -d '\r'
   return "${PIPESTATUS[0]}"
 }
+# A bash script on the PC, run inside WSL2 Ubuntu-22.04 (the GPU and the Linux simulator live there): wsl_run <local file> [args...]
+wsl_run() {
+  local f=$1; shift
+  scp_to "$f" "$HOST:C:/forgeaip/dl/_wsh.sh"
+  "${SSH[@]}" "powershell -NoProfile -Command \"\$ErrorActionPreference='Continue'; wsl.exe -d Ubuntu-22.04 -- bash /mnt/c/forgeaip/dl/_wsh.sh $* 2>&1 | ForEach-Object { \\\"\$_\\\" }\"" | tr -d '\r'
+}
+
 cmd=${1:-status}; shift || true
+WSLARGS=(); if [[ $cmd == wsl-* ]]; then WSLARGS=("$@"); set --; fi   # wsl-* take their own options
 groups=0 fresh=0
 while [ $# -gt 0 ]; do case $1 in --groups) groups=$2; shift 2;; --fresh-world) fresh=1; shift;; *) echo "unknown option $1" >&2; exit 2;; esac; done
 
@@ -61,6 +70,35 @@ Remove-Item -Force -ErrorAction SilentlyContinue 'C:\forgeaip\PAUSE'
 'pc: PAUSE removed'
 EOF
   exit 0;;
+wsl-install)   # everything the WSL training needs, from this checkout (tiles 833 MB the first time)
+  ssh_dir='if not exist C:\forgeaip\dl\sim-tiles mkdir C:\forgeaip\dl\sim-tiles'; "${SSH[@]}" "$ssh_dir" >/dev/null
+  [ -x "$REPO/tools/sim/target/bookworm/release/forgeaip-sim" ] || "$REPO/tools/sim/build.sh"
+  T=$(mktemp -d); (cd "$DPOD" && tar czf "$T/dpod.tgz" --exclude=__pycache__ scripts/botsystem_*.py integrations src)
+  scp_to "$REPO/tools/sim/target/bookworm/release/forgeaip-sim" "$REPO/src/rl/reward-v6.json" "$REPO/src/rl/progress-list.json" "$T/dpod.tgz" "$REPO/scripts/train/pc/wsl-sim.sh" "$REPO/scripts/train/profile_learner.py" "$HOST:C:/forgeaip/dl/"
+  have=$("${SSH[@]}" 'dir /b C:\forgeaip\dl\sim-tiles' | wc -l); want=$(ls /mnt/data/forgeaip/sim-tiles/*.tile | wc -l)
+  [ "$have" -ge "$want" ] || scp_to /mnt/data/forgeaip/sim-tiles/*.tile "$HOST:C:/forgeaip/dl/sim-tiles/"
+  cat > "$T/install.sh" <<'EOS'
+set -e
+D=/mnt/c/forgeaip/dl
+mkdir -p ~/sim/tiles ~/sim/r ~/x/logs ~/dpod
+cp "$D/forgeaip-sim" ~/sim/ && chmod +x ~/sim/forgeaip-sim
+cp "$D/reward-v6.json" "$D/progress-list.json" ~/sim/r/
+[ "$(ls ~/sim/tiles | wc -l)" -ge "$(ls $D/sim-tiles | wc -l)" ] || cp "$D"/sim-tiles/*.tile ~/sim/tiles/
+rm -rf ~/dpod/scripts ~/dpod/integrations ~/dpod/src; (cd ~/dpod && tar xzf "$D/dpod.tgz")
+cp "$D/wsl-sim.sh" ~/sim/wsl-sim.sh && chmod +x ~/sim/wsl-sim.sh; cp "$D/profile_learner.py" ~/
+echo "installed: $(ls ~/sim/tiles | wc -l) tiles"
+EOS
+  wsl_run "$T/install.sh"; rm -rf "$T"; exit 0;;
+wsl-up|wsl-down|wsl-status)
+  f=$(mktemp); { printf 'exec ~/sim/wsl-sim.sh %s' "${cmd#wsl-}"; for a in "${WSLARGS[@]}"; do printf ' %q' "$a"; done; echo; } > "$f"
+  # a hidden `sleep infinity` keeps the WSL2 VM from idling out while processes run in it
+  if [ "$cmd" = wsl-up ]; then ps <<'EOF'
+if (-not (Get-Process -Name wsl -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*sleep infinity*' })) {
+  Start-Process -WindowStyle Hidden -FilePath wsl.exe -ArgumentList '-d','Ubuntu-22.04','--','sleep','infinity'
+}
+EOF
+  fi
+  wsl_run "$f"; rm -f "$f"; exit 0;;
 gpu-setup)
   out=$(ps <<'EOF'
 $d = ((& wsl.exe -l -q 2>$null) -join '') -replace "`0", ''
@@ -81,7 +119,10 @@ MSG
   ps <<'EOF'
 $ErrorActionPreference = 'Stop'
 $h = 'C:\forgeaip'
-$o = (& wsl.exe -d Ubuntu-22.04 -- bash /mnt/c/forgeaip/dl/wsl-gpu-setup.sh 2>&1 | Out-String)
+# native stderr ("downloading uv") is an ErrorRecord in PowerShell and would stop the script under 'Stop'
+$ErrorActionPreference = 'Continue'
+$o = (& wsl.exe -d Ubuntu-22.04 -- bash /mnt/c/forgeaip/dl/wsl-gpu-setup.sh 2>&1 | ForEach-Object { "$_" } | Out-String)
+$ErrorActionPreference = 'Stop'
 $o
 $m = [regex]::Match($o, 'PYTHON=(\S+)')
 if (-not $m.Success) { throw 'gpu-setup failed (see output above)' }

@@ -237,6 +237,10 @@ pub fn run(argv: &[String]) -> Result<(), String> {
               let mut row = vec![("event", J::st("step")), ("env_id", J::n(b.env_id as f64)), ("episode", J::n(b.episode as f64)), ("step", J::n(b.step as f64 + 1.0)),
                   ("cmd", J::st(cand.as_ref().map_or("invalid", |c| obs::CMDS[c.cmd]))), ("reason", J::st(if o.ok { "ok" } else { o.reason })), ("ticks", J::n(o.ticks as f64)),
                   ("health", J::n((b.sim.hp.max(0.0) * 10.0).round() / 10.0)), ("pos", J::nums(&[b.sim.pos[0] as f64, b.sim.pos[1] as f64, b.sim.pos[2] as f64]))];
+              match cand.as_ref().map(|c| &c.args) {
+                  Some(Args::Mine(t)) => row.push(("args", J::o(vec![("x", J::n(t[0] as f64)), ("y", J::n(t[1] as f64)), ("z", J::n(t[2] as f64))]))),
+                  Some(Args::Place(t, n)) => row.push(("args", J::o(vec![("x", J::n(t[0] as f64)), ("y", J::n(t[1] as f64)), ("z", J::n(t[2] as f64)), ("item", J::st(n))]))),
+                  _ => {} }
               if !dm.is_empty() { row.push(("dmg", J::Arr(dm))); }
               if ev.iter().any(|e| matches!(e, Ev::Death)) { row.push(("died", J::Bool(true))); }
               let _ = writeln!(events, "{}", J::o(row).dump()); }

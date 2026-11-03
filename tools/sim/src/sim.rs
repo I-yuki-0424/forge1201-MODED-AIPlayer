@@ -142,10 +142,36 @@ impl Sim {
         Reach { dist, nodes }
     }
     pub fn ticks_for(&self, dist: f32) -> i64 { (dist as f64 / B_PER_TICK).ceil() as i64 + 2 }
-    /// Cheapest reach node from which the block can be mined: the command's own goal (reach 4.1, an aim point in sight), never the
-    /// cell above the block itself.
-    fn dig_node(&mut self, x: i32, y: i32, z: i32) -> Option<([i32; 3], f32)> {
-        self.stand_for(|s, n| !(n[0] == x && n[2] == z && n[1] == y + 1) && s.reach_goal(n, [x, y, z], None, BLOCK_REACH))
+    /// motion.js `approachUntil`: walk to the first stand cell that satisfies the command's goal (reach 4.1), then look from where the body
+    /// really stopped (`settle` ends within 0.25 of the cell centre, in practice about 0.2 on the side it came from) with the longer aim
+    /// reach (4.2); if nothing is in sight, once more with reach 3.3 and another cell. Walk ticks on success; (reason, ticks) on failure:
+    /// `unreachable` when the planner finds no cell, `not_visible` when the second stop does not see it either.
+    pub(crate) fn approach(&mut self, goal: &dyn Fn(&Sim, [i32; 3], f64) -> bool, visible: &dyn Fn(&Sim, [f64; 3]) -> bool) -> Result<i64, (&'static str, i64)> {
+        let mut ticks = 0i64;
+        let start = self.pos;
+        let mut here = self.pos;
+        for attempt in 0..2 {
+            let reach = BLOCK_REACH - 0.8 * attempt as f64;
+            let excl = if attempt == 1 { Some(here) } else { None };
+            if attempt == 0 && goal(self, here, reach) {
+                if visible(self, [here[0] as f64 + 0.5, here[1] as f64 + EYE, here[2] as f64 + 0.5]) { return Ok(0); }
+                continue;                                                  // no walk, nothing in sight: straight to the second attempt
+            }
+            self.pos = here; self.reach = None;
+            let (n, c) = match self.stand_for(|s, n| Some(n) != excl && goal(s, n, reach)) { Some(x) => x, None => { self.pos = start; self.reach = None; return Err(("unreachable", 2 * ticks + 1)) } };
+            ticks += self.ticks_for(c);
+            // Where the body really stops: `settle` ends within 0.25 of the centre, wherever the walk's momentum left it. The walk is the
+            // same every time the same command is repeated from the same cell, so the offset is a fixed function of (start, cell), not a
+            // fresh random draw per try: a target seen through one gap fails again and again, as the 198 repeats in the real log did.
+            let h = (here[0] as i64 * 73856093 ^ here[1] as i64 * 19349663 ^ here[2] as i64 * 83492791 ^ n[0] as i64 * 2654435761 ^ n[1] as i64 * 40503 ^ n[2] as i64 * 97531) as u64;
+            let mut r = Rng(h.wrapping_mul(0x9E3779B97F4A7C15) | 1);
+            let (ang, rad) = (r.f() * std::f64::consts::TAU, 0.25 * r.f().sqrt());
+            let (ox, oz) = (rad * ang.cos(), rad * ang.sin());
+            here = n;
+            if visible(self, [n[0] as f64 + 0.5 + ox, n[1] as f64 + EYE, n[2] as f64 + 0.5 + oz]) { self.pos = n; self.reach = None; return Ok(ticks); }
+        }
+        self.pos = here; self.reach = None;
+        Err(("not_visible", ticks))
     }
     /// First solid cell along the line from the eye of a standing cell to the centre of `t` is `t` itself.
     pub fn sees(&self, from: [i32; 3], t: [i32; 3]) -> bool {
@@ -317,11 +343,12 @@ impl Sim {
         let k = self.d.block(bid).kind;
         if k != Kind::Solid { return Out::fail("invalid_target", 1, vec![]).with(self, vec![]); }
         let plan = match self.dig_plan(bid) { Some(p) => p, None => { let r = if self.d.block(bid).harvest.is_some() && self.d.block(bid).diggable { "missing_tool" } else { "invalid_target" }; return Out::fail(r, 1, vec![]).with(self, vec![]); } };
-        let (node, cost) = match self.dig_node(t[0], t[1], t[2]) { Some(n) => n, None => return Out::fail("unreachable", 2, vec![]).with(self, vec![]) };
+        let walk = match self.approach(&|s, n, r| !(n[0] == t[0] && n[2] == t[2] && n[1] == t[1] + 1) && s.reach_goal(n, t, None, r), &|s, e| s.aim_ok(e, t, None, AIM_REACH)) {
+            Ok(w) => w, Err((r, tk)) => { let o = Out::fail(r, tk, vec![]); return self.finish(o, vec![]); } };
         let mut ev = vec![];
-        let ticks = self.ticks_for(cost) + plan.1.max(1) + self.mine_overhead(bid, plan.2);
-        self.look_at([t[0], node[1], t[2]]);
-        self.pos = node; self.exh += 0.005;
+        let ticks = walk + plan.1.max(1) + self.mine_overhead(bid, plan.2);
+        self.look_at([t[0], self.pos[1], t[2]]);
+        self.exh += 0.005;
         self.break_block(t[0], t[1], t[2], &mut ev);
         self.reach = None;
         self.finish(Out::ok(ticks, vec![]), ev)
@@ -392,7 +419,7 @@ impl Sim {
         let mut walk = 0i64;
         let with_table = match table {
             Some(t) => { if self.name(t[0], t[1], t[2]) != "crafting_table" { return Out::fail("no_station", 1, vec![]).with(self, vec![]); }
-                match self.stand_for(|s, n| s.reach_goal(n, t, None, BLOCK_REACH)) { Some((n, c)) => { walk = self.ticks_for(c) + 12; self.pos = n; self.reach = None; true } None => return Out::fail("unreachable", 1, vec![]).with(self, vec![]) } }
+                match self.approach(&|s, n, r| s.reach_goal(n, t, None, r), &|s, e| s.aim_ok(e, t, None, AIM_REACH)) { Ok(w) => { walk = w + 12; true } Err((r, tk)) => { let o = Out::fail(r, tk, vec![]); return self.finish(o, vec![]); } } }
             None => false,
         };
         let ri = match self.recipe_for(item, with_table) { Some(i) => i, None => return Out::fail("missing_materials", 1, vec![]).with(self, vec![]) };
@@ -417,16 +444,15 @@ impl Sim {
         if refs.is_empty() { return Out::fail("invalid_target", 1, vec![]).with(self, vec![]); }
         refs.sort_by_key(|r| r.2);
         let free = |c: [i32; 3]| !(c[0] == t[0] && c[2] == t[2] && (c[1] == t[1] || c[1] + 1 == t[1]));
-        let (node, cost) = match self.stand_for(|s, n| free(n) && refs.iter().any(|r| s.reach_goal(n, r.0, Some(r.1), BLOCK_REACH))) {
-            Some(x) => x, None => return Out::fail("unreachable", 1, vec![]).with(self, vec![]) };
+        let walk = match self.approach(&|s, n, r| free(n) && refs.iter().any(|q| s.reach_goal(n, q.0, Some(q.1), r)),
+                                       &|s, e| refs.iter().any(|q| s.aim_ok(e, q.0, Some(q.1), AIM_REACH))) {
+            Ok(w) => w, Err((r, tk)) => { let o = Out::fail(r, tk, vec![]); return self.finish(o, vec![]); } };
         // A mob standing in the cell: the server refuses the block, the command tries three faces and ends not_confirmed.
         if self.mobs.iter().any(|m| m.pos[0] == t[0] && m.pos[2] == t[2] && (m.pos[1] == t[1] || m.pos[1] + 1 == t[1])) {
-            self.pos = node; self.reach = None;
-            let o = Out::fail("not_confirmed", self.ticks_for(cost) + 30, vec![]);
+            let o = Out::fail("not_confirmed", walk + 30, vec![]);
             return self.finish(o, vec![]);
         }
-        let ticks = self.ticks_for(cost) + 8;
-        self.pos = node; self.reach = None;
+        let ticks = walk + 8;
         self.take(item, 1); self.set(t[0], t[1], t[2], bid);
         self.finish(Out::ok(ticks, vec![]), vec![Ev::Stat("used", item.to_string(), 1)])
     }
@@ -441,7 +467,7 @@ impl Sim {
     pub fn do_smelt(&mut self, item: &str, t: [i32; 3]) -> Out {
         let res = match Sim::smelt_result(item) { Some(r) => r, None => return Out::fail("invalid_args", 1, vec![]).with(self, vec![]) };
         if self.name(t[0], t[1], t[2]) != "furnace" { return Out::fail("no_station", 1, vec![]).with(self, vec![]); }
-        let walk = match self.stand_for(|s, n| s.reach_goal(n, t, None, BLOCK_REACH)) { Some((n, c)) => { self.pos = n; self.reach = None; self.ticks_for(c) }, None => return Out::fail("unreachable", 1, vec![]).with(self, vec![]) };
+        let walk = match self.approach(&|s, n, r| s.reach_goal(n, t, None, r), &|s, e| s.aim_ok(e, t, None, AIM_REACH)) { Ok(w) => w, Err((r, tk)) => { let o = Out::fail(r, tk, vec![]); return self.finish(o, vec![]); } };
         if self.count(item) == 0 { return Out::fail("missing_item", 1, vec![]).with(self, vec![]); }
         while self.fuel < 200.0 {
             let f = self.held().into_iter().find(|(n, _)| n != item && Sim::fuel_value(n) > 0.0);
@@ -459,7 +485,7 @@ impl Sim {
     }
     pub fn do_sleep(&mut self, t: [i32; 3]) -> Out {
         if !self.name(t[0], t[1], t[2]).ends_with("_bed") { return Out::fail("invalid_target", 1, vec![]).with(self, vec![]); }
-        match self.stand_for(|s, n| s.reach_goal(n, t, None, BLOCK_REACH)) { Some((n, _)) => { self.pos = n; self.reach = None; } None => return Out::fail("unreachable", 1, vec![]).with(self, vec![]) }
+        if let Err((r, tk)) = self.approach(&|s, n, r| s.reach_goal(n, t, None, r), &|s, e| s.aim_ok(e, t, None, AIM_REACH)) { let o = Out::fail(r, tk, vec![]); return self.finish(o, vec![]); }
         if !self.is_night() { return Out::fail("not_confirmed", 20, vec![]).with(self, vec![]); }
         let next = (self.tick / DAY + 1) * DAY;
         let skip = next - self.tick;
@@ -639,6 +665,36 @@ mod tests {
         let o = b.do_attack(id);
         assert!(o.ticks >= 15 * 12 && (o.ok || o.reason == "cancelled"), "{} {}", o.ticks, o.reason);
         assert_eq!(s.count("rotten_flesh") > 0, true);
+    }
+    /// The recorded failure that repeated 198 times in the real run (bot2, a floating log inside a leaf canopy, world snapshot around it in
+    /// tests/case_mine_canopy.json): the candidate test passes with ONE stand cell and ONE aim point through the leaves (the JS replay of
+    /// the same world finds exactly that cell), the body stops about 0.2 off its centre, the second attempt (reach 3.3) has no cell:
+    /// the game says `unreachable`, every time.
+    #[test]
+    fn the_recorded_canopy_log_is_designated_but_cannot_be_mined() {
+        let j = crate::json::parse(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/case_mine_canopy.json")).unwrap()).unwrap();
+        let mut s = flat();
+        let (bot, tgt) = ([3243, 87, 1253], [3243, 91, 1255]);
+        let sh = [24 - bot[0], 64 - bot[1], 24 - bot[2]];
+        let air = s.d.air;
+        for x in -20..=20 { for y in -6..12 { for z in -20..=20 { s.set(24 + x, 64 + y, 24 + z, air); } } }
+        for (k, v) in j.get("cells").obj() {
+            let c: Vec<i32> = k.split(',').map(|t| t.parse().unwrap()).collect();
+            let name = if v.s() == "grass" { "short_grass" } else { v.s() };
+            let id = s.d.bid(name);
+            if id != s.d.unknown { s.set(c[0] + sh[0], c[1] + sh[1], c[2] + sh[2], id); }
+        }
+        s.pos = [bot[0] + sh[0], bot[1] + sh[1], bot[2] + sh[2]];
+        let t = [tgt[0] + sh[0], tgt[1] + sh[1], tgt[2] + sh[2]];
+        assert!(s.standable(s.pos[0], s.pos[1], s.pos[2]));
+        assert_eq!(s.name(t[0], t[1], t[2]), "oak_log");
+        let stand = [3242 + sh[0], 86 + sh[1], 1256 + sh[2]];
+        assert!(s.reach_goal(stand, t, None, BLOCK_REACH), "the candidate test's one cell sees the log from its centre");
+        let a = s.do_mine(t);
+        assert_eq!((a.ok, a.reason), (false, "unreachable"), "{} ticks {}", a.reason, a.ticks);
+        assert_eq!(s.pos, [bot[0] + sh[0], bot[1] + sh[1], bot[2] + sh[2]], "and the bot is back where it started");
+        let b = s.do_mine(t);
+        assert_eq!(b.reason, "unreachable", "repeating it changes nothing");
     }
     #[test]
     fn json_roundtrip_and_inflate() {
