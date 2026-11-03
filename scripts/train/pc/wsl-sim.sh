@@ -103,16 +103,16 @@ supervise)
     sleep 15
   done;;
 down)
+  # `down --base A` touches only run A (its supervisor, learner, shards, follower); without a base, every run and TensorBoard.
   for s in "$X"/*.sup.pid; do [ -f "$s" ] || continue; b=$(basename "$s" .sup.pid); [ -n "$base" ] && [ "$base" != "$b" ] && continue
     kill -CONT "$(cat "$s")" 2>/dev/null; kill -TERM "$(cat "$s")" 2>/dev/null; rm -f "${s:?}"
-    for p in $(pgrep -f -- "--base $b "); do kill -CONT "$p" 2>/dev/null; done
-    for p in $(pgrep -f -- "forgeaip-sim run --root $X --base $b "); do kill -TERM "$p" 2>/dev/null; done
-    for p in $(pgrep -f -- "botsystem_goal_ppo.py --root $X --base $b "); do kill -TERM "$p" 2>/dev/null; done      # checkpoint after the current update
-    for p in $(pgrep -f -- "forgeaip-tblog --dir $X/$b/"); do kill -TERM "$p" 2>/dev/null; done
-    echo "run $b: stop requested"
+    pat_l="botsystem_goal_ppo.py --root $X --base $b "; pat_s="forgeaip-sim run --root $X --base $b "
+    for p in $(pgrep -f -- "$pat_s") $(pgrep -f -- "$pat_l") $(pgrep -f -- "forgeaip-tblog --dir $X/$b/"); do kill -CONT "$p" 2>/dev/null; kill -TERM "$p" 2>/dev/null; done   # the learner writes its checkpoint first
+    for t in $(seq 1 90); do pgrep -f -- "$pat_l" > /dev/null || break; sleep 1; done
+    pkill -KILL -f -- "$pat_l" 2>/dev/null; pkill -KILL -f -- "$pat_s" 2>/dev/null
+    printf '%s JST  run %s: STOPPED by wsl-down (checkpoint and logs kept)\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$b" > "$X/status.$b.txt"
+    echo "run $b: stopped"
   done
-  for t in $(seq 1 90); do pgrep -f "botsystem_goal_ppo.py --root $X" > /dev/null || break; sleep 1; done
-  pkill -KILL -f "botsystem_goal_ppo.py --root $X" 2>/dev/null; pkill -KILL -f "forgeaip-sim run --root $X" 2>/dev/null
   [ -z "$base" ] && pkill -f "tensorboard --logdir $X/tb" 2>/dev/null
   echo "wsl-sim down";;
 status)
