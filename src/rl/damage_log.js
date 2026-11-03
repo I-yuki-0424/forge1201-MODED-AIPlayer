@@ -44,8 +44,13 @@ class DamageLog {
         if (!me || p.entityId !== me.id) return;
         const by = p.sourceCauseId ? this.name(p.sourceCauseId - 1) : null, direct = p.sourceDirectId ? this.name(p.sourceDirectId - 1) : null;
         const src = this.bot.entities[(p.sourceCauseId || p.sourceDirectId) - 1];
-        this.push({ k: 'hit', src: this.types[p.sourceTypeId] || `type${p.sourceTypeId}`, by, direct: direct && direct !== by ? direct : undefined,
-            dist: src && src.position ? Math.round(src.position.distanceTo(me.position) * 10) / 10 : undefined, d: undefined });
+        const row = { k: 'hit', src: this.types[p.sourceTypeId] || `type${p.sourceTypeId}`, by, direct: direct && direct !== by ? direct : undefined,
+            dist: src && src.position ? Math.round(src.position.distanceTo(me.position) * 10) / 10 : undefined, d: undefined };
+        // The health update can come first (a melee hit in run val: 65 hp of 250 had no hit row): the amount is then already in a
+        // `loss` row of the last 3 ticks, which this event explains.
+        const last = this.rows[this.rows.length - 1];
+        if (last && last.k === 'loss' && this.tick - last.t <= 3) { row.d = last.d; this.rows.pop(); }
+        this.push(row);
     }
 
     onHealth() {

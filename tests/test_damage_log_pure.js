@@ -24,11 +24,14 @@ bot._client.emit('damage_event', { entityId: 7, sourceTypeId: 2, sourceCauseId: 
 bot.health = 14.5; bot.emit('health');
 bot.health = 14; bot.emit('health');                                                                              // no hit event: starvation-like loss
 bot.health = 20; bot.emit('health');                                                                              // regeneration is not damage
+bot.health = 17.5; bot.emit('health');                                                                           // health packet BEFORE the damage event ...
+bot._client.emit('damage_event', { entityId: 7, sourceTypeId: 30, sourceCauseId: 12, sourceDirectId: 0 });     // ... explained by it afterwards
+bot.health = 20; bot.emit('health');
 bot._client.emit('death_combat_event', { playerId: 7, message: JSON.stringify({ translate: 'death.attack.mob', with: [{ text: 'Train0' }, { text: 'Zombie' }] }) });
 const rows = log.take();
 assert.deepStrictEqual(rows.map((r) => [r.k, r.src, r.by, r.direct, r.d]), [
-    ['hit', 'mob_attack', 'zombie', undefined, 3], ['hit', 'arrow', 'skeleton', 'arrow', 2.5], ['loss', undefined, undefined, undefined, 0.5], ['death', undefined, undefined, undefined, undefined]]);
-assert.strictEqual(rows[3].msg, 'death.attack.mob:Zombie');
+    ['hit', 'mob_attack', 'zombie', undefined, 3], ['hit', 'arrow', 'skeleton', 'arrow', 2.5], ['loss', undefined, undefined, undefined, 0.5], ['hit', 'mob_attack', 'zombie', undefined, 2.5], ['death', undefined, undefined, undefined, undefined]]);
+assert.strictEqual(rows[4].msg, 'death.attack.mob:Zombie');
 assert.deepStrictEqual(log.take(), []);
 assert.strictEqual(deathKey('{"translate":"death.fell.accident.generic","with":[{"text":"Train0"}]}'), 'death.fell.accident.generic');
 console.log('damage log: ok');

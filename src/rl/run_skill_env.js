@@ -394,6 +394,8 @@ async function main() {
                 progress_events: evs.length ? evs : undefined, stats_ok: statsOk || undefined, health: bot.health, food: bot.food,
                 // Why a command failed (the SkillError's detail and the phases it went through) and what hurt the bot meanwhile.
                 ...(res.ok ? {} : { detail: clip(res.detail), phases: (res.phases || []).slice(-5).map((p) => p.phase) }),
+                // Where the ticks went (phase name, first tick), whatever the outcome: the data the simulator's timing is fitted to.
+                ph: (res.phases || []).slice(0, 12).map((p) => [p.phase, p.t]),
                 dmg: (() => { const d = b.dmg.take(); return d.length ? d : undefined; })(),
                 pos: bot.entity ? [bot.entity.position.x, bot.entity.position.y, bot.entity.position.z].map((v) => Math.round(v * 10) / 10) : undefined });
         }

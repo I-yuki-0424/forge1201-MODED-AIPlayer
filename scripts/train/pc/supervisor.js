@@ -38,10 +38,13 @@ const groups = Array.from({ length: cfg.groups }, (_, g) => ({
     server: null, env: null, fails: 0, regen: false,
 }));
 
+// Priority: the servers and environments run below normal (they are many and bursty), the learner at normal (owner 2026-11-03: the PC
+// is nowhere near its limits, "it is fine to push it much harder"; the learner is the one process whose speed is the run's speed).
+// The quiet hours and the PAUSE file still stop everything when the owner wants the machine.
 function run(name, cmd, args, opts) {
     const out = fs.openSync(path.join(logs, `${name}.log`), 'a');
     const p = spawn(cmd, args, { ...opts, stdio: ['ignore', out, out], windowsHide: true });
-    try { os.setPriority(p.pid, os.constants.priority.PRIORITY_BELOW_NORMAL); } catch (e) { log(`priority ${name}: ${e.message}`); }
+    try { os.setPriority(p.pid, name === 'learner' ? os.constants.priority.PRIORITY_NORMAL : os.constants.priority.PRIORITY_BELOW_NORMAL); } catch (e) { log(`priority ${name}: ${e.message}`); }
     p.on('exit', () => fs.closeSync(out));
     log(`start ${name} pid ${p.pid}`);
     return p;
@@ -96,15 +99,18 @@ async function tend(g) {
 const learner = { proc: null, fails: 0, next: 0 };
 const wslPath = (p) => p.replace(/^([A-Za-z]):\\/, (_, d) => `/mnt/${d.toLowerCase()}/`).replace(/\\/g, '/');
 const gpuCfg = () => { try { return JSON.parse(fs.readFileSync(path.join(home, 'gpu.json'), 'utf8')); } catch { return null; } };
-const learnerArgs = (dpod, rootDir) => [path.join(dpod, 'scripts', 'botsystem_goal_ppo.py'), '--root', rootDir, '--base', cfg.base,
-    '--learn', String(cfg.learn), '--seed', '42', '--population', '1', ...(cfg.learner_args || [])];
+// On a GPU the matrices must be large to fill it (profile_learner.py: 64 segments x 32 steps is one tiny launch): 8x the batch sizes,
+// TensorFloat-32 matmuls, a wide serving batch. Anything the config's learner_args set itself is left alone (argparse: the last wins).
+const GPU_ARGS = ['--scale', '8', '--tf32', '1', '--n-max', '256', '--enc-chunk', '1024'];
+const learnerArgs = (dpod, rootDir, gpu = false) => [path.join(dpod, 'scripts', 'botsystem_goal_ppo.py'), '--root', rootDir, '--base', cfg.base,
+    '--learn', String(cfg.learn), '--seed', '42', '--population', '1', ...(gpu ? GPU_ARGS : []), ...(cfg.learner_args || [])];
 function tendLearner() {
     if (!cfg.learner || learner.proc || Date.now() < learner.next) return;
     const gpu = gpuCfg();
     if (gpu && gpu.distro && gpu.python) {
         const j = (...x) => x.join('/');
         learner.proc = run('learner', 'wsl.exe', ['-d', gpu.distro, '--', 'env', 'XLA_PYTHON_CLIENT_PREALLOCATE=false', 'XLA_PYTHON_CLIENT_MEM_FRACTION=0.5',
-            'PYTHONDONTWRITEBYTECODE=1', gpu.python, ...learnerArgs(j(wslPath(home), 'dpod'), wslPath(root))], { cwd: home });
+            'PYTHONDONTWRITEBYTECODE=1', gpu.python, ...learnerArgs(j(wslPath(home), 'dpod'), wslPath(root), true)], { cwd: home });
     } else {
         learner.proc = run('learner', path.join(home, 'venv', 'Scripts', 'python.exe'), learnerArgs(path.join(home, 'dpod'), root),
             { cwd: path.join(home, 'dpod'), env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } });

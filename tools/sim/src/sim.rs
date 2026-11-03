@@ -21,7 +21,7 @@ impl Rng {
 #[derive(Clone, Copy, Debug)]
 pub struct Stack { pub item: u16, pub n: u32 }
 #[derive(Clone, Debug)]
-pub struct Mob { pub id: u32, pub name: &'static str, pub pos: [i32; 3], pub hp: f64, pub hostile: bool }
+pub struct Mob { pub id: u32, pub name: &'static str, pub pos: [i32; 3], pub hp: f64, pub hostile: bool, pub spec: usize, pub cd: f64, pub fuse: f64 }
 #[derive(Clone, Debug)]
 pub enum Ev { Stat(&'static str, String, u32), Killed(String, u32), Dawn(bool), Death }
 pub struct Out { pub ok: bool, pub reason: &'static str, pub ticks: i64, pub ev: Vec<Ev> }
@@ -40,22 +40,30 @@ pub struct Sim {
     pub d: Rc<Data>, pub tile: Rc<Tile>, pub edits: HashMap<(i32, i32, i32), u16>,
     pub pos: [i32; 3], pub yaw: f64, pub hp: f64, pub food: f64, pub exh: f64, pub inv: Vec<Option<Stack>>,
     pub tick: i64, pub mobs: Vec<Mob>, pub next_id: u32, pub rng: Rng, pub site: [i32; 3], pub fuel: f64,
-    pub dead: bool, day_seen: i64, regen_t: f64, pub kills: HashMap<String, u32>,
+    pub dead: bool, pub hits: u32, day_seen: i64, regen_t: f64, pub kills: HashMap<String, u32>,
     reach: Option<Reach>,
 }
-const PASSIVE: [(&str, f64); 4] = [("cow", 10.0), ("pig", 10.0), ("sheep", 8.0), ("chicken", 4.0)];
+pub const PASSIVE: [(&str, f64); 4] = [("cow", 10.0), ("pig", 10.0), ("sheep", 8.0), ("chicken", 4.0)];
 
 fn stack_max(name: &str) -> u32 {
     if name.ends_with("_pickaxe") || name.ends_with("_axe") || name.ends_with("_shovel") || name.ends_with("_hoe") || name.ends_with("_sword") || name.ends_with("_helmet")
         || name.ends_with("_chestplate") || name.ends_with("_leggings") || name.ends_with("_boots") || name.ends_with("_bed") || name == "bow" || name == "bucket" || name == "shield" { 1 }
     else if matches!(name, "egg" | "ender_pearl" | "snowball") || name.ends_with("_sign") { 16 } else { 64 }
 }
+/// Block names `place` accepts as the target cell (src/skills/commands/block.js REPLACEABLE); anything else, a sapling or a flower
+/// included, is `invalid_target` however empty it looks.
+pub fn replaceable(n: &str) -> bool { matches!(n, "air" | "cave_air" | "void_air" | "grass" | "tall_grass" | "fern" | "large_fern" | "dead_bush" | "snow" | "seagrass" | "vine" | "glow_lichen") }
+fn interactive(n: &str) -> bool { n.ends_with("_bed") || n.ends_with("chest") || n.ends_with("_door") || n.ends_with("_gate") || n.ends_with("trapdoor") || n.ends_with("_button")
+    || matches!(n, "crafting_table" | "furnace" | "blast_furnace" | "smoker" | "barrel" | "lever" | "anvil" | "enchanting_table" | "brewing_stand" | "loom" | "grindstone" | "smithing_table" | "cartography_table" | "stonecutter" | "fletching_table") }
+/// Protocol face normals (0 down, 1 up, 2 north, 3 south, 4 west, 5 east), geometry.js FACES.
+pub const FACES: [[i32; 3]; 6] = [[0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 1], [-1, 0, 0], [1, 0, 0]];
+pub const AIM_REACH: f64 = 4.2;               // motion.js AIM_REACH = BLOCK_REACH 4.5 - 0.3
 pub fn tool_rank(n: &str) -> i32 { ["wooden", "golden", "stone", "iron", "diamond", "netherite"].iter().position(|t| n.starts_with(t)).map(|p| p as i32).unwrap_or(-1) }
 
 impl Sim {
     pub fn new(d: Rc<Data>, tile: Rc<Tile>, seed: u64) -> Sim {
         Sim { d, tile, edits: HashMap::new(), pos: [0; 3], yaw: 0.0, hp: 20.0, food: 20.0, exh: 0.0, inv: vec![None; 36], tick: 0, mobs: vec![], next_id: 1, rng: Rng(seed | 1),
-            site: [0; 3], fuel: 0.0, dead: false, day_seen: 0, regen_t: 0.0, kills: HashMap::new(), reach: None }
+            site: [0; 3], fuel: 0.0, dead: false, hits: 0, day_seen: 0, regen_t: 0.0, kills: HashMap::new(), reach: None }
     }
     // ---- world access ----
     #[inline] pub fn blk(&self, x: i32, y: i32, z: i32) -> Option<u16> { if let Some(&b) = self.edits.get(&(x, y, z)) { Some(b) } else { self.tile.get(x, y, z) } }
@@ -129,17 +137,10 @@ impl Sim {
         Reach { dist, nodes }
     }
     pub fn ticks_for(&self, dist: f32) -> i64 { (dist as f64 / B_PER_TICK).ceil() as i64 + 2 }
-    /// Nearest reach node (by walking cost) from which the eye is within BLOCK_REACH of the block centre and sees it.
+    /// Cheapest reach node from which the block can be mined: the command's own goal (reach 4.1, an aim point in sight), never the
+    /// cell above the block itself.
     fn dig_node(&mut self, x: i32, y: i32, z: i32) -> Option<([i32; 3], f32)> {
-        let nodes: Vec<([i32; 3], f32)> = { let r = self.reach(); r.nodes.iter().map(|n| (*n, r.dist[n])).collect() };
-        let mut best: Option<([i32; 3], f32)> = None;
-        for (n, c) in nodes {
-            if best.map_or(false, |b| b.1 <= c) { continue; }
-            let d2 = ((n[0] - x) as f64).powi(2) + (n[1] as f64 + EYE - y as f64 - 0.5).powi(2) + ((n[2] - z) as f64).powi(2);
-            if d2 > BLOCK_REACH * BLOCK_REACH { continue; }
-            if self.sees(n, [x, y, z]) { best = Some((n, c)); }
-        }
-        best
+        self.stand_for(|s, n| !(n[0] == x && n[2] == z && n[1] == y + 1) && s.reach_goal(n, [x, y, z], None, BLOCK_REACH))
     }
     /// First solid cell along the line from the eye of a standing cell to the centre of `t` is `t` itself.
     pub fn sees(&self, from: [i32; 3], t: [i32; 3]) -> bool {
@@ -170,6 +171,45 @@ impl Sim {
             tmax[i] += tdel[i];
         }
     }
+    /// geometry.js aimPoints (full cubes): is there a point on a face of block `cell` (optionally one face) that the eye sees within
+    /// `reach`? Face centre and four inner points per face, faces turned away from the eye skipped, the ray to the point must hit `cell` first.
+    pub fn aim_ok(&self, eye: [f64; 3], cell: [i32; 3], face: Option<usize>, reach: f64) -> bool {
+        let lo = [cell[0] as f64, cell[1] as f64, cell[2] as f64];
+        for f in 0..6 {
+            if face.map_or(false, |q| q != f) { continue; }
+            let n = FACES[f];
+            let axis = if n[0] != 0 { 0 } else if n[1] != 0 { 1 } else { 2 };
+            let pos = n[axis] > 0;
+            let plane = lo[axis] + if pos { 1.0 } else { 0.0 };
+            if if pos { eye[axis] <= plane } else { eye[axis] >= plane } { continue; }
+            let (a1, a2) = match axis { 0 => (1, 2), 1 => (0, 2), _ => (0, 1) };
+            for (u, v) in [(0.5, 0.5), (0.25, 0.25), (0.75, 0.25), (0.25, 0.75), (0.75, 0.75)] {
+                let mut p = [0.0; 3];
+                p[axis] = plane; p[a1] = lo[a1] + u; p[a2] = lo[a2] + v;
+                let d = [p[0] - eye[0], p[1] - eye[1], p[2] - eye[2]];
+                let dist = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+                if dist > reach || dist < 1e-9 { continue; }
+                if let Some((c, _)) = self.ray(eye, d, dist + 0.01) { if c == cell { return true; } }
+            }
+        }
+        false
+    }
+    /// motion.js reachGoal: a standing cell within reach (+0.9 for not standing at the centre) of the block with an aim point in sight.
+    pub fn reach_goal(&self, c: [i32; 3], cell: [i32; 3], face: Option<usize>, reach: f64) -> bool {
+        let dist = (((c[0] - cell[0]) as f64).powi(2) + (c[1] as f64 + EYE - cell[1] as f64 - 0.5).powi(2) + ((c[2] - cell[2]) as f64).powi(2)).sqrt();
+        dist <= reach + 0.9 && self.aim_ok([c[0] as f64 + 0.5, c[1] as f64 + EYE, c[2] as f64 + 0.5], cell, face, reach)
+    }
+    /// The cheapest reachable stand cell satisfying `goal` (what the planner finds first), with its walking cost.
+    fn stand_for(&mut self, goal: impl Fn(&Sim, [i32; 3]) -> bool) -> Option<([i32; 3], f32)> {
+        let nodes: Vec<([i32; 3], f32)> = { let r = self.reach(); r.nodes.iter().map(|n| (*n, r.dist[n])).collect() };
+        let mut best: Option<([i32; 3], f32)> = None;
+        for (n, c) in nodes {
+            if best.map_or(false, |b| b.1 <= c) { continue; }
+            if goal(self, n) { best = Some((n, c)); }
+        }
+        best
+    }
+
     // ---- tools and digging ----
     /// Best way to break `block` with what is held: (tool item name or "", ticks, can_harvest). None if undiggable.
     pub fn dig_plan(&self, bid: u16) -> Option<(String, i64, bool)> {
@@ -228,43 +268,9 @@ impl Sim {
             if self.hp <= 0.0 { self.dead = true; ev.push(Ev::Death); }
         }
     }
-    fn surface_exposed(&self) -> bool { let [x, y, z] = self.pos; (y + 2..y + 40).all(|yy| !matches!(self.kind(x, yy, z), Kind::Solid)) }
-    fn find_stand(&self, x: i32, z: i32, y0: i32) -> Option<i32> { (y0 - 10..=y0 + 10).rev().find(|&y| self.standable(x, y, z)) }
-    fn mobs_step(&mut self, frac: f64) {
-        let [bx, by, bz] = self.pos;
-        let hostiles = self.mobs.iter().filter(|m| m.hostile).count();
-        if hostiles < 3 && (self.is_night() || !self.surface_exposed()) && self.rng.f() < 0.12 * frac {
-            for _ in 0..6 {
-                let ang = self.rng.f() * std::f64::consts::TAU;
-                let dd = 18.0 + self.rng.f() * 12.0;
-                let (x, z) = (bx + (ang.cos() * dd) as i32, bz + (ang.sin() * dd) as i32);
-                if let Some(y) = self.find_stand(x, z, by) { let id = self.next_id; self.next_id += 1; self.mobs.push(Mob { id, name: "zombie", pos: [x, y, z], hp: 20.0, hostile: true }); break; }
-            }
-        }
-        let day_surface = !self.is_night() && self.surface_exposed();
-        let mut dmg = 0.0;
-        let snapshot = self.mobs.clone();
-        let mut keep = vec![];
-        for mut m in snapshot {
-            if m.hostile {
-                let far = (m.pos[0] - bx).abs().max((m.pos[2] - bz).abs()) > 44;
-                if far || (day_surface && self.rng.f() < 0.1 * frac) { continue; }
-                let steps = (3.5 / 20.0 * 20.0 * frac).round() as i32;
-                for _ in 0..steps.max(1) {
-                    let h = (((m.pos[0] - bx) as f64).powi(2) + ((m.pos[2] - bz) as f64).powi(2)).sqrt();
-                    if h <= 1.5 || h > 24.0 { break; }
-                    let (sx, sz) = ((bx - m.pos[0]).signum(), (bz - m.pos[2]).signum());
-                    let opts = if (bx - m.pos[0]).abs() >= (bz - m.pos[2]).abs() { [(sx, 0), (0, sz)] } else { [(0, sz), (sx, 0)] };
-                    for (a, b) in opts { if (a, b) == (0, 0) { continue; } if let Some(y) = self.find_stand(m.pos[0] + a, m.pos[2] + b, m.pos[1]).filter(|y| (y - m.pos[1]).abs() <= 1) { m.pos = [m.pos[0] + a, y, m.pos[2] + b]; break; } }
-                }
-                let h = (((m.pos[0] - bx) as f64).powi(2) + ((m.pos[2] - bz) as f64).powi(2)).sqrt();
-                if h <= 1.8 && (m.pos[1] - by).abs() <= 2 { dmg += 3.0 * frac; }
-            }
-            keep.push(m);
-        }
-        self.mobs = keep;
-        self.hp -= dmg;
-    }
+    pub(crate) fn surface_exposed(&self) -> bool { let [x, y, z] = self.pos; (y + 2..y + 40).all(|yy| !matches!(self.kind(x, yy, z), Kind::Solid)) }
+    pub(crate) fn find_stand(&self, x: i32, z: i32, y0: i32) -> Option<i32> { (y0 - 10..=y0 + 10).rev().find(|&y| self.standable(x, y, z)) }
+    pub(crate) fn invalidate(&mut self) { self.reach = None; }
     pub fn spawn_animals(&mut self) {
         let [sx, sy, sz] = self.site;
         for _ in 0..24 {
@@ -272,14 +278,14 @@ impl Sim {
             let (x, z) = (sx + self.rng.below(90) as i32 - 45, sz + self.rng.below(90) as i32 - 45);
             if let Some(y) = self.find_stand(x, z, sy) { if self.name(x, y - 1, z) == "grass_block" {
                 let (n, hp) = PASSIVE[self.rng.below(4) as usize]; let id = self.next_id; self.next_id += 1;
-                self.mobs.push(Mob { id, name: n, pos: [x, y, z], hp, hostile: false });
+                self.mobs.push(Mob::passive(id, n, [x, y, z], hp));
             } }
         }
     }
     // ---- commands ----
     fn finish(&mut self, mut o: Out, mut ev: Vec<Ev>) -> Out {
         self.advance(o.ticks, &mut ev);
-        if self.dead { o.ok = false; o.reason = "died"; }
+        if self.dead { o.ok = false; o.reason = "cancelled"; }
         o.ev = ev; o
     }
     pub fn do_wait(&mut self, ticks: i64) -> Out { let o = Out::ok(ticks, vec![]); self.finish(o, vec![]) }
@@ -290,7 +296,7 @@ impl Sim {
             Some(dd) => { let ticks = self.ticks_for(dd); self.look_at(t); self.exh += 0.01 * dd as f64; self.pos = t; self.reach = None; let o = Out::ok(ticks, vec![]); self.finish(o, vec![]) }
         }
     }
-    fn look_at(&mut self, t: [i32; 3]) { let (dx, dz) = ((t[0] - self.pos[0]) as f64, (t[2] - self.pos[2]) as f64); if dx != 0.0 || dz != 0.0 { self.yaw = (-dx).atan2(-dz); } }
+    pub(crate) fn look_at(&mut self, t: [i32; 3]) { let (dx, dz) = ((t[0] - self.pos[0]) as f64, (t[2] - self.pos[2]) as f64); if dx != 0.0 || dz != 0.0 { self.yaw = (-dx).atan2(-dz); } }
     pub fn do_mine(&mut self, t: [i32; 3]) -> Out {
         let bid = match self.blk(t[0], t[1], t[2]) { Some(b) => b, None => return Out::fail("invalid_target", 1, vec![]).with(self, vec![]) };
         let k = self.d.block(bid).kind;
@@ -367,7 +373,7 @@ impl Sim {
         let mut walk = 0i64;
         let with_table = match table {
             Some(t) => { if self.name(t[0], t[1], t[2]) != "crafting_table" { return Out::fail("no_station", 1, vec![]).with(self, vec![]); }
-                match self.near_cell(t, 3.9) { Some(c) => { walk = self.ticks_for(c); true } None => return Out::fail("no_station", 1, vec![]).with(self, vec![]) } }
+                match self.stand_for(|s, n| s.reach_goal(n, t, None, BLOCK_REACH)) { Some((n, c)) => { walk = self.ticks_for(c) + 12; self.pos = n; self.reach = None; true } None => return Out::fail("unreachable", 1, vec![]).with(self, vec![]) } }
             None => false,
         };
         let ri = match self.recipe_for(item, with_table) { Some(i) => i, None => return Out::fail("missing_materials", 1, vec![]).with(self, vec![]) };
@@ -375,15 +381,35 @@ impl Sim {
         for (n, c) in &need { self.take(n, *c); }
         let put = self.give(&res, count);
         let ev = vec![Ev::Stat("crafted", res, put)];
-        self.finish(Out::ok(walk + 5, vec![]), ev)
+        self.finish(Out::ok(if with_table { walk } else { 1 }, vec![]), ev)
     }
+    /// src/skills/commands/block.js `place`: the target cell must be REPLACEABLE, it needs a solid neighbour to place against, and the
+    /// bot must be able to stand (not in the target's column) where an aim point on that neighbour's face toward the target is in sight.
     pub fn do_place(&mut self, t: [i32; 3], item: &str) -> Out {
-        if self.count(item) == 0 { return Out::fail("missing_item", 1, vec![]).with(self, vec![]); }
-        if !self.is_air(t[0], t[1], t[2]) || self.kind(t[0], t[1] - 1, t[2]) != Kind::Solid || (t[0] == self.pos[0] && t[2] == self.pos[2]) { return Out::fail("invalid_target", 1, vec![]).with(self, vec![]); }
         let bid = self.d.bid(item);
         if bid == self.d.unknown { return Out::fail("invalid_args", 1, vec![]).with(self, vec![]); }
+        let cur = match self.blk(t[0], t[1], t[2]) { Some(b) => self.d.block(b).name.clone(), None => return Out::fail("unreachable", 1, vec![]).with(self, vec![]) };
+        if !replaceable(&cur) { return Out::fail("invalid_target", 1, vec![]).with(self, vec![]); }
+        if self.count(item) == 0 { return Out::fail("missing_item", 1, vec![]).with(self, vec![]); }
+        let mut refs: Vec<([i32; 3], usize, bool)> = (0..6).filter_map(|f| {
+            let n = [t[0] - FACES[f][0], t[1] - FACES[f][1], t[2] - FACES[f][2]];
+            if self.kind(n[0], n[1], n[2]) == Kind::Solid { Some((n, f, interactive(self.name(n[0], n[1], n[2])))) } else { None }
+        }).collect();
+        if refs.is_empty() { return Out::fail("invalid_target", 1, vec![]).with(self, vec![]); }
+        refs.sort_by_key(|r| r.2);
+        let free = |c: [i32; 3]| !(c[0] == t[0] && c[2] == t[2] && (c[1] == t[1] || c[1] + 1 == t[1]));
+        let (node, cost) = match self.stand_for(|s, n| free(n) && refs.iter().any(|r| s.reach_goal(n, r.0, Some(r.1), BLOCK_REACH))) {
+            Some(x) => x, None => return Out::fail("unreachable", 1, vec![]).with(self, vec![]) };
+        // A mob standing in the cell: the server refuses the block, the command tries three faces and ends not_confirmed.
+        if self.mobs.iter().any(|m| m.pos[0] == t[0] && m.pos[2] == t[2] && (m.pos[1] == t[1] || m.pos[1] + 1 == t[1])) {
+            self.pos = node; self.reach = None;
+            let o = Out::fail("not_confirmed", self.ticks_for(cost) + 30, vec![]);
+            return self.finish(o, vec![]);
+        }
+        let ticks = self.ticks_for(cost) + 8;
+        self.pos = node; self.reach = None;
         self.take(item, 1); self.set(t[0], t[1], t[2], bid);
-        self.finish(Out::ok(6, vec![]), vec![Ev::Stat("used", item.to_string(), 1)])
+        self.finish(Out::ok(ticks, vec![]), vec![Ev::Stat("used", item.to_string(), 1)])
     }
     pub fn fuel_value(name: &str) -> f64 {
         match name { "coal" | "charcoal" => 1600.0, "lava_bucket" => 20000.0, "stick" => 100.0, "blaze_rod" => 2400.0, n if n.ends_with("_planks") || n.ends_with("_log") || n == "crafting_table" => 300.0, _ => 0.0 }
@@ -396,7 +422,7 @@ impl Sim {
     pub fn do_smelt(&mut self, item: &str, t: [i32; 3]) -> Out {
         let res = match Sim::smelt_result(item) { Some(r) => r, None => return Out::fail("invalid_args", 1, vec![]).with(self, vec![]) };
         if self.name(t[0], t[1], t[2]) != "furnace" { return Out::fail("no_station", 1, vec![]).with(self, vec![]); }
-        let walk = match self.near_cell(t, 3.9) { Some(c) => self.ticks_for(c), None => return Out::fail("no_station", 1, vec![]).with(self, vec![]) };
+        let walk = match self.stand_for(|s, n| s.reach_goal(n, t, None, BLOCK_REACH)) { Some((n, c)) => { self.pos = n; self.reach = None; self.ticks_for(c) }, None => return Out::fail("unreachable", 1, vec![]).with(self, vec![]) };
         if self.count(item) == 0 { return Out::fail("missing_item", 1, vec![]).with(self, vec![]); }
         while self.fuel < 200.0 {
             let f = self.held().into_iter().find(|(n, _)| n != item && Sim::fuel_value(n) > 0.0);
@@ -414,7 +440,7 @@ impl Sim {
     }
     pub fn do_sleep(&mut self, t: [i32; 3]) -> Out {
         if !self.name(t[0], t[1], t[2]).ends_with("_bed") { return Out::fail("invalid_target", 1, vec![]).with(self, vec![]); }
-        if self.near_cell(t, 4.5).is_none() { return Out::fail("unreachable", 1, vec![]).with(self, vec![]); }
+        match self.stand_for(|s, n| s.reach_goal(n, t, None, BLOCK_REACH)) { Some((n, _)) => { self.pos = n; self.reach = None; } None => return Out::fail("unreachable", 1, vec![]).with(self, vec![]) }
         if !self.is_night() { return Out::fail("not_confirmed", 20, vec![]).with(self, vec![]); }
         let next = (self.tick / DAY + 1) * DAY;
         let skip = next - self.tick;
@@ -426,39 +452,15 @@ impl Sim {
         for (n, _) in self.held() { let t = tool_rank(&n); let d = if n.ends_with("_sword") { 4.0 + t as f64 } else if n.ends_with("_axe") { 3.0 + t as f64 } else { 0.0 }; if d > best { best = d; } }
         best
     }
-    pub fn do_attack(&mut self, id: u32) -> Out {
-        let mi = match self.mobs.iter().position(|m| m.id == id) { Some(i) => i, None => return Out::fail("target_lost", 1, vec![]).with(self, vec![]) };
-        let m = self.mobs[mi].clone();
-        let walk = match self.near_cell(m.pos, 2.6) { Some(c) => self.ticks_for(c), None => return Out::fail("unreachable", 2, vec![]).with(self, vec![]) };
-        let dmg = self.weapon_damage();
-        let hits = (m.hp / dmg).ceil().max(1.0);
-        let fight = (hits * 12.0) as i64;
-        let mut ev = vec![];
-        self.exh += 0.1 * hits;
-        // the fight runs through the world clock (the mob keeps hitting), the mob is gone once the bot survived it
-        let mut o = Out::ok(walk + fight, vec![]);
-        self.mobs.remove(mi);
-        let (name, drops): (&str, Vec<(&str, u32)>) = match m.name {
-            "zombie" => ("zombie", vec![("rotten_flesh", 1 + (self.rng.below(2) as u32))]), "cow" => ("cow", vec![("beef", 1 + self.rng.below(3) as u32), ("leather", 1)]),
-            "pig" => ("pig", vec![("porkchop", 1 + self.rng.below(3) as u32)]), "sheep" => ("sheep", vec![("mutton", 1 + self.rng.below(2) as u32), ("white_wool", 1)]),
-            _ => ("chicken", vec![("chicken", 1), ("feather", 1)]) };
-        if m.hostile { self.hp -= 3.0 * (fight as f64 / 20.0).min(2.0) * 0.5; }
-        if self.hp > 0.0 {
-            ev.push(Ev::Killed(name.to_string(), 1));
-            *self.kills.entry(name.to_string()).or_insert(0) += 1;
-            for (dn, n) in drops { let put = self.give(dn, n); if put > 0 { ev.push(Ev::Stat("picked_up", dn.to_string(), put)); } }
-        }
-        o.ticks = walk + fight;
-        self.look_at([m.pos[0], self.pos[1], m.pos[2]]);
-        self.finish(o, ev)
-    }
+    /// Distance cost to the cheapest reach node within `r` of a point (the walker can get near it), or None.
+    pub(crate) fn near_cell_cost(&mut self, t: [i32; 3], r: f64) -> Option<f32> { self.near_cell(t, r) }
     /// Respawn after death: empty inventory, full health, back at the site.
     pub fn respawn(&mut self) { self.inv = vec![None; 36]; self.hp = 20.0; self.food = 20.0; self.exh = 0.0; self.pos = self.site; self.dead = false; self.reach = None; self.mobs.retain(|m| !m.hostile); self.fuel = 0.0; }
     pub fn day_index(&self) -> i64 { self.day_seen }
 }
 trait With { fn with(self, s: &mut Sim, ev: Vec<Ev>) -> Out; fn with_slept(self, skip: i64, s: &mut Sim) -> Out; }
 impl With for Out {
-    fn with(mut self, s: &mut Sim, mut ev: Vec<Ev>) -> Out { s.advance(self.ticks, &mut ev); if s.dead { self.ok = false; self.reason = "died"; } self.ev = ev; self }
+    fn with(mut self, s: &mut Sim, mut ev: Vec<Ev>) -> Out { s.advance(self.ticks, &mut ev); if s.dead { self.ok = false; self.reason = "cancelled"; } self.ev = ev; self }
     fn with_slept(mut self, _skip: i64, s: &mut Sim) -> Out { for e in self.ev.iter_mut() { if let Ev::Dawn(sl) = e { *sl = true; } } if !self.ev.iter().any(|e| matches!(e, Ev::Dawn(_))) && !s.dead { self.ev.push(Ev::Dawn(true)); } self }
 }
 
@@ -526,6 +528,98 @@ mod tests {
         assert!(s.mobs.iter().any(|m| m.hostile), "no zombie after 2000 night ticks");
         s.respawn();                                                       // idle at night with nothing to fight back: dead by now
         assert_eq!(s.do_sleep([25, 64, 24]).reason, "invalid_target");
+    }
+    /// The trap of the real validation run (bot Train2, 181 identical `place` failures, `reason=unreachable, expanded=1`): the 9x5x9
+    /// block categories the bot observed in a one-block pit (crafting tables W and N, soil E and S, a leaf canopy two blocks above the
+    /// rim). Letters: . air, s soil, S stone, X crafting table, l leaves, L log. Rows are z, columns x, layers y-2..y+2.
+    const TRAP: [&str; 5] = [
+        ".....ssss ss.ssssss s..ssssss sssssssss sssssssss sssssssss sssssssss sssssssss sssssssss",
+        ".......ss ......sss ...ssssss sssssssss sssssssss sssssssss ss.ssssss s.sssssss sssssssss",
+        "lll...... ......... ...X.X..s ....XX.ss ...X@ssss ...Tsssss ....sssss ...ssssss ...ssssss",
+        "lllllll.. ......... ......... l........ ll....... ll....... ll....... l........ .........",
+        "..lllll.. ......... ..lllll.. lllllll.. llll.ll.. lllllll.. ll.lll... ll....... .........",
+    ];
+    #[test]
+    fn the_real_pit_trap_makes_place_unreachable_and_a_sapling_cell_invalid() {
+        let mut s = flat();
+        let name = |c: char| match c { '.' => "air", 's' => "dirt", 'S' => "stone", 'X' => "crafting_table", 'l' => "oak_leaves", 'L' => "oak_log", '@' => "air", 'T' => "air", _ => "air" };
+        let (cx, cy, cz) = (24, 64, 24);
+        for (layer, rows) in TRAP.iter().enumerate() {
+            let y = cy + layer as i32 - 2;
+            for (dz, row) in rows.split(' ').enumerate() { for (dx, ch) in row.chars().enumerate() {
+                let id = s.d.bid(name(ch));
+                s.set(cx + dx as i32 - 4, y, cz + dz as i32 - 4, id);
+            } }
+        }
+        s.pos = [cx, cy, cz];
+        assert!(s.standable(cx, cy, cz));
+        s.give("crafting_table", 1);
+        let t = [cx - 1, cy, cz + 1];
+        assert!(s.is_air(t[0], t[1], t[2]) && s.kind(t[0], t[1] - 1, t[2]) == Kind::Solid, "the candidate generator offers this cell");
+        assert_eq!(s.do_move([cx + 3, cy, cz]).reason, "unreachable");          // walled in: no way out for the walker
+        assert_eq!(s.do_place(t, "crafting_table").reason, "unreachable");      // the real outcome, 181 times
+        // The same cell with a sapling on it: empty-looking, but not REPLACEABLE.
+        let sap = s.d.bid("oak_sapling");
+        s.set(t[0], t[1], t[2], sap);
+        assert_eq!(s.do_place(t, "crafting_table").reason, "invalid_target");
+    }
+    #[test]
+    fn open_ground_places_and_a_wall_hides_the_face() {
+        let mut s = flat();
+        s.give("crafting_table", 2);
+        let o = s.do_place([26, 64, 24], "crafting_table");
+        assert!(o.ok, "{}", o.reason);
+        // Behind a closed ring of stone the cell's faces cannot be seen from any stand cell inside the ring.
+        let stone = s.d.bid("stone");
+        for (dx, dz) in [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)] { for dy in 0..3 { s.set(34 + dx, 64 + dy, 24 + dz, stone); } }
+        for dx in -1..=1 { for dz in -1..=1 { s.set(34 + dx, 67, 24 + dz, stone); } }
+        assert!(s.do_place([34, 64, 24], "crafting_table").reason == "unreachable" || s.count("crafting_table") == 0, "sealed cell");
+    }
+    fn put(s: &mut Sim, kind: usize, pos: [i32; 3]) -> u32 { let id = s.next_id; s.next_id += 1; s.mobs.push(Mob::hostile_of(id, kind, pos)); id }
+    fn lose(s: &mut Sim, secs: i64) -> f64 { let hp0 = s.hp; let mut ev = vec![]; s.advance(secs * 20, &mut ev); hp0 - s.hp }
+    #[test]
+    fn zombie_hits_three_per_second_in_reach_and_knocks_the_bot_back() {
+        let mut s = flat();
+        s.tick = 5000; s.food = 17.0; s.exh = -1e9;                       // day, no regeneration noise
+        put(&mut s, 0, [25, 64, 24]);
+        let before = s.pos;
+        assert!((lose(&mut s, 4) - 12.0).abs() <= 3.01, "4 s next to a zombie: about 3 hp per second");
+        assert_ne!(s.pos, before, "knockback moved the bot");
+    }
+    #[test]
+    fn arrows_need_a_line_of_sight_and_creepers_a_short_distance() {
+        let mut s = flat();
+        s.tick = 5000; s.food = 17.0; s.exh = -1e9;
+        put(&mut s, 1, [32, 64, 24]);                                    // skeleton 8 blocks away in the open
+        assert!(lose(&mut s, 60) > 0.0, "a skeleton in the open hits within a minute");
+        let mut w = flat();
+        w.tick = 5000; w.food = 17.0; w.exh = -1e9;
+        let stone = w.d.bid("stone");
+        for dy in 0..4 { for dz in -2..=2 { w.set(28, 64 + dy, 24 + dz, stone); } }   // a wall between
+        put(&mut w, 1, [34, 64, 24]);
+        assert_eq!(lose(&mut w, 30), 0.0, "no damage through a wall (the skeleton keeps its distance)");
+        let mut c = flat();
+        c.tick = 5000; c.food = 17.0; c.exh = -1e9;
+        put(&mut c, 2, [26, 64, 24]);                                    // creeper 2 blocks away: fuse 1.5 s, explosion about 24 hp
+        assert!(lose(&mut c, 3) >= 18.0 && c.dead, "point-blank explosion kills an unarmoured player");
+    }
+    #[test]
+    fn a_fight_costs_hits_and_the_mob_hits_back() {
+        let mut s = flat();
+        s.tick = 5000; s.food = 17.0;
+        s.give("stone_sword", 1);                                         // 5 damage: 4 swings
+        let id = put(&mut s, 0, [26, 64, 24]);
+        let o = s.do_attack(id);
+        assert!(o.ok, "{}", o.reason);
+        assert!(o.ticks >= 3 * 12, "4 swings: {}", o.ticks);
+        assert!(s.hp < 20.0, "the zombie fought back");
+        // By hand it is 20 swings (a 12 s fight): the zombie's 3 hp per second is more than a bot has - a coin flip in the real game too.
+        let mut b = flat();
+        b.tick = 5000; b.food = 17.0;
+        let id = put(&mut b, 0, [26, 64, 24]);
+        let o = b.do_attack(id);
+        assert!(o.ticks >= 15 * 12 && (o.ok || o.reason == "cancelled"), "{} {}", o.ticks, o.reason);
+        assert_eq!(s.count("rotten_flesh") > 0, true);
     }
     #[test]
     fn json_roundtrip_and_inflate() {

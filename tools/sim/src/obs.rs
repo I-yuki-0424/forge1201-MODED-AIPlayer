@@ -165,9 +165,11 @@ pub fn candidates(s: &mut Sim) -> Vec<Cand> {
     out.truncate(K);
     out
 }
+/// skill_space.js `minable`: some node within 5 blocks satisfies the mine command's own goal (reach and an aim point in sight).
 fn minable(s: &Sim, nodes: &[[i32; 3]], p: [i32; 3]) -> bool {
     nodes.iter().any(|n| (n[0] - s.pos[0]).abs() <= 10 && (n[2] - s.pos[2]).abs() <= 10 && (n[1] - s.pos[1]).abs() <= 8
-        && ((n[0] - p[0]) as f64).powi(2) + (n[1] as f64 + EYE - p[1] as f64 - 0.5).powi(2) + ((n[2] - p[2]) as f64).powi(2) <= BLOCK_REACH * BLOCK_REACH && s.sees(*n, p))
+        && !(n[0] == p[0] && n[2] == p[2] && n[1] == p[1] + 1)
+        && (((n[0] - p[0]) as f64).powi(2) + (n[1] as f64 + EYE - p[1] as f64 - 0.5).powi(2) + ((n[2] - p[2]) as f64).powi(2)).sqrt() <= 5.0 && s.reach_goal(*n, p, None, BLOCK_REACH))
 }
 
 pub fn observe(s: &mut Sim, cands: &[Cand], progress: &[f64], last: (usize, i64), clock: [f64; 3]) -> J {
