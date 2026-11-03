@@ -37,8 +37,8 @@ ps() {
 # A bash script on the PC, run inside WSL2 Ubuntu-22.04 (the GPU and the Linux simulator live there): wsl_run <local file> [args...]
 wsl_run() {
   local f=$1; shift
-  scp_to "$f" "$HOST:C:/forgeaip/dl/_wsh.sh"
-  "${SSH[@]}" "powershell -NoProfile -Command \"\$ErrorActionPreference='Continue'; wsl.exe -d Ubuntu-22.04 -- bash /mnt/c/forgeaip/dl/_wsh.sh $* 2>&1 | ForEach-Object { \\\"\$_\\\" }\"" | tr -d '\r'
+  scp_to "$f" "$HOST:C:/forgeaip/dl/_wsh_$$.sh"
+  "${SSH[@]}" "powershell -NoProfile -Command \"\$ErrorActionPreference='Continue'; wsl.exe -d Ubuntu-22.04 -- bash /mnt/c/forgeaip/dl/_wsh_$$.sh $* 2>&1 | ForEach-Object { \\\"\$_\\\" }\"" | tr -d '\r'
 }
 
 cmd=${1:-status}; shift || true

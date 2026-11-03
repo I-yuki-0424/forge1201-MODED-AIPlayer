@@ -115,7 +115,7 @@ fn new_episode(c: &Cfg, b: &mut Bot, cache: &mut HashMap<usize, Rc<Tile>>, avoid
         let mut sim = Sim::new(c.d.clone(), tile.clone(), rng.next());
         sim.site = tile.site;
         let st = match find_start(&sim) { Some(s) => s, None => continue };
-        sim.site = st; sim.pos = st;
+        sim.site = st; sim.pos = st; sim.track = st; sim.view = st;
         sim.spawn_animals();
         b.sim = sim; b.tile = ti;
         b.rew = Reward::new(); b.step = 0; b.ep_steps = 0; b.deaths = 0; b.ring.clear(); b.pending.clear();
@@ -126,6 +126,7 @@ fn new_episode(c: &Cfg, b: &mut Bot, cache: &mut HashMap<usize, Rc<Tile>>, avoid
 }
 
 fn exec(s: &mut Sim, c: &Cand) -> Out {
+    s.track = s.pos; s.ph.clear();
     match &c.args {
         Args::Wait => s.do_wait(40), Args::Move(t) => s.do_move(*t), Args::Mine(t) => s.do_mine(*t), Args::Tunnel(d, dy) => s.do_tunnel(d, *dy), Args::Attack(id) => s.do_attack(*id),
         Args::Craft(n, t) => s.do_craft(n, *t), Args::Smelt(n, t) => s.do_smelt(n, *t), Args::Place(t, n) => s.do_place(*t, n), Args::Activate(t) => s.do_sleep(*t), Args::Eat(n) => s.do_eat(n),
@@ -237,6 +238,7 @@ pub fn run(argv: &[String]) -> Result<(), String> {
               let mut row = vec![("event", J::st("step")), ("env_id", J::n(b.env_id as f64)), ("episode", J::n(b.episode as f64)), ("step", J::n(b.step as f64 + 1.0)),
                   ("cmd", J::st(cand.as_ref().map_or("invalid", |c| obs::CMDS[c.cmd]))), ("reason", J::st(if o.ok { "ok" } else { o.reason })), ("ticks", J::n(o.ticks as f64)),
                   ("health", J::n((b.sim.hp.max(0.0) * 10.0).round() / 10.0)), ("pos", J::nums(&[b.sim.pos[0] as f64, b.sim.pos[1] as f64, b.sim.pos[2] as f64]))];
+              if !b.sim.ph.is_empty() { let mut t = 0i64; let mut v = vec![]; for (n, d) in b.sim.ph.drain(..) { v.push(J::Arr(vec![J::st(n), J::n(t as f64)])); t += d.max(0); } row.push(("ph", J::Arr(v))); }
               match cand.as_ref().map(|c| &c.args) {
                   Some(Args::Mine(t)) => row.push(("args", J::o(vec![("x", J::n(t[0] as f64)), ("y", J::n(t[1] as f64)), ("z", J::n(t[2] as f64))]))),
                   Some(Args::Place(t, n)) => row.push(("args", J::o(vec![("x", J::n(t[0] as f64)), ("y", J::n(t[1] as f64)), ("z", J::n(t[2] as f64)), ("item", J::st(n))]))),

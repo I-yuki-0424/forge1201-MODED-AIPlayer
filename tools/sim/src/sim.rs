@@ -40,7 +40,7 @@ pub struct Sim {
     pub d: Rc<Data>, pub tile: Rc<Tile>, pub edits: HashMap<(i32, i32, i32), u16>,
     pub pos: [i32; 3], pub yaw: f64, pub hp: f64, pub food: f64, pub sat: f64, pub exh: f64, pub inv: Vec<Option<Stack>>,
     pub tick: i64, pub mobs: Vec<Mob>, pub next_id: u32, pub rng: Rng, pub site: [i32; 3], pub fuel: f64,
-    pub dead: bool, pub air: f64, pub hits: u32, pub dmg: Vec<(&'static str, &'static str, f64, f64)>, day_seen: i64, regen_t: f64, pub kills: HashMap<String, u32>,
+    pub dead: bool, pub mobf: Option<([i32; 3], usize, std::collections::HashMap<[i32; 3], f32>)>, pub ph: Vec<(&'static str, i64)>, pub view: [i32; 3], pub track: [i32; 3], pub air: f64, pub hits: u32, pub dmg: Vec<(&'static str, &'static str, f64, f64)>, day_seen: i64, regen_t: f64, pub kills: HashMap<String, u32>,
     reach: Option<Reach>,
 }
 pub const PASSIVE: [(&str, f64); 4] = [("cow", 10.0), ("pig", 10.0), ("sheep", 8.0), ("chicken", 4.0)];
@@ -60,14 +60,18 @@ pub const FACES: [[i32; 3]; 6] = [[0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 1], 
 /// Ticks the action layer spends around the digging itself, per block (src/skills/commands/block.js `mine`): the hotbar swap to the
 /// tool, the first aim, one tick to settle, and `collect_drop` (entity.js): wait for the item to appear and land, then walk into it.
 /// Estimated from those waits (the item's pickup delay is 10 ticks); the real run's per-phase ticks (`ph`) will replace them.
-pub const MINE_HOLD: i64 = 3; pub const MINE_AIM: i64 = 4; pub const MINE_COLLECT: i64 = 18;
+/// Measured on the real server (per-phase ticks of 1,984 `mine` and 793 `tunnel`, `ph` in events.jsonl, tools/sim/phases.py): the dig phase
+/// averages 45.6 ticks against the vanilla break time + aim (the server's confirmation of the break takes ~6 more), collect_drop 20.0, and
+/// after it the walk to a drop that did not land at the feet 18.3 per mine (19.6 per tunnel); a tunnel step ends with a walk into the dug
+/// cell and a settle (~39 ticks incl. falling-block waits).
+pub const TUNNEL_BASE: i64 = 14; pub const MINE_HOLD: i64 = 3; pub const MINE_AIM: i64 = 4; pub const MINE_CONFIRM: i64 = 6; pub const MINE_COLLECT: i64 = 20; pub const MINE_PICKUP: i64 = 19;
 pub const AIM_REACH: f64 = 4.2;               // motion.js AIM_REACH = BLOCK_REACH 4.5 - 0.3
 pub fn tool_rank(n: &str) -> i32 { ["wooden", "golden", "stone", "iron", "diamond", "netherite"].iter().position(|t| n.starts_with(t)).map(|p| p as i32).unwrap_or(-1) }
 
 impl Sim {
     pub fn new(d: Rc<Data>, tile: Rc<Tile>, seed: u64) -> Sim {
         Sim { d, tile, edits: HashMap::new(), pos: [0; 3], yaw: 0.0, hp: 20.0, food: 20.0, sat: 5.0, exh: 0.0, inv: vec![None; 36], tick: 0, mobs: vec![], next_id: 1, rng: Rng(seed | 1),
-            site: [0; 3], fuel: 0.0, dead: false, air: 300.0, hits: 0, dmg: vec![], day_seen: 0, regen_t: 0.0, kills: HashMap::new(), reach: None }
+            site: [0; 3], fuel: 0.0, dead: false, mobf: None, ph: vec![], view: [0; 3], track: [0; 3], air: 300.0, hits: 0, dmg: vec![], day_seen: 0, regen_t: 0.0, kills: HashMap::new(), reach: None }
     }
     // ---- world access ----
     #[inline] pub fn blk(&self, x: i32, y: i32, z: i32) -> Option<u16> { if let Some(&b) = self.edits.get(&(x, y, z)) { Some(b) } else { self.tile.get(x, y, z) } }
@@ -106,7 +110,9 @@ impl Sim {
         if self.reach.is_none() { self.reach = Some(self.flood()); }
         self.reach.as_ref().unwrap()
     }
-    fn flood(&self) -> Reach {
+    fn flood(&self) -> Reach { self.flood_n(1500, 18) }
+    /// The walker's Dijkstra over its own moves from the bot: `max_nodes` cells within `radius` blocks (18 / 1,500 are skill_space.js's own values).
+    pub(crate) fn flood_n(&self, max_nodes: usize, radius: i32) -> Reach {
         let start = self.pos;
         let mut dist: HashMap<[i32; 3], f32> = HashMap::new();
         let mut nodes = vec![];
@@ -118,10 +124,10 @@ impl Sim {
             if !done.insert(n) { continue; }
             if c > *dist.get(&n).unwrap_or(&f32::MAX) + 1e-6 { continue; }
             nodes.push(n);
-            if nodes.len() >= 1500 { break; }
+            if nodes.len() >= max_nodes { break; }
             let [x, y, z] = n;
             let mut push = |m: [i32; 3], w: f32, q: &mut BinaryHeap<Qn>, dist: &mut HashMap<[i32; 3], f32>| {
-                if (m[0] - start[0]).abs() > 18 || (m[2] - start[2]).abs() > 18 || (m[1] - start[1]).abs() > 12 { return; }
+                if (m[0] - start[0]).abs() > radius || (m[2] - start[2]).abs() > radius || (m[1] - start[1]).abs() > 12 { return; }
                 let nc = c + w;
                 if nc < *dist.get(&m).unwrap_or(&f32::MAX) { dist.insert(m, nc); q.push(Qn(nc, m)); }
             };
@@ -141,7 +147,8 @@ impl Sim {
         }
         Reach { dist, nodes }
     }
-    pub fn ticks_for(&self, dist: f32) -> i64 { (dist as f64 / B_PER_TICK).ceil() as i64 + 2 }
+    /// Real walking (851 `move_to`): 24.0 + 5.69 ticks per block of displacement; the idealised 4.63 per block plus the settle at the end.
+    pub fn ticks_for(&self, dist: f32) -> i64 { (dist as f64 / B_PER_TICK * 1.06).ceil() as i64 + 5 }
     /// motion.js `approachUntil`: walk to the first stand cell that satisfies the command's goal (reach 4.1), then look from where the body
     /// really stopped (`settle` ends within 0.25 of the cell centre, in practice about 0.2 on the side it came from) with the longer aim
     /// reach (4.2); if nothing is in sight, once more with reach 3.3 and another cell. Walk ticks on success; (reason, ticks) on failure:
@@ -266,10 +273,13 @@ impl Sim {
         if plan.map_or(false, |p| p.2) {
             if let Some(dn) = drops.first() { let put = self.give(dn, 1); if put > 0 { ev.push(Ev::Stat("picked_up", dn.clone(), put)); } }
         }
-        // liquid next to the opened cell flows in (one step, no spreading)
-        let mut fill = self.d.air;
-        for (a, b, c) in [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, 0, 1), (0, 0, -1)] { if self.kind(x + a, y + b, z + c) == Kind::Liquid { fill = self.blk(x + a, y + b, z + c).unwrap_or(fill); break; } }
-        self.set(x, y, z, fill);
+        // Water next to the opened cell flows in and on: down without limit, sideways seven cells (400 cells at most), so a tunnel opened
+        // into an aquifer floods and a bot in it drowns, as in the game. Lava is left as one cell (it creeps three cells in the overworld).
+        self.set(x, y, z, self.d.air);
+        let mut water = None;
+        for (a, b, c) in [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, 0, 1), (0, 0, -1)] { if self.name(x + a, y + b, z + c) == "water" { water = self.blk(x + a, y + b, z + c); break; } }
+        if let Some(w) = water { self.flow(w, [x, y, z]); }
+        else { for (a, b, c) in [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, 0, 1), (0, 0, -1)] { if self.kind(x + a, y + b, z + c) == Kind::Liquid { if let Some(l) = self.blk(x + a, y + b, z + c) { self.set(x, y, z, l); } break; } } }
         // gravity blocks above fall into the gap
         let mut yy = y + 1;
         while matches!(self.name(x, yy, z), "sand" | "red_sand" | "gravel") && self.is_air(x, yy - 1, z) {
@@ -277,12 +287,30 @@ impl Sim {
             self.set(x, yy - 1, z, b); self.set(x, yy, z, self.d.air); yy += 1;
         }
     }
+    /// Breadth-first water flow from the opened cell (see break_block).
+    fn flow(&mut self, water: u16, src: [i32; 3]) {
+        let mut q = std::collections::VecDeque::new();
+        let mut seen = std::collections::HashSet::new();
+        q.push_back((src, 7i32)); seen.insert(src);
+        let mut n = 0;
+        while let Some((c, lvl)) = q.pop_front() {
+            n += 1; if n > 400 { break; }
+            if c != src && !self.is_air(c[0], c[1], c[2]) { continue; }
+            self.set(c[0], c[1], c[2], water);
+            let d = [c[0], c[1] - 1, c[2]];
+            if self.is_air(d[0], d[1], d[2]) && seen.insert(d) { q.push_back((d, 7)); continue; }
+            if lvl > 0 { for (a, b) in [(1, 0), (-1, 0), (0, 1), (0, -1)] { let m = [c[0] + a, c[1], c[2] + b]; if self.is_air(m[0], m[1], m[2]) && seen.insert(m) { q.push_back((m, lvl - 1)); } } }
+        }
+    }
     // ---- world clocks ----
     /// Advance `ticks`; mobs act, hunger and health follow. Stops early on death (the Out carries `died`).
     pub fn advance(&mut self, ticks: i64, ev: &mut Vec<Ev>) {
         let mut left = ticks;
         while left > 0 && !self.dead {
-            let c = left.min(20);
+            // Quarter-second steps while a hostile is within 8 blocks (attacks, knockback and chasing happen on the cooldown's clock, not at
+            // whole-second boundaries), one-second steps otherwise.
+            let near = self.mobs.iter().any(|m| m.hostile && (m.pos[0] - self.pos[0]).abs().max((m.pos[2] - self.pos[2]).abs()) <= 8);
+            let c = left.min(if near { 5 } else { 20 });
             left -= c;
             let before = self.tick;
             self.tick += c;
@@ -302,15 +330,25 @@ impl Sim {
                 self.air -= c as f64;
                 if self.air < 0.0 { self.air += 20.0; self.hp -= 2.0; self.dmg.push(("drown", "", 2.0, 0.0)); self.hits += 1; }
             } else { self.air = (self.air + 4.0 * c as f64).min(300.0); }
+            // The mobs see the bot where it is while the command runs: between where it started and where it ends (the walk takes the whole
+            // command), not at the end for the whole time (a bot walking away at 4.3 blocks/s is not hit by a zombie at 3.6).
+            let f = ((ticks - left) as f64 - c as f64 / 2.0) / ticks.max(1) as f64;
+            self.view = self.interp(self.track, self.pos, f);
             self.mobs_step(frac);
             if self.hp <= 0.0 { self.dead = true; ev.push(Ev::Death); }
         }
+        self.track = self.pos;
     }
     /// Rock, dirt, planks or the like overhead within 40 blocks: no sky light. Leaves let light through (the game lowers it one level per
     /// layer, a canopy of a few layers stays far above the level monsters need).
     pub(crate) fn sky_blocked(&self, x: i32, y: i32, z: i32) -> bool { (y + 2..y + 40).any(|yy| self.kind(x, yy, z) == Kind::Solid && !self.name(x, yy, z).ends_with("_leaves")) }
     pub(crate) fn surface_exposed(&self) -> bool { !self.sky_blocked(self.pos[0], self.pos[1], self.pos[2]) }
     pub(crate) fn find_stand(&self, x: i32, z: i32, y0: i32) -> Option<i32> { (y0 - 10..=y0 + 10).rev().find(|&y| self.standable(x, y, z)) }
+    fn interp(&self, a: [i32; 3], b: [i32; 3], f: f64) -> [i32; 3] {
+        if a == b { return b; }
+        let (x, z) = (a[0] + ((b[0] - a[0]) as f64 * f).round() as i32, a[2] + ((b[2] - a[2]) as f64 * f).round() as i32);
+        match self.find_stand(x, z, if f < 0.5 { a[1] } else { b[1] }) { Some(y) if (y - a[1]).abs() <= 8 => [x, y, z], _ => b }
+    }
     pub(crate) fn invalidate(&mut self) { self.reach = None; }
     pub fn spawn_animals(&mut self) {
         let [sx, sy, sz] = self.site;
@@ -334,7 +372,7 @@ impl Sim {
         let d = self.reach().dist.get(&t).copied();
         match d {
             None => Out::fail("unreachable", 1, vec![]).with(self, vec![]),
-            Some(dd) => { let ticks = self.ticks_for(dd); self.look_at(t); self.exh += 0.02 * dd as f64; self.pos = t; self.reach = None; let o = Out::ok(ticks, vec![]); self.finish(o, vec![]) }
+            Some(dd) => { let ticks = self.ticks_for(dd); self.ph = vec![("walk", ticks)]; self.look_at(t); self.exh += 0.02 * dd as f64; self.pos = t; self.reach = None; let o = Out::ok(ticks, vec![]); self.finish(o, vec![]) }
         }
     }
     pub(crate) fn look_at(&mut self, t: [i32; 3]) { let (dx, dz) = ((t[0] - self.pos[0]) as f64, (t[2] - self.pos[2]) as f64); if dx != 0.0 || dz != 0.0 { self.yaw = (-dx).atan2(-dz); } }
@@ -347,6 +385,7 @@ impl Sim {
             Ok(w) => w, Err((r, tk)) => { let o = Out::fail(r, tk, vec![]); return self.finish(o, vec![]); } };
         let mut ev = vec![];
         let ticks = walk + plan.1.max(1) + self.mine_overhead(bid, plan.2);
+        self.ph = vec![("walk", walk), ("dig", MINE_AIM + MINE_CONFIRM + plan.1.max(1) + 1), ("collect_drop", ticks - walk - (MINE_AIM + MINE_CONFIRM + plan.1.max(1) + 1))];
         self.look_at([t[0], self.pos[1], t[2]]);
         self.exh += 0.005;
         self.break_block(t[0], t[1], t[2], &mut ev);
@@ -355,7 +394,7 @@ impl Sim {
     }
     /// Fixed ticks around one mined block: swap, aim, settle, and collecting the drop when the block yields one the tool harvests.
     fn mine_overhead(&self, bid: u16, harvests: bool) -> i64 {
-        MINE_HOLD + MINE_AIM + 1 + if harvests && !self.d.block(bid).drops.is_empty() { MINE_COLLECT } else { 0 }
+        MINE_HOLD + MINE_AIM + MINE_CONFIRM + 1 + if harvests && !self.d.block(bid).drops.is_empty() { MINE_COLLECT + MINE_PICKUP } else { 0 }
     }
     pub fn tunnel_cells(f: [i32; 3], dir: &str, dy: i32) -> (Vec<[i32; 3]>, [i32; 3], [i32; 3]) {
         let (dx, dz) = match dir { "north" => (0, -1), "south" => (0, 1), "west" => (-1, 0), _ => (1, 0) };
@@ -388,11 +427,12 @@ impl Sim {
         if self.tunnel_problem(self.pos, dir, dy).is_some() { return Out::fail("invalid_target", 1, vec![]).with(self, vec![]); }
         let (clear, to, _) = Sim::tunnel_cells(self.pos, dir, dy);
         let mut ev = vec![];
-        let mut ticks = 8;
+        let mut ticks = TUNNEL_BASE;
+        self.ph.clear();
         for c in &clear {
             if self.kind(c[0], c[1], c[2]) == Kind::Solid {
                 let bid = self.blk(c[0], c[1], c[2]).unwrap();
-                match self.dig_plan(bid) { Some(p) => ticks += p.1.max(1) + self.mine_overhead(bid, p.2), None => { let r = if self.d.block(bid).diggable { "missing_tool" } else { "invalid_target" }; return Out::fail(r, ticks, ev.clone()).with(self, ev); } }
+                match self.dig_plan(bid) { Some(p) => { let d = MINE_AIM + MINE_CONFIRM + p.1.max(1) + 1; let oh = self.mine_overhead(bid, p.2); ticks += p.1.max(1) + oh; self.ph.push(("dig", d)); self.ph.push(("collect_drop", p.1.max(1) + oh - d)); } None => { let r = if self.d.block(bid).diggable { "missing_tool" } else { "invalid_target" }; return Out::fail(r, ticks, ev.clone()).with(self, ev); } }
                 self.break_block(c[0], c[1], c[2], &mut ev);
             }
         }
@@ -419,7 +459,7 @@ impl Sim {
         let mut walk = 0i64;
         let with_table = match table {
             Some(t) => { if self.name(t[0], t[1], t[2]) != "crafting_table" { return Out::fail("no_station", 1, vec![]).with(self, vec![]); }
-                match self.approach(&|s, n, r| s.reach_goal(n, t, None, r), &|s, e| s.aim_ok(e, t, None, AIM_REACH)) { Ok(w) => { walk = w + 12; true } Err((r, tk)) => { let o = Out::fail(r, tk, vec![]); return self.finish(o, vec![]); } } }
+                match self.approach(&|s, n, r| s.reach_goal(n, t, None, r), &|s, e| s.aim_ok(e, t, None, AIM_REACH)) { Ok(w) => { walk = w + 6; true } Err((r, tk)) => { let o = Out::fail(r, tk, vec![]); return self.finish(o, vec![]); } } }
             None => false,
         };
         let ri = match self.recipe_for(item, with_table) { Some(i) => i, None => return Out::fail("missing_materials", 1, vec![]).with(self, vec![]) };
@@ -500,7 +540,7 @@ impl Sim {
     /// Distance cost to the cheapest reach node within `r` of a point (the walker can get near it), or None.
     pub(crate) fn near_cell_cost(&mut self, t: [i32; 3], r: f64) -> Option<f32> { self.near_cell(t, r) }
     /// Respawn after death: empty inventory, full health, back at the site.
-    pub fn respawn(&mut self) { self.inv = vec![None; 36]; self.hp = 20.0; self.food = 20.0; self.sat = 5.0; self.exh = 0.0; self.air = 300.0; self.pos = self.site; self.dead = false; self.reach = None; self.mobs.retain(|m| !m.hostile); self.fuel = 0.0; }
+    pub fn respawn(&mut self) { self.inv = vec![None; 36]; self.hp = 20.0; self.food = 20.0; self.sat = 5.0; self.exh = 0.0; self.air = 300.0; self.pos = self.site; self.track = self.site; self.dead = false; self.reach = None; self.mobs.retain(|m| !m.hostile); self.fuel = 0.0; }
     pub fn day_index(&self) -> i64 { self.day_seen }
 }
 trait With { fn with(self, s: &mut Sim, ev: Vec<Ev>) -> Out; fn with_slept(self, skip: i64, s: &mut Sim) -> Out; }
@@ -528,7 +568,7 @@ mod tests {
         assert!(s.standable(24, 64, 24) && !s.standable(24, 63, 24));
         let o = s.do_move([30, 64, 24]);
         assert!(o.ok && s.pos == [30, 64, 24]);
-        assert!((o.ticks - (6.0f64 / (4.317 / 20.0)).ceil() as i64 - 2).abs() <= 1, "ticks {}", o.ticks);
+        assert!((o.ticks - ((6.0f64 / (4.317 / 20.0)) * 1.06).ceil() as i64 - 5).abs() <= 1, "ticks {}", o.ticks);
         assert_eq!(s.do_move([30, 64, 60]).reason, "unreachable");          // beyond the flood radius / tile
     }
     #[test]
@@ -651,7 +691,7 @@ mod tests {
     #[test]
     fn a_fight_costs_hits_and_the_mob_hits_back() {
         let mut s = flat();
-        s.tick = 5000; s.food = 17.0;
+        s.tick = 15000; s.food = 17.0;                                       // night: zombies do not burn
         s.give("stone_sword", 1);                                         // 5 damage: 4 swings
         let id = put(&mut s, 0, [26, 64, 24]);
         let o = s.do_attack(id);
@@ -660,10 +700,10 @@ mod tests {
         assert!(s.hp < 20.0, "the zombie fought back");
         // By hand it is 20 swings (a 12 s fight): the zombie's 3 hp per second is more than a bot has - a coin flip in the real game too.
         let mut b = flat();
-        b.tick = 5000; b.food = 17.0;
+        b.tick = 15000; b.food = 17.0;
         let id = put(&mut b, 0, [26, 64, 24]);
         let o = b.do_attack(id);
-        assert!(o.ticks >= 15 * 12 && (o.ok || o.reason == "cancelled"), "{} {}", o.ticks, o.reason);
+        assert!(o.ticks >= 8 * 12 && (o.ok || o.reason == "cancelled"), "{} {}", o.ticks, o.reason);   // 20 hp at 3 hp per second: dead after ~7 s
         assert_eq!(s.count("rotten_flesh") > 0, true);
     }
     /// The recorded failure that repeated 198 times in the real run (bot2, a floating log inside a leaf canopy, world snapshot around it in
@@ -695,6 +735,26 @@ mod tests {
         assert_eq!(s.pos, [bot[0] + sh[0], bot[1] + sh[1], bot[2] + sh[2]], "and the bot is back where it started");
         let b = s.do_mine(t);
         assert_eq!(b.reason, "unreachable", "repeating it changes nothing");
+    }
+    #[test]
+    fn a_tunnel_opened_into_water_floods_and_drowns_the_bot_a_walker_outruns_a_zombie() {
+        let mut s = flat();
+        s.tick = 5000; s.food = 17.0; s.exh = -1e9;
+        let (stone, water) = (s.d.bid("stone"), s.d.bid("water"));
+        // a water column behind a stone wall at x = 30, 3 blocks wide and tall, the bot in an open corridor next to it
+        for y in 64..68 { for z in 22..=26 { s.set(30, y, z, water); s.set(31, y, z, water); } }
+        for y in 64..68 { for z in 22..=26 { s.set(29, y, z, stone); } }
+        s.give("wooden_pickaxe", 1);
+        let o = s.do_mine([29, 64, 24]);
+        assert!(o.ok, "{}", o.reason);
+        assert!(s.name(29, 64, 24) == "water" && s.name(28, 64, 24) == "water" && s.name(25, 64, 24) == "water", "the corridor floods");
+        // a bot walking away from a chasing zombie is not caught; the same bot standing still is
+        let mut w = flat();
+        w.tick = 5000; w.food = 17.0; w.exh = -1e9;
+        put(&mut w, 0, [20, 64, 24]);
+        let hp0 = w.hp;
+        assert!(w.do_move([40, 64, 24]).ok);
+        assert!(hp0 - w.hp <= 3.0, "walked 16 blocks away from a zombie 4 blocks behind: lost {}", hp0 - w.hp);
     }
     #[test]
     fn json_roundtrip_and_inflate() {

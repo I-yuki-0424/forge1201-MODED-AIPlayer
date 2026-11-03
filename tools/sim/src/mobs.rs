@@ -10,14 +10,21 @@ pub enum Atk { Melee, Bow, Fuse }
 pub struct Spec { pub name: &'static str, pub hp: f64, pub speed: f64, pub follow: f64, pub burns: bool, pub atk: Atk, pub reach: f64, pub dmg: f64, pub every: f64, pub weight: f64, pub day_neutral: bool }
 // speed in blocks/s, reach = horizontal distance for melee and the shooting range for the bow, every = seconds between attacks
 pub const SPECS: [Spec; 4] = [
-    Spec { name: "zombie", hp: 20.0, speed: 3.6, follow: 35.0, burns: true, atk: Atk::Melee, reach: 1.9, dmg: 3.0, every: 1.0, weight: 1.4, day_neutral: false },
+    Spec { name: "zombie", hp: 20.0, speed: 3.6, follow: 35.0, burns: true, atk: Atk::Melee, reach: 2.0, dmg: 3.0, every: 1.0, weight: 1.4, day_neutral: false },
     Spec { name: "skeleton", hp: 20.0, speed: 3.6, follow: 16.0, burns: true, atk: Atk::Bow, reach: 15.0, dmg: 3.5, every: 2.5, weight: 3.0, day_neutral: false },
     Spec { name: "creeper", hp: 20.0, speed: 3.6, follow: 16.0, burns: false, atk: Atk::Fuse, reach: 3.0, dmg: 0.0, every: 0.0, weight: 1.4, day_neutral: false },
     Spec { name: "spider", hp: 16.0, speed: 5.0, follow: 16.0, burns: false, atk: Atk::Melee, reach: 1.7, dmg: 2.0, every: 1.0, weight: 0.4, day_neutral: true },
 ];
 /// Spawn attempts per second (fitted): on an exposed surface at night, and with rock overhead (caves, own tunnels, any time of day).
-pub const SPAWN_NIGHT: f64 = 0.05;
-pub const SPAWN_DARK: f64 = 0.07;
+pub const SPAWN_NIGHT: f64 = 0.015;
+pub const SPAWN_DARK: f64 = 0.06;
+/// `FORGEAIP_MOBS="night=0.03,dark=0.07,z=1.4,s=3.0,c=1.4,sp=0.4"` overrides the fitted values for a calibration sweep without a rebuild.
+pub fn tune(key: &str, default: f64) -> f64 {
+    use std::sync::OnceLock;
+    static T: OnceLock<Vec<(String, f64)>> = OnceLock::new();
+    T.get_or_init(|| std::env::var("FORGEAIP_MOBS").unwrap_or_default().split(',').filter_map(|kv| { let (k, v) = kv.split_once('=')?; Some((k.trim().to_string(), v.trim().parse().ok()?)) }).collect())
+        .iter().find(|(k, _)| k == key).map_or(default, |x| x.1)
+}
 pub const HOSTILE_CAP: usize = 10;
 
 impl Mob {
@@ -27,15 +34,16 @@ impl Mob {
 
 impl Sim {
     fn spawn_hostile(&mut self, frac: f64) {
-        let [bx, by, bz] = self.pos;
+        let [bx, by, bz] = self.view;
         if self.mobs.iter().filter(|m| m.hostile).count() >= HOSTILE_CAP { return; }
         let exposed = self.surface_exposed();
-        let rate = if self.is_night() && exposed { SPAWN_NIGHT } else if !exposed { SPAWN_DARK } else { 0.0 };
+        let rate = if self.is_night() && exposed { tune("night", SPAWN_NIGHT) } else if !exposed { tune("dark", SPAWN_DARK) } else { 0.0 };
         if self.rng.f() >= rate * frac { return; }
-        let total: f64 = SPECS.iter().map(|s| s.weight).sum();
+        let wt = |i: usize| tune(["z", "s", "c", "sp"][i], SPECS[i].weight);
+        let total: f64 = (0..SPECS.len()).map(wt).sum();
         let mut w = self.rng.f() * total;
         let mut kind = 0;
-        for (i, s) in SPECS.iter().enumerate() { if w < s.weight { kind = i; break; } w -= s.weight; }
+        for i in 0..SPECS.len() { if w < wt(i) { kind = i; break; } w -= wt(i); }
         for _ in 0..6 {
             let ang = self.rng.f() * std::f64::consts::TAU;
             let dd = 20.0 + self.rng.f() * 24.0;
@@ -53,8 +61,11 @@ impl Sim {
     /// One step of a mob along the shortest way to the bot: the neighbouring cell (8 directions, up to one block higher or three lower)
     /// with the smallest walking distance in the bot's reach field. None when the mob is outside the field.
     fn downhill(&mut self, from: [i32; 3]) -> Option<[i32; 3]> {
-        self.reach();
-        let r = self.reach_ref();
+        // A larger field than the walker's own (mobs find a way from up to 35 blocks): 6,000 cells within 34 blocks, rebuilt when the bot or
+        // the world changed.
+        let key = (self.pos, self.edits.len());
+        if self.mobf.as_ref().map_or(true, |m| (m.0, m.1) != key) { let f = self.flood_n(6000, 34); self.mobf = Some((key.0, key.1, f.dist)); }
+        let r = &self.mobf.as_ref().unwrap().2;
         let here = r.get(&from).copied();
         let mut best: Option<([i32; 3], f32)> = None;
         for (dx, dz) in [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)] {
@@ -77,7 +88,7 @@ impl Sim {
     /// Mobs act for `frac` seconds (<= 1): arrival, movement, attacks; the bot is knocked back by a melee hit.
     pub(crate) fn mobs_step(&mut self, frac: f64) {
         self.spawn_hostile(frac);
-        let [bx, by, bz] = self.pos;
+        let [bx, by, bz] = self.view;
         let dark_day = !self.is_night() && !self.surface_exposed();
         let day_surface = !self.is_night() && self.surface_exposed();
         let mobs = std::mem::take(&mut self.mobs);
@@ -115,7 +126,7 @@ impl Sim {
             if aggro {
                 match sp.atk {
                     Atk::Melee => if h <= sp.reach && dy <= 1 && m.cd <= 0.0 { m.cd = sp.every; self.hurt(sp.dmg, "mob_attack", sp.name, h); shove = Some(m.pos); },
-                    Atk::Bow => if h <= sp.reach && m.cd <= 0.0 && self.los(m.pos, self.pos) {
+                    Atk::Bow => if h <= sp.reach && m.cd <= 0.0 && self.los(m.pos, self.view) {
                         m.cd = sp.every * (0.8 + 0.4 * self.rng.f());
                         if self.rng.f() < (0.85 - 0.04 * h).clamp(0.15, 0.8) { let d = sp.dmg - 0.5 + self.rng.f() * 1.5; self.hurt(d, "arrow", sp.name, h); }
                     },
@@ -127,7 +138,7 @@ impl Sim {
                             if m.fuse <= 0.0 {
                                 // explosion: damage = floor((i^2 + i) / 2 * 7 * 6 + 1), i = (1 - distance / 6) x exposure (power 3, Normal)
                                 let dd = (((m.pos[0] - bx) as f64).powi(2) + ((m.pos[1] - by) as f64).powi(2) + ((m.pos[2] - bz) as f64).powi(2)).sqrt();
-                                let expo = if self.los(m.pos, self.pos) { 1.0 } else { 0.25 };
+                                let expo = if self.los(m.pos, self.view) { 1.0 } else { 0.25 };
                                 let i = (1.0 - dd / 6.0).max(0.0) * expo;
                                 if i > 0.0 { let d = ((i * i + i) / 2.0 * 42.0 + 1.0).floor(); self.hurt(d, "player_explosion", sp.name, dd); }
                                 continue;
@@ -139,7 +150,8 @@ impl Sim {
             keep.push(m);
         }
         self.mobs = keep;
-        if let Some(from) = shove { self.knockback(from); }
+        // Knockback is about half a block in the game (strength 0.4); the cell grid can only push by a whole cell, so every second hit does.
+        if let Some(from) = shove { if self.rng.f() < tune("kb", 0.5) { self.knockback(from); } }
     }
     /// A melee hit pushes the bot one cell away from the attacker when that cell can be stood in.
     fn knockback(&mut self, from: [i32; 3]) {

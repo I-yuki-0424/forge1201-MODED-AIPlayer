@@ -35,8 +35,10 @@ def damage(rows):
 def exposure(dirs, ents):
     tot = [0, 0]; night = [0, 0]; day = [0, 0]; near = 0; kinds = collections.Counter(); n = 0; bk = collections.Counter()
     for d in dirs:
-        try: f = open(d + '/env_to_policy.jsonl')
-        except FileNotFoundError: continue
+        try: f = open(d + '/env_to_policy.slim.jsonl')
+        except FileNotFoundError:
+            try: f = open(d + '/env_to_policy.jsonl')
+            except FileNotFoundError: continue
         for l in f:
             if '"type":"obs"' not in l: continue
             o = json.loads(l)['obs']; n += 1
