@@ -20,7 +20,14 @@ real)
   if running "$WORLD"; then "$REPO/scripts/world/snapshot.sh" before-train; grep -qx world "$TRAIN_STATE" || echo world >> "$TRAIN_STATE"; fi
   compose --profile bot stop llm-bot >/dev/null 2>&1 || true; compose stop world >/dev/null 2>&1 || true
   export TRAIN_BASE=val TRAIN_BOTS=2 TRAIN_LEARN=0 TRAIN_SPEED=2 TRAIN_DAYS=3 TRAIN_CANDIDATES=sites-val.json TRAIN_MEMORY=2G TRAIN_MEM_LIMIT=2800m
-  rm -f "$REPO"/exchange/val-real-s*.jsonl "$REPO/exchange/sites/val-s0.json" "$REPO/exchange/sites/val-s1.json"
+  # The site books are named by world (exchange/sites/vps-s<i>.json), not by base: set the training books aside (the run needs fresh
+  # ones for the 14 validation sites; `stop` puts them back) or every candidate counts as used and the environment exits at once.
+  mkdir -p "$REPO/exchange/sites-backup-before-validation"
+  for i in 0 1; do
+    b=$REPO/exchange/sites/vps-s$i.json
+    [ -f "$b" ] && { [ -f "$REPO/exchange/sites-backup-before-validation/vps-s$i.json" ] || cp -p "$b" "$REPO/exchange/sites-backup-before-validation/"; rm -f "$b"; }
+  done
+  rm -f "$REPO"/exchange/val-real-s*.jsonl
   compose --profile train --profile shard1 up -d train train-s1
   wait_healthy forgeaip-train; wait_healthy forgeaip-train-s1
   compose --profile train --profile shard1 up -d train-env train-env-s1
@@ -38,6 +45,9 @@ sim)
 stop)
   docker ps -aq --filter name=forgeaip-val- | xargs -r docker rm -f >/dev/null 2>&1 || true
   compose --profile train --profile shard1 stop -t 60 train-env train-env-s1 train train-s1 >/dev/null 2>&1 || true
+  for i in 0 1; do   # the training site books back
+    [ -f "$REPO/exchange/sites-backup-before-validation/vps-s$i.json" ] && cp -p "$REPO/exchange/sites-backup-before-validation/vps-s$i.json" "$REPO/exchange/sites/vps-s$i.json"
+  done
   echo "validation stopped (scripts/train/down.sh brings the build world back)";;
 *) echo "usage: $0 real|sim|stop [minutes]" >&2; exit 2;;
 esac
