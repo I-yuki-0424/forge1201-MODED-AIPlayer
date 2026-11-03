@@ -30,11 +30,15 @@ const { ProgressTracker } = require('./progress');
 const { CrafterReward, TABLE, TERMS, MILESTONES, NOTABLE } = require('./crafter_reward');
 const { SkillSpace, vocab, obsSpec, actionSpec, K, CMDS, REASON_LIST, VIEW_H, VIEW_W } = require('./skill_space');
 const { LiveBoard } = require('./live_board');
+const { DamageLog } = require('./damage_log');
+
+/** A failure's detail as a short JSON-safe value for the event log. */
+const clip = (d) => { try { const j = JSON.stringify(d || {}); return j.length > 300 ? j.slice(0, 300) + '…' : JSON.parse(j); } catch (_) { return undefined; } };
 
 // v1.1-v2.1: see git history. v3.0 (owner 2026-11-02): groups (one world per pair), episodes of --days in-game days with play
 // after death, progress list judged from statistics (reward v5), a new seed-derived start site per bot per episode, clock
 // [share of the episode gone, log step, time of day].
-const ENV_VERSION = '2026-11-02-skills-v3.1';
+const ENV_VERSION = '2026-11-03-skills-v3.2';
 const DAY = 24000;
 const SITE_GAP = 500;   // owner: no start within 500 blocks of a used one or of another bot
 const LOG = /_log$/;
@@ -277,6 +281,7 @@ async function main() {
         const bot = createForgeBot({ host: process.env.MC_HOST || 'localhost', port: Number(process.env.MC_PORT) || 25565, username: name, viewDistance: VIEW,
             checkTimeoutInterval: 180000 });
         attachForgeHandshake(bot, { registry: process.env.BOT_REGISTRY || 'auto' });
+        const damageLog = new DamageLog(bot);   // before the login packet: it carries the damage-type names
         const lost = new Promise((_, reject) => {
             bot.on('kicked', (r) => reject(new Error(`${name} kicked: ${String(r).slice(0, 200)}`)));
             bot.on('end', (r) => reject(new Error(`${name} connection ended: ${r}`)));
@@ -284,7 +289,7 @@ async function main() {
         lost.catch((e) => board.lost(envId, e.message));
         bot.on('error', (e) => events.emit('bot_error', { env_id: envId, message: String(e.message || e).slice(0, 200) }, 'warn'));
         await Promise.race([new Promise((r) => bot.once('spawn', r)), lost, sleep(90000).then(() => { throw new Error(`${name}: no spawn within 90 s`); })]);
-        const b = { envId, name, bot, lost, tracker: new ProgressTracker(bot), space: new SkillSpace(bot, voc), reward: new CrafterReward(), cancel: { cancelled: false } };
+        const b = { envId, name, bot, lost, dmg: damageLog, tracker: new ProgressTracker(bot), space: new SkillSpace(bot, voc), reward: new CrafterReward(), cancel: { cancelled: false } };
         board.attach(envId, name, bot);
         bot.on('death', () => { b.cancel.cancelled = true; });
         events.emit('connected', { env_id: envId, username: name });
@@ -386,7 +391,11 @@ async function main() {
             board.end(envId, { ok: !!res.ok, reason: last.reason, ms: Date.now() - t0, ticks: last.ticks, reward: sc.total, nights: days, slept });
             events.emit('step', { env_id: envId, episode, step: step + 1, cmd: c ? c.cmd : null, args: c ? c.args : null, ok: !!res.ok,
                 reason: last.reason, ticks: last.ticks, ms: Date.now() - t0, reward: sc.total, terms: sc.terms,
-                progress_events: evs.length ? evs : undefined, stats_ok: statsOk || undefined, health: bot.health, food: bot.food });
+                progress_events: evs.length ? evs : undefined, stats_ok: statsOk || undefined, health: bot.health, food: bot.food,
+                // Why a command failed (the SkillError's detail and the phases it went through) and what hurt the bot meanwhile.
+                ...(res.ok ? {} : { detail: clip(res.detail), phases: (res.phases || []).slice(-5).map((p) => p.phase) }),
+                dmg: (() => { const d = b.dmg.take(); return d.length ? d : undefined; })(),
+                pos: bot.entity ? [bot.entity.position.x, bot.entity.position.y, bot.entity.position.z].map((v) => Math.round(v * 10) / 10) : undefined });
         }
         const rec = { env_id: envId, episode, return: Math.round(ep.ret * 1e4) / 1e4, days: reward.days, slept: reward.slept, deaths: ep.deaths,
             stuck_kills: ep.stuck || undefined, progress: [...reward.done], wall_s: Math.round((Date.now() - ep.t0) / 1000), site: b.site && b.site.i, cmds: ep.cmds };
