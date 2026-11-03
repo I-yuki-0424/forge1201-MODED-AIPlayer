@@ -401,3 +401,16 @@ drowning, placement without the action layer's rules) and the learner was the wh
 No new training run should start before (1) the simulator's remaining differences in section 11.7 are accepted or removed and (2) the
 learner runs on the GPU or at least at the measured 22 steps/s; every run records its learning status with `scripts/train/tb.sh`.
 The checkpoint of sim1 (`/mnt/data/forgeaip/sim1-final-checkpoint-910k.pkl`) has not been run in the real game (`--init` on a `--learn 0` run).
+
+## Runs on the PC GPU, 2026-11-04 (first training on the corrected simulator)
+
+Simulator of commit 66fd0171 (SIM-RUST-v1 section 12: enemy counts and mining failures matched to three real runs, damage ~0.65x real, no drowning), learner on the RTX 3060 Ti in WSL2 (`scripts/train/pc/wsl-sim.sh`, LEARNER-GPU-v1 section 4), 8 shards x 2 bots per run, ~265 steps/s per run (530 with two at once; sim1 was 15), supervised and monitored to completion with no learner or shard failure of its own (one learner and eight shard restarts were caused by my own `wsl-down` bug, fixed; the supervisor recovered from the checkpoint). Status: C:\forgeaip\status.txt and TensorBoard on the PC; the verdict rule of TRAIN-STATUS-v1.
+
+| Run | Settings | Steps / episodes | Progress per 60-episode block (first -> last) | Verdict at the end | Deaths / episode (last block) |
+|---|---|---|---|---|---|
+| runa | lr 3e-4, ent 0.01 | 750,833 / 381, **stopped by me** | 12.3 -> 11.4 -> 10.0 -> 9.6 -> **6.5** | REGRESSING since block 4 | 15.4 |
+| runb | lr 1.5e-4, ent 0.01 | 2,000,583 / 1,460 | 13.0 ... 12.3-13.5 ... **14.0** | STALLED (gain +1.0 over 24 blocks) | 2.4 |
+| runc | lr 7.5e-5, ent 0.03 | 2,001,738 / 1,969 | 12.6 -> 13.0 (block 6) -> 13.8 -> **14.4** | STALLED by the rule (slow rise +1.8, flat in the last blocks) | 1.9 |
+| rund | runc's settings, seed 45 | 800,585 / 721 | 12.5 -> **13.1** | STALLED | 1.9 |
+
+Reading: (1) lr 3e-4 at this batch size collapses the policy (entropy 0.85, deaths x3); the learning-status record showed it at 0.4 M steps and the rule said stop; (2) with a smaller step the policy keeps its entropy (2.2) and the critic is good (explained variance 0.93) but progress sits at 13-14 of 24 entries, which is what the scripted teacher alone reaches (11-13 in the real game, 12-14 here) and what sim1 reached (14.3): the gain from learning over the teacher is ~1-2 entries in 2 M steps (seed replicate rund agrees with runc up to 0.8 M); (3) high `clipfrac` (0.2-0.4) appears from the third update on, in every run, independent of the learning rate: the first update has clipfrac 0 and kl ~0 (no train/serve mismatch), so it is the sharpening policy itself. Whether to rethink the design is the owner's call; the numbers say that more steps of this learner on this action set do not move the plateau quickly. Checkpoints and logs: `/mnt/data/forgeaip/pc-runs-20261104/`. Not done: playing any of these checkpoints in the real game (`--init` on a `--learn 0` real run).
