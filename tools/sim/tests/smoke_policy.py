@@ -1,9 +1,15 @@
 """Smoke test for forgeaip-sim: plays the file API as a policy (the DPOD scripted teacher on the progress-list goals, random
 otherwise), prints throughput, success rates per command, failure reasons and the progress reached. stdlib + numpy-free teacher import.
-  python3 smoke_policy.py <exchange root> <base> <shard> <seconds> <dpod scripts dir> [random]"""
+  python3 smoke_policy.py <exchange root> <base> <shard> <seconds> <dpod scripts dir> [random|teacher] [steps.jsonl]
+With a steps.jsonl path every step is logged (command, outcome reason, ticks, reward, progress, clock): the same measurement
+for the simulator and for the real Forge environment (tools/sim/compare.py reads it)."""
 import collections, json, os, random, sys, time
 root, base, shard, secs, dpod = sys.argv[1], sys.argv[2], int(sys.argv[3]), float(sys.argv[4]), sys.argv[5]
-use_random = len(sys.argv) > 6
+use_random = len(sys.argv) > 6 and sys.argv[6] == "random"
+logpath = sys.argv[7] if len(sys.argv) > 7 else None
+log = open(logpath, "a") if logpath else None
+REASONS = ["ok", "invalid_args", "invalid_target", "missing_item", "missing_tool", "missing_materials", "no_station", "unreachable", "stuck", "not_visible", "not_confirmed", "target_lost", "timeout", "died", "disconnected", "cancelled", "internal"]
+last_args = {}
 sys.path.insert(0, dpod)
 import botsystem_teacher as bt
 cur = f"{root}/{base}.s{shard}.current"
@@ -15,6 +21,7 @@ run = open(cur).read().strip()
 rin, rout = f"{root}/{run}/env_to_policy.jsonl", f"{root}/{run}/policy_to_env.jsonl"
 open(rout, "a").close()
 pos, seq = 0, 0
+checked = 0.0
 items, milestones, teacher = None, None, None
 ok, tot, reasons, last_cmd = collections.Counter(), collections.Counter(), collections.Counter(), {}
 best, eps, steps, rets = {}, 0, 0, collections.defaultdict(float)
@@ -26,7 +33,17 @@ def send(m):
 t_start = time.time()
 buf = b""
 while time.time() - t_start < secs:
-    with open(rin, "rb") as f:
+    if time.time() - checked > 1.0:      # the environment restarted: follow its new run
+        checked = time.time()
+        now_run = open(cur).read().strip()
+        if now_run != run:
+            run = now_run; rin, rout = f"{root}/{run}/env_to_policy.jsonl", f"{root}/{run}/policy_to_env.jsonl"
+            open(rout, "a").close(); pos, buf = 0, b""; last_cmd.clear()
+    try:
+        f = open(rin, "rb")
+    except FileNotFoundError:
+        time.sleep(0.05); continue
+    with f:
         f.seek(pos); data = f.read()
     if not data: time.sleep(0.002); continue
     buf += data; pos += len(data)
@@ -41,6 +58,9 @@ while time.time() - t_start < secs:
             o, e = m["obs"], m["env_id"]
             if e in last_cmd and m["step"] > 0:
                 c = last_cmd.pop(e); tot[c] += 1; r = o["last_reason"]
+                if log:
+                    log.write(json.dumps({"env": e, "ep": m["episode"], "step": m["step"], "cmd": c, "reason": REASONS[r], "ticks": o["dt_ticks"], "reward": m["reward"], "terms": m.get("reward_terms"),
+                                          "n_prog": int(sum(o["progress"][:-2])), "clock": o["clock"][0], "t": time.time()}) + "\n"); log.flush()
                 if r == 0: ok[c] += 1
                 else: reasons[(c, r)] += 1
             rets[e] += m["reward"]

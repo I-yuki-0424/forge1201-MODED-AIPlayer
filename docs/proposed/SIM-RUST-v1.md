@@ -125,3 +125,46 @@ that it is *faithful*.
 - Tiles end 112 blocks from the site; past the edge a command fails `unreachable`. How far real bots get is still unmeasured.
 - Statistics `picked_up` are emitted at the moment a drop is added (no item entities).
 - The live board (`train-dash`) shows nothing for simulator runs; `scripts/train/sim.sh status` and the learner log are the views.
+
+## 10. Validation against the Forge server (2026-11-03)
+
+Setup (`scripts/train/validate-sim.sh`, `tools/sim/compare.py`): the same stand-in policy (the DPOD scripted teacher on the progress
+list, `tools/sim/tests/smoke_policy.py`), the same two worlds (volumes `train-data`, `train-data-s1`), the same 14 start sites (tiles
+and `exchange/sites-val.json`), 2 bots per world, 3-day episodes, reward v6. Real: two Forge 1.20.1 servers at speed 2, 70 min,
+**19,302 steps, 8 finished episodes**. Simulator: 14 min, **551,411 steps, 265 finished episodes**.
+
+| Measure | Real Forge | Simulator | Verdict |
+|---|---|---|---|
+| `move_to`: success / median ticks | 0.99 / 54 | 0.99 / 55 | agrees |
+| `wait` 40, `smelt` ~205, `eat` ~33, `attack` ~240 ticks | 40 / 208 / 35.5 / 241 | 40 / 202 / 32 / 236 | agrees |
+| `tunnel`: success / median ticks | 0.96 / 70 | 0.99 / 42 | success close, 40 % too fast |
+| `mine`: success / median ticks | 0.79 / 76 | 1.00 / 27 | 2.8x too fast, never fails |
+| `craft`: median ticks | 1 | 5 | too slow by the walk constant |
+| `place`: success | **0.22** | 1.00 | does not agree (see below) |
+| `craft` at a placed table | mostly `unreachable` (about 600 of ~800) | `no_station` or ok | different failure |
+| `attack` success | 0.35 | 0.94 | too easy |
+| Steps per finished episode | 2,036 | 2,063 | agrees (the policy's loops cost the same) |
+| Progress entries at 1/3 / 2/3 / end | 8.6 / 10.9 / **12.0** (range 8-14) | 12.3 / 13.8 / **14.2** | same shape, simulator 18-40 % ahead |
+| Deaths per 3-day episode | **20.6** (5-39) | **4.3** | 5x too safe |
+| Survival reward (days lived of 3) | 0.25 | 1.51 | too safe |
+
+Reading: the **order of magnitude and the shape of progress agree**, and the movement and fixed-duration commands agree closely,
+but the simulator is **too lenient**: it is faster at mining and tunnelling, never fails a placement, fights too easily and, above
+all, is five times too safe. Run `sim1`'s numbers (progress 14, deaths 0.9 per episode) must therefore not be read as real-game
+performance; the real game at the same policy gives about 12 entries and about 20 deaths.
+
+What the real logs show (events.jsonl of the real run): the teacher gets into a loop of 1,139 successful and 3,716 `invalid_target`
+placements of crafting tables, followed by 3x3 crafts at the placed table that fail `unreachable` (`stone_pickaxe`, `stone_sword`,
+`furnace`, ~197 each). That is a real-game behaviour of the action layer (a placed table is often not a reachable station) that the
+simulator does not have. It is also the single biggest source of `invalid` reward in the real run (-210 in one episode).
+
+Calibration targets, in order of effect (each needs a re-run of this comparison to confirm):
+1. Hostile pressure: skeletons, spiders, creepers, more zombies, arrows; target 15-25 deaths per episode for the teacher.
+2. Station reach and placement: placed tables are often unreachable and `place` often invalid; find the action layer's rule in
+   `src/skills/commands` (candidate spot vs the command's own goal) and port it instead of fitting noise.
+3. `mine` / `tunnel` time: add the approach and aim overhead (real median 76 and 70 ticks); `craft` 1 tick; random `stuck`,
+   `not_confirmed`, `cancelled` at the real rates (2-6 %).
+4. Combat: `attack` success 0.35 with cancellations and `target_lost`.
+
+Not tested: the *learned* policy of `sim1` in the real game (the checkpoint is kept in `/mnt/data/forgeaip/sim1-final-checkpoint-910k.pkl`;
+`--init` on a `--learn 0` run of the real environment is the test).
