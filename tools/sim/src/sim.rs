@@ -64,7 +64,7 @@ pub const FACES: [[i32; 3]; 6] = [[0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 1], 
 /// averages 45.6 ticks against the vanilla break time + aim (the server's confirmation of the break takes ~6 more), collect_drop 20.0, and
 /// after it the walk to a drop that did not land at the feet 18.3 per mine (19.6 per tunnel); a tunnel step ends with a walk into the dug
 /// cell and a settle (~39 ticks incl. falling-block waits).
-pub const TUNNEL_BASE: i64 = 14; pub const MINE_HOLD: i64 = 3; pub const MINE_AIM: i64 = 4; pub const MINE_CONFIRM: i64 = 6; pub const MINE_COLLECT: i64 = 20; pub const MINE_PICKUP: i64 = 19;
+pub const TUNNEL_BASE: i64 = 8; pub const TUNNEL_STEP: i64 = 39; pub const MINE_HOLD: i64 = 3; pub const MINE_AIM: i64 = 4; pub const MINE_CONFIRM: i64 = 6; pub const MINE_COLLECT: i64 = 20; pub const MINE_PICKUP: i64 = 19;
 pub const AIM_REACH: f64 = 4.2;               // motion.js AIM_REACH = BLOCK_REACH 4.5 - 0.3
 pub fn tool_rank(n: &str) -> i32 { ["wooden", "golden", "stone", "iron", "diamond", "netherite"].iter().position(|t| n.starts_with(t)).map(|p| p as i32).unwrap_or(-1) }
 
@@ -429,13 +429,26 @@ impl Sim {
         let mut ev = vec![];
         let mut ticks = TUNNEL_BASE;
         self.ph.clear();
+        let mut cells = 0;
         for c in &clear {
             if self.kind(c[0], c[1], c[2]) == Kind::Solid {
                 let bid = self.blk(c[0], c[1], c[2]).unwrap();
-                match self.dig_plan(bid) { Some(p) => { let d = MINE_AIM + MINE_CONFIRM + p.1.max(1) + 1; let oh = self.mine_overhead(bid, p.2); ticks += p.1.max(1) + oh; self.ph.push(("dig", d)); self.ph.push(("collect_drop", p.1.max(1) + oh - d)); } None => { let r = if self.d.block(bid).diggable { "missing_tool" } else { "invalid_target" }; return Out::fail(r, ticks, ev.clone()).with(self, ev); } }
+                match self.dig_plan(bid) {
+                    Some(p) => {
+                        // The first cell pays the swap, the aim, the break confirmation and the drop (measured: dig 37.7 and collect 22.7 + 19.6
+                        // per tunnel command); the next cells are dug from the same stance and their drops are picked up on the step in.
+                        let first = cells == 0; cells += 1;
+                        let d = if first { MINE_AIM + MINE_CONFIRM + p.1.max(1) + 1 } else { 3 + p.1.max(1) };
+                        let oh = if first { self.mine_overhead(bid, p.2) - (MINE_AIM + MINE_CONFIRM + 1) } else { 0 };
+                        ticks += d + oh;
+                        self.ph.push(("dig", d)); if oh > 0 { self.ph.push(("collect_drop", oh)); }
+                    }
+                    None => { let r = if self.d.block(bid).diggable { "missing_tool" } else { "invalid_target" }; return Out::fail(r, ticks, ev.clone()).with(self, ev); }
+                }
                 self.break_block(c[0], c[1], c[2], &mut ev);
             }
         }
+        ticks += TUNNEL_STEP; self.ph.push(("tunnel_step", TUNNEL_STEP));
         if !self.standable(to[0], to[1], to[2]) { return Out::fail("stuck", ticks, ev.clone()).with(self, ev); }
         self.look_at(to); self.pos = to; self.reach = None; self.exh += 0.03;
         self.finish(Out::ok(ticks, vec![]), ev)
