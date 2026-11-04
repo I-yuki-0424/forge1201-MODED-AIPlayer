@@ -1,0 +1,13 @@
+{
+ "v": 1,
+ "id": "normal-kit",
+ "doc": "Owner table row 'A, B and C all high' (2026-11-05): the plain game at normal starts (natural world, no placed iron or furnace, default hostiles, every progress entry paid, death empties the pack except for the kit) with the iron-tier materials of A/B/C in the starting kit and NO furnace: 2 stone pickaxes, 64 cobblestone (a furnace costs 8), 64 sticks, 5 crafting tables, 8 coal. Isolates whether the bottleneck at normal starts is the materials/station (then this run climbs past iron like A/B/C) or finding iron in the natural world (then it does not).",
+ "kit": {
+  "stone_pickaxe": 2,
+  "cobblestone": 64,
+  "stick": 64,
+  "crafting_table": 5,
+  "coal": 8
+ },
+ "on_death": "kit"
+}
