@@ -248,6 +248,9 @@ pub fn run(argv: &[String]) -> Result<(), String> {
               match cand.as_ref().map(|c| &c.args) {
                   Some(Args::Mine(t)) => row.push(("args", J::o(vec![("x", J::n(t[0] as f64)), ("y", J::n(t[1] as f64)), ("z", J::n(t[2] as f64))]))),
                   Some(Args::Place(t, n)) => row.push(("args", J::o(vec![("x", J::n(t[0] as f64)), ("y", J::n(t[1] as f64)), ("z", J::n(t[2] as f64)), ("item", J::st(n))]))),
+                  Some(Args::Craft(n, t)) => row.push(("args", J::o(vec![("item", J::st(n)), ("table", J::Bool(t.is_some()))]))),
+                  Some(Args::Smelt(n, t)) => row.push(("args", J::o(vec![("x", J::n(t[0] as f64)), ("y", J::n(t[1] as f64)), ("z", J::n(t[2] as f64)), ("item", J::st(n))]))),
+                  Some(Args::Eat(n)) => row.push(("args", J::o(vec![("item", J::st(n))]))),
                   _ => {} }
               if !dm.is_empty() { row.push(("dmg", J::Arr(dm))); }
               if ev.iter().any(|e| matches!(e, Ev::Death)) { row.push(("died", J::Bool(true))); }
@@ -270,7 +273,7 @@ pub fn run(argv: &[String]) -> Result<(), String> {
             send_obs(&cfg, &mut ch, &mut bs[bi]);
             if bs[bi].msg.2 {
                 // episode over: one summary row (entries reached this episode with the step of the first time, deaths), then the next one
-                { let b = &bs[bi]; let row = J::o(vec![("event", J::st("episode_end")), ("env_id", J::n(b.env_id as f64)), ("episode", J::n(b.episode as f64)), ("steps", J::n(b.ep_steps as f64)), ("deaths", J::n(b.deaths as f64)),
+                { let b = &bs[bi]; let row = J::o(vec![("event", J::st("episode_end")), ("env_id", J::n(b.env_id as f64)), ("episode", J::n(b.episode as f64)), ("steps", J::n(b.ep_steps as f64)), ("deaths", J::n(b.deaths as f64)), ("inv", J::Obj(b.sim.held().into_iter().map(|(k, v)| (k, J::n(v as f64))).collect())),
                     ("reached", J::Obj(b.rew.at.iter().map(|(k, v)| (k.clone(), J::n(*v as f64))).collect()))]); let _ = writeln!(events, "{}", row.dump()); }
                 let avoid = bs.iter().enumerate().find(|(i, _)| *i != bi).map(|(_, x)| x.tile);
                 let b = &mut bs[bi];

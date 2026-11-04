@@ -1,11 +1,13 @@
 """Smoke test for forgeaip-sim: plays the file API as a policy (the DPOD scripted teacher on the progress-list goals, random
 otherwise), prints throughput, success rates per command, failure reasons and the progress reached. stdlib + numpy-free teacher import.
-  python3 smoke_policy.py <exchange root> <base> <shard> <seconds> <dpod scripts dir> [random|teacher] [steps.jsonl]
+  python3 smoke_policy.py <exchange root> <base> <shard> <seconds> <dpod scripts dir> [random|teacher|iron] [steps.jsonl]
+Mode `iron` is the positive control of the iron scenarios (SCENARIO-v1): a scripted solver that sees only what the policy sees (inventory and the offered
+candidates) and plays mine iron -> furnace (placed or built) -> smelt -> table -> iron pickaxe.
 With a steps.jsonl path every step is logged (command, outcome reason, ticks, reward, progress, clock): the same measurement
 for the simulator and for the real Forge environment (tools/sim/compare.py reads it)."""
 import collections, json, os, random, sys, time
 root, base, shard, secs, dpod = sys.argv[1], sys.argv[2], int(sys.argv[3]), float(sys.argv[4]), sys.argv[5]
-use_random = len(sys.argv) > 6 and sys.argv[6] == "random"
+mode = sys.argv[6] if len(sys.argv) > 6 else "teacher"; use_random = mode == "random"
 logpath = sys.argv[7] if len(sys.argv) > 7 else None
 log = open(logpath, "a") if logpath else None
 REASONS = ["ok", "invalid_args", "invalid_target", "missing_item", "missing_tool", "missing_materials", "no_station", "unreachable", "stuck", "not_visible", "not_confirmed", "target_lost", "timeout", "died", "disconnected", "cancelled", "internal"]
@@ -26,6 +28,21 @@ items, milestones, teacher = None, None, None
 ok, tot, reasons, last_cmd = collections.Counter(), collections.Counter(), collections.Counter(), {}
 best, eps, steps, rets = {}, 0, 0, collections.defaultdict(float)
 random.seed(1)
+def iron_choice(t, o):
+    """Next candidate of the scripted iron solver, or -1 (no opinion: the caller picks one at random, which moves around)."""
+    inv, cs = t.inventory(o), t.cands(o)
+    first = lambda cmd, item: next((c[0] for c in sorted(cs, key=lambda c: float(c[3][3])) if c[1] == cmd and c[2] == item), -1)
+    raw, ing = inv.get("raw_iron", 0), inv.get("iron_ingot", 0)
+    if inv.get("iron_pickaxe", 0): return -1
+    if ing >= 3 and inv.get("stick", 0) >= 2:
+        for a in (first("craft", "iron_pickaxe"), first("place", "crafting_table")):
+            if a >= 0: return a
+    if raw > 0:
+        for a in (first("smelt", "raw_iron"), first("place", "furnace"), first("craft", "furnace"), first("place", "crafting_table")):
+            if a >= 0: return a
+    if raw + ing < 3:
+        return first("mine", "iron_ore")
+    return -1
 def send(m):
     global seq
     m.update({"v": 1, "run_id": run, "seq": seq, "t": time.time()}); seq += 1
@@ -69,7 +86,8 @@ while time.time() - t_start < secs:
                 print(f"episode end env {e}: progress {int(sum(o['progress'][:-2]))}/{len(milestones)} days {o['progress'][-2]*10:.0f} return {rets[e]:.2f}", flush=True); rets[e] = 0
                 continue
             a = -1
-            if not use_random:
+            if mode == "iron": a = iron_choice(teacher, o)
+            elif not use_random:
                 for i, p in enumerate(o["progress"][:-2]):
                     if p == 0 and milestones[i] in bt.GOALS: a = teacher.choose(o, milestones[i]); break
             if a < 0:

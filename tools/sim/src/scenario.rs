@@ -14,7 +14,7 @@ pub enum PreDone { No, Unscored, List(Vec<String>) }
 struct Place { id: String, block: u16, size: (u32, u32), buried: bool, depth: (i32, i32), dist: (f64, f64), bearing: (f64, f64) }
 #[derive(Debug)]
 pub struct Scenario {
-    pub id: String, kit: Vec<(String, u32)>, kit_on_death: bool, hostiles: f64, place: Vec<Place>,
+    pub id: String, kit: Vec<(String, u32)>, kit_on_death: bool, hostiles: f64, craft_slots: Option<usize>, place: Vec<Place>,
     pub score: Option<HashSet<String>>, pub pre_done: PreDone, pub weights: Vec<(String, f64)>,
 }
 
@@ -35,7 +35,7 @@ impl Scenario {
         Scenario::parse(&j, d, entries)
     }
     pub fn parse(j: &J, d: &Data, entries: &[String]) -> Result<Scenario, String> {
-        keys(j, &["v", "id", "doc", "kit", "on_death", "hostiles", "place", "reward"], "the scenario")?;
+        keys(j, &["v", "id", "doc", "kit", "on_death", "hostiles", "craft_slots", "place", "reward"], "the scenario")?;
         let id = j.get("id").s().to_string();
         if id.is_empty() || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') { return Err("scenario: `id` is required ([A-Za-z0-9_-])".into()); }
         let mut kit = vec![];
@@ -47,6 +47,7 @@ impl Scenario {
         let kit_on_death = match j.get("on_death").s() { "" | "empty" => false, "kit" => true, o => return Err(format!("scenario: on_death `{}` (empty|kit)", o)) };
         let hostiles = if j.get("hostiles").is_null() { 1.0 } else { j.get("hostiles").f() };
         if hostiles < 0.0 { return Err("scenario: hostiles must be >= 0".into()); }
+        let craft_slots = if j.get("craft_slots").is_null() { None } else { Some(j.get("craft_slots").i().max(1) as usize) };      // the old fixed quota was 6
         let mut place = vec![];
         for p in j.get("place").arr() {
             keys(p, &["id", "block", "size", "mode", "depth", "dist", "bearing"], "a place entry")?;
@@ -71,7 +72,7 @@ impl Scenario {
             if !["survival", "death", "progress", "invalid"].contains(&k.as_str()) { return Err(format!("scenario: unknown reward term `{}`", k)); }
             weights.push((k.clone(), v.f()));
         }
-        Ok(Scenario { id, kit, kit_on_death, hostiles, place, score, pre_done, weights })
+        Ok(Scenario { id, kit, kit_on_death, hostiles, craft_slots, place, score, pre_done, weights })
     }
 
     /// The entries shown as reached from the first observation (not paid).
@@ -93,12 +94,12 @@ impl Scenario {
 
     fn give_kit(&self, s: &mut Sim) { for (n, c) in &self.kit { s.give(n, *c); } }
     /// After a death: the scenario's kit again if it says so (the world edits stay as they are).
-    pub fn respawned(&self, s: &mut Sim) { s.hostile_scale = self.hostiles; if self.kit_on_death { self.give_kit(s); } }
+    pub fn respawned(&self, s: &mut Sim) { s.hostile_scale = self.hostiles; s.craft_slots = self.craft_slots; if self.kit_on_death { self.give_kit(s); } }
 
     /// Set the episode up on `s` (standing at its start): kit, mob level, a random heading, the placements. Err = this start cannot
     /// host the scenario (nothing reachable at that distance); the caller tries another site. Returns the record for events.jsonl.
     pub fn start(&self, s: &mut Sim, rng: &mut Rng) -> Result<J, String> {
-        s.hostile_scale = self.hostiles;
+        s.hostile_scale = self.hostiles; s.craft_slots = self.craft_slots;
         s.yaw = rng.f() * std::f64::consts::TAU;
         self.give_kit(s);
         let st = s.pos;
@@ -272,6 +273,21 @@ mod tests {
             if scale == 0.0 { z += s.mobs.iter().filter(|m| m.hostile).count(); } else { n += s.mobs.iter().filter(|m| m.hostile).count(); }
         } }
         assert!(z == 0 && n > 0, "scale 0: {} hostiles, scale 1: {}", z, n);
+    }
+
+    #[test]
+    fn the_iron_pickaxe_is_offered_when_it_can_be_crafted_however_much_else_can_be() {
+        // Found 2026-11-04 by the scripted solver (0 of 23 pickaxes with 3 ingots, 64 sticks and a table in reach): the craft candidates were cut to a
+        // quota of 6 in "not held first, then alphabetical" order, so with stone and sticks in the pack `iron_pickaxe` never made the list.
+        let d = Rc::new(Data::load());
+        let sc = scn(&format!(r#"{{"id":"a",{},"place":[]}}"#, KIT), &d).unwrap();
+        let mut s = flat_sized(3);
+        sc.start(&mut s, &mut Rng(1)).unwrap();
+        s.give("iron_ingot", 3);
+        let t = [s.pos[0] + 1, s.pos[1], s.pos[2]];
+        assert!(s.do_place(t, "crafting_table").ok);
+        let crafts: Vec<String> = crate::obs::candidates(&mut s).iter().filter_map(|c| match &c.args { crate::obs::Args::Craft(n, _) => Some(n.clone()), _ => None }).collect();
+        assert!(crafts.iter().any(|n| n == "iron_pickaxe"), "craft candidates offered: {:?} of {} craftable", crafts, s.craftable(true).len());
     }
 
     #[test]

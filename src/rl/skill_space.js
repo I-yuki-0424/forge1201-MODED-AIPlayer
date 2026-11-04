@@ -180,8 +180,10 @@ class SkillSpace {
     candidates() {
         const bot = this.bot, p = bot.entity.position, w = fromBot(bot);
         const fx = Math.floor(p.x), fy = Math.floor(p.y + 0.2), fz = Math.floor(p.z), here = { x: fx, y: fy, z: fz };
-        const out = [];
-        const add = (cmd, list) => { for (const c of list.slice(0, QUOTA[cmd])) out.push({ cmd, ...c }); };
+        // The lists are collected and cut to their quotas at the end: `craft` takes every slot the other commands leave free, so a recipe is not
+        // hidden behind a fixed number of alphabetically earlier ones (2026-11-04: iron_pickaxe was the 11th of 21 craftable, quota 6).
+        const parts = [];
+        const add = (cmd, list) => parts.push([cmd, list]);
         const inv = bot.inventory.items();
 
         // Where the walker can stand from here (the planner's own moves: walk, step, drop, swim, ladders), and from where a
@@ -311,6 +313,10 @@ class SkillSpace {
             add('eat', inv.filter((i) => foods[i.name]).filter((i, n, a) => a.findIndex((j) => j.name === i.name) === n)
                 .map((i) => ({ args: { item: i.name }, item: this.item(i.name), ent: 0, feat: this.feat(null, i.count) })));
         }
+        const used = 1 + parts.reduce((n, [cmd, list]) => n + (cmd === 'craft' ? 0 : Math.min(list.length, QUOTA[cmd])), 0);   // 1 = wait
+        const slots = { ...QUOTA, craft: Math.max(QUOTA.craft, K - used) };
+        const out = [];
+        for (const [cmd, list] of parts) for (const c of list.slice(0, slots[cmd])) out.push({ cmd, ...c });
         out.push({ cmd: 'wait', args: { ticks: WAIT_TICKS }, item: 0, ent: 0, feat: this.feat(null) });
         return out.slice(0, K);
     }

@@ -37,8 +37,10 @@ pub fn candidates(s: &mut Sim) -> Vec<Cand> {
     let [fx, fy, fz] = s.pos;
     let nodes: Vec<[i32; 3]> = s.reach().nodes.clone();
     let reach_ok: std::collections::HashSet<[i32; 3]> = nodes.iter().copied().collect();
-    let mut out: Vec<Cand> = vec![];
-    let mut add = |out: &mut Vec<Cand>, cmd: &str, list: Vec<Cand>| { for c in list.into_iter().take(quota(cmd)) { out.push(c); } };
+    // The lists are collected first and cut to their quotas at the end: `craft` takes every slot the other commands leave free (below), so a
+    // recipe is not hidden behind a fixed number of alphabetically earlier ones (2026-11-04: iron_pickaxe was the 11th of 21 craftable).
+    let mut parts: Vec<(&'static str, Vec<Cand>)> = vec![];
+    let add = |parts: &mut Vec<(&'static str, Vec<Cand>)>, cmd: &'static str, list: Vec<Cand>| parts.push((cmd, list));
 
     // move_to
     let dirs: [(f64, f64); 8] = [(1.0, 0.0), (1.0, 1.0), (0.0, 1.0), (-1.0, 1.0), (-1.0, 0.0), (-1.0, -1.0), (0.0, -1.0), (1.0, -1.0)];
@@ -53,7 +55,7 @@ pub fn candidates(s: &mut Sim) -> Vec<Cand> {
             }
         }
     }
-    add(&mut out, "move_to", moves);
+    add(&mut parts, "move_to", moves);
 
     // mine
     let mut found: Vec<(String, i32, [i32; 3], i32)> = vec![];
@@ -82,7 +84,7 @@ pub fn candidates(s: &mut Sim) -> Vec<Cand> {
     for (n, v) in &up { if best[n].1 != v.1 { mines.push((n.clone(), v.0 as f64 + 0.5, v.1)); } }
     mines.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap().then(a.0.cmp(&b.0)));
     let ml: Vec<Cand> = mines.into_iter().map(|(n, _, p)| Cand { cmd: cmd_ix("mine"), args: Args::Mine(p), item: s.d.item(&n), ent: 0, feat: feat(s, Some([p[0] as f64 + 0.5, p[1] as f64 + 0.5, p[2] as f64 + 0.5]), 0) }).collect();
-    add(&mut out, "mine", ml);
+    add(&mut parts, "mine", ml);
 
     // tunnel
     if s.standable(fx, fy, fz) {
@@ -96,7 +98,7 @@ pub fn candidates(s: &mut Sim) -> Vec<Cand> {
             let nm = s.name(first[0], first[1], first[2]).to_string();
             tl.push(Cand { cmd: cmd_ix("tunnel"), args: Args::Tunnel(dir, dy), item: s.d.item(&nm), ent: 0, feat: feat(s, Some([to[0] as f64 + 0.5, to[1] as f64, to[2] as f64 + 0.5]), 0) });
         } }
-        add(&mut out, "tunnel", tl);
+        add(&mut parts, "tunnel", tl);
     }
 
     // attack
@@ -112,7 +114,7 @@ pub fn candidates(s: &mut Sim) -> Vec<Cand> {
         seen.push(m.name);
         atk.push(Cand { cmd: cmd_ix("attack"), args: Args::Attack(m.id), item: 0, ent: s.d.ent(m.name), feat: feat(s, Some([m.pos[0] as f64 + 0.5, m.pos[1] as f64, m.pos[2] as f64 + 0.5]), 0) });
     }
-    add(&mut out, "attack", atk);
+    add(&mut parts, "attack", atk);
 
     // stations: placed crafting tables / furnaces in reach (natural ones are not looked for)
     let mut table = None; let mut furnace = None; let mut beds: Vec<[i32; 3]> = vec![];
@@ -130,7 +132,7 @@ pub fn candidates(s: &mut Sim) -> Vec<Cand> {
     let mut cr = s.craftable(table.is_some());
     cr.sort_by(|a, b| (held.iter().any(|h| &h.0 == a) as u8).cmp(&(held.iter().any(|h| &h.0 == b) as u8)).then(a.cmp(b)));
     let crl: Vec<Cand> = cr.into_iter().map(|n| { let needs = s.recipe_for(&n, false).is_none(); Cand { cmd: cmd_ix("craft"), args: Args::Craft(n.clone(), if needs { table } else { None }), item: s.d.item(&n), ent: 0, feat: feat(s, None, 1) } }).collect();
-    add(&mut out, "craft", crl);
+    add(&mut parts, "craft", crl);
     // smelt
     if let Some(f) = furnace {
         let mut sl = vec![];
@@ -141,7 +143,7 @@ pub fn candidates(s: &mut Sim) -> Vec<Cand> {
             done.push(n);
             sl.push(Cand { cmd: cmd_ix("smelt"), args: Args::Smelt(n.clone(), f), item: s.d.item(n), ent: 0, feat: feat(s, Some([f[0] as f64 + 0.5, f[1] as f64, f[2] as f64 + 0.5]), *c) });
         }
-        add(&mut out, "smelt", sl);
+        add(&mut parts, "smelt", sl);
     }
     // place
     let mut spot = None;
@@ -151,16 +153,20 @@ pub fn candidates(s: &mut Sim) -> Vec<Cand> {
     }
     if let Some(sp) = spot {
         let pl: Vec<Cand> = held.iter().filter(|h| placeable(&h.0)).map(|(n, c)| Cand { cmd: cmd_ix("place"), args: Args::Place(sp, n.clone()), item: s.d.item(n), ent: 0, feat: feat(s, Some([sp[0] as f64 + 0.5, sp[1] as f64, sp[2] as f64 + 0.5]), *c) }).collect();
-        add(&mut out, "place", pl);
+        add(&mut parts, "place", pl);
     }
     // activate (beds)
     let al: Vec<Cand> = beds.into_iter().take(4).map(|b| Cand { cmd: cmd_ix("activate"), args: Args::Activate(b), item: s.d.item(&s.name(b[0], b[1], b[2]).to_string()), ent: 0, feat: feat(s, Some([b[0] as f64 + 0.5, b[1] as f64 + 0.5, b[2] as f64 + 0.5]), 0) }).collect();
-    add(&mut out, "activate", al);
+    add(&mut parts, "activate", al);
     // eat
     if s.food < 20.0 {
         let el: Vec<Cand> = held.iter().filter(|h| s.d.foods.contains_key(&h.0)).map(|(n, c)| Cand { cmd: cmd_ix("eat"), args: Args::Eat(n.clone()), item: s.d.item(n), ent: 0, feat: feat(s, None, *c) }).collect();
-        add(&mut out, "eat", el);
+        add(&mut parts, "eat", el);
     }
+    let used = 1 + parts.iter().filter(|p| p.0 != "craft").map(|p| p.1.len().min(quota(p.0))).sum::<usize>();       // 1 = wait
+    let craft_slots = s.craft_slots.unwrap_or_else(|| quota("craft").max(K.saturating_sub(used)));
+    let mut out: Vec<Cand> = vec![];
+    for (cmd, list) in parts { out.extend(list.into_iter().take(if cmd == "craft" { craft_slots } else { quota(cmd) })); }
     out.push(Cand { cmd: cmd_ix("wait"), args: Args::Wait, item: 0, ent: 0, feat: feat(s, None, 0) });
     out.truncate(K);
     out

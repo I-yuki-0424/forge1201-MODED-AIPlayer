@@ -190,6 +190,21 @@ test('candidates: generic nearest-of-each-kind, within K, wait always present, e
     assert.ok(withPick.some((x) => x.cmd === 'mine' && voc.items[x.item] === 'iron_ore'), 'iron ore with a stone pickaxe');
 });
 
+test('candidates: craft takes the slots the other commands leave free, so a recipe is not hidden behind alphabetically earlier ones (iron_pickaxe, 2026-11-04)', () => {
+    const bot = worldBot(), voc = vocab(bot.registry, null), reg = bot.registry;
+    const many = ['bowl', 'bucket', 'chest', 'cobblestone_slab', 'cobblestone_stairs', 'cobblestone_wall', 'furnace', 'heavy_weighted_pressure_plate', 'iron_pickaxe', 'lever', 'torch'];
+    bot.recipesFor = (id) => (many.includes(reg.items[id].name) ? [{}] : []);
+    const c = new SkillSpace(bot, voc).candidates();
+    const crafts = c.filter((x) => x.cmd === 'craft').map((x) => x.args.item);
+    assert.ok(crafts.includes('iron_pickaxe') && crafts.length === many.length, crafts.join());     // quota 6 listed the first six only
+    assert.ok(c.length <= K && c.filter((x) => x.cmd === 'wait').length === 1);
+    // every recipe craftable at once: the list still fits K and keeps `wait`
+    bot.recipesFor = (id) => (reg.items[id].name !== 'air' ? [{}] : []);
+    const all = new SkillSpace(bot, voc).candidates();
+    assert.ok(all.length <= K && all.filter((x) => x.cmd === 'wait').length === 1);
+    assert.ok(all.filter((x) => x.cmd === 'craft').length > 6 && all.filter((x) => x.cmd === 'move_to').length >= 8, 'craft must not crowd out the other commands');
+});
+
 test('candidates: only what the walker can reach (a walled-in bot is offered no move and no far block)', () => {
     // A 3x3 room of stone walls 3 high around the bot: every move_to target outside is unreachable, as is the log outside.
     const room = (x, y, z) => (Math.max(Math.abs(x), Math.abs(z)) === 2 && y >= 64 && y <= 66 ? 'stone' : flatLayout(x, y, z));
