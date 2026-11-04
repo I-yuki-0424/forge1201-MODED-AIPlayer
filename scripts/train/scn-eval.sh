@@ -11,7 +11,7 @@ while [ $# -gt 0 ]; do case $1 in --scenario) scn=$2; shift 2;; --base) base=$2;
   --episodes) eps=$2; shift 2;; --days) days=$2; shift 2;; --shards) shards=$2; shift 2;; --seed) seed=$2; shift 2;; *) echo "unknown option $1" >&2; exit 2;; esac; done
 [[ $scn =~ ^[a-z0-9_-]+$ && $base =~ ^[a-z0-9_-]{1,40}$ && $eps =~ ^[0-9]+$ && $cks =~ ^[0-9]+$ && $days =~ ^[1-9]$ && $shards =~ ^[1-6]$ ]] || { echo "bad option" >&2; exit 2; }
 [ -f "$REPO/tools/sim/scenarios/$scn.json" ] || { echo "no scenario $scn" >&2; exit 2; }
-X=$REPO/exchange; L=zs-$base; steps=$((cks + eps * 24000 * days / 55))   # ~55 ticks per command (SIM-RUST-v1 section 10)
+X=$REPO/exchange; L=zs-$base; steps=$((cks + eps * 24000 * days / 55 * 3))   # a stop far beyond the target; the episodes are counted below
 mkdir -p "$X/$base/train"; rm -f "$X/$base.done"
 [ -n "$ckpt" ] && cp "$ckpt" "$X/$base/train/checkpoint.pkl"
 cleanup() { docker ps -aq --filter "name=$L-" | xargs -r docker rm -f >/dev/null 2>&1 || true; }
@@ -26,9 +26,12 @@ for i in $(seq 0 $((shards - 1))); do
     /forgeaip-sim run --root /x --base "$base" --shard "$i" --bots 2 --days "$days" --tiles /tiles --world "vps-s$((i % 5))" --reward /r/reward-v6.json --progress /r/progress-list.json \
     --seed "$((seed * 100 + i))" --scenario "/s/$scn.json" >/dev/null
 done
-echo "eval $base: scenario $scn, $eps episodes (~$steps steps), checkpoint ${ckpt:-none}"
-while [ ! -f "$X/$base.done" ]; do
+echo "eval $base: scenario $scn, $eps episodes, checkpoint ${ckpt:-none}"
+# --learn 0 never reaches the learner's step budget (it is checked after an update), so the episodes are counted here, from the shards' own records
+while :; do
+  n=$(cat "$X"/"$base"-s*-sim*/events.jsonl 2>/dev/null | grep -c '"event":"episode_end"' || true)
+  [ "${n:-0}" -ge "$eps" ] && break
   docker ps -q --filter "name=$L-learner" | grep -q . || { echo "learner exited early:" >&2; docker logs --tail 5 $L-learner >&2; exit 1; }
-  sleep 20
+  sleep 15
 done
-echo "done: $(cat "$X/$base.done") steps"
+echo "$n" > "$X/$base.done"; echo "done: $n episodes"
