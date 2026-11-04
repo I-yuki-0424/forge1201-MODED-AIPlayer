@@ -160,3 +160,21 @@ scripts/train/scn-runs.sh up iron-b      --ckpt <same> --ckpt-steps 2001782 --bu
 Data in git, `docs/results/iron-isolation-2026-11-04/`: per base the compact episode records (scenario placement + episode_end rows), the reports of the six zero-shot evaluations
 (`zs-*.report.txt`), the partial training report and records, and `plateau-runc.checkpoint.pkl` (the plateau policy, 17 MB, the baseline of every comparison). Not in git: the simulator tiles
 (833 MB, regenerate with `forgeaip-sim export`), the raw `events.jsonl` files, the partial iron-a/iron-c checkpoints (17 MB each, ~2 % of a run).
+
+## Owner decision table (2026-11-04 night, applied unattended, owner away ~12 h)
+
+Outcome of the A/B/C runs (PC part `iron-X-g`, last fifth of the run, Wilson 95 %; `high` = pickaxe rate >= 50 % with the lower bound above the zero-shot upper bound (reading rule 1),
+`low` = upper bound < 20 % (rule 2), anything between = partial, no row applies); the owner's text, verbatim in meaning:
+
+| Result | Verdict | Direct solution |
+|---|---|---|
+| A is also high (pickaxe reach rate rises sharply) | The candidate truncation bug is the main cause, and retraining resolves it. | Mix it into normal starts to check, and audit the presentation rates of other categories. |
+| A stays low (around 2/436) | The problem is in the policy's selection (ingots turned into nuggets and similar). | Remove the incorrect iron tool crafts from the candidates, or suppress them. Add positive examples of the pickaxe as teacher data or as seeds for self-imitation. |
+| A high, B low | Recognizing the furnace's location and using it is weak. | Add "move to the nearest furnace" to the candidates. Put the furnace's location in the observations. |
+| A and B high, C low | Return over long distances is not maintained. | Add a return action to the candidates. Extend the teacher data until the return. Add an intermediate reward (approaching the furnace). |
+| A, B and C all high | The layout of the environment (scarcity of iron, distance to the furnace) is the main cause at normal starts. | Teach building a new furnace near iron at normal starts (craftable with 64 stone). Adjust the material allocation at the start. |
+| Gathering high, smelting low | Fuel or smelting action choice is weak (the simulator consuming the wrong fuel may have affected learning). | Recheck fuel handling, increase positive examples of smelting. |
+| Smelting high, pickaxe low | Craft selection error (nuggets and similar). | Narrow the craft candidates, organize the rewards. |
+
+If no row applies: use own judgment, fix the cause found, and try the main (normal-start, full-game) training so the time is used. Constraints that stay: no answer leakage or oracle at inference
+(DPOD CLAUDE.md), so a fix must be a rule of the interface (candidate set, observation, reward) that holds identically at evaluation, never a scripted solution fed at run time.
