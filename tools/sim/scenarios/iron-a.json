@@ -1,0 +1,47 @@
+{
+ "v": 1,
+ "id": "iron-a",
+ "doc": "Iron isolation (owner 2026-11-04): why does the agent not get past iron? The kit holds 1 stack of cobblestone, 2 stone pickaxes, 1 stack of sticks, 5 crafting tables and 8 coal (the fuel; `smelt` loads it into the furnace itself, so a furnace 'loaded with fuel' is a furnace plus coal in the inventory). Iron is a connected cluster of 3 to 5 ore blocks on the surface, so the 3 ingots of an iron pickaxe are always there. No hostile mob spawns and a death gives the kit back. Only the iron-tier entries pay (collect_iron, smelt_iron, craft_iron_pickaxe, craft_iron_sword); every other entry is shown as already reached, nothing else is paid (survival, death, invalid-command terms weigh 0). A: the bot stands in front of the iron (2-3 blocks, within 15 degrees of its heading) and holds a furnace item and the fuel: no walking, no station to build or find.",
+ "kit": {
+  "stone_pickaxe": 2,
+  "cobblestone": 64,
+  "stick": 64,
+  "crafting_table": 5,
+  "coal": 8,
+  "furnace": 1
+ },
+ "on_death": "kit",
+ "hostiles": 0,
+ "place": [
+  {
+   "id": "iron",
+   "block": "iron_ore",
+   "size": [
+    3,
+    5
+   ],
+   "dist": [
+    2,
+    3
+   ],
+   "bearing": [
+    -15,
+    15
+   ]
+  }
+ ],
+ "reward": {
+  "score": [
+   "collect_iron",
+   "smelt_iron",
+   "craft_iron_pickaxe",
+   "craft_iron_sword"
+  ],
+  "pre_done": "unscored",
+  "weights": {
+   "survival": 0,
+   "death": 0,
+   "invalid": 0
+  }
+ }
+}

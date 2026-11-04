@@ -38,7 +38,7 @@ impl Sim {
         if self.mobs.iter().filter(|m| m.hostile).count() >= HOSTILE_CAP { return; }
         let exposed = self.surface_exposed();
         let rate = if self.is_night() && exposed { tune("night", SPAWN_NIGHT) } else if !exposed { tune("dark", SPAWN_DARK) } else { 0.0 };
-        if self.rng.f() >= rate * frac { return; }
+        if self.rng.f() >= rate * frac * self.hostile_scale { return; }
         let wt = |i: usize| tune(["z", "s", "c", "sp"][i], SPECS[i].weight);
         let total: f64 = (0..SPECS.len()).map(wt).sum();
         let mut w = self.rng.f() * total;

@@ -40,7 +40,7 @@ pub struct Sim {
     pub d: Rc<Data>, pub tile: Rc<Tile>, pub edits: HashMap<(i32, i32, i32), u16>,
     pub pos: [i32; 3], pub yaw: f64, pub hp: f64, pub food: f64, pub sat: f64, pub exh: f64, pub inv: Vec<Option<Stack>>,
     pub tick: i64, pub mobs: Vec<Mob>, pub next_id: u32, pub rng: Rng, pub site: [i32; 3], pub fuel: f64,
-    pub dead: bool, pub mobf: Option<([i32; 3], usize, std::collections::HashMap<[i32; 3], f32>)>, pub ph: Vec<(&'static str, i64)>, pub view: [i32; 3], pub track: [i32; 3], pub air: f64, pub hits: u32, pub dmg: Vec<(&'static str, &'static str, f64, f64)>, day_seen: i64, regen_t: f64, pub kills: HashMap<String, u32>,
+    pub hostile_scale: f64, pub dead: bool, pub mobf: Option<([i32; 3], usize, std::collections::HashMap<[i32; 3], f32>)>, pub ph: Vec<(&'static str, i64)>, pub view: [i32; 3], pub track: [i32; 3], pub air: f64, pub hits: u32, pub dmg: Vec<(&'static str, &'static str, f64, f64)>, day_seen: i64, regen_t: f64, pub kills: HashMap<String, u32>,
     reach: Option<Reach>,
 }
 pub const PASSIVE: [(&str, f64); 4] = [("cow", 10.0), ("pig", 10.0), ("sheep", 8.0), ("chicken", 4.0)];
@@ -71,7 +71,7 @@ pub fn tool_rank(n: &str) -> i32 { ["wooden", "golden", "stone", "iron", "diamon
 impl Sim {
     pub fn new(d: Rc<Data>, tile: Rc<Tile>, seed: u64) -> Sim {
         Sim { d, tile, edits: HashMap::new(), pos: [0; 3], yaw: 0.0, hp: 20.0, food: 20.0, sat: 5.0, exh: 0.0, inv: vec![None; 36], tick: 0, mobs: vec![], next_id: 1, rng: Rng(seed | 1),
-            site: [0; 3], fuel: 0.0, dead: false, mobf: None, ph: vec![], view: [0; 3], track: [0; 3], air: 300.0, hits: 0, dmg: vec![], day_seen: 0, regen_t: 0.0, kills: HashMap::new(), reach: None }
+            site: [0; 3], fuel: 0.0, hostile_scale: 1.0, dead: false, mobf: None, ph: vec![], view: [0; 3], track: [0; 3], air: 300.0, hits: 0, dmg: vec![], day_seen: 0, regen_t: 0.0, kills: HashMap::new(), reach: None }
     }
     // ---- world access ----
     #[inline] pub fn blk(&self, x: i32, y: i32, z: i32) -> Option<u16> { if let Some(&b) = self.edits.get(&(x, y, z)) { Some(b) } else { self.tile.get(x, y, z) } }
@@ -510,7 +510,8 @@ impl Sim {
         self.finish(Out::ok(ticks, vec![]), vec![Ev::Stat("used", item.to_string(), 1)])
     }
     pub fn fuel_value(name: &str) -> f64 {
-        match name { "coal" | "charcoal" => 1600.0, "lava_bucket" => 20000.0, "stick" => 100.0, "blaze_rod" => 2400.0, n if n.ends_with("_planks") || n.ends_with("_log") || n == "crafting_table" => 300.0, _ => 0.0 }
+        match name { "coal" | "charcoal" => 1600.0, "coal_block" => 16000.0, "lava_bucket" => 20000.0, "stick" => 100.0, "blaze_rod" => 2400.0,
+            n if n.ends_with("_planks") || n.ends_with("_log") || n.ends_with("_wood") || n.ends_with("_stem") => 300.0, _ => 0.0 }
     }
     pub fn smelt_result(name: &str) -> Option<&'static str> {
         Some(match name { "raw_iron" | "iron_ore" | "deepslate_iron_ore" => "iron_ingot", "raw_gold" | "gold_ore" | "deepslate_gold_ore" => "gold_ingot", "raw_copper" | "copper_ore" | "deepslate_copper_ore" => "copper_ingot",
@@ -523,7 +524,8 @@ impl Sim {
         let walk = match self.approach(&|s, n, r| s.reach_goal(n, t, None, r), &|s, e| s.aim_ok(e, t, None, AIM_REACH)) { Ok(w) => w, Err((r, tk)) => { let o = Out::fail(r, tk, vec![]); return self.finish(o, vec![]); } };
         if self.count(item) == 0 { return Out::fail("missing_item", 1, vec![]).with(self, vec![]); }
         while self.fuel < 200.0 {
-            let f = self.held().into_iter().find(|(n, _)| n != item && Sim::fuel_value(n) > 0.0);
+            // gui.js `smelt`: the fuel that needs the fewest items (= the highest value); the first held one on a tie.
+            let f = self.held().into_iter().filter(|(n, _)| n != item && Sim::fuel_value(n) > 0.0).fold(None, |b: Option<(String, u32)>, c| match b { Some(x) if Sim::fuel_value(&x.0) >= Sim::fuel_value(&c.0) => Some(x), _ => Some(c) });
             match f { Some((n, _)) => { self.take(&n, 1); self.fuel += Sim::fuel_value(&n); } None => return Out::fail("missing_materials", 1, vec![]).with(self, vec![]) }
         }
         self.fuel -= 200.0; self.take(item, 1);
@@ -563,16 +565,19 @@ impl With for Out {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::tile::{Chunk, Section};
-    fn flat() -> Sim {
+    pub(crate) fn flat() -> Sim { flat_sized(3) }
+    /// A flat world of side `w` chunks (stone below y = 64, air above), the bot at its centre.
+    pub(crate) fn flat_sized(w: i32) -> Sim {
         let d = Rc::new(Data::load());
         let (stone, air) = (d.bid("stone"), d.air);
-        let chunks = (0..9).map(|_| Some(Chunk { secs: (0..crate::tile::SECS).map(|i| Section::Uniform(if i < 8 { stone } else { air })).collect() })).collect();
-        let tile = Rc::new(Tile { name: "flat".into(), site: [24, 64, 24], cx0: 0, cz0: 0, w: 3, h: 3, chunks });
+        let chunks = (0..w * w).map(|_| Some(Chunk { secs: (0..crate::tile::SECS).map(|i| Section::Uniform(if i < 8 { stone } else { air })).collect() })).collect();
+        let c = w * 8;
+        let tile = Rc::new(Tile { name: "flat".into(), site: [c, 64, c], cx0: 0, cz0: 0, w, h: w, chunks });
         let mut s = Sim::new(d, tile, 7);
-        s.pos = [24, 64, 24]; s.site = s.pos;
+        s.pos = [c, 64, c]; s.site = s.pos;
         s
     }
     #[test]
@@ -768,6 +773,17 @@ mod tests {
         let hp0 = w.hp;
         assert!(w.do_move([40, 64, 24]).ok);
         assert!(hp0 - w.hp <= 3.0, "walked 16 blocks away from a zombie 4 blocks behind: lost {}", hp0 - w.hp);
+    }
+    #[test]
+    fn smelting_burns_the_fuel_the_real_command_picks_not_the_first_slot() {
+        // gui.js `smelt` takes the fuel that needs the fewest items. A kit with tables and sticks ahead of the coal must burn coal
+        // (the simulator used to take the first held fuel by slot order, and counted the crafting table as one; the real list has none).
+        let mut s = flat();
+        s.give("crafting_table", 5); s.give("stick", 64); s.give("coal", 8); s.give("raw_iron", 3);
+        s.set(26, 64, 24, s.d.bid("furnace"));
+        for _ in 0..3 { let o = s.do_smelt("raw_iron", [26, 64, 24]); assert!(o.ok, "{}", o.reason); }
+        assert_eq!((s.count("iron_ingot"), s.count("coal"), s.count("crafting_table"), s.count("stick")), (3, 7, 5, 64));
+        assert_eq!(Sim::fuel_value("crafting_table"), 0.0);
     }
     #[test]
     fn json_roundtrip_and_inflate() {
