@@ -141,4 +141,22 @@ process sits idle on the GPU in the owner's hours. State: STATE.yaml `TASK-20261
 
 ## Results
 
-RESULTS_TABLE
+**Training was stopped by the owner at 18:23 JST (2026-11-04), about 15 minutes in, to free the PC and move the server. There is no training result.**
+What was learned before that:
+
+- 18:00-18:13: three concurrent runs hit `RESOURCE_EXHAUSTED` on the 8 GB GPU at the first update (30 % share each, also with `--enc-chunk 48`): the learner stayed alive but never updated
+  (the supervisor does not notice). Two runs at a 38 % share work (the earlier configuration); `iron-b` was to start when one of the two finished. Not started.
+- Iron-a and iron-c ran ~33,000 steps each (88 and 91 episodes, 9 and 8 updates): paid-entry rates are the zero-shot ones within noise (A: collect 72 %, smelt 43 %, pickaxe 1/88;
+  C: 76 %, 32 %, 1/91). Nothing can be concluded; the numbers are in `docs/results/iron-isolation-2026-11-04/`.
+- The reading rules above stand unchanged for whoever resumes.
+
+To resume (same settings, from the plateau checkpoint, wave 1 then B):
+
+```
+scripts/train/scn-runs.sh up iron-a,iron-c --ckpt docs/results/iron-isolation-2026-11-04/plateau-runc.checkpoint.pkl --ckpt-steps 2001782 --budget 2000000 --seed 61
+scripts/train/scn-runs.sh up iron-b      --ckpt <same> --ckpt-steps 2001782 --budget 2000000 --seed 61 --gpu-fraction 0.38     # after one of them is DONE
+```
+
+Data in git, `docs/results/iron-isolation-2026-11-04/`: per base the compact episode records (scenario placement + episode_end rows), the reports of the six zero-shot evaluations
+(`zs-*.report.txt`), the partial training report and records, and `plateau-runc.checkpoint.pkl` (the plateau policy, 17 MB, the baseline of every comparison). Not in git: the simulator tiles
+(833 MB, regenerate with `forgeaip-sim export`), the raw `events.jsonl` files, the partial iron-a/iron-c checkpoints (17 MB each, ~2 % of a run).

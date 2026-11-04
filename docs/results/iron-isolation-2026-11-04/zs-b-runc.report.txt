@@ -1,0 +1,11 @@
+== zs-b-runc: 154 episodes in 4 shards, scenario iron-b
+   steps/episode 361, deaths/episode 0.07
+   collect_iron            44/154  28.6%  [22.0%, 36.2%]  median step    59   by block: 0.34 0.44 0.17 0.31 0.16
+   smelt_iron               7/154   4.5%  [2.2%, 9.1%]  median step   180   by block: 0.00 0.06 0.07 0.06 0.03
+   craft_iron_pickaxe       0/154   0.0%  [0.0%, 2.4%]  median step     -   by block: 0.00 0.00 0.00 0.00 0.00
+   craft_iron_sword         0/154   0.0%  [0.0%, 2.4%]  median step     -   by block: 0.00 0.00 0.00 0.00 0.00
+   furnace of the first smelt (scenario = the one placed for the bot, own = placed by the bot, kit or crafted): scenario 5, own 2
+   of the 7 episodes that smelted: successful smelts per episode 6.9; ingots held at the end 0/1/2/3+: 6/0/1/0; with 3+ ingots at some point (reached the pickaxe, or smelts >= 3): 7
+   crafted in those episodes: torch 79, birch_planks 60, oak_planks 57, stick 55, stone_pickaxe 34, lever 25, furnace 18, crafting_table 18
+   crafts that consume iron: iron_nugget 15, iron_ingot 10, iron_shovel 1, shears 1
+   most frequent failures: place:invalid_target 59, craft:unreachable 23, mine:unreachable 20, tunnel:stuck 13, mine:cancelled 6, mine:not_visible 3

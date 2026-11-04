@@ -1,0 +1,22 @@
+== iron-a: 88 episodes in 8 shards, scenario iron-a
+   steps/episode 371, deaths/episode 0.08
+   collect_iron            63/88  71.6%  [61.4%, 80.0%]  median step     7   by block: 0.63 0.76 0.75
+   smelt_iron              38/88  43.2%  [33.3%, 53.6%]  median step    62   by block: 0.26 0.28 0.72
+   craft_iron_pickaxe       1/88   1.1%  [0.2%, 6.2%]  median step    57   by block: 0.00 0.00 0.03
+   craft_iron_sword         3/88   3.4%  [1.2%, 9.5%]  median step    57   by block: 0.00 0.00 0.09
+   furnace of the first smelt (scenario = the one placed for the bot, own = placed by the bot, kit or crafted): own 38
+   of the 38 episodes that smelted: successful smelts per episode 8.4; ingots held at the end 0/1/2/3+: 36/2/0/0; with 3+ ingots at some point (reached the pickaxe, or smelts >= 3): 35
+   crafted in those episodes: torch 356, oak_planks 246, stone_pickaxe 241, birch_planks 190, stick 168, stone_sword 156, lever 117, furnace 75
+   crafts that consume iron: iron_nugget 37, iron_ingot 25, iron_shovel 23, iron_axe 4, iron_hoe 4, iron_sword 4, iron_pickaxe 1, shears 1, iron_boots 1
+   most frequent failures: place:invalid_target 165, craft:unreachable 83, smelt:unreachable 17, mine:unreachable 16, place:unreachable 9, tunnel:stuck 4
+== iron-c: 91 episodes in 8 shards, scenario iron-c
+   steps/episode 364, deaths/episode 0.05
+   collect_iron            69/91  75.8%  [66.1%, 83.5%]  median step     3   by block: 0.69 0.79 0.79
+   smelt_iron              29/91  31.9%  [23.2%, 42.0%]  median step   192   by block: 0.24 0.24 0.45
+   craft_iron_pickaxe       1/91   1.1%  [0.2%, 6.0%]  median step   165   by block: 0.00 0.03 0.00
+   craft_iron_sword         0/91   0.0%  [0.0%, 4.1%]  median step     -   by block: 0.00 0.00 0.00
+   furnace of the first smelt (scenario = the one placed for the bot, own = placed by the bot, kit or crafted): own 19, scenario 10
+   of the 29 episodes that smelted: successful smelts per episode 7.4; ingots held at the end 0/1/2/3+: 25/3/1/0; with 3+ ingots at some point (reached the pickaxe, or smelts >= 3): 27
+   crafted in those episodes: torch 299, stick 167, stone_pickaxe 156, furnace 138, birch_planks 129, oak_planks 128, lever 85, crafting_table 60
+   crafts that consume iron: iron_nugget 49, iron_ingot 13, iron_shovel 2, shears 2, iron_pickaxe 1, iron_axe 1
+   most frequent failures: place:invalid_target 60, craft:unreachable 49, mine:unreachable 17, tunnel:stuck 6, place:unreachable 4, mine:cancelled 4
