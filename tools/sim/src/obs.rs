@@ -7,7 +7,7 @@ use std::collections::HashMap;
 pub const K: usize = 64;
 pub const CMDS: [&str; 13] = ["pad", "move_to", "mine", "attack", "pickup", "craft", "smelt", "place", "activate", "equip", "eat", "wait", "tunnel"];
 fn cmd_ix(n: &str) -> usize { CMDS.iter().position(|c| *c == n).unwrap() }
-fn quota(n: &str) -> usize { match n { "move_to" => 12, "mine" => 11, "attack" => 4, "pickup" => 2, "craft" => 6, "smelt" => 2, "place" => 3, "activate" => 2, "equip" => 2, "eat" => 2, "wait" => 1, _ => 12 } }
+fn quota(n: &str) -> usize { match n { "move_to" => 12, "mine" => 11, "attack" => 4, "pickup" => 2, "craft" => 6, "smelt" => 6, "place" => 8, "activate" => 2, "equip" => 2, "eat" => 4, "wait" => 1, _ => 12 } }
 pub const REASONS: [&str; 17] = ["ok", "invalid_args", "invalid_target", "missing_item", "missing_tool", "missing_materials", "no_station", "unreachable", "stuck", "not_visible", "not_confirmed", "target_lost", "timeout", "died", "disconnected", "cancelled", "internal"];
 pub const VIEW_W: usize = 16; pub const VIEW_H: usize = 8; const VIEW_R: f64 = 24.0;
 
@@ -143,6 +143,7 @@ pub fn candidates(s: &mut Sim) -> Vec<Cand> {
             done.push(n);
             sl.push(Cand { cmd: cmd_ix("smelt"), args: Args::Smelt(n.clone(), f), item: s.d.item(n), ent: 0, feat: feat(s, Some([f[0] as f64 + 0.5, f[1] as f64, f[2] as f64 + 0.5]), *c) });
         }
+        sl.sort_by_key(|c| match &c.args { Args::Smelt(n, _) => !n.starts_with("raw_"), _ => true });       // ores first, then the pack's slot order (stable)
         add(&mut parts, "smelt", sl);
     }
     // place
@@ -153,6 +154,8 @@ pub fn candidates(s: &mut Sim) -> Vec<Cand> {
     }
     if let Some(sp) = spot {
         let pl: Vec<Cand> = held.iter().filter(|h| placeable(&h.0)).map(|(n, c)| Cand { cmd: cmd_ix("place"), args: Args::Place(sp, n.clone()), item: s.d.item(n), ent: 0, feat: feat(s, Some([sp[0] as f64 + 0.5, sp[1] as f64, sp[2] as f64 + 0.5]), *c) }).collect();
+        let mut pl = pl;
+        pl.sort_by_key(|c| match &c.args { Args::Place(_, n) => match n.as_str() { "crafting_table" => 0, "furnace" => 1, _ => 2 }, _ => 2 });       // stations first, then the pack's slot order (stable)
         add(&mut parts, "place", pl);
     }
     // activate (beds)
@@ -165,6 +168,22 @@ pub fn candidates(s: &mut Sim) -> Vec<Cand> {
     }
     let used = 1 + parts.iter().filter(|p| p.0 != "craft").map(|p| p.1.len().min(quota(p.0))).sum::<usize>();       // 1 = wait
     let craft_slots = s.craft_slots.unwrap_or_else(|| quota("craft").max(K.saturating_sub(used)));
+    // Presentation audit (2026-11-05): per episode, how often a list was cut by its quota and how often a command that matters (a furnace or table to place,
+    // iron to smelt, an iron tool to craft) was on the list but behind the cut; written to the episode_end row (`audit`).
+    for (cmd, list) in &parts {
+        let q = if *cmd == "craft" { craft_slots } else { quota(cmd) };
+        if list.len() > q { *s.audit.entry(format!("cut_{cmd}")).or_default() += 1; }
+        for (i, c) in list.iter().enumerate() {
+            let key = match &c.args {
+                Args::Place(_, n) if n == "furnace" || n == "crafting_table" => Some(format!("place_{n}")),
+                Args::Smelt(n, _) if n.contains("iron") => Some(format!("smelt_{n}")),
+                Args::Craft(n, _) if n.starts_with("iron_") => Some(format!("craft_{n}")),
+                _ => None,
+            };
+            if let Some(k) = key { *s.audit.entry(format!("on_{k}")).or_default() += 1; if i >= q { *s.audit.entry(format!("hidden_{k}")).or_default() += 1; } }
+        }
+        *s.audit.entry(format!("calls_{cmd}")).or_default() += 1;
+    }
     let mut out: Vec<Cand> = vec![];
     for (cmd, list) in parts { out.extend(list.into_iter().take(if cmd == "craft" { craft_slots } else { quota(cmd) })); }
     out.push(Cand { cmd: cmd_ix("wait"), args: Args::Wait, item: 0, ent: 0, feat: feat(s, None, 0) });

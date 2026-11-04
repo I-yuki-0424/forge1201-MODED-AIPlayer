@@ -23,7 +23,9 @@ const K = 64;
 // Command kinds the policy can choose. 0 = padding.
 const CMDS = ['pad', 'move_to', 'mine', 'attack', 'pickup', 'craft', 'smelt', 'place', 'activate', 'equip', 'eat', 'wait', 'tunnel'];
 const CMD = Object.fromEntries(CMDS.map((c, i) => [c, i]));
-const QUOTA = { move_to: 12, mine: 11, attack: 4, pickup: 2, craft: 6, smelt: 2, place: 3, activate: 2, equip: 2, eat: 2, wait: 1, tunnel: 12 };
+// 2026-11-05 audit (tools/sim, docs/proposed/SCENARIO-v1.md): place 3 / smelt 2 / eat 2 in pack-slot order hid the crafting table (42 % of the steps it was held),
+// the furnace (16 %) and raw iron (56 %) at normal starts; quotas raised, stations and ores listed first (never behind the cut).
+const QUOTA = { move_to: 12, mine: 11, attack: 4, pickup: 2, craft: 6, smelt: 6, place: 8, activate: 2, equip: 2, eat: 4, wait: 1, tunnel: 12 };
 const REACH_NODES = 1500, REACH_RADIUS = 18;   // the flood behind "can the walker get there" (a few ms per step)
 const BLOCK_REACH = 4.1;                        // eye to block centre, a little inside the client's 4.5
 const WAIT_TICKS = 40;
@@ -43,6 +45,7 @@ const SMELTABLE = new Set(['raw_iron', 'raw_gold', 'raw_copper', 'iron_ore', 'go
     'deepslate_gold_ore', 'sand', 'red_sand', 'cobblestone', 'cobbled_deepslate', 'clay_ball', 'netherrack', 'ancient_debris',
     'beef', 'porkchop', 'chicken', 'mutton', 'rabbit', 'cod', 'salmon', 'potato', 'kelp', 'cactus', 'oak_log', 'spruce_log',
     'birch_log', 'jungle_log', 'acacia_log', 'dark_oak_log', 'mangrove_log', 'cherry_log', 'wet_sponge', 'create:raw_zinc', 'create:crushed_raw_iron']);
+const PLACE_FIRST = (n) => (n === 'crafting_table' ? 0 : n === 'furnace' ? 1 : 2);
 const PLACEABLE = /^(crafting_table|furnace|chest|torch|.*_bed|cobblestone|cobbled_deepslate|dirt|.*_planks|netherrack|stone|sand|gravel|oak_log|spruce_log|birch_log)$/;
 const ARMOR = /_(helmet|chestplate|leggings|boots)$/;
 const ARMOR_DEST = { helmet: 'head', chestplate: 'chest', leggings: 'legs', boots: 'feet' };
@@ -288,6 +291,7 @@ class SkillSpace {
         if (furnace) {
             add('smelt', inv.filter((i) => SMELTABLE.has(i.name) && inv.some((j) => j.name !== i.name && fuelValue(j.name) > 0))
                 .filter((i, n, a) => a.findIndex((j) => j.name === i.name) === n)
+                .sort((a, b) => /^raw_/.test(b.name) - /^raw_/.test(a.name))     // ores first, then the pack's slot order (stable sort)
                 .map((i) => ({ args: { item: i.name, count: 1, x: furnace.x, y: furnace.y, z: furnace.z }, item: this.item(i.name), ent: 0, feat: this.feat(new Vec3(furnace.x, furnace.y, furnace.z), i.count) })));
         }
 
@@ -298,6 +302,7 @@ class SkillSpace {
             if (w.kindAt(x, fy, z) === 'air' && w.kindAt(x, fy - 1, z) === 'solid') spots.push(new Vec3(x, fy, z));
         }
         add('place', spots.length ? inv.filter((i) => PLACEABLE.test(i.name)).filter((i, n, a) => a.findIndex((j) => j.name === i.name) === n)
+            .sort((a, b) => PLACE_FIRST(a.name) - PLACE_FIRST(b.name))     // stations first, then the pack's slot order (stable sort)
             .map((i) => ({ args: { x: spots[0].x, y: spots[0].y, z: spots[0].z, item: i.name }, item: this.item(i.name), ent: 0, feat: this.feat(spots[0].offset(0.5, 0, 0.5), i.count) })) : []);
 
         // activate: nearest beds and other interactive blocks within 8 that are in reach of a node (a bed at night = sleep).

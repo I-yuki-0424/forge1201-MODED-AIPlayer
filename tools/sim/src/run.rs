@@ -274,7 +274,8 @@ pub fn run(argv: &[String]) -> Result<(), String> {
             if bs[bi].msg.2 {
                 // episode over: one summary row (entries reached this episode with the step of the first time, deaths), then the next one
                 { let b = &bs[bi]; let row = J::o(vec![("event", J::st("episode_end")), ("env_id", J::n(b.env_id as f64)), ("episode", J::n(b.episode as f64)), ("steps", J::n(b.ep_steps as f64)), ("deaths", J::n(b.deaths as f64)), ("inv", J::Obj(b.sim.held().into_iter().map(|(k, v)| (k, J::n(v as f64))).collect())),
-                    ("reached", J::Obj(b.rew.at.iter().map(|(k, v)| (k.clone(), J::n(*v as f64))).collect()))]); let _ = writeln!(events, "{}", row.dump()); }
+                    ("reached", J::Obj(b.rew.at.iter().map(|(k, v)| (k.clone(), J::n(*v as f64))).collect())),
+                    ("audit", J::Obj({ let mut a: Vec<(String, J)> = b.sim.audit.iter().map(|(k, v)| (k.clone(), J::n(*v as f64))).collect(); a.sort_by(|x, y| x.0.cmp(&y.0)); a }))]); let _ = writeln!(events, "{}", row.dump()); }
                 let avoid = bs.iter().enumerate().find(|(i, _)| *i != bi).map(|(_, x)| x.tile);
                 let b = &mut bs[bi];
                 b.episode += 1;

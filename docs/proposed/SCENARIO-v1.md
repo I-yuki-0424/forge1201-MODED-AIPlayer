@@ -178,3 +178,23 @@ Outcome of the A/B/C runs (PC part `iron-X-g`, last fifth of the run, Wilson 95 
 
 If no row applies: use own judgment, fix the cause found, and try the main (normal-start, full-game) training so the time is used. Constraints that stay: no answer leakage or oracle at inference
 (DPOD CLAUDE.md), so a fix must be a rule of the interface (candidate set, observation, reward) that holds identically at evaluation, never a scripted solution fed at run time.
+
+
+## Presentation audit at normal starts (2026-11-05, owner table row "A is also high": audit the other categories)
+
+The simulator now counts, per episode (`episode_end.audit`), how often a command list was cut by its quota and how often a command that matters was on the list but behind the cut.
+Zero-shot `runc` on the plain game (`scenarios/normal.json`, 121 episodes, 41,861 decision steps), quotas as of 2026-11-04:
+
+| list | cut in | hidden behind the cut |
+|---|---:|---|
+| place (quota 3, pack-slot order) | 35.7 % of 29,404 steps | crafting table 42.2 % of the 11,109 steps it was offered, furnace 15.8 % of 8,479 |
+| smelt (quota 2, slot order) | 9.3 % of 3,778 steps | raw iron 55.6 % of 27 |
+| eat (quota 2) | 3.2 % | - |
+| craft (since 73c1a488: takes the free slots) | 0.0 % | - |
+| mine / move_to / attack / tunnel / activate | <= 0.5 % | - |
+
+The same defect as the craft cap, in two more lists, and it only shows in packs with many placeable stacks (normal starts; the kit scenarios hold 3-4 types, iron-c crafts a furnace
+and so can reach 4). Fix (simulator `obs.rs` and `skill_space.js`, identical): place quota 8, smelt 6, eat 4; stations (crafting table, furnace) listed first in place, raw ores first in smelt, the
+rest in slot order. Reproducers that fail on the old code: `scenario::tests::the_furnace_the_table_and_raw_iron_are_offered_however_full_the_pack_is` and
+`tests/test_rl_v2_pure.js` "place lists the crafting table and the furnace ...". Same audit after the fix (127 episodes, 43,084 steps): hidden 0.0 % everywhere, place cut 0.1 %, smelt 0.1 %;
+the unchanged `runc` policy reaches smelt_iron in 3 of 127 episodes (0 of 121 before). Caveat for the running A/B/C runs: they use the old binary; their kits make the place cut rare (A: 3 types) but iron-b/c can reach 4.

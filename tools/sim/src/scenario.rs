@@ -291,6 +291,26 @@ mod tests {
     }
 
     #[test]
+    fn the_furnace_the_table_and_raw_iron_are_offered_however_full_the_pack_is() {
+        // Found 2026-11-05 by the presentation audit (docs/proposed/SCENARIO-v1.md): `place` listed 3 and `smelt` 2 held items in pack-slot order, so at normal
+        // starts the crafting table was hidden in 42 % of the steps it was held, the furnace in 16 %, raw iron in 56 % of those it could be smelted.
+        let d = Rc::new(Data::load());
+        let sc = scn(&format!(r#"{{"id":"a",{},"place":[]}}"#, KIT), &d).unwrap();
+        let mut s = flat_sized(3);
+        sc.start(&mut s, &mut Rng(1)).unwrap();
+        for it in ["oak_log", "sand", "birch_planks", "dirt", "gravel", "torch", "chest", "stone"] { s.give(it, 4); }
+        s.give("furnace", 1);
+        let f = [s.pos[0], s.pos[1], s.pos[2] + 1];
+        assert!(s.do_place(f, "furnace").ok);          // a furnace in reach (the bot holds none now), then another one and the iron last in the pack
+        s.give("furnace", 1); s.give("raw_iron", 3);
+        let c = crate::obs::candidates(&mut s);
+        let place: Vec<String> = c.iter().filter_map(|c| match &c.args { crate::obs::Args::Place(_, n) => Some(n.clone()), _ => None }).collect();
+        let smelt: Vec<String> = c.iter().filter_map(|c| match &c.args { crate::obs::Args::Smelt(n, _) => Some(n.clone()), _ => None }).collect();
+        assert!(place.iter().any(|n| n == "furnace") && place.iter().any(|n| n == "crafting_table"), "place offered: {:?}", place);
+        assert_eq!(smelt.first().map(|x| x.as_str()), Some("raw_iron"), "smelt offered: {:?}", smelt);
+    }
+
+    #[test]
     fn stages_take_the_scenario_weights_and_the_preset_marks_the_unpaid_entries_done() {
         let d = Data::load();
         let sc = scn(r#"{"id":"w","reward":{"score":["collect_iron","smelt_iron"],"pre_done":"unscored","weights":{"survival":0,"death":0,"invalid":0}}}"#, &d).unwrap();

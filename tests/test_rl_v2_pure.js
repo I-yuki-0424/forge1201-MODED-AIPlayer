@@ -190,6 +190,16 @@ test('candidates: generic nearest-of-each-kind, within K, wait always present, e
     assert.ok(withPick.some((x) => x.cmd === 'mine' && voc.items[x.item] === 'iron_ore'), 'iron ore with a stone pickaxe');
 });
 
+test('candidates: place lists the crafting table and the furnace however many other blocks are held (2026-11-05: quota 3 in slot order hid the table 42 % and the furnace 16 % of the steps)', () => {
+    // slot order: the stations come LAST in the pack (picked up / crafted last), eleven placeable stacks in all
+    const pack = ['oak_log', 'birch_planks', 'cobblestone', 'dirt', 'sand', 'gravel', 'torch', 'chest', 'stone', 'furnace', 'crafting_table'];
+    const bot = worldBot(flatLayout, new Vec3(0.5, 64, 0.5), pack), voc = vocab(bot.registry, null);
+    const place = new SkillSpace(bot, voc).candidates().filter((x) => x.cmd === 'place').map((x) => x.args.item);
+    assert.ok(place.includes('furnace') && place.includes('crafting_table'), place.join());
+    assert.deepStrictEqual(place.slice(0, 2), ['crafting_table', 'furnace']);
+    assert.ok(place.length <= 8 && place.length > 3, place.join());
+});
+
 test('candidates: craft takes the slots the other commands leave free, so a recipe is not hidden behind alphabetically earlier ones (iron_pickaxe, 2026-11-04)', () => {
     const bot = worldBot(), voc = vocab(bot.registry, null), reg = bot.registry;
     const many = ['bowl', 'bucket', 'chest', 'cobblestone_slab', 'cobblestone_stairs', 'cobblestone_wall', 'furnace', 'heavy_weighted_pressure_plate', 'iron_pickaxe', 'lever', 'torch'];
