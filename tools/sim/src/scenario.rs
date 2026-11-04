@@ -329,6 +329,23 @@ mod tests {
     }
 
     #[test]
+    fn crafts_that_burn_iron_without_a_progress_entry_are_not_offered() {
+        // 2026-11-05: at normal starts a nugget craft ended the one or two ingots of an episode (502 nugget crafts in 270 smelting episodes of normal-kit).
+        let d = Rc::new(Data::load());
+        let sc = scn(&format!(r#"{{"id":"a",{},"place":[]}}"#, KIT), &d).unwrap();
+        let mut s = flat_sized(3);
+        sc.start(&mut s, &mut Rng(1)).unwrap();
+        s.give("iron_ingot", 9);
+        let t = [s.pos[0] + 1, s.pos[1], s.pos[2]];
+        assert!(s.do_place(t, "crafting_table").ok);
+        let offered = |s: &mut Sim| -> Vec<String> { crate::obs::candidates(s).iter().filter_map(|c| match &c.args { crate::obs::Args::Craft(n, _) => Some(n.clone()), _ => None }).collect() };
+        let c = offered(&mut s);
+        for sink in ["iron_nugget", "iron_shovel", "iron_hoe", "iron_axe", "bucket", "shears", "iron_helmet", "iron_block", "shield"] { assert!(!c.iter().any(|n| n == sink), "{} offered: {:?}", sink, c); }
+        assert!(c.iter().any(|n| n == "iron_pickaxe") && c.iter().any(|n| n == "iron_sword"), "offered: {:?}", c);
+        assert!(s.craftable(true).iter().any(|n| n == "iron_nugget"), "the sink is still a legal craft, just not offered");
+    }
+
+    #[test]
     fn stages_take_the_scenario_weights_and_the_preset_marks_the_unpaid_entries_done() {
         let d = Data::load();
         let sc = scn(r#"{"id":"w","reward":{"score":["collect_iron","smelt_iron"],"pre_done":"unscored","weights":{"survival":0,"death":0,"invalid":0}}}"#, &d).unwrap();

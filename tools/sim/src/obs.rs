@@ -29,6 +29,9 @@ fn feat(s: &Sim, pos: Option<[f64; 3]>, count: u32) -> [f64; 8] {
 fn placeable(n: &str) -> bool {
     matches!(n, "crafting_table" | "furnace" | "chest" | "torch" | "cobblestone" | "cobbled_deepslate" | "dirt" | "netherrack" | "stone" | "sand" | "gravel" | "oak_log" | "spruce_log" | "birch_log") || n.ends_with("_bed") || n.ends_with("_planks")
 }
+pub fn iron_sink(d: &crate::data::Data, name: &str) -> bool {
+    !matches!(name, "iron_pickaxe" | "iron_sword") && d.recipes.iter().any(|r| r.result == name && r.need.iter().any(|(n, _)| matches!(n.as_str(), "iron_ingot" | "iron_nugget" | "iron_block" | "raw_iron" | "raw_iron_block")))
+}
 fn in_reach(nodes: &[[i32; 3]], x: i32, y: i32, z: i32) -> bool {
     nodes.iter().any(|n| ((n[0] - x) as f64).powi(2) + (n[1] as f64 + EYE - y as f64 - 0.5).powi(2) + ((n[2] - z) as f64).powi(2) <= BLOCK_REACH * BLOCK_REACH)
 }
@@ -166,6 +169,9 @@ pub fn candidates(s: &mut Sim) -> Vec<Cand> {
     // craft
     let held = s.held();
     let mut cr = s.craftable(table.is_some());
+    // Iron sinks (2026-11-05, owner table row "smelting high, pickaxe low"): a craft that burns iron (nuggets, shovel, hoe, shears, bucket, armour, blocks ...) is not offered unless its result
+    // has a progress entry (iron_pickaxe, iron_sword); at normal starts there are one or two ingots per episode and a nugget craft ended 502 of them in 270 smelting episodes.
+    cr.retain(|n| !iron_sink(&s.d, n));
     cr.sort_by(|a, b| (held.iter().any(|h| &h.0 == a) as u8).cmp(&(held.iter().any(|h| &h.0 == b) as u8)).then(a.cmp(b)));
     let crl: Vec<Cand> = cr.into_iter().map(|n| { let needs = s.recipe_for(&n, false).is_none(); Cand { cmd: cmd_ix("craft"), args: Args::Craft(n.clone(), if needs { table } else { None }), item: s.d.item(&n), ent: 0, feat: feat(s, None, 1) } }).collect();
     add(&mut parts, "craft", crl);

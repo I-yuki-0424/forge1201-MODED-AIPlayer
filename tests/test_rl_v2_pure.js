@@ -222,9 +222,17 @@ test('candidates: an ore seen 12 blocks ahead is offered as a move_to with its i
     assert.ok(!back.some((x) => x.cmd === 'move_to' && x.item === ironIx), 'the ore behind the bot must not be offered');
 });
 
+test('candidates: crafts that burn iron without a progress entry are not offered (iron sinks, 2026-11-05); iron_pickaxe and iron_sword are', () => {
+    const bot = worldBot(), voc = vocab(bot.registry, null), reg = bot.registry;
+    const all = ['iron_nugget', 'iron_ingot', 'iron_block', 'iron_shovel', 'iron_hoe', 'iron_axe', 'shears', 'bucket', 'iron_helmet', 'shield', 'iron_pickaxe', 'iron_sword', 'stone_pickaxe', 'furnace'];
+    bot.recipesFor = (id) => (all.includes(reg.items[id].name) ? [{}] : []);
+    const crafts = new SkillSpace(bot, voc).candidates().filter((x) => x.cmd === 'craft').map((x) => voc.items[x.item]);
+    assert.deepStrictEqual(crafts.sort(), ['furnace', 'iron_pickaxe', 'iron_sword', 'stone_pickaxe'], crafts.join());
+});
+
 test('candidates: craft takes the slots the other commands leave free, so a recipe is not hidden behind alphabetically earlier ones (iron_pickaxe, 2026-11-04)', () => {
     const bot = worldBot(), voc = vocab(bot.registry, null), reg = bot.registry;
-    const many = ['bowl', 'bucket', 'chest', 'cobblestone_slab', 'cobblestone_stairs', 'cobblestone_wall', 'furnace', 'heavy_weighted_pressure_plate', 'iron_pickaxe', 'lever', 'torch'];
+    const many = ['bowl', 'chest', 'cobblestone_slab', 'cobblestone_stairs', 'cobblestone_wall', 'furnace', 'iron_pickaxe', 'lever', 'torch'];
     bot.recipesFor = (id) => (many.includes(reg.items[id].name) ? [{}] : []);
     const c = new SkillSpace(bot, voc).candidates();
     const crafts = c.filter((x) => x.cmd === 'craft').map((x) => x.args.item);

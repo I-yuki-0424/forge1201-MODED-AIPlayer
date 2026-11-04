@@ -218,3 +218,18 @@ Positive control for (2), scenario B, same worlds and seed (505), the scripted i
 `iron` (falls back to random moves when no iron is minable) collect_iron 60.6 % [54.3, 66.5], pickaxe 27.6 % [22.4, 33.5]; `iron-ap` (takes the approach candidate for iron when offered) collect_iron
 73.7 % [67.9, 78.8], pickaxe 40.5 % [34.6, 46.7]. So the interface change helps B by about 13 points of reach, not by more: the ore is offered only when it is inside the 110 degree field of view and
 not hidden, the rest still needs turning and walking around. `iron-b-g` (learned, no approach candidates) reached 67 % (that is above the scripted random-walk fallback, below the scripted approach).
+
+## Normal starts after 2.5 h of the three runs (2026-11-05 08:40 JST) and the iron-sink mask
+
+At 2.4-3.0 M steps beyond `runc` (blocks of 60 episodes, collect_iron / smelt_iron / pickaxe):
+`main1` (plain normal starts, presentation fix only, 3,169 episodes): 25 % / 11 % / 1 of 3,169, flat over all blocks (0.31 0.17 0.23 0.30 0.21; smelt 0.11 0.09 0.11 0.13 0.13): **the presentation fix alone does not move the plateau**. `normal-ap`
+(VPS CPU, plain normal starts + fix + approach, 364 episodes): 27 % / 12 % / 0, flat. `normal-kit` (A/B/C materials, no furnace, natural iron, fix + approach, 2,284 episodes): the only one still rising,
+collect_iron 0.13 -> 0.30 and smelt_iron 0.07 -> 0.19 across the blocks, first pickaxes (4 of 2,284, 0.01 in the last block). With the materials the policy builds its own furnace every time it smelts (267 of 267).
+Where the iron goes (episodes that smelted): normal-kit 502 `iron_nugget` crafts (one ingot each) against 215 ingots rebuilt, ingots held at the end 0 in 250 of 270; main1 887 nugget crafts in 363 episodes.
+At normal starts there are only one or two ingots per episode, so one nugget craft ends the chain (the zero-shot finding of the first section, now at the real start).
+
+Owner table row "smelting high, pickaxe low" (narrow the craft candidates): a craft that burns iron (recipe uses iron_ingot, iron_nugget, iron_block, raw_iron, raw_iron_block) is not offered unless its result has a
+progress entry (`iron_pickaxe`, `iron_sword`). One rule in both implementations (`skill_space.js` `ironSink`, `obs.rs` `iron_sink`), identical at evaluation; the crafts stay legal, they are just not on the list.
+Tests: `candidates: crafts that burn iron without a progress entry are not offered` and `crafts_that_burn_iron_without_a_progress_entry_are_not_offered`.
+Experiment: `normal-kit` stopped at its checkpoint and forked into `kit-ctl` (simulator build with fix + approach) and `kit-mask` (+ iron-sink mask), same seed 81, same checkpoint, both to 7.0 M absolute steps on the PC GPU;
+the difference between them is the mask alone.

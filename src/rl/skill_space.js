@@ -46,6 +46,7 @@ const SMELTABLE = new Set(['raw_iron', 'raw_gold', 'raw_copper', 'iron_ore', 'go
     'deepslate_gold_ore', 'sand', 'red_sand', 'cobblestone', 'cobbled_deepslate', 'clay_ball', 'netherrack', 'ancient_debris',
     'beef', 'porkchop', 'chicken', 'mutton', 'rabbit', 'cod', 'salmon', 'potato', 'kelp', 'cactus', 'oak_log', 'spruce_log',
     'birch_log', 'jungle_log', 'acacia_log', 'dark_oak_log', 'mangrove_log', 'cherry_log', 'wet_sponge', 'create:raw_zinc', 'create:crushed_raw_iron']);
+const IRON_FAMILY = new Set(['iron_ingot', 'iron_nugget', 'iron_block', 'raw_iron', 'raw_iron_block']), IRON_PAID = new Set(['iron_pickaxe', 'iron_sword']);
 const PLACE_FIRST = (n) => (n === 'crafting_table' ? 0 : n === 'furnace' ? 1 : 2);
 const PLACEABLE = /^(crafting_table|furnace|chest|torch|.*_bed|cobblestone|cobbled_deepslate|dirt|.*_planks|netherrack|stone|sand|gravel|oak_log|spruce_log|birch_log)$/;
 const ARMOR = /_(helmet|chestplate|leggings|boots)$/;
@@ -361,6 +362,15 @@ class SkillSpace {
         return out.slice(0, K);
     }
 
+    /** Iron sinks (2026-11-05, owner table row "smelting high, pickaxe low"): a craft that burns iron (nuggets, shovel, hoe, shears, bucket, armour, blocks ...) is not offered
+     *  unless its result has a progress entry (iron_pickaxe, iron_sword). At normal starts there are one or two ingots per episode; a nugget craft ended 502 of them in 270 smelting episodes. */
+    ironSink(id) {
+        const reg = this.bot.registry, name = reg.items[id] && reg.items[id].name;
+        if (!name || IRON_PAID.has(name)) return false;
+        const ids = (v) => (Array.isArray(v) ? v.flatMap(ids) : v === null || v === undefined ? [] : [typeof v === 'object' ? v.id : v]);
+        return (reg.recipes[id] || []).some((r) => [...ids(r.ingredients), ...ids(r.inShape)].some((i) => IRON_FAMILY.has(reg.items[i] && reg.items[i].name)));
+    }
+
     /** The recipe needs the 3x3 grid (not craftable in the inventory's 2x2). */
     needsTable(name) {
         const bot = this.bot, id = bot.registry.itemsByName[name]?.id;
@@ -376,7 +386,7 @@ class SkillSpace {
         if (this.recipeCache.key === key) return this.recipeCache.out;
         const out = [];
         for (const id of Object.keys(bot.registry.recipes || {})) {
-            if (bot.recipesFor(Number(id), null, 1, table || null).length) out.push(bot.registry.items[id].name);
+            if (bot.recipesFor(Number(id), null, 1, table || null).length && !this.ironSink(Number(id))) out.push(bot.registry.items[id].name);
         }
         // Prefer results not held yet, then a stable order, so the quota does not always show the same planks.
         const held = new Set(bot.inventory.items().map((i) => i.name));
