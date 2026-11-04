@@ -73,3 +73,12 @@ It is neither of the two clean cases. By link:
 - Whether this is the design's limit or a matter of data is not decided by these runs.
 
 Files: `tools/sim/entries.py`, `iron.py`, `ingots.py` (usage in their docstrings); raw numbers `~/x/entries_runc.json` on the PC; checkpoints `/mnt/data/forgeaip/pc-runs-20261104/`.
+
+## Addendum 2026-11-04: a cause this analysis missed (see [SCENARIO-v1](SCENARIO-v1.md))
+
+The finding "`craft_iron_pickaxe` is never offered" (section 2, last row) was read as "no sticks and no table in reach". A scripted solver given everything (3 ingots,
+64 sticks, a placed table) was **still never offered the pickaxe**: the craft candidates were cut to 6 in "not held first, then alphabetical" order, and with stone in
+the pack `iron_pickaxe` is the 11th of 21 craftable results (`skill_space.js` and the simulator alike). So part of the "never reached" is a defect of the candidate list that
+no learning rate could have changed, and the 0.00 for `craft_iron_pickaxe` and everything after it says nothing about the policy. The same applied to any late-alphabet recipe
+in a full pack (the stone tier was less exposed because few recipes are craftable that early). Fixed in 73c1a488; the numbers above are left as measured.
+

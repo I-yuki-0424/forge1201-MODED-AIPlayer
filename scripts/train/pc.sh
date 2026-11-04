@@ -6,7 +6,7 @@
 # between the two exchange/ directories what the other side reads. Nothing on the PC listens beyond loopback.
 #   scripts/train/pc.sh up --groups G [--fresh-world]     (base, bots, days, speed: exchange/.train-env from up.sh)
 #   scripts/train/pc.sh down | status | pause | resume | gpu-setup
-#   scripts/train/pc.sh wsl-install | wsl-up --base B [--seed N --shards S --max-steps N --gpu-fraction F --learner-args "..." --scenario NAME --resume-from FILE] | wsl-put FILE | wsl-down [--base B] | wsl-status | wsl-pull   (sim shards + GPU learner, all in WSL2; pc/wsl-sim.sh)
+#   scripts/train/pc.sh wsl-install | wsl-up --base B [--seed N --shards S --max-steps N --gpu-fraction F --learner-args "..." --scenario NAME --resume-from FILE] | wsl-put FILE | wsl-report BASE.. | wsl-down [--base B] | wsl-status | wsl-pull   (sim shards + GPU learner, all in WSL2; pc/wsl-sim.sh)
 #   pause/resume: create/remove C:\forgeaip\PAUSE (the supervisor stops everything gracefully / starts it again). The supervisor also
 #     pauses by itself 12:00-18:00 JST every day (owner 2026-11-02); scripts/train/window.sh does the same for the VPS side.
 #   gpu-setup: CUDA jax for the learner in WSL2 (the only supported GPU route for jax on Windows); needs WSL installed first by the
@@ -96,6 +96,10 @@ wsl-put)   # a file (a learner checkpoint, for --resume-from) -> ~/x/seed/ in WS
   [ -f "${WSLARGS[0]:-}" ] || { echo "usage: pc.sh wsl-put FILE" >&2; exit 2; }
   b=$(basename "${WSLARGS[0]}"); [[ $b =~ ^[A-Za-z0-9._-]+$ ]] || { echo "bad file name" >&2; exit 2; }
   scp_to "${WSLARGS[0]}" "$HOST:C:/forgeaip/dl/$b"; f=$(mktemp); printf 'mkdir -p ~/x/seed && cp /mnt/c/forgeaip/dl/%s ~/x/seed/%s && ls -l ~/x/seed/%s\n' "$b" "$b" "$b" > "$f"; wsl_run "$f"; rm -f "$f"; exit 0;;
+wsl-report)   # tools/sim/scn_report.py over the run files of the given bases on the PC (scenario runs: reach per entry, curves, route, iron sinks)
+  [ "${#WSLARGS[@]}" -ge 1 ] || { echo "usage: pc.sh wsl-report BASE.. [--blocks N] [--entries a,b]" >&2; exit 2; }
+  for a in "${WSLARGS[@]}"; do [[ $a =~ ^[A-Za-z0-9_,.-]+$ ]] || { echo "bad argument $a" >&2; exit 2; }; done
+  scp_to "$REPO/tools/sim/scn_report.py" "$HOST:C:/forgeaip/dl/"; f=$(mktemp); printf 'python3 /mnt/c/forgeaip/dl/scn_report.py "$HOME/x" %s\n' "${WSLARGS[*]}" > "$f"; wsl_run "$f"; rm -f "$f"; exit 0;;
 wsl-pull)   # the learning-status files of every run on the PC -> exchange/tb/<base>/ here (tb.sh then shows them next to the VPS runs)
   f=$(mktemp); cat > "$f" <<'EOS'
 rm -rf /mnt/c/forgeaip/dl/tbpull; mkdir -p /mnt/c/forgeaip/dl/tbpull
