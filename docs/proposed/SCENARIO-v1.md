@@ -213,3 +213,8 @@ Changes made on this finding: (1) presentation quotas and order (previous sectio
 rarest types in view first, at most 6, as `move_to` to the nearest standable reachable cell beside it with that block's item type (JS `skill_space.js` and `obs.rs`, tests
 `an ore seen 12 blocks ahead ...` / `an_ore_seen_12_blocks_ahead_is_offered_as_a_move_with_its_item`, both also check that an ore behind the bot is not offered). Runs: `main1` = `runc` continued at normal
 starts with change (1) only (the control); next `iron-b-ap` = scenario B from `runc` with (1)+(2), 2 M steps, compared with `iron-b-g`.
+
+Positive control for (2), scenario B, same worlds and seed (505), the scripted iron solver of `tools/sim/tests/smoke_policy.py` (it sees only the inventory and the offered candidates), ~250 episodes each:
+`iron` (falls back to random moves when no iron is minable) collect_iron 60.6 % [54.3, 66.5], pickaxe 27.6 % [22.4, 33.5]; `iron-ap` (takes the approach candidate for iron when offered) collect_iron
+73.7 % [67.9, 78.8], pickaxe 40.5 % [34.6, 46.7]. So the interface change helps B by about 13 points of reach, not by more: the ore is offered only when it is inside the 110 degree field of view and
+not hidden, the rest still needs turning and walking around. `iron-b-g` (learned, no approach candidates) reached 67 % (that is above the scripted random-walk fallback, below the scripted approach).

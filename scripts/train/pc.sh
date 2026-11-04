@@ -70,7 +70,7 @@ Remove-Item -Force -ErrorAction SilentlyContinue 'C:\forgeaip\PAUSE'
 'pc: PAUSE removed'
 EOF
   exit 0;;
-wsl-install)   # everything the WSL training needs, from this checkout (tiles 833 MB the first time)
+wsl-install)   # everything the WSL training needs, from this checkout (tiles 833 MB the first time); SIM_NAME=... keeps the running simulator build
   ssh_dir='if not exist C:\forgeaip\dl\sim-tiles mkdir C:\forgeaip\dl\sim-tiles'; "${SSH[@]}" "$ssh_dir" >/dev/null
   [ -x "$REPO/tools/sim/target/bookworm/release/forgeaip-sim" ] || "$REPO/tools/sim/build.sh"
   T=$(mktemp -d); (cd "$DPOD" && tar czf "$T/dpod.tgz" --exclude=__pycache__ scripts/botsystem_*.py integrations src)
@@ -84,14 +84,14 @@ wsl-install)   # everything the WSL training needs, from this checkout (tiles 83
 set -e
 D=/mnt/c/forgeaip/dl
 mkdir -p ~/sim/tiles ~/sim/r ~/x/logs ~/dpod
-cp "$D/forgeaip-sim" ~/sim/forgeaip-sim.new && mv -f ~/sim/forgeaip-sim.new ~/sim/forgeaip-sim; cp "$D/forgeaip-tblog" ~/sim/forgeaip-tblog.new && mv -f ~/sim/forgeaip-tblog.new ~/sim/forgeaip-tblog; chmod +x ~/sim/forgeaip-sim ~/sim/forgeaip-tblog
+N=${1:-forgeaip-sim}; cp "$D/forgeaip-sim" ~/sim/$N.new && mv -f ~/sim/$N.new ~/sim/$N; cp "$D/forgeaip-tblog" ~/sim/forgeaip-tblog.new && mv -f ~/sim/forgeaip-tblog.new ~/sim/forgeaip-tblog; chmod +x ~/sim/$N ~/sim/forgeaip-tblog
 cp "$D/reward-v6.json" "$D/progress-list.json" ~/sim/r/; mkdir -p ~/sim/r/scenarios; cp "$D"/scenarios/*.json ~/sim/r/scenarios/
 [ "$(ls ~/sim/tiles | wc -l)" -ge "$(ls $D/sim-tiles | wc -l)" ] || cp "$D"/sim-tiles/*.tile ~/sim/tiles/
 rm -rf ~/dpod/scripts ~/dpod/integrations ~/dpod/src; (cd ~/dpod && tar xzf "$D/dpod.tgz")
-cp "$D/wsl-sim.sh" ~/sim/wsl-sim.sh && chmod +x ~/sim/wsl-sim.sh; cp "$D/profile_learner.py" ~/
+cp "$D/wsl-sim.sh" ~/sim/wsl-sim.sh.new && chmod +x ~/sim/wsl-sim.sh.new && mv -f ~/sim/wsl-sim.sh.new ~/sim/wsl-sim.sh;   # rename, not overwrite: running supervisors keep the old file cp "$D/profile_learner.py" ~/
 echo "installed: $(ls ~/sim/tiles | wc -l) tiles"
 EOS
-  wsl_run "$T/install.sh"; rm -rf "$T"; exit 0;;
+  wsl_run "$T/install.sh" "${SIM_NAME:-forgeaip-sim}"; rm -rf "$T"; exit 0;;   # SIM_NAME=forgeaip-sim-xx installs this build next to the running one (wsl-up --sim-bin)
 wsl-put)   # a file (a learner checkpoint, for --resume-from) -> ~/x/seed/ in WSL
   [ -f "${WSLARGS[0]:-}" ] || { echo "usage: pc.sh wsl-put FILE" >&2; exit 2; }
   b=$(basename "${WSLARGS[0]}"); [[ $b =~ ^[A-Za-z0-9._-]+$ ]] || { echo "bad file name" >&2; exit 2; }

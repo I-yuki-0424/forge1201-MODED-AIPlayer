@@ -3,7 +3,7 @@
 # (DPOD botsystem_goal_ppo.py, CUDA jax from `pc.sh gpu-setup`), all on one ext4 disk. Several runs can share the machine (own base name, own
 # GPU memory share). Each run has a supervisor that restarts whatever dies, pauses in the quiet hours and writes the status. Driven from the VPS by
 # `scripts/train/pc.sh wsl-up|wsl-down|wsl-status`.
-#   wsl-sim.sh up --base A [--seed 42] [--shards 8] [--bots 2] [--days 3] [--max-steps 2000000] [--gpu-fraction 0.38] [--learner-args "..."] [--scenario iron-a] [--resume-from FILE]
+#   wsl-sim.sh up --base A [--sim-bin forgeaip-sim-ap (another installed build of the simulator; `SIM_NAME=forgeaip-sim-ap pc.sh wsl-install`)] [--seed 42] [--shards 8] [--bots 2] [--days 3] [--max-steps 2000000] [--gpu-fraction 0.38] [--learner-args "..."] [--scenario iron-a] [--resume-from FILE]
 #     --scenario NAME: every shard runs ~/sim/r/scenarios/NAME.json (tools/sim/scenarios, SCENARIO-v1.md). --resume-from FILE: the run starts from that learner
 #     checkpoint (copied to ~/x/<base>/train/checkpoint.pkl if there is none; --max-steps then counts from the steps in the file).
 #   wsl-sim.sh down [--base A]      (no base: every run)        wsl-sim.sh status
@@ -14,10 +14,10 @@
 set -u
 X=$HOME/x PY=$HOME/gpuvenv/bin/python SIM=$HOME/sim
 cmd=${1:-status}; shift || true
-base="" seed=42 shards=8 bots=2 days=3 maxsteps=2000000 frac=0.38 scn="" resume="" largs="--scale 4 --tf32 1 --n-max 256 --enc-chunk 128 --aux-batch 64 --max-queue 200"
+base="" seed=42 shards=8 bots=2 days=3 maxsteps=2000000 frac=0.38 scn="" resume="" simbin=forgeaip-sim largs="--scale 4 --tf32 1 --n-max 256 --enc-chunk 128 --aux-batch 64 --max-queue 200"
 while [ $# -gt 0 ]; do case $1 in --base) base=$2; shift 2;; --seed) seed=$2; shift 2;; --shards) shards=$2; shift 2;; --bots) bots=$2; shift 2;; --days) days=$2; shift 2;;
-  --max-steps) maxsteps=$2; shift 2;; --gpu-fraction) frac=$2; shift 2;; --learner-args) largs=$2; shift 2;; --scenario) scn=$2; shift 2;; --resume-from) resume=$2; shift 2;; *) echo "unknown option $1" >&2; exit 2;; esac; done
-[[ ${base:-x} =~ ^[a-z0-9_-]{1,40}$ && $seed =~ ^[0-9]+$ && $shards =~ ^[0-9]+$ && $bots =~ ^[1-8]$ && $days =~ ^[0-9]+$ && $maxsteps =~ ^[0-9]+$ && $frac =~ ^0\.[0-9]+$ && $largs =~ ^[-a-z0-9\ .]*$ ]] || { echo "bad option value" >&2; exit 2; }
+  --max-steps) maxsteps=$2; shift 2;; --gpu-fraction) frac=$2; shift 2;; --learner-args) largs=$2; shift 2;; --scenario) scn=$2; shift 2;; --resume-from) resume=$2; shift 2;; --sim-bin) simbin=$2; shift 2;; *) echo "unknown option $1" >&2; exit 2;; esac; done
+[[ ${base:-x} =~ ^[a-z0-9_-]{1,40}$ && $seed =~ ^[0-9]+$ && $shards =~ ^[0-9]+$ && $bots =~ ^[1-8]$ && $days =~ ^[0-9]+$ && $maxsteps =~ ^[0-9]+$ && $frac =~ ^0\.[0-9]+$ && $simbin =~ ^forgeaip-sim[a-z0-9-]*$ && $largs =~ ^[-a-z0-9\ .]*$ ]] || { echo "bad option value" >&2; exit 2; }
 mkdir -p "$X/logs" "$X/tb"
 
 launch_learner() {  # appends to the log; resumes from the checkpoint if there is one
@@ -26,7 +26,7 @@ launch_learner() {  # appends to the log; resumes from the checkpoint if there i
   LPID=$!
 }
 launch_shard() {  # launch_shard <i>
-  setsid nohup "$SIM/forgeaip-sim" run --root "$X" --base "$base" --shard "$1" --bots "$bots" --days "$days" --tiles "$SIM/tiles" --world "vps-s$(($1 % 5))" \
+  setsid nohup "$SIM/$simbin" run --root "$X" --base "$base" --shard "$1" --bots "$bots" --days "$days" --tiles "$SIM/tiles" --world "vps-s$(($1 % 5))" \
     --reward "$SIM/r/reward-v6.json" --progress "$SIM/r/progress-list.json" --seed "$((seed * 100 + $1))" ${scn:+--scenario "$SIM/r/scenarios/$scn.json"} >> "$X/logs/$base-shard$1.log" 2>&1 < /dev/null &
   SPID[$1]=$!
 }
@@ -69,7 +69,7 @@ up)
     [ -f "$resume" ] || { echo "--resume-from: no file $resume" >&2; exit 2; }
     mkdir -p "$X/$base/train"; [ -f "$X/$base/train/checkpoint.pkl" ] || cp "$resume" "$X/$base/train/checkpoint.pkl"
   fi
-  setsid nohup "$0" supervise --base "$base" --seed "$seed" --shards "$shards" --bots "$bots" --days "$days" --max-steps "$maxsteps" --gpu-fraction "$frac" --learner-args "$largs" ${scn:+--scenario "$scn"} > "$X/logs/$base-supervisor.log" 2>&1 < /dev/null &
+  setsid nohup "$0" supervise --base "$base" --seed "$seed" --shards "$shards" --bots "$bots" --days "$days" --max-steps "$maxsteps" --gpu-fraction "$frac" --learner-args "$largs" --sim-bin "$simbin" ${scn:+--scenario "$scn"} > "$X/logs/$base-supervisor.log" 2>&1 < /dev/null &
   echo $! > "$X/$base.sup.pid"
   # the learning-status viewer, once for every run: TensorBoard on the PC's own localhost
   if ! pgrep -f "tensorboard --logdir $X/tb" >/dev/null; then
@@ -114,7 +114,7 @@ down)
   # `down --base A` touches only run A (its supervisor, learner, shards, follower); without a base, every run and TensorBoard.
   for s in "$X"/*.sup.pid; do [ -f "$s" ] || continue; b=$(basename "$s" .sup.pid); [ -n "$base" ] && [ "$base" != "$b" ] && continue
     kill -CONT "$(cat "$s")" 2>/dev/null; kill -TERM "$(cat "$s")" 2>/dev/null; rm -f "${s:?}"
-    pat_l="botsystem_goal_ppo.py --root $X --base $b "; pat_s="forgeaip-sim run --root $X --base $b "
+    pat_l="botsystem_goal_ppo.py --root $X --base $b "; pat_s="forgeaip-sim[a-z0-9-]* run --root $X --base $b "
     for p in $(pgrep -f -- "$pat_s") $(pgrep -f -- "$pat_l") $(pgrep -f -- "forgeaip-tblog --dir $X/$b/"); do kill -CONT "$p" 2>/dev/null; kill -TERM "$p" 2>/dev/null; done   # the learner writes its checkpoint first
     for t in $(seq 1 90); do pgrep -f -- "$pat_l" > /dev/null || break; sleep 1; done
     pkill -KILL -f -- "$pat_l" 2>/dev/null; pkill -KILL -f -- "$pat_s" 2>/dev/null
@@ -125,6 +125,6 @@ down)
   echo "wsl-sim down";;
 status)
   for f in "$X"/status.*.txt; do [ -f "$f" ] && cat "$f"; done
-  echo "processes: learners $(pgrep -fc 'botsystem_goal_ppo.py --root') shards $(pgrep -fc 'forgeaip-sim run')"; nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader 2>/dev/null;;
+  echo "processes: learners $(pgrep -fc 'botsystem_goal_ppo.py --root') shards $(pgrep -fc 'forgeaip-sim[a-z0-9-]* run')"; nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader 2>/dev/null;;
 *) echo "usage: $0 up|down|status [options]" >&2; exit 2;;
 esac

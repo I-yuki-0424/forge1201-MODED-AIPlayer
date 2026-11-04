@@ -1,6 +1,6 @@
 """Smoke test for forgeaip-sim: plays the file API as a policy (the DPOD scripted teacher on the progress-list goals, random
 otherwise), prints throughput, success rates per command, failure reasons and the progress reached. stdlib + numpy-free teacher import.
-  python3 smoke_policy.py <exchange root> <base> <shard> <seconds> <dpod scripts dir> [random|teacher|iron] [steps.jsonl]
+  python3 smoke_policy.py <exchange root> <base> <shard> <seconds> <dpod scripts dir> [random|teacher|iron|iron-ap] [steps.jsonl]
 Mode `iron` is the positive control of the iron scenarios (SCENARIO-v1): a scripted solver that sees only what the policy sees (inventory and the offered
 candidates) and plays mine iron -> furnace (placed or built) -> smelt -> table -> iron pickaxe.
 With a steps.jsonl path every step is logged (command, outcome reason, ticks, reward, progress, clock): the same measurement
@@ -28,7 +28,7 @@ items, milestones, teacher = None, None, None
 ok, tot, reasons, last_cmd = collections.Counter(), collections.Counter(), collections.Counter(), {}
 best, eps, steps, rets = {}, 0, 0, collections.defaultdict(float)
 random.seed(1)
-def iron_choice(t, o):
+def iron_choice(t, o, ap=False):
     """Next candidate of the scripted iron solver, or -1 (no opinion: the caller picks one at random, which moves around)."""
     inv, cs = t.inventory(o), t.cands(o)
     first = lambda cmd, item: next((c[0] for c in sorted(cs, key=lambda c: float(c[3][3])) if c[1] == cmd and c[2] == item), -1)
@@ -41,7 +41,9 @@ def iron_choice(t, o):
         for a in (first("smelt", "raw_iron"), first("place", "furnace"), first("craft", "furnace"), first("place", "crafting_table")):
             if a >= 0: return a
     if raw + ing < 3:
-        return first("mine", "iron_ore")
+        a = first("mine", "iron_ore")
+        if a < 0 and ap: a = first("move_to", "iron_ore")      # mode iron-ap: walk to the ore that is seen but beyond mining range (approach candidates, 2026-11-05)
+        return a
     return -1
 def send(m):
     global seq
@@ -86,7 +88,7 @@ while time.time() - t_start < secs:
                 print(f"episode end env {e}: progress {int(sum(o['progress'][:-2]))}/{len(milestones)} days {o['progress'][-2]*10:.0f} return {rets[e]:.2f}", flush=True); rets[e] = 0
                 continue
             a = -1
-            if mode == "iron": a = iron_choice(teacher, o)
+            if mode in ("iron", "iron-ap"): a = iron_choice(teacher, o, mode == "iron-ap")
             elif not use_random:
                 for i, p in enumerate(o["progress"][:-2]):
                     if p == 0 and milestones[i] in bt.GOALS: a = teacher.choose(o, milestones[i]); break
