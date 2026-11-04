@@ -37,6 +37,7 @@ const INV_N = 36, ENT_N = 8, ENT_R = 16, ENT_F = 5, SELF_N = 20;
 // v2.0 view (owner 2026-11-01): what the player sees in front, as a semantic image. One ray per cell of a VIEW_W x VIEW_H grid
 // over the field of view, first block hit within VIEW_R (no x-ray: blocks behind others are never seen): block category, the
 // block's item id (ores keep their identity, which the category loses) and the distance. Rays that hit nothing: air, 1.0.
+const APPROACH_MIN = 5.5, APPROACH_N = 6;   // approach: seen blocks farther than the mine range; at most 6 types
 const VIEW_W = 16, VIEW_H = 8, VIEW_R = 24, VIEW_FOV_X = (110 * Math.PI) / 180, VIEW_PITCH = [-60, 40].map((d) => (d * Math.PI) / 180);
 const VIEW_N = VIEW_W * VIEW_H;
 const CLOCK_N = 3;   // share of the episode's days gone (env v3.0: the episode ends at 1, so time left is observed), log1p(step)/10, time of day
@@ -220,6 +221,40 @@ class SkillSpace {
             }
         }
         add('move_to', moves);
+
+        // approach (2026-11-05, scenario B: the ore 10-16 blocks away and not in front was reached in 67 % of the episodes where in front it is 98 %; move_to had only
+        // world-axis headings, the view is relative to the facing): the nearest SEEN block (the same first-hit rays as `view`, no x-ray) of each type beyond the
+        // mine range, rarest types in view first, as a move_to to the nearest standable reachable cell beside it. Generic: no block type is named here.
+        {
+            const eye = { x: p.x, y: p.y + EYE, z: p.z }, seen = new Map();
+            for (let j = 0; j < VIEW_H; j++) {
+                const pitch = VIEW_PITCH[1] - (j + 0.5) * (VIEW_PITCH[1] - VIEW_PITCH[0]) / VIEW_H;
+                for (let i = 0; i < VIEW_W; i++) {
+                    const yaw = bot.entity.yaw + VIEW_FOV_X / 2 - (i + 0.5) * VIEW_FOV_X / VIEW_W;
+                    const h = raycast(eye, viewDir(yaw, pitch), VIEW_R, w.shapesAt);
+                    if (!h) continue;
+                    const name = (w.nameAt ? w.nameAt(h.x, h.y, h.z) : w.blockAt(h.x, h.y, h.z)?.name) || '';
+                    if (!name || /^(air|cave_air|void_air|bedrock)$/.test(name)) continue;
+                    const rec = seen.get(name) || { n: 0, t: Infinity };
+                    rec.n++;
+                    if (h.t < rec.t) { rec.t = h.t; rec.x = h.x; rec.y = h.y; rec.z = h.z; }
+                    seen.set(name, rec);
+                }
+            }
+            const approach = [];
+            for (const [name, r] of [...seen.entries()].filter(([, r]) => r.t > APPROACH_MIN).sort((a, b) => (a[1].n - b[1].n) || (a[1].t - b[1].t))) {
+                if (approach.length >= APPROACH_N) break;
+                let best = null;
+                for (let dz = -3; dz <= 3; dz++) for (let dx = -3; dx <= 3; dx++) for (const dy of [0, 1, -1, 2, -2]) {
+                    const x = r.x + dx, y = r.y + dy, z = r.z + dz;
+                    if (!standable(w, x, y, z) || !canStand(x, y, z)) continue;
+                    const d = dx * dx + dz * dz + dy * dy;
+                    if (!best || d < best.d) best = { x, y, z, d };
+                }
+                if (best) approach.push({ args: { x: best.x, y: best.y, z: best.z }, item: this.item(name), ent: 0, feat: this.feat(new Vec3(r.x + 0.5, r.y + 0.5, r.z + 0.5)) });
+            }
+            add('move_to', approach);
+        }
 
         // mine: per block type the nearest exposed block within 5 that some held tool (or the hand) harvests and that is in
         // reach of a node, and the nearest such one at head height or above. Never the block under the feet (run 1/2 pits);

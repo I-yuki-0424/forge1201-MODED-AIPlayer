@@ -311,6 +311,24 @@ mod tests {
     }
 
     #[test]
+    fn an_ore_seen_12_blocks_ahead_is_offered_as_a_move_with_its_item() {
+        // Scenario B (2026-11-05): the ore 10-16 blocks away and not in front was reached in 67 % of the episodes (98 % in front); move_to had world-axis headings only.
+        let d = Rc::new(Data::load());
+        let ore = d.item("iron_ore");
+        let sc = scn(r#"{"id":"b","place":[{"id":"iron","block":"iron_ore","size":[5,5],"dist":[12,12],"bearing":[0,0]}]}"#, &d).unwrap();
+        let mut s = flat_sized(3);
+        sc.start(&mut s, &mut Rng(1)).unwrap();
+        let c = crate::obs::candidates(&mut s);
+        let ap: Vec<_> = c.iter().filter(|c| matches!(c.args, crate::obs::Args::Move(_)) && c.item == ore).collect();
+        assert_eq!(ap.len(), 1, "approach candidates for iron_ore: {} of {} candidates", ap.len(), c.len());
+        // the same world seen from the other way round: the bot faces away, nothing is offered
+        s.yaw += std::f64::consts::PI;
+        let back = crate::obs::candidates(&mut s);
+        assert!(!back.iter().any(|c| matches!(c.args, crate::obs::Args::Move(_)) && c.item == ore), "the ore behind the bot must not be offered");
+        assert!(c.len() <= crate::obs::K && c.iter().filter(|c| matches!(c.args, crate::obs::Args::Wait)).count() == 1);
+    }
+
+    #[test]
     fn stages_take_the_scenario_weights_and_the_preset_marks_the_unpaid_entries_done() {
         let d = Data::load();
         let sc = scn(r#"{"id":"w","reward":{"score":["collect_iron","smelt_iron"],"pre_done":"unscored","weights":{"survival":0,"death":0,"invalid":0}}}"#, &d).unwrap();

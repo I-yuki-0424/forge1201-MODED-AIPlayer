@@ -198,3 +198,18 @@ and so can reach 4). Fix (simulator `obs.rs` and `skill_space.js`, identical): p
 rest in slot order. Reproducers that fail on the old code: `scenario::tests::the_furnace_the_table_and_raw_iron_are_offered_however_full_the_pack_is` and
 `tests/test_rl_v2_pure.js` "place lists the crafting table and the furnace ...". Same audit after the fix (127 episodes, 43,084 steps): hidden 0.0 % everywhere, place cut 0.1 %, smelt 0.1 %;
 the unchanged `runc` policy reaches smelt_iron in 3 of 127 episodes (0 of 121 before). Caveat for the running A/B/C runs: they use the old binary; their kits make the place cut rare (A: 3 types) but iron-b/c can reach 4.
+
+
+## Outcome of the A/B/C training runs (2026-11-05, 2 M steps each from `runc`, PC GPU; A and C ran 86 k / 77 k steps on the VPS CPU first)
+
+Pickaxe reach, last fifth of the run (Wilson 95 % lower bounds in the text; zero-shot A 0.7 %, B 0 %, C 0 %): **A 57 %** (lower bound 54 %), **C 73 %** (70 %), **B about 38 %** and flat (not
+50 %). Rule 1 ("learns the chain when the preconditions exist") holds for A and C. Collect and smelt reach 98 % in A and C; in B collect is 67 % and 97 % of those smelt.
+Owner table: A high and C high -> "the candidate truncation bug is the main cause". B is low, but not for the table's reason: B's furnace is 3-5 blocks away and used (scenario furnace in 1,051 of 1,204
+smelting episodes); what fails is reaching the ore 10-16 blocks away when it is not in front (A and C put it within 15 degrees of the heading). `move_to` offered only world-axis headings (8 at 6 blocks,
+4 at 16), the view is relative to the facing, and `mine` reaches 5 blocks, so a seen ore had no action that points at it. A policy trained only on the iron scenario forgets the early chain (normal starts:
+wooden pickaxe 100 -> 13 %, stone 99 -> 6 %, collect_iron 14 % -> 0 of 128): the main training starts from `runc`, not from these checkpoints.
+
+Changes made on this finding: (1) presentation quotas and order (previous section); (2) approach candidates: the nearest seen block of each type beyond the mine range (the view's own first-hit rays),
+rarest types in view first, at most 6, as `move_to` to the nearest standable reachable cell beside it with that block's item type (JS `skill_space.js` and `obs.rs`, tests
+`an ore seen 12 blocks ahead ...` / `an_ore_seen_12_blocks_ahead_is_offered_as_a_move_with_its_item`, both also check that an ore behind the bot is not offered). Runs: `main1` = `runc` continued at normal
+starts with change (1) only (the control); next `iron-b-ap` = scenario B from `runc` with (1)+(2), 2 M steps, compared with `iron-b-g`.

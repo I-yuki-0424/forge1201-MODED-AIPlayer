@@ -57,6 +57,42 @@ pub fn candidates(s: &mut Sim) -> Vec<Cand> {
     }
     add(&mut parts, "move_to", moves);
 
+    // approach (skill_space.js, 2026-11-05): the nearest SEEN block of each type beyond the mine range (the view's own first-hit rays), the rarest types in view
+    // first, as a move_to to the nearest standable reachable cell beside it. Generic: no block type is named here.
+    {
+        let c = s.center(); let eye = [c[0], fy as f64 + EYE, c[2]];
+        let fov = 110.0f64.to_radians(); let (p0, p1) = ((-60.0f64).to_radians(), 40.0f64.to_radians());
+        let mut seen: HashMap<String, (u32, f64, [i32; 3])> = HashMap::new();
+        for j in 0..VIEW_H {
+            let pitch = p1 - (j as f64 + 0.5) * (p1 - p0) / VIEW_H as f64;
+            for i in 0..VIEW_W {
+                let yaw = s.yaw + fov / 2.0 - (i as f64 + 0.5) * fov / VIEW_W as f64;
+                let dir = [-yaw.sin() * pitch.cos(), pitch.sin(), -yaw.cos() * pitch.cos()];
+                if let Some((cell, t)) = s.ray(eye, dir, VIEW_R) {
+                    let b = s.blk(cell[0], cell[1], cell[2]).unwrap_or(s.d.air); let name = s.d.block(b).name.clone();
+                    if name.is_empty() || matches!(name.as_str(), "air" | "cave_air" | "void_air" | "bedrock") { continue; }
+                    let e = seen.entry(name).or_insert((0, f64::INFINITY, cell));
+                    e.0 += 1; if t < e.1 { e.1 = t; e.2 = cell; }
+                }
+            }
+        }
+        let mut order: Vec<(String, (u32, f64, [i32; 3]))> = seen.into_iter().filter(|(_, r)| r.1 > 5.5).collect();
+        order.sort_by(|a, b| a.1.0.cmp(&b.1.0).then(a.1.1.partial_cmp(&b.1.1).unwrap_or(std::cmp::Ordering::Equal)).then(a.0.cmp(&b.0)));
+        let mut approach: Vec<Cand> = vec![];
+        for (name, r) in order {
+            if approach.len() >= 6 { break; }
+            let mut best: Option<([i32; 3], i32)> = None;
+            for dz in -3..=3 { for dx in -3..=3 { for dy in [0, 1, -1, 2, -2] {
+                let q = [r.2[0] + dx, r.2[1] + dy, r.2[2] + dz];
+                if !reach_ok.contains(&q) || !s.standable(q[0], q[1], q[2]) { continue; }
+                let d = dx * dx + dz * dz + dy * dy;
+                if best.map_or(true, |b| d < b.1) { best = Some((q, d)); }
+            } } }
+            if let Some((q, _)) = best { approach.push(Cand { cmd: cmd_ix("move_to"), args: Args::Move(q), item: s.d.item(&name), ent: 0, feat: feat(s, Some([r.2[0] as f64 + 0.5, r.2[1] as f64 + 0.5, r.2[2] as f64 + 0.5]), 0) }); }
+        }
+        add(&mut parts, "move_to", approach);
+    }
+
     // mine
     let mut found: Vec<(String, i32, [i32; 3], i32)> = vec![];
     let mut can: HashMap<u16, bool> = HashMap::new();

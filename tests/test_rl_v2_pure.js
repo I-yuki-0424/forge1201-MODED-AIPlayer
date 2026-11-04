@@ -200,6 +200,28 @@ test('candidates: place lists the crafting table and the furnace however many ot
     assert.ok(place.length <= 8 && place.length > 3, place.join());
 });
 
+test('candidates: an ore seen 12 blocks ahead is offered as a move_to with its item (scenario B, 2026-11-05); an ore behind the bot is not offered', () => {
+    // yaw 0 looks along -z: an iron ore cluster on the ground 12 blocks ahead
+    const layout = (x, y, z) => {
+        if (Math.abs(x) <= 1 && y >= 64 && y <= 65 && z === -12) return 'iron_ore';     // a cluster, as placed in the scenarios (the view has 16 columns: ~1.4 blocks per ray at 12)
+        if (y === 63) return 'grass_block';
+        return y <= 62 ? 'stone' : 'air';
+    };
+    const bot = worldBot(layout, new Vec3(0.5, 64, 0.5)), voc = vocab(bot.registry, null);
+    bot.entity.yaw = 0; bot.entity.pitch = 0;
+    const c = new SkillSpace(bot, voc).candidates();
+    const ironIx = voc.items.indexOf('iron_ore');
+    const ap = c.filter((x) => x.cmd === 'move_to' && x.item === ironIx);
+    assert.strictEqual(ap.length, 1, `approach candidates for iron_ore: ${ap.length}`);
+    // it is a cell beside the ore, not the ore itself, and within the walker's reach
+    assert.ok(Math.abs(ap[0].args.z + 12) <= 3 && Math.abs(ap[0].args.x) <= 3, JSON.stringify(ap[0].args));
+    assert.ok(c.length <= K && c.filter((x) => x.cmd === 'wait').length === 1);
+    // facing away (yaw pi): the ore is behind the bot, so it is not seen and not offered
+    bot.entity.yaw = Math.PI;
+    const back = new SkillSpace(bot, voc).candidates();
+    assert.ok(!back.some((x) => x.cmd === 'move_to' && x.item === ironIx), 'the ore behind the bot must not be offered');
+});
+
 test('candidates: craft takes the slots the other commands leave free, so a recipe is not hidden behind alphabetically earlier ones (iron_pickaxe, 2026-11-04)', () => {
     const bot = worldBot(), voc = vocab(bot.registry, null), reg = bot.registry;
     const many = ['bowl', 'bucket', 'chest', 'cobblestone_slab', 'cobblestone_stairs', 'cobblestone_wall', 'furnace', 'heavy_weighted_pressure_plate', 'iron_pickaxe', 'lever', 'torch'];
