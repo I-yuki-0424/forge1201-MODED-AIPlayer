@@ -1,0 +1,13 @@
+[Unit]
+Description=forgeaip scenario training on the VPS CPU: bring back the unfinished runs after a boot (scripts/train/scn-vps.sh resume)
+After=docker.service network-online.target
+Wants=docker.service
+
+[Service]
+Type=oneshot
+ExecStartPre=/bin/sh -c 'for i in $(seq 1 60); do docker info >/dev/null 2>&1 && exit 0; sleep 5; done; exit 1'
+ExecStart=%h/projects/forge1201-MODED-AIPlayer/scripts/train/scn-vps.sh resume
+TimeoutStartSec=600
+
+[Install]
+WantedBy=default.target

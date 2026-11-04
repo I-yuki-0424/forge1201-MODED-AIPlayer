@@ -37,7 +37,7 @@ python3 scripts/skills/report.py exchange/b1 [exchange/b2 ...]    # per-command 
 python3 scripts/skills/report.py exchange/b1 --trace 12            # one trial's timeline: phases, keys, position
 ```
 
-Build world (docs/implemented/WORLD-v1.md): persistent modded server the owner joins over the tailnet (`100.115.238.9:25565`
+Build world (docs/implemented/WORLD-v1.md): persistent modded server the owner joins over the tailnet (`100.77.246.23:25565`
 -> `127.0.0.1:25567`), snapshots in `/mnt/data/forgeaip/snapshots`. Mods: vanilla + Create + optimisation only, pinned in
 `modpack/forgeaip-create.lock.json` (docs/implemented/MODPACK-v1.md); `up.sh` syncs them to `/mnt/data/forgeaip/mods`:
 

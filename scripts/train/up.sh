@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Start RL training (docs/proposed/RL-TRAINING-v2.md, env v3.0): the training worlds replace the build world (memory; shard 0 takes
-# its port 127.0.0.1:25567, so the owner's tailnet route 100.115.238.9:25565 shows it), then one environment per world and the
+# its port 127.0.0.1:25567, so the owner's tailnet route 100.77.246.23:25565 shows it), then one environment per world and the
 # policy/learner (DPOD scripts/botsystem_goal_ppo.py).
 #   scripts/train/up.sh [--shards S] [--bots N] [--days D] [--speed K] [--learn 0|1] [--base NAME] [--owner MCNAME] [--fresh-world]
 #                       [--pc G]
@@ -96,4 +96,4 @@ for u in service timer; do systemctl --user link "$REPO/scripts/train/systemd/fo
 systemctl --user enable --now forgeaip-train-window.timer
 if [ "$pc" -gt 0 ]; then pcargs=(up --groups "$pc"); [ "$fresh" = 1 ] && pcargs+=(--fresh-world); "$REPO/scripts/train/pc.sh" "${pcargs[@]}"; fi
 echo "training up: base=$base groups=$shards x $bots bots (+ $pc on the PC) days=$days speed=$speed learn=$learn seed=$seed"
-echo "watch: join 100.115.238.9:25565 (op: /gamemode spectator, /spectate Train0); page: http://100.115.238.9:3021/; logs: scripts/train/status.sh $base"
+echo "watch: join 100.77.246.23:25565 (op: /gamemode spectator, /spectate Train0); page: http://100.77.246.23:3021/; logs: scripts/train/status.sh $base"

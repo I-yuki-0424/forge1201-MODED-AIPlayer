@@ -194,7 +194,7 @@ services:
   # ---- RL training (docs/proposed/RL-TRAINING-v2.md, scripts/train/*.sh; env v3.0) -------------------------------------
   # Groups (owner 2026-11-02): each group = one server (its own world, clock and tick thread) + one environment process with
   # TRAIN_BOTS bots (2: a pair). scripts/train/up.sh --shards S starts shards 0..S-1 (VPS: 5). Shard 0 takes the build world's
-  # place on 127.0.0.1:25567, so the owner watches it over the same tailnet route (100.115.238.9:25565); the others have no
+  # place on 127.0.0.1:25567, so the owner watches it over the same tailnet route (100.77.246.23:25565); the others have no
   # host port. Survival, normal difficulty, structures, natural spawning, day cycle; every world from the same seed.
   train: &train
     <<: *server

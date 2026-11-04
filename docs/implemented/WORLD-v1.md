@@ -8,7 +8,7 @@ on disposable copies, never on the build. The LLM-driven bot (`TASK-20261031-017
 
 | What | Value |
 | :-- | :-- |
-| Minecraft server address | `100.115.238.9` (port 25565, the default). `vps-160.tailfc1fac.ts.net` also works where MagicDNS resolves |
+| Minecraft server address | `100.77.246.23` (port 25565, the default). `vps.tailfc1fac.ts.net` also works where MagicDNS resolves |
 | Who can reach it | devices on the owner's tailnet only (PC, phone): `tailscale serve --tcp 25565 tcp://localhost:25567`, the same mechanism as SSH. Not public: the server listens on `127.0.0.1:25567`, the tailnet listener is bound to `tailscale0`; `nmap -sC` of the public IP from the host: 25565-25568 closed |
 | Client | Forge 1.20.1-47.4.10 with the client set of [MODPACK-v1.md](MODPACK-v1.md). Tailscale must be connected on the PC; WARP and Tailscale both use 100.64.0.0/10 (handbook 02 §4) |
 | Game mode | creative by default for players; `scripts/world/op.sh <name>` gives operator rights for commands (the owner `Seia_Y` is an operator; re-run after a reset) |
