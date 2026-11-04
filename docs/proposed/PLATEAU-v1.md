@@ -16,7 +16,7 @@ Last third of runc (runb is the same within noise):
 
 | Entry | Reached | Offered (episodes) | Taken / uniform | Success after taking |
 |---|---:|---:|---:|---:|
-| collect_wood ... craft_wooden_pickaxe, collect_stone | 0.95-0.99 | 0.85-1.00 | 10-21x | 0.7-1.0 |
+| collect_wood ... craft_wooden_pickaxe, collect_stone | 0.95-0.99 | 0.85-1.00 | 6-21x | 0.7-1.0 |
 | craft_stone_pickaxe / sword | 0.73 / 0.79 | 0.77 / 0.89 | 12x / 5x | 0.59 / 0.80 |
 | craft_furnace, place_furnace | 0.88, 0.85 | 0.93, 0.86 | 7x, 2.7x | 0.27, 0.97 |
 | eat_food | 0.57 | 0.65 | 3.3x | 0.69 |
@@ -40,7 +40,7 @@ nothing above smelt_iron ever moves.
 | went below y = 50 / below y = 30 | 70 % / 37 % | depth is not the limit |
 | iron ore offered to `mine` at least once (exposed within reach) | 31 % | **availability**: the candidate list offers only exposed ore; the bot digs down in most episodes but does not find ore |
 | collected iron | 23 % | when ore is offered, 74 % of these episodes take it |
-| ... held fuel whenever it held raw iron / ever saw a smelt candidate | 11 % / 12 % of all (48 % / 53 % of those with iron) | raw iron is held for 217 steps on average before smelting; fuel is held on 54 % of them, a furnace in reach (a smelt candidate) on **7.2 %** |
+| ... held fuel whenever it held raw iron / ever saw a smelt candidate | 11 % / 12 % of all (49 % / 55 % of those with iron) | raw iron is held for 217 steps on average before smelting; fuel is held on 54 % of them, a furnace in reach (a smelt candidate) on **7.2 %** |
 | smelted iron | 7 % | the furnace stands at the start base (placed in 86 % of episodes), the iron is found elsewhere: it needs a trip back or a new furnace (8 cobblestone), a plan the policy has no example of; once offered, smelting is taken (1.4x) and succeeds (0.96) |
 | held 3 or more ingots | **1 %** (21 episodes) | an iron pickaxe needs 3 ingots = 3 ore, 3 smelts |
 | of those, held 2 sticks | **1 of 21** (2 steps) | the sticks were spent on the stone tools earlier and not made again |
