@@ -167,6 +167,23 @@ function fakeServer() {
         assert.deepStrictEqual(svc.containersNear('Bot1'), [{ x: 10, y: 64, z: 20, block: 'chest' }]);
     });
 
+    await test('gather: validated, runs as one command with progress, the survey route answers', async () => {
+        const g = require('../src/work/gather'), orig = { gather: g.gather, survey: g.survey }, seen = [];
+        g.gather = async (bot, args, o) => { seen.push([bot.username, args]); o.onProgress({ got: 2, want: args.count, mined: 2 }); await sleep(60); o.onProgress({ got: args.count, want: args.count, mined: args.count }); return { ok: true, reason: null, detail: { got: args.count } }; };
+        g.survey = (bot, target, radius) => ({ ok: true, blocks: [target], total: 3, radius });
+        try {
+            for (const bad of [{ target: 'Iron Ore' }, { target: 'iron_ore', count: 0 }, { target: 'iron_ore', count: 5000 }, { target: 'iron_ore', radius: 100 }, {}, { target: 'x;y' }]) {
+                const r = await svc.runCommand({ bots: ['Bot2'], command: 'gather', args: bad }); assert.strictEqual(r.started.length, 0, JSON.stringify(bad)); assert.ok(r.refused[0].why.length > 3);
+            }
+            const ok = await svc.runCommand({ bots: ['Bot2'], command: 'gather', args: { target: 'raw_iron', count: 4 } }); assert.deepStrictEqual(ok.started, ['Bot2']);
+            await until(() => { const c = svc.status().bots.find((b) => b.name === 'Bot2').cmd; return c && c.progress && c.progress.got === 2; });
+            await until(() => svc.status().bots.find((b) => b.name === 'Bot2').cmd.status === 'ok');
+            assert.deepStrictEqual(seen[0], ['Bot2', { target: 'raw_iron', count: 4, radius: 32 }]);
+            assert.deepStrictEqual(svc.survey('Bot2', 'iron_ore', 40), { ok: true, blocks: ['iron_ore'], total: 3, radius: 40 });
+            assert.throws(() => svc.survey('Bot2', 'a b', 40), /target/); assert.throws(() => svc.survey('Bot2', 'iron_ore', 5000), /radius/);
+        } finally { Object.assign(g, orig); }
+    });
+
     await test('service inventory + map: read, move through the service, map index and region from a real file', async () => {
         const chest = { type: 'block', x: 10, y: 64, z: 20 };
         assert.strictEqual((await svc.inventory(chest)).slots.length, 2);

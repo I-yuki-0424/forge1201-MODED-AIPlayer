@@ -8,6 +8,7 @@ const { Ledger } = require('./crew');
 const CHUNK = 16;
 const MAX_CELLS = 4_000_000;         // a job this large is a mistake in the arguments, not a request
 const PASSABLE = new Set(['air', 'climb']);
+const UNBREAKABLE = /^(bedrock|barrier|end_portal_frame|end_portal|nether_portal|command_block|structure_block|jigsaw)$/;
 // What the bot fills fluids with, in order of preference: cheap, common in a pit, does not fall (no sand or gravel).
 const SEAL_ITEMS = ['cobblestone', 'cobbled_deepslate', 'dirt', 'netherrack', 'stone', 'andesite', 'diorite', 'granite', 'tuff', 'deepslate'];
 
@@ -33,18 +34,25 @@ function planPit(box, { chunk = CHUNK } = {}) {
 }
 
 /**
- * The haul road: a one-block-wide staircase left standing along the edge of the box, so a bot (or a replacement bot) can
- * always walk down into the pit and out again. Cell i keeps every block at y <= top - i; the dig volume above it is dug.
- * Runs east along the north edge, then south along the east edge, west along the south edge, north along the west edge.
+ * The haul road: a one-block-wide staircase left standing, so a bot (or a replacement bot) can always walk down into the pit and out
+ * again. Cell i keeps every block at y <= top - i; the dig volume above it is dug. The road runs once around the edge of the box
+ * (east along the north edge, south along the east edge, west along the south edge, north along the west edge) and, when the pit is
+ * deeper than that ring is long, on into the next ring one block further in, and so on: a spiral. A 16 x 16 box has room for 60 + 52 + 44
+ * + ... = 256 cells, so it can go from y 62 down to bedrock (126 layers) without leaving the box; a ring ends one step from where the
+ * next begins, so the descent is still one block at a time.
  */
-function planRoad(box, layers) {
-    const { x0, z0, x1, z1, top } = box, path = [];
-    const w = x1 - x0 + 1, h = z1 - z0 + 1;
+function ringPath(x0, z0, x1, z1) {
+    const path = [], w = x1 - x0 + 1, h = z1 - z0 + 1;
     for (let x = x0; x <= x1; x++) path.push([x, z0]);
     for (let z = z0 + 1; z <= z1; z++) path.push([x1, z]);
     if (h > 1) for (let x = x1 - 1; x >= x0; x--) path.push([x, z1]);
     if (w > 1) for (let z = z1 - 1; z > z0; z--) path.push([x0, z]);
-    if (layers > path.length) throw new Error(`pit ${layers} deep needs a haul road of ${layers} cells; the box edge has only ${path.length}`);
+    return path;
+}
+function planRoad(box, layers) {
+    const { x0, z0, x1, z1, top } = box, path = [];
+    for (let k = 0; x0 + k <= x1 - k && z0 + k <= z1 - k && path.length < layers; k++) path.push(...ringPath(x0 + k, z0 + k, x1 - k, z1 - k));
+    if (layers > path.length) throw new Error(`pit ${layers} deep needs a haul road of ${layers} cells; the box has room for only ${path.length} (make the box wider, or dig less deep)`);
     const keep = new Map(), cells = [];
     for (let i = 0; i < layers; i++) { keep.set(`${path[i][0]},${path[i][1]}`, top - i); cells.push({ x: path[i][0], z: path[i][1], keepTo: top - i }); }
     return { keep, cells };
@@ -128,10 +136,13 @@ async function runUnit(plan, region, u, env) {
         }
         return { ok: true, n: list.length };
     };
-    for (const c of cells) {
+    // One cell. Returns null when it is open afterwards, or the failure. A cell whose water rule needs a block the bot does not have yet
+    // (a bot with an empty inventory next to a shore) is not a failure of the unit: it is left for after the row, when digging has
+    // brought dirt or cobblestone.
+    const handle = async (c, last) => {
         let s = await seal(c, true);
-        if (!s.ok) return fail(s, c, 'seal');
-        if (open(c)) { r.skipped++; continue; }
+        if (!s.ok) return s.reason === 'missing_item' && !last ? 'defer' : fail(s, c, 'seal');
+        if (open(c)) { r.skipped++; return null; }
         // Success is what the world shows: a `mine` that ended in the drop pickup (target_lost: the item was picked up by another
         // bot or despawned) has still opened the cell. Transient reasons (another bot in the crosshair, a slipped aim) get retries.
         let m = await env.exec('mine', c);
@@ -141,7 +152,7 @@ async function runUnit(plan, region, u, env) {
         // Water that was behind the block is now flowing in. Fill its source, then the cell; if the cell was plugged, dig it again.
         for (let round = 0; round < 3; round++) {
             s = await seal(c, false);
-            if (!s.ok) return fail(s, c, 'seal_after');
+            if (!s.ok) return s.reason === 'missing_item' && !last ? 'defer' : fail(s, c, 'seal_after');
             if (!s.n && open(c)) break;
             if (!open(c) && env.w.kindAt(c.x, c.y, c.z) === 'solid') {          // a plug; water still running in is filled by the next round
                 const m2 = await env.exec('mine', c);
@@ -149,7 +160,16 @@ async function runUnit(plan, region, u, env) {
             }
         }
         if (!open(c)) return fail({ reason: 'not_confirmed', detail: { why: 'cell keeps filling' } }, c, 'seal_after');
+        return null;
+    };
+    const deferred = [];
+    for (const c of cells) {
+        if (UNBREAKABLE.test(env.w.nameAt(c.x, c.y, c.z) || '')) { r.skipped++; continue; }         // bedrock at the bottom of the world
+        const res = await handle(c, false);
+        if (res === 'defer') { deferred.push(c); r.deferred = (r.deferred || 0) + 1; continue; }
+        if (res) return res;
     }
+    for (const c of deferred) { const res = await handle(c, true); if (res) return res; }
     return { ok: true, reason: null, detail: r };
 }
 

@@ -179,9 +179,9 @@ function fakeBot(name) {
         s2.addBot('Hungry'); await until(() => s2.status().bots[0].state === 'online');
         const v = await s2.createBuild({ structure: 'slab', origin: { x: 0, y: 101, z: 0 }, bots: ['Hungry'], start: true });
         await until(() => s2.bots.get('Hungry').retired);
-        assert.match(s2.bots.get('Hungry').retired, /missing_item oak_planks/);
+        assert.match(s2.bots.get('Hungry').retired, /waiting for oak_planks/);
         await until(() => s2.jobDetail(v.id).blocked);
-        assert.match(s2.jobDetail(v.id).blocked, /Hungry retired/);
+        assert.match(s2.jobDetail(v.id).blocked, /Hungry waiting for oak_planks/);
         const before = s2.jobs.get(v.id).impl.ledger.progress().done;
         await s2.rcon('give Hungry minecraft:oak_planks 64'); s2.resumeBot('Hungry');
         await until(() => s2.jobs.get(v.id).state === 'finished');
@@ -196,6 +196,26 @@ function fakeBot(name) {
         assert.strictEqual(s2.bots.get('Hungry').retired, null);
         throwsP(() => s2.resumeBot('Nobody'), 404);
         await s2.stop();
+    });
+
+    await test('a bot without the right tool waits (naming the tool) and goes back to work by itself when it is given one', async () => {
+        const dir3 = fs.mkdtempSync(path.join(os.tmpdir(), 'work-')), w3 = makeWorld(100), carried = [];
+        const reg = { itemsByName: { iron_pickaxe: { id: 7, name: 'iron_pickaxe' }, wooden_pickaxe: { id: 6, name: 'wooden_pickaxe' } }, items: { 6: { name: 'wooden_pickaxe' }, 7: { name: 'iron_pickaxe' } }, blocksByName: { stone: { harvestTools: { 6: true, 7: true } } } };
+        const f3 = (name) => { const b = fakeBot(name); b.registry = reg; b.inventory = { items: () => carried, emptySlotCount: () => 30 }; setTimeout(() => b.emit('spawn'), 5); return b; };
+        const s3 = new WorkService({
+            dataDir: dir3, factory: f3, reconnectMs: 20,
+            envFactory: () => ({ w: w3, now: Date.now, pause: () => sleep(1), have: () => 99, inv: () => ({ items: [], slotsFree: 30 }), here: () => ({ x: 0, y: 101, z: 0 }), pos: () => ({ x: 0, z: 0 }),
+                exec: async (cmd, a) => { if (cmd === 'mine') { if (!carried.length) return { ok: false, reason: 'missing_tool', detail: { block: 'stone' } }; w3.set(a.x, a.y, a.z, 'air'); } return { ok: true }; } }),
+        });
+        s3.addBot('Barehand'); await until(() => s3.status().bots[0].state === 'online');
+        const v = s3.createPit({ box: { x0: 0, z0: 0, x1: 7, z1: 3, top: 100, bottom: 100 }, bots: ['Barehand'], start: true });
+        await until(() => s3.bots.get('Barehand').retired);
+        assert.match(s3.bots.get('Barehand').retired, /waiting for a pickaxe .*stone.*Inventory/);
+        await until(() => s3.jobDetail(v.id).blocked);
+        carried.push({ name: 'iron_pickaxe', count: 1 });                                  // the operator hands one over
+        await until(() => s3.jobs.get(v.id).state === 'finished', 12000);
+        assert.strictEqual(s3.bots.get('Barehand').retired, null);
+        await s3.stop();
     });
 
     await test('persistence: roster and jobs come back, jobs paused; a finished job stays finished', async () => {

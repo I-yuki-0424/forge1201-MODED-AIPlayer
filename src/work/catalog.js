@@ -24,6 +24,7 @@ const DOC = {
 const HINT = { x: 'x', y: 'y (feet level)', z: 'z', entity: 'nearby entity', item: 'item', count: 'count', dest: 'where', dir: 'direction', dy: 'slope', fluid: 'fill water or lava', sneak: 'sneak' };
 
 const META = [
+    { name: 'gather', group: 'Blocks', meta: true, doc: 'Collect a number of an item: finds the blocks that give it in the chunks the bot has loaded, walks to the nearest and digs everything within reach before it walks on.', args: [{ name: 'target', type: 'item', hint: 'block or item (iron_ore, raw_iron, oak_log, cobblestone, sand ...)' }, { name: 'count', type: 'count', optional: true, hint: 'how many (default 16)' }, { name: 'radius', type: 'int', optional: true, hint: 'search radius in blocks (default 32, at most 64)' }] },
     { name: 'come', group: 'Movement', meta: true, doc: 'Walk to the operator (a player on the server).', args: [{ name: 'player', type: 'player', optional: true }] },
     { name: 'say', group: 'Chat', meta: true, doc: 'Say something in chat (not a command: text starting with / is refused).', args: [{ name: 'text', type: 'text' }] },
     { name: 'teleport', group: 'Operator', meta: true, rcon: true, doc: 'Teleport the bot (server command): to a player, or to coordinates.', args: [{ name: 'player', type: 'player', optional: true }, { name: 'x', type: 'int', optional: true }, { name: 'y', type: 'int', optional: true }, { name: 'z', type: 'int', optional: true }] },

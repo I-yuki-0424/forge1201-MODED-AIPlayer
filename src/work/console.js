@@ -155,7 +155,10 @@ function createConsole({ service, token, allowedHosts = [], publicHost = null, a
             return send(res, 200, { rx: r.rx, rz: r.rz, mtime: r.mtime, chunks: r.chunks, names: r.names, idx: r.idx ? r.idx.toString('base64') : null, h: r.h ? r.h.toString('base64') : null });
         }
         if (m === 'POST' && p === '/api/map/refresh') return send(res, 200, await service.mapRefresh());
-        if ((a = /^\/api\/bots\/([A-Za-z0-9_]{3,16})\/(entities|containers)$/.exec(p)) && m === 'GET') return send(res, 200, a[2] === 'entities' ? service.nearbyEntities(a[1], Number(url.searchParams.get('radius')) || 32) : service.containersNear(a[1], Number(url.searchParams.get('radius')) || 24));
+        if ((a = /^\/api\/bots\/([A-Za-z0-9_]{3,16})\/(entities|containers|find)$/.exec(p)) && m === 'GET') {
+            const radius = Number(url.searchParams.get('radius')) || (a[2] === 'containers' ? 24 : 32);
+            return send(res, 200, a[2] === 'entities' ? service.nearbyEntities(a[1], radius) : a[2] === 'find' ? service.survey(a[1], String(url.searchParams.get('target') || ''), radius) : service.containersNear(a[1], radius));
+        }
         if ((a = /^\/api\/bots\/([A-Za-z0-9_]{3,16})$/.exec(p)) && m === 'GET') return send(res, 200, service.botDetail(a[1]));
         // ---- jobs
         if (m === 'POST' && p === '/api/jobs/pit') return send(res, 200, service.createPit(await json(req)));

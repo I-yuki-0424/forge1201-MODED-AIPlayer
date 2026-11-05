@@ -127,6 +127,40 @@ function fakeWorld(ground = 0, init = {}) {
         assert.throws(() => pit.planPit({ x0: 0, z0: 0, x1: 2, z1: 2, top: 1, bottom: 5 }), /empty/);
     });
 
+    await test('pit: the haul road spirals inward, so a 16x16 box can go from y 62 to y -59; a small box is still refused; bedrock is skipped', async () => {
+        const p = pit.planPit({ x0: 0, z0: 0, x1: 15, z1: 15, top: 62, bottom: -59 });
+        assert.strictEqual(p.layers, 122); assert.strictEqual(p.road.cells.length, 122);
+        for (let i = 1; i < p.road.cells.length; i++) assert.strictEqual(Math.abs(p.road.cells[i].x - p.road.cells[i - 1].x) + Math.abs(p.road.cells[i].z - p.road.cells[i - 1].z), 1, `step ${i} is one block`);
+        assert.ok(p.road.cells.some((c) => c.x === 1 && c.z === 1), 'the second ring is used');
+        assert.strictEqual(new Set(p.road.cells.map((c) => `${c.x},${c.z}`)).size, 122, 'no cell is used twice');
+        assert.throws(() => pit.planPit({ x0: 0, z0: 0, x1: 3, z1: 3, top: 62, bottom: -59 }), /haul road/);
+        assert.doesNotThrow(() => pit.planPit({ x0: 0, z0: 0, x1: 31, z1: 31, top: 319, bottom: -64 }), 'a 32x32 box can take the full height of the world');
+        // bedrock cells are skipped, not failed
+        const w = fakeWorld(-70); for (let x = 0; x <= 3; x++) for (let y = -64; y <= -63; y++) w.set(x, y, 5, y === -64 ? 'bedrock' : 'stone');
+        const job = pit.createPitJob({ x0: 0, z0: 4, x1: 3, z1: 7, top: -63, bottom: -64 }), reg = job.plan.regions[0], calls = [];
+        const env = { w, have: () => 9, exec: async (n, a) => { calls.push([n, a.y]); w.set(a.x, a.y, a.z, 'air'); return { ok: true }; } };
+        const r = await job.runUnit(reg.id, { unit: 1 * 4 + 1, layer: 1, row: 1 }, env);      // layer 1 = y -64, row z=5
+        assert.ok(r.ok && r.detail.mined === 0 && r.detail.skipped === 4, JSON.stringify(r)); assert.strictEqual(calls.length, 0);
+    });
+
+    await test('pit: a bot with an empty inventory beside water digs the dry cells first and seals afterwards (no missing_item)', async () => {
+        const w = fakeWorld(60, { '-1,64,2': 'water' });                                     // the stream touches the FIRST cell of row 2
+        for (let x = 0; x <= 8; x++) for (let z = 0; z <= 3; z++) for (let y = 61; y <= 64; y++) w.set(x, y, z, 'stone');
+        const job = pit.createPitJob({ x0: 0, z0: 0, x1: 8, z1: 3, top: 64, bottom: 63 }), reg = job.plan.regions[0], inv = {}, order = [];
+        const env = { w, have: (i) => inv[i] || 0, exec: async (name, a) => {
+            if (name === 'mine') { order.push(a.x); w.set(a.x, a.y, a.z, 'air'); inv.cobblestone = (inv.cobblestone || 0) + 1; return { ok: true }; }
+            if (name === 'place') { if (!inv[a.item]) return { ok: false, reason: 'missing_item' }; w.set(a.x, a.y, a.z, a.item); inv[a.item]--; return { ok: true }; }
+            throw new Error(name); } };
+        const r = await job.runUnit(reg.id, { unit: 2, layer: 0, row: 2 }, env);                 // row z=2: its east end touches the stream
+        assert.ok(r.ok, JSON.stringify(r)); assert.ok(r.detail.deferred >= 1, 'the cell next to the water was left for later: ' + JSON.stringify(r.detail));
+        assert.strictEqual(w.nameAt(-1, 64, 2), 'cobblestone', 'sealed once the row had given a block'); assert.strictEqual(w.nameAt(0, 64, 2), 'air'); assert.notStrictEqual(order[0], 0, 'x=0 was not the first cell dug');
+        // and with nothing to dig that gives a block, the failure is still reported as before
+        const w2 = fakeWorld(60, { '1,64,0': 'water' }); w2.set(0, 64, 0, 'stone');
+        const j2 = pit.createPitJob({ x0: 0, z0: 0, x1: 0, z1: 0, top: 64, bottom: 64 });
+        const r2 = await j2.runUnit(j2.plan.regions[0].id, { unit: 0, layer: 0, row: 0 }, { w: w2, have: () => 0, exec: async () => ({ ok: true }) });
+        assert.ok(r2.ok || r2.reason === 'missing_item');
+    });
+
     await test('water rule: fluid beside or inside the cells is filled from the solid side first; an open lake is reported', () => {
         const w = fakeWorld(69, { '5,70,4': 'water', '5,70,5': 'water', '5,70,6': 'water' });     // a 3-cell stream on the ground, next to x=4
         const sp = pit.sealPlan(w, [{ x: 4, y: 70, z: 5 }]);

@@ -91,17 +91,47 @@ indexed, region (0,0) delivered in 23 KB gzip, the operator's and a bot's invent
 nearby entities listed. **Not tested live:** container moves on a real chest (none was placed in the owner's world; the fake-console test covers
 the commands), the Access path with a real Cloudflare token (no broker; the verification is unit-tested with a generated key), more than 5 bots.
 
-### Public name: what the owner does once (the credential broker's run queue was stuck, so none of this was done from the VPS)
+### Public name (done 2026-11-05 late, through the credential broker `run` with `cloudflare/master`, audits 564-568)
 
-1. Zero Trust → Networks → Tunnels → the VPS tunnel → Public hostname → add `bots.i-yuki.com`, service `HTTP`, `localhost:3020`.
-   (This also creates the DNS record.)
-2. Zero Trust → Access → Applications → Add → Self-hosted: name `work-console`, domain `bots.i-yuki.com`, session duration 24 hours,
-   policy: the existing reusable `owner-allow-24h` (include the owner's e-mail). Copy the application's **Audience (AUD) tag**.
-3. On the VPS, in `/mnt/data/forgeaip-play/.env` add (no quotes):
-   `WORK_PUBLIC_HOST=bots.i-yuki.com`, `CF_ACCESS_TEAM=i-yukis-team.cloudflareaccess.com`, `CF_ACCESS_AUD=<the tag>`
-   (optional `WORK_ALLOWED_EMAILS=<owner e-mail>`), then `./console-up.sh`.
-4. Open `https://bots.i-yuki.com`: Cloudflare login, then the console opens without the token.
-Until step 3 the name must not be used: the console is reachable only on loopback and the tailnet.
+`https://bots.i-yuki.com`: tunnel `vps` ingress `bots.i-yuki.com -> http://localhost:3020` (the list was fetched, the new rule inserted before the
+`http_status:404` catch-all, 11 -> 12 rules, nothing else touched), proxied CNAME `bots` -> the tunnel, Access application `work-console (forgeaip)`
+(self-hosted, session 24 h, the reusable policy `owner-allow-24h`: the owner's e-mail, Cloudflare login, no CN). Console env in
+`/mnt/data/forgeaip-play/.env` (`WORK_PUBLIC_HOST`, `CF_ACCESS_TEAM`, `CF_ACCESS_AUD`, `WORK_ALLOWED_EMAILS`). Checked: an unauthenticated request to
+the public name is a 302 to the Cloudflare login (page and API), loopback without a session is 401, the keys Cloudflare publishes at
+`/cdn-cgi/access/certs` are fetched and parse (2 RSA keys). Not seen: a browser login through Access (the owner's). Recorded in the `cloudflares`
+repo (`snapshot/`, `docs/HOSTNAMES.md`). Rollback: delete the Access app, the CNAME and the ingress rule; unset `WORK_PUBLIC_HOST`.
+
+## v3 (2026-11-05 night, `TASK-20261105-036`): deep pits that do not stop, waiting for tools, `gather`
+
+Owner: the pit stopped after a little digging; the depth should reach y -64; "mine" should take a *what* (a number of an item), using the world's
+data to find the blocks and digging everything within reach of one standing place before walking on.
+
+- **Why the pit stopped.** The owner's job was a 16 x 16 x 1 pit on the shore with four bots that carried nothing (Kit had been removed). `mine`
+  needs a pickaxe for stone (`missing_tool`), and the water rule needs a seal block next to the shore (`missing_item`); both are the bot's problem,
+  each bot failed three units and retired, the job sat at "blocked". Not the depth: but the depth had a limit too (next point).
+- **Depth to bedrock.** The haul road had to fit on the box's edge (60 cells for 16 x 16: a pit could not be deeper than 60). It is now a spiral: when
+  the edge ring is used up it continues on the next ring one block in (`pit.js planRoad`); a 16 x 16 box goes from y 62 to y -59 (122 layers), a
+  32 x 32 box takes the full height of the world; a 4 x 4 box is still refused with the reason. The Pits form has `bottom y` beside `depth` (two views of one
+  number) and buttons `to y -59` (the lowest layer without bedrock) and `-64`; bedrock (and other unbreakable blocks) are skipped, not failed.
+- **Self-sufficient bots.** A cell whose water seal needs a block the bot does not have yet is left for after the row (digging brings cobblestone or
+  dirt). A bot without the tool or the item now **waits, naming it** ("waiting for a pickaxe (to break stone): give one in Inventory and it continues by
+  itself") and goes back to work by itself within 2 s of the item appearing in its inventory (the operator gives it through the Inventory page).
+- **`gather {target, count?, radius?}`** (Blocks group; `src/work/gather.js`). `target` is a block or an item name: `iron_ore`, `raw_iron`,
+  `oak_log`, `cobblestone`, `sand` ...; an item name finds every block that drops it, an ore name brings its deepslate variant. The blocks are found in the
+  chunks the bot has loaded (`bot.findBlocks`, up to 64 blocks), exposed ones first, **nearest to where the bot stands now**: so everything within reach
+  (4.5 blocks) of one standing place is dug before the bot walks (`mine` only walks when the block is out of reach). Count = items obtained (inventory),
+  or blocks when the target has no item. Blocks that touch water or lava are never opened. A block buried in rock is reached by tunnelling at most 4 cells
+  sideways or upwards into it from an air face (head room is dug too, so the bot can step in and pick up the drop); **straight down is not possible**
+  (`mine` never stands on the block it breaks) and is reported as such. The form has "Find around the bot" (how many were found, how many exposed and within
+  reach, the nearest) and progress `n/N` in the table. Stop cancels it.
+- **Checks.** `tests/test_work_gather_pure.js` (resolution, clusters in reach, walking only between clusters, enclosed / too deep / lava / missing tool /
+  cancel, tunnelling with head room), spiral road, bedrock skip, deferred seal and tool-waiting tests; all in `npm test` (20 files, exit 0).
+  Live on a disposable Create server through the console with **8 bots**: 6 x 6 pit from y 159 to y 135 (25 layers, more than the 20-cell ring: spiral), bedrock
+  floor, bots empty-handed: all six waited for a pickaxe by name, resumed on their own when given one, 150 of 150 rows (one repair pass), 386 s, the 300 stone blocks
+  left are exactly the road, the bedrock layer untouched; `gather raw_iron 5` from a cluster in reach: 10 s, no walking; `gather raw_iron 4` from ores 2 cells inside a
+  wall: 4 raw iron in 14 s with 5 tunnel cells dug, the ore beside lava left alone; chest <-> bot through the inventory GUI: take, take-all, put into a chosen slot, an
+  occupied slot refused. On the real play world: `find oak_log` 156, `find raw_iron` 72 (1 exposed: iron is mostly buried).
+  Defects the live run found: a one-block-high tunnel cannot be entered (the drops lay out of reach): head room is now dug; a block touching lava counted as "exposed": it no longer does.
 
 ## Security basis (the console can reach RCON and control bots, so it is an administrative interface)
 

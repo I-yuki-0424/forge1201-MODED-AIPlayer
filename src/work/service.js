@@ -12,6 +12,7 @@ const pit = require('./pit');
 const janitor = require('./janitor');
 const { runWorker } = require('./worker');
 const inventory = require('./inventory');
+const gatherer = require('./gather');
 const { catalog } = require('./catalog');
 const { MapStore } = require('./maps');
 const skills = require('../skills');
@@ -81,6 +82,7 @@ class WorkService extends EventEmitter {
         this._saveTimer = null;
         this._rcon = null; this._rconTail = Promise.resolve();
         this.maps = new MapStore(this.o.worldDir || null);
+        this._watch = setInterval(() => this._watchWaiting(), 2000); this._watch.unref?.();
         this.cmdSeq = 0;
         this.started = Date.now();
     }
@@ -178,7 +180,7 @@ class WorkService extends EventEmitter {
         const count = (re) => items.reduce((n, i) => n + (re.test(i.name) ? i.count : 0), 0);
         return {
             name: rec.name, state: rec.state, job: rec.job, working: !!rec.worker, retired: rec.retired, error: rec.error,
-            cmd: rec.cmd ? { id: rec.cmd.id, name: rec.cmd.name, status: rec.cmd.status, since: rec.cmd.started, result: rec.cmd.result || null } : null,
+            cmd: rec.cmd ? { id: rec.cmd.id, name: rec.cmd.name, status: rec.cmd.status, since: rec.cmd.started, result: rec.cmd.result || null, progress: rec.cmd.progress || null } : null,
             pos: e ? { x: Math.round(e.position.x * 10) / 10, y: Math.round(e.position.y * 10) / 10, z: Math.round(e.position.z * 10) / 10 } : null,
             health: b && rec.state === 'online' ? b.health ?? null : null, food: b && rec.state === 'online' ? b.food ?? null : null,
             pickaxes: count(/_pickaxe$/), free: b && b.inventory && rec.state === 'online' ? b.inventory.emptySlotCount?.() ?? null : null,
@@ -378,6 +380,7 @@ class WorkService extends EventEmitter {
                 if (ev === 'unit' && d.ok) rec.fixes = 0;
                 if (ev === 'unit' && !d.ok) {
                     rec.missing = d.reason === 'missing_item' && d.detail && ITEM_ID.test(String(d.detail.item)) ? String(d.detail.item) : null;
+                    rec.missingTool = d.reason === 'missing_tool' && d.detail && typeof d.detail.block === 'string' ? d.detail.block : null;
                     this.note('debug', `${d.id} ${d.region} u${d.unit} ${d.reason}`, { job: job.id, detail: d.detail });
                 }
                 if (ev === 'janitor_failed') this.note('debug', `${d.id} janitor ${d.reason}`, { job: job.id });
@@ -396,11 +399,34 @@ class WorkService extends EventEmitter {
         this._dirty();
     }
 
+    _toolClass(rec, block) {
+        const reg = rec.bot && rec.bot.registry, b = reg && reg.blocksByName[block];
+        if (!b || !b.harvestTools) return null;
+        return [...new Set(Object.keys(b.harvestTools).map((id) => reg.items[id] && reg.items[id].name).filter(Boolean).map((n) => n.split('_').pop()))].join(' or ') || null;
+    }
+    _canBreak(rec, block) {
+        const reg = rec.bot.registry, b = reg.blocksByName[block];
+        if (!b || !b.harvestTools) return true;
+        return rec.bot.inventory.items().some((i) => { const it = reg.itemsByName[i.name]; return it && b.harvestTools[it.id]; });
+    }
+    /** A bot that waits for a tool or an item goes back to work by itself as soon as the inventory has it (the operator gave it through the GUI). */
+    _watchWaiting() {
+        for (const rec of this.bots.values()) {
+            if (rec.removed || !rec.retired || !rec.waitFor || rec.state !== 'online' || !rec.bot) continue;
+            let ok = false;
+            try {
+                if (rec.waitFor.tool) ok = this._canBreak(rec, rec.waitFor.tool);
+                else if (rec.waitFor.item) ok = rec.bot.inventory.items().some((i) => i.name === rec.waitFor.item.replace(/^minecraft:/, '') && i.count > 0);
+            } catch (_) { ok = false; }
+            if (ok) { rec.retired = null; rec.waitFor = null; rec.fixes = 0; this.note('info', `bot ${rec.name} has what it waited for: continues`); this._resume(rec); this._dirty(); }
+        }
+    }
+
     /** Un-retire a bot (after a kit, materials, or a look in the game) and put it back to work. */
     resumeBot(name) {
         const rec = this.bots.get(name);
         need(rec && !rec.removed, `no bot ${name}`, 404);
-        rec.retired = null; rec.missing = null; rec.fixes = 0;
+        rec.retired = null; rec.missing = null; rec.waitFor = null; rec.fixes = 0;
         this._resume(rec);
         this._dirty();
         return this._botView(rec);
@@ -417,8 +443,15 @@ class WorkService extends EventEmitter {
             else if (res.ended === 'unhealthy') {
                 const missing = res.last === 'missing_item' || res.last === 'missing_tool';
                 if (missing && this.settings.autoKit && this.o.rcon && (rec.fixes = (rec.fixes || 0) + 1) <= 5) { this._restock(job, rec, res.last).catch((e) => { rec.retired = `retired: ${res.last} (restock failed: ${String(e.message).slice(0, 80)})`; this._dirty(); }); return; }
-                rec.retired = `retired: ${res.last || 'failed units'}${rec.missing ? ' ' + rec.missing : ''}`;
-                this.note('warn', `bot ${rec.name} ${rec.retired}. ${missing ? 'Kit / Give materials, then Resume.' : 'Look at it in the game, then Resume.'}`);
+                if (res.last === 'missing_tool' && rec.missingTool) {
+                    const cls = this._toolClass(rec, rec.missingTool);
+                    rec.waitFor = { tool: rec.missingTool };
+                    rec.retired = `waiting for ${cls ? 'a ' + cls : 'a tool'} (to break ${rec.missingTool.replace('minecraft:', '')}): give one in Inventory and it continues by itself`;
+                } else if (res.last === 'missing_item' && rec.missing) {
+                    rec.waitFor = { item: rec.missing };
+                    rec.retired = `waiting for ${rec.missing.replace('minecraft:', '')}: give some in Inventory and it continues by itself`;
+                } else rec.retired = `retired: ${res.last || 'failed units'}`;
+                this.note('warn', `bot ${rec.name} ${rec.retired}`);
             }
             else if (res.ended === 'stalled') this.note('warn', `bot ${rec.name}: nothing claimable and nothing running (job ${job.id})`);
             else if (res.ended === 'error') { rec.retired = `error: ${res.error}`; this.note('warn', `bot ${rec.name} ${rec.retired}`); }
@@ -644,6 +677,11 @@ class WorkService extends EventEmitter {
                 need((args.player && inventory.NAME.test(String(args.player))) || xyz.length === 3, 'give a player or all of x, y, z');
                 for (const k of xyz) int(args[k], k);
             }
+            if (spec.name === 'gather') {
+                need(typeof args.target === 'string' && /^([a-z0-9_.-]{1,32}:)?[a-z0-9_/]{1,64}$/.test(args.target), 'target: a block or item name such as iron_ore, raw_iron, oak_log');
+                if (args.count !== undefined) need(Number.isInteger(args.count) && args.count >= 1 && args.count <= 2304, 'count: 1..2304');
+                if (args.radius !== undefined) need(Number.isInteger(args.radius) && args.radius >= 4 && args.radius <= 64, 'radius: 4..64');
+            }
             if (spec.name === 'come' && args.player !== undefined) need(inventory.NAME.test(String(args.player)), 'player name');
             return;
         }
@@ -669,6 +707,12 @@ class WorkService extends EventEmitter {
                 const dest = args.player ? String(args.player) : `${args.x} ${args.y} ${args.z}`;
                 const r = String(await this.rcon(`tp ${rec.name} ${dest}`)).replace(/\x1b\[[0-9;]*m/g, '');
                 return /^Teleported/i.test(r.trim()) ? { ok: true } : { ok: false, reason: 'refused', detail: { server: r.trim().slice(0, 120) } };
+            }
+            if (command === 'gather') {
+                return gatherer.gather(bot, { target: String(args.target), count: args.count || 16, radius: args.radius || 32 }, {
+                    cancel, execute: (b, n, a, o) => skills.execute(b, n, a, o),
+                    onProgress: (p) => { if (rec.cmd && rec.cmd.id === id) rec.cmd.progress = p; },
+                });
             }
             if (command === 'come') {
                 const players = await this.players(), p = args.player ? players.find((q) => q.name === args.player) : players.find((q) => !q.bot && q.pos);
@@ -704,6 +748,14 @@ class WorkService extends EventEmitter {
         const rec = this._online(name), b = rec.bot;
         const pos = b.findBlocks({ matching: (blk) => !!blk && inventory.CONTAINER.test(blk.name), maxDistance: Math.min(64, radius), count: 60 });
         return pos.map((p) => ({ x: p.x, y: p.y, z: p.z, block: b.blockAt(p)?.name || '?' }));
+    }
+
+    /** What `gather` would find for a target around a bot (the page's Find button). */
+    survey(name, target, radius = 32) {
+        const rec = this._online(name);
+        need(typeof target === 'string' && /^([a-z0-9_.-]{1,32}:)?[a-z0-9_/]{1,64}$/.test(target), 'target: a block or item name');
+        need(Number.isInteger(radius) && radius >= 4 && radius <= 64, 'radius: 4..64');
+        return gatherer.survey(rec.bot, target, radius);
     }
 
     // ------------------------------------------------------------------------------------------------ inventories
@@ -790,7 +842,7 @@ class WorkService extends EventEmitter {
         try { this.save(); } catch (_) { /* best effort */ }
         for (const rec of this.bots.values()) { rec.removed = true; clearTimeout(rec.timer); this._stopWorker(rec); try { rec.bot && rec.bot.quit && rec.bot.quit(); } catch (_) { /* gone */ } }
         if (this._rcon) { try { this._rcon.close(); } catch (_) { /* gone */ } }
-        this.maps.close();
+        clearInterval(this._watch); this.maps.close();
     }
 }
 

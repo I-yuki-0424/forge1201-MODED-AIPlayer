@@ -64,6 +64,15 @@ function CommandPanel(o) {
             const extra = a.type === 'entity' ? h('button', { class: 'btn small', type: 'button', onclick: entityRefresh }, icon('refresh', 13)) : null;
             fields.append(field(`${a.hint || a.name}${a.optional ? '' : ' *'}`, h('span', { class: 'row tight' }, el, extra)));
         }
+        if (spec.name === 'gather') {
+            const out = h('div', { class: 'muted small' });
+            items.append(...['iron_ore', 'coal_ore', 'copper_ore', 'gold_ore', 'diamond_ore', 'oak_log', 'birch_log', 'spruce_log', 'jungle_log', 'cobblestone', 'sand', 'gravel', 'clay', 'raw_iron', 'raw_copper', 'coal', 'diamond', 'sugar_cane', 'kelp'].map((n) => h('option', { value: n })));
+            fields.append(h('div', { class: 'row' }, h('button', { class: 'btn small', type: 'button', title: 'what is around the chosen bot (needs exactly one bot as the target)', onclick: act(async () => {
+                const b = single(); if (!b) throw new Error('choose one bot to look around it');
+                const r = await api('GET', `/api/bots/${b}/find?target=${encodeURIComponent(inputs.target.value.trim())}&radius=${Number(inputs.radius.value) || 32}`);
+                out.textContent = !r.ok ? r.why : `${r.total} found (${r.exposed} reachable, ${r.inReach} within reach of where ${b} stands) · blocks: ${r.blocks.join(', ')}${r.nearest.length ? ' · nearest: ' + r.nearest.slice(0, 4).map((c) => `${c.x} ${c.y} ${c.z} (${c.dist} m)`).join('; ') : ''}`;
+            }, null, () => {}) }, icon('target', 13), ' Find around the bot'), out));
+        }
         if (spec.oneOf) fields.append(h('p', { class: 'hint', text: `Give exactly one of: ${spec.oneOf.map((g) => g.join(' + ')).join(' or ')}.` }));
         if (spec.allOrNone) fields.append(h('p', { class: 'hint', text: `${spec.allOrNone.join(', ')}: all three or none.` }));
         if (spec.args.some((a) => a.type === 'entity') && single()) entityRefresh();
