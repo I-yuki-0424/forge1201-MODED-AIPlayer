@@ -303,7 +303,10 @@ function fakeWorld(ground = 0, init = {}) {
         const cells = await build.fromStructureNbt(buf);
         assert.deepStrictEqual(cells.map((c) => c.block), ['stone', 'create:cogwheel']);
         const plan = build.planBuild(cells, { x: 0, y: 70, z: 0 });
-        assert.deepStrictEqual(plan.unsupported, ['create:cogwheel']); assert.strictEqual(plan.count, 1);
+        assert.deepStrictEqual(plan.unsupported, []); assert.strictEqual(plan.count, 2);           // mod blocks are placed by namespaced name
+        const lim = build.planBuild(cells, { x: 0, y: 70, z: 0 }, { known: (n) => !n.startsWith('create:') });      // a registry without that mod
+        assert.deepStrictEqual(lim.unsupported, ['create:cogwheel']); assert.strictEqual(lim.count, 1);
+        assert.throws(() => build.planBuild([{ x: 0, y: 0, z: 0, block: 'create:cogwheel' }], { x: 0, y: 70, z: 0 }, { known: () => false }), /nothing the bots can place/);
     });
 
     console.log('\nwork layer: all tests passed');

@@ -28,7 +28,7 @@ const COMMANDS = {
     look_at: { fn: lookAt, args: { ...XYZ_OPT, entity: 'entity?' }, oneOf: [['x', 'y', 'z'], ['entity']], ticks: 40 },
     mine: { fn: mine, args: XYZ, ticks: 1200 },
     tunnel: { fn: tunnel, args: { dir: 'dir', dy: 'dy' }, ticks: 2400 },
-    place: { fn: place, args: { ...XYZ, item: 'name', fluid: 'bool?' }, ticks: 1200 },
+    place: { fn: place, args: { ...XYZ, item: 'item', fluid: 'bool?' }, ticks: 1200 },    // namespaced ids allowed: pure bots place mod blocks (work/build.js)
     activate: { fn: activate, args: { ...XYZ, item: 'item?', sneak: 'bool?' }, ticks: 600 },
     pickup: { fn: pickup, args: { entity: 'entity?', item: 'name?' }, oneOf: [['entity'], ['item']], ticks: 1200 },
     attack: { fn: attack, args: { entity: 'entity' }, ticks: 2400 },

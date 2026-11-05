@@ -39,8 +39,11 @@ function applyProtocolBypasses() {
 
         const nbtProto = nbt.protos.big;
         const originalRead = nbtProto.read;
-        nbtProto.read = function (buffer, offset) {
-            try { return originalRead.call(this, buffer, offset); } catch (e) { return nbtProto.readAnon(buffer, offset); }
+        // Forward every argument: ProtoDef calls read(buffer, cursor, type, context), and the old two-argument wrapper dropped the
+        // type, so any nbt.parse in a process with a bot failed ("Read error for undefined"). readAnon does not exist in
+        // prismarine-nbt, so a real parse error is rethrown as it was.
+        nbtProto.read = function (...args) {
+            try { return originalRead.apply(this, args); } catch (e) { if (typeof nbtProto.readAnon === 'function') return nbtProto.readAnon(...args); throw e; }
         };
         console.log('[Actuator] Protocol bypasses and NBT leniency applied.');
     } catch (e) { console.error(`[Actuator] Patch failed: ${e.message}`); }

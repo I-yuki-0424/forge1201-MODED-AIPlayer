@@ -4,6 +4,7 @@
 // file) or a generator (`house`). The job places the cells bottom-up with the existing `place` command, one row per unit.
 // A cell that cannot be reached from the ground gets a temporary staircase of cheap blocks (scaffold), removed afterwards.
 // Block properties (stairs/slab/log orientation) are NOT reproduced: `place` puts a block down the way a click does.
+// Mod blocks are placed by their namespaced name; whether a bot can place one is the registry's question (the console asks it).
 const { Ledger } = require('./crew');
 const { SEAL_ITEMS } = require('./pit');
 
@@ -13,10 +14,10 @@ const ATTACHED = /(torch|ladder|button|lever|sign|door|trapdoor|pressure_plate|c
 const ITEM_OF = { wall_torch: 'torch', redstone_wall_torch: 'redstone_torch', soul_wall_torch: 'soul_torch', wall_sign: 'oak_sign', water: null, lava: null };
 
 const bare = (n) => String(n).replace(/^minecraft:/, '');
-/** The item that places `block`, or null when `place` cannot (fluids, mod blocks: the schema takes bare names). */
+/** The item that places `block`, or null when `place` cannot (fluids). Mod blocks keep their namespace (`create:cogwheel`). */
 function itemFor(block) {
     const n = bare(block);
-    if (n.includes(':')) return null;
+    if (n.includes(':')) return n;
     if (n in ITEM_OF) return ITEM_OF[n];
     return n.replace(/^(.*)_wall_(sign|banner|head)$/, '$1_$2');
 }
@@ -36,26 +37,21 @@ function house({ w = 7, d = 7, h = 4, wall = 'oak_planks', floor = 'cobblestone'
     return cells;
 }
 
-/** Cells of a vanilla structure `.nbt` (gzip or plain). Async because prismarine-nbt parses asynchronously. */
+/** Cells of a vanilla structure `.nbt` (gzip or plain), with block states: { x, y, z, block, props }. */
 async function fromStructureNbt(buf) {
-    const nbt = require('prismarine-nbt');
-    const { parsed } = await nbt.parse(buf);
-    const v = nbt.simplify(parsed);
-    if (!v.palette || !v.blocks || !v.size) throw new Error('not a structure file (palette/blocks/size missing)');
-    const out = [];
-    for (const b of v.blocks) {
-        const name = bare(v.palette[b.state].Name);
-        if (!SKIP.test(name)) out.push({ x: b.pos[0], y: b.pos[1], z: b.pos[2], block: name });
-    }
-    return out;
+    const bp = require('./blueprint');
+    return bp.cells(await bp.read(buf));
 }
 
 /** Cut a blueprint into tiles and add them to a ledger: layer = height above the origin (bottom-up), rows = z lines of a tile. */
-function planBuild(cells, origin, { tile = TILE } = {}) {
+function planBuild(cells, origin, { tile = TILE, known = null } = {}) {
     if (!cells.length) throw new Error('blueprint is empty');
-    const abs = cells.map((c) => ({ x: origin.x + c.x, y: origin.y + c.y, z: origin.z + c.z, block: bare(c.block) }));
-    const unsupported = [...new Set(abs.map((c) => c.block).filter((b) => itemFor(b) === null))];
-    const placeable = abs.filter((c) => itemFor(c.block) !== null && !SKIP.test(c.block));
+    const abs = cells.map((c) => ({ x: origin.x + c.x, y: origin.y + c.y, z: origin.z + c.z, block: bare(c.block), props: c.props }));
+    // `known(name)`: does the bot's registry have this block (a mod block of another mod set does not)? Unplaceable ones are listed, not tried.
+    const cannot = (b) => itemFor(b) === null || (known && !known(b));
+    const unsupported = [...new Set(abs.map((c) => c.block).filter((b) => !SKIP.test(b) && cannot(b)))];
+    const placeable = abs.filter((c) => !cannot(c.block) && !SKIP.test(c.block));
+    if (!placeable.length) throw new Error('nothing the bots can place (every block is unsupported)');
     const minY = Math.min(...placeable.map((c) => c.y)), maxY = Math.max(...placeable.map((c) => c.y)), layers = maxY - minY + 1;
     const tiles = new Map();
     for (const c of placeable) {
@@ -184,8 +180,8 @@ async function cleanup(env) {
     return { ok: true, removed };
 }
 
-function createBuildJob(cells, origin, ledgerOpts = {}) {
-    const plan = planBuild(cells, origin), ledger = new Ledger(ledgerOpts);
+function createBuildJob(cells, origin, ledgerOpts = {}, planOpts = {}) {
+    const plan = planBuild(cells, origin, planOpts), ledger = new Ledger(ledgerOpts);
     for (const r of plan.regions) ledger.addRegion(r);
     return { kind: 'build', ledger, plan, runUnit: (regionId, unit, env) => runUnit(plan, regionId, unit, env), cleanup, diff: (w) => diffBuild(plan, w) };
 }
