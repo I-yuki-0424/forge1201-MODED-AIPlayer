@@ -147,7 +147,9 @@ async function runUnit(plan, regionId, u, env) {
         }
         if (env.have(item) < 1) return fail({ reason: 'missing_item', detail: { item } }, c, 'stock');
         let p = await env.exec('place', { x: c.x, y: c.y, z: c.z, item });
-        if (!p.ok && (p.reason === 'unreachable' || p.reason === 'not_visible')) {
+        // A scaffold helps when the cell cannot be reached or seen, and also when the walk to the placement face ends in the open
+        // (a roof cell inside the walls: live run, reason 'stuck', goal 'reach placement face'). Other 'stuck' reasons are the bot's body.
+        if (!p.ok && (p.reason === 'unreachable' || p.reason === 'not_visible' || (p.reason === 'stuck' && p.detail && p.detail.goal === 'reach placement face'))) {
             const sc = scaffoldFor(plan, env.w, c, plan.origin.y, { reuse: new Set(env.temp.cells.map((q) => `${q.x},${q.y},${q.z}`)) }), mat = anyItem();
             if (sc && sc.cells.length && mat) {
                 for (const s of sc.cells) {

@@ -274,6 +274,31 @@ function fakeWorld(ground = 0, init = {}) {
         assert.strictEqual(job.diff(w).length, 2, 'a hole in the wall and one in the floor are the repair list');
     });
 
+    await test('build: a failed walk to the placement face (stuck, goal reach placement face) also gets a scaffold; other stuck reasons do not', async () => {
+        const run = async (detail) => {
+            const job = build.createBuildJob(build.house({ w: 7, d: 7, h: 4 }), { x: 100, y: 64, z: 200 });
+            const w = fakeWorld(63), inv = { cobblestone: 99, oak_planks: 99, glass: 99, oak_door: 2 }, placed = [];
+            const env = {
+                w, have: (i) => inv[i] || 0, here: () => ({ x: 99, y: 64, z: 200 }), pos: () => ({ x: 100, z: 200 }), inv: () => ({ items: [], slotsFree: 30 }),
+                exec: async (name, a) => {
+                    if (name === 'place') {
+                        if (a.y >= 68 && a.item !== 'cobblestone' && !env.up) return { ok: false, reason: 'stuck', detail };
+                        w.set(a.x, a.y, a.z, a.item); placed.push(a); return { ok: true };
+                    }
+                    if (name === 'move_to') { env.up = true; return { ok: true }; }
+                    if (name === 'mine') { w.set(a.x, a.y, a.z, 'air'); return { ok: true }; }
+                    throw new Error(name);
+                },
+            };
+            return { res: await runWorker(job, 'b', env, { pollMs: 1 }), job, w, placed };
+        };
+        const good = await run({ goal: 'reach placement face', why: 'end of partial path' });
+        assert.strictEqual(good.res.ended, 'finished'); assert.deepStrictEqual(good.job.diff(good.w), []);
+        assert.ok(good.placed.some((p) => p.item === 'cobblestone' && p.y > 64 && !good.job.plan.footprint.has(`${p.x},${p.z}`)), 'scaffold built');
+        const bad = await run({ goal: 'somewhere else' });
+        assert.notStrictEqual(bad.res.ended, 'finished'); assert.ok(!bad.placed.some((p) => p.item === 'cobblestone' && !bad.job.plan.footprint.has(`${p.x},${p.z}`)), 'no scaffold for the bot\'s own trouble');
+    });
+
     await test('scaffold: a stair outside the footprint, column j is K-j high, placed outer column first; none when in reach; null when boxed in', () => {
         const cells = build.house({ w: 7, d: 7, h: 4 }), plan = build.planBuild(cells, { x: 100, y: 64, z: 200 }), w = fakeWorld(63);
         assert.deepStrictEqual(build.scaffoldFor(plan, w, { x: 103, y: 65, z: 203 }, 64), { top: null, cells: [] }, 'wall base needs nothing');
