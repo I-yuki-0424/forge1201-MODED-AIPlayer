@@ -22,11 +22,11 @@ function resolveItemName(bot, id) {
 }
 
 /** Window-0 slot of a stack of `name`: the selected hotbar slot first, then the hotbar, then the main inventory. */
-function slotOf(bot, name) {
-    const s = bot.inventory.slots, sel = SLOT.hotbar0 + bot.quickBarSlot;
-    if (s[sel]?.name === name) return sel;
-    for (let i = SLOT.hotbar0; i < SLOT.hotbar0 + 9; i++) if (s[i]?.name === name) return i;
-    for (let i = 9; i < 36; i++) if (s[i]?.name === name) return i;
+function slotOf(bot, name, ok = () => true) {
+    const s = bot.inventory.slots, sel = SLOT.hotbar0 + bot.quickBarSlot, is = (i) => s[i]?.name === name && ok(s[i]);
+    if (is(sel)) return sel;
+    for (let i = SLOT.hotbar0; i < SLOT.hotbar0 + 9; i++) if (is(i)) return i;
+    for (let i = 9; i < 36; i++) if (is(i)) return i;
     return -1;
 }
 
@@ -36,11 +36,11 @@ async function click(ctx, slot, button, mode, settled) {
     await ctx.until(settled, 20);
 }
 
-/** Put a stack of `name` in the main hand: hotbar key if it is on the hotbar, else a number-key swap into the hotbar. */
-async function holdItem(ctx, name) {
+/** Put a stack of `name` in the main hand: hotbar key if it is on the hotbar, else a number-key swap into the hotbar. `ok(item)` picks among stacks of the same name (a fresh pickaxe, not the worn one). */
+async function holdItem(ctx, name, ok = () => true) {
     const bot = ctx.bot;
-    if (bot.heldItem?.name === name) return;
-    const slot = slotOf(bot, name);
+    if (bot.heldItem?.name === name && ok(bot.heldItem)) return;
+    const slot = slotOf(bot, name, ok);
     if (slot < 0) throw new SkillError('missing_item', { item: name });
     if (slot >= SLOT.hotbar0) {
         await ctx.tick({ hotbar: slot - SLOT.hotbar0 });
@@ -53,7 +53,7 @@ async function holdItem(ctx, name) {
         await click(ctx, slot, hb, 2, () => bot.inventory.slots[SLOT.hotbar0 + hb]?.name === name);
         await ctx.tick({ hotbar: hb });
     }
-    await ctx.until(() => bot.heldItem?.name === name, 10, 'not_confirmed');
+    await ctx.until(() => bot.heldItem?.name === name && ok(bot.heldItem), 10, 'not_confirmed');
 }
 
 /** equip {item, dest}: put the item in the main hand, the off hand or its armour slot. */

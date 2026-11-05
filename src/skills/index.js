@@ -26,7 +26,7 @@ const XYZ_OPT = { x: 'int?', y: 'int?', z: 'int?' };
 const COMMANDS = {
     move_to: { fn: moveTo, args: XYZ, ticks: 1200 },
     look_at: { fn: lookAt, args: { ...XYZ_OPT, entity: 'entity?' }, oneOf: [['x', 'y', 'z'], ['entity']], ticks: 40 },
-    mine: { fn: mine, args: XYZ, ticks: 1200 },
+    mine: { fn: mine, args: { ...XYZ, collect: 'bool?', blind: 'bool?' }, ticks: 1200 },    // collect:false / blind:true are work-layer options (src/work), not offered to the RL policy
     tunnel: { fn: tunnel, args: { dir: 'dir', dy: 'dy' }, ticks: 2400 },
     place: { fn: place, args: { ...XYZ, item: 'item', fluid: 'bool?' }, ticks: 1200 },    // namespaced ids allowed: pure bots place mod blocks (work/build.js)
     activate: { fn: activate, args: { ...XYZ, item: 'item?', sneak: 'bool?' }, ticks: 600 },

@@ -6,6 +6,8 @@
 //   yaw pitch                                   absolute look (Mineflayer radians); omitted = unchanged
 //   hotbar                                      0..8 selected hotbar slot; omitted = unchanged
 //   drop ('one'|'stack'), swap (true)           the Q and F keys, pressed this tick
+//   cell {x,y,z,face}                           ONLY for the work layer's blind dig (src/work, `mine` with blind): break this block instead of the
+//                                               crosshair's. The server checks reach, not line of sight (vanilla); nothing in the RL path sets it.
 // Keys not named in a frame are released. Every command in src/skills/commands is a sequence of frames plus waits,
 // so this file is the only place where input becomes packets (window clicks excepted: commands/gui.js).
 const Vec3 = require('vec3');
@@ -75,7 +77,7 @@ class Body {
         }
         if (frame.drop) this._dropHeld(frame.drop === 'stack');
         if (frame.swap) this._swapHands();
-        this._attack(!!frame.attack, !prev.attack);
+        this._attack(!!frame.attack, !prev.attack, frame.cell);
         this._use(!!frame.use, !prev.use);
         this.prev = { ...frame };
     }
@@ -111,10 +113,10 @@ class Body {
         this.dig = null;
     }
 
-    _attack(down, edge) {
+    _attack(down, edge, cell) {
         const b = this.bot;
         if (!down) return this._cancelDig();
-        const target = this.crosshair();
+        const target = cell ? { kind: 'block', block: b.blockAt(new Vec3(cell.x, cell.y, cell.z)), face: cell.face ?? 1 } : this.crosshair();
         if (target && target.kind === 'entity') {
             this._cancelDig();
             if (edge) { b.attack(target.entity); }          // a held button does not repeat entity hits (vanilla)

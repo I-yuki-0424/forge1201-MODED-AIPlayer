@@ -7,6 +7,7 @@ const { FACES, lookAngles, aimPoints, viewDir, raycast } = require('../geometry'
 const { follow, cellGoal, reachGoal, approachUntil, approachBlock, aimAtBlock, clearOfEntities, feetCell, centre, hdist, same, AIM_REACH } = require('../motion');
 const { holdItem, count, resolveItemName } = require('./item');
 const { collectDrops } = require('./entity');
+const skillOpts = require('../options');
 
 const REPLACEABLE = /^(air|cave_air|void_air|grass|tall_grass|fern|large_fern|dead_bush|snow|seagrass|vine|glow_lichen)$/;
 const FLUID = /^(water|lava)$/;     // `place` with fluid:true may fill these (work/pit.js water rule)
@@ -46,9 +47,14 @@ async function lookAt(ctx, { x, y, z, entity }) {
     throw new SkillError('not_visible', { target: cell, tried: pts.length });
 }
 
-/** The tool in the inventory that breaks `block` fastest among those that harvest it (null = bare hand). */
-function bestTool(bot, block) {
-    const names = [null, ...new Set(bot.inventory.items().map((i) => i.name))];
+/**
+ * The tool in the inventory that breaks `block` fastest among those that harvest it (null = bare hand). With the work layer's
+ * `retireWorn` option a nearly broken stack is not a candidate (a name counts while one of its stacks is fresh); `ignoreWear` asks
+ * what the answer would be without that rule (to tell "no tool" from "only worn tools").
+ */
+function bestTool(bot, block, { ignoreWear = false } = {}) {
+    const fresh = (i) => ignoreWear || !skillOpts.isWorn(bot, i);
+    const names = [null, ...new Set(bot.inventory.items().filter(fresh).map((i) => i.name))];
     let best = null;
     for (const name of names) {
         const id = name ? bot.registry.itemsByName[name].id : null;
@@ -66,31 +72,60 @@ function dropOf(bot, block) {
     return id === null || id === undefined ? null : bot.registry.items[id]?.name || null;
 }
 
-/** mine {x, y, z}: break the block with the best tool at hand and pick up what it drops. */
-async function mine(ctx, { x, y, z }) {
+const BLIND_REACH = 5.0;      // the server refuses digs beyond 6 blocks from the eye; stay well inside
+
+/** The face of the block at `c` that looks toward `eye` (protocol numbering). */
+function faceToward(eye, c) {
+    const d = [eye.x - (c.x + 0.5), eye.y - (c.y + 0.5), eye.z - (c.z + 0.5)], a = d.map(Math.abs), k = a.indexOf(Math.max(...a));
+    return k === 1 ? (d[1] < 0 ? 0 : 1) : k === 2 ? (d[2] < 0 ? 2 : 3) : (d[0] < 0 ? 4 : 5);
+}
+
+/**
+ * mine {x, y, z, collect?, blind?}: break the block with the best tool at hand and pick up what it drops.
+ * `collect: false` leaves the drop where it falls (the work layer sweeps a whole standing place and picks everything up once).
+ * `blind: true` digs without a line of sight, within reach (the server checks only the distance): the block two below the feet of
+ * a bot that pillars up. Work-layer options; neither is offered to the RL policy.
+ */
+async function mine(ctx, { x, y, z, collect = true, blind = false }) {
     const bot = ctx.bot, cell = { x, y, z };
     const b0 = ctx.world.blockAt(x, y, z);
     if (!b0) throw new SkillError('unreachable', { why: 'target chunk not loaded' });
     if (/^(air|cave_air|void_air)$/.test(b0.name) || !b0.diggable || ['liquid', 'water'].includes(ctx.world.kindAt(x, y, z))) throw new SkillError('invalid_target', { block: b0.name, target: cell });
     const tool = bestTool(bot, b0);
-    if (!tool) throw new SkillError('missing_tool', { block: b0.name });
+    if (!tool) {
+        const any = skillOpts.get(bot).retireWorn && bestTool(bot, b0, { ignoreWear: true });
+        throw new SkillError('missing_tool', { block: b0.name, ...(any && any.name ? { worn: any.name } : {}) });
+    }
     const drop = dropOf(bot, b0), before = drop ? count(bot, drop) : 0;
-    // Never stand on the block being broken.
-    await approachBlock(ctx, cell, { ok: (c) => !(c.x === x && c.z === z && c.y === y + 1) });
-    if (tool.name) await holdItem(ctx, tool.name);
+    const notWorn = (i) => !skillOpts.isWorn(bot, i);
     const gone = () => { const b = ctx.world.blockAt(x, y, z); return !!b && b.name !== b0.name; };
-    const digTicks = Math.ceil(bot.digTime(b0) / 50);
-    ctx.phase('dig', { block: b0.name, tool: tool.name, ticks: digTicks });
-    for (let attempt = 0; !gone(); attempt++) {
-        if (attempt >= 4) throw new SkillError('not_confirmed', { why: 'block still there after 4 dig attempts', block: b0.name });
-        if (attempt) await approachBlock(ctx, cell, { ok: (c) => !(c.x === x && c.z === z && c.y === y + 1) });
-        await aimAtBlock(ctx, cell);
-        const look = { yaw: bot.entity.yaw, pitch: bot.entity.pitch };
-        const deadline = ctx.t + digTicks + 30;
-        while (!gone() && ctx.t < deadline) {
-            const h = ctx.body.crosshair();
-            if (!h || h.kind !== 'block' || !same(h.block.position, cell)) break;     // crosshair slipped off: aim again
-            await ctx.tick({ attack: true, ...look });
+    const ticksNow = () => Math.ceil(bot.digTime(b0) / 50);     // after the tool is in hand
+    if (blind) {
+        const eye = ctx.body.eye(), d = Math.hypot(eye.x - (x + 0.5), eye.y - (y + 0.5), eye.z - (z + 0.5));
+        if (d > BLIND_REACH) throw new SkillError('not_visible', { target: cell, why: 'too far to dig without a line of sight', dist: Math.round(d * 100) / 100 });
+        if (tool.name) await holdItem(ctx, tool.name, notWorn);
+        const face = faceToward(eye, cell), digTicks = ticksNow();
+        ctx.phase('dig_blind', { block: b0.name, tool: tool.name, ticks: digTicks });
+        const deadline = ctx.t + digTicks + 40;
+        while (!gone() && ctx.t < deadline) await ctx.tick({ attack: true, cell: { x, y, z, face } });
+        if (!gone()) throw new SkillError('not_confirmed', { why: 'blind dig did not break the block', block: b0.name });
+    } else {
+        // Never stand on the block being broken.
+        await approachBlock(ctx, cell, { ok: (c) => !(c.x === x && c.z === z && c.y === y + 1) });
+        if (tool.name) await holdItem(ctx, tool.name, notWorn);
+        const digTicks = ticksNow();
+        ctx.phase('dig', { block: b0.name, tool: tool.name, ticks: digTicks });
+        for (let attempt = 0; !gone(); attempt++) {
+            if (attempt >= 4) throw new SkillError('not_confirmed', { why: 'block still there after 4 dig attempts', block: b0.name });
+            if (attempt) await approachBlock(ctx, cell, { ok: (c) => !(c.x === x && c.z === z && c.y === y + 1) });
+            await aimAtBlock(ctx, cell);
+            const look = { yaw: bot.entity.yaw, pitch: bot.entity.pitch };
+            const deadline = ctx.t + digTicks + 30;
+            while (!gone() && ctx.t < deadline) {
+                const h = ctx.body.crosshair();
+                if (!h || h.kind !== 'block' || !same(h.block.position, cell)) break;     // crosshair slipped off: aim again
+                await ctx.tick({ attack: true, ...look });
+            }
         }
     }
     await ctx.tick({});
@@ -98,7 +133,7 @@ async function mine(ctx, { x, y, z }) {
     // gravel, grass) or fall out of reach (a log felled from a tree top), and the server counts the block as mined either
     // way (run train3, Train6: every leaf/log on a tree top ended not_confirmed while the statistic rose).
     let missed = null;
-    if (drop) {
+    if (drop && collect) {
         try { await collectDrops(ctx, cell, drop, before); } catch (e) { if (e.reason !== 'not_confirmed' && e.reason !== 'unreachable' && e.reason !== 'stuck') throw e; missed = e.reason; }
     }
     return { block: b0.name, tool: tool.name, drop, got: drop ? count(bot, drop) - before : 0, ...(missed ? { drop_missed: missed } : {}) };
@@ -248,4 +283,4 @@ async function tunnel(ctx, { dir, dy }) {
     return { to: end, mined, tools };
 }
 
-module.exports = { moveTo, lookAt, mine, place, activate, tunnel, tunnelCells, tunnelProblem, bestTool, dropOf, supports, overlaps, REPLACEABLE, DIRS };
+module.exports = { moveTo, lookAt, mine, place, activate, tunnel, tunnelCells, tunnelProblem, bestTool, faceToward, dropOf, supports, overlaps, REPLACEABLE, DIRS };
