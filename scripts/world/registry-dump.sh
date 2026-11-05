@@ -3,17 +3,29 @@
 # (src/transport/mod_registry.js). Run after every change of modpack/forgeaip-create.lock.json, then commit the table.
 # Builds tools/registry-dump if needed (JDK 17 container), starts it once on a tmpfs copy of a snapshot (default latest)
 # next to the lock's server jars, copies the table out. The build world is not touched; stop it first if memory is short.
+#
+#   registry-dump.sh [snapshot]                          the lock's mod set -> modpack/forgeaip-create.registry.json
+#   registry-dump.sh --mods DIR --out FILE               any mods folder (the play world: /mnt/data/forgeaip-play/mods), fresh world;
+#                                                        the bot then needs BOT_MOD_TABLE=FILE (src/transport/mod_registry.js)
 source "$(dirname "$0")/lib.sh"
+DUMP_MODS_DIR=$MODS; OUT=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --mods) DUMP_MODS_DIR=$(cd "$2" && pwd); shift 2;;
+    --out) OUT=$2; shift 2;;
+    *) break;;
+  esac
+done
 JDK=eclipse-temurin@sha256:91011320978c10ec51d2cde1eb6f616db6d2a739a0e521096c343dd3fed9abe6
 TOOL=$REPO/tools/registry-dump
-OUT=$REPO/modpack/forgeaip-create.registry.json
-snap=$(snapshot_file "${1:-latest}")
+CUSTOM=0; [ -n "$OUT" ] && CUSTOM=1; : "${OUT:=$REPO/modpack/forgeaip-create.registry.json}"
+if [ "$CUSTOM" = 1 ] || [ "$DUMP_MODS_DIR" != "$MODS" ]; then snap=""; else snap=$(snapshot_file "${1:-latest}"); fi
 if [ ! -f "$TOOL/build/libs/forgeaip-registrydump-1.0.0.jar" ]; then
   docker run --rm --memory 3g -u 0 -v forgeaip-gradle:/root/.gradle -v "$TOOL":/src -w /src "$JDK" ./gradlew --no-daemon -q build
 fi
-python3 -I "$REPO/modpack/pack.py" server "$MODS" >/dev/null
+[ "$DUMP_MODS_DIR" = "$MODS" ] && python3 -I "$REPO/modpack/pack.py" server "$MODS" >/dev/null
 [ -f "$COMPOSE_DIR/.env" ] || { umask 077; echo "RCON_PASSWORD=$(openssl rand -hex 16)" > "$COMPOSE_DIR/.env"; }
-SNAPSHOT=$snap compose --profile dump up -d --force-recreate registry-dump >/dev/null
+DUMP_MODS=$DUMP_MODS_DIR SNAPSHOT=$snap compose --profile dump up -d --force-recreate registry-dump >/dev/null
 for _ in $(seq 1 120); do running forgeaip-registry-dump || break; sleep 5; done
 if ! docker cp forgeaip-registry-dump:/data/registry.json "$OUT.tmp" 2>/dev/null; then
   docker logs --tail 40 forgeaip-registry-dump >&2; compose --profile dump rm -f registry-dump >/dev/null; exit 1

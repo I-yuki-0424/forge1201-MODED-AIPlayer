@@ -85,7 +85,8 @@ services:
     restart: "no"
     mem_limit: 4g
     cpus: 3
-    entrypoint: ["/bin/sh", "-c", "set -e; tar -xzf \"/snapshots/$${SNAPSHOT:?}\" -C /data; chown -R 1000:1000 /data/world; exec /start"]
+    # No SNAPSHOT: a fresh world (the registry does not depend on the world; a snapshot of another mod set would not load).
+    entrypoint: ["/bin/sh", "-c", "set -e; if [ -n \"$$SNAPSHOT\" ]; then tar -xzf \"/snapshots/$$SNAPSHOT\" -C /data; chown -R 1000:1000 /data/world; fi; exec /start"]
     environment:
       <<: *env
       SNAPSHOT: ${SNAPSHOT:-}
@@ -107,7 +108,8 @@ services:
     restart: "no"
     mem_limit: 4g
     cpus: 3
-    entrypoint: ["/bin/sh", "-c", "set -e; tar -xzf \"/snapshots/$${SNAPSHOT:?}\" -C /data; chown -R 1000:1000 /data/world; exec /start"]
+    # No SNAPSHOT: a fresh world (the registry does not depend on the world; a snapshot of another mod set would not load).
+    entrypoint: ["/bin/sh", "-c", "set -e; if [ -n \"$$SNAPSHOT\" ]; then tar -xzf \"/snapshots/$$SNAPSHOT\" -C /data; chown -R 1000:1000 /data/world; fi; exec /start"]
     environment:
       <<: *env
       SNAPSHOT: ${SNAPSHOT:-}
@@ -116,7 +118,7 @@ services:
       FORGEAIP_DUMP_HALT: "1"
     volumes:
       - test-data:/data
-      - /mnt/data/forgeaip/mods:/mods:ro
+      - ${DUMP_MODS:-/mnt/data/forgeaip/mods}:/mods:ro
       - /mnt/data/forgeaip/snapshots:/snapshots:ro
       - ../../tools/registry-dump/build/libs:/tool:ro
     tmpfs:
