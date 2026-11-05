@@ -8,151 +8,39 @@
 </head>
 <body>
 <section id="login" class="center hidden">
-  <form id="loginForm" class="card narrow">
-    <h1>Work console</h1>
-    <p class="muted">Access token: the file <code>console.token</code> in the console's data folder (see the README of the play world).</p>
-    <input id="token" type="password" autocomplete="off" placeholder="token" required>
-    <button type="submit" class="primary">Sign in</button>
-    <p id="loginError" class="error"></p>
+  <form id="loginForm" class="panel narrow">
+    <div class="panel-head"><span class="panel-title">Work console</span></div>
+    <div class="panel-body stack">
+      <p class="muted">Access token: the file <code>console.token</code> in the console's data folder.</p>
+      <input id="token" type="password" autocomplete="off" placeholder="token" required>
+      <button type="submit" class="btn primary">Sign in</button>
+      <p id="loginError" class="error"></p>
+    </div>
   </form>
 </section>
 
 <div id="app" class="hidden">
-<header>
-  <strong>Work console</strong>
-  <span id="srv" class="muted"></span>
-  <span id="summary" class="grow"></span>
-  <button id="logout" class="ghost">Sign out</button>
-</header>
-<nav id="tabs">
-  <button data-tab="map" class="on">Map</button><button data-tab="bots">Bots</button><button data-tab="pits">Pits</button>
-  <button data-tab="structures">Structures</button><button data-tab="jobs">Jobs</button><button data-tab="log">Log</button>
-</nav>
-<div id="toast" class="toast hidden"></div>
-
-<main>
-<!-- MAP -->
-<section id="tab-map" class="tab">
-  <div class="mapbar">
-    <span id="mapcursor" class="muted">x, z</span>
-    <button id="mapfit" class="ghost">Fit</button>
-    <button id="mapplayers" class="ghost">Players</button>
-    <span id="mappick" class="muted"></span>
+  <aside id="side">
+    <div class="brand"><span class="logo">W</span><span class="brand-text">Work console</span></div>
+    <nav id="nav"></nav>
+    <div class="side-foot muted small"><span id="srv"></span></div>
+  </aside>
+  <div id="main">
+    <header id="top">
+      <h1 id="pagetitle"></h1>
+      <div id="chips" class="chips-bar"></div>
+      <span class="grow"></span>
+      <button id="logout" class="btn small ghost">Sign out</button>
+    </header>
+    <div id="page"></div>
   </div>
-  <canvas id="map" width="1000" height="520"></canvas>
-  <p class="muted">Boxes: pits (fill = progress) and builds. Dots: bots (blue) and players (green). Dashed: the draft you are typing in Pits or Structures. Drag to pan, wheel to zoom.</p>
-</section>
-
-<!-- BOTS -->
-<section id="tab-bots" class="tab hidden">
-  <div class="card">
-    <h2>Add bots</h2>
-    <div class="row">
-      <label>Name <input id="botName" placeholder="Work1" maxlength="16"></label>
-      <button id="botAdd" class="primary">Add</button>
-      <span class="muted">or a batch:</span>
-      <label>Prefix <input id="botPrefix" value="Work" maxlength="13" size="8"></label>
-      <label>Count <input id="botCount" type="number" value="4" min="1" max="24" class="num"></label>
-      <button id="botBatch">Add batch</button>
-    </div>
-    <p class="muted">Bots log in with their own name (offline mode: the network is the access control). They start in survival with an empty inventory.</p>
-    <label class="check"><input id="autoKit" type="checkbox"> Auto-kit: before a bot works, give it what is missing (needs RCON)</label>
-  </div>
-  <table id="botTable"><thead><tr><th>Bot</th><th>State</th><th>Job</th><th>Position</th><th>HP</th><th>Food</th><th>Pickaxes</th><th>Free</th><th></th></tr></thead><tbody></tbody></table>
-</section>
-
-<!-- PITS -->
-<section id="tab-pits" class="tab hidden">
-  <div class="card">
-    <h2>Designate an open pit</h2>
-    <p class="muted">Two opposite corners (x, z), the top layer to dig and the depth. Layers are dug top-down; a one-block haul road stays standing along the edge; water and lava are sealed before a cell is opened.</p>
-    <div class="grid2">
-      <fieldset><legend>Corner A</legend>
-        <label>x <input id="pax" type="number" class="num"></label><label>z <input id="paz" type="number" class="num"></label>
-        <button id="paMap" class="ghost">Pick on map</button><button id="paMe" class="ghost">= player</button>
-      </fieldset>
-      <fieldset><legend>Corner B</legend>
-        <label>x <input id="pbx" type="number" class="num"></label><label>z <input id="pbz" type="number" class="num"></label>
-        <button id="pbMap" class="ghost">Pick on map</button><button id="pbMe" class="ghost">= player</button>
-      </fieldset>
-      <fieldset><legend>Height</legend>
-        <label>top y <input id="ptop" type="number" class="num"></label><label>depth <input id="pdepth" type="number" class="num" value="3" min="1"></label>
-        <button id="pSurface" class="ghost">top = ground at the corners</button>
-      </fieldset>
-      <fieldset><legend>Player to read positions from</legend>
-        <select id="pPlayer"></select><button id="pPlayers" class="ghost">Refresh</button>
-        <span id="pPlayerNote" class="muted"></span>
-      </fieldset>
-    </div>
-    <p id="pitInfo" class="info"></p>
-    <div class="row"><label>Name <input id="pitName" placeholder="optional" maxlength="60"></label>
-      <fieldset class="inline"><legend>Depot (optional)</legend>
-        <select id="depotKind"><option value="">none: surplus is dropped</option><option value="chest">chest at</option><option value="shulker">shulker box (placed by the bot)</option></select>
-        <input id="dx" type="number" class="num" placeholder="x"><input id="dy" type="number" class="num" placeholder="y"><input id="dz" type="number" class="num" placeholder="z">
-      </fieldset></div>
-    <div class="row"><span>Bots:</span><span id="pitBots" class="chips"></span></div>
-    <div class="row"><button id="pitCreate">Create (paused)</button><button id="pitStart" class="primary">Create and start</button></div>
-  </div>
-</section>
-
-<!-- STRUCTURES -->
-<section id="tab-structures" class="tab hidden">
-  <div class="split">
-    <div>
-      <div class="card">
-        <h2>Library</h2>
-        <div id="structList" class="list"></div>
-        <div class="row"><label class="file">Upload .nbt <input id="structUpload" type="file" accept=".nbt"></label>
-          <label class="check"><input id="structOverwrite" type="checkbox"> overwrite</label></div>
-        <details><summary>Generate a part</summary>
-          <div class="row"><select id="genKind"><option value="house">house</option><option value="box">solid box</option><option value="empty">empty canvas</option></select>
-            <label>w <input id="gw" type="number" value="7" class="num"></label><label>h <input id="gh" type="number" value="4" class="num"></label><label>d <input id="gd" type="number" value="7" class="num"></label>
-            <label>block <input id="gblock" value="oak_planks" size="14"></label>
-            <label>name <input id="gname" placeholder="house7" size="10"></label><button id="genGo">Generate</button></div>
-        </details>
-      </div>
-    </div>
-    <div>
-      <div class="card" id="structDetail"><h2>Select a structure</h2></div>
-      <div class="card hidden" id="structEdit">
-        <h2>Edit <span id="editName"></span></h2>
-        <p class="muted">Steps run in order on a copy; the result is saved under a new name (or over the old one with “overwrite”). Block states survive; stored positions inside block-entity data (Create contraptions) do not move.</p>
-        <div class="row"><button data-op="rot1">Rotate ↻ 90°</button><button data-op="rot3">↺ 90°</button><button data-op="rot2">180°</button>
-          <button data-op="mx">Mirror x</button><button data-op="mz">Mirror z</button></div>
-        <div class="row"><label>replace <input id="repFrom" placeholder="oak_planks" size="16"></label><label>with <input id="repTo" placeholder="spruce_planks" size="16"></label><button id="repGo">Replace</button></div>
-        <div class="row"><label>remove <input id="rmNames" placeholder="glass, torch" size="22"></label><button id="rmGo">Remove</button></div>
-        <div class="row"><span>crop</span><input id="cx0" type="number" class="num" placeholder="x0"><input id="cy0" type="number" class="num" placeholder="y0"><input id="cz0" type="number" class="num" placeholder="z0">
-          <input id="cx1" type="number" class="num" placeholder="x1"><input id="cy1" type="number" class="num" placeholder="y1"><input id="cz1" type="number" class="num" placeholder="z1"><button id="cropGo">Crop</button></div>
-        <div class="row"><label>add part <select id="mergeWith"></select></label>
-          <input id="mox" type="number" class="num" placeholder="x" value="0"><input id="moy" type="number" class="num" placeholder="y" value="0"><input id="moz" type="number" class="num" placeholder="z" value="0">
-          <select id="mrot"><option value="0">0°</option><option value="1">90°</option><option value="2">180°</option><option value="3">270°</option></select><button id="mergeGo">Merge</button></div>
-        <div class="row"><label>steps so far <input id="ops" readonly size="60"></label><button id="opsClear" class="ghost">Clear</button></div>
-        <div class="row"><label>save as <input id="saveAs" placeholder="new-name" size="16"></label><label class="check"><input id="saveOver" type="checkbox"> overwrite</label>
-          <button id="saveGo" class="primary">Save result</button></div>
-      </div>
-      <div class="card hidden" id="structBuild">
-        <h2>Build <span id="buildName"></span></h2>
-        <div class="row"><label>origin x <input id="bx" type="number" class="num"></label><label>y <input id="by" type="number" class="num"></label><label>z <input id="bz" type="number" class="num"></label>
-          <button id="bMap" class="ghost">Pick on map</button><button id="bMe" class="ghost">= player</button><button id="bGround" class="ghost">y = ground</button></div>
-        <div class="row"><label>rotate <select id="brot"><option value="0">0°</option><option value="1">90°</option><option value="2">180°</option><option value="3">270°</option></select></label>
-          <label class="check"><input id="bmirror" type="checkbox"> mirror x</label>
-          <label>name <input id="buildJobName" placeholder="optional" maxlength="60"></label></div>
-        <p class="muted">The origin is the minimum corner (lowest x, y, z) at ground level: layer 0 is placed at y.</p>
-        <div id="buildWarn" class="warn"></div>
-        <div class="row"><span>Bots:</span><span id="buildBots" class="chips"></span></div>
-        <div class="row"><button id="buildCreate">Create (paused)</button><button id="buildStart" class="primary">Create and start</button></div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- JOBS -->
-<section id="tab-jobs" class="tab hidden"><div id="jobList"></div></section>
-
-<!-- LOG -->
-<section id="tab-log" class="tab hidden"><pre id="logBox"></pre></section>
-</main>
 </div>
+<div id="toast" class="toast hidden"></div>
+<script src="/blockcolor.js"></script>
+<script src="/ui.js"></script>
+<script src="/map.js"></script>
+<script src="/cmd.js"></script>
+<script src="/inv.js"></script>
 <script src="/work.js"></script>
 </body>
 </html>

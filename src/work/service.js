@@ -11,6 +11,10 @@ const build = require('./build');
 const pit = require('./pit');
 const janitor = require('./janitor');
 const { runWorker } = require('./worker');
+const inventory = require('./inventory');
+const { catalog } = require('./catalog');
+const { MapStore } = require('./maps');
+const skills = require('../skills');
 
 const BOT_NAME = /^[A-Za-z0-9_]{3,16}$/;
 const STRUCT_NAME = /^[a-z0-9][a-z0-9_-]{0,47}$/;
@@ -76,6 +80,8 @@ class WorkService extends EventEmitter {
         this.seq = 0;
         this._saveTimer = null;
         this._rcon = null; this._rconTail = Promise.resolve();
+        this.maps = new MapStore(this.o.worldDir || null);
+        this.cmdSeq = 0;
         this.started = Date.now();
     }
 
@@ -172,6 +178,7 @@ class WorkService extends EventEmitter {
         const count = (re) => items.reduce((n, i) => n + (re.test(i.name) ? i.count : 0), 0);
         return {
             name: rec.name, state: rec.state, job: rec.job, working: !!rec.worker, retired: rec.retired, error: rec.error,
+            cmd: rec.cmd ? { id: rec.cmd.id, name: rec.cmd.name, status: rec.cmd.status, since: rec.cmd.started, result: rec.cmd.result || null } : null,
             pos: e ? { x: Math.round(e.position.x * 10) / 10, y: Math.round(e.position.y * 10) / 10, z: Math.round(e.position.z * 10) / 10 } : null,
             health: b && rec.state === 'online' ? b.health ?? null : null, food: b && rec.state === 'online' ? b.food ?? null : null,
             pickaxes: count(/_pickaxe$/), free: b && b.inventory && rec.state === 'online' ? b.inventory.emptySlotCount?.() ?? null : null,
@@ -588,6 +595,161 @@ class WorkService extends EventEmitter {
         return { given };
     }
 
+
+    // ------------------------------------------------------------------------------------------------ commands to single bots
+
+    catalog() { return catalog(); }
+
+    _online(name) {
+        const rec = this.bots.get(name);
+        need(rec && !rec.removed, `no bot ${name}`, 404);
+        need(rec.state === 'online' && rec.bot, `bot ${name} is ${rec.state}`, 409);
+        return rec;
+    }
+
+    /**
+     * Send one command to some bots. `bots`: a list of names, or 'all' (every online bot that is free). Each bot runs it on its own; the
+     * call returns at once with who started and who refused (and why). Progress and results are in the bot view (`cmd`).
+     */
+    async runCommand({ bots, command, args = {} }) {
+        const spec = catalog().find((c) => c.name === command);
+        need(spec, `unknown command ${JSON.stringify(String(command).slice(0, 40))}`);
+        need(args && typeof args === 'object' && !Array.isArray(args), 'args must be an object');
+        let names;
+        if (bots === 'all') names = [...this.bots.values()].filter((r) => !r.removed && r.state === 'online').map((r) => r.name);
+        else { need(Array.isArray(bots) && bots.length && bots.length <= this.o.maxBots, 'bots: a list of names or "all"'); names = bots.map(String); }
+        need(names.length, 'no bot is online', 409);
+        if (spec.rcon) need(this.o.rcon, 'this command needs RCON', 503);
+        const started = [], refused = [];
+        for (const n of names) {
+            const rec = this.bots.get(n);
+            if (!rec || rec.removed) { refused.push({ name: n, why: 'no such bot' }); continue; }
+            if (rec.state !== 'online') { refused.push({ name: n, why: rec.state }); continue; }
+            if (command === 'stop') { if (rec.cmd && rec.cmd.status === 'running') rec.cmd.cancel.cancelled = true; started.push(n); continue; }
+            if (rec.worker) { refused.push({ name: n, why: `works on job ${rec.job} (pause the job or take the bot off it)` }); continue; }
+            if (rec.cmd && rec.cmd.status === 'running') { refused.push({ name: n, why: `busy with ${rec.cmd.name} (send Stop first)` }); continue; }
+            if (spec.args.length) { try { this._checkArgs(spec, args); } catch (e) { refused.push({ name: n, why: e.message }); continue; } }
+            this._exec(rec, command, args);
+            started.push(n);
+        }
+        this._dirty();
+        return { started, refused };
+    }
+
+    _checkArgs(spec, args) {
+        if (spec.meta) {
+            if (spec.name === 'say') { need(typeof args.text === 'string' && args.text.trim().length && args.text.length <= 100, 'text: 1-100 characters'); need(!args.text.trim().startsWith('/'), 'text must not start with /'); }
+            if (spec.name === 'teleport') {
+                const xyz = ['x', 'y', 'z'].filter((k) => args[k] !== undefined);
+                need((args.player && inventory.NAME.test(String(args.player))) || xyz.length === 3, 'give a player or all of x, y, z');
+                for (const k of xyz) int(args[k], k);
+            }
+            if (spec.name === 'come' && args.player !== undefined) need(inventory.NAME.test(String(args.player)), 'player name');
+            return;
+        }
+        try { skills.validateArgs(spec.name, args); } catch (e) { throw new Problem(`${e.detail && e.detail.why ? e.detail.why : e.reason || e.message}`); }
+    }
+
+    _exec(rec, command, args) {
+        const cancel = { cancelled: false }, id = ++this.cmdSeq, t0 = Date.now();
+        rec.cmd = { id, name: command, args, status: 'running', started: t0, cancel, result: null };
+        const bot = rec.bot;
+        const finish = (res) => {
+            if (!rec.cmd || rec.cmd.id !== id) return;
+            const ok = res && res.ok !== false;
+            rec.cmd.status = cancel.cancelled && !ok ? 'cancelled' : ok ? 'ok' : 'failed';
+            rec.cmd.result = { ok, reason: ok ? null : (res && res.reason) || 'error', detail: res && res.detail ? JSON.stringify(res.detail).slice(0, 240) : null, ms: Date.now() - t0 };
+            rec.history = [{ id, name: command, args, status: rec.cmd.status, ms: rec.cmd.result.ms, reason: rec.cmd.result.reason, at: t0 }, ...(rec.history || [])].slice(0, 12);
+            this.note('debug', `${rec.name} ${command} ${rec.cmd.status}`, { args });
+            this._dirty();
+        };
+        (async () => {
+            if (command === 'say') { bot.chat(String(args.text)); return { ok: true }; }
+            if (command === 'teleport') {
+                const dest = args.player ? String(args.player) : `${args.x} ${args.y} ${args.z}`;
+                const r = String(await this.rcon(`tp ${rec.name} ${dest}`)).replace(/\x1b\[[0-9;]*m/g, '');
+                return /^Teleported/i.test(r.trim()) ? { ok: true } : { ok: false, reason: 'refused', detail: { server: r.trim().slice(0, 120) } };
+            }
+            if (command === 'come') {
+                const players = await this.players(), p = args.player ? players.find((q) => q.name === args.player) : players.find((q) => !q.bot && q.pos);
+                if (!p || !p.pos) return { ok: false, reason: 'invalid_target', detail: { why: 'no operator position (is the player online?)' } };
+                return skills.execute(bot, 'move_to', { x: p.pos.x, y: p.pos.y, z: p.pos.z }, { cancel });
+            }
+            return skills.execute(bot, command, args, { cancel });
+        })().then(finish, (e) => finish({ ok: false, reason: 'error', detail: { message: String(e.message).slice(0, 160) } }));
+    }
+
+    botDetail(name) {
+        const rec = this.bots.get(name);
+        need(rec && !rec.removed, `no bot ${name}`, 404);
+        const v = this._botView(rec), b = rec.bot;
+        const held = b && rec.state === 'online' && b.heldItem ? { id: b.heldItem.name, count: b.heldItem.count } : null;
+        return { ...v, held, history: rec.history || [], cmdArgs: rec.cmd ? rec.cmd.args : null, game: b && rec.state === 'online' && b.game ? { mode: b.game.gameMode, dimension: b.game.dimension } : null };
+    }
+
+    /** Entities near a bot (for attack / pickup / look_at): nearest first. */
+    nearbyEntities(name, radius = 32) {
+        const rec = this._online(name), me = rec.bot.entity.position, out = [];
+        for (const e of Object.values(rec.bot.entities || {})) {
+            if (!e || e === rec.bot.entity || !e.position) continue;
+            const d = e.position.distanceTo(me); if (d > radius) continue;
+            const item = e.name === 'item' && e.metadata ? (e.getDroppedItem ? e.getDroppedItem() : null) : null;
+            out.push({ id: e.id, type: e.name || e.type, kind: e.type, username: e.username || null, item: item ? item.name : null, dist: Math.round(d * 10) / 10, pos: { x: Math.round(e.position.x), y: Math.round(e.position.y), z: Math.round(e.position.z) } });
+        }
+        return out.sort((a, b) => a.dist - b.dist).slice(0, 40);
+    }
+
+    /** Container blocks in the chunks a bot has loaded, within `radius` of it (for the inventory GUI). */
+    containersNear(name, radius = 24) {
+        const rec = this._online(name), b = rec.bot;
+        const pos = b.findBlocks({ matching: (blk) => !!blk && inventory.CONTAINER.test(blk.name), maxDistance: Math.min(64, radius), count: 60 });
+        return pos.map((p) => ({ x: p.x, y: p.y, z: p.z, block: b.blockAt(p)?.name || '?' }));
+    }
+
+    // ------------------------------------------------------------------------------------------------ inventories
+
+    _run() { return (cmd) => this.rcon(cmd); }
+
+    /** The bot's own view of its inventory (works without RCON; no stack NBT). Slots use the game's numbering. */
+    _botSlots(rec) {
+        const map = (w) => (w >= 36 && w <= 44 ? w - 36 : w >= 9 && w <= 35 ? w : w === 5 ? 103 : w === 6 ? 102 : w === 7 ? 101 : w === 8 ? 100 : w === 45 ? -106 : null);
+        const out = [];
+        (rec.bot.inventory.slots || []).forEach((it, w) => { const s = map(w); if (it && s !== null) out.push({ slot: s, id: it.name.includes(':') ? it.name : `minecraft:${it.name}`, count: it.count, label: null, damage: null, enchanted: false, nbt: null }); });
+        return { kind: 'player', size: 36, slots: out };
+    }
+
+    async inventory(target) {
+        let t; try { t = inventory.target(target); } catch (e) { throw new Problem(e.message); }
+        if (!this.o.rcon) {
+            const rec = t.type === 'entity' ? this.bots.get(t.name) : null;
+            need(rec && rec.state === 'online', 'RCON is not configured: only bots can be read (no stack details)', 503);
+            return this._botSlots(rec);
+        }
+        try { return await inventory.read(this._run(), t); } catch (e) { throw e instanceof Problem ? e : new Problem(e.message, /not configured/.test(e.message) ? 503 : 409); }
+    }
+
+    async moveStack({ src, srcSlot, dst, dstSlot = null }) {
+        need(this.o.rcon, 'moving items needs RCON', 503);
+        try {
+            const r = await inventory.move(this._run(), src, srcSlot, dst, dstSlot);
+            this.note('info', `moved ${r.moved.count} ${r.moved.id.replace('minecraft:', '')}: ${this._who(src)}[${r.from}] -> ${this._who(dst)}[${r.to}]`);
+            return r;
+        } catch (e) { throw e instanceof Problem ? e : new Problem(e.message, 409); }
+    }
+    async moveAllStacks({ src, dst }) {
+        need(this.o.rcon, 'moving items needs RCON', 503);
+        try { const r = await inventory.moveAll(this._run(), src, dst); this.note('info', `moved ${r.moved.length} stacks ${this._who(src)} -> ${this._who(dst)}${r.stopped ? ' (stopped: ' + r.stopped + ')' : ''}`); return r; }
+        catch (e) { throw e instanceof Problem ? e : new Problem(e.message, 409); }
+    }
+    _who(t) { return t && t.type === 'entity' ? t.name : t && t.type === 'block' ? `${t.x},${t.y},${t.z}` : '?'; }
+
+    // ------------------------------------------------------------------------------------------------ map
+
+    mapIndex(dim = 'overworld') { need(this.maps.available, 'no world folder is mounted (WORK_WORLD)', 503); try { return { dim, regions: this.maps.index(dim) }; } catch (e) { throw new Problem(e.message, e.status || 400); } }
+    async mapRegion(dim, rx, rz) { need(this.maps.available, 'no world folder is mounted (WORK_WORLD)', 503); try { return await this.maps.region(dim, rx, rz); } catch (e) { throw new Problem(e.message, e.status || 500); } }
+    /** Ask the server to write its chunks to disk, then forget the cached regions: the map follows what the server has saved. */
+    async mapRefresh() { need(this.o.rcon, 'refreshing the map needs RCON (save-all)', 503); await this.rcon('save-all flush'); this.maps.invalidate(); return { ok: true }; }
+
     setSettings(s) {
         if (s && typeof s.autoKit === 'boolean') this.settings.autoKit = s.autoKit;
         this._dirty();
@@ -616,7 +778,7 @@ class WorkService extends EventEmitter {
     status() {
         return {
             now: Date.now(), uptime: Date.now() - this.started, server: { host: this.o.host, port: this.o.port }, settings: this.settings,
-            rcon: !!this.o.rcon, kit: this.o.kit, maxBots: this.o.maxBots,
+            rcon: !!this.o.rcon, kit: this.o.kit, maxBots: this.o.maxBots, map: this.maps.available,
             bots: [...this.bots.values()].filter((b) => !b.removed).map((b) => this._botView(b)),
             jobs: [...this.jobs.values()].map((j) => this._jobView(j)),
             log: this.log.filter((e) => e.level !== 'debug').slice(-60),
@@ -628,6 +790,7 @@ class WorkService extends EventEmitter {
         try { this.save(); } catch (_) { /* best effort */ }
         for (const rec of this.bots.values()) { rec.removed = true; clearTimeout(rec.timer); this._stopWorker(rec); try { rec.bot && rec.bot.quit && rec.bot.quit(); } catch (_) { /* gone */ } }
         if (this._rcon) { try { this._rcon.close(); } catch (_) { /* gone */ } }
+        this.maps.close();
     }
 }
 

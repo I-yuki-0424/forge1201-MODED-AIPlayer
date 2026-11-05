@@ -13,10 +13,12 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const zlib = require('zlib');
 const { WorkService, Problem, BOT_NAME } = require('./service');
+const { Access } = require('./access');
 
 const PUBLIC = path.join(__dirname, '..', '..', 'public', 'work');
-const STATIC = { '/': ['index.html', 'text/html; charset=utf-8'], '/work.js': ['work.js', 'text/javascript; charset=utf-8'], '/work.css': ['work.css', 'text/css; charset=utf-8'] };
+const STATIC = Object.fromEntries([['/', 'index.html', 'text/html; charset=utf-8'], ...['work.js', 'ui.js', 'map.js', 'cmd.js', 'inv.js', 'blockcolor.js'].map((f) => [`/${f}`, f, 'text/javascript; charset=utf-8']), ['/work.css', 'work.css', 'text/css; charset=utf-8']].map(([u, f, t]) => [u, [f, t]]));
 const MAX_JSON = 256 * 1024, MAX_UPLOAD = 8 * 1024 * 1024;
 const SESSION_MS = 12 * 3600 * 1000;
 const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
@@ -38,14 +40,18 @@ function hostAllowed(host, extra) {
     return h === 'localhost' || /^\d{1,3}(\.\d{1,3}){3}$/.test(h) || /^[0-9a-f:]+$/.test(h) && h.includes(':') || h.endsWith('.ts.net') || extra.includes(h);
 }
 
-function createConsole({ service, token, allowedHosts = [], now = Date.now }) {
+function createConsole({ service, token, allowedHosts = [], publicHost = null, access = null, now = Date.now }) {
+    publicHost = publicHost ? String(publicHost).toLowerCase() : null;
+    if (publicHost) allowedHosts = [...allowedHosts, publicHost];
     const sessions = new Map(), fails = new Map();
     const reap = () => { for (const [k, s] of sessions) if (s.until < now()) sessions.delete(k); };
 
     const send = (res, status, body, type = 'application/json', extra = {}) => {
         const buf = Buffer.isBuffer(body) ? body : Buffer.from(typeof body === 'string' ? body : JSON.stringify(body));
-        res.writeHead(status, { 'Content-Type': type, 'Content-Length': buf.length, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'Content-Security-Policy': CSP, 'Cross-Origin-Resource-Policy': 'same-origin', ...extra });
-        res.end(buf);
+        const head = { 'Content-Type': type, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'Content-Security-Policy': CSP, 'Cross-Origin-Resource-Policy': 'same-origin', ...extra };
+        const gz = buf.length > 1024 && /gzip/.test((res.req && res.req.headers['accept-encoding']) || '') && /json|text|javascript/.test(type);
+        if (!gz) { res.writeHead(status, { ...head, 'Content-Length': buf.length }); return res.end(buf); }
+        zlib.gzip(buf, (e, z) => { if (e) { res.writeHead(500); return res.end(); } res.writeHead(status, { ...head, 'Content-Encoding': 'gzip', 'Vary': 'Accept-Encoding', 'Content-Length': z.length }); res.end(z); });
     };
     const fail = (res, status, msg) => send(res, status, { error: msg });
 
@@ -70,6 +76,10 @@ function createConsole({ service, token, allowedHosts = [], now = Date.now }) {
     async function route(req, res, url) {
         const { pathname: p } = url, m = req.method;
         const ip = req.socket.remoteAddress || '?';
+        // Cloudflare Access: through the public hostname every request must carry a valid Access assertion (a tunnel mistake must not
+        // expose the console); a valid one for the owner's e-mail also signs the owner in without the token.
+        const jwtUser = access && req.headers['cf-access-jwt-assertion'] ? await access.verify(req.headers['cf-access-jwt-assertion']) : null;
+        if (publicHost && String(req.headers.host || '').toLowerCase().replace(/:\d+$/, '') === publicHost && !jwtUser) return fail(res, 403, 'Cloudflare Access required');
 
         if (m === 'GET' && STATIC[p]) {                                                      // the page itself holds nothing secret
             const [file, type] = STATIC[p];
@@ -99,7 +109,12 @@ function createConsole({ service, token, allowedHosts = [], now = Date.now }) {
             return send(res, 200, { ok: true, csrf }, 'application/json', { 'Set-Cookie': `wc_session=${sid}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_MS / 1000}` });
         }
 
-        const sid = cookieOf(req), sess = sid && sessions.get(sid);
+        let sid = cookieOf(req), sess = sid && sessions.get(sid);
+        if ((!sess || sess.until < now()) && jwtUser && p === '/api/session') {              // signed in at Cloudflare: no second token
+            sid = crypto.randomBytes(32).toString('hex'); sess = { csrf: crypto.randomBytes(16).toString('hex'), until: now() + SESSION_MS };
+            sessions.set(sid, sess); service.note('info', `console: Access login ${jwtUser.email}`);
+            return send(res, 200, { ok: true, csrf: sess.csrf, via: 'access' }, 'application/json', { 'Set-Cookie': `wc_session=${sid}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_MS / 1000}` });
+        }
         if (!sess || sess.until < now()) return fail(res, 401, 'login required');
         if (p === '/api/session') return send(res, 200, { ok: true, csrf: sess.csrf });
         if (p === '/api/logout' && m === 'POST') { sessions.delete(sid); return send(res, 200, { ok: true }, 'application/json', { 'Set-Cookie': 'wc_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' }); }
@@ -128,6 +143,20 @@ function createConsole({ service, token, allowedHosts = [], now = Date.now }) {
             if (m === 'POST' && a[2] === 'kit') return send(res, 200, await service.kitBot(a[1]));
             if (m === 'POST' && a[2] === 'resume') return send(res, 200, service.resumeBot(a[1]));
         }
+        // ---- commands, bot detail, inventories, map
+        if (m === 'GET' && p === '/api/commands/catalog') return send(res, 200, service.catalog());
+        if (m === 'POST' && p === '/api/commands') { const b = await json(req); return send(res, 200, await service.runCommand({ bots: b.bots, command: String(b.command), args: b.args || {} })); }
+        if (m === 'POST' && p === '/api/inventory') { const b = await json(req); return send(res, 200, await service.inventory(b.target)); }
+        if (m === 'POST' && p === '/api/inventory/move') { const b = await json(req); return send(res, 200, await service.moveStack({ src: b.src, srcSlot: b.srcSlot, dst: b.dst, dstSlot: b.dstSlot ?? null })); }
+        if (m === 'POST' && p === '/api/inventory/moveall') { const b = await json(req); return send(res, 200, await service.moveAllStacks({ src: b.src, dst: b.dst })); }
+        if (m === 'GET' && p === '/api/map/regions') return send(res, 200, service.mapIndex(url.searchParams.get('dim') || 'overworld'));
+        if (m === 'GET' && p === '/api/map/region') {
+            const r = await service.mapRegion(url.searchParams.get('dim') || 'overworld', Number(url.searchParams.get('rx')), Number(url.searchParams.get('rz')));
+            return send(res, 200, { rx: r.rx, rz: r.rz, mtime: r.mtime, chunks: r.chunks, names: r.names, idx: r.idx ? r.idx.toString('base64') : null, h: r.h ? r.h.toString('base64') : null });
+        }
+        if (m === 'POST' && p === '/api/map/refresh') return send(res, 200, await service.mapRefresh());
+        if ((a = /^\/api\/bots\/([A-Za-z0-9_]{3,16})\/(entities|containers)$/.exec(p)) && m === 'GET') return send(res, 200, a[2] === 'entities' ? service.nearbyEntities(a[1], Number(url.searchParams.get('radius')) || 32) : service.containersNear(a[1], Number(url.searchParams.get('radius')) || 24));
+        if ((a = /^\/api\/bots\/([A-Za-z0-9_]{3,16})$/.exec(p)) && m === 'GET') return send(res, 200, service.botDetail(a[1]));
         // ---- jobs
         if (m === 'POST' && p === '/api/jobs/pit') return send(res, 200, service.createPit(await json(req)));
         if (m === 'POST' && p === '/api/jobs/build') return send(res, 200, await service.createBuild(await json(req)));
@@ -191,14 +220,16 @@ async function main() {
     const table = env.BOT_MOD_TABLE || path.join(__dirname, '..', '..', 'modpack', 'forgeaip-create.registry.json');
     let kit; try { kit = env.WORK_KIT ? JSON.parse(env.WORK_KIT) : undefined; } catch (_) { console.error('WORK_KIT is not JSON; default kit used'); }
     const service = new WorkService({
-        dataDir, host: env.MC_HOST || 'localhost', port: Number(env.MC_PORT) || 25565, known: knownFromTable(table), kit,
+        dataDir, worldDir: env.WORK_WORLD || null, host: env.MC_HOST || 'localhost', port: Number(env.MC_PORT) || 25565, known: knownFromTable(table), kit,
         maxBots: Number(env.WORK_MAX_BOTS) || 24,
         rcon: env.RCON_PASSWORD ? { host: env.RCON_HOST || env.MC_HOST || 'localhost', port: Number(env.RCON_PORT) || 25575, password: env.RCON_PASSWORD } : null,
     });
     const tokenFile = env.WORK_TOKEN_FILE || path.join(dataDir, 'console.token');
     const token = loadToken(tokenFile);
     await service.restore();
-    const { server } = createConsole({ service, token, allowedHosts: (env.WORK_ALLOWED_HOSTS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean) });
+    const access = env.CF_ACCESS_TEAM && env.CF_ACCESS_AUD ? new Access({ team: env.CF_ACCESS_TEAM, aud: env.CF_ACCESS_AUD, emails: (env.WORK_ALLOWED_EMAILS || '').split(',').map((s) => s.trim()).filter(Boolean) }) : null;
+    if (env.WORK_PUBLIC_HOST && !access) { console.error('WORK_PUBLIC_HOST needs CF_ACCESS_TEAM and CF_ACCESS_AUD: refusing to serve the public name without Access'); process.exit(1); }
+    const { server } = createConsole({ service, token, access, publicHost: env.WORK_PUBLIC_HOST || null, allowedHosts: (env.WORK_ALLOWED_HOSTS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean) });
     const bind = env.WORK_BIND || '127.0.0.1', port = Number(env.WORK_PORT) || 3020;
     server.listen(port, bind, () => console.log(`[console] http://${bind}:${port}  server ${service.o.host}:${service.o.port}  table ${service.known ? table : 'none (vanilla names only)'}  rcon ${service.o.rcon ? 'on' : 'off'}  token file ${tokenFile}`));
     const down = async () => { server.close(); await service.stop(); process.exit(0); };
