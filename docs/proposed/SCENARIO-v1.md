@@ -233,3 +233,20 @@ progress entry (`iron_pickaxe`, `iron_sword`). One rule in both implementations 
 Tests: `candidates: crafts that burn iron without a progress entry are not offered` and `crafts_that_burn_iron_without_a_progress_entry_are_not_offered`.
 Experiment: `normal-kit` stopped at its checkpoint and forked into `kit-ctl` (simulator build with fix + approach) and `kit-mask` (+ iron-sink mask), same seed 81, same checkpoint, both to 7.0 M absolute steps on the PC GPU;
 the difference between them is the mask alone.
+
+### Iron-sink mask result (2026-11-05 10:50 JST): `kit-ctl` vs `kit-mask`
+
+Same checkpoint (`normal-kit` at ~4.5 M steps), same seed 81, same scenario, +1.75 M steps each on the PC GPU (~1,800 episodes each); the only difference is the mask.
+
+| | collect_iron | smelt_iron | craft_iron_pickaxe (whole run / last block) | craft_iron_sword | ingots held at the end 3+ |
+|---|---|---|---|---|---|
+| kit-ctl (no mask) | 36.0 % | 23.8 % | 12/1780 = 0.7 % / 0.01 | 31 = 1.7 % | 12 |
+| kit-mask | 37.4 % | 27.1 % | **119/1805 = 6.6 % [5.5, 7.8] / 0.11** | **200 = 11.1 %** / 0.18 | 47 |
+
+Collect and smelt are about equal (the mask does not make iron easier to find); what changes is that the ingots now reach the pickaxe and sword (in kit-mask the crafts that consume iron are only `iron_sword` 315 and
+`iron_pickaxe` 237; in kit-ctl 592 nuggets, 78 shears, 47 shovels ...). The curve is still rising (pickaxe by block 0.03 0.02 0.07 0.10 0.11). The finding is the same iron-sink defect that the zero-shot
+analysis named, now confirmed at the real start with a controlled pair. What limits kit-mask now is finding iron (37 %) and holding 3 ingots (the pickaxe needs three; a sword takes two).
+
+Plain normal starts with the `kit-mask` checkpoint (zero-shot, 124 episodes, day 1) versus `runc` (132): wood 100/100, wooden pickaxe 99/100, stone 97/100, stone pickaxe 57/80, furnace 70/70, coal 38/49, iron collected 4/14 %,
+hostiles defeated 53/20 %, deaths 0.83/0.42 per episode: it keeps the early chain but is specialised on the kit start, so the main run (`normal-mk`: plain normal starts, `runc` as the start, seed 71 as in
+`main1`, mask + approach + presentation fix) restarts from `runc`; it differs from the control `main1` only by the mask and the approach candidates.
