@@ -241,7 +241,7 @@ async function runUnit(plan, region, u, env) {
         }
     }
     for (const c of deferred) { const res = await handle(c, true); if (res) return res; }
-    if (sweep && env.items && r.mined) r.picked = await sweepDrops(env, cells.station || cells[0]);
+    if (sweep && env.items && r.mined) { const sd = await sweepDrops(env, cells.station || cells[0]); r.picked = sd.picked; r.seen = sd.seen; if (sd.fail) r.pickFail = sd.fail; }
     return { ok: true, reason: null, detail: r };
 }
 
@@ -283,8 +283,9 @@ async function sweepDrops(env, S) {
     const keep = janitor.pitPolicy().keep, enough = (n) => janitor.valueOf(n) <= 5 && env.have(n) >= (keep[n] ? keep[n].max : 16);
     const list = env.items({ x: S.x + 0.5, y: S.y, z: S.z + 0.5 }, 7).slice(0, 40);
     let n = 0;
-    for (const it of list) { if (enough(it.name)) continue; const p = await env.exec('pickup', { entity: it.id }); if (p.ok) n++; else if (p.reason === 'died' || p.reason === 'disconnected' || p.reason === 'cancelled') break; }
-    return n;
+    const seen = list.length; let fail = null;
+    for (const it of list) { if (enough(it.name)) continue; const p = await env.exec('pickup', { entity: it.id }); if (p.ok) n++; else { fail = fail || p.reason; if (p.reason === 'died' || p.reason === 'disconnected' || p.reason === 'cancelled') break; } }
+    return { picked: n, seen, ...(fail ? { fail } : {}) };
 }
 
 /** A pit as a crew job: { ledger, plan, runUnit(regionId, unit, env) }. */

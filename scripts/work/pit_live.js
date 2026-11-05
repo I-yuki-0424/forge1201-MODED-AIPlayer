@@ -92,6 +92,8 @@ async function main() {
     clearTimeout(deadline);
     const wall = (Date.now() - t0) / 1000;
     console.log('[pit] workers ended:', JSON.stringify(ended), 'wall', wall.toFixed(0), 's');
+    console.log('[pit] cobblestone carried:', JSON.stringify(bots.map(({ name, bot }) => [name, bot.inventory.items().filter((i) => i.name === 'cobblestone').reduce((n, i) => n + i.count, 0)])),
+        'item entities left near the box:', Object.values(bots[0].bot.entities).filter((e) => e.name === 'item').length);
 
     // ---- grade from the server: nothing but the road may be left in the volume; the ring cells must be sealed
     const bad = [];
