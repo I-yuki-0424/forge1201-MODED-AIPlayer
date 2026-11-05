@@ -107,10 +107,11 @@ lava lakes and caves below the floor are not planned for (a floor that gives way
   not on any critical path. Revisit when one of these is measured: client CPU per bot above 25 % of a core at 100 bots, or
   claim time above 1 ms.
 
-## Play world and mods (separate from the repository)
+## Play world and mods (outside the repository)
 
-`docker/play-server/compose.yaml` and `scripts/play/` start a second Forge 1.20.1 server (`up.sh`, `down.sh`,
-`check-mods.py`). Everything the owner chooses lives outside the repo, in `/mnt/data/forgeaip-play/`:
+The play server is **not in this repository**: compose file, scripts, jars, world data and client-only jars all live in
+`/mnt/data/forgeaip-play/` (its own local git repo, no remote; `README.md` there). `up.sh` / `down.sh` start and stop it
+(127.0.0.1:25569, container `forgeaip-play`, volume `forgeaip-play_data`); `check-mods.py` checks the jars.
 
 | Folder | Holds | Who loads it |
 | :-- | :-- | :-- |
@@ -120,15 +121,18 @@ lava lakes and caves below the floor are not planned for (a floor that gives way
 Answer to "directly, or without addons?": **put the jars directly into `mods/`; the addons that add content must be there
 too**, because Forge refuses a client whose content mods differ from the server's. Client-only jars go to `client-only/`;
 a client mod left in `mods/` stops the server with a `net.minecraft.client` error (move it and start again).
-`scripts/play/check-mods.py` reads `META-INF/mods.toml` and reports non-Forge jars, other Minecraft versions, duplicate mod
-ids, missing mandatory dependencies and probable client-only jars. It cannot know every mod; I did not pick or check the
-owner's favourite addons and cannot verify that a given set works together (unverified).
+`check-mods.py` reads `META-INF/mods.toml` and reports non-Forge jars, other Minecraft versions, duplicate mod ids, missing
+mandatory dependencies and probable client-only jars. It cannot know every mod; the owner's favourite addons were not
+picked or checked here, and that a given set works together is unverified.
 
 Bots in the play world need that world's exact block and item table (`docs/implemented/MODPACK-v1.md`): the table in
-`modpack/` belongs to the build world's mod set. Until `registry-dump` is run for the play set (not parameterised yet),
-bots may join the play world only if it has no content mods beyond what the build table covers; the owner can always join.
-Start: `scripts/play/up.sh`; the tailnet route is one command the owner runs as root (printed by `up.sh`, port 25566 ->
-127.0.0.1:25569). Not run here: it exposes a new port on the tailnet, which is the owner's call.
+`modpack/` belongs to the build world's mod set. Until `registry-dump` is run for the play set (not parameterised yet), bots
+may join only if the world has no content mods beyond that table; the owner can always join.
+
+Permissions: `/mnt/data` is root's, the rootless Docker is coder's. The folder is created once by root
+(`install -d -o coder -g coder /mnt/data/forgeaip-play`); `up.sh` run as root also makes the folder coder's before it re-runs
+as coder, so root never has to touch it again. The tailnet route is one root command printed by `up.sh` (port 25566 ->
+127.0.0.1:25569); it exposes a new tailnet port and is the owner's call.
 
 ## Live check
 

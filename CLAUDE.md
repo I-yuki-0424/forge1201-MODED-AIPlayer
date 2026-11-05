@@ -53,12 +53,12 @@ scripts/world/registry-dump.sh                         # after any lock change: 
 (cd docker/world-server && docker compose --profile bench run --rm -T --entrypoint node bench scripts/skills/bench_lv2.js --run-id l1 --seed 1101 --bots 10 --follow <player>)   # LV2: natural terrain (after --pregen 1)
 ```
 
-Pure bots (docs/proposed/WORKERS-v1.md; `src/work/`, not part of the RL action space): live pit check on a disposable server, and the owner's play world
-(jars live in `/mnt/data/forgeaip-play/`, never in the repo):
+Pure bots (docs/proposed/WORKERS-v1.md; `src/work/`, not part of the RL action space): live pit check on a disposable server. The owner's play world
+is NOT in this repo: compose, scripts and jars are all in `/mnt/data/forgeaip-play/` (own folder and local git repo, see its README.md):
 
 ```bash
 scripts/world/test-up.sh latest ; (cd docker/world-server && docker compose --profile bench run --rm -T -e MC_HOST=world-test -e RCON_HOST=world-test --entrypoint node bench scripts/work/pit_live.js --run-id p1 --bots 4 --kill 1) ; scripts/world/test-down.sh
-scripts/play/check-mods.py [/mnt/data/forgeaip-play] ; scripts/play/up.sh | down.sh [--purge]   # second Forge server on 127.0.0.1:25569
+/mnt/data/forgeaip-play/up.sh | down.sh [--purge] | check-mods.py   # second Forge server on 127.0.0.1:25569
 ```
 
 On the owner's PC (Windows/WSL2): `npm ci`, `npm test`, `npm run test:e2e`, `node index.js` (or `run.bat` / `./run.sh`).
