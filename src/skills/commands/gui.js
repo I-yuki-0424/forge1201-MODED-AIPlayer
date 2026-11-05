@@ -10,7 +10,7 @@ const { count } = require('./item');
 const STATION_RANGE = 16;
 const FUEL = { coal: 8, charcoal: 8, coal_block: 80, blaze_rod: 12, lava_bucket: 100, stick: 0.5 };
 const fuelValue = (name) => FUEL[name] ?? (/_planks$|_log$|_wood$|_stem$/.test(name) ? 1.5 : 0);
-const CONTAINERS = /^(chest|trapped_chest|barrel)$/;
+const CONTAINERS = /^(chest|trapped_chest|barrel|(?:[a-z]+_)?shulker_box)$/;
 
 const inContainer = (win, id) => win.containerItems().reduce((s, i) => s + (i.type === id ? i.count : 0), 0);
 // While a container or furnace is open Mineflayer keeps the player's items in the window's own slots; bot.inventory catches up on close.

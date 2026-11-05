@@ -9,6 +9,7 @@ const { holdItem, count, resolveItemName } = require('./item');
 const { collectDrops } = require('./entity');
 
 const REPLACEABLE = /^(air|cave_air|void_air|grass|tall_grass|fern|large_fern|dead_bush|snow|seagrass|vine|glow_lichen)$/;
+const FLUID = /^(water|lava)$/;     // `place` with fluid:true may fill these (work/pit.js water rule)
 const LOOK_RANGE = 64;
 
 /** move_to {x, y, z}: stand in that cell (feet). */
@@ -117,13 +118,13 @@ function supports(w, cell) {
 /** The player's box at `pos` overlaps the cell. */
 const overlaps = (pos, c) => pos.x + 0.3 > c.x && pos.x - 0.3 < c.x + 1 && pos.z + 0.3 > c.z && pos.z - 0.3 < c.z + 1 && pos.y + 1.8 > c.y && pos.y < c.y + 1;
 
-/** place {x, y, z, item}: place the block item into that cell, against any solid neighbour. */
-async function place(ctx, { x, y, z, item }) {
+/** place {x, y, z, item, fluid?}: place the block item into that cell, against any solid neighbour. `fluid` allows a cell of water or lava. */
+async function place(ctx, { x, y, z, item, fluid = false }) {
     const bot = ctx.bot, w = ctx.world, cell = { x, y, z };
     if (!bot.registry.blocksByName[item]) throw new SkillError('invalid_args', { item, why: 'not a placeable block item' });
     const cur = w.blockAt(x, y, z);
     if (!cur) throw new SkillError('unreachable', { why: 'target chunk not loaded' });
-    if (!REPLACEABLE.test(cur.name)) throw new SkillError('invalid_target', { why: `cell holds ${cur.name}`, target: cell });
+    if (!REPLACEABLE.test(cur.name) && !(fluid && FLUID.test(cur.name))) throw new SkillError('invalid_target', { why: `cell holds ${cur.name}`, target: cell });
     if (count(bot, item) < 1) throw new SkillError('missing_item', { item });
     const refs = supports(w, cell);
     if (!refs.length) throw new SkillError('invalid_target', { why: 'no solid neighbour to place against', target: cell });
