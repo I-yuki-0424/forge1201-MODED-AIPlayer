@@ -133,6 +133,36 @@ data to find the blocks and digging everything within reach of one standing plac
   occupied slot refused. On the real play world: `find oak_log` 156, `find raw_iron` 72 (1 exposed: iron is mostly buried).
   Defects the live run found: a one-block-high tunnel cannot be entered (the drops lay out of reach): head room is now dug; a block touching lava counted as "exposed": it no longer does.
 
+## v4 (2026-11-06, `TASK-20261106-037`): pits that keep going, one X-Z range per bot
+
+Owner, watching a live 16 x 16 pit (y 63 to -64) with four bots: it stopped on its own; only two bots finally moved; they dug the same spot; there is no
+basic fixing when something goes wrong (jump, step aside, wait and retry), and too few retries. Read from the job's failure record (new: `recent` in the job
+detail, with bot, cell, reason and the bot's position at that moment) and from the code:
+
+- **Why it stopped.** After a failed unit a bot took the next one at once, and after **three failures in a row it retired for good** (`unhealthy`); three
+  `unreachable` in a row (a bot standing outside the pit, or pushed aside) were enough. Nothing tried to get the bot out of whatever it was stuck on.
+  A unit failed three times on three bots and went `stuck`.
+- **Why the same spot.** One 16 x 16 box is one region, and a region hands out the rows of **one layer at a time**, so all four bots worked on the same
+  layer on neighbouring rows, each standing where another needed to stand or break.
+- **Lanes.** A pit is cut into one X-Z range per bot (`planPit(box, { lanes })`: a near-square grid, none thinner than 3 blocks; 4 bots on 16 x 16 give four
+  8 x 8 ranges, 3 bots three stripes; a big box that already has as many chunks as bots keeps the chunks). The bot that owns a lane digs it layer by layer **down to the
+  bottom**; others only help (from the far end of the lane) when their own lane may not go on. Lanes may not be more than **one layer apart** (`Ledger.maxLead = 1`), so
+  the floors of neighbouring lanes never differ by more than a step and the bots can still walk between them. The Pits form has `Lanes` (auto = one per bot); a job shows its
+  lane count; `lanes` is saved in the job and restored.
+- **Fixes between retries (the ladder, `worker.js`).** After a failed unit: level 2 jump twice, level 3 step into a random safe neighbouring cell (free feet and head cell, solid
+  floor), level 4 and up walk back to the cell where the bot last finished a unit; each time followed by a pause of **3, 5, 8, 12, 20, then 30 seconds**. Inside a unit the same
+  ladder runs between the retries of one `mine` (up to four, 2 to 8 s apart; `unreachable`, `timeout` and `stuck` now count as retryable). A bot that needs a tool or an
+  item does not retry: it waits for the operator (v3).
+- **No permanent retirement.** After 12 failed units in a row (each after a fix and a pause) a bot **cools down for a minute and resumes by itself**, up to six times in a
+  row; the counter resets with the first success. Units get 6 attempts instead of 3, and a finished job with stuck units gets **three repair passes** 15 s apart.
+- **Checks.** Pure tests: lane layout and coverage, `maxLead` (the fast lane helps the slow one), the worker ladder and pauses, missing tool is immediate, cool-down
+  and auto-resume in the service, all in `npm test` (20 files, exit 0). Live: see the STATE entry and the section below.
+
+### World settings (owner, 2026-11-06)
+`op Seia_Y` (level 4: the game's highest; ops.json already had two entries for the name, the offline and the online UUID), `difficulty peaceful`, `keepInventory`.
+`/mnt/data/forgeaip-play/compose.yaml` now says `DIFFICULTY: peaceful`, `OPS: "Seia_Y"`, `OP_PERMISSION_LEVEL: 4`, `ENABLE_COMMAND_BLOCK: "true"`; the running server was
+changed with RCON, and command blocks (a server.properties value) are on from the next start of the server.
+
 ## Security basis (the console can reach RCON and control bots, so it is an administrative interface)
 
 - Not an extension of the old unauthenticated WebUI (docs/LESSONS.md L3), which stays on loopback and unchanged.
