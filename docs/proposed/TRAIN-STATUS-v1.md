@@ -63,3 +63,15 @@ learner (from its checkpoint) or shard, pauses in the quiet hours (12:00-18:00 J
 ## Files
 
 `tools/tblog/{Cargo.toml,build.sh,src/main.rs}`, `scripts/train/tb.sh`, DPOD `scripts/botsystem_goal_ppo.py` (`expl_var`).
+
+## Viewing the runs (2026-11-05, after the move to the Hetzner host)
+
+- **TensorBoard on the PC** (the runs of the PC GPU, every `~/x/tb/<base>` in WSL): `http://localhost:6006` in the Windows browser. It lives inside the WSL2 VM, which Windows shuts down when nothing runs in it
+  (it did at about 12:26 on 2026-11-05 and took the `normal-mk` run and this TensorBoard with it): `pc.sh wsl-up` starts a hidden `sleep infinity` keeper and TensorBoard; to restart only the viewer, start `~/gpuvenv/bin/tensorboard --logdir ~/x/tb --host 0.0.0.0 --port 6006` in WSL.
+- **TensorBoard on the VPS** (all runs: `scripts/train/pc.sh wsl-pull` for the PC runs, `scripts/train/tb.sh once --base B` for any base whose logs are in `exchange/`): container `forgeaip-tensorboard`, loopback only,
+  `ssh -L 6006:127.0.0.1:6006 <vps>` then `http://127.0.0.1:6006`. The VPS is now `100.77.246.23` (`vps.tailfc1fac.ts.net`, sshd on 22022 over the tailnet); an ssh config that still has the old address `100.115.238.9` cannot reach it.
+  The TRAIN-STATUS verdict (`stalled`, `learning`) counts all 24 entries and is meaningless for the iron scenarios (20 are pre-reached): read those with `scn_report.py`.
+- **MLflow** (DPOD's local store `Decision-Process-order-driven/mlflow_local`, gitignored; experiments `phase-1` and `side-botsystem`): `scripts/train/mlflow.sh --ui`, loopback `127.0.0.1:5005`, `ssh -L 5005:127.0.0.1:5005 <vps>`.
+  The `dpod-mlflow` environment (mlflow 3.17.2) was rebuilt on 2026-11-05 (docker volumes did not move). `scripts/train/mlflow_tags.py` adds tags `forgeaip.scenario` / `forgeaip.state` / `forgeaip.note` and the iron-tier reach metrics
+  `reach_<entry>` / `reach_<entry>_last_block` to the `side-botsystem` runs (DPOD's ingest knows only `stop` events, so finished runs show RUNNING; the tag `forgeaip.state` is the true state). The PC runs' logs must be copied to `exchange/<base>/train/` first
+  (train_log.jsonl and episodes.jsonl) before `mlflow.sh`.
