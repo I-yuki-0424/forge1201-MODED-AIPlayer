@@ -26,6 +26,9 @@ const MIN_Y = -64, MAX_Y = 319;
 const MAX_SIDE = 256, MAX_DEPTH = 256;
 const ACTIVE = new Set(['running', 'paused', 'ready']);
 
+// Pits: more attempts per unit than the default (a unit is retried by other bots after waits), and lanes stay within one layer of each other
+// so that the floors of neighbouring lanes never differ by more than a step (the bots walk between them).
+const PIT_LEDGER = { leaseMs: 45000, maxAttempts: 6, maxLead: 1 };
 const DEFAULT_KIT = { iron_pickaxe: { min: 2, give: 3 }, cobblestone: { min: 32, give: 64 }, bread: { min: 8, give: 16 } };
 
 class Problem extends Error {                          // a refusal the caller can show: carries the HTTP status
@@ -67,7 +70,7 @@ class WorkService extends EventEmitter {
      */
     constructor(opts) {
         super();
-        this.o = { host: 'localhost', port: 25565, maxBots: 24, kit: DEFAULT_KIT, reconnectMs: 3000, restore: true, ...opts };
+        this.o = { host: 'localhost', port: 25565, maxBots: 24, kit: DEFAULT_KIT, reconnectMs: 3000, coolMs: 60000, repairMs: 15000, restore: true, ...opts };
         this.o.kit = this.o.kit || DEFAULT_KIT;               // an explicit `kit: undefined` must not hide the default
         need(this.o.dataDir, 'dataDir');
         for (const d of ['structures', 'jobs']) fs.mkdirSync(path.join(this.o.dataDir, d), { recursive: true });
@@ -208,10 +211,14 @@ class WorkService extends EventEmitter {
     createPit(spec) {
         need(spec && typeof spec === 'object', 'spec missing');
         const box = normalizeBox(spec.box);
+        // One lane (an X-Z range dug down to the bottom) per bot: the bots named, or else every idle bot that is online now; `lanes` overrides.
+        const idle = [...this.bots.values()].filter((r) => !r.removed && r.state !== 'offline' && !(r.job && this.jobs.has(r.job) && ACTIVE.has(this.jobs.get(r.job).state))).length;
+        const lanes = spec.lanes !== undefined ? spec.lanes : (Array.isArray(spec.bots) && spec.bots.length) || idle || 1;
+        need(Number.isInteger(lanes) && lanes >= 1 && lanes <= 32, 'lanes: 1..32');
         let impl;
-        try { impl = pit.createPitJob(box, { leaseMs: 45000 }); } catch (e) { throw new Problem(e.message); }
+        try { impl = pit.createPitJob(box, PIT_LEDGER, { lanes }); } catch (e) { throw new Problem(e.message); }
         const depot = spec.depot ? this._depot(spec.depot) : null;
-        const job = this._newJob('pit', spec.name || `pit ${box.x1 - box.x0 + 1}x${box.z1 - box.z0 + 1}x${box.top - box.bottom + 1}`, { box, depot }, impl);
+        const job = this._newJob('pit', spec.name || `pit ${box.x1 - box.x0 + 1}x${box.z1 - box.z0 + 1}x${box.top - box.bottom + 1}`, { box, depot, lanes }, impl);
         job.policy = janitor.pitPolicy(depot ? { depot } : {});
         this._guardOverlap(job, spec.force);
         return this._register(job, spec);
@@ -264,10 +271,10 @@ class WorkService extends EventEmitter {
     async _rebuild(j) {
         const base = { id: j.id, kind: j.kind, name: j.name, spec: j.spec, created: j.created };
         let impl;
-        if (j.kind === 'pit') impl = pit.createPitJob(normalizeBox(j.spec.box), { leaseMs: 45000 });
+        if (j.kind === 'pit') impl = pit.createPitJob(normalizeBox(j.spec.box), PIT_LEDGER, { lanes: j.spec.lanes || 0 });
         else {
             const b = await bp.read(fs.readFileSync(path.join(this.o.dataDir, 'jobs', path.basename(j.spec.file))));
-            impl = build.createBuildJob(bp.cells(b), j.spec.origin, { leaseMs: 45000 }, { known: this.known });
+            impl = build.createBuildJob(bp.cells(b), j.spec.origin, { leaseMs: 45000, maxAttempts: 6 }, { known: this.known });
         }
         const job = this._newJob(j.kind, j.name, j.spec, impl, j.id);
         job.created = base.created;
@@ -375,9 +382,15 @@ class WorkService extends EventEmitter {
         } catch (e) { rec.worker = null; this.note('warn', `bot ${rec.name}: cannot start (${e.message})`); return; }
         this._dirty();
         runWorker(job.impl, rec.name, env, {
-            cancel, policy: job.policy, pollMs: 1000,
+            cancel, policy: job.policy, pollMs: 1000, backoff: this.o.backoff,
             onEvent: (ev, d) => {
-                if (ev === 'unit' && d.ok) rec.fixes = 0;
+                if (ev === 'unit' && d.ok) { rec.fixes = 0; rec.cool = 0; }
+                if (ev === 'recover') this.note('debug', `${d.id} fix level ${d.streak + 1} after ${d.reason}`, { job: job.id });
+                if (ev === 'unit') {                                                    // a record of what happened, for the job's detail view (why does it stop?)
+                    const e = rec.bot && rec.bot.entity && rec.bot.entity.position;
+                    (job.recent = job.recent || []).push({ t: Date.now(), bot: d.id, region: d.region, unit: d.unit, ok: d.ok, reason: d.reason || null, ms: d.ms, stage: d.detail && d.detail.stage, cell: d.detail && d.detail.cell, why: d.detail && (d.detail.why || d.detail.goal), pos: e ? [Math.round(e.x * 10) / 10, Math.round(e.y * 10) / 10, Math.round(e.z * 10) / 10] : null, hp: rec.bot && rec.bot.health });
+                    if (job.recent.length > 120) job.recent.shift();
+                }
                 if (ev === 'unit' && !d.ok) {
                     rec.missing = d.reason === 'missing_item' && d.detail && ITEM_ID.test(String(d.detail.item)) ? String(d.detail.item) : null;
                     rec.missingTool = d.reason === 'missing_tool' && d.detail && typeof d.detail.block === 'string' ? d.detail.block : null;
@@ -426,7 +439,7 @@ class WorkService extends EventEmitter {
     resumeBot(name) {
         const rec = this.bots.get(name);
         need(rec && !rec.removed, `no bot ${name}`, 404);
-        rec.retired = null; rec.missing = null; rec.waitFor = null; rec.fixes = 0;
+        rec.retired = null; rec.missing = null; rec.waitFor = null; rec.fixes = 0; rec.cool = 0; clearTimeout(rec.coolTimer);
         this._resume(rec);
         this._dirty();
         return this._botView(rec);
@@ -450,7 +463,13 @@ class WorkService extends EventEmitter {
                 } else if (res.last === 'missing_item' && rec.missing) {
                     rec.waitFor = { item: rec.missing };
                     rec.retired = `waiting for ${rec.missing.replace('minecraft:', '')}: give some in Inventory and it continues by itself`;
-                } else rec.retired = `retired: ${res.last || 'failed units'}`;
+                } else if ((rec.cool = (rec.cool || 0) + 1) <= 6) {
+                    // Repeated failures after fixes and waits: rest a minute, then try again by itself (up to six times in a row).
+                    rec.retired = `cooling down after ${res.last || 'repeated failures'} (try ${rec.cool} of 6), resumes by itself`;
+                    clearTimeout(rec.coolTimer);
+                    rec.coolTimer = setTimeout(() => { if (!rec.removed && rec.retired && rec.retired.startsWith('cooling')) { rec.retired = null; this._resume(rec); this._dirty(); } }, this.o.coolMs);
+                    rec.coolTimer.unref?.();
+                } else rec.retired = `retired: ${res.last || 'failed units'} (six cool-downs in a row: look at it in the game, then Resume)`;
                 this.note('warn', `bot ${rec.name} ${rec.retired}`);
             }
             else if (res.ended === 'stalled') this.note('warn', `bot ${rec.name}: nothing claimable and nothing running (job ${job.id})`);
@@ -464,10 +483,15 @@ class WorkService extends EventEmitter {
     _maybeFinish(job) {
         if ([...job.bots].some((n) => this.bots.get(n)?.worker)) return;                   // wait for the last worker
         const L = job.impl.ledger;
-        if (L.stuck.length && job.repairs < 1) {                                          // one automatic repair pass, like pit_live.js
-            job.repairs++; const n = L.requeueStuck(Date.now());
-            this.note('info', `job ${job.id}: ${n} stuck units, repair pass`);
-            for (const name of job.bots) this._startWorker(job, this.bots.get(name));
+        if (L.stuck.length && job.repairs < 3) {                                          // up to three repair passes, a few seconds apart (some problems pass by themselves)
+            job.repairs++;
+            this.note('info', `job ${job.id}: ${L.stuck.length} stuck units, repair pass ${job.repairs} of 3 in ${Math.round(this.o.repairMs / 1000)} s`);
+            setTimeout(() => {
+                if (job.state !== 'running') return;
+                const n = L.requeueStuck(Date.now());
+                if (n) for (const name of job.bots) this._startWorker(job, this.bots.get(name));
+                else this._maybeFinish(job);
+            }, this.o.repairMs).unref?.();
             return;
         }
         job.state = 'finished'; job.ended = Date.now();
@@ -815,12 +839,12 @@ class WorkService extends EventEmitter {
         const v = {
             id: job.id, kind: job.kind, name: job.name, state: job.state, spec: { ...job.spec, file: undefined }, progress: p, bots: [...job.bots],
             stuck: L.stuck.length, repairs: job.repairs, workers: [...job.bots].filter((n) => this.bots.get(n)?.worker?.job === job.id).length, created: job.created, started: job.started, ended: job.ended, diff: job.diff,
-            summary: job.summary, box: this._jobBox(job),
+            summary: job.summary, box: this._jobBox(job), lanes: job.kind === 'pit' ? job.impl.plan.regions.length : null,
         };
         // Running with nobody able to work: every assigned bot is retired, offline or gone (the page shows it, nothing else will).
         v.blocked = job.state === 'running' && !v.workers && !L.finished() ? (job.bots.size ? 'no bot is working: ' + [...job.bots].map((n) => { const r = this.bots.get(n); return r ? `${n} ${r.retired || r.state}` : `${n} gone`; }).join(', ') : 'no bots assigned') : null;
         if (full) {
-            v.report = L.report();
+            v.report = L.report(); v.recent = (job.recent || []).slice(-60);
             v.regions = [...L.regions.values()].map((r) => ({ id: r.id, anchor: r.anchor, n: r.n, done: r.doneN, stuck: r.stuckN, leased: r.leasedN, meta: r.meta }));
         }
         return v;

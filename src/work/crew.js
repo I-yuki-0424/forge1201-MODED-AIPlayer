@@ -26,7 +26,8 @@ class Ledger {
      * @param maxAttempts failures (other than the bot's own death) before a unit is `stuck`
      * @param crowd       score penalty per other bot already in a region (huge = help only when nothing unowned is left)
      */
-    constructor({ leaseMs = 60000, maxAttempts = 3, crowd = 1e6 } = {}) {
+    constructor({ leaseMs = 60000, maxAttempts = 3, crowd = 1e6, maxLead = Infinity } = {}) {
+        this.maxLead = maxLead;       // a region may start layer f only while f - (the lowest front of any open region) <= maxLead: lanes stay in step
         Object.assign(this, { leaseMs, maxAttempts, crowd });
         this.regions = new Map();
         this.bots = new Map();
@@ -112,9 +113,11 @@ class Ledger {
         // A bot is steered away from a unit it just failed only if another live bot exists to take it (else it would never run).
         let alive = 0; for (const x of this.byIdx) if (x.alive) alive++;
         const shun = alive > 1 ? b.idx : -2;
-        let best = null;
+        let best = null, minFront = Infinity;
+        if (this.maxLead !== Infinity) for (const r of this.regions.values()) if (r.front < r.layers && r.front < minFront) minFront = r.front;
         for (const r of this.regions.values()) {
             if (r.front >= r.layers || !this.ready(r)) continue;
+            if (this.maxLead !== Infinity && r.front - minFront > this.maxLead) continue;
             const base = r.front * r.rows;
             let any = false;
             for (let i = 0; i < r.rows; i++) if (r.state[base + i] === PENDING && r.avoid[base + i] !== shun) { any = true; break; }

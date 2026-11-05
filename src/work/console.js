@@ -123,6 +123,7 @@ function createConsole({ service, token, allowedHosts = [], publicHost = null, a
         let a;
         // ---- state
         if (m === 'GET' && p === '/api/state') return send(res, 200, service.status());
+        if (m === 'GET' && p === '/api/log') return send(res, 200, service.log.slice(-Number(url.searchParams.get('n') || 200)));
         if (m === 'GET' && p === '/api/players') return send(res, 200, await service.players());
         if (m === 'GET' && p === '/api/surface') return send(res, 200, service.surface(Number(url.searchParams.get('x')), Number(url.searchParams.get('z'))));
         if (m === 'POST' && p === '/api/settings') return send(res, 200, service.setSettings(await json(req)));

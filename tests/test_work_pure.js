@@ -161,6 +161,47 @@ function fakeWorld(ground = 0, init = {}) {
         assert.ok(r2.ok || r2.reason === 'missing_item');
     });
 
+    await test('pit lanes: fewer chunks than bots -> one X-Z range per bot (a grid, near square, covering the box once); enough chunks -> chunks stay', () => {
+        const cover = (p) => { const seen = new Map(); for (const r of p.regions) for (let x = r.meta.x0; x <= r.meta.x1; x++) for (let z = r.meta.z0; z <= r.meta.z1; z++) seen.set(`${x},${z}`, (seen.get(`${x},${z}`) || 0) + 1); return seen; };
+        const box = { x0: 240, z0: 416, x1: 255, z1: 431, top: 63, bottom: 40 };
+        const p4 = pit.planPit(box, { lanes: 4 });
+        assert.strictEqual(p4.regions.length, 4); assert.deepStrictEqual(p4.regions.map((r) => [r.meta.x1 - r.meta.x0 + 1, r.meta.z1 - r.meta.z0 + 1]), [[8, 8], [8, 8], [8, 8], [8, 8]]);
+        const c = cover(p4); assert.strictEqual(c.size, 256); assert.ok([...c.values()].every((n) => n === 1), 'every column belongs to exactly one lane');
+        assert.strictEqual(pit.planPit(box, { lanes: 3 }).regions.length, 3); assert.strictEqual(pit.planPit(box, { lanes: 1 }).regions.length, 1);
+        assert.strictEqual(pit.planPit({ x0: 0, z0: 0, x1: 3, z1: 3, top: 70, bottom: 65 }, { lanes: 4 }).regions.length, 1, 'no lane thinner than 3');
+        assert.strictEqual(pit.planPit({ x0: 0, z0: 0, x1: 47, z1: 47, top: 70, bottom: 65 }, { lanes: 4 }).regions.length, 9, '9 chunks already give every bot a range');
+        // a lane is dug to the bottom by its bot: units of one lane never leave its X-Z range
+        const job = pit.createPitJob(box, {}, { lanes: 4 }), reg = job.plan.regions[1];
+        for (let u = 0; u < reg.layers * reg.rows; u += 7) for (const q of pit.unitCells(job.plan, reg, u)) assert.ok(q.x >= reg.meta.x0 && q.x <= reg.meta.x1 && q.z >= reg.meta.z0 && q.z <= reg.meta.z1);
+    });
+
+    await test('ledger maxLead: a lane may not start a layer more than one ahead of the slowest open lane; the idle bot helps the slow one instead', () => {
+        const L = new Ledger({ leaseMs: 1e9, maxLead: 1 });
+        L.addRegion({ id: 'a', anchor: { x: 0, z: 0 }, layers: 6, rows: 1 }); L.addRegion({ id: 'b', anchor: { x: 50, z: 0 }, layers: 6, rows: 1 });
+        const take = (bot, pos) => { const c = L.claim(bot, pos, 0); return c && { region: c.region, layer: c.units[0].layer, unit: c.units[0].unit }; };
+        let c = take('A', { x: 0, z: 0 }); assert.deepStrictEqual([c.region, c.layer], ['a', 0]); L.done('A', 'a', c.unit, 0);
+        c = take('A', { x: 0, z: 0 }); assert.deepStrictEqual([c.region, c.layer], ['a', 1]); L.done('A', 'a', c.unit, 0);              // a is one ahead of b (front 2 vs 0 -> lead 2 would be refused next)
+        c = take('A', { x: 0, z: 0 });                                                                                                      // lead of a would be 2: not allowed, so A is sent to b
+        assert.deepStrictEqual([c.region, c.layer], ['b', 0], 'the fast lane helps the slow one'); L.done('A', 'b', c.unit, 0);
+        c = take('A', { x: 0, z: 0 }); assert.strictEqual(c.region, 'b'); assert.strictEqual(c.layer, 1);
+    });
+
+    await test('worker: a failed unit is followed by a fix and a pause, then retried; waiting for a tool is immediate; many failures in a row cool the bot down', async () => {
+        const mk = (failures) => {
+            const ledger = new Ledger({ leaseMs: 1e9, maxAttempts: 6 }); ledger.addRegion({ id: 'r', anchor: { x: 0, z: 0 }, layers: 1, rows: 2 });
+            let n = 0; const seen = { recover: [], runs: 0 };
+            return { ledger, seen, job: { ledger, runUnit: async () => { seen.runs++; return n++ < failures ? { ok: false, reason: 'unreachable', detail: { why: 'no path' } } : { ok: true, reason: null }; } },
+                env: { pos: () => ({ x: 0, z: 0 }), recover: async (lvl) => { seen.recover.push(lvl); }, rememberGood: () => { seen.good = (seen.good || 0) + 1; } } };
+        };
+        const a = mk(3), t0 = Date.now(); const ra = await runWorker(a.job, 'b', a.env, { pollMs: 1, backoff: () => 5 });
+        assert.strictEqual(ra.ended, 'finished'); assert.strictEqual(a.ledger.progress().done, 2); assert.deepStrictEqual(a.seen.recover, [2, 3, 4], 'the ladder climbs: wait, jump, sidestep'); assert.ok(a.seen.good >= 2);
+        const b = mk(0); b.job.runUnit = async () => ({ ok: false, reason: 'missing_tool', detail: { block: 'stone' } });
+        const rb = await runWorker(b.job, 'b', b.env, { pollMs: 1, backoff: () => 5 }); assert.strictEqual(rb.ended, 'unhealthy'); assert.strictEqual(rb.last, 'missing_tool'); assert.deepStrictEqual(b.seen.recover, [], 'no fix and no retry: it waits for the operator');
+        const c = mk(1e9), rc = await runWorker(c.job, 'b', c.env, { pollMs: 1, backoff: () => 1 }); assert.strictEqual(rc.ended, 'unhealthy'); assert.strictEqual(rc.failed, 12, 'twelve tries, each after a fix and a pause, before it rests');
+        assert.deepStrictEqual(require('../src/work/worker').backoffMs(1), 3000); assert.ok(require('../src/work/worker').backoffMs(9) === 30000);
+        void t0;
+    });
+
     await test('water rule: fluid beside or inside the cells is filled from the solid side first; an open lake is reported', () => {
         const w = fakeWorld(69, { '5,70,4': 'water', '5,70,5': 'water', '5,70,6': 'water' });     // a 3-cell stream on the ground, next to x=4
         const sp = pit.sealPlan(w, [{ x: 4, y: 70, z: 5 }]);
@@ -245,7 +286,7 @@ function fakeWorld(ground = 0, init = {}) {
                     return { ok: true };
                 },
             };
-            return runWorker(job, id, env, { pollMs: 1 });
+            return runWorker(job, id, env, { pollMs: 1, backoff: () => 1 });
         });
         const res = await Promise.all(workers);
         assert.ok(killed, 'the scenario killed a worker'); assert.ok(res.some((r) => r.ended === 'died'));
@@ -296,7 +337,7 @@ function fakeWorld(ground = 0, init = {}) {
                 throw new Error(name);
             },
         };
-        const res = await runWorker(job, 'b', env, { pollMs: 1 });
+        const res = await runWorker(job, 'b', env, { pollMs: 1, backoff: () => 1 });
         assert.strictEqual(res.ended, 'finished');
         assert.deepStrictEqual(job.diff(w), [], 'every cell of the blueprint is in the world');
         assert.ok(placed.findIndex((p) => p[1] === 65) > placed.findIndex((p) => p[1] === 64), 'bottom-up');
@@ -324,7 +365,7 @@ function fakeWorld(ground = 0, init = {}) {
                     throw new Error(name);
                 },
             };
-            return { res: await runWorker(job, 'b', env, { pollMs: 1 }), job, w, placed };
+            return { res: await runWorker(job, 'b', env, { pollMs: 1, backoff: () => 1 }), job, w, placed };
         };
         const good = await run({ goal: 'reach placement face', why: 'end of partial path' });
         assert.strictEqual(good.res.ended, 'finished'); assert.deepStrictEqual(good.job.diff(good.w), []);

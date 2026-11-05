@@ -77,7 +77,7 @@ function makeMap(canvasHost, o) {                       // canvas that follows t
 }
 function jobRow(j, { compact = false } = {}) {
     const p = j.progress, pct = p.total ? Math.round(100 * p.done / p.total) : 0;
-    return h('div', { class: 'jobrow' }, h('div', { class: 'row tight' }, stateDot(j.state), h('strong', { text: `${j.id} ${j.name}` }), h('span', { class: 'muted small', text: `${j.kind} · ${j.bots.length} bots` }), h('span', { class: 'grow' }), h('span', { class: 'mono small', text: `${pct}%` })),
+    return h('div', { class: 'jobrow' }, h('div', { class: 'row tight' }, stateDot(j.state), h('strong', { text: `${j.id} ${j.name}` }), h('span', { class: 'muted small', text: `${j.kind} · ${j.bots.length} bots${j.lanes ? ` · ${j.lanes} lanes` : ''}` }), h('span', { class: 'grow' }), h('span', { class: 'mono small', text: `${pct}%` })),
         bar(pct, p.stuck ? 'stuck' : ''), compact ? null : h('div', { class: 'muted small', text: `${fmt(p.done)} / ${fmt(p.total)} rows${p.stuck ? ` · ${p.stuck} stuck` : ''}` }), j.blocked ? h('div', { class: 'warn small', text: j.blocked }) : null);
 }
 
@@ -228,7 +228,7 @@ function botsPage() {
 function pitsPage() {
     const f = Object.fromEntries(['x0', 'x1', 'z0', 'z1', 'top', 'depth', 'bottom'].map((k) => [k, h('input', { type: 'number', class: 'num', 'aria-label': k })]));
     f.depth.value = 3;
-    const info = h('div', { class: 'info-box' }), chips = h('span', { class: 'chips' }), host = h('div', { class: 'map-host tall-map' }), name = h('input', { placeholder: 'optional', maxlength: 60 });
+    const lanesIn = h('input', { type: 'number', class: 'num', min: 1, max: 32, placeholder: 'auto', title: 'one X-Z range per bot, dug down to the bottom; auto = one per bot' }), info = h('div', { class: 'info-box' }), chips = h('span', { class: 'chips' }), host = h('div', { class: 'map-host tall-map' }), name = h('input', { placeholder: 'optional', maxlength: 60 });
     const depotKind = h('select', { class: 'sel' }, [['', 'none (surplus is dropped)'], ['chest', 'chest at x y z'], ['shulker', 'shulker box (placed by the bot)']].map(([v, t]) => h('option', { value: v, text: t }))), dx = h('input', { type: 'number', class: 'num', placeholder: 'x' }), dy = h('input', { type: 'number', class: 'num', placeholder: 'y' }), dz = h('input', { type: 'number', class: 'num', placeholder: 'z' });
     const picked = new Set(); let mv = null;
     const snap = h('input', { type: 'checkbox', checked: true, onchange: () => { if (mv) mv.snapMode = snap.checked; } });
@@ -257,14 +257,14 @@ function pitsPage() {
         f.top.value = Math.max(...ys); sync(false);
     }, 'top = the highest ground found (corners and centre)');
     const depot = () => { const k = depotKind.value; return !k ? undefined : k === 'chest' ? { kind: 'chest', x: num(dx.value), y: num(dy.value), z: num(dz.value) } : { kind: 'shulker' }; };
-    const create = (start) => act(async () => { const b = box(); if (!b) throw new Error('select an area and give top and depth'); return api('POST', '/api/jobs/pit', { name: name.value.trim() || undefined, box: b, depot: depot(), bots: [...picked], start }); }, (r) => `job ${r.id} created${start ? ' and started' : ''}`);
+    const create = (start) => act(async () => { const b = box(); if (!b) throw new Error('select an area and give top and depth'); return api('POST', '/api/jobs/pit', { name: name.value.trim() || undefined, box: b, depot: depot(), bots: [...picked], lanes: Number.isInteger(num(lanesIn.value)) ? num(lanesIn.value) : undefined, start }); }, (r) => `job ${r.id} created${start ? ' and started' : ''}`);
     const el = h('div', { class: 'grid-12' },
         h('div', { class: 'span-8' }, panel('Select the area', [h('p', { class: 'muted small', text: 'Drag over the map to select chunks (like a spreadsheet range); hold Alt for single blocks; Shift-drag extends; right-drag or Ctrl-drag pans; wheel zooms. The numbers on the right follow the selection and can be edited for any area.' }), host],
             { actions: [h('label', { class: 'check' }, snap, 'snap to chunks'), h('button', { class: 'btn small', onclick: () => mv && mv.fit() }, 'Fit')] })),
         h('div', { class: 'span-4' }, panel('Pit', [
             h('div', { class: 'grid-form' }, field('x from', f.x0), field('x to', f.x1), field('z from', f.z0), field('z to', f.z1), field('top y', f.top), field('depth', f.depth), field('bottom y', f.bottom), field('quick', h('span', { class: 'row tight' }, h('button', { class: 'btn small', title: 'dig down to y -59: the lowest layer that is not bedrock', onclick: toBottom(-59) }, 'to y -59'), h('button', { class: 'btn small', title: 'the bottom of the world; bedrock cells are skipped', onclick: toBottom(-64) }, '-64')))),
             h('div', { class: 'row' }, h('button', { class: 'btn small', onclick: ground }, 'Top = ground'), h('button', { class: 'btn small', title: 'selection around the operator (needs RCON)', onclick: act(async () => { const p = (await api('GET', '/api/players')).find((q) => !q.bot && q.pos); if (!p) throw new Error('no operator position'); const b = { x0: (p.pos.x >> 4) << 4, z0: (p.pos.z >> 4) << 4 }; fromSel({ x0: b.x0, x1: b.x0 + 15, z0: b.z0, z1: b.z0 + 15 }); f.top.value = p.pos.y - 1; sync(false); }, 'the chunk the operator stands in') }, 'Operator chunk')),
-            info, field('Name', name), field('Depot', h('span', { class: 'row tight' }, depotKind, dx, dy, dz)), h('div', { class: 'field' }, h('span', { class: 'field-label', text: 'Bots (none ticked: every idle bot)' }), chips),
+            info, field('Name', name), field('Lanes', lanesIn, 'one X-Z range per bot, each dug down to the bottom'), field('Depot', h('span', { class: 'row tight' }, depotKind, dx, dy, dz)), h('div', { class: 'field' }, h('span', { class: 'field-label', text: 'Bots (none ticked: every idle bot)' }), chips),
             h('div', { class: 'row' }, h('button', { class: 'btn', onclick: create(false) }, 'Create (paused)'), h('button', { class: 'btn primary', onclick: create(true) }, icon('play', 13), ' Create and start'))])));
     return {
         el,

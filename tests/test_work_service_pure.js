@@ -218,6 +218,25 @@ function fakeBot(name) {
         await s3.stop();
     });
 
+    await test('a bot that keeps failing (after fixes and waits) cools down and comes back by itself; lanes are one X-Z range per bot', async () => {
+        const dir4 = fs.mkdtempSync(path.join(os.tmpdir(), 'work-')), w4 = makeWorld(100), flag = { heal: false }, fixes = [];
+        const s4 = new WorkService({
+            dataDir: dir4, factory, reconnectMs: 20, coolMs: 120, repairMs: 50, backoff: () => 1,
+            envFactory: () => ({ w: w4, now: Date.now, pause: () => sleep(1), have: () => 99, inv: () => ({ items: [], slotsFree: 30 }), here: () => ({ x: 0, y: 101, z: 0 }), pos: () => ({ x: 0, z: 0 }),
+                recover: async (lvl) => { fixes.push(lvl); }, rememberGood: () => {},
+                exec: async (cmd, a) => { if (cmd === 'mine') { if (!flag.heal) return { ok: false, reason: 'unreachable', detail: { why: 'no path' } }; w4.set(a.x, a.y, a.z, 'air'); } return { ok: true }; } }),
+        });
+        s4.addBot('Flaky1'); s4.addBot('Flaky2'); await until(() => s4.status().bots.every((b) => b.state === 'online'));
+        const v = s4.createPit({ box: { x0: 0, z0: 0, x1: 15, z1: 15, top: 100, bottom: 99 }, bots: ['Flaky1', 'Flaky2'], start: true });
+        assert.strictEqual(v.lanes, 2, 'two bots, two lanes'); assert.strictEqual(s4.jobs.get(v.id).impl.plan.regions.length, 2);
+        await until(() => s4.bots.get('Flaky1').retired && /cooling down/.test(s4.bots.get('Flaky1').retired), 20000);
+        assert.ok(fixes.includes(2) && fixes.includes(3) && fixes.includes(4), 'the fix ladder ran: ' + [...new Set(fixes)].join(','));
+        flag.heal = true;                                                                  // the world calms down
+        await until(() => s4.jobs.get(v.id).state === 'finished', 30000);
+        assert.strictEqual(s4.bots.get('Flaky1').retired, null); assert.strictEqual(s4.jobDetail(v.id).progress.stuck, 0, 'repair passes brought the stuck units back');
+        await s4.stop();
+    });
+
     await test('persistence: roster and jobs come back, jobs paused; a finished job stays finished', async () => {
         const v = svc.createPit({ name: 'keep me', box: { x0: 400, z0: 400, x1: 431, z1: 415, top: 100, bottom: 99 }, bots: ['Work1'] });
         svc.save(); await svc.stop();

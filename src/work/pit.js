@@ -16,21 +16,42 @@ const SEAL_ITEMS = ['cobblestone', 'cobbled_deepslate', 'dirt', 'netherrack', 's
  * Box {x0, z0, x1, z1, top, bottom} (inclusive columns; `top` = y of the first block layer to dig, `bottom` = y of the last).
  * Returns the chunk-aligned regions and the haul road. Layer l is y = top - l.
  */
-function planPit(box, { chunk = CHUNK } = {}) {
+function planPit(box, { chunk = CHUNK, lanes = 0 } = {}) {
     const { x0, z0, x1, z1, top, bottom } = box;
     for (const k of ['x0', 'z0', 'x1', 'z1', 'top', 'bottom']) if (!Number.isInteger(box[k])) throw new Error(`box.${k} must be an integer`);
     if (x1 < x0 || z1 < z0 || top < bottom) throw new Error('box is empty (x1<x0, z1<z0 or top<bottom)');
     const layers = top - bottom + 1;
     if ((x1 - x0 + 1) * (z1 - z0 + 1) * layers > MAX_CELLS) throw new Error('box too large for one job');
     const road = planRoad(box, layers);
+    const mk = (id, r) => ({ id, anchor: { x: (r.x0 + r.x1) / 2, z: (r.z0 + r.z1) / 2 }, layers, rows: r.z1 - r.z0 + 1, meta: { ...r, top, bottom } });
     const regions = [];
     for (let cx = Math.floor(x0 / chunk); cx <= Math.floor(x1 / chunk); cx++) {
         for (let cz = Math.floor(z0 / chunk); cz <= Math.floor(z1 / chunk); cz++) {
-            const r = { x0: Math.max(x0, cx * chunk), x1: Math.min(x1, cx * chunk + chunk - 1), z0: Math.max(z0, cz * chunk), z1: Math.min(z1, cz * chunk + chunk - 1) };
-            regions.push({ id: `c${cx}_${cz}`, anchor: { x: (r.x0 + r.x1) / 2, z: (r.z0 + r.z1) / 2 }, layers, rows: r.z1 - r.z0 + 1, meta: { ...r, top, bottom } });
+            regions.push(mk(`c${cx}_${cz}`, { x0: Math.max(x0, cx * chunk), x1: Math.min(x1, cx * chunk + chunk - 1), z0: Math.max(z0, cz * chunk), z1: Math.min(z1, cz * chunk + chunk - 1) }));
         }
     }
-    return { box, layers, regions, road };
+    // Fewer chunks than bots: cut the box into lanes instead, one X-Z range per bot that it digs down to the bottom, so that bots do
+    // not work on the same layer side by side (owner 2026-11-06). With enough chunks the chunks are the lanes.
+    if (lanes > regions.length) { const l = laneBoxes(box, lanes); if (l.length > regions.length) return { box, layers, regions: l.map((r, i) => mk(`l${i}`, r)), road, lanes: l.length }; }
+    return { box, layers, regions, road, lanes: regions.length };
+}
+
+/** Cut a box into about `n` rectangles of near-square shape (a grid cx x cz with cx*cz <= n, as close to n as the box allows, none thinner than MIN_LANE). */
+const MIN_LANE = 3;
+function laneBoxes(box, n) {
+    const W = box.x1 - box.x0 + 1, D = box.z1 - box.z0 + 1;
+    let best = null;
+    for (let cx = 1; cx <= n; cx++) for (let cz = 1; cx * cz <= n; cz++) {
+        if (W / cx < MIN_LANE && cx > 1 || D / cz < MIN_LANE && cz > 1) continue;
+        const count = cx * cz, shape = Math.abs(Math.log((W / cx) / (D / cz)));           // 0 = square lanes
+        const score = (n - count) * 10 + shape;
+        if (!best || score < best.score) best = { cx, cz, score };
+    }
+    if (!best) return [{ x0: box.x0, x1: box.x1, z0: box.z0, z1: box.z1 }];
+    const cut = (lo, len, k) => Array.from({ length: k }, (_, i) => [lo + Math.floor(len * i / k), lo + Math.floor(len * (i + 1) / k) - 1]);
+    const out = [];
+    for (const [xa, xb] of cut(box.x0, W, best.cx)) for (const [za, zb] of cut(box.z0, D, best.cz)) out.push({ x0: xa, x1: xb, z0: za, z1: zb });
+    return out;
 }
 
 /**
@@ -71,7 +92,7 @@ function unitCells(plan, region, u) {
     return out;
 }
 
-const RETRY = new Set(['not_visible', 'not_confirmed', 'stuck', 'unreachable', 'target_lost']);
+const RETRY = new Set(['not_visible', 'not_confirmed', 'stuck', 'unreachable', 'target_lost', 'timeout']);
 const NEIGH4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const isFluid = (w, x, y, z) => { const k = w.kindAt(x, y, z); return k === 'water' || k === 'liquid' || (k === 'danger' && /lava/.test(w.nameAt(x, y, z) || '')); };
 const isSolid = (w, x, y, z) => w.kindAt(x, y, z) === 'solid';
@@ -146,7 +167,9 @@ async function runUnit(plan, region, u, env) {
         // Success is what the world shows: a `mine` that ended in the drop pickup (target_lost: the item was picked up by another
         // bot or despawned) has still opened the cell. Transient reasons (another bot in the crosshair, a slipped aim) get retries.
         let m = await env.exec('mine', c);
-        for (let tries = 0; !m.ok && !open(c) && tries < 2 && RETRY.has(m.reason); tries++) { await (env.pause ? env.pause(20 + 20 * tries) : null); m = await env.exec('mine', c); }
+        // A few seconds between attempts (something in the way moves on, the server catches up), and a small fix before each one:
+        // jump, sidestep, go back to where the bot last worked (env.recover; the worker's ladder).
+        for (let tries = 0; !m.ok && !open(c) && tries < 4 && RETRY.has(m.reason); tries++) { if (env.recover) await env.recover(tries + 2, m); await (env.pause ? env.pause(40 + 40 * tries) : null); m = await env.exec('mine', c); }
         if (!m.ok && !open(c)) return fail(m, c, 'mine');
         r.mined++;
         // Water that was behind the block is now flowing in. Fill its source, then the cell; if the cell was plugged, dig it again.
@@ -174,10 +197,10 @@ async function runUnit(plan, region, u, env) {
 }
 
 /** A pit as a crew job: { ledger, plan, runUnit(regionId, unit, env) }. */
-function createPitJob(box, ledgerOpts = {}) {
-    const plan = planPit(box), ledger = new Ledger(ledgerOpts), byId = new Map();
+function createPitJob(box, ledgerOpts = {}, { lanes = 0 } = {}) {
+    const plan = planPit(box, { lanes }), ledger = new Ledger(ledgerOpts), byId = new Map();
     for (const r of plan.regions) { ledger.addRegion(r); byId.set(r.id, r); }
     return { kind: 'pit', ledger, plan, runUnit: (regionId, unit, env) => runUnit(plan, byId.get(regionId), unit, env) };
 }
 
-module.exports = { planPit, planRoad, unitCells, sealPlan, exposed, runUnit, createPitJob, SEAL_ITEMS, CHUNK };
+module.exports = { planPit, laneBoxes, planRoad, unitCells, sealPlan, exposed, runUnit, createPitJob, SEAL_ITEMS, CHUNK };
