@@ -1,0 +1,66 @@
+# docker/play-server/compose.yaml
+#
+# The owner's PLAY world (docs/proposed/WORKERS-v1.md, "Play world"): Forge 1.20.1, Create-based, any mods the owner chooses.
+# Config only. The jars, the world and the client files live OUTSIDE this repository, in /mnt/data/forgeaip-play/:
+#   mods/         jars the SERVER loads (everything that adds blocks, items, entities, recipes, world generation or rules)
+#   client-only/  jars for the owner's PC only (renderers, minimap, shaders, recipe viewers): never mounted here
+# scripts/play/up.sh checks the folder (scripts/play/check-mods.py) and starts it. 127.0.0.1:25569 only (Docker bypasses ufw);
+# the owner's route is the tailnet (`tailscale serve`, command in scripts/play/up.sh output), like the build world.
+# Independent of docker/world-server: another project name, volume, port and mods folder, so nothing here can touch the
+# build world, the training worlds or the bot's mod table (modpack/forgeaip-create.*).
+
+name: forgeaip-play
+
+services:
+  play:
+    # Same pinned image as docker/world-server (java17 tag).
+    image: itzg/minecraft-server@sha256:a08cd9ced3e1c3f46a318af1fa393de21698afbf8746681f115dc923ba847ba5
+    container_name: forgeaip-play
+    restart: unless-stopped
+    stop_grace_period: 90s
+    mem_limit: ${PLAY_MEM_LIMIT:-7g}
+    cpus: 3
+    environment:
+      EULA: "TRUE"
+      TYPE: FORGE
+      VERSION: "1.20.1"
+      FORGE_VERSION: "47.4.10"
+      MEMORY: ${PLAY_HEAP:-5G}
+      USE_AIKAR_FLAGS: "true"
+      COPY_MODS_SRC: /mods
+      REMOVE_OLD_MODS: "true"
+      LEVEL_TYPE: minecraft:normal
+      SEED: ${PLAY_SEED:-}
+      MODE: survival
+      DIFFICULTY: normal
+      SPAWN_PROTECTION: "0"
+      VIEW_DISTANCE: "10"
+      SIMULATION_DISTANCE: "8"
+      MAX_PLAYERS: "20"
+      # Bots (the pure-bot crews) have no Microsoft account; who can connect is decided by the network (loopback + tailnet).
+      ONLINE_MODE: "false"
+      ENFORCE_SECURE_PROFILE: "false"
+      ALLOW_FLIGHT: "true"
+      MAX_TICK_TIME: "-1"
+      ENABLE_RCON: "true"
+      RCON_PASSWORD: ${RCON_PASSWORD:?run scripts/play/up.sh (creates docker/play-server/.env)}
+      MOTD: "forgeaip play world"
+      LOG_TIMESTAMP: "true"
+    healthcheck:
+      test: ["CMD", "mc-health"]
+      interval: 10s
+      timeout: 5s
+      retries: 90
+      start_period: 300s
+    volumes:
+      - data:/data
+      - /mnt/data/forgeaip-play/mods:/mods:ro
+    ports:
+      - "127.0.0.1:25569:25565"
+    networks: [play]
+
+volumes:
+  data:
+
+networks:
+  play:
