@@ -129,6 +129,8 @@ Bots in the play world need that world's exact block and item table (`docs/imple
 `modpack/` belongs to the build world's mod set. Until `registry-dump` is run for the play set (not parameterised yet), bots
 may join only if the world has no content mods beyond that table; the owner can always join.
 
+Operation (2026-11-05): restart = `systemctl restart forgeaip-play` (unit and one sudo rule installed once by `/mnt/data/forgeaip-play/root-install.sh`, which also gives the VPS dashboard a Restart button; or `/mnt/data/forgeaip-play/up.sh`, which re-creates the container so `mods/` is re-read). Operator: `docker exec forgeaip-play rcon-cli "op <name>"`. The owner's first 32 mods had been copied into the build world's shared folder; see `docs/LESSONS.md` L18.
+
 Permissions: `/mnt/data` is root's, the rootless Docker is coder's. The folder is created once by root
 (`install -d -o coder -g coder /mnt/data/forgeaip-play`); `up.sh` run as root also makes the folder coder's before it re-runs
 as coder, so root never has to touch it again. The tailnet route is one root command printed by `up.sh` (port 25566 ->

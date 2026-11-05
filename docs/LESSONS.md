@@ -146,3 +146,13 @@ the knowledge-DB (tag `forge1201-moded-aiplayer`).
   failed `unreachable` in ~1 tick: 1,314 failures in run train3, 1,037 of them on one bot.
 - **Rule:** a candidate generator decides availability with the command's own goal test (`reachGoal(...).isGoal`), never a
   cheaper look-alike; test it with a case the look-alike accepts (tests/test_rl_v2_pure.js, hidden dirt behind a wall).
+
+## L18 — `/mnt/data/forgeaip/mods` is shared by every server of this repo; the owner's play mods go to `/mnt/data/forgeaip-play/mods` (found 2026-11-05)
+
+The build world, the training/RL servers, the bench and test copies and the registry dump all mount `/mnt/data/forgeaip/mods`, and
+`scripts/world/up.sh` / `restart.sh` reset that folder to exactly the lock's jars (`modpack/pack.py server`). The owner copied 32 play mods
+into it as root: the next `up.sh` would have deleted them, and any training or test server restarted meanwhile would have loaded them and
+broken the bot's block table (`modpack/forgeaip-create.registry.json`). Moved to `/mnt/data/forgeaip-play/mods` (own server, compose and
+scripts there) and the shared folder restored to the lock. A mod change in a running container needs the container re-created (the image
+mirrors `/mods` into `/data/mods` only at start): `up.sh` there uses `--force-recreate`. Also: a client that times out with nothing in the
+server log never reached the server (no `tailscale serve` route for the port); a mod mismatch only shows after the connection exists.
