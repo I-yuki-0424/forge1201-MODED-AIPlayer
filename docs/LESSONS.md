@@ -156,3 +156,14 @@ broken the bot's block table (`modpack/forgeaip-create.registry.json`). Moved to
 scripts there) and the shared folder restored to the lock. A mod change in a running container needs the container re-created (the image
 mirrors `/mods` into `/data/mods` only at start): `up.sh` there uses `--force-recreate`. Also: a client that times out with nothing in the
 server log never reached the server (no `tailscale serve` route for the port); a mod mismatch only shows after the connection exists.
+
+## L19 — `applyProtocolBypasses()` broke every `nbt.parse` in a process that has a bot (found 2026-11-05, work console live)
+
+`src/transport/forge_bot.js` patches `prismarine-nbt`'s big-endian reader process-wide to be lenient. The wrapper took `(buffer, offset)` and
+dropped ProtoDef's other arguments (type, context), and its fallback called `readAnon`, which does not exist. Result: in a process that has
+created a bot, `nbt.parse` fails over to the wrong format and returns an empty tag ("not a structure file" for a file the unit tests read fine:
+they never create a bot). Found by the first live run of the console (structure upload worked in `npm test`, failed in the container).
+- **Fix:** the wrapper forwards all arguments and rethrows the real error when there is no `readAnon`; `src/work/blueprint.js` also reads with an
+  explicit format (`gunzip` + `parseUncompressed(.., 'big')`) instead of `nbt.parse`'s detection, which relies on exceptions.
+- **Rule:** a test of anything that reads NBT runs under `applyProtocolBypasses()` (tests/test_blueprint_pure.js does), and a pure test is no
+  evidence about a process-wide patch: the first live run of a new feature is part of the task.

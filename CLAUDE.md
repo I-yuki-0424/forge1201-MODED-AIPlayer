@@ -58,8 +58,14 @@ is NOT in this repo: compose, scripts and jars are all in `/mnt/data/forgeaip-pl
 
 ```bash
 scripts/world/test-up.sh latest ; (cd docker/world-server && docker compose --profile bench run --rm -T -e MC_HOST=world-test -e RCON_HOST=world-test --entrypoint node bench scripts/work/pit_live.js --run-id p1 --bots 4 --kill 1) ; scripts/world/test-down.sh
-/mnt/data/forgeaip-play/up.sh | down.sh [--purge] | check-mods.py   # second Forge server on 127.0.0.1:25569
+/mnt/data/forgeaip-play/up.sh | down.sh [--purge] | check-mods.py   # second Forge server on 127.0.0.1:25569 (tailnet 25566)
+/mnt/data/forgeaip-play/registry.sh                                 # after any change of its mods/: exact block table for the bots (registry.json)
+/mnt/data/forgeaip-play/console-up.sh | console-down.sh             # the work console (web UI for pure bots: bots, pits, structure editor, builds), 127.0.0.1:3020, tailnet 3021
 ```
+
+The work console (`src/work/{service,console,blueprint}.js`, `public/work/`, docs/implemented/WORK-CONSOLE-v1.md) is token-authenticated (`console-data/console.token`),
+reaches RCON, and is NOT the old WebUI: keep its auth, CSRF, Host/Origin checks and closed validation when changing it. Bots there use the
+play world's own table (`BOT_MOD_TABLE`). The aux mod is not needed and is not installed (WORK-CONSOLE-v1).
 
 On the owner's PC (Windows/WSL2): `npm ci`, `npm test`, `npm run test:e2e`, `node index.js` (or `run.bat` / `./run.sh`).
 Running the bot needs a Forge 1.20.1 server and an Ollama-compatible endpoint, which exist only on the owner's PC.

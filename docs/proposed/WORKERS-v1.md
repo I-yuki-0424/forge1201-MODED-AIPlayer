@@ -125,9 +125,10 @@ a client mod left in `mods/` stops the server with a `net.minecraft.client` erro
 mandatory dependencies and probable client-only jars. It cannot know every mod; the owner's favourite addons were not
 picked or checked here, and that a given set works together is unverified.
 
-Bots in the play world need that world's exact block and item table (`docs/implemented/MODPACK-v1.md`): the table in
-`modpack/` belongs to the build world's mod set. Until `registry-dump` is run for the play set (not parameterised yet), bots
-may join only if the world has no content mods beyond that table; the owner can always join.
+Bots in the play world need that world's exact block and item table (`docs/implemented/MODPACK-v1.md`). Done 2026-11-05:
+`scripts/world/registry-dump.sh --mods DIR --out FILE` dumps any mods folder (fresh world, no snapshot); the play world's table is
+`/mnt/data/forgeaip-play/registry.json` (`./registry.sh` there), bots take it through `BOT_MOD_TABLE`. Rerun it after every mod change.
+The console that runs the bots there: [WORK-CONSOLE-v1](../implemented/WORK-CONSOLE-v1.md).
 
 Operation (2026-11-05): restart = `systemctl restart forgeaip-play` (unit and one sudo rule installed once by `/mnt/data/forgeaip-play/root-install.sh`, which also gives the VPS dashboard a Restart button; or `/mnt/data/forgeaip-play/up.sh`, which re-creates the container so `mods/` is re-read). Operator: `docker exec forgeaip-play rcon-cli "op <name>"`. The owner's first 32 mods had been copied into the build world's shared folder; see `docs/LESSONS.md` L18.
 
@@ -161,5 +162,5 @@ and the ledger absorb them (3-4 failed units of 96, each redone by another bot).
 1. Pit: drop sweep after a row; road removal; lava and cave floors; tool wear (a spare-pickaxe minimum in `restock`, or crafting).
 2. Build: block properties for stairs, slabs and logs; mod blocks (namespaced `place`); `pillar_up` by the trigger above.
 3. Ledger persistence only if a job outlives its process in practice.
-4. `registry-dump` for an arbitrary mods folder (play world bots).
+4. ~~`registry-dump` for an arbitrary mods folder~~ done; the console is built (WORK-CONSOLE-v1).
 5. A thin command (`-dig`, `-build`) in the LLM intent layer that creates a job, once the jobs are verified live.
