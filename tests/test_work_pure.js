@@ -56,6 +56,8 @@ function fakeWorld(ground = 0, init = {}) {
         // "target chunk not loaded" says where the bot is, not what the unit needs: never counted.
         const far = L.claim('B', { x: 0, z: 0 }, 7.5); L.fail('B', 'r', far.units[0].unit, 'unreachable', 7.6, { why: 'target chunk not loaded' });
         assert.strictEqual(L.regions.get('r').attempts[far.units[0].unit], 0);
+        const worn = L.claim('B', { x: 0, z: 0 }, 7.7); L.fail('B', 'r', worn.units[0].unit, 'missing_tool', 7.8, { block: 'stone' });
+        assert.strictEqual(L.regions.get('r').attempts[worn.units[0].unit], 0, 'a worn-out pickaxe is the bot\'s problem');
         // A bot's own death is not the unit's fault.
         L.fail('A', 'r', below.units[0].unit, 'died', 8);
         assert.strictEqual(L.regions.get('r').attempts[below.units[0].unit], 0);
@@ -164,8 +166,32 @@ function fakeWorld(ground = 0, init = {}) {
         // No seal block at all.
         const w2 = fakeWorld(60, { '9,64,0': 'water' }); w2.set(8, 64, 0, 'stone'); w2.set(7, 64, 0, 'stone');
         const job2 = pit.createPitJob({ x0: 0, z0: 0, x1: 8, z1: 0, top: 64, bottom: 64 });
-        const bad = await job2.runUnit(job2.plan.regions[0].id, { unit: 0 }, { w: w2, have: () => 0, exec: async () => ({ ok: true }) });
+        const bad = await job2.runUnit(job2.plan.regions[0].id, { unit: 0 }, { w: w2, have: () => 0, exec: async (n, a) => { if (n === 'mine') w2.set(a.x, a.y, a.z, 'air'); return { ok: true }; } });
         assert.strictEqual(bad.ok, false); assert.strictEqual(bad.reason, 'missing_item');
+    });
+
+    await test('water in a pocket sealed inside the wall: not touched before the dig, filled through the opened cell, the cell dug again', async () => {
+        // Live run p4: ring water in stone next to the last cell of a row. Before the dig it cannot be clicked (no open face);
+        // the dig opens the cell, water flows in, the pocket is filled first, then the plug in the cell is dug out again.
+        const w = fakeWorld(60);
+        for (let x = 0; x <= 3; x++) for (let y = 61; y <= 64; y++) w.set(x, y, 0, 'stone');
+        for (const [x, y, z] of [[4, 65, 0], [5, 64, 0], [4, 64, 1], [4, 64, -1]]) w.set(x, y, z, 'stone');     // the pocket in the ring is enclosed
+        for (let y = 61; y <= 64; y++) w.set(4, y, 0, y === 64 ? 'water' : 'stone');
+        const calls = [], inv = { cobblestone: 5 };
+        const env = { w, have: (i) => inv[i] || 0, exec: async (name, a) => {
+            calls.push(`${name}:${a.x},${a.y},${a.z}`);
+            if (name === 'mine') { w.set(a.x, a.y, a.z, 'air'); if (a.x === 3 && a.y === 64 && w.nameAt(4, 64, 0) === 'water') w.set(3, 64, 0, 'water'); return { ok: true }; }   // the dug cell floods
+            if (name === 'place') { w.set(a.x, a.y, a.z, a.item); inv[a.item]--; return { ok: true }; }
+            throw new Error(name);
+        } };
+        const job = pit.createPitJob({ x0: 0, z0: 0, x1: 3, z1: 0, top: 64, bottom: 64 });
+        const res = await job.runUnit(job.plan.regions[0].id, { unit: 0 }, env);
+        assert.ok(res.ok, JSON.stringify(res));
+        const firstPlace = calls.findIndex((c) => c.startsWith('place')), lastMine = calls.map((c) => c.startsWith('mine:3,64,0')).lastIndexOf(true);
+        assert.ok(!calls.slice(0, calls.indexOf('mine:3,64,0')).some((c) => c.startsWith('place')), 'nothing placed before the cell is open');
+        assert.strictEqual(calls[firstPlace], 'place:4,64,0', 'the pocket first');
+        assert.ok(calls.indexOf('place:3,64,0') > firstPlace && lastMine > calls.indexOf('place:3,64,0'), 'then the cell, then it is dug again');
+        assert.strictEqual(w.nameAt(4, 64, 0), 'cobblestone'); assert.strictEqual(w.nameAt(3, 64, 0), 'air');
     });
 
     await test('whole pit by 6 workers on a fake world; one worker dies in the middle; the rest finish, nothing is left standing but the road', async () => {

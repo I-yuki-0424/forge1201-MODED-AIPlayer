@@ -53,6 +53,14 @@ scripts/world/registry-dump.sh                         # after any lock change: 
 (cd docker/world-server && docker compose --profile bench run --rm -T --entrypoint node bench scripts/skills/bench_lv2.js --run-id l1 --seed 1101 --bots 10 --follow <player>)   # LV2: natural terrain (after --pregen 1)
 ```
 
+Pure bots (docs/proposed/WORKERS-v1.md; `src/work/`, not part of the RL action space): live pit check on a disposable server, and the owner's play world
+(jars live in `/mnt/data/forgeaip-play/`, never in the repo):
+
+```bash
+scripts/world/test-up.sh latest ; (cd docker/world-server && docker compose --profile bench run --rm -T -e MC_HOST=world-test -e RCON_HOST=world-test --entrypoint node bench scripts/work/pit_live.js --run-id p1 --bots 4 --kill 1) ; scripts/world/test-down.sh
+scripts/play/check-mods.py [/mnt/data/forgeaip-play] ; scripts/play/up.sh | down.sh [--purge]   # second Forge server on 127.0.0.1:25569
+```
+
 On the owner's PC (Windows/WSL2): `npm ci`, `npm test`, `npm run test:e2e`, `node index.js` (or `run.bat` / `./run.sh`).
 Running the bot needs a Forge 1.20.1 server and an Ollama-compatible endpoint, which exist only on the owner's PC.
 
@@ -71,6 +79,7 @@ Copy `.env` values (file is git-ignored; never print or commit it):
 ```
 index.js            entry: AgentManager + WebUI (the debug WebSocket :3001 is started by each bot_actuator child)
 src/skills/         the action layer: 14 commands built only from player inputs (body, planner, runner, commands/*), intents.js + llm_prompt.js for the LLM
+src/work/           pure bots: crew ledger (crew.js), pit (pit.js), structures (build.js), inventory upkeep (janitor.js), worker loop; calls execute() only
 src/skills_bot.js   the bot child process on the action layer (default; BOT_RUNTIME=legacy forks bot_actuator.js); src/vault_client.js reads LLM credentials
 src/rl/             RL environment (env, controls, observation, goal, DPOD file-API runner); src/transport/ = login/FML3 factory shared with the actuator, mod_registry.js = exact mod blocks/items
 modpack/            the mod set: lock (sha512), pack.py (server sync, .mrpack), install-client.ps1, the bot's block/item table

@@ -67,6 +67,11 @@ const RETRY = new Set(['not_visible', 'not_confirmed', 'stuck', 'unreachable', '
 const NEIGH4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const isFluid = (w, x, y, z) => { const k = w.kindAt(x, y, z); return k === 'water' || k === 'liquid' || (k === 'danger' && /lava/.test(w.nameAt(x, y, z) || '')); };
 const isSolid = (w, x, y, z) => w.kindAt(x, y, z) === 'solid';
+/** A fluid cell with an open (air) neighbour other than `c`: its face can be seen and clicked from the pit. */
+const exposed = (w, f, c) => [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].some(([a, b, d]) => {
+    const x = f.x + a, y = f.y + b, z = f.z + d;
+    return !(x === c.x && y === c.y && z === c.z) && PASSABLE.has(w.kindAt(x, y, z));
+});
 
 /**
  * Fluid cells to fill before digging `cells` (one layer): the cell itself and its four horizontal neighbours when they hold
@@ -76,11 +81,13 @@ const isSolid = (w, x, y, z) => w.kindAt(x, y, z) === 'solid';
  * open lake: the caller reports it). Pure; `w` is only read.
  */
 function sealPlan(w, cells) {
+    // Sources first, the cell itself last: with the neighbour filled the water in the cell drains by itself, and a block placed
+    // into the cell first would hide the neighbour from the crosshair.
     const want = new Map();
     for (const c of cells) {
-        if (isFluid(w, c.x, c.y, c.z)) want.set(`${c.x},${c.y},${c.z}`, { x: c.x, y: c.y, z: c.z });
         for (const [dx, dz] of NEIGH4) if (isFluid(w, c.x + dx, c.y, c.z + dz)) want.set(`${c.x + dx},${c.y},${c.z + dz}`, { x: c.x + dx, y: c.y, z: c.z + dz });
     }
+    for (const c of cells) if (isFluid(w, c.x, c.y, c.z)) { want.delete(`${c.x},${c.y},${c.z}`); want.set(`${c.x},${c.y},${c.z}`, { x: c.x, y: c.y, z: c.z }); }
     const todo = [...want.values()], order = [], filled = new Set();
     const solidNow = (x, y, z) => filled.has(`${x},${y},${z}`) || isSolid(w, x, y, z);
     for (let progress = true; todo.length && progress;) {
@@ -103,31 +110,45 @@ function sealPlan(w, cells) {
 async function runUnit(plan, region, u, env) {
     const cells = unitCells(plan, region, u.unit), r = { mined: 0, sealed: 0, skipped: 0 };
     const fail = (res, cell, stage) => ({ ok: false, reason: res.reason, detail: { ...(res.detail || {}), cell, stage, ...r } });
-    const seal = async (c) => {
+    const open = (c) => PASSABLE.has(env.w.kindAt(c.x, c.y, c.z));
+    // Fill what sealPlan lists. `before`: only fluid that can be seen now (a pocket sealed inside stone cannot be clicked, and it
+    // cannot flow until the cell next to it opens: live run p4, a water cell in the wall next to the last stone); after the dig
+    // the opened cell is the window onto it, so everything is filled then, the pocket first and the opened cell last.
+    const seal = async (c, before) => {
         const sp = sealPlan(env.w, [c]);
-        if (sp.unsupported.length) return { ok: false, reason: 'invalid_target', detail: { why: 'fluid with nothing to seal it against', cells: sp.unsupported.slice(0, 4) } };
-        for (const f of sp.fill) {
+        const list = before ? sp.fill.filter((f) => (f.x === c.x && f.y === c.y && f.z === c.z) || exposed(env.w, f, c)) : sp.fill;
+        const hidden = before ? sp.unsupported.filter((f) => exposed(env.w, f, c)) : sp.unsupported;
+        if (hidden.length) return { ok: false, reason: 'invalid_target', detail: { why: 'fluid with nothing to seal it against', cells: hidden.slice(0, 4) } };
+        for (const f of list) {
             const item = SEAL_ITEMS.find((n) => env.have(n) >= 1);
             if (!item) return { ok: false, reason: 'missing_item', detail: { why: 'no block to seal water with', tried: SEAL_ITEMS } };
             const p = await env.exec('place', { x: f.x, y: f.y, z: f.z, item, fluid: true });
             if (!p.ok) return p;
             r.sealed++;
         }
-        return { ok: true };
+        return { ok: true, n: list.length };
     };
     for (const c of cells) {
-        let s = await seal(c);
+        let s = await seal(c, true);
         if (!s.ok) return fail(s, c, 'seal');
-        if (PASSABLE.has(env.w.kindAt(c.x, c.y, c.z))) { r.skipped++; continue; }
+        if (open(c)) { r.skipped++; continue; }
         // Success is what the world shows: a `mine` that ended in the drop pickup (target_lost: the item was picked up by another
         // bot or despawned) has still opened the cell. Transient reasons (another bot in the crosshair, a slipped aim) get retries.
-        const open = () => PASSABLE.has(env.w.kindAt(c.x, c.y, c.z));
         let m = await env.exec('mine', c);
-        for (let tries = 0; !m.ok && !open() && tries < 2 && RETRY.has(m.reason); tries++) { await (env.pause ? env.pause(20 + 20 * tries) : null); m = await env.exec('mine', c); }
-        if (!m.ok && !open()) return fail(m, c, 'mine');
+        for (let tries = 0; !m.ok && !open(c) && tries < 2 && RETRY.has(m.reason); tries++) { await (env.pause ? env.pause(20 + 20 * tries) : null); m = await env.exec('mine', c); }
+        if (!m.ok && !open(c)) return fail(m, c, 'mine');
         r.mined++;
-        s = await seal(c);                                  // water that was behind the block and is now flowing in
-        if (!s.ok) return fail(s, c, 'seal_after');
+        // Water that was behind the block is now flowing in. Fill its source, then the cell; if the cell was plugged, dig it again.
+        for (let round = 0; round < 3; round++) {
+            s = await seal(c, false);
+            if (!s.ok) return fail(s, c, 'seal_after');
+            if (!s.n && open(c)) break;
+            if (!open(c) && env.w.kindAt(c.x, c.y, c.z) === 'solid') {          // a plug; water still running in is filled by the next round
+                const m2 = await env.exec('mine', c);
+                if (!m2.ok && !open(c)) return fail(m2, c, 'unplug');
+            }
+        }
+        if (!open(c)) return fail({ reason: 'not_confirmed', detail: { why: 'cell keeps filling' } }, c, 'seal_after');
     }
     return { ok: true, reason: null, detail: r };
 }
@@ -139,4 +160,4 @@ function createPitJob(box, ledgerOpts = {}) {
     return { kind: 'pit', ledger, plan, runUnit: (regionId, unit, env) => runUnit(plan, byId.get(regionId), unit, env) };
 }
 
-module.exports = { planPit, planRoad, unitCells, sealPlan, runUnit, createPitJob, SEAL_ITEMS, CHUNK };
+module.exports = { planPit, planRoad, unitCells, sealPlan, exposed, runUnit, createPitJob, SEAL_ITEMS, CHUNK };

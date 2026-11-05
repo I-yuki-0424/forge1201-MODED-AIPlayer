@@ -132,11 +132,27 @@ Start: `scripts/play/up.sh`; the tailnet route is one command the owner runs as 
 
 ## Live check
 
-(see the end of this file; filled from `scripts/work/pit_live.js`)
+`scripts/work/pit_live.js`, 2026-11-05, disposable copy of the build world (Forge 1.20.1 + Create), a stone block in the sky,
+box 32 x 16 x 3 (two chunk regions, 96 units), water planted in the ring outside the box (two cells, one open to the air, one
+enclosed in stone) and buried inside the volume, 4 survival bots with iron pickaxes, one bot killed 40 s into the job.
+Graded from the server (`fill ... replace` counts per layer, `execute if block`), not from the bots' reports.
+
+| Run | Result | What it showed |
+| :-- | :-- | :-- |
+| p3 | FAIL, 47/96 | Iron pickaxes last 250 blocks: all three wore out and every unit they were on was charged as an attempt. Fix: `missing_tool`, `missing_item` and "chunk not loaded" are the bot's problem, not the unit's; a bot with three failed units in a row retires (`unhealthy`). The killed bot respawned at the world spawn and burned units in the meantime |
+| p4 | 95/96 | A water cell enclosed in the wall next to the last stone could not be clicked before the dig (no open face). Fix: before the dig only fluid that can be seen is filled; after it the opened cell is the window, the pocket is filled first, the cell last, and a plug is dug again. Reproducer in `tests/test_work_pure.js` |
+| **p5** | **PASS, 96/96** | 0 cells left in the volume (3 layers, server-graded), both ring waters sealed, no stuck unit, the killed bot's row taken over; 33/32/30 units by the three survivors, wall 725 s (about 8 s of bot time per cell row of 16, i.e. one `mine` incl. drop pickup per 1.2 s) |
+
+Measured on the way: 4 bots in one Node process used 8 % of one core and 241 MiB (about 2 % and 60 MiB per bot; 100 bots
+would be roughly 2 cores and 6 GB, extrapolated, unverified); the server used 16 % of a core. Not measured: more than 4 bots,
+the server tick time under a crew, anything on natural terrain, a deep pit with the haul road walked by a late bot.
+
+Seen but not fixed: `not_visible` / `target_lost` between bots working near each other (another bot takes the click); retries
+and the ledger absorb them (3-4 failed units of 96, each redone by another bot).
 
 ## Tasks that follow
 
-1. Pit: drop sweep after a row; road removal; lava and cave floors.
+1. Pit: drop sweep after a row; road removal; lava and cave floors; tool wear (a spare-pickaxe minimum in `restock`, or crafting).
 2. Build: block properties for stairs, slabs and logs; mod blocks (namespaced `place`); `pillar_up` by the trigger above.
 3. Ledger persistence only if a job outlives its process in practice.
 4. `registry-dump` for an arbitrary mods folder (play world bots).

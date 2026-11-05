@@ -60,7 +60,7 @@ async function main() {
     for (const [i, { name }] of bots.entries()) {
         await S.must(`gamemode survival ${name}`);
         await S.must(`clear ${name}`);
-        await S.must(`give ${name} minecraft:iron_pickaxe 1`);
+        await S.must(`give ${name} minecraft:iron_pickaxe 6`);      // an iron pickaxe lasts 250 blocks (run p3: all three wore out)
         await S.must(`give ${name} minecraft:cobblestone 32`);
         await S.must(`tp ${name} ${box.x0 + 2 + i * 2}.5 ${top + 1} ${box.z0 - 1}.5`);
     }

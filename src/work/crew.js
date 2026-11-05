@@ -15,7 +15,10 @@
 const PENDING = 0, LEASED = 1, DONE = 2, STUCK = 3;
 const BOT_FAULT = new Set(['died', 'disconnected', 'cancelled']);   // not the unit's fault: no attempt is counted
 // A failure that says something about where the bot IS, not about the unit: a bot that respawned far away sees "chunk not loaded".
-const isBotSide = (reason, detail) => BOT_FAULT.has(reason) || (reason === 'unreachable' && !!detail && detail.why === 'target chunk not loaded');
+// Likewise what the bot lacks: another bot with a pickaxe or blocks can run the unit (live run p3: three iron pickaxes wore out at
+// ~250 blocks each and every unit they were on was charged as an attempt).
+const isBotSide = (reason, detail) => BOT_FAULT.has(reason) || reason === 'missing_tool' || reason === 'missing_item'
+    || (reason === 'unreachable' && !!detail && detail.why === 'target chunk not loaded');
 
 class Ledger {
     /**
