@@ -127,6 +127,14 @@ function createConsole({ service, token, allowedHosts = [], publicHost = null, a
         if (m === 'GET' && p === '/api/players') return send(res, 200, await service.players());
         if (m === 'GET' && p === '/api/surface') return send(res, 200, service.surface(Number(url.searchParams.get('x')), Number(url.searchParams.get('z'))));
         if (m === 'POST' && p === '/api/settings') return send(res, 200, service.setSettings(await json(req)));
+        // ---- sites (tagged chests by coordinates) and scripts
+        if (m === 'GET' && p === '/api/sites') return send(res, 200, service.listSites());
+        if (m === 'POST' && p === '/api/sites') return send(res, 200, service.addSite(await json(req)));
+        if ((a = /^\/api\/sites\/([a-z0-9][a-z0-9_-]{0,23})$/.exec(p)) && m === 'DELETE') return send(res, 200, service.removeSite(a[1]));
+        if (m === 'GET' && p === '/api/scripts') return send(res, 200, service.listScripts());
+        if (m === 'POST' && p === '/api/scripts') return send(res, 200, service.putScript(await json(req)));
+        if ((a = /^\/api\/scripts\/([a-z0-9][a-z0-9_-]{0,31})$/.exec(p)) && m === 'DELETE') return send(res, 200, service.deleteScript(a[1]));
+        if ((a = /^\/api\/scripts\/([a-z0-9][a-z0-9_-]{0,31})\/run$/.exec(p)) && m === 'POST') { const b = await json(req); return send(res, 200, await service.runScript(String(b.bot), a[1])); }
         // ---- bots
         if (m === 'POST' && p === '/api/bots') {
             const b = await json(req), added = [];

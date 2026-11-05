@@ -6,6 +6,7 @@ const { isBotSide } = require('./crew');
 
 const MAX_BAD_STREAK = 12;     // consecutive failed units (each after a fix and a wait) before a bot cools down; the service brings it back
 const BOT_NEEDS = new Set(['missing_tool', 'missing_item']);       // waiting for the operator, not a fault to retry
+const HANDLER_TRIES = 3;       // runs of a recovery script for one reason in a row (reset by a finished unit) before the bot waits for the operator
 /** Seconds between attempts after the n-th failure in a row: 3, 5, 8, 12, 20, then 30. Problems of the world or the server often pass by themselves. */
 const backoffMs = (n) => [3000, 5000, 8000, 12000, 20000, 30000][Math.min(n, 6) - 1];
 
@@ -15,11 +16,22 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * @param job     { ledger, runUnit(regionId, unit, env) } (createPitJob, createBuildJob)
  * @param id      the bot's name in the ledger
  * @param env     { exec(name, args), w, have(item), inv(), here(), pos() -> {x,z}, now() -> ms }
- * @param opts    { cancel, policy (janitor), pollMs, batch, onEvent }
+ * @param opts    { cancel, policy (janitor), pollMs, batch, onEvent, handlers: { missing_tool: script, ... }, scriptEnv: () => extra env for scripts (sites, policy, box) }
  * @returns       { ended: 'finished' | 'cancelled' | 'died' | 'disconnected', units, failed }
  */
-async function runWorker(job, id, env, { cancel = { cancelled: false }, policy = null, pollMs = 500, batch = 1, onEvent = () => {}, backoff: backoffOpt } = {}) {
+async function runWorker(job, id, env, { cancel = { cancelled: false }, policy = null, pollMs = 500, batch = 1, onEvent = () => {}, backoff: backoffOpt, handlers = null, scriptEnv = null } = {}) {
     const backoff = backoffOpt || backoffMs;
+    const tries = {};
+    // A recovery script (work/script.js) for what the bot lacks, run before it gives up and waits for the operator.
+    const recover = async (reason) => {
+        const sc = handlers && handlers[reason];
+        if (!sc || (tries[reason] = (tries[reason] || 0) + 1) > HANDLER_TRIES) return false;
+        const senv = Object.assign(Object.create(env), scriptEnv ? scriptEnv() : {});
+        senv.leavePit = (box) => require('./exit').leavePit(senv, box);
+        let out; try { out = await require('./script').runScript(sc, senv, { cancel }); } catch (e) { out = { ok: false, ended: 'error', reason: String(e.message).slice(0, 80), steps: 0, log: [] }; }
+        onEvent('script', { id, name: sc.name, reason, ended: out.ended, ok: out.ok, steps: out.steps, log: out.log });
+        return out.ok;
+    };
     const L = job.ledger, now = env.now || Date.now;
     let units = 0, failed = 0, idle = 0, streak = 0;
     L.join(id);
@@ -39,6 +51,11 @@ async function runWorker(job, id, env, { cancel = { cancelled: false }, policy =
             idle = 0;
             for (const u of claim.units) {
                 if (cancel.cancelled) { L.leave(id, now()); return { ended: 'cancelled', units, failed }; }
+                // A bot that fell into water: to the surface and the shore first, then stop the water (work/water.js).
+                if (job.rescue && env.inWater && env.inWater()) {
+                    const rr = await job.rescue(env, 'in_water'); onEvent('rescue', { id, ok: rr.ok, reason: rr.reason, filled: rr.filled, surfaced: rr.surfaced });
+                    if (!rr.ok && (rr.reason === 'died' || rr.reason === 'disconnected')) { L.leave(id, now()); return { ended: rr.reason, units, failed }; }
+                }
                 if (policy) {
                     const m = await janitor.maintain(env, policy);        // a stalled janitor must not stall the job: log, carry on
                     if (!m.ok) onEvent('janitor_failed', { id, reason: m.reason, detail: m.detail });
@@ -46,16 +63,18 @@ async function runWorker(job, id, env, { cancel = { cancelled: false }, policy =
                 const t0 = now();
                 const r = await job.runUnit(claim.region, u, env);
                 onEvent('unit', { id, region: claim.region, unit: u.unit, role: claim.role, ok: r.ok, reason: r.reason, ms: now() - t0, detail: r.detail });
-                if (r.ok) { L.done(id, claim.region, u.unit, now()); units++; streak = 0; if (env.rememberGood) env.rememberGood(); continue; }
+                if (r.ok) { L.done(id, claim.region, u.unit, now()); units++; streak = 0; for (const k of Object.keys(tries)) tries[k] = 0; if (env.rememberGood) env.rememberGood(); continue; }
                 failed++;
                 L.fail(id, claim.region, u.unit, r.reason, now(), r.detail);
                 if (r.reason === 'died' || r.reason === 'disconnected') { L.leave(id, now()); return { ended: r.reason, units, failed }; }
                 for (const rest of claim.units) if (rest.unit > u.unit) L.fail(id, claim.region, rest.unit, 'cancelled', now());   // back to the pool, not counted
+                if (BOT_NEEDS.has(r.reason) && await recover(r.reason)) break;       // solved by a script (a tool from the tools chest, one crafted): claim again
                 if (BOT_NEEDS.has(r.reason)) { L.leave(id, now()); return { ended: 'unhealthy', units, failed, last: r.reason }; }   // it needs a tool or an item: the service waits for it
                 streak++;
                 if (streak >= MAX_BAD_STREAK) { L.leave(id, now()); return { ended: 'unhealthy', units, failed, last: r.reason }; }
                 // Basic fixes before the next try: the ladder (wait / jump / sidestep / back to where it last worked) and a pause of a few seconds.
                 onEvent('recover', { id, streak, reason: r.reason });
+                if (job.rescue) { try { const rr = await job.rescue(env, r.reason); if (rr.filled || rr.surfaced) onEvent('rescue', { id, ok: rr.ok, reason: rr.reason, filled: rr.filled, surfaced: rr.surfaced }); } catch (_) { /* a failed rescue is not a failed unit */ } }
                 if (env.recover) { try { await env.recover(streak + 1, r); } catch (_) { /* a failed fix is not a failed unit */ } }
                 await wait(backoff(streak));
                 break;
@@ -94,8 +113,16 @@ function botEnv(bot, { cancel } = {}) {
             if (Math.abs(here.x - good.x) + Math.abs(here.z - good.z) + Math.abs(here.y - good.y) > 2) await execute(bot, 'move_to', { x: good.x, y: good.y, z: good.z }, { cancel });
         }
     }
+    const { items: dropsNear } = require('./drops');
     return {
         w, now: Date.now, recover, rememberGood: () => { good = feetCell(bot.entity.position); },
+        inWater: () => !!bot.entity.isInWater || require('./water').inWater(w, feetCell(bot.entity.position)),
+        items: (near, r) => dropsNear(bot, near, r),
+        configure: (o) => require('../skills/options').configure(bot, o),
+        run: (name, args) => require('./moves').runMove(bot, name, args, { cancel }),
+        usableTool: (cls) => bot.inventory.items().find((i) => i.name.endsWith(`_${cls}`) && !require('../skills/options').isWorn(bot, i)) || null,
+        canCraft: (item) => { const it = bot.registry.itemsByName[item]; return !!it && bot.recipesFor(it.id, null, 1, true).length > 0; },
+        itemExists: (n) => !!bot.registry.itemsByName[n],
         pause: (ticks) => sleep(ticks * 50),                       // let the thing in the way (another bot, an item) move on
         exec: (name, args) => execute(bot, name, args, { cancel }),
         have: (item) => bot.inventory.items().reduce((n, i) => n + (i.name === item ? i.count : 0), 0),

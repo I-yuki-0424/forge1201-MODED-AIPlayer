@@ -21,7 +21,7 @@ const DOC = {
     deposit: ['Items', 'Walk to a chest and put items into it.'],
     withdraw: ['Items', 'Walk to a chest and take items out.'],
 };
-const HINT = { x: 'x', y: 'y (feet level)', z: 'z', entity: 'nearby entity', item: 'item', count: 'count', dest: 'where', dir: 'direction', dy: 'slope', fluid: 'fill water or lava', sneak: 'sneak' };
+const HINT = { x: 'x', y: 'y (feet level)', z: 'z', entity: 'nearby entity', item: 'item', count: 'count', dest: 'where', dir: 'direction', dy: 'slope', fluid: 'fill water or lava', sneak: 'sneak', collect: 'pick up the drop (default yes)', blind: 'dig without line of sight' };
 
 const META = [
     { name: 'gather', group: 'Blocks', meta: true, doc: 'Collect a number of an item: finds the blocks that give it in the chunks the bot has loaded, walks to the nearest and digs everything within reach before it walks on.', args: [{ name: 'target', type: 'item', hint: 'block or item (iron_ore, raw_iron, oak_log, cobblestone, sand ...)' }, { name: 'count', type: 'count', optional: true, hint: 'how many (default 16)' }, { name: 'radius', type: 'int', optional: true, hint: 'search radius in blocks (default 32, at most 64)' }] },

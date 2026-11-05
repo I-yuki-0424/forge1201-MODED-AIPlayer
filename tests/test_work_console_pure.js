@@ -101,7 +101,7 @@ function test(name, fn) { console.log(`--- test: ${name} ---`); return Promise.r
     });
 
     await test('pit over HTTP: created paused, listed with its box, deleted; an impossible pit is a 400 with the reason', async () => {
-        const bad = await call2('POST', '/api/jobs/pit', { body: { box: { x0: 0, z0: 0, x1: 2, z1: 2, top: 90, bottom: 10 } }, ...A }); assert.strictEqual(bad.status, 400); assert.match(bad.json.error, /haul road/);
+        const bad = await call2('POST', '/api/jobs/pit', { body: { method: 'rows', box: { x0: 0, z0: 0, x1: 2, z1: 2, top: 90, bottom: 10 } }, ...A }); assert.strictEqual(bad.status, 400); assert.match(bad.json.error, /haul road/);
         const ok = await call2('POST', '/api/jobs/pit', { body: { name: 'north cut', box: { x0: 10, z0: 10, x1: 40, z1: 30, top: 80, bottom: 78 } }, ...A });
         assert.strictEqual(ok.status, 200); assert.strictEqual(ok.json.state, 'ready'); assert.strictEqual(ok.json.progress.total > 0, true);
         const d = await call2('GET', `/api/jobs/${ok.json.id}`, A); assert.ok(d.json.regions.length >= 4 && d.json.box.top === undefined);

@@ -183,7 +183,33 @@ function fakeWorld(ground = 0, init = {}) {
         c = take('A', { x: 0, z: 0 }); assert.deepStrictEqual([c.region, c.layer], ['a', 1]); L.done('A', 'a', c.unit, 0);              // a is one ahead of b (front 2 vs 0 -> lead 2 would be refused next)
         c = take('A', { x: 0, z: 0 });                                                                                                      // lead of a would be 2: not allowed, so A is sent to b
         assert.deepStrictEqual([c.region, c.layer], ['b', 0], 'the fast lane helps the slow one'); L.done('A', 'b', c.unit, 0);
-        c = take('A', { x: 0, z: 0 }); assert.strictEqual(c.region, 'b'); assert.strictEqual(c.layer, 1);
+        // Home policy (owner 2026-11-06): the helper goes HOME as soon as home may start its next layer again (b is on 1 now, so a's layer 2 is allowed).
+        c = take('A', { x: 0, z: 0 }); assert.deepStrictEqual([c.region, c.layer], ['a', 2], 'back home when home has work at this height');
+    });
+
+    await test('ledger helping: a bot works its home region until it has nothing to take at this height, helps the slowest region first, and returns home', () => {
+        const L = new Ledger({ leaseMs: 1e9, maxLead: 1 });
+        for (const [id, x] of [['h', 0], ['n1', 20], ['n2', 40]]) L.addRegion({ id, anchor: { x, z: 0 }, layers: 4, rows: 3 });
+        const claim = (bot, pos = { x: 0, z: 0 }) => L.claim(bot, pos, 0);
+        // Three bots, one per region. n2's bot is slow: it holds all three rows of layer 0 (leased), the others finish.
+        const a = claim('A', { x: 0, z: 0 }), b = claim('B', { x: 20, z: 0 }), c = claim('C', { x: 40, z: 0 });
+        assert.deepStrictEqual([a.region, b.region, c.region], ['h', 'n1', 'n2']);
+        // A takes its three rows of layer 0, one by one, and is never pulled to a neighbour while home has rows to take.
+        const mine = [a]; for (let i = 0; i < 2; i++) mine.push(claim('A'));
+        assert.ok(mine.every((m) => m.region === 'h' && m.role === 'owner'), 'owner of home until home is out of rows at this height');
+        for (const m of mine) L.done('A', 'h', m.units[0].unit, 1);
+        // Layer 1 of home is open (lead 1): A continues at home, not elsewhere.
+        const nxt = claim('A'); assert.strictEqual(nxt.region, 'h'); assert.strictEqual(nxt.units[0].layer, 1);
+        L.done('A', 'h', nxt.units[0].unit, 2);
+        for (let i = 0; i < 2; i++) { const m = claim('A'); L.done('A', 'h', m.units[0].unit, 3); }
+        // Home is now at layer 2 but n1/n2 sit on layer 0: lead 2 is refused, so A must help. n2 has less done than n1: it is helped first.
+        L.done('B', 'n1', b.units[0].unit, 4); claim('B', { x: 20, z: 0 });            // n1: one row done, B is busy on the second, one left; n2: C busy on the first, two left
+        const help = claim('A'); assert.strictEqual(help.role, 'helper'); assert.strictEqual(help.region, 'n2', 'the region furthest behind first');
+        assert.strictEqual(help.units[0].row, 2, 'from the tail');
+        L.done('A', 'n2', help.units[0].unit, 5);
+        // The slow bot finishes: n2 layer 0 settled; A's next claim: home layer 2 is allowed again once the lowest front reaches 1.
+        L.done('C', 'n2', c.units[0].unit, 6); const rest = claim('A'); L.done('A', rest.region, rest.units[0].unit, 7);
+        const again = claim('A'); assert.ok(again);
     });
 
     await test('worker: a failed unit is followed by a fix and a pause, then retried; waiting for a tool is immediate; many failures in a row cool the bot down', async () => {

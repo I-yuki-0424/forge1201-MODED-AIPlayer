@@ -51,7 +51,7 @@ class Ledger {
 
     bot(id) {
         let b = this.bots.get(id);
-        if (!b) { this.bots.set(id, b = { id, idx: this.bots.size, last: null, leases: new Set(), done: 0, failed: 0, faults: 0, alive: true }); this.byIdx.push(b); }
+        if (!b) { this.bots.set(id, b = { id, idx: this.bots.size, last: null, home: null, leases: new Set(), done: 0, failed: 0, faults: 0, alive: true }); this.byIdx.push(b); }
         b.alive = true;
         return b;
     }
@@ -115,16 +115,23 @@ class Ledger {
         const shun = alive > 1 ? b.idx : -2;
         let best = null, minFront = Infinity;
         if (this.maxLead !== Infinity) for (const r of this.regions.values()) if (r.front < r.layers && r.front < minFront) minFront = r.front;
+        // Helping (owner 2026-11-06): a bot works its HOME region (the first one it was given) for as long as that has anything it may
+        // take at its current height; only when the home region has nothing left to claim at this height (it is done, or it waits for the
+        // lanes beside it to catch up) does the bot help, and it goes home again the moment home has work. At each height the same rule
+        // applies, so a bot that finished its layer helps the neighbour on THAT layer instead of waiting.
         for (const r of this.regions.values()) {
             if (r.front >= r.layers || !this.ready(r)) continue;
             if (this.maxLead !== Infinity && r.front - minFront > this.maxLead) continue;
             const base = r.front * r.rows;
-            let any = false;
-            for (let i = 0; i < r.rows; i++) if (r.state[base + i] === PENDING && r.avoid[base + i] !== shun) { any = true; break; }
+            let any = false, pending = 0;
+            for (let i = 0; i < r.rows; i++) if (r.state[base + i] === PENDING && r.avoid[base + i] !== shun) { any = true; pending++; }
             if (!any) continue;
             const others = r.lessees.size - (r.lessees.has(b.idx) ? 1 : 0);
             const d = Math.hypot(r.anchor.x - pos.x, r.anchor.z - pos.z);
-            const score = (b.last === r.id ? -1e12 : 0) + others * this.crowd + d;
+            const home = (b.home === r.id || (b.home === null && b.last === r.id)) ? -1e12 : 0;
+            // Among regions to help: the one furthest behind first (it holds the others back through maxLead), then the one with most work left.
+            const behind = home ? 0 : -((r.layers - r.front) * 1e3 + pending);
+            const score = home + others * this.crowd + behind + d * 1e-3;
             if (!best || score < best.score) best = { r, score, others };
         }
         if (!best) return null;
@@ -142,6 +149,7 @@ class Ledger {
         }
         this.leased.add(r.id);
         b.last = r.id;
+        if (b.home === null && !helper) b.home = r.id;
         this._ev({ t: now, ev: 'claim', bot: botId, region: r.id, units: units.map((x) => x.unit), helper });
         return { region: r.id, meta: r.meta, units, role: helper ? 'helper' : 'owner' };
     }

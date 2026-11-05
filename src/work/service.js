@@ -15,6 +15,8 @@ const inventory = require('./inventory');
 const gatherer = require('./gather');
 const { catalog } = require('./catalog');
 const { MapStore } = require('./maps');
+const { Sites } = require('./sites');
+const scriptLib = require('./script');
 const skills = require('../skills');
 
 const BOT_NAME = /^[A-Za-z0-9_]{3,16}$/;
@@ -73,14 +75,17 @@ class WorkService extends EventEmitter {
         this.o = { host: 'localhost', port: 25565, maxBots: 24, kit: DEFAULT_KIT, reconnectMs: 3000, coolMs: 60000, repairMs: 15000, restore: true, ...opts };
         this.o.kit = this.o.kit || DEFAULT_KIT;               // an explicit `kit: undefined` must not hide the default
         need(this.o.dataDir, 'dataDir');
-        for (const d of ['structures', 'jobs']) fs.mkdirSync(path.join(this.o.dataDir, d), { recursive: true });
+        for (const d of ['structures', 'jobs', 'scripts']) fs.mkdirSync(path.join(this.o.dataDir, d), { recursive: true });
         this.factory = this.o.factory || defaultFactory(this.o);
         this.envFactory = this.o.envFactory || ((bot, cancel) => require('./worker').botEnv(bot, { cancel }));
         this.known = this.o.known || null;
         this.bots = new Map();            // name -> record
         this.jobs = new Map();            // id -> job
         this.log = [];
-        this.settings = { autoKit: false };
+        this.settings = { autoKit: false, retireWorn: true, scripts: true };      // retireWorn: a nearly broken tool counts as no tool; scripts: recovery scripts (missing tool) on
+        this.sites = new Sites();                                                  // tagged chests by coordinates (sites.js)
+        this.scripts = new Map(scriptLib.BUILT_IN);                                // built in + the operator's own (dataDir/scripts/*.json)
+        this._loadScripts();
         this.seq = 0;
         this._saveTimer = null;
         this._rcon = null; this._rconTail = Promise.resolve();
@@ -102,7 +107,7 @@ class WorkService extends EventEmitter {
     save() {
         const f = path.join(this.o.dataDir, 'state.json');
         const data = {
-            settings: this.settings, seq: this.seq,
+            settings: this.settings, seq: this.seq, sites: this.sites.list(),
             bots: [...this.bots.values()].filter((b) => !b.removed).map((b) => ({ name: b.name, job: b.job })),
             jobs: [...this.jobs.values()].map((j) => ({ id: j.id, kind: j.kind, name: j.name, spec: j.spec, state: j.state, created: j.created, bots: [...j.bots] })),
         };
@@ -112,6 +117,7 @@ class WorkService extends EventEmitter {
     async restore() {
         let d; try { d = JSON.parse(fs.readFileSync(path.join(this.o.dataDir, 'state.json'), 'utf8')); } catch (_) { return; }
         this.settings = { ...this.settings, ...(d.settings || {}) }; this.seq = d.seq || 0;
+        this.sites = new Sites(d.sites || []);
         for (const j of d.jobs || []) {
             try {
                 const job = await this._rebuild(j);
@@ -215,14 +221,21 @@ class WorkService extends EventEmitter {
         const idle = [...this.bots.values()].filter((r) => !r.removed && r.state !== 'offline' && !(r.job && this.jobs.has(r.job) && ACTIVE.has(this.jobs.get(r.job).state))).length;
         const lanes = spec.lanes !== undefined ? spec.lanes : (Array.isArray(spec.bots) && spec.bots.length) || idle || 1;
         need(Number.isInteger(lanes) && lanes >= 1 && lanes <= 32, 'lanes: 1..32');
+        // method: 'sweep' (default: stand in the middle of a tile, dig everything in reach, move on in a fan) or 'rows' (the first version, cell by cell).
+        // road: keep the haul road (default: only for rows; a sweep job leaves by pillar, exit.js) -- a road lets a late or respawned bot WALK in.
+        const method = spec.method === undefined ? 'sweep' : spec.method, road = spec.road === undefined ? method !== 'sweep' : !!spec.road;
+        need(['sweep', 'rows'].includes(method), 'method: sweep or rows');
         let impl;
-        try { impl = pit.createPitJob(box, PIT_LEDGER, { lanes }); } catch (e) { throw new Problem(e.message); }
+        try { impl = pit.createPitJob(box, PIT_LEDGER, { lanes, method, road }); } catch (e) { throw new Problem(e.message); }
         const depot = spec.depot ? this._depot(spec.depot) : null;
-        const job = this._newJob('pit', spec.name || `pit ${box.x1 - box.x0 + 1}x${box.z1 - box.z0 + 1}x${box.top - box.bottom + 1}`, { box, depot, lanes }, impl);
-        job.policy = janitor.pitPolicy(depot ? { depot } : {});
+        const job = this._newJob('pit', spec.name || `pit ${box.x1 - box.x0 + 1}x${box.z1 - box.z0 + 1}x${box.top - box.bottom + 1}`, { box, depot, lanes, method, road }, impl);
+        job.policy = this._pitPolicy(depot);
         this._guardOverlap(job, spec.force);
         return this._register(job, spec);
     }
+
+    /** The upkeep policy of a pit: the job's depot and the tagged sites (read live, so a site added later applies to jobs already running). */
+    _pitPolicy(depot) { return janitor.pitPolicy({ ...(depot ? { depot } : {}), sites: () => this.sites }); }
 
     _depot(d) {
         need(d && ['chest', 'shulker'].includes(d.kind), 'depot.kind is chest or shulker');
@@ -271,14 +284,14 @@ class WorkService extends EventEmitter {
     async _rebuild(j) {
         const base = { id: j.id, kind: j.kind, name: j.name, spec: j.spec, created: j.created };
         let impl;
-        if (j.kind === 'pit') impl = pit.createPitJob(normalizeBox(j.spec.box), PIT_LEDGER, { lanes: j.spec.lanes || 0 });
+        if (j.kind === 'pit') impl = pit.createPitJob(normalizeBox(j.spec.box), PIT_LEDGER, { lanes: j.spec.lanes || 0, method: j.spec.method || 'rows', road: j.spec.road === undefined ? true : !!j.spec.road });
         else {
             const b = await bp.read(fs.readFileSync(path.join(this.o.dataDir, 'jobs', path.basename(j.spec.file))));
             impl = build.createBuildJob(bp.cells(b), j.spec.origin, { leaseMs: 45000, maxAttempts: 6 }, { known: this.known });
         }
         const job = this._newJob(j.kind, j.name, j.spec, impl, j.id);
         job.created = base.created;
-        if (j.kind === 'pit') job.policy = janitor.pitPolicy(j.spec.depot ? { depot: j.spec.depot } : {});
+        if (j.kind === 'pit') job.policy = this._pitPolicy(j.spec.depot);
         else job.summary = { count: impl.plan.count, unsupported: impl.plan.unsupported, materials: this._materials(impl.plan) };
         return job;
     }
@@ -379,10 +392,13 @@ class WorkService extends EventEmitter {
             if (this.settings.autoKit && this.o.rcon) await this.kitBot(rec.name, { quiet: true }).catch(() => {});
             if (cancel.cancelled || job.state !== 'running' || rec.state !== 'online') { if (rec.worker && rec.worker.cancel === cancel) rec.worker = null; return; }
             env = this.envFactory(rec.bot, cancel);
+            if (env && env.configure) env.configure({ retireWorn: !!this.settings.retireWorn });
         } catch (e) { rec.worker = null; this.note('warn', `bot ${rec.name}: cannot start (${e.message})`); return; }
         this._dirty();
         runWorker(job.impl, rec.name, env, {
             cancel, policy: job.policy, pollMs: 1000, backoff: this.o.backoff,
+            handlers: this.settings.scripts ? { missing_tool: this.scripts.get('replace-tool') } : null,
+            scriptEnv: () => ({ sites: this.sites, policy: job.policy, box: job.spec.box }),
             onEvent: (ev, d) => {
                 if (ev === 'unit' && d.ok) { rec.fixes = 0; rec.cool = 0; }
                 if (ev === 'recover') this.note('debug', `${d.id} fix level ${d.streak + 1} after ${d.reason}`, { job: job.id });
@@ -397,6 +413,8 @@ class WorkService extends EventEmitter {
                     this.note('debug', `${d.id} ${d.region} u${d.unit} ${d.reason}`, { job: job.id, detail: d.detail });
                 }
                 if (ev === 'janitor_failed') this.note('debug', `${d.id} janitor ${d.reason}`, { job: job.id });
+                if (ev === 'script') this.note(d.ok ? 'info' : 'debug', `${d.id} script ${d.name} for ${d.reason}: ${d.ended}${d.log && d.log.length ? ` (${d.log.slice(-3).join('; ')})` : ''}`, { job: job.id });
+                if (ev === 'rescue' && (d.filled || d.surfaced)) this.note('info', `${d.id} water rescue: ${d.surfaced ? 'to the shore, ' : ''}${d.filled} filled${d.ok ? '' : ` (${d.reason})`}`, { job: job.id });
             },
         }).then((res) => this._workerEnded(job, rec, res, cancel), (e) => this._workerEnded(job, rec, { ended: 'error', error: String(e.message).slice(0, 160) }, cancel));
     }
@@ -828,8 +846,48 @@ class WorkService extends EventEmitter {
 
     setSettings(s) {
         if (s && typeof s.autoKit === 'boolean') this.settings.autoKit = s.autoKit;
+        if (s && typeof s.scripts === 'boolean') this.settings.scripts = s.scripts;
+        if (s && typeof s.retireWorn === 'boolean') {
+            this.settings.retireWorn = s.retireWorn;                       // the switch applies at once, also to bots that are working
+            for (const r of this.bots.values()) if (r.bot && !r.removed) { try { require('../skills/options').configure(r.bot, { retireWorn: s.retireWorn }); } catch (_) { /* not connected */ } }
+        }
         this._dirty();
         return this.settings;
+    }
+
+    // ------------------------------------------------------------------------------------------------ sites and scripts
+
+    listSites() { return { tags: require('./sites').TAGS, sites: this.sites.list() }; }
+    addSite(s) { let site; try { site = this.sites.add(s); } catch (e) { throw new Problem(e.message); } this._dirty(); return site; }
+    removeSite(name) { need(this.sites.remove(String(name)), `no site ${String(name).slice(0, 24)}`, 404); this._dirty(); return { ok: true }; }
+
+    _loadScripts() {
+        const dir = path.join(this.o.dataDir, 'scripts');
+        let files = []; try { files = fs.readdirSync(dir).filter((f) => f.endsWith('.json')); } catch (_) { return; }
+        for (const f of files) { try { const sc = scriptLib.validate(JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'))); this.scripts.set(sc.name, sc); } catch (e) { this.note('warn', `script ${f}: ${e.message}`); } }
+    }
+    listScripts() { return [...this.scripts.values()].map((sc) => ({ name: sc.name, builtIn: scriptLib.BUILT_IN.has(sc.name) && this.scripts.get(sc.name) === scriptLib.BUILT_IN.get(sc.name), steps: sc.steps })); }
+    putScript(sc) {
+        let v; try { v = scriptLib.validate(sc); } catch (e) { throw new Problem(e.message); }
+        need(!scriptLib.BUILT_IN.has(v.name), 'a built-in script cannot be replaced: give yours another name');
+        fs.writeFileSync(path.join(this.o.dataDir, 'scripts', `${v.name}.json`), JSON.stringify(v, null, 2));
+        this.scripts.set(v.name, v);
+        return { name: v.name, steps: v.steps };
+    }
+    deleteScript(name) { need(this.scripts.has(name) && !scriptLib.BUILT_IN.has(name), `no script ${String(name).slice(0, 32)} (built-in scripts stay)`, 404); this.scripts.delete(name); fs.rmSync(path.join(this.o.dataDir, 'scripts', `${path.basename(name)}.json`), { force: true }); return { ok: true }; }
+    /** Run a stored script once on a bot (the operator's "do this now"): { ended, ok, steps, log }. */
+    async runScript(botName, scriptName) {
+        const rec = this.bots.get(botName); need(rec && !rec.removed && rec.state === 'online' && rec.bot, `no online bot ${botName}`, 404);
+        const sc = this.scripts.get(scriptName); need(sc, `no script ${String(scriptName).slice(0, 32)}`, 404);
+        need(!rec.worker && !rec.script, `bot ${botName} is busy`, 409);
+        const cancel = { cancelled: false }; rec.script = { cancel, name: sc.name };
+        try {
+            const env = this.envFactory(rec.bot, cancel); if (env && env.configure) env.configure({ retireWorn: !!this.settings.retireWorn });
+            const j = rec.job && this.jobs.get(rec.job);
+            const senv = Object.assign(Object.create(env), { sites: this.sites, policy: j && j.policy, box: j && j.spec && j.spec.box });
+            senv.leavePit = (box) => require('./exit').leavePit(senv, box);
+            return await scriptLib.runScript(sc, senv, { cancel });
+        } finally { rec.script = null; }
     }
 
     // ------------------------------------------------------------------------------------------------ views

@@ -63,7 +63,9 @@ function fakeBot(name) {
         throwsP(() => svc.createPit({ box: { x0: 0, z0: 0, x1: 300, z1: 5, top: 90, bottom: 80 } }), 400, /per side/);
         throwsP(() => svc.createPit({ box: { x0: 0, z0: 0, x1: 5, z1: 5, top: 90, bottom: -100 } }), 400, /y must be/);
         throwsP(() => svc.createPit({ box: { x0: 0.5, z0: 0, x1: 5, z1: 5, top: 90, bottom: 80 } }), 400, /integer/);
-        throwsP(() => svc.createPit({ box: { x0: 0, z0: 0, x1: 3, z1: 3, top: 100, bottom: 60 } }), 400, /haul road/);       // deeper than the edge is long
+        throwsP(() => svc.createPit({ method: 'rows', box: { x0: 0, z0: 0, x1: 3, z1: 3, top: 100, bottom: 60 } }), 400, /haul road/);       // deeper than the edge is long (a road is kept in the rows method)
+        throwsP(() => svc.createPit({ method: 'spiral', box: { x0: 0, z0: 0, x1: 3, z1: 3, top: 100, bottom: 99 } }), 400, /method/);
+        { const deep = svc.createPit({ box: { x0: 0, z0: 0, x1: 3, z1: 3, top: 100, bottom: 60 } }); assert.strictEqual(deep.spec ? deep.spec.method : 'sweep', 'sweep', 'sweep is the default and keeps no road'); svc.deleteJob(deep.id); }
         const v = svc.createPit({ name: 'test pit', box: { x0: 0, z0: 0, x1: 20, z1: 9, top: 100, bottom: 98 }, bots: ['Work1', 'Work2', 'Work3'], start: true });
         assert.strictEqual(v.state, 'running');
         throwsP(() => svc.createPit({ box: { x0: 5, z0: 5, x1: 8, z1: 8, top: 100, bottom: 99 } }), 409, /overlaps/);

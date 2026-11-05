@@ -24,6 +24,10 @@ const FOOD = /^(bread|cooked_[a-z_]+|baked_potato|apple|golden_apple|carrot|gold
 const CONTAINER = /(^|_)shulker_box$|^ender_chest$|^chest$|^barrel$/;
 const STACK_ONE = /(_pickaxe|_axe|_shovel|_hoe|_sword|_helmet|_chestplate|_leggings|_boots|bucket|^shield$|^bow$|^crossbow$|shulker_box$|^ender_chest$|^elytra$|^trident$|^shears$|^fishing_rod$|^flint_and_steel$|^saddle$|_boat$|^minecart$)/;
 
+/** The tagged sites of the policy (src/work/sites.js; the object or a function returning it, so that edits to the registry apply to running jobs). */
+const sitesOf = (policy) => { const s = typeof policy.sites === 'function' ? policy.sites() : policy.sites; return s && typeof s.placeFor === 'function' ? s : null; };
+const hasSites = (policy) => { const s = sitesOf(policy); return !!s && s.list().length > 0; };
+
 const valueOf = (name, policy = {}) => (policy.value && policy.value[name] !== undefined ? policy.value[name] : VALUES.has(name) ? VALUES.get(name) : DEFAULT_VALUE);
 const stackOf = (name, policy = {}) => (policy.stack && policy.stack[name]) || (STACK_ONE.test(name) ? 1 : /^(ender_pearl|snowball|egg|sign|bucket|honey_bottle)/.test(name) ? 16 : 64);
 const slotsOf = (name, count, policy) => Math.ceil(count / stackOf(name, policy));
@@ -53,7 +57,7 @@ function plan(items, slotsFree, policy = pitPolicy()) {
     const protectedItem = (n) => TOOL.test(n) || FOOD.test(n) || CONTAINER.test(n);
     const out = (op, item, count, why) => { if (count > 0) { ops.push({ op, item, count, why }); } };
     const dispose = (item, count, why) => {
-        if (policy.depot) out('deposit', item, count, why);
+        if (policy.depot || hasSites(policy)) out('deposit', item, count, why);
         else if (valueOf(item, policy) < policy.neverToss) out('toss', item, count, why);
     };
     let free = slotsFree;
@@ -72,7 +76,7 @@ function plan(items, slotsFree, policy = pitPolicy()) {
         .filter((c) => c.have > c.min).sort((a, b) => a.v - b.v || b.have - a.have);
     for (const c of cand) {
         if (free >= policy.freeTarget) break;
-        if (!policy.depot && c.v >= policy.neverToss) continue;
+        if (!policy.depot && !hasSites(policy) && c.v >= policy.neverToss) continue;
         const take = c.have - c.min, gain = slotsOf(c.n, c.have, policy) - slotsOf(c.n, c.min, policy);
         const o = ops.length; dispose(c.n, take, 'make_room');
         if (ops.length > o) free += gain;
@@ -114,22 +118,34 @@ async function maintain(env, policy) {
     }
     const dep = ops.filter((x) => x.op === 'deposit');
     if (dep.length) {
-        let box = policy.depot, placed = null;
-        if (box.kind === 'shulker') {
-            const spot = shulkerSpot(env.w, env.here());
-            if (!spot) return { ok: false, reason: 'invalid_target', detail: { why: 'no free cell beside the bot for the shulker box' }, done };
-            const p = await env.exec('place', { ...spot, item: box.item || 'shulker_box' });
-            if (!p.ok) return { ok: false, reason: p.reason, detail: p.detail, done };
-            placed = spot; box = spot;
+        // Each item goes to the site of its class (ore, junk, ...) when the operator has tagged sites, else to the job's depot.
+        const sites = sitesOf(policy), groups = new Map(), from = env.pos ? env.pos() : null;
+        for (const o of dep) {
+            const site = sites ? sites.placeFor(o.item, from, policy) : null;
+            const box = site ? { kind: 'chest', x: site.x, y: site.y, z: site.z } : policy.depot;
+            if (!box) return { ok: false, reason: 'invalid_target', detail: { why: `no site or depot for ${o.item}` }, done };
+            const k = box.kind === 'shulker' ? 'shulker' : `${box.x},${box.y},${box.z}`;
+            if (!groups.has(k)) groups.set(k, { box, ops: [] });
+            groups.get(k).ops.push(o);
         }
-        try {
-            for (const o of dep) {
-                const r = await env.exec('deposit', { item: o.item, count: Math.min(o.count, 2304), x: box.x, y: box.y, z: box.z });
-                if (!r.ok) return { ok: false, reason: r.reason, detail: r.detail, done };
-                done.push(o);
+        for (const g of groups.values()) {
+            let box = g.box, placed = null;
+            if (box.kind === 'shulker') {
+                const spot = shulkerSpot(env.w, env.here());
+                if (!spot) return { ok: false, reason: 'invalid_target', detail: { why: 'no free cell beside the bot for the shulker box' }, done };
+                const p = await env.exec('place', { ...spot, item: box.item || 'shulker_box' });
+                if (!p.ok) return { ok: false, reason: p.reason, detail: p.detail, done };
+                placed = spot; box = spot;
             }
-        } finally {
-            if (placed) await env.exec('mine', placed);          // take the box (and what is in it) back
+            try {
+                for (const o of g.ops) {
+                    const r = await env.exec('deposit', { item: o.item, count: Math.min(o.count, 2304), x: box.x, y: box.y, z: box.z });
+                    if (!r.ok) return { ok: false, reason: r.reason, detail: r.detail, done };
+                    done.push(o);
+                }
+            } finally {
+                if (placed) await env.exec('mine', placed);          // take the box (and what is in it) back
+            }
         }
     }
     return { ok: true, done };
@@ -144,4 +160,4 @@ function shulkerSpot(w, f) {
     return null;
 }
 
-module.exports = { plan, restock, maintain, pitPolicy, inventoryOf, shulkerSpot, valueOf, stackOf, VALUES, TOOL, FOOD };
+module.exports = { plan, restock, maintain, pitPolicy, inventoryOf, shulkerSpot, valueOf, stackOf, sitesOf, hasSites, VALUES, TOOL, FOOD };

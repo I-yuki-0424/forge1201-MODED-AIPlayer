@@ -20,9 +20,10 @@ const { createPitJob } = require('../../src/work/pit');
 const { runWorker, botEnv } = require('../../src/work/worker');
 
 function args(argv) {
-    const o = { runId: null, bots: 4, w: 32, d: 16, depth: 3, kill: 0, root: '/exchange', timeoutMin: 25, baseX: 2000, baseZ: 2000, floorY: 150 };
-    const num = new Set(['bots', 'w', 'd', 'depth', 'kill', 'timeoutMin', 'baseX', 'baseZ', 'floorY']);
-    const key = { '--run-id': 'runId', '--bots': 'bots', '--w': 'w', '--d': 'd', '--depth': 'depth', '--kill': 'kill', '--root': 'root', '--timeout-min': 'timeoutMin', '--base-x': 'baseX', '--base-z': 'baseZ' };
+    const o = { runId: null, bots: 4, w: 32, d: 16, depth: 3, kill: 0, root: '/exchange', timeoutMin: 25, baseX: 2000, baseZ: 2000, floorY: 150, method: 'sweep', road: 0, leave: 0, worn: 0 };
+    const num = new Set(['bots', 'w', 'd', 'depth', 'kill', 'timeoutMin', 'baseX', 'baseZ', 'floorY', 'road', 'leave', 'worn']);
+    const key = { '--run-id': 'runId', '--bots': 'bots', '--w': 'w', '--d': 'd', '--depth': 'depth', '--kill': 'kill', '--root': 'root', '--timeout-min': 'timeoutMin', '--base-x': 'baseX', '--base-z': 'baseZ',
+        '--method': 'method', '--road': 'road', '--leave': 'leave', '--worn': 'worn' };       // method sweep|rows; road 0|1; leave 1: bot 1 leaves the finished pit by pillar; worn N: N nearly broken pickaxes first
     for (let i = 0; i < argv.length; i += 2) { const k = key[argv[i]]; if (!k || argv[i + 1] === undefined) throw new Error(`bad argument ${argv[i]}`); o[k] = num.has(k) ? Number(argv[i + 1]) : argv[i + 1]; }
     if (!o.runId) throw new Error('--run-id is required');
     if (o.baseX % 16 || o.baseZ % 16) throw new Error('--base-x/--base-z must be multiples of 16 (chunk aligned)');
@@ -60,6 +61,7 @@ async function main() {
     for (const [i, { name }] of bots.entries()) {
         await S.must(`gamemode survival ${name}`);
         await S.must(`clear ${name}`);
+        if (o.worn) for (let k = 0; k < o.worn; k++) await S.must(`give ${name} minecraft:iron_pickaxe{Damage:246} 1`);     // 4 uses left: the worn-tool rule must pass them over
         await S.must(`give ${name} minecraft:iron_pickaxe 6`);      // an iron pickaxe lasts 250 blocks (run p3: all three wore out)
         await S.must(`give ${name} minecraft:cobblestone 32`);
         await S.must(`tp ${name} ${box.x0 + 2 + i * 2}.5 ${top + 1} ${box.z0 - 1}.5`);
@@ -67,11 +69,12 @@ async function main() {
     await sleep(3000);
 
     // ---- the job
-    const job = createPitJob(box, { leaseMs: 45000 });
+    const job = createPitJob(box, { leaseMs: 45000, maxAttempts: 6, maxLead: 1 }, { lanes: o.bots, method: o.method, road: !!o.road });
+    const mkEnv = (bot, cancel) => { const e = botEnv(bot, { cancel }); e.configure({ retireWorn: true }); return e; };
     const t0 = Date.now(), cancel = { cancelled: false }, events = [];
     const deadline = setTimeout(() => { console.error('[pit] timeout'); cancel.cancelled = true; }, o.timeoutMin * 60000);
-    const results = bots.map(({ name, bot }) => runWorker(job, name, botEnv(bot, { cancel }), {
-        cancel, pollMs: 1000,
+    const results = bots.map(({ name, bot }) => runWorker(job, name, mkEnv(bot, cancel), {
+        cancel, pollMs: 1000, policy: require('../../src/work/janitor').pitPolicy(),
         onEvent: (e, d) => { events.push({ t: Math.round((Date.now() - t0) / 1000), e, ...d }); if (e === 'unit') console.log(`[pit] ${d.id} ${d.region} u${d.unit} ${d.role} ${d.ok ? 'ok' : 'FAIL ' + d.reason} ${d.ms} ms ${JSON.stringify(d.detail || {}).slice(0, 160)}`); },
     }));
     if (o.kill) {
@@ -84,7 +87,7 @@ async function main() {
     if (job.ledger.stuck.length && alive.length && !cancel.cancelled) {
         console.log(`[pit] ${job.ledger.stuck.length} stuck units, repair pass with ${alive.length} bots`);
         job.ledger.requeueStuck(Date.now());
-        ended = ended.concat(await Promise.all(alive.map(({ name, bot }) => runWorker(job, name, botEnv(bot, { cancel }), { cancel, pollMs: 1000, onEvent: (e, d) => { events.push({ t: Math.round((Date.now() - t0) / 1000), e, ...d }); if (e === 'unit') console.log(`[pit] repair ${d.id} ${d.region} u${d.unit} ${d.ok ? 'ok' : 'FAIL ' + d.reason}`); } }))));
+        ended = ended.concat(await Promise.all(alive.map(({ name, bot }) => runWorker(job, name, mkEnv(bot, cancel), { cancel, pollMs: 1000, onEvent: (e, d) => { events.push({ t: Math.round((Date.now() - t0) / 1000), e, ...d }); if (e === 'unit') console.log(`[pit] repair ${d.id} ${d.region} u${d.unit} ${d.ok ? 'ok' : 'FAIL ' + d.reason}`); } }))));
     }
     clearTimeout(deadline);
     const wall = (Date.now() - t0) / 1000;
@@ -102,14 +105,28 @@ async function main() {
     };
     for (let l = 0; l < job.plan.layers; l++) {
         const y = top - l;
-        const rest = await left(box.x0, box.z0 + 1, box.x1, box.z1, y);         // every row except the road row
-        const roadRow = box.x0 + l + 1 <= box.x1 ? await left(box.x0 + l + 1, box.z0, box.x1, box.z0, y) : 0;
+        const noRoad = !job.plan.road.cells.length;                             // no road: the whole layer must be open
+        const rest = await left(box.x0, noRoad ? box.z0 : box.z0 + 1, box.x1, box.z1, y);         // every row except the road row
+        const roadRow = noRoad ? 0 : (box.x0 + l + 1 <= box.x1 ? await left(box.x0 + l + 1, box.z0, box.x1, box.z0, y) : 0);
         if (rest || roadRow) bad.push({ layer: l, y, left: rest + roadRow });
+    }
+    // The way out (owner 2026-11-06): bot 1 leaves the finished pit by pillar; graded by the server: it stands above the rim and no block of its column is left.
+    let left_pit = null;
+    if (o.leave && alive.length) {
+        const { leavePit } = require('../../src/work/exit');
+        const { bot, name } = alive[0], env = mkEnv(bot, { cancelled: false });
+        const t1 = Date.now(), r = await leavePit(env, box).catch((e) => ({ ok: false, reason: 'internal', detail: { error: String(e.message) } }));
+        await sleep(1500);
+        const p0 = bot.entity.position;
+        const col = {}; for (const blk of ['cobblestone', 'dirt']) { const out = await S.cmd(`fill ${box.x0} ${box.bottom} ${box.z0} ${box.x1} ${top} ${box.z1} minecraft:air replace minecraft:${blk}`); const m = /filled (\d+) block/.exec(out); col[blk] = m ? Number(m[1]) : 0; }
+        left_pit = { bot: name, ...r, ms: Date.now() - t1, y: Math.round(p0.y * 10) / 10, above_rim: p0.y >= top + 0.9, stacked_blocks_left_in_box: col };
+        console.log('[pit] leave', JSON.stringify(left_pit).slice(0, 400));
+        if (!(r.ok && left_pit.above_rim && !col.cobblestone)) bad.push({ leave: left_pit });
     }
     const sealed = []; for (const c of [river, river2]) sealed.push(!(await S.test(`block ${c.x} ${c.y} ${c.z} minecraft:water`)));
     const p = job.ledger.report();
     const ok = !bad.length && p.finished && sealed.every(Boolean);
-    const out = { runId: o.runId, ok, wall_s: wall, box, bots: o.bots, killed: o.kill, progress: p, left_in_volume: bad, ring_sealed: sealed, ended };
+    const out = { runId: o.runId, ok, wall_s: wall, method: o.method, road: !!o.road, box, bots: o.bots, killed: o.kill, progress: p, left_in_volume: bad, ring_sealed: sealed, left_pit, ended };
     fs.mkdirSync(path.join(o.root, `work-${o.runId}`), { recursive: true });
     fs.writeFileSync(path.join(o.root, `work-${o.runId}`, 'result.json'), JSON.stringify({ ...out, events }, null, 1));
     console.log(`[pit] ${ok ? 'PASS' : 'FAIL'}`, JSON.stringify(out).slice(0, 900));

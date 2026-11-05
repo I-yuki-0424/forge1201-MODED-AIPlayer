@@ -4,8 +4,11 @@
 // command repeated, plus `place` for the water rule. Nothing here touches the game directly: `exec(name, args)` runs a
 // command of the action layer, `w` is its world model (kindAt/nameAt), so the whole job is testable without a server.
 const { Ledger } = require('./crew');
+const janitor = require('./janitor');
 
 const CHUNK = 16;
+const TILE = 5;                      // a standing place covers a tile of this many cells per side: the farthest cell is 2.83 blocks away, well inside the 4.2 reach
+const SWEEP_R = 3.9;                 // horizontal reach of a standing place: with the eyes 1.1 above the cell, 3.9 is 4.05 in 3D (reach 4.5, aim margin 0.3)
 const MAX_CELLS = 4_000_000;         // a job this large is a mistake in the arguments, not a request
 const PASSABLE = new Set(['air', 'climb']);
 const UNBREAKABLE = /^(bedrock|barrier|end_portal_frame|end_portal|nether_portal|command_block|structure_block|jigsaw)$/;
@@ -16,14 +19,23 @@ const SEAL_ITEMS = ['cobblestone', 'cobbled_deepslate', 'dirt', 'netherrack', 's
  * Box {x0, z0, x1, z1, top, bottom} (inclusive columns; `top` = y of the first block layer to dig, `bottom` = y of the last).
  * Returns the chunk-aligned regions and the haul road. Layer l is y = top - l.
  */
-function planPit(box, { chunk = CHUNK, lanes = 0 } = {}) {
+function planPit(box, { chunk = CHUNK, lanes = 0, method = 'rows', tile = TILE, road: withRoad = true } = {}) {
     const { x0, z0, x1, z1, top, bottom } = box;
     for (const k of ['x0', 'z0', 'x1', 'z1', 'top', 'bottom']) if (!Number.isInteger(box[k])) throw new Error(`box.${k} must be an integer`);
     if (x1 < x0 || z1 < z0 || top < bottom) throw new Error('box is empty (x1<x0, z1<z0 or top<bottom)');
     const layers = top - bottom + 1;
     if ((x1 - x0 + 1) * (z1 - z0 + 1) * layers > MAX_CELLS) throw new Error('box too large for one job');
-    const road = planRoad(box, layers);
-    const mk = (id, r) => ({ id, anchor: { x: (r.x0 + r.x1) / 2, z: (r.z0 + r.z1) / 2 }, layers, rows: r.z1 - r.z0 + 1, meta: { ...r, top, bottom } });
+    const road = withRoad ? planRoad(box, layers) : { keep: new Map(), cells: [] };       // no road: bots leave by pillar (exit.js) and enter from the surface with the digging
+    if (!['rows', 'sweep'].includes(method)) throw new Error('method is rows or sweep');
+    if (!Number.isInteger(tile) || tile < 1 || tile > 7) throw new Error('tile 1..7');
+    // rows: a unit is one row of a layer, dug cell by cell while walking along it. sweep: a unit is one standing place of a layer
+    // ("station"): the bot goes to the middle of a tile, digs everything within reach in one go and only then moves on.
+    const mk = (id, r) => {
+        const base = { ...r, top, bottom };
+        if (method !== 'sweep') return { id, anchor: { x: (r.x0 + r.x1) / 2, z: (r.z0 + r.z1) / 2 }, layers, rows: r.z1 - r.z0 + 1, meta: base };
+        const stations = stationsOf(r, tile);
+        return { id, anchor: { x: (r.x0 + r.x1) / 2, z: (r.z0 + r.z1) / 2 }, layers, rows: stations.length, meta: { ...base, method, tile, stations } };
+    };
     const regions = [];
     for (let cx = Math.floor(x0 / chunk); cx <= Math.floor(x1 / chunk); cx++) {
         for (let cz = Math.floor(z0 / chunk); cz <= Math.floor(z1 / chunk); cz++) {
@@ -32,8 +44,8 @@ function planPit(box, { chunk = CHUNK, lanes = 0 } = {}) {
     }
     // Fewer chunks than bots: cut the box into lanes instead, one X-Z range per bot that it digs down to the bottom, so that bots do
     // not work on the same layer side by side (owner 2026-11-06). With enough chunks the chunks are the lanes.
-    if (lanes > regions.length) { const l = laneBoxes(box, lanes); if (l.length > regions.length) return { box, layers, regions: l.map((r, i) => mk(`l${i}`, r)), road, lanes: l.length }; }
-    return { box, layers, regions, road, lanes: regions.length };
+    if (lanes > regions.length) { const l = laneBoxes(box, lanes); if (l.length > regions.length) return { box, layers, regions: l.map((r, i) => mk(`l${i}`, r)), road, lanes: l.length, method }; }
+    return { box, layers, regions, road, lanes: regions.length, method };
 }
 
 /** Cut a box into about `n` rectangles of near-square shape (a grid cx x cz with cx*cz <= n, as close to n as the box allows, none thinner than MIN_LANE). */
@@ -79,10 +91,31 @@ function planRoad(box, layers) {
     return { keep, cells };
 }
 
-/** The cells of one unit (layer, row) in walking order (rows alternate direction), without the road's kept blocks. */
+/**
+ * The standing places of a region, middle first (the pioneers' method: start in the middle of the assigned range and dig everything
+ * in reach, then move out in a fan; helpers start at the far end of this list). The range is cut into tiles of at most `tile` cells
+ * per side; a place is the middle cell of its tile.
+ */
+function stationsOf(r, tile = TILE) {
+    const cut = (lo, hi) => { const n = Math.ceil((hi - lo + 1) / tile), len = hi - lo + 1; return Array.from({ length: n }, (_, i) => [lo + Math.floor(len * i / n), lo + Math.floor(len * (i + 1) / n) - 1]); };
+    const cx = (r.x0 + r.x1) / 2, cz = (r.z0 + r.z1) / 2, out = [];
+    for (const [xa, xb] of cut(r.x0, r.x1)) for (const [za, zb] of cut(r.z0, r.z1)) out.push({ x: (xa + xb) >> 1, z: (za + zb) >> 1, x0: xa, x1: xb, z0: za, z1: zb });
+    return out.sort((a, b) => Math.hypot(a.x - cx, a.z - cz) - Math.hypot(b.x - cx, b.z - cz) || a.x - b.x || a.z - b.z);
+}
+
+/** The cells of one unit (layer, row) in walking order (rows alternate direction), without the road's kept blocks. A sweep unit: the station's tile, the station cell first, then nearest first; `.station` is the cell to stand in. */
 function unitCells(plan, region, u) {
-    const { rows, meta } = region, layer = (u / rows) | 0, row = u % rows, y = meta.top - layer, z = meta.z0 + row;
-    const out = [];
+    const { rows, meta } = region, layer = (u / rows) | 0, row = u % rows, y = meta.top - layer;
+    if (meta.method === 'sweep') {
+        const st = meta.stations[row], kept = (x, z) => { const k = plan.road.keep.get(`${x},${z}`); return k !== undefined && y <= k; };
+        const cells = [];
+        for (let x = st.x0; x <= st.x1; x++) for (let z = st.z0; z <= st.z1; z++) if (!kept(x, z)) cells.push({ x, y, z, d: Math.hypot(x - st.x, z - st.z) });
+        cells.sort((a, b) => a.d - b.d || a.x - b.x || a.z - b.z);
+        const out = cells.map(({ x, y: yy, z }) => ({ x, y: yy, z }));
+        out.station = out[0] ? { ...out[0] } : null;                      // a kept road cell as the middle: the nearest dug cell is the place to stand
+        return out;
+    }
+    const z = meta.z0 + row, out = [];
     for (let x = meta.x0; x <= meta.x1; x++) {
         const keepTo = plan.road.keep.get(`${x},${z}`);
         if (keepTo !== undefined && y <= keepTo) continue;
@@ -117,7 +150,12 @@ function sealPlan(w, cells) {
         for (const [dx, dz] of NEIGH4) if (isFluid(w, c.x + dx, c.y, c.z + dz)) want.set(`${c.x + dx},${c.y},${c.z + dz}`, { x: c.x + dx, y: c.y, z: c.z + dz });
     }
     for (const c of cells) if (isFluid(w, c.x, c.y, c.z)) { want.delete(`${c.x},${c.y},${c.z}`); want.set(`${c.x},${c.y},${c.z}`, { x: c.x, y: c.y, z: c.z }); }
-    const todo = [...want.values()], order = [], filled = new Set();
+    return orderFill(w, [...want.values()]);
+}
+
+/** Order fluid cells so that each is filled against something solid: below first, starting from the solid side; the rest cannot be started (an open lake). */
+function orderFill(w, cells) {
+    const todo = cells.slice(), order = [], filled = new Set();
     const solidNow = (x, y, z) => filled.has(`${x},${y},${z}`) || isSolid(w, x, y, z);
     for (let progress = true; todo.length && progress;) {
         progress = false;
@@ -137,7 +175,9 @@ function sealPlan(w, cells) {
  * Idempotent: cells that are already open are skipped, so a unit abandoned half way (death, takeover) is simply run again.
  */
 async function runUnit(plan, region, u, env) {
-    const cells = unitCells(plan, region, u.unit), r = { mined: 0, sealed: 0, skipped: 0 };
+    const cells = unitCells(plan, region, u.unit), r = { mined: 0, sealed: 0, skipped: 0 }, sweep = region.meta.method === 'sweep';
+    // A sweep leaves the drops where they fall and picks everything up once at the end (a walk per block would cost more than the digging).
+    const mineArgs = (c) => (sweep ? { x: c.x, y: c.y, z: c.z, collect: false } : c);
     const fail = (res, cell, stage) => ({ ok: false, reason: res.reason, detail: { ...(res.detail || {}), cell, stage, ...r } });
     const open = (c) => PASSABLE.has(env.w.kindAt(c.x, c.y, c.z));
     // Fill what sealPlan lists. `before`: only fluid that can be seen now (a pocket sealed inside stone cannot be clicked, and it
@@ -166,10 +206,10 @@ async function runUnit(plan, region, u, env) {
         if (open(c)) { r.skipped++; return null; }
         // Success is what the world shows: a `mine` that ended in the drop pickup (target_lost: the item was picked up by another
         // bot or despawned) has still opened the cell. Transient reasons (another bot in the crosshair, a slipped aim) get retries.
-        let m = await env.exec('mine', c);
+        let m = await env.exec('mine', mineArgs(c));
         // A few seconds between attempts (something in the way moves on, the server catches up), and a small fix before each one:
         // jump, sidestep, go back to where the bot last worked (env.recover; the worker's ladder).
-        for (let tries = 0; !m.ok && !open(c) && tries < 4 && RETRY.has(m.reason); tries++) { if (env.recover) await env.recover(tries + 2, m); await (env.pause ? env.pause(40 + 40 * tries) : null); m = await env.exec('mine', c); }
+        for (let tries = 0; !m.ok && !open(c) && tries < 4 && RETRY.has(m.reason); tries++) { if (env.recover) await env.recover(tries + 2, m); await (env.pause ? env.pause(40 + 40 * tries) : null); m = await env.exec('mine', mineArgs(c)); }
         if (!m.ok && !open(c)) return fail(m, c, 'mine');
         r.mined++;
         // Water that was behind the block is now flowing in. Fill its source, then the cell; if the cell was plugged, dig it again.
@@ -178,7 +218,7 @@ async function runUnit(plan, region, u, env) {
             if (!s.ok) return s.reason === 'missing_item' && !last ? 'defer' : fail(s, c, 'seal_after');
             if (!s.n && open(c)) break;
             if (!open(c) && env.w.kindAt(c.x, c.y, c.z) === 'solid') {          // a plug; water still running in is filled by the next round
-                const m2 = await env.exec('mine', c);
+                const m2 = await env.exec('mine', mineArgs(c));
                 if (!m2.ok && !open(c)) return fail(m2, c, 'unplug');
             }
         }
@@ -186,21 +226,72 @@ async function runUnit(plan, region, u, env) {
         return null;
     };
     const deferred = [];
+    if (sweep && cells.station && env.here) {
+        const g = await goToStation(cells.station, handle, env, open, r);
+        if (g) return g;
+    }
     for (const c of cells) {
         if (UNBREAKABLE.test(env.w.nameAt(c.x, c.y, c.z) || '')) { r.skipped++; continue; }         // bedrock at the bottom of the world
         const res = await handle(c, false);
         if (res === 'defer') { deferred.push(c); r.deferred = (r.deferred || 0) + 1; continue; }
         if (res) return res;
+        // The middle cell is open: step down into it, so that the whole tile is within an arm's length (a failed step only costs reach).
+        if (sweep && env.here && cells.station && c.x === cells.station.x && c.z === cells.station.z && open(c)) {
+            const h = env.here(); if (h.x !== c.x || h.y !== c.y || h.z !== c.z) { await env.exec('move_to', c); r.stepped = (r.stepped || 0) + 1; }
+        }
     }
     for (const c of deferred) { const res = await handle(c, true); if (res) return res; }
+    if (sweep && env.items && r.mined) r.picked = await sweepDrops(env, cells.station || cells[0]);
     return { ok: true, reason: null, detail: r };
 }
 
-/** A pit as a crew job: { ledger, plan, runUnit(regionId, unit, env) }. */
-function createPitJob(box, ledgerOpts = {}, { lanes = 0 } = {}) {
-    const plan = planPit(box, { lanes }), ledger = new Ledger(ledgerOpts), byId = new Map();
-    for (const r of plan.regions) { ledger.addRegion(r); byId.set(r.id, r); }
-    return { kind: 'pit', ledger, plan, runUnit: (regionId, unit, env) => runUnit(plan, byId.get(regionId), unit, env) };
+/** The cells from `from` toward `to` on one layer, along x first, then z (the way a person would dig a corridor), `to` last. */
+function lineCells(from, to, y) {
+    const out = []; let x = from.x, z = from.z;
+    while (x !== to.x) { x += Math.sign(to.x - x); out.push({ x, y, z }); }
+    while (z !== to.z) { z += Math.sign(to.z - z); out.push({ x, y, z }); }
+    return out;
 }
 
-module.exports = { planPit, laneBoxes, planRoad, unitCells, sealPlan, exposed, runUnit, createPitJob, SEAL_ITEMS, CHUNK };
+/**
+ * Stand in the middle of the tile. The station cell is open when the layer above was dug and this one is entered from above; when
+ * the bot comes from another station the cells in between may still be solid: dig the first closed cell on the way and try again.
+ * Returns null when the bot stands there (or cannot be brought closer: the sweep then works from where it is), or a failure.
+ */
+async function goToStation(S, handle, env, open, r) {
+    for (let t = 0; t < 10; t++) {
+        const here = env.here();
+        if (here.x === S.x && here.y === S.y && here.z === S.z) return null;
+        if (open(S)) {
+            const m = await env.exec('move_to', S);
+            if (m.ok) return null;
+        }
+        const next = lineCells(here, S, S.y).find((c) => !open(c) && !UNBREAKABLE.test(env.w.nameAt(c.x, c.y, c.z) || ''));
+        if (!next) return null;
+        const res = await handle(next, true);
+        if (res && res !== 'defer') return res;
+        r.corridor = (r.corridor || 0) + 1;
+    }
+    return null;
+}
+
+/**
+ * Pick up what the sweep dropped: item entities near the station, nearest first. Cheap stone and dirt are left once the bot carries what
+ * the pit needs of them (the janitor's keep.max: stone for sealing water and for stacking up), everything else is taken.
+ */
+async function sweepDrops(env, S) {
+    const keep = janitor.pitPolicy().keep, enough = (n) => janitor.valueOf(n) <= 5 && env.have(n) >= (keep[n] ? keep[n].max : 16);
+    const list = env.items({ x: S.x + 0.5, y: S.y, z: S.z + 0.5 }, 7).slice(0, 40);
+    let n = 0;
+    for (const it of list) { if (enough(it.name)) continue; const p = await env.exec('pickup', { entity: it.id }); if (p.ok) n++; else if (p.reason === 'died' || p.reason === 'disconnected' || p.reason === 'cancelled') break; }
+    return n;
+}
+
+/** A pit as a crew job: { ledger, plan, runUnit(regionId, unit, env) }. */
+function createPitJob(box, ledgerOpts = {}, { lanes = 0, method = 'rows', tile = TILE, road = true } = {}) {
+    const plan = planPit(box, { lanes, method, tile, road }), ledger = new Ledger(ledgerOpts), byId = new Map();
+    for (const r of plan.regions) { ledger.addRegion(r); byId.set(r.id, r); }
+    return { kind: 'pit', ledger, plan, runUnit: (regionId, unit, env) => runUnit(plan, byId.get(regionId), unit, env), rescue: (env, why) => require('./water').rescue(env, plan.box, { why }) };
+}
+
+module.exports = { planPit, laneBoxes, planRoad, stationsOf, lineCells, unitCells, sealPlan, orderFill, isFluid, exposed, runUnit, createPitJob, SEAL_ITEMS, CHUNK, TILE, SWEEP_R };
