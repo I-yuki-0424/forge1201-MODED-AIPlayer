@@ -51,10 +51,10 @@ class Overlay {
      * @param o.config    () -> {on, paths, lanes, tags}
      * @param o.humans    async () -> [{name, x, y, z}]: the players who should see it (not bots), overworld only
      * @param o.pending   () -> number of commands waiting in the RCON queue
-     * @param o.budget    particles per frame (default 70)
+     * @param o.budget    particles per frame (default 160; measured live: 41 particles in 19 ms)
      */
     constructor(o) {
-        this.o = { ...o, budget: o.budget > 0 ? o.budget : 70, frameMs: o.frameMs > 0 ? o.frameMs : FRAME_MS };
+        this.o = { ...o, budget: o.budget > 0 ? o.budget : 160, frameMs: o.frameMs > 0 ? o.frameMs : FRAME_MS };
         this.timer = null; this.busy = false; this.viewers = []; this.viewersAt = -Infinity; this.tagged = new Set(); this.frames = 0; this.sent = 0;
     }
     start() { if (!this.timer) { this.timer = setInterval(() => this.frame().catch(() => {}), this.o.frameMs); this.timer.unref?.(); } }
