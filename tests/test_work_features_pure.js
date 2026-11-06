@@ -164,7 +164,7 @@ function fakeServer() {
         } finally { skills.execute = orig; void skillsPath; }
         const d = svc.botDetail('Bot1'); assert.ok(d.history.length >= 3);
         assert.deepStrictEqual(svc.nearbyEntities('Bot1').map((e) => [e.id, e.type]), [[7, 'zombie']]);
-        assert.deepStrictEqual(svc.containersNear('Bot1'), [{ x: 10, y: 64, z: 20, block: 'chest' }]);
+        assert.deepStrictEqual(svc.containersNear('Bot1'), [{ x: 10, y: 64, z: 20, block: 'chest', site: null }]);
     });
 
     await test('gather: validated, runs as one command with progress, the survey route answers', async () => {
