@@ -319,6 +319,28 @@ attempt, no retry loop), `#kiosk` (remembered until `#kiosk=0`) switches to larg
 Authentication is unchanged: the same `/api/login`, throttle, session cookie and CSRF; a link with the token is a password and belongs only in the PC's own config.
 Not verified: the page inside Chromium-in-Minecraft (no client here), keyboard focus and the game's key capture.
 
+## v8 (2026-11-06 night, `TASK:20261106-042`): owner feedback on v7 (faint particles, web view, tools chest and depot, chat spam, tag item)
+
+**Owner's observed state (read from the running console before anything was restarted):** a pit job (16x16x123, 4 then 8 bots) crawled: 18 of 1,968 units in 12 minutes. Work1
+carried nine worn iron pickaxes (15 uses left each) in a nearly full inventory; the tools chest handed out whatever pickaxe came first (`withdraw` by name takes the first
+stack, worn or not); a bot holding only worn pickaxes was "waiting for a pickaxe" and every 13 s "had what it waited for" (the watcher's `_canBreak` ignored wear, the worker
+did not), then failed `missing_tool` again. Work3/Work4 also failed `unreachable` on one dirt cell, glowing.
+
+| Item | What changed |
+| :-- | :-- |
+| 1 particles too faint | dust size 3 (was 1), three particles per point with a small spread, lane lines every 1.5 blocks, destination and tag-column tops are `end_rod` marks, redrawn every second, budget 300 per frame (about 150 ms of RCON at the measured 2 ms per command). Not seen in a real client by me: if still too weak the knobs are `DUST_SIZE` in `display/shapes.js` and `budget`/`FRAME_MS` in `display/overlay.js` |
+| chat spam | the server tells every operator what a console command did (`[Rcon: Displaying particle ...]`). The overlay's first frame sets `gamerule sendCommandFeedback false` and `logAdminCommands false` (once; `quiet: false` leaves them alone). Side effect: the feedback of everybody's commands ("Gave 1 ...") is hidden too, errors still show; undo with `/gamerule sendCommandFeedback true` |
+| 2 web view | new mod `aux_console/` (id `aipconsole`): **F12** opens the console in a full-screen web view (MCEF/Chromium, structure of MCEF's own example screen), Esc or F12 closes; the `url`/`token`/`kiosk` come from `config/aipconsole-client.toml`. WebDisplays/minePad dropped (its jar is moved to `mods-disabled` on the PC, never was on the play server) |
+| 3 tools chest, depot, usable tools | (a) tools chest: tag `tools` on the Tags page, or the Pits form's "the depot chest is also the tools chest"; (b) `take_tool` now calls the work move `take_usable` (`bot/moves.js`): opens the chest, takes ONE tool of the class that is not worn out (8 uses or 6 % left, independent of the switch), best tier first then most uses left, by shift-clicking that slot; a chest with only worn ones gives nothing and the log says "no usable pickaxe in the tools chest (N worn out)"; (c) worn-out tools are used up: setting "Use up tools and throw them away" (default on): the janitor throws each worn stack away through the server with `clear <bot> <item>{Damage:N} 1`, so a good tool of the same name stays; (d) the watcher no longer counts a worn pickaxe as "has what it waited for"; (e) the depot's rank: Pits form "Depot takes" (store everything / 10+ no stone, dirt, gravel, sand / 40+ ores, coal, wood / 60+ valuable only): items worth less are thrown away instead of stored (never one valued 60 or more, never when the operator tagged a chest for exactly that kind, e.g. a junk chest) |
+| 4 pit check | see "Pit observed" below |
+| 5 tag item | `aipconsole:tag_tool` (`/give @s aipconsole:tag_tool`): right-click = what and where; **shift + right-click** opens the web view on the Tags page with the block's coordinates filled in (`#goto=tags&x&y&z`; an already tagged block opens for editing). It changes nothing in the world and runs before the block's own use. A native form was not built: the page already has the form, authentication and validation, and a second one would have to talk to the console from the game server (a credential in the game container) |
+
+Tests: `tests/test_work_tools_pure.js` (11 tests: worn rule, `pickUsable`, the script, janitor, `makeClear` with damage, depot rank incl. the 60 cap and the junk-chest exception, `_canBreak`,
+depot rank in the job policy, the quiet rules). Live on the demo server (real Forge, play mod set + `aipconsole`): `scripts/work/tools_live.js` 10/10: replace-tool took the good iron
+pickaxe (230 uses left) over a stone one and two worn ones, a chest with only worn pickaxes gave nothing, three worn stacks of four were discarded by wear and the good one stayed, no item
+entity, rules off, the Tag Tool item exists. The mod compiled against the real MCEF jar (build in `aux_console/README.md`) and loads on a Forge 1.20.1 dedicated server; NOT tested:
+the web view and the key in a real client (none here), the tag item's screen flow.
+
 ## Security basis (the console can reach RCON and control bots, so it is an administrative interface)
 
 - Not an extension of the old unauthenticated WebUI (docs/LESSONS.md L3), which stays on loopback and unchanged.
