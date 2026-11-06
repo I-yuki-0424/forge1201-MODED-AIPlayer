@@ -25,7 +25,7 @@ const MAX_STEPS = 200, MAX_DEPTH = 6;
 const WORK_MOVES = new Set(['pillar', 'take_usable']);
 const TIERS = ['netherite', 'diamond', 'iron', 'stone', 'golden', 'wooden'];
 const CLASSES = new Set(['pickaxe', 'axe', 'shovel', 'sword', 'hoe']);
-const STEP_KEYS = new Set(['cmd', 'args', 'at', 'table', 'furnace', 'optional', 'gather', 'make_planks', 'if', 'then', 'else', 'take', 'take_tool', 'put_away', 'station', 'release_station', 'leave_pit', 'return', 'log']);
+const STEP_KEYS = new Set(['go_back', 'cmd', 'args', 'at', 'table', 'furnace', 'optional', 'gather', 'make_planks', 'if', 'then', 'else', 'take', 'take_tool', 'put_away', 'station', 'release_station', 'leave_pit', 'return', 'log']);
 const COND_KEYS = new Set(['has', 'tool', 'can_craft', 'site', 'free_slots', 'planks', 'logs', 'all', 'any', 'not']);
 const REACH_DY = 12;                          // a tagged chest more than this many levels above or below the bot is not walked to (the planner would search for a minute and fail)
 const ITEM = /^([a-z0-9_.-]{1,32}:)?[a-z0-9_/]{1,64}$/;
@@ -74,7 +74,7 @@ function validate(script) {
             } else if (s.make_planks !== undefined) { if (!Number.isInteger(s.make_planks) || s.make_planks < 1 || s.make_planks > 16) bad('make_planks: 1..16 (planks to make from the logs in the pack)'); }
             else if (s.station !== undefined) { if (!['crafting_table', 'furnace'].includes(s.station)) bad('station: crafting_table or furnace'); }
             else if (s.return !== undefined) { if (!['ok', 'fail'].includes(s.return)) bad('return: ok or fail'); }
-            else if (!(s.put_away || s.release_station || s.leave_pit || typeof s.log === 'string')) bad('a step does something: cmd, if, take, take_tool, gather, make_planks, put_away, station, release_station, leave_pit, return or log');
+            else if (!(s.put_away || s.release_station || s.leave_pit || s.go_back || typeof s.log === 'string')) bad('a step does something: cmd, if, take, take_tool, gather, make_planks, put_away, station, release_station, leave_pit, go_back, return or log');
         }
     };
     steps(script.steps, 1);
@@ -176,7 +176,13 @@ async function runScript(script, env, { cancel = { cancelled: false }, maxSteps 
             } else if (s.release_station) {
                 if (st.table) { res = await env.exec('mine', { ...st.table }); st.table = null; }
             } else if (s.leave_pit) {
+                if (!st.origin && env.here) st.origin = { ...env.here() };                    // where the bot stood: `go_back` returns there
                 res = env.box && env.leavePit ? await env.leavePit(env.box) : { ok: false, reason: 'invalid_target', detail: { why: 'not in a pit job' } };
+                note(`leave pit: ${res.ok ? res.how : res.reason}${res.levels ? ` (${res.levels} levels)` : ''}`);
+            } else if (s.go_back) {
+                // Back to where the pit work was left (a road-less pit cannot be walked into again): the server moves the bot there, nothing in the world changes.
+                res = st.origin && env.back ? await env.back(st.origin) : { ok: true };
+                note(`back to ${st.origin ? [st.origin.x, st.origin.y, st.origin.z].join(' ') : 'nowhere'}: ${res.ok ? 'ok' : res.reason}`);
             }
             if (!res.ok && !s.optional) { if (res.reason === 'died' || res.reason === 'disconnected' || res.reason === 'cancelled') return res.reason; return { fail: res }; }
         }
@@ -215,6 +221,13 @@ const REPLACE_TOOL = {
         // 1. the tools chest (only a usable tool; a chest far above or below is skipped)
         { take_tool: { class: 'pickaxe', from: 'tools' }, optional: true },
         { if: { tool: 'pickaxe' }, then: [{ return: 'ok' }] },
+        // 1b. the chest is far above (the pit is deep): climb out (pillar), take, and be put back where the work was left
+        { if: { site: 'tools' }, then: [
+            { leave_pit: true, optional: true },
+            { take_tool: { class: 'pickaxe', from: 'tools', until: 2 }, optional: true },
+            { go_back: true, optional: true },
+        ] },
+        { if: { tool: 'pickaxe' }, then: [{ return: 'ok' }] },
         // 2. made from what the bot carries or can fetch: sticks (planks <- logs <- a tree nearby), then iron (ingots, or raw iron smelted in a furnace) or stone
         { if: { not: { has: { item: 'stick', min: 2 } } }, then: [{ take: { item: 'stick', count: 4, from: 'storage' }, optional: true }] },
         { if: { not: { has: { item: 'stick', min: 2 } } }, then: [
@@ -248,7 +261,27 @@ const REPLACE_TOOL = {
     ],
 };
 /** At the start of a job (and whenever the bot passes the chest): hold three usable pickaxes, so that a worn one is replaced on the spot. */
-const STOCK_TOOLS = { name: 'stock-tools', steps: [{ take_tool: { class: 'pickaxe', from: 'tools', until: 3 }, optional: true }, { return: 'ok' }] };
+const STOCK_TOOLS = {
+    name: 'stock-tools',
+    steps: [
+        { take_tool: { class: 'pickaxe', from: 'tools', until: 3 }, optional: true },
+        // Sticks for pickaxes made in the pit (iron or stone, replace-tool): from the storage chest, else planks from a tree nearby. Eight sticks make four pickaxes.
+        { if: { not: { has: { item: 'stick', min: 6 } } }, then: [
+            { take: { item: 'stick', count: 8, from: 'storage' }, optional: true },
+            { if: { not: { has: { item: 'stick', min: 6 } } }, then: [
+                { if: { not: { planks: 4 } }, then: [
+                    { if: { not: { logs: 2 } }, then: [{ gather: { target: 'oak_log', count: 3, radius: 24 }, optional: true }] },
+                    { if: { not: { logs: 2 } }, then: [{ gather: { target: 'jungle_log', count: 3, radius: 24 }, optional: true }] },
+                    { if: { not: { logs: 2 } }, then: [{ gather: { target: 'spruce_log', count: 3, radius: 24 }, optional: true }] },
+                    { if: { not: { logs: 2 } }, then: [{ gather: { target: 'birch_log', count: 3, radius: 24 }, optional: true }] },
+                    { make_planks: 8, optional: true },
+                ] },
+                { cmd: 'craft', args: { item: 'stick', count: 8 }, optional: true },
+            ] },
+        ] },
+        { return: 'ok' },
+    ],
+};
 /** A full inventory: put everything away by the sites (ore, junk, storage), then carry on. */
 const MAKE_ROOM = { name: 'make-room', steps: [{ put_away: true }, { return: 'ok' }] };
 const BUILT_IN = new Map([[REPLACE_TOOL.name, validate(REPLACE_TOOL)], [MAKE_ROOM.name, validate(MAKE_ROOM)], [STOCK_TOOLS.name, validate(STOCK_TOOLS)]]);

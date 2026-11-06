@@ -53,6 +53,13 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         configure: (o) => { if (o && typeof o.defend === 'boolean') defendOn = o.defend; return require('../../skills/options').configure(bot, o); },
         run: (name, args) => require('./moves').runMove(bot, name, args, { cancel }),
         climb: (t) => require('./moves').climbTo(envObj, t),
+        // Back to a place the bot left (script step go_back): the server moves it (a road-less pit cannot be entered on foot); without RCON it walks.
+        back: async (o) => {
+            if (!rcon || !Number.isInteger(o.x) || !Number.isInteger(o.y) || !Number.isInteger(o.z)) return execute(bot, 'move_to', o, { cancel });
+            try { await rcon(`tp ${bot.username} ${o.x + 0.5} ${o.y} ${o.z + 0.5}`); } catch (e) { return { ok: false, reason: 'refused', detail: { message: String(e.message).slice(0, 80) } }; }
+            for (let i = 0; i < 30; i++) { await sleep(100); const p = bot.entity.position; if (Math.abs(p.x - o.x - 0.5) < 2 && Math.abs(p.y - o.y) < 2 && Math.abs(p.z - o.z - 0.5) < 2) return { ok: true }; }
+            return { ok: false, reason: 'not_confirmed' };
+        },
         usableCount: (cls) => bot.inventory.items().filter((i) => i.name.endsWith(`_${cls}`) && !require('../../skills/options').isWorn(bot, i)).length,
         gather: (a) => require('../jobs/gather').gather(bot, a, { cancel, execute: (b, n, x, o) => execute(b, n, x, o) }),
         usableTool: (cls) => bot.inventory.items().find((i) => i.name.endsWith(`_${cls}`) && !require('../../skills/options').isWorn(bot, i)) || null,

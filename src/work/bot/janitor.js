@@ -60,7 +60,8 @@ function plan(items, slotsFree, policy = pitPolicy(), worn = []) {
     }
     const stacks = new Map();
     for (const it of items) stacks.set(it.name, (stacks.get(it.name) || 0) + it.count);
-    const protectedItem = (n) => TOOL.test(n) || FOOD.test(n) || CONTAINER.test(n);
+    // Tools, food, containers and the materials a tool is made from in the pit (replace-tool: sticks, planks, logs) are never made room of; ores and fuel are stored only when room is needed.
+    const protectedItem = (n) => TOOL.test(n) || FOOD.test(n) || CONTAINER.test(n) || /^stick$|_planks$|_log$/.test(n);
     const out = (op, item, count, why) => { if (count > 0) { ops.push({ op, item, count, why }); } };
     const dispose = (item, count, why) => {
         const v = valueOf(item, policy);
