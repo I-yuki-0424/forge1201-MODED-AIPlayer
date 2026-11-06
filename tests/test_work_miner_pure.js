@@ -260,6 +260,10 @@ function bot(w, start) {
         assert.strictEqual(b.e.pillars.length, 1); assert.strictEqual(b.e.pillars[0].levels, 7, 'from y 4 to the rim at y 11'); assert.strictEqual(b.w.nameAt(rb.last || 0, 0, 0) !== 'x', true);
         assert.ok(['stone', 'air', 'cobblestone'].includes(b.w.nameAt(0, 10, 6)) || true);
         const none = await leavePit({ ...b.e, here: () => ({ x: 6, y: 11, z: 6 }) }, box); assert.strictEqual(none.how, 'already');
+        // Cannot reach the edge (a floating pillar, a shaft): the server puts the bot on the ground outside the pit.
+        const lf = mkEnv(false); lf.e.exec = async (n) => (n === 'move_to' ? { ok: false, reason: 'unreachable' } : { ok: false, reason: 'unreachable' }); let to = null;
+        lf.e.lift = async (S) => { to = S; lf.e.st.here = { x: S.x, y: S.y, z: S.z }; return { ok: true }; };
+        const rl = await leavePit(lf.e, box); assert.ok(rl.ok && rl.how === 'lifted', JSON.stringify(rl)); assert.ok(to && (to.x < box.x0 || to.x > box.x1 || to.z < box.z0 || to.z > box.z1), 'outside the box');
         // The box starts far above the ground (top y 40, ground at y 10: the live pit of 2026-11-07): the way out is up to the REAL ground, not the box top.
         const hi = mkEnv(false); const rh = await leavePit(hi.e, { ...box, top: 40 }); assert.ok(rh.ok, JSON.stringify(rh)); assert.strictEqual(rh.how, 'pillar'); assert.strictEqual(hi.e.pillars[0].levels, 7, 'up to the ground outside (y 11), not to y 41');
         const onGround = await leavePit({ ...hi.e, here: () => ({ x: 6, y: 11, z: 6 }) }, { ...box, top: 40 }); assert.strictEqual(onGround.how, 'already', 'standing at the height of the ground outside is out');

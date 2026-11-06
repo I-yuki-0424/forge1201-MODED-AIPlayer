@@ -69,7 +69,11 @@ async function leavePit(env, box, { corridorMax = 40 } = {}) {
         await env.exec('move_to', { x: next.x, y: next.y, z: next.z });
     }
     const here = env.here();
-    if (here.x !== at.x || here.z !== at.z) return { ok: false, reason: 'unreachable', detail: { why: 'could not reach the edge of the pit at this depth', at, here, dug } };
+    if (here.x !== at.x || here.z !== at.z) {
+        // Cannot get to the edge (the bot stands on its own pillar block, or in a shaft): the server puts it on the ground just outside the pit (env.lift).
+        if (env.lift) { const l = await env.lift({ x: g.x, y: g.y, z: g.z }, { radius: 3, down: 2, up: 3 }); if (l.ok) return { ok: true, how: 'lifted', dug }; }
+        return { ok: false, reason: 'unreachable', detail: { why: 'could not reach the edge of the pit at this depth', at, here, dug } };
+    }
     const levels = g.y - here.y;                                    // up to the ground outside, not to the top of the box
     if (levels < 1) return { ok: true, how: 'already' };
     const p = await env.run('pillar', { levels });
