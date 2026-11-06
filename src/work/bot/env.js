@@ -65,9 +65,10 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         // Back to a place the bot left (script step go_back): the server moves it (a road-less pit cannot be entered on foot); without RCON it walks.
         back: async (o) => {
             if (!rcon || !Number.isInteger(o.x) || !Number.isInteger(o.y) || !Number.isInteger(o.z)) return execute(bot, 'move_to', o, { cancel });
-            try { await rcon(`tp ${bot.username} ${o.x + 0.5} ${o.y} ${o.z + 0.5}`); } catch (e) { return { ok: false, reason: 'refused', detail: { message: String(e.message).slice(0, 80) } }; }
-            for (let i = 0; i < 30; i++) { await sleep(100); const p = bot.entity.position; if (Math.abs(p.x - o.x - 0.5) < 2 && Math.abs(p.y - o.y) < 2 && Math.abs(p.z - o.z - 0.5) < 2) return { ok: true }; }
-            return { ok: false, reason: 'not_confirmed' };
+            // Not to the exact cell it left: its floor may be gone by now (dug away, flooded) and a bot put there falls to its death (it did, twice). The nearest standable
+            // cell around it, the cell itself first (distance 0).
+            const l = await envObj.lift(o, { radius: 3, down: 3, up: 2 });
+            return l.ok ? { ok: true, to: l.to } : l;
         },
         // A tool counts only if it is not worn out AND, when a script is asked to fix a missing tool for a block (`this.need`, set by the worker and the service), it can
         // harvest that block: a stone pickaxe is no replacement for the one that was missing for gold ore (live 2026-11-07: replace-tool answered ok and the bot waited on).
