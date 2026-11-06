@@ -294,6 +294,19 @@ function fakeBot(name) {
         assert.ok(!JSON.stringify(s2.jobDetail(sw.id).regions).includes('"stations":['), 'the job detail does not carry the station list');
         await s2.stop();
     });
+    await test('a bot found outside the overworld is sent back to the depot of a job, once per 15 s; the overworld is left alone', async () => {
+        const sent = [];
+        const s = new WorkService({ dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'work-')), factory, envFactory, reconnectMs: 20, rcon: { command: async (c) => { sent.push(c); return 'ok'; } } });
+        s.addBot('Lost'); await until(() => s.status().bots[0].state === 'online');
+        const bot = s.bots.get('Lost').bot;
+        s.jobs.set('jx', { id: 'jx', state: 'running', spec: { depot: { kind: 'chest', x: 217, y: 64, z: 417 }, box: { x0: 0, x1: 1, z0: 0, z1: 1, top: 1, bottom: 0 } }, bots: new Set() });
+        bot.game = { dimension: 'overworld' }; s._watchDimension(); await sleep(10);
+        assert.deepStrictEqual(sent.filter((c) => /run tp/.test(c)), [], 'nothing for a bot in the overworld');
+        bot.game = { dimension: 'the_nether' }; s._watchDimension(); await sleep(10);
+        assert.deepStrictEqual(sent.filter((c) => /run tp/.test(c)), ['execute in minecraft:overworld run tp Lost 217.5 66 417.5']);
+        s._watchDimension(); await sleep(10); assert.strictEqual(sent.filter((c) => /run tp/.test(c)).length, 1, 'one try per 15 s');
+        s.jobs.delete('jx'); await s.stop();
+    });
     console.log('ALL OK');
     process.exit(0);
 })().catch((e) => { console.error(e); process.exit(1); });

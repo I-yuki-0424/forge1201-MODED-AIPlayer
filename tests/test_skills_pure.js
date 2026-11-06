@@ -91,6 +91,7 @@ const goalCell = (t) => ({ isGoal: (c) => c.x === t.x && c.y === t.y && c.z === 
         assert.strictEqual(kindOf({ name: 'vine', boundingBox: 'empty', shapes: [] }), 'climb');
         assert.strictEqual(kindOf({ name: 'lava', boundingBox: 'empty', shapes: [] }), 'danger');
         assert.strictEqual(kindOf({ name: 'magma_block', boundingBox: 'block', shapes: CUBE }), 'danger');
+        for (const n of ['nether_portal', 'end_portal', 'end_gateway']) assert.strictEqual(kindOf({ name: n, boundingBox: 'empty', shapes: [] }), 'danger', `${n} is never walked through`);
         assert.strictEqual(kindOf(null), 'unknown');
     });
 

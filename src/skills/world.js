@@ -3,7 +3,9 @@
 // `fromBot(bot)` adapts a Mineflayer bot; tests build the same interface from a plain map (tests/test_skills_pure.js).
 
 const DANGER = new Set(['lava', 'fire', 'soul_fire', 'magma_block', 'cactus', 'sweet_berry_bush', 'wither_rose', 'powder_snow',
-    'cobweb', 'campfire', 'soul_campfire', 'pointed_dripstone']);
+    'cobweb', 'campfire', 'soul_campfire', 'pointed_dripstone',
+    // Portals are never walked through: the planner took a respawned bot into a nether portal (live pit 2026-11-07).
+    'nether_portal', 'end_portal', 'end_gateway']);
 const LIQUID = new Set(['water', 'lava', 'bubble_column']);
 // Water a player swims in (plants that only exist under water count as water); bubble columns push, so they stay 'liquid'.
 const WATER = new Set(['water', 'seagrass', 'tall_seagrass', 'kelp', 'kelp_plant']);

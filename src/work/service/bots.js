@@ -43,6 +43,26 @@ class BotsPart {
             this._retry(rec); this._dirty();
         });
     }
+    /**
+     * A bot that is not in the overworld (a portal block on its way, a respawn anchor ...) is sent back by the server: the work layer knows one place that is safe on the
+     * surface, the depot of an active job. Live pit 2026-11-07: a bot that had respawned at the world spawn walked into a nether portal and crafted in the Nether.
+     * Called every few seconds; one try per bot per 15 s.
+     */
+    _watchDimension() {
+        if (!this.o.rcon) return;
+        const now = Date.now();
+        for (const rec of this.bots.values()) {
+            const dim = rec.bot && rec.state === 'online' && rec.bot.game ? String(rec.bot.game.dimension || '').replace('minecraft:', '') : '';
+            if (!dim || dim === 'overworld' || now - (rec.dimTry || 0) < 15000) continue;
+            rec.dimTry = now;
+            let depot = null;
+            for (const j of this.jobs.values()) { const d = j.spec && j.spec.depot; if (d && Number.isInteger(d.x) && Number.isInteger(d.y) && Number.isInteger(d.z)) { depot = d; if (['running', 'paused'].includes(j.state)) break; } }
+            if (!depot) { this.note('warn', `${rec.name} is in ${dim} and no job depot is known to send it back`); continue; }
+            this.rcon(`execute in minecraft:overworld run tp ${rec.name} ${depot.x}.5 ${depot.y + 2} ${depot.z}.5`)
+                .then(() => this.note('warn', `${rec.name} was in ${dim}: sent back to the overworld (depot ${depot.x} ${depot.y} ${depot.z})`))
+                .catch((e) => this.note('warn', `${rec.name} is in ${dim}: could not send it back (${String(e.message).slice(0, 80)})`));
+        }
+    }
     _retry(rec) {
         if (rec.removed) return;
         rec.state = 'offline';

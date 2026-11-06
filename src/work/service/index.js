@@ -55,7 +55,7 @@ class WorkService extends EventEmitter {
         this._saveTimer = null;
         this._rcon = null; this._rconTail = Promise.resolve();
         this.maps = new MapStore(this.o.worldDir || null);
-        this._watch = setInterval(() => this._watchWaiting(), 2000); this._watch.unref?.();
+        this._watch = setInterval(() => { this._watchWaiting(); this._watchDimension(); }, 2000); this._watch.unref?.();
         this.cmdSeq = 0;
         this.started = Date.now();
         this._startDisplay();
