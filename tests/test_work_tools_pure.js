@@ -223,6 +223,16 @@ const tool = (name, max, used) => ({ name, maxDurability: max, durabilityUsed: u
         assert.ok(Math.abs(st.table.x) <= 2 && Math.abs(st.table.z) <= 2 && !(Math.abs(st.table.x) + Math.abs(st.table.z) === 1), 'not one of the walls');
     });
 
+    await test('placeStation: a furnace is crafted at a crafting table that is placed first (a 3x3 recipe), and the table is placed from the pack', async () => {
+        const w = { nameAt: () => 'air', kindAt: (x, y, z) => (y === 0 ? 'solid' : 'air') };
+        const calls = []; const inv = { crafting_table: 1, furnace: 0, cobblestone: 20 };
+        const env = { w, have: (n) => inv[n] || 0, canCraft: (n) => n === 'furnace' && inv.cobblestone >= 8, here: () => ({ x: 0, y: 1, z: 0 }),
+            exec: async (n, a) => { calls.push([n, a.item, a.x !== undefined]); if (n === 'craft' && a.item === 'furnace') { if (a.x === undefined) return { ok: false, reason: 'no_station' }; inv.furnace = 1; } if (n === 'place') inv[a.item]--; return { ok: true }; } };
+        const st = {}; const r = await script.placeStation(env, st, 'furnace');
+        assert.ok(r.ok, JSON.stringify(calls)); assert.deepStrictEqual(calls.map((c) => c.slice(0, 2).join(' ')), ['place crafting_table', 'craft furnace', 'place furnace']);
+        assert.strictEqual(calls[1][2], true, 'crafted AT the table (coordinates given)'); assert.ok(st.table && st.furnace);
+    });
+
     // ---- service
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wtools-'));
     const factory = (name) => { const b = new EventEmitter(); Object.assign(b, { username: name, entity: { position: { x: 0, y: 70, z: 0 } }, registry: { blocksByName: { stone: { harvestTools: { 7: true } } }, items: { 7: { name: 'iron_pickaxe' } }, itemsByName: { iron_pickaxe: { id: 7 } } }, inventory: { items: () => b.items, slots: [], emptySlotCount: () => 30 }, quit() {} }); b.items = []; setTimeout(() => b.emit('spawn'), 5); return b; };

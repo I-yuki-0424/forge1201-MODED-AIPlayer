@@ -207,7 +207,13 @@ async function runScript(script, env, { cancel = { cancelled: false }, maxSteps 
 async function placeStation(env, st, kind = 'crafting_table') {
     if (count(env, kind) < 1) {
         if (!(env.canCraft && env.canCraft(kind))) return { ok: false, reason: 'missing_materials', detail: { why: kind === 'furnace' ? 'no furnace and no 8 cobblestone to make one' : 'no crafting table and no planks to make one' } };
-        const c = await env.exec('craft', { item: kind, count: 1 });
+        // A furnace is a 3x3 recipe: made at a crafting table (placed first when the bot has none out); a table is made in the 2x2 grid.
+        let at = {};
+        if (kind === 'furnace') {
+            if (!st.table) { const t = await placeStation(env, st, 'crafting_table'); if (!t.ok) return t; }
+            at = st.table;
+        }
+        const c = await env.exec('craft', { item: kind, count: 1, ...at });
         if (!c.ok) return c;
     }
     // The cell beside the bot first, then any free cell within two blocks (the bot may stand among walls and chests); a few tries.
@@ -238,16 +244,16 @@ const REPLACE_TOOL = {
                 { take: { item: 'iron_ingot', count: 3, from: 'ore' }, optional: true },
                 { if: { not: { has: { item: 'iron_ingot', min: 3 } } }, then: [{ take: { item: 'iron_ingot', count: 3, from: 'storage' }, optional: true }] },
             ] },
-            { if: { not: { has: { item: 'stick', min: 4 } } }, then: [
+            { if: { any: [{ not: { has: { item: 'stick', min: 4 } } }, { all: [{ not: { has: { item: 'crafting_table', min: 1 } } }, { not: { planks: 4 } }] }] }, then: [
                 { take: { item: 'stick', count: 8, from: 'storage' }, optional: true },
-                { if: { not: { has: { item: 'stick', min: 4 } } }, then: [
+                { if: { any: [{ not: { has: { item: 'stick', min: 4 } } }, { not: { planks: 6 } }] }, then: [
                     { if: { not: { planks: 6 } }, then: [
                         { if: { not: { logs: 3 } }, then: [{ gather: { target: 'oak_log', count: 4, radius: 24 }, optional: true }] },
                         { if: { not: { logs: 3 } }, then: [{ gather: { target: 'jungle_log', count: 4, radius: 24 }, optional: true }] },
                         { if: { not: { logs: 3 } }, then: [{ gather: { target: 'spruce_log', count: 4, radius: 24 }, optional: true }] },
                         { make_planks: 12, optional: true },
                     ] },
-                    { cmd: 'craft', args: { item: 'stick', count: 8 }, optional: true },
+                    { if: { not: { has: { item: 'stick', min: 4 } } }, then: [{ cmd: 'craft', args: { item: 'stick', count: 8 }, optional: true }] },
                 ] },
             ] },
             { go_back: true, optional: true },
