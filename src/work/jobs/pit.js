@@ -216,6 +216,7 @@ async function runUnit(plan, region, u, env) {
     // One cell. Returns null when it is open afterwards, or the failure. A cell whose water rule needs a block the bot does not have yet
     // (a bot with an empty inventory next to a shore) is not a failure of the unit: it is left for after the row, when digging has
     // brought dirt or cobblestone.
+    const liftedFor = new Set();
     const handle = async (c, last) => {
         if (isSolid(env.w, c.x, c.y, c.z) && aerialTree(env.w, c)) { r.skipped++; r.aerial = (r.aerial || 0) + 1; return null; }       // out of reach by design, see aerialTree
         let s = await seal(c, true);
@@ -228,6 +229,13 @@ async function runUnit(plan, region, u, env) {
         // jump, sidestep, go back to where the bot last worked (env.recover; the worker's ladder).
         // Retrying a cell nobody can reach changes nothing: one more look for 'unreachable', then the unit fails and is tried again later (repair passes).
         for (let tries = 0; !m.ok && !open(c) && tries < (m.reason === 'unreachable' ? 1 : 6) && RETRY.has(m.reason); tries++) { if (env.recover) await env.recover(Math.min(tries + 2, 4), m); await (env.pause ? env.pause(10 + 10 * tries) : null); m = await env.exec('mine', mineArgs(c)); }
+        // Nothing to walk on from where the bot stands (a one-block pillar over a void: the search expands a single node) and the block is out of reach: the server puts
+        // the bot on a standable cell next to the block (env.lift), once per cell. Live pit 2026-11-07: two bots stood on leftover pillars and failed 'unreachable' for good.
+        if (!m.ok && !open(c) && m.reason === 'unreachable' && env.lift && !liftedFor.has(`${c.x},${c.y},${c.z}`)) {
+            liftedFor.add(`${c.x},${c.y},${c.z}`);
+            const l = await env.lift(c);
+            if (l.ok) { r.lifted = (r.lifted || 0) + 1; m = await env.exec('mine', mineArgs(c)); }
+        }
         if (!m.ok && !open(c)) return fail(m, c, 'mine');
         r.mined++;
         // Water that was behind the block is now flowing in. Fill its source, then the cell; if the cell was plugged, dig it again.

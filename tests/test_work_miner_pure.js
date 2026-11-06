@@ -120,6 +120,14 @@ function bot(w, start) {
         const j2 = pit.createPitJob({ x0: 0, z0: 0, x1: 9, z1: 4, top: 0, bottom: 0 }, {}, { method: 'sweep' });
         const bad1 = await j2.runUnit(j2.plan.regions[0].id, { unit: far, layer: 0, row: far }, bad);
         assert.strictEqual(bad1.ok, false); assert.strictEqual(bad1.reason, 'unreachable');
+        // with a lift: the first 'unreachable' puts the bot on a standable cell by the block (once per cell), and the mine is tried again
+        const lifts = []; const stuck = bot(world(0), { x: 0, y: 1, z: 0 }); const o3 = stuck.exec; let freed = false;
+        stuck.exec = async (n, a) => (n === 'mine' && !freed ? { ok: false, reason: 'unreachable', detail: { why: 'no path' } } : o3(n, a));
+        stuck.lift = async (c) => { lifts.push(`${c.x},${c.y},${c.z}`); freed = true; return { ok: true }; };
+        const j3 = pit.createPitJob({ x0: 0, z0: 0, x1: 9, z1: 4, top: 0, bottom: 0 }, {}, { method: 'sweep' });
+        const r3 = await j3.runUnit(j3.plan.regions[0].id, { unit: far, layer: 0, row: far }, stuck);
+        assert.ok(lifts.length >= 1, 'lifted next to the block'); assert.strictEqual(new Set(lifts).size, lifts.length, 'once per cell');
+        assert.ok(r3.ok || r3.reason !== 'unreachable', JSON.stringify(r3));
     });
 
     await test('sweep: workers of a lane job finish it together; a bot with nothing left helps the slow lane at the same height and returns home', async () => {
