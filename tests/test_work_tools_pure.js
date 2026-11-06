@@ -37,6 +37,15 @@ const tool = (name, max, used) => ({ name, maxDurability: max, durabilityUsed: u
         assert.strictEqual(pickUsable([], 'pickaxe').pick, null);
     });
 
+    await test('make_planks makes as many planks as the logs in the pack give (one log: 4), not the whole amount asked for (a bot with one log never got its table)', async () => {
+        for (const [logs, want] of [[1, 4], [2, 8], [3, 12], [6, 12]]) {
+            const crafts = [];
+            const env = { inv: () => ({ items: [{ name: 'jungle_log', count: logs }], slotsFree: 20 }), have: (n) => (n === 'jungle_log' ? logs : 0), exec: async (name, a) => { crafts.push([name, a]); return { ok: true }; } };
+            await script.runScript(script.validate({ name: 'p', steps: [{ make_planks: 12 }, { return: 'ok' }] }), env);
+            assert.deepStrictEqual(crafts, [['craft', { item: 'jungle_planks', count: want }]], `${logs} logs`);
+        }
+    });
+
     await test('take_tool in a script uses take_usable and says when the chest holds only worn ones; nothing worn is ever taken', async () => {
         const sites = new Sites([{ name: 'tools-chest', x: 5, y: 64, z: 5, tags: ['tools'] }]);
         const sc = script.validate({ name: 't', steps: [{ take_tool: { class: 'pickaxe', from: 'tools' } }, { return: 'ok' }] });
