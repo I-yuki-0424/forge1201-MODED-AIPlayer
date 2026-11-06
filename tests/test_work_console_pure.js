@@ -109,6 +109,24 @@ function test(name, fn) { console.log(`--- test: ${name} ---`); return Promise.r
         assert.strictEqual((await call2('DELETE', `/api/jobs/${ok.json.id}`, A)).status, 200);
     });
 
+    await test('v5 routes: sites, scripts and Leave pit need the session; bad input is a 400 with the reason, unknown names a 404', async () => {
+        for (const [m, u] of [['GET', '/api/sites'], ['POST', '/api/sites'], ['GET', '/api/scripts'], ['POST', '/api/scripts'], ['POST', '/api/bots/Crew1/leave'], ['POST', '/api/scripts/x/run']]) assert.strictEqual((await call2(m, u, {})).status, 401, `${m} ${u} without a session`);
+        assert.strictEqual((await call2('POST', '/api/sites', { body: { name: 'a', x: 1, y: 2, z: 3, tags: ['wood'] }, ...A })).status, 400);
+        const ok = await call2('POST', '/api/sites', { body: { name: 'ore1', x: 1, y: 64, z: 3, tags: ['ore', 'storage'] }, ...A }); assert.strictEqual(ok.status, 200);
+        const list = await call2('GET', '/api/sites', A); assert.deepStrictEqual(list.json.sites.map((x) => x.name), ['ore1']); assert.ok(list.json.tags.tools);
+        assert.strictEqual((await call2('DELETE', '/api/sites/ore1', A)).status, 200); assert.strictEqual((await call2('DELETE', '/api/sites/ore1', A)).status, 404);
+        assert.strictEqual((await call2('DELETE', '/api/sites/..%2Fx', A)).status, 404, 'a name outside the pattern never reaches the service');
+        const bad = await call2('POST', '/api/scripts', { body: { name: 's', steps: [{ cmd: 'rm' }] }, ...A }); assert.strictEqual(bad.status, 400); assert.match(bad.json.error, /unknown command/);
+        assert.strictEqual((await call2('POST', '/api/scripts', { body: { name: 'hello', steps: [{ return: 'ok' }] }, ...A })).status, 200);
+        const sc = await call2('GET', '/api/scripts', A); assert.ok(sc.json.some((x) => x.name === 'hello') && sc.json.some((x) => x.name === 'replace-tool' && x.builtIn));
+        assert.strictEqual((await call2('DELETE', '/api/scripts/replace-tool', A)).status, 404, 'built-in scripts stay');
+        assert.strictEqual((await call2('DELETE', '/api/scripts/hello', A)).status, 200);
+        assert.strictEqual((await call2('POST', '/api/scripts/hello/run', { body: { bot: 'Nobody' }, ...A })).status, 404);
+        assert.strictEqual((await call2('POST', '/api/bots/Nobody/leave', { body: {}, ...A })).status, 404);
+        const set = await call2('POST', '/api/settings', { body: { retireWorn: false, scripts: false }, ...A }); assert.deepStrictEqual([set.json.retireWorn, set.json.scripts], [false, false]);
+        assert.strictEqual((await call2('POST', '/api/settings', { body: { retireWorn: 'no' }, ...A })).json.retireWorn, false, 'a non-boolean changes nothing');
+    });
+
     await test('structures over HTTP: upload raw .nbt, inspect, edit to a new name, download a valid file, delete', async () => {
         const part = bp.fill(bp.empty(4, 2, 1), { x0: 0, y0: 0, z0: 0, x1: 3, y1: 1, z1: 0 }, 'spruce_planks');
         const up = await call2('POST', '/api/structures/wall1', { raw: bp.write(part), ...A }); assert.strictEqual(up.status, 200); assert.strictEqual(up.json.blocks, 8);

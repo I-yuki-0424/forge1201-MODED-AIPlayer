@@ -192,10 +192,37 @@ pick-up trips, which grow with larger stations and sparser drops; the next lever
 the order of the cells. Not measured: more than 4 bots, deeper pits, ore-rich ground. A first attempt to run the rows baseline beside the
 sweep run failed because both runs used the same bot names (the second login kicks the first): runs must not overlap.
 
-What is deliberately **not** done: the console page has no panels for sites and scripts yet (API only); a late or respawned bot cannot walk
+What is deliberately **not** done: a late or respawned bot cannot walk
 into a road-less pit (sweep jobs default to `road: false`; pass `road: true` to keep the haul road for that); the pillar does not recover the
 blocks it breaks; the water rescue is not tested against a real fall (the live runs had water at the ring and buried inside, which the seal
 rule handled as before); fights are out of scope (peaceful server only).
+
+### v5 in the page and the API (2026-11-06, second step)
+
+| Where | What |
+| :-- | :-- |
+| **Automation** page (new, `public/work/tools.js`) | *Settings*: Retire worn tools, Recovery scripts, Auto-kit (checkboxes, applied at once, also to bots that are working). *Sites*: table of tagged chests; form with name, x y z, tags; the position can come from a chest near a bot or from the operator's position. *Scripts*: list (built in marked), JSON editor with a template, **Validate and save** (the server validates; invalid JSON never leaves the page), **Run once** on an idle bot, a collapsible grammar reference. |
+| **Pits** page | *Method* (sweep default / rows) and *keep a haul road* (off = bots leave by pillar). Sent as `method` and `road` to `POST /api/jobs/pit`. |
+| **Bots** page | Summary lists the bot's tools with uses left (`iron pickaxe 212/250`, a bar, worn ones in red), the running script, and **Leave pit** for a bot inside its pit's box (also a bulk button for the selection). The bot must be idle: pause the job first (409 otherwise). |
+| **Jobs** page | The job row says `pit sweep` / `pit rows` and `no road`. The job detail no longer carries the station list. |
+| **Inventory** page | A durability bar on every damageable stack (green = new, red = nearly broken; tooltip `n of max uses left`). The server adds `max`, `damage`, `left` to each slot (from the bots' registry, `damage` from the item NBT through RCON or from the bot's own copy). |
+| API | `POST /api/bots/<name>/leave`; `GET/POST /api/sites`, `DELETE /api/sites/<name>`; `GET/POST /api/scripts`, `DELETE /api/scripts/<name>`, `POST /api/scripts/<name>/run {bot}`; `POST /api/settings {retireWorn, scripts, autoKit}`. All behind the session and CSRF like every `/api/*` route (unauthenticated: 401, tested). The bot status carries `tools`, `script`, `inPit`. |
+
+Checks: `tests/test_work_service_pure.js` (settings reach connected bots, tools/durability, sites and scripts persist, Leave pit and its 409s, inventory
+durability, sweep jobs keep no road), `tests/test_work_console_pure.js` (the new routes: 401 without a session, 400 with the reason, 404), and
+`scripts/work/ui_check.js` (the page under jsdom with a stubbed API: nav entry, settings post, site save, script validate/save, pit form fields,
+tool list and Leave pit, job row, durability bar: 18 checks; canvas drawing is not checked; run line in the file header).
+
+### Inv View (mod, 2026-11-06)
+
+The owner added `inv_view-4.2.1-forge+1.20.1.jar` (RazorPlay01, MIT, Forge 1.20.1, no blocks or items; "open and manipulate the inventories and ender
+chests of online and offline players") to the play world: copied from the PC with `scp` to `/mnt/data/forgeaip-play/mods/` (sha256
+`f16e7ca0ec7aa2b64c35bb5e3b8b0ec3596b6add5b4b2618868661df442daee2`; `mods.toml` read before installing: requires only Forge and Minecraft 1.20.1,
+no mixin target outside the game, one access transformer). `check-mods.py` ok, `registry.sh` unchanged (5,238 mod blocks, 0 problems), server
+restarted; the log shows `Initializing inv_view on FORGE` and the command `inv_view` registered; the four bots logged in again by themselves.
+**The same jar must be in the client's mods folder** (README rule: content mods are the same on both sides; this mod declares no server-only
+display test). Use in game as an operator: `/inv_view ...` (the console of the server answers "incomplete command"; the exact arguments were
+not read from the jar and are **unverified**: use tab completion). The console's own inventory page keeps working and now shows durability.
 
 ## Security basis (the console can reach RCON and control bots, so it is an administrative interface)
 

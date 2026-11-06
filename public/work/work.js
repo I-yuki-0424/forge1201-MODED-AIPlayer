@@ -22,7 +22,7 @@ $('#loginForm').addEventListener('submit', async (e) => {
 });
 $('#logout').addEventListener('click', async () => { try { await api('POST', '/api/logout', {}); } catch (_) { /* gone */ } session.csrf = null; showLogin(); });
 
-const NAV = [['overview', 'Overview', 'grid'], ['map', 'Map', 'map'], ['bots', 'Bots', 'bot'], ['pits', 'Pits', 'layers'], ['structures', 'Structures', 'box'], ['jobs', 'Jobs', 'list'], ['inventory', 'Inventory', 'pack'], ['log', 'Log', 'log']];
+const NAV = [['overview', 'Overview', 'grid'], ['map', 'Map', 'map'], ['bots', 'Bots', 'bot'], ['pits', 'Pits', 'layers'], ['structures', 'Structures', 'box'], ['jobs', 'Jobs', 'list'], ['inventory', 'Inventory', 'pack'], ['auto', 'Automation', 'target'], ['log', 'Log', 'log']];
 function show(name) {
     currentPage = name; history.replaceState(null, '', `#${name}`);
     for (const [k, p] of Object.entries(pages)) p.el.classList.toggle('hidden', k !== name);
@@ -77,7 +77,7 @@ function makeMap(canvasHost, o) {                       // canvas that follows t
 }
 function jobRow(j, { compact = false } = {}) {
     const p = j.progress, pct = p.total ? Math.round(100 * p.done / p.total) : 0;
-    return h('div', { class: 'jobrow' }, h('div', { class: 'row tight' }, stateDot(j.state), h('strong', { text: `${j.id} ${j.name}` }), h('span', { class: 'muted small', text: `${j.kind} · ${j.bots.length} bots${j.lanes ? ` · ${j.lanes} lanes` : ''}` }), h('span', { class: 'grow' }), h('span', { class: 'mono small', text: `${pct}%` })),
+    return h('div', { class: 'jobrow' }, h('div', { class: 'row tight' }, stateDot(j.state), h('strong', { text: `${j.id} ${j.name}` }), h('span', { class: 'muted small', text: `${j.kind}${j.spec && j.spec.method ? ' ' + j.spec.method : ''} · ${j.bots.length} bots${j.lanes ? ` · ${j.lanes} lanes` : ''}${j.spec && j.spec.method && j.spec.road === false ? ' · no road' : ''}` }), h('span', { class: 'grow' }), h('span', { class: 'mono small', text: `${pct}%` })),
         bar(pct, p.stuck ? 'stuck' : ''), compact ? null : h('div', { class: 'muted small', text: `${fmt(p.done)} / ${fmt(p.total)} rows${p.stuck ? ` · ${p.stuck} stuck` : ''}` }), j.blocked ? h('div', { class: 'warn small', text: j.blocked }) : null);
 }
 
@@ -86,7 +86,7 @@ function buildPages() {
     $('#nav').replaceChildren(...NAV.map(([k, t, ic]) => h('button', { 'data-page': k, onclick: () => show(k) }, icon(ic, 18), h('span', { text: t }))));
     const host = $('#page');
     const add = (name, p) => { pages[name] = p; p.el.classList.add('page', 'hidden'); host.append(p.el); };
-    add('overview', overviewPage()); add('map', mapPage()); add('bots', botsPage()); add('pits', pitsPage()); add('structures', structuresPage()); add('jobs', jobsPage()); add('inventory', inventoryPage()); add('log', logPage());
+    add('overview', overviewPage()); add('map', mapPage()); add('bots', botsPage()); add('pits', pitsPage()); add('structures', structuresPage()); add('jobs', jobsPage()); add('inventory', inventoryPage()); add('auto', automationPage()); add('log', logPage());
 }
 
 // ---- Overview
@@ -191,8 +191,8 @@ function botsPage() {
     }
     function summary(b) {
         const kv = (k, v) => [h('dt', { text: k }), h('dd', {}, v)];
-        return h('div', {}, h('dl', { class: 'kv' }, ...kv('State', [stateDot(b.state), ' ', b.state]), ...kv('Activity', botActivity(b)), ...kv('Job', b.job || '-'), ...kv('Position', posText(b.pos)), ...kv('Health / food', `${b.health ?? '-'} / ${b.food ?? '-'}`), ...kv('Pickaxes', String(b.pickaxes)), ...kv('Free slots', String(b.free ?? '-')), ...kv('Retired', b.retired || '-'), ...kv('Last error', b.error || '-')),
-            h('div', { class: 'row' }, b.retired ? h('button', { class: 'btn', onclick: act(() => api('POST', `/api/bots/${b.name}/resume`, {}), 'resumed') }, 'Resume') : null, h('button', { class: 'btn danger', onclick: act(() => { if (!confirm(`Remove ${b.name}?`)) throw new Error('cancelled'); focus = null; selection.delete(b.name); return api('DELETE', `/api/bots/${b.name}`); }, 'removed') }, 'Remove bot')));
+        return h('div', {}, h('dl', { class: 'kv' }, ...kv('State', [stateDot(b.state), ' ', b.state]), ...kv('Activity', botActivity(b)), ...kv('Job', b.job || '-'), ...kv('Position', posText(b.pos)), ...kv('Health / food', `${b.health ?? '-'} / ${b.food ?? '-'}`), ...kv('Tools', toolList(b)), ...kv('Script', b.script || '-'), ...kv('Free slots', String(b.free ?? '-')), ...kv('Retired', b.retired || '-'), ...kv('Last error', b.error || '-')),
+            h('div', { class: 'row' }, b.retired ? h('button', { class: 'btn', onclick: act(() => api('POST', `/api/bots/${b.name}/resume`, {}), 'resumed') }, 'Resume') : null, b.inPit ? h('button', { class: 'btn', title: 'bring the bot out of its pit: walk if a road allows, else dig to the edge, stack blocks up, step out (pause the job first)', onclick: act(() => api('POST', `/api/bots/${b.name}/leave`, {}), (r) => r.ok ? `${b.name} is out (${r.how})` : `${b.name}: ${r.reason}`) }, 'Leave pit') : null, h('button', { class: 'btn danger', onclick: act(() => { if (!confirm(`Remove ${b.name}?`)) throw new Error('cancelled'); focus = null; selection.delete(b.name); return api('DELETE', `/api/bots/${b.name}`); }, 'removed') }, 'Remove bot')));
     }
     function historyView(b) {
         const box = h('div'); api('GET', `/api/bots/${b.name}`).then((d) => box.replaceChildren(h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['When', 'Command', 'Result', 'Time'].map((x) => h('th', { text: x })))), h('tbody', {}, (d.history.length ? d.history : []).map((x) => h('tr', {}, h('td', { text: ago(x.at) + ' ago' }), h('td', { class: 'mono small', text: `${x.name} ${JSON.stringify(x.args)}` }), h('td', { text: `${x.status}${x.reason ? ' (' + x.reason + ')' : ''}` }), h('td', { text: `${(x.ms / 1000).toFixed(1)} s` })))), d.history.length ? null : h('p', { class: 'muted', text: 'No commands sent yet.' })))).catch((e) => box.append(h('p', { class: 'err-line', text: e.message })));
@@ -203,7 +203,7 @@ function botsPage() {
         tableBox.replaceChildren(botTable(S.bots, { selection, filter: (b) => (!filterText || b.name.toLowerCase().includes(filterText)) && (!stateFilter || b.state === stateFilter), onRow: (n) => { if (n) { focus = n; if (tab === 'commands') tab = 'summary'; } renderTabs(); render(); } }));
         const sel = [...selection].filter((n) => S.bots.some((b) => b.name === n));
         bulk.replaceChildren(h('span', { class: 'muted small', text: sel.length ? `${sel.length} selected` : 'Select bots to act on several at once' }),
-            sel.length ? [bulkBtn('Stop commands', act(() => api('POST', '/api/commands', { bots: sel, command: 'stop', args: {} }), 'stop sent')), bulkBtn('Resume', act(async () => { for (const n of sel) await api('POST', `/api/bots/${n}/resume`, {}); }, 'resumed')),
+            sel.length ? [bulkBtn('Leave pit', act(async () => { for (const n of sel) { const b = S.bots.find((x) => x.name === n); if (b && b.inPit) await api('POST', `/api/bots/${n}/leave`, {}); } }, 'bots left the pit'), 'small'), bulkBtn('Stop commands', act(() => api('POST', '/api/commands', { bots: sel, command: 'stop', args: {} }), 'stop sent')), bulkBtn('Resume', act(async () => { for (const n of sel) await api('POST', `/api/bots/${n}/resume`, {}); }, 'resumed')),
                 bulkBtn('Remove', act(async () => { if (!confirm(`Remove ${sel.length} bots?`)) throw new Error('cancelled'); for (const n of sel) await api('DELETE', `/api/bots/${n}`); selection.clear(); }, 'removed'), 'danger')] : null);
     }
     const el = h('div', { class: 'grid-12' },
@@ -224,12 +224,20 @@ function botsPage() {
     };
 }
 
+/** Tools of a bot with their durability: `iron pickaxe 212/250`, worn ones (passed over by the retireWorn rule) in red. */
+function toolList(b) {
+    if (!b.tools || !b.tools.length) return h('span', { class: 'muted', text: 'none' });
+    return h('span', { class: 'toollist' }, b.tools.map((t) => h('span', { class: `tool${t.worn ? ' worn' : ''}`, title: t.worn ? 'worn: not used while "Retire worn tools" is on' : '' }, `${t.name.replace(/_/g, ' ')} `, h('span', { class: 'mono', text: `${t.left}/${t.max}` }), durBar(t.left, t.max))));
+}
+function durBar(left, max) { const f = clamp(left / max, 0, 1); return h('span', { class: 'dur' }, h('span', { class: 'dur-fill', style: `width:${Math.round(f * 100)}%;background:hsl(${Math.round(f * 120)} 70% 45%)` })); }
+
 // ---- Pits (map range selection like a spreadsheet + coordinates)
 function pitsPage() {
     const f = Object.fromEntries(['x0', 'x1', 'z0', 'z1', 'top', 'depth', 'bottom'].map((k) => [k, h('input', { type: 'number', class: 'num', 'aria-label': k })]));
     f.depth.value = 3;
     const lanesIn = h('input', { type: 'number', class: 'num', min: 1, max: 32, placeholder: 'auto', title: 'one X-Z range per bot, dug down to the bottom; auto = one per bot' }), info = h('div', { class: 'info-box' }), chips = h('span', { class: 'chips' }), host = h('div', { class: 'map-host tall-map' }), name = h('input', { placeholder: 'optional', maxlength: 60 });
     const depotKind = h('select', { class: 'sel' }, [['', 'none (surplus is dropped)'], ['chest', 'chest at x y z'], ['shulker', 'shulker box (placed by the bot)']].map(([v, t]) => h('option', { value: v, text: t }))), dx = h('input', { type: 'number', class: 'num', placeholder: 'x' }), dy = h('input', { type: 'number', class: 'num', placeholder: 'y' }), dz = h('input', { type: 'number', class: 'num', placeholder: 'z' });
+    const methodSel = h('select', { class: 'sel', title: 'sweep: stand in the middle of a tile and dig everything in reach, then move on (default). rows: the first method, cell by cell' }, [['sweep', 'sweep (stand, dig all in reach, move on)'], ['rows', 'rows (cell by cell)']].map(([v, t]) => h('option', { value: v, text: t }))), roadBox = h('input', { type: 'checkbox', title: 'keep a one-wide staircase along the edge so that a late or respawned bot can walk down (a sweep job leaves by pillar and needs none)' });
     const picked = new Set(); let mv = null;
     const snap = h('input', { type: 'checkbox', checked: true, onchange: () => { if (mv) mv.snapMode = snap.checked; } });
     const box = () => { const v = ['x0', 'x1', 'z0', 'z1', 'top', 'depth'].map((k) => num(f[k].value)); if (v.some(Number.isNaN)) return null; const [x0, x1, z0, z1, top, depth] = v; return { x0: Math.min(x0, x1), x1: Math.max(x0, x1), z0: Math.min(z0, z1), z1: Math.max(z0, z1), top, bottom: top - Math.max(1, depth) + 1 }; };
@@ -257,14 +265,14 @@ function pitsPage() {
         f.top.value = Math.max(...ys); sync(false);
     }, 'top = the highest ground found (corners and centre)');
     const depot = () => { const k = depotKind.value; return !k ? undefined : k === 'chest' ? { kind: 'chest', x: num(dx.value), y: num(dy.value), z: num(dz.value) } : { kind: 'shulker' }; };
-    const create = (start) => act(async () => { const b = box(); if (!b) throw new Error('select an area and give top and depth'); return api('POST', '/api/jobs/pit', { name: name.value.trim() || undefined, box: b, depot: depot(), bots: [...picked], lanes: Number.isInteger(num(lanesIn.value)) ? num(lanesIn.value) : undefined, start }); }, (r) => `job ${r.id} created${start ? ' and started' : ''}`);
+    const create = (start) => act(async () => { const b = box(); if (!b) throw new Error('select an area and give top and depth'); return api('POST', '/api/jobs/pit', { name: name.value.trim() || undefined, box: b, depot: depot(), bots: [...picked], lanes: Number.isInteger(num(lanesIn.value)) ? num(lanesIn.value) : undefined, method: methodSel.value, road: roadBox.checked, start }); }, (r) => `job ${r.id} created${start ? ' and started' : ''}`);
     const el = h('div', { class: 'grid-12' },
         h('div', { class: 'span-8' }, panel('Select the area', [h('p', { class: 'muted small', text: 'Drag over the map to select chunks (like a spreadsheet range); hold Alt for single blocks; Shift-drag extends; right-drag or Ctrl-drag pans; wheel zooms. The numbers on the right follow the selection and can be edited for any area.' }), host],
             { actions: [h('label', { class: 'check' }, snap, 'snap to chunks'), h('button', { class: 'btn small', onclick: () => mv && mv.fit() }, 'Fit')] })),
         h('div', { class: 'span-4' }, panel('Pit', [
             h('div', { class: 'grid-form' }, field('x from', f.x0), field('x to', f.x1), field('z from', f.z0), field('z to', f.z1), field('top y', f.top), field('depth', f.depth), field('bottom y', f.bottom), field('quick', h('span', { class: 'row tight' }, h('button', { class: 'btn small', title: 'dig down to y -59: the lowest layer that is not bedrock', onclick: toBottom(-59) }, 'to y -59'), h('button', { class: 'btn small', title: 'the bottom of the world; bedrock cells are skipped', onclick: toBottom(-64) }, '-64')))),
             h('div', { class: 'row' }, h('button', { class: 'btn small', onclick: ground }, 'Top = ground'), h('button', { class: 'btn small', title: 'selection around the operator (needs RCON)', onclick: act(async () => { const p = (await api('GET', '/api/players')).find((q) => !q.bot && q.pos); if (!p) throw new Error('no operator position'); const b = { x0: (p.pos.x >> 4) << 4, z0: (p.pos.z >> 4) << 4 }; fromSel({ x0: b.x0, x1: b.x0 + 15, z0: b.z0, z1: b.z0 + 15 }); f.top.value = p.pos.y - 1; sync(false); }, 'the chunk the operator stands in') }, 'Operator chunk')),
-            info, field('Name', name), field('Lanes', lanesIn, 'one X-Z range per bot, each dug down to the bottom'), field('Depot', h('span', { class: 'row tight' }, depotKind, dx, dy, dz)), h('div', { class: 'field' }, h('span', { class: 'field-label', text: 'Bots (none ticked: every idle bot)' }), chips),
+            info, field('Name', name), field('Lanes', lanesIn, 'one X-Z range per bot, each dug down to the bottom'), field('Method', methodSel), h('label', { class: 'check' }, roadBox, ' keep a haul road (bots can walk in; off = bots leave by pillar)'), field('Depot', h('span', { class: 'row tight' }, depotKind, dx, dy, dz)), h('div', { class: 'field' }, h('span', { class: 'field-label', text: 'Bots (none ticked: every idle bot)' }), chips),
             h('div', { class: 'row' }, h('button', { class: 'btn', onclick: create(false) }, 'Create (paused)'), h('button', { class: 'btn primary', onclick: create(true) }, icon('play', 13), ' Create and start'))])));
     return {
         el,

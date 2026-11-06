@@ -193,6 +193,10 @@ class WorkService extends EventEmitter {
             pos: e ? { x: Math.round(e.position.x * 10) / 10, y: Math.round(e.position.y * 10) / 10, z: Math.round(e.position.z * 10) / 10 } : null,
             health: b && rec.state === 'online' ? b.health ?? null : null, food: b && rec.state === 'online' ? b.food ?? null : null,
             pickaxes: count(/_pickaxe$/), free: b && b.inventory && rec.state === 'online' ? b.inventory.emptySlotCount?.() ?? null : null,
+            // tools with their durability, for the table and the summary: worn = the retireWorn rule passes them over
+            tools: items.filter((i) => i.maxDurability && /(_pickaxe|_axe|_shovel|_hoe|_sword)$/.test(i.name)).slice(0, 12).map((i) => ({ name: i.name, left: i.maxDurability - (i.durabilityUsed || 0), max: i.maxDurability, worn: this._worn(b, i) })),
+            script: rec.script ? rec.script.name : null,
+            inPit: this._inPit(rec),
         };
     }
 
@@ -805,10 +809,23 @@ class WorkService extends EventEmitter {
     _run() { return (cmd) => this.rcon(cmd); }
 
     /** The bot's own view of its inventory (works without RCON; no stack NBT). Slots use the game's numbering. */
+    /** Durability for the inventory page: `max` (uses of a new item, from any online bot's registry) next to `damage` (used), and `left`. */
+    _durability(data) {
+        const rec = [...this.bots.values()].find((r) => r.bot && r.bot.registry && r.state === 'online');
+        if (!rec || !data || !Array.isArray(data.slots)) return data;
+        for (const sl of data.slots) {
+            const it = rec.bot.registry.itemsByName[String(sl.id).replace(/^minecraft:/, '')];
+            if (it && it.maxDurability) {
+                const used = Number(sl.damage) || 0;
+                sl.max = it.maxDurability; sl.damage = used; sl.left = it.maxDurability - used;
+            }
+        }
+        return data;
+    }
     _botSlots(rec) {
         const map = (w) => (w >= 36 && w <= 44 ? w - 36 : w >= 9 && w <= 35 ? w : w === 5 ? 103 : w === 6 ? 102 : w === 7 ? 101 : w === 8 ? 100 : w === 45 ? -106 : null);
         const out = [];
-        (rec.bot.inventory.slots || []).forEach((it, w) => { const s = map(w); if (it && s !== null) out.push({ slot: s, id: it.name.includes(':') ? it.name : `minecraft:${it.name}`, count: it.count, label: null, damage: null, enchanted: false, nbt: null }); });
+        (rec.bot.inventory.slots || []).forEach((it, w) => { const s = map(w); if (it && s !== null) out.push({ slot: s, id: it.name.includes(':') ? it.name : `minecraft:${it.name}`, count: it.count, label: null, damage: it.maxDurability ? (it.durabilityUsed || 0) : null, enchanted: false, nbt: null }); });
         return { kind: 'player', size: 36, slots: out };
     }
 
@@ -817,9 +834,9 @@ class WorkService extends EventEmitter {
         if (!this.o.rcon) {
             const rec = t.type === 'entity' ? this.bots.get(t.name) : null;
             need(rec && rec.state === 'online', 'RCON is not configured: only bots can be read (no stack details)', 503);
-            return this._botSlots(rec);
+            return this._durability(this._botSlots(rec));
         }
-        try { return await inventory.read(this._run(), t); } catch (e) { throw e instanceof Problem ? e : new Problem(e.message, /not configured/.test(e.message) ? 503 : 409); }
+        try { return this._durability(await inventory.read(this._run(), t)); } catch (e) { throw e instanceof Problem ? e : new Problem(e.message, /not configured/.test(e.message) ? 503 : 409); }
     }
 
     async moveStack({ src, srcSlot, dst, dstSlot = null }) {
@@ -892,6 +909,29 @@ class WorkService extends EventEmitter {
 
     // ------------------------------------------------------------------------------------------------ views
 
+    _worn(bot, item) { try { return require('../skills/options').isWorn(bot, item); } catch (_) { return false; } }
+    _pitOf(rec) { const j = rec.job && this.jobs.get(rec.job); return j && j.kind === 'pit' ? j : null; }
+    /** Below the rim of its pit job (the bot cannot simply walk out; "Leave pit" brings it up by pillar). */
+    _inPit(rec) {
+        const j = this._pitOf(rec), e = rec.bot && rec.bot.entity;
+        if (!j || !e || rec.state !== 'online') return false;
+        const b = j.spec.box; return e.position.x >= b.x0 - 1 && e.position.x <= b.x1 + 2 && e.position.z >= b.z0 - 1 && e.position.z <= b.z1 + 2 && e.position.y < b.top + 0.9;
+    }
+
+    /** Bring a bot out of its pit by the pillar method (idle bots only: pause the job first). */
+    async leavePit(name) {
+        const rec = this.bots.get(name); need(rec && !rec.removed && rec.state === 'online' && rec.bot, `no online bot ${name}`, 404);
+        const job = this._pitOf(rec); need(job, `${name} has no pit job`, 409);
+        need(!rec.worker && !rec.script, `${name} is working: pause the job first`, 409);
+        const cancel = { cancelled: false }; rec.script = { cancel, name: 'leave-pit' };
+        try {
+            const env = this.envFactory(rec.bot, cancel); if (env && env.configure) env.configure({ retireWorn: !!this.settings.retireWorn });
+            const r = await require('./exit').leavePit(env, job.spec.box);
+            this.note(r.ok ? 'info' : 'warn', `${name} leave pit: ${r.ok ? r.how : r.reason}${r.levels ? ` (${r.levels} levels)` : ''}`, { job: job.id });
+            return r;
+        } finally { rec.script = null; this._dirty(); }
+    }
+
     _jobView(job, full = false) {
         const L = job.impl.ledger, p = L.progress();
         const v = {
@@ -903,7 +943,7 @@ class WorkService extends EventEmitter {
         v.blocked = job.state === 'running' && !v.workers && !L.finished() ? (job.bots.size ? 'no bot is working: ' + [...job.bots].map((n) => { const r = this.bots.get(n); return r ? `${n} ${r.retired || r.state}` : `${n} gone`; }).join(', ') : 'no bots assigned') : null;
         if (full) {
             v.report = L.report(); v.recent = (job.recent || []).slice(-60);
-            v.regions = [...L.regions.values()].map((r) => ({ id: r.id, anchor: r.anchor, n: r.n, done: r.doneN, stuck: r.stuckN, leased: r.leasedN, meta: r.meta }));
+            v.regions = [...L.regions.values()].map((r) => ({ id: r.id, anchor: r.anchor, n: r.n, done: r.doneN, stuck: r.stuckN, leased: r.leasedN, meta: { ...r.meta, stations: undefined, stationCount: r.meta.stations ? r.meta.stations.length : undefined } }));
         }
         return v;
     }

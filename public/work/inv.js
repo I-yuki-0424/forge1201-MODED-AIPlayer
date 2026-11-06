@@ -10,6 +10,10 @@ function slotTile(pane, slot, item, label) {
         const short = item.id.replace(/^[^:]*:/, '').replace(/_/g, ' ');
         tile.style.background = colorOfName(item.id);
         tile.append(h('span', { class: 'slot-name', text: short.length > 11 ? short.slice(0, 10) + '…' : short }), item.count > 1 ? h('span', { class: 'slot-count', text: item.count }) : null, item.enchanted ? h('span', { class: 'slot-ench' }) : null);
+        if (item.max) {                               // tools: how much is left (the bar is green when new, red when nearly broken)
+            const f = Math.max(0, Math.min(1, (item.max - (item.damage || 0)) / item.max));
+            tile.append(h('span', { class: 'dur slot-dur', title: `${item.max - (item.damage || 0)} of ${item.max} uses left` }, h('span', { class: 'dur-fill', style: `width:${Math.round(f * 100)}%;background:hsl(${Math.round(f * 120)} 70% 45%)` })));
+        }
         tile.addEventListener('dragstart', (e) => { e.dataTransfer.setData('text/plain', JSON.stringify({ pane: pane.id, slot })); e.dataTransfer.effectAllowed = 'move'; pane.dragging = true; });
         tile.addEventListener('dragend', () => { pane.dragging = false; });
         tile.addEventListener('dblclick', () => pane.quick(slot));

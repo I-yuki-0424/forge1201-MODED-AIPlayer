@@ -147,10 +147,11 @@ function createConsole({ service, token, allowedHosts = [], publicHost = null, a
             }
             return send(res, 200, { added });
         }
-        if ((a = /^\/api\/bots\/([A-Za-z0-9_]{3,16})(?:\/(kit|resume))?$/.exec(p))) {
+        if ((a = /^\/api\/bots\/([A-Za-z0-9_]{3,16})(?:\/(kit|resume|leave))?$/.exec(p))) {
             if (m === 'DELETE' && !a[2]) { service.removeBot(a[1]); return send(res, 200, { ok: true }); }
             if (m === 'POST' && a[2] === 'kit') return send(res, 200, await service.kitBot(a[1]));
             if (m === 'POST' && a[2] === 'resume') return send(res, 200, service.resumeBot(a[1]));
+            if (m === 'POST' && a[2] === 'leave') return send(res, 200, await service.leavePit(a[1]));
         }
         // ---- commands, bot detail, inventories, map
         if (m === 'GET' && p === '/api/commands/catalog') return send(res, 200, service.catalog());

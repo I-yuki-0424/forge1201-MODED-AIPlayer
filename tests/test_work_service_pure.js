@@ -250,6 +250,50 @@ function fakeBot(name) {
         assert.notStrictEqual(id, v.id, 'ids are not reused after a restart');
         await again.stop();
     });
+
+    await test('v5: settings reach the bots, tools show their durability, sites and scripts through the service, Leave pit, durability in the inventory view', async () => {
+        const d2 = fs.mkdtempSync(path.join(os.tmpdir(), 'work-')), w2 = makeWorld(100), bots2 = [];
+        const f2 = (name) => { const b = fakeBot(name); b.registry = { itemsByName: { iron_pickaxe: { maxDurability: 250 } } };
+            const pick = { name: 'iron_pickaxe', count: 1, maxDurability: 250, durabilityUsed: 4 }, fresh = { name: 'iron_pickaxe', count: 1, maxDurability: 250, durabilityUsed: 40 };
+            b.inventory = { items: () => [pick, fresh], emptySlotCount: () => 20, slots: [null, null, null, null, null, null, null, null, null, pick] }; bots2.push(b); setTimeout(() => b.emit('spawn'), 5); return b; };
+        const calls = [];
+        const e2 = (bot) => ({ w: w2, now: Date.now, pause: () => sleep(1), exec: async (c, a) => { calls.push([c, a]); return { ok: true }; }, have: () => 5, inv: () => ({ items: [], slotsFree: 30 }), here: () => ({ x: 0, y: 70, z: 0 }), pos: () => ({ x: 0, z: 0 }), configure: (o) => { bot.__cfg = o; } });
+        const s2 = new WorkService({ dataDir: d2, factory: f2, envFactory: e2, reconnectMs: 20 });
+        s2.addBot('Work1'); await until(() => s2.status().bots[0].state === 'online');
+        assert.deepStrictEqual([s2.settings.retireWorn, s2.settings.scripts], [true, true], 'worn-tool rule and recovery scripts are on by default');
+        s2.setSettings({ retireWorn: false }); assert.strictEqual(bots2[0].__skillOpts.retireWorn, false, 'the switch reaches a bot that is connected');
+        s2.setSettings({ retireWorn: true });
+        let v = s2.status().bots[0]; assert.deepStrictEqual(v.tools.map((t) => [t.left, t.worn]), [[246, false], [210, false]], 'durability listed; the rule is configured on the bot only when its worker starts, so nothing is worn yet');
+        require('../src/skills/options').configure(bots2[0], { retireWorn: true });
+        v = s2.status().bots[0]; assert.deepStrictEqual(v.tools.map((t) => [t.left, t.worn]), [[246, false], [210, false]]);
+        bots2[0].inventory.items()[0].durabilityUsed = 245; v = s2.status().bots[0]; assert.strictEqual(v.tools[0].worn, true, '5 uses left is worn (<= 8)');
+        // sites and scripts
+        throwsP(() => s2.addSite({ name: 'a', x: 1, y: 2, z: 3, tags: ['wood'] }), 400, /unknown tag/); throwsP(() => s2.addSite({ name: 'a', x: 1, y: 2, z: 3, tags: [] }), 400);
+        s2.addSite({ name: 'tools1', x: 5, y: 64, z: 5, tags: ['tools'] }); assert.strictEqual(s2.listSites().sites.length, 1); assert.ok(s2.listSites().tags.ore);
+        throwsP(() => s2.removeSite('nope'), 404);
+        throwsP(() => s2.putScript({ name: 'bad', steps: [{ cmd: 'rm' }] }), 400, /unknown command/); throwsP(() => s2.putScript({ name: 'replace-tool', steps: [] }), 400, /built-in/);
+        s2.putScript({ name: 'hello', steps: [{ log: 'hi' }, { return: 'ok' }] }); assert.ok(s2.listScripts().some((x) => x.name === 'hello' && !x.builtIn) && s2.listScripts().some((x) => x.name === 'replace-tool' && x.builtIn));
+        const ran = await s2.runScript('Work1', 'hello'); assert.ok(ran.ok && ran.log.includes('hi'));
+        await rejects(s2.runScript('Work1', 'nope'), 404); await rejects(s2.runScript('Nobody', 'hello'), 404);
+        s2.save(); const s3 = new WorkService({ dataDir: d2, factory: f2, envFactory: e2 }); await s3.restore();
+        assert.deepStrictEqual(s3.listSites().sites.map((x) => x.name), ['tools1'], 'sites persist'); assert.ok(s3.scripts.has('hello'), 'the operator\'s scripts persist'); await s3.stop();
+        // Leave pit: needs a pit job and an idle bot
+        await rejects(s2.leavePit('Work1'), 409, /no pit job/);
+        const job = s2.createPit({ box: { x0: 0, z0: 0, x1: 9, z1: 9, top: 100, bottom: 98 }, bots: ['Work1'] });
+        assert.strictEqual(s2.status().bots[0].inPit, true, 'inside the box and below its rim (y 70 < 100)');
+        calls.length = 0; const left = await s2.leavePit('Work1'); assert.ok(left.ok, JSON.stringify(left)); assert.ok(calls.some((c) => c[0] === 'move_to'), 'it tried to walk out first');
+        s2.startJob(job.id); await until(() => s2.status().bots[0].working || s2.jobs.get(job.id).state !== 'running', 2000).catch(() => {});
+        // the 3 layers of the fake world may finish at once; leave while a worker runs is refused
+        s2.jobs.get(job.id).state = 'running'; s2.bots.get('Work1').worker = { cancel: { cancelled: false }, job: job.id }; await rejects(s2.leavePit('Work1'), 409, /pause the job/); s2.bots.get('Work1').worker = null;
+        // the inventory view: durability next to damage
+        const inv = await s2.inventory({ type: 'entity', name: 'Work1' }); const slot = inv.slots.find((x) => x.id === 'minecraft:iron_pickaxe');
+        assert.deepStrictEqual([slot.max, slot.damage, slot.left], [250, 245, 5], JSON.stringify(slot));
+        // sweep jobs keep no road and say so; rows jobs keep one
+        const sw = s2.createPit({ box: { x0: 200, z0: 200, x1: 203, z1: 203, top: 100, bottom: 99 } }); assert.deepStrictEqual([sw.spec.method, sw.spec.road], ['sweep', false]);
+        const rw = s2.createPit({ method: 'rows', box: { x0: 300, z0: 300, x1: 305, z1: 305, top: 100, bottom: 99 } }); assert.deepStrictEqual([rw.spec.method, rw.spec.road], ['rows', true]);
+        assert.ok(!JSON.stringify(s2.jobDetail(sw.id).regions).includes('"stations":['), 'the job detail does not carry the station list');
+        await s2.stop();
+    });
     console.log('ALL OK');
     process.exit(0);
 })().catch((e) => { console.error(e); process.exit(1); });

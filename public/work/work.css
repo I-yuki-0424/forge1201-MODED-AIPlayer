@@ -102,3 +102,14 @@ input.num { width:78px; } input.wide, .sel.wide { min-width:260px; } .search { w
 .modal-back { position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:flex-start; justify-content:center; padding:5vh 16px; z-index:20; overflow:auto; }
 .modal { background:var(--panel); border:1px solid var(--line); border-radius:6px; width:min(560px, 100%); } .modal.wide { width:min(1100px, 100%); } .modal-body { padding:14px; }
 .toast { position:fixed; right:16px; bottom:16px; background:var(--panel); border:1px solid var(--line); border-left:4px solid var(--accent); padding:10px 14px; border-radius:6px; max-width:min(520px, 90vw); z-index:30; box-shadow:0 4px 14px rgba(0,0,0,.3); } .toast.bad { border-left-color:var(--bad); }
+
+/* v5: durability, automation page */
+.dur { display:inline-block; width:36px; height:4px; background:rgba(0,0,0,.35); border-radius:2px; vertical-align:middle; margin-left:6px; overflow:hidden; }
+.dur-fill { display:block; height:100%; }
+.slot-dur { position:absolute; left:3px; right:3px; bottom:2px; width:auto; margin:0; height:4px; }
+.toollist { display:inline-flex; flex-direction:column; gap:2px; } .tool.worn { color:#f2495c; }
+.setting { display:flex; gap:8px; align-items:flex-start; padding:4px 0; }
+textarea.code { width:100%; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; background:var(--chip); color:inherit; border:1px solid var(--line); border-radius:4px; padding:8px; resize:vertical; }
+.code-out { background:var(--chip); border:1px solid var(--line); border-radius:4px; padding:8px; margin:4px 0; white-space:pre-wrap; overflow:auto; max-height:240px; }
+.tbl tr.on { background:rgba(87,148,242,.12); }
+.pill.tag-tools { background:#3b6fb6; color:#fff; } .pill.tag-ore { background:#9b6b2f; color:#fff; } .pill.tag-junk { background:#6b6b6b; color:#fff; } .pill.tag-storage { background:#2f8f6b; color:#fff; } .pill.tag-food { background:#b6573b; color:#fff; } .pill.tag-blocks { background:#7a5fb0; color:#fff; }
