@@ -210,9 +210,11 @@ async function placeStation(env, st, kind = 'crafting_table') {
         const c = await env.exec('craft', { item: kind, count: 1 });
         if (!c.ok) return c;
     }
-    const spot = janitor.shulkerSpot(env.w, env.here());
-    if (!spot) return { ok: false, reason: 'invalid_target', detail: { why: `no free cell beside the bot for a ${kind.replace('_', ' ')}` } };
-    const p = await env.exec('place', { ...spot, item: kind });
+    // The cell beside the bot first, then any free cell within two blocks (the bot may stand among walls and chests); a few tries.
+    const spots = [janitor.shulkerSpot(env.w, env.here()), ...janitor.freeSpots(env.w, env.here())].filter(Boolean);
+    if (!spots.length) return { ok: false, reason: 'invalid_target', detail: { why: `no free cell near the bot for a ${kind.replace('_', ' ')}` } };
+    let p = { ok: false, reason: 'invalid_target' }, spot = null;
+    for (const c of spots.slice(0, 4)) { spot = c; p = await env.exec('place', { x: c.x, y: c.y, z: c.z, item: kind }); if (p.ok) break; if (['died', 'disconnected', 'cancelled'].includes(p.reason)) break; }
     if (p.ok) st[kind === 'furnace' ? 'furnace' : 'table'] = spot;
     return p;
 }

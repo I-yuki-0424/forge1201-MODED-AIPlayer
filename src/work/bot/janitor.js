@@ -193,4 +193,20 @@ function shulkerSpot(w, f) {
     return null;
 }
 
-module.exports = { plan, restock, maintain, pitPolicy, inventoryOf, shulkerSpot, valueOf, stackOf, sitesOf, hasSites, VALUES, TOOL, FOOD };
+/**
+ * Free cells for a station block near the feet, nearest first: air for the block and above it, solid below, within `radius` (the four cells beside the bot
+ * are not always free: the supply chest stands among walls, a furnace and a chest, and the crafting table had nowhere to go).
+ */
+function freeSpots(w, f, radius = 2) {
+    const out = [];
+    for (let dx = -radius; dx <= radius; dx++) for (let dz = -radius; dz <= radius; dz++) {
+        if (!dx && !dz) continue;
+        for (const dy of [0, 1, -1]) {
+            const x = f.x + dx, y = f.y + dy, z = f.z + dz;
+            if (w.kindAt(x, y, z) === 'air' && w.kindAt(x, y + 1, z) === 'air' && w.kindAt(x, y - 1, z) === 'solid') { out.push({ x, y, z, d: Math.hypot(dx, dz) + Math.abs(dy) }); break; }
+        }
+    }
+    return out.sort((a, b) => a.d - b.d);
+}
+
+module.exports = { plan, restock, maintain, pitPolicy, inventoryOf, shulkerSpot, freeSpots, valueOf, stackOf, sitesOf, hasSites, VALUES, TOOL, FOOD };
