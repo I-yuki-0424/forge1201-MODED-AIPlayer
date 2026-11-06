@@ -71,14 +71,14 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         // Another bot in (or next to) the cell the bot stands in: a block cannot be placed there (a pillar fails not_confirmed) until one of them steps aside.
         // Move the bot (server `tp`, position only) to the nearest cell where it can stand at the layer of a station that is far above or below it and cannot be
         // walked to: in a ragged open pit a floating pillar block cannot be climbed down and a shaft cannot be walked up. A cell needs air for the body and solid below.
-        lift: async (S) => {
+        lift: async (S, { radius = 5, down = 0, up = 2 } = {}) => {
             if (!rcon) return { ok: false, reason: 'refused', detail: { why: 'no RCON' } };
             const oth = others ? others() : [], cand = [];
-            for (let dx = -5; dx <= 5; dx++) for (let dz = -5; dz <= 5; dz++) for (let y = S.y; y <= S.y + 2; y++) {
+            for (let dx = -radius; dx <= radius; dx++) for (let dz = -radius; dz <= radius; dz++) for (let y = S.y - down; y <= S.y + up; y++) {
                 const x = S.x + dx, z = S.z + dz;
                 if (w.kindAt(x, y, z) !== 'air' || w.kindAt(x, y + 1, z) !== 'air' || w.kindAt(x, y - 1, z) !== 'solid') continue;
                 if (oth.some((o) => Math.hypot(o.x - (x + 0.5), o.z - (z + 0.5)) < 1.3)) continue;
-                cand.push({ x, y, z, d: Math.hypot(dx, dz) + Math.abs(y - S.y) });
+                cand.push({ x, y, z, d: Math.hypot(dx, dz) + Math.abs(y - S.y) + (dx === 0 && dz === 0 ? 0 : 0) });
             }
             if (!cand.length) return { ok: false, reason: 'unreachable', detail: { why: 'no standable cell near the station' } };
             cand.sort((a, b) => a.d - b.d);

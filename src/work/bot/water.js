@@ -85,6 +85,8 @@ async function rescue(env, box, { why = null, maxFill = 48 } = {}) {
             if (shore) { const m = await env.exec('move_to', shore); if (!m.ok && env.recover) await env.recover(2, m); }
             else if (env.recover) await env.recover(2, { reason: 'in_water' });
             f = env.here();
+            // Swimming out did not work (a flooded pit bottom: no shore within reach): the server puts the bot on the nearest dry standable cell (env.lift), up to 14 blocks away.
+            if (inWater(env.w, f) && env.lift) { const l = await env.lift(f, { radius: 14, down: 4, up: 12 }); out.lifted = !!l.ok; f = env.here(); }
             if (inWater(env.w, f)) return { ...out, ok: false, reason: 'stuck', detail: { why: 'still in water after the rescue', at: f, shore } };
         }
         for (let round = 0; round < 3; round++) {

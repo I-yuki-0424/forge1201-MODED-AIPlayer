@@ -170,6 +170,21 @@ const tool = (name, max, used) => ({ name, maxDurability: max, durabilityUsed: u
         const op = { cancelled: false }, e2 = botEnv(bot, { cancel: op }); bot.oxygenLevel = 20; op.cancelled = true; assert.strictEqual(e2.unitCancel.cancelled, true, 'the operator still cancels');
     });
 
+    await test('water rescue: when swimming out fails (flooded bottom), the bot is lifted to the nearest dry standable cell', async () => {
+        const water = require('../src/work/bot/water');
+        const cells = new Map(); const set = (x, y, z, n) => cells.set(`${x},${y},${z}`, n);
+        for (let x = 0; x < 6; x++) for (let z = 0; z < 6; z++) { set(x, 0, z, 'stone'); for (let y = 1; y <= 4; y++) set(x, y, z, 'water'); }       // a flooded room, 4 deep
+        for (let x = 0; x < 6; x++) for (let z = 0; z < 6; z++) set(x, 9, z, 'stone');
+        const w = { nameAt: (x, y, z) => cells.get(`${x},${y},${z}`) || 'air', kindAt: (x, y, z) => { const n = cells.get(`${x},${y},${z}`); return n === 'water' ? 'water' : n ? 'solid' : 'air'; } };
+        let pos = { x: 2, y: 2, z: 2 }, lifted = null;
+        const env = { w, have: () => 0, here: () => ({ ...pos }), exec: async () => ({ ok: false, reason: 'stuck' }), recover: async () => {},
+            lift: async (S, o) => { lifted = o; pos = { x: 2, y: 10, z: 2 }; return { ok: true }; } };
+        const r = await water.rescue(env, { x0: 0, x1: 5, z0: 0, z1: 5, top: 12, bottom: 0 });
+        assert.ok(r.ok && r.lifted, JSON.stringify(r)); assert.ok(lifted && lifted.radius >= 12);
+        const env2 = { ...env, lift: undefined }; pos = { x: 2, y: 2, z: 2 };
+        const r2 = await water.rescue(env2, { x0: 0, x1: 5, z0: 0, z1: 5, top: 12, bottom: 0 }); assert.strictEqual(r2.reason, 'stuck', 'without a lift the old answer stands');
+    });
+
     // ---- service
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wtools-'));
     const factory = (name) => { const b = new EventEmitter(); Object.assign(b, { username: name, entity: { position: { x: 0, y: 70, z: 0 } }, registry: { blocksByName: { stone: { harvestTools: { 7: true } } }, items: { 7: { name: 'iron_pickaxe' } }, itemsByName: { iron_pickaxe: { id: 7 } } }, inventory: { items: () => b.items, slots: [], emptySlotCount: () => 30 }, quit() {} }); b.items = []; setTimeout(() => b.emit('spawn'), 5); return b; };
