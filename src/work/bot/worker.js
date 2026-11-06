@@ -2,7 +2,7 @@
 // One pure bot: claim units from the crew ledger, run them with the action layer, report. No decisions, no LLM, no learner
 // (docs/proposed/WORKERS-v1.md). The loop is the same for every job kind; the job supplies `runUnit`.
 const janitor = require('./janitor');
-const { isBotSide } = require('./crew');
+const { isBotSide } = require('../jobs/crew');
 
 const MAX_BAD_STREAK = 12;     // consecutive failed units (each after a fix and a wait) before a bot cools down; the service brings it back
 const BOT_NEEDS = new Set(['missing_tool', 'missing_item']);       // waiting for the operator, not a fault to retry
@@ -111,9 +111,9 @@ async function runWorker(job, id, env, { cancel = { cancelled: false }, policy =
 
 /** The environment of a real Mineflayer bot on the action layer. */
 function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null, others = null, guard: withGuard = false, defend = true } = {}) {
-    const { execute } = require('../skills');
-    const { fromBot } = require('../skills/world');
-    const { feetCell } = require('../skills/motion');
+    const { execute } = require('../../skills');
+    const { fromBot } = require('../../skills/world');
+    const { feetCell } = require('../../skills/motion');
     const w = fromBot(bot);
     let good = null;                                             // the feet cell where the bot last finished a unit: a place it can stand and work
     const hold = async (key, ms) => { bot.setControlState(key, true); await sleep(ms); bot.setControlState(key, false); };
@@ -153,10 +153,10 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         dispose: () => { if (gd) gd.detach(); }, rememberGood: () => { good = feetCell(bot.entity.position); },
         inWater: () => !!bot.entity.isInWater || require('./water').inWater(w, feetCell(bot.entity.position)),
         items: (near, r) => dropsNear(bot, near, r),
-        configure: (o) => { if (o && typeof o.defend === 'boolean') defendOn = o.defend; return require('../skills/options').configure(bot, o); },
+        configure: (o) => { if (o && typeof o.defend === 'boolean') defendOn = o.defend; return require('../../skills/options').configure(bot, o); },
         run: (name, args) => require('./moves').runMove(bot, name, args, { cancel }),
         climb: (t) => require('./moves').climbTo(envObj, t),
-        usableTool: (cls) => bot.inventory.items().find((i) => i.name.endsWith(`_${cls}`) && !require('../skills/options').isWorn(bot, i)) || null,
+        usableTool: (cls) => bot.inventory.items().find((i) => i.name.endsWith(`_${cls}`) && !require('../../skills/options').isWorn(bot, i)) || null,
         canCraft: (item) => { const it = bot.registry.itemsByName[item]; return !!it && bot.recipesFor(it.id, null, 1, true).length > 0; },
         itemExists: (n) => !!bot.registry.itemsByName[n],
         pause: (ticks) => sleep(ticks * 50),                       // let the thing in the way (another bot, an item) move on

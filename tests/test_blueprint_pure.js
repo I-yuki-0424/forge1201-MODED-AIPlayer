@@ -1,8 +1,8 @@
 // Structure files as editable data (src/work/blueprint.js): write/read round trip, rotation and mirror of positions and block
 // states, replace/remove/crop/fill/merge, and a rotated structure built by the real build planner. No server.
 const assert = require('assert');
-const bp = require('../src/work/blueprint');
-const build = require('../src/work/build');
+const bp = require('../src/work/jobs/blueprint');
+const build = require('../src/work/jobs/build');
 // The bots' transport patches prismarine-nbt process-wide; every test below runs under that patch (a live console broke on it).
 require('../src/transport/forge_bot').applyProtocolBypasses();
 

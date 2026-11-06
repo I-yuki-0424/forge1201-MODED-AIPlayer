@@ -6,14 +6,14 @@
 //   2-4 defence: only what attacks (guard.js), interrupt in the worker loop
 // The live checks (real Forge server, the play world's mod set) are scripts/work/todo_live.js.
 const assert = require('assert');
-const { Ledger, DONE, PENDING } = require('../src/work/crew');
-const pit = require('../src/work/pit');
-const discard = require('../src/work/discard');
-const janitor = require('../src/work/janitor');
-const { Problems, headingOf } = require('../src/work/problems');
-const moves = require('../src/work/moves');
-const { Guard, isHostile } = require('../src/work/guard');
-const { runWorker } = require('../src/work/worker');
+const { Ledger, DONE, PENDING } = require('../src/work/jobs/crew');
+const pit = require('../src/work/jobs/pit');
+const discard = require('../src/work/bot/discard');
+const janitor = require('../src/work/bot/janitor');
+const { Problems, headingOf } = require('../src/work/bot/problems');
+const moves = require('../src/work/bot/moves');
+const { Guard, isHostile } = require('../src/work/bot/guard');
+const { runWorker } = require('../src/work/bot/worker');
 const esc = require('../src/work/escalation');
 
 setTimeout(() => { console.error('test watchdog: still running after 60 s'); process.exit(2); }, 60000).unref();

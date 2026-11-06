@@ -2,11 +2,11 @@
 // stuck units), a 100-bot simulation with deaths, the pit job (haul road, water rule) and the build job (blueprint, scaffold) on
 // a fake world, and whole jobs run by real workers whose commands are fakes. The live check is scripts/work/*.
 const assert = require('assert');
-const { Ledger, DONE, STUCK } = require('../src/work/crew');
-const pit = require('../src/work/pit');
-const build = require('../src/work/build');
-const janitor = require('../src/work/janitor');
-const { runWorker } = require('../src/work/worker');
+const { Ledger, DONE, STUCK } = require('../src/work/jobs/crew');
+const pit = require('../src/work/jobs/pit');
+const build = require('../src/work/jobs/build');
+const janitor = require('../src/work/bot/janitor');
+const { runWorker } = require('../src/work/bot/worker');
 
 setTimeout(() => { console.error('test watchdog: still running after 90 s (a worker loop that does not end?)'); process.exit(2); }, 90000).unref();
 function test(name, fn) { console.log(`--- test: ${name} ---`); return Promise.resolve(fn()).then(() => console.log('[OK]')); }
@@ -224,7 +224,7 @@ function fakeWorld(ground = 0, init = {}) {
         const b = mk(0); b.job.runUnit = async () => ({ ok: false, reason: 'missing_tool', detail: { block: 'stone' } });
         const rb = await runWorker(b.job, 'b', b.env, { pollMs: 1, backoff: () => 5 }); assert.strictEqual(rb.ended, 'unhealthy'); assert.strictEqual(rb.last, 'missing_tool'); assert.deepStrictEqual(b.seen.recover, [], 'no fix and no retry: it waits for the operator');
         const c = mk(1e9), rc = await runWorker(c.job, 'b', c.env, { pollMs: 1, backoff: () => 1 }); assert.strictEqual(rc.ended, 'unhealthy'); assert.strictEqual(rc.failed, 12, 'twelve tries, each after a fix and a pause, before it rests');
-        assert.deepStrictEqual(require('../src/work/worker').backoffMs(1), 3000); assert.ok(require('../src/work/worker').backoffMs(9) === 30000);
+        assert.deepStrictEqual(require('../src/work/bot/worker').backoffMs(1), 3000); assert.ok(require('../src/work/bot/worker').backoffMs(9) === 30000);
         void t0;
     });
 

@@ -2,14 +2,14 @@
 // ("sweep"), against the old row-by-row method; helpers at each height; the water rescue; sites; scripts. Pure: a fake world and a fake
 // bot whose commands cost what the real ones cost (a walk whenever the target is out of reach). Live check: scripts/work/pit_live.js.
 const assert = require('assert');
-const pit = require('../src/work/pit');
-const { Ledger } = require('../src/work/crew');
-const { runWorker } = require('../src/work/worker');
-const water = require('../src/work/water');
-const { Sites, classify } = require('../src/work/sites');
-const janitor = require('../src/work/janitor');
-const script = require('../src/work/script');
-const { leavePit } = require('../src/work/exit');
+const pit = require('../src/work/jobs/pit');
+const { Ledger } = require('../src/work/jobs/crew');
+const { runWorker } = require('../src/work/bot/worker');
+const water = require('../src/work/bot/water');
+const { Sites, classify } = require('../src/work/bot/sites');
+const janitor = require('../src/work/bot/janitor');
+const script = require('../src/work/bot/script');
+const { leavePit } = require('../src/work/bot/exit');
 
 setTimeout(() => { console.error('test watchdog: still running after 60 s'); process.exit(2); }, 60000).unref();
 function test(name, fn) { console.log(`--- test: ${name} ---`); return Promise.resolve(fn()).then(() => console.log('[OK]')); }

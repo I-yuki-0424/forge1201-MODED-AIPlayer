@@ -10,7 +10,7 @@ const Block = require(require.resolve('prismarine-block', { paths: [require.reso
 const { Physics, PlayerState } = require('prismarine-physics');
 const { execute } = require('../src/skills');
 const skillOpts = require('../src/skills/options');
-const { runMove } = require('../src/work/moves');
+const { runMove } = require('../src/work/bot/moves');
 
 function test(name, fn) { console.log(`--- test: ${name} ---`); return Promise.resolve(fn()).then(() => console.log('[OK]')); }
 

@@ -90,7 +90,7 @@ async function main() {
         await sleep(1200);
         const free0 = bot('DemoB').inventory.emptySlotCount(), cBefore = bot('DemoC').inventory.items().length;
         const env = svc.envFactory(bot('DemoB'), { cancelled: false }, { worker: true });
-        const janitor = require('../../src/work/janitor');
+        const janitor = require('../../src/work/bot/janitor');
         const m = await janitor.maintain(env, janitor.pitPolicy({ freeTarget: 20 }));
         await sleep(1500);
         const free1 = bot('DemoB').inventory.emptySlotCount(), ent = await entities();
@@ -106,7 +106,7 @@ async function main() {
         const job = svc.jobs.get(j.id);
         await until(() => job.impl.ledger.progress().done >= 4, 180000, 'first units done');
         // sabotage in a finished layer-0 cell (a block "placed for water control") and a leftover one layer further up the volume
-        const L = job.impl.ledger, pit = require('../../src/work/pit');
+        const L = job.impl.ledger, pit = require('../../src/work/jobs/pit');
         let sab = null;
         // a cell of a unit that is DONE now (any region, any layer): the repair can only come from the audit
         for (const region of job.impl.plan.regions) {

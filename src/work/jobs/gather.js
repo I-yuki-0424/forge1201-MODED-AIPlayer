@@ -4,7 +4,7 @@
 // nearest to where the bot stands NOW, everything within reach of one standing place is dug before the bot walks on: the existing
 // `mine` only walks when the block is out of reach. Pure given `bot` (Mineflayer-like) and `execute` (the action layer), so it is tested
 // without a server.
-const { fromBot } = require('../skills/world');
+const { fromBot } = require('../../skills/world');
 
 const bare = (n) => String(n).replace(/^minecraft:/, '');
 const REACH = 4.5;

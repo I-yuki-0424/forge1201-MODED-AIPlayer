@@ -18,7 +18,7 @@
 //         { "can_craft": "stick" } | { "site": "tools" } | { "free_slots": 4 } | { "all": [..] } | { "any": [..] } | { "not": COND }
 // The grammar is closed: unknown keys, commands outside the action layer, deep nesting or more than 200 steps are refused when the
 // script is stored, not discovered at run time. Nothing in a script can run code.
-const { COMMANDS, validateArgs } = require('../skills');
+const { COMMANDS, validateArgs } = require('../../skills');
 const janitor = require('./janitor');
 
 const MAX_STEPS = 200, MAX_DEPTH = 6;

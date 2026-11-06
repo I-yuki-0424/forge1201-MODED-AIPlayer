@@ -6,19 +6,19 @@
 const fs = require('fs');
 const path = require('path');
 const { EventEmitter } = require('events');
-const bp = require('./blueprint');
-const build = require('./build');
-const pit = require('./pit');
-const janitor = require('./janitor');
-const { runWorker } = require('./worker');
-const inventory = require('./inventory');
-const gatherer = require('./gather');
-const { catalog } = require('./catalog');
-const { MapStore } = require('./maps');
-const { Sites } = require('./sites');
-const scriptLib = require('./script');
-const { Problems, surroundings } = require('./problems');
-const skills = require('../skills');
+const bp = require('../jobs/blueprint');
+const build = require('../jobs/build');
+const pit = require('../jobs/pit');
+const janitor = require('../bot/janitor');
+const { runWorker } = require('../bot/worker');
+const inventory = require('../operator/inventory');
+const gatherer = require('../jobs/gather');
+const { catalog } = require('../operator/catalog');
+const { MapStore } = require('../world/maps');
+const { Sites } = require('../bot/sites');
+const scriptLib = require('../bot/script');
+const { Problems, surroundings } = require('../bot/problems');
+const skills = require('../../skills');
 
 const BOT_NAME = /^[A-Za-z0-9_]{3,16}$/;
 const STRUCT_NAME = /^[a-z0-9][a-z0-9_-]{0,47}$/;
@@ -55,7 +55,7 @@ const overlap = (a, b) => a.x0 <= b.x1 && b.x0 <= a.x1 && a.z0 <= b.z1 && b.z0 <
 
 /** Default bot factory: a Mineflayer bot with the FML3 handshake and the mod table (BOT_MOD_TABLE). */
 function defaultFactory({ host, port }) {
-    const { createForgeBot, attachForgeHandshake } = require('../transport/forge_bot');
+    const { createForgeBot, attachForgeHandshake } = require('../../transport/forge_bot');
     return (name) => {
         const bot = createForgeBot({ host, port, username: name, viewDistance: 4 });
         attachForgeHandshake(bot, { registry: process.env.BOT_REGISTRY || 'auto' });
@@ -79,7 +79,7 @@ class WorkService extends EventEmitter {
         for (const d of ['structures', 'jobs', 'scripts']) fs.mkdirSync(path.join(this.o.dataDir, d), { recursive: true });
         this.factory = this.o.factory || defaultFactory(this.o);
         // `worker`: the env of a bot that works a job (defence, a place to dump trash away from every job); one-off commands get the plain env.
-        this.envFactory = this.o.envFactory || ((bot, cancel, o = {}) => require('./worker').botEnv(bot, {
+        this.envFactory = this.o.envFactory || ((bot, cancel, o = {}) => require('../bot/worker').botEnv(bot, {
             cancel, rcon: this.o.rcon ? (c) => this.rcon(c) : null,
             ...(o.worker ? { guard: true, defend: this.settings.defend !== false, avoid: () => this._activeBoxes(), others: () => this._botSpots(bot.username) } : {}),
         }));
@@ -533,7 +533,7 @@ class WorkService extends EventEmitter {
         job.state = 'finished'; job.ended = Date.now();
         if (job.kind === 'build') {
             const rec = [...job.bots].map((n) => this.bots.get(n)).find((r) => r && r.state === 'online');
-            if (rec) { try { job.diff = job.impl.diff(require('../skills/world').fromBot(rec.bot)).length; } catch (_) { /* world not readable */ } }
+            if (rec) { try { job.diff = job.impl.diff(require('../../skills/world').fromBot(rec.bot)).length; } catch (_) { /* world not readable */ } }
         }
         for (const n of job.bots) { const rec = this.bots.get(n); if (rec && rec.job === job.id) rec.job = null; }
         job.bots.clear();
@@ -601,7 +601,7 @@ class WorkService extends EventEmitter {
         need(this.o.rcon, 'RCON is not configured (RCON_PASSWORD)', 503);
         const run = async () => {
             if (this.o.rcon.command) return this.o.rcon.command(cmd);                  // an injected client (tests)
-            if (!this._rcon) { const { Rcon } = require('../rl/rcon'); const r = new Rcon({ ...this.o.rcon, timeoutMs: 8000 }); await r.connect(); this._rcon = r; }
+            if (!this._rcon) { const { Rcon } = require('../../rl/rcon'); const r = new Rcon({ ...this.o.rcon, timeoutMs: 8000 }); await r.connect(); this._rcon = r; }
             try { return await this._rcon.command(cmd); } catch (e) { try { this._rcon.close(); } catch (_) { /* gone */ } this._rcon = null; throw e; }
         };
         const p = this._rconTail.then(run); this._rconTail = p.catch(() => {});
@@ -632,7 +632,7 @@ class WorkService extends EventEmitter {
         int(x, 'x'); int(z, 'z');
         const rec = [...this.bots.values()].find((r) => r.state === 'online' && r.bot);
         need(rec, 'no bot online to read the terrain', 503);
-        const w = require('../skills/world').fromBot(rec.bot);
+        const w = require('../../skills/world').fromBot(rec.bot);
         if (w.kindAt(x, 64, z) === 'unknown') return { y: null, why: 'chunk not loaded near any bot' };
         for (let y = MAX_Y; y >= MIN_Y; y--) {
             if (w.kindAt(x, y, z) !== 'solid') continue;
@@ -889,7 +889,7 @@ class WorkService extends EventEmitter {
         if (s && typeof s.directPickup === 'boolean') { this.settings.directPickup = s.directPickup; for (const r of this.bots.values()) if (r.state === 'online' && !r.removed) this._tagDirect(r, s.directPickup); }
         if (s && typeof s.retireWorn === 'boolean') {
             this.settings.retireWorn = s.retireWorn;                       // the switch applies at once, also to bots that are working
-            for (const r of this.bots.values()) if (r.bot && !r.removed) { try { require('../skills/options').configure(r.bot, { retireWorn: s.retireWorn }); } catch (_) { /* not connected */ } }
+            for (const r of this.bots.values()) if (r.bot && !r.removed) { try { require('../../skills/options').configure(r.bot, { retireWorn: s.retireWorn }); } catch (_) { /* not connected */ } }
         }
         this._dirty();
         return this.settings;
@@ -900,7 +900,7 @@ class WorkService extends EventEmitter {
     /** Write a problem down with the bot's surroundings and make it glow. Never throws: it is a diagnostic aid. */
     _problem(rec, kind, e) {
         try {
-            let ctx = null; try { ctx = rec.bot && rec.state === 'online' ? surroundings(rec.bot, require('../skills/world').fromBot(rec.bot)) : null; } catch (_) { /* no world yet */ }
+            let ctx = null; try { ctx = rec.bot && rec.state === 'online' ? surroundings(rec.bot, require('../../skills/world').fromBot(rec.bot)) : null; } catch (_) { /* no world yet */ }
             const { cell: target, ...rest } = e;                       // `target` = the cell it failed on; `cell` (from the surroundings) = where the bot stood
             this.problems.record({ bot: rec.name, kind, ...rest, target, hp: rec.bot && rec.bot.health }, ctx);
             if (this.settings.glow && this.o.rcon) this.problems.glow((c) => this.rcon(c), rec.name).catch(() => {});
@@ -935,7 +935,7 @@ class WorkService extends EventEmitter {
 
     // ------------------------------------------------------------------------------------------------ sites and scripts
 
-    listSites() { return { tags: require('./sites').TAGS, sites: this.sites.list() }; }
+    listSites() { return { tags: require('../bot/sites').TAGS, sites: this.sites.list() }; }
     addSite(s) { let site; try { site = this.sites.add(s); } catch (e) { throw new Problem(e.message); } this._dirty(); return site; }
     removeSite(name) { need(this.sites.remove(String(name)), `no site ${String(name).slice(0, 24)}`, 404); this._dirty(); return { ok: true }; }
 
@@ -963,14 +963,14 @@ class WorkService extends EventEmitter {
             const env = this.envFactory(rec.bot, cancel); if (env && env.configure) env.configure({ retireWorn: !!this.settings.retireWorn });
             const j = rec.job && this.jobs.get(rec.job);
             const senv = Object.assign(Object.create(env), { sites: this.sites, policy: j && j.policy, box: j && j.spec && j.spec.box });
-            senv.leavePit = (box) => require('./exit').leavePit(senv, box);
+            senv.leavePit = (box) => require('../bot/exit').leavePit(senv, box);
             return await scriptLib.runScript(sc, senv, { cancel });
         } finally { rec.script = null; }
     }
 
     // ------------------------------------------------------------------------------------------------ views
 
-    _worn(bot, item) { try { return require('../skills/options').isWorn(bot, item); } catch (_) { return false; } }
+    _worn(bot, item) { try { return require('../../skills/options').isWorn(bot, item); } catch (_) { return false; } }
     _pitOf(rec) { const j = rec.job && this.jobs.get(rec.job); return j && j.kind === 'pit' ? j : null; }
     /** Below the rim of its pit job (the bot cannot simply walk out; "Leave pit" brings it up by pillar). */
     _inPit(rec) {
@@ -987,7 +987,7 @@ class WorkService extends EventEmitter {
         const cancel = { cancelled: false }; rec.script = { cancel, name: 'leave-pit' };
         try {
             const env = this.envFactory(rec.bot, cancel); if (env && env.configure) env.configure({ retireWorn: !!this.settings.retireWorn });
-            const r = await require('./exit').leavePit(env, job.spec.box);
+            const r = await require('../bot/exit').leavePit(env, job.spec.box);
             this.note(r.ok ? 'info' : 'warn', `${name} leave pit: ${r.ok ? r.how : r.reason}${r.levels ? ` (${r.levels} levels)` : ''}`, { job: job.id });
             return r;
         } finally { rec.script = null; this._dirty(); }

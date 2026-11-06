@@ -7,7 +7,7 @@
 //      the open cells of the pit. Water whose source is INSIDE the mining area: fill it too, upstream of the face (same level or higher,
 //      inside the box), so that it cannot run again; it would be dug out anyway. Fills go against something solid, below first.
 // Pure given `env` ({w, here(), exec(name, args), have(item)}), tested without a server (tests/test_work_miner_pure.js).
-const { orderFill, isFluid, SEAL_ITEMS } = require('./pit');
+const { orderFill, isFluid, SEAL_ITEMS } = require('../jobs/pit');
 
 const D6 = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
 const wet = (w, x, y, z) => { const k = w.kindAt(x, y, z); return k === 'water' || k === 'liquid'; };

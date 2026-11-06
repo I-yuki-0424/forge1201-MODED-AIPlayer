@@ -15,7 +15,7 @@ const path = require('path');
 const crypto = require('crypto');
 const zlib = require('zlib');
 const { WorkService, Problem, BOT_NAME } = require('./service');
-const { Access } = require('./access');
+const { Access } = require('./web/access');
 
 const PUBLIC = path.join(__dirname, '..', '..', 'public', 'work');
 const STATIC = Object.fromEntries([['/', 'index.html', 'text/html; charset=utf-8'], ...['work.js', 'ui.js', 'map.js', 'cmd.js', 'inv.js', 'tools.js', 'blockcolor.js'].map((f) => [`/${f}`, f, 'text/javascript; charset=utf-8']), ['/work.css', 'work.css', 'text/css; charset=utf-8']].map(([u, f, t]) => [u, [f, t]]));

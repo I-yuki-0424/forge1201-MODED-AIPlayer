@@ -8,7 +8,7 @@ const http = require('http');
 const { EventEmitter } = require('events');
 const { WorkService } = require('../src/work/service');
 const { createConsole, loadToken, hostAllowed } = require('../src/work/console');
-const bp = require('../src/work/blueprint');
+const bp = require('../src/work/jobs/blueprint');
 
 setTimeout(() => { console.error('test watchdog: still running after 60 s'); process.exit(2); }, 60000).unref();
 function test(name, fn) { console.log(`--- test: ${name} ---`); return Promise.resolve(fn()).then(() => console.log('[OK]')); }

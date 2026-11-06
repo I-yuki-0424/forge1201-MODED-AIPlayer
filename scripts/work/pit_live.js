@@ -16,8 +16,8 @@ const path = require('path');
 const { createForgeBot, attachForgeHandshake } = require('../../src/transport/forge_bot');
 const { Rcon } = require('../../src/rl/rcon');
 const { Server, sleep } = require('../skills/bench');
-const { createPitJob } = require('../../src/work/pit');
-const { runWorker, botEnv } = require('../../src/work/worker');
+const { createPitJob } = require('../../src/work/jobs/pit');
+const { runWorker, botEnv } = require('../../src/work/bot/worker');
 
 function args(argv) {
     const o = { runId: null, bots: 4, w: 32, d: 16, depth: 3, kill: 0, root: '/exchange', timeoutMin: 25, baseX: 2000, baseZ: 2000, floorY: 150, method: 'sweep', road: 0, leave: 0, worn: 0 };
@@ -74,7 +74,7 @@ async function main() {
     const t0 = Date.now(), cancel = { cancelled: false }, events = [];
     const deadline = setTimeout(() => { console.error('[pit] timeout'); cancel.cancelled = true; }, o.timeoutMin * 60000);
     const results = bots.map(({ name, bot }) => runWorker(job, name, mkEnv(bot, cancel), {
-        cancel, pollMs: 1000, policy: require('../../src/work/janitor').pitPolicy(),
+        cancel, pollMs: 1000, policy: require('../../src/work/bot/janitor').pitPolicy(),
         onEvent: (e, d) => { events.push({ t: Math.round((Date.now() - t0) / 1000), e, ...d }); if (e === 'unit') console.log(`[pit] ${d.id} ${d.region} u${d.unit} ${d.role} ${d.ok ? 'ok' : 'FAIL ' + d.reason} ${d.ms} ms ${JSON.stringify(d.detail || {}).slice(0, 160)}`); },
     }));
     if (o.kill) {
@@ -115,7 +115,7 @@ async function main() {
     // The way out (owner 2026-11-06): bot 1 leaves the finished pit by pillar; graded by the server: it stands above the rim and no block of its column is left.
     let left_pit = null;
     if (o.leave && alive.length) {
-        const { leavePit } = require('../../src/work/exit');
+        const { leavePit } = require('../../src/work/bot/exit');
         const { bot, name } = alive[0], env = mkEnv(bot, { cancelled: false });
         const t1 = Date.now(), r = await leavePit(env, box).catch((e) => ({ ok: false, reason: 'internal', detail: { error: String(e.message) } }));
         await sleep(1500);

@@ -7,8 +7,8 @@ const os = require('os');
 const path = require('path');
 const { EventEmitter } = require('events');
 const { WorkService, normalizeBox } = require('../src/work/service');
-const bp = require('../src/work/blueprint');
-const build = require('../src/work/build');
+const bp = require('../src/work/jobs/blueprint');
+const build = require('../src/work/jobs/build');
 
 setTimeout(() => { console.error('test watchdog: still running after 60 s'); process.exit(2); }, 60000).unref();
 function test(name, fn) { console.log(`--- test: ${name} ---`); return Promise.resolve(fn()).then(() => console.log('[OK]')); }

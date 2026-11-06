@@ -4,7 +4,7 @@
 // command repeated, plus `place` for the water rule. Nothing here touches the game directly: `exec(name, args)` runs a
 // command of the action layer, `w` is its world model (kindAt/nameAt), so the whole job is testable without a server.
 const { Ledger } = require('./crew');
-const janitor = require('./janitor');
+const janitor = require('../bot/janitor');
 
 const CHUNK = 16;
 const TILE = 5;                      // a standing place covers a tile of this many cells per side: the farthest cell is 2.83 blocks away, well inside the 4.2 reach
@@ -333,7 +333,7 @@ function audit(plan, ledger, w, now, state, { budget = AUDIT_BUDGET, full = fals
 function createPitJob(box, ledgerOpts = {}, { lanes = 0, method = 'rows', tile = TILE, road = true } = {}) {
     const plan = planPit(box, { lanes, method, tile, road }), ledger = new Ledger(ledgerOpts), byId = new Map(), auditState = { cursor: new Map(), counts: new Map() };
     for (const r of plan.regions) { ledger.addRegion(r); byId.set(r.id, r); }
-    return { kind: 'pit', ledger, plan, runUnit: (regionId, unit, env) => runUnit(plan, byId.get(regionId), unit, env), audit: (env, now, opts) => audit(plan, ledger, env.w, now, auditState, opts), rescue: (env, why) => require('./water').rescue(env, plan.box, { why }) };
+    return { kind: 'pit', ledger, plan, runUnit: (regionId, unit, env) => runUnit(plan, byId.get(regionId), unit, env), audit: (env, now, opts) => audit(plan, ledger, env.w, now, auditState, opts), rescue: (env, why) => require('../bot/water').rescue(env, plan.box, { why }) };
 }
 
 module.exports = { planPit, laneBoxes, planRoad, stationsOf, lineCells, unitCells, sealPlan, orderFill, isFluid, exposed, runUnit, wrongCells, audit, createPitJob, SEAL_ITEMS, CHUNK, TILE, SWEEP_R };

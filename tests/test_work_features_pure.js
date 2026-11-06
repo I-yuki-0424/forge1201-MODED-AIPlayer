@@ -10,13 +10,13 @@ const http = require('http');
 const { EventEmitter } = require('events');
 const nbt = require('prismarine-nbt');
 require('../src/transport/forge_bot').applyProtocolBypasses();
-const snbt = require('../src/work/snbt');
-const inv = require('../src/work/inventory');
-const { readRegion } = require('../src/work/mca');
-const { Access } = require('../src/work/access');
+const snbt = require('../src/work/world/snbt');
+const inv = require('../src/work/operator/inventory');
+const { readRegion } = require('../src/work/world/mca');
+const { Access } = require('../src/work/web/access');
 const { WorkService } = require('../src/work/service');
 const { createConsole, loadToken } = require('../src/work/console');
-const { catalog } = require('../src/work/catalog');
+const { catalog } = require('../src/work/operator/catalog');
 
 setTimeout(() => { console.error('test watchdog: still running after 60 s'); process.exit(2); }, 60000).unref();
 function test(name, fn) { console.log(`--- test: ${name} ---`); return Promise.resolve(fn()).then(() => console.log('[OK]')); }
@@ -168,7 +168,7 @@ function fakeServer() {
     });
 
     await test('gather: validated, runs as one command with progress, the survey route answers', async () => {
-        const g = require('../src/work/gather'), orig = { gather: g.gather, survey: g.survey }, seen = [];
+        const g = require('../src/work/jobs/gather'), orig = { gather: g.gather, survey: g.survey }, seen = [];
         g.gather = async (bot, args, o) => { seen.push([bot.username, args]); o.onProgress({ got: 2, want: args.count, mined: 2 }); await sleep(60); o.onProgress({ got: args.count, want: args.count, mined: args.count }); return { ok: true, reason: null, detail: { got: args.count } }; };
         g.survey = (bot, target, radius) => ({ ok: true, blocks: [target], total: 3, radius });
         try {

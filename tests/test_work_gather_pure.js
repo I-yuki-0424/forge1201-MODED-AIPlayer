@@ -2,7 +2,7 @@
 // loaded chunks, nearest exposed first, so everything within reach of one standing place is dug before the bot walks.
 const assert = require('assert');
 const Vec3 = require('vec3');
-const { resolve, find, survey, gather, digPath, withHeadroom } = require('../src/work/gather');
+const { resolve, find, survey, gather, digPath, withHeadroom } = require('../src/work/jobs/gather');
 
 function test(name, fn) { console.log(`--- test: ${name} ---`); return Promise.resolve(fn()).then(() => console.log('[OK]')); }
 

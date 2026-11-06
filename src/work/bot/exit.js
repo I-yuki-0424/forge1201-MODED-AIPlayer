@@ -2,7 +2,7 @@
 // Leaving a pit (owner 2026-11-06). The old way was a staircase left standing along the edge (the haul road); the new way leaves nothing
 // behind: stand at the edge of the box at the depth the bot works at, stack low-value blocks and break the one two below the feet while
 // rising (moves.js pillar), step out onto the ground, take the last block away. A road, if the job has one, is simply walked first.
-const { lineCells } = require('./pit');
+const { lineCells } = require('../jobs/pit');
 const { finishPillar } = require('./moves');
 
 const solid = (w, x, y, z) => w.kindAt(x, y, z) === 'solid';

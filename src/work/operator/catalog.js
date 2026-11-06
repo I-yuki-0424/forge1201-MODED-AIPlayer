@@ -2,7 +2,7 @@
 // The commands a person can send to bots from the console, as data the page turns into forms (dropdowns, coordinate pickers), so
 // nobody has to remember a syntax. The 15 action-layer commands come from src/skills/index.js (their argument schemas are the single
 // source); `META` adds the operator conveniences that are not action-layer commands (come, say, teleport, stop).
-const { COMMANDS } = require('../skills');
+const { COMMANDS } = require('../../skills');
 
 const DOC = {
     move_to: ['Movement', 'Walk to a block (x, y, z); the planner finds the way and swims or climbs where it must.'],

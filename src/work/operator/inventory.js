@@ -2,7 +2,7 @@
 // Inventories through the server console: read a player's (or bot's) inventory and a container's items with `data get`, move stacks with
 // `item replace ... from ...` (which keeps the stack's NBT exactly) and clear the source slot. Every value that reaches a command is a
 // validated token. Slot numbers are the game's own (player: 0-8 hotbar, 9-35 main, 100-103 armour feet..head, -106 off hand).
-const snbt = require('./snbt');
+const snbt = require('../world/snbt');
 
 const NAME = /^[A-Za-z0-9_]{1,16}$/;
 const ID = /^([a-z0-9_.-]{1,32}:)?[a-z0-9_/.-]{1,64}$/;

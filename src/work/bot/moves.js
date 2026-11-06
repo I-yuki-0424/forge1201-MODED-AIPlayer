@@ -2,10 +2,10 @@
 // Movements that only the pure-bot work layer uses. They are written like the action layer's commands (one `async (ctx, args)` over
 // per-tick input frames, run by skills/runner.js, ending in a named reason) but are NOT registered in skills/index.js COMMANDS: the
 // RL action matrix and its spec hash stay what every checkpoint was trained on (docs/proposed/WORKERS-v1.md).
-const { run, SkillError } = require('../skills/runner');
-const { feetCell } = require('../skills/motion');
-const { holdItem, count } = require('../skills/commands/item');
-const { mine } = require('../skills/commands/block');
+const { run, SkillError } = require('../../skills/runner');
+const { feetCell } = require('../../skills/motion');
+const { holdItem, count } = require('../../skills/commands/item');
+const { mine } = require('../../skills/commands/block');
 
 /** Low-value blocks a bot may stack: tagged temporary blocks first, then what a pit produces anyway. Never sand or gravel (they fall). */
 const TEMP_ITEMS = ['cobblestone', 'cobbled_deepslate', 'dirt', 'netherrack', 'stone', 'andesite', 'diorite', 'granite', 'tuff', 'deepslate'];
