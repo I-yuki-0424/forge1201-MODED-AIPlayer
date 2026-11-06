@@ -14,6 +14,7 @@ class WorldPart {
         if (s && typeof s.autoKit === 'boolean') this.settings.autoKit = s.autoKit;
         if (s && typeof s.scripts === 'boolean') this.settings.scripts = s.scripts;
         if (s && typeof s.glow === 'boolean') { this.settings.glow = s.glow; if (!s.glow) for (const r of this.bots.values()) this._clearGlow(r); }
+        if (s && typeof s.discardWorn === 'boolean') this.settings.discardWorn = s.discardWorn;
         if (s && typeof s.defend === 'boolean') this.settings.defend = s.defend;      // workers read it at start; bots that work now are told at once below
         if (s && typeof s.directPickup === 'boolean') { this.settings.directPickup = s.directPickup; for (const r of this.bots.values()) if (r.state === 'online' && !r.removed) this._tagDirect(r, s.directPickup); }
         if (s && typeof s.retireWorn === 'boolean') {

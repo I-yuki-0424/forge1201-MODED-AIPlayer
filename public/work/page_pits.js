@@ -5,6 +5,10 @@ function pitsPage() {
     f.depth.value = 3;
     const lanesIn = h('input', { type: 'number', class: 'num', min: 1, max: 32, placeholder: 'auto', title: 'one X-Z range per bot, dug down to the bottom; auto = one per bot' }), info = h('div', { class: 'info-box' }), chips = h('span', { class: 'chips' }), host = h('div', { class: 'map-host tall-map' }), name = h('input', { placeholder: 'optional', maxlength: 60 });
     const depotKind = h('select', { class: 'sel' }, [['', 'none (surplus is dropped)'], ['chest', 'chest at x y z'], ['shulker', 'shulker box (placed by the bot)']].map(([v, t]) => h('option', { value: v, text: t }))), dx = h('input', { type: 'number', class: 'num', placeholder: 'x' }), dy = h('input', { type: 'number', class: 'num', placeholder: 'y' }), dz = h('input', { type: 'number', class: 'num', placeholder: 'z' });
+    // The depot's rank (janitor values: stone 5, coal 40, raw iron 70, diamond 100): what is worth less is thrown away instead of stored.
+    const rankSel = h('select', { class: 'sel', title: 'what the depot takes; the rest is thrown away (never anything worth 60 or more)' }, [['0', 'store everything'], ['10', 'no stone, dirt, gravel, sand (value 10 and up)'], ['40', 'ores, coal, wood (40 and up)'], ['60', 'valuable only (60 and up)']].map(([v, t]) => h('option', { value: v, text: t })));
+    rankSel.value = '10';
+    const toolsBox = h('input', { type: 'checkbox', title: 'tag the depot chest as a tools chest too: bots that run out of a tool take a usable one from it' });
     const methodSel = h('select', { class: 'sel', title: 'sweep: stand in the middle of a tile and dig everything in reach, then move on (default). rows: the first method, cell by cell' }, [['sweep', 'sweep (stand, dig all in reach, move on)'], ['rows', 'rows (cell by cell)']].map(([v, t]) => h('option', { value: v, text: t }))), roadBox = h('input', { type: 'checkbox', title: 'keep a one-wide staircase along the edge so that a late or respawned bot can walk down (a sweep job leaves by pillar and needs none)' });
     const picked = new Set(); let mv = null;
     const snap = h('input', { type: 'checkbox', checked: true, onchange: () => { if (mv) mv.snapMode = snap.checked; } });
@@ -32,15 +36,23 @@ function pitsPage() {
         if (!ys.length) throw new Error('no bot has that terrain loaded: type the top y');
         f.top.value = Math.max(...ys); sync(false);
     }, 'top = the highest ground found (corners and centre)');
-    const depot = () => { const k = depotKind.value; return !k ? undefined : k === 'chest' ? { kind: 'chest', x: num(dx.value), y: num(dy.value), z: num(dz.value) } : { kind: 'shulker' }; };
-    const create = (start) => act(async () => { const b = box(); if (!b) throw new Error('select an area and give top and depth'); return api('POST', '/api/jobs/pit', { name: name.value.trim() || undefined, box: b, depot: depot(), bots: [...picked], lanes: Number.isInteger(num(lanesIn.value)) ? num(lanesIn.value) : undefined, method: methodSel.value, road: roadBox.checked, start }); }, (r) => `job ${r.id} created${start ? ' and started' : ''}`);
+    const depot = () => { const k = depotKind.value; return !k ? undefined : k === 'chest' ? { kind: 'chest', x: num(dx.value), y: num(dy.value), z: num(dz.value), minValue: Number(rankSel.value) } : { kind: 'shulker', minValue: Number(rankSel.value) }; };
+    // "also the tools chest": the depot block gets the tag `tools` (kept next to its other tags; a new tagged block `depot` when nothing is tagged there)
+    async function tagDepotAsTools(d) {
+        if (!toolsBox.checked || !d || d.kind !== 'chest') return;
+        const sites = (await api('GET', '/api/sites')).sites, at = sites.find((q) => q.x === d.x && q.y === d.y && q.z === d.z);
+        const body = at ? { ...at, tags: [...new Set([...at.tags, 'tools'])] } : { name: 'depot', x: d.x, y: d.y, z: d.z, tags: ['tools', 'storage'] };
+        delete body.block; delete body.end; delete body.broken;
+        await api('POST', '/api/sites', body);
+    }
+    const create = (start) => act(async () => { const b = box(); if (!b) throw new Error('select an area and give top and depth'); const d = depot(); await tagDepotAsTools(d); return api('POST', '/api/jobs/pit', { name: name.value.trim() || undefined, box: b, depot: d, bots: [...picked], lanes: Number.isInteger(num(lanesIn.value)) ? num(lanesIn.value) : undefined, method: methodSel.value, road: roadBox.checked, start }); }, (r) => `job ${r.id} created${start ? ' and started' : ''}`);
     const el = h('div', { class: 'grid-12' },
         h('div', { class: 'span-8' }, panel('Select the area', [h('p', { class: 'muted small', text: 'Drag over the map to select chunks (like a spreadsheet range); hold Alt for single blocks; Shift-drag extends; right-drag or Ctrl-drag pans; wheel zooms. The numbers on the right follow the selection and can be edited for any area.' }), host],
             { actions: [h('label', { class: 'check' }, snap, 'snap to chunks'), h('button', { class: 'btn small', onclick: () => mv && mv.fit() }, 'Fit')] })),
         h('div', { class: 'span-4' }, panel('Pit', [
             h('div', { class: 'grid-form' }, field('x from', f.x0), field('x to', f.x1), field('z from', f.z0), field('z to', f.z1), field('top y', f.top), field('depth', f.depth), field('bottom y', f.bottom), field('quick', h('span', { class: 'row tight' }, h('button', { class: 'btn small', title: 'dig down to y -59: the lowest layer that is not bedrock', onclick: toBottom(-59) }, 'to y -59'), h('button', { class: 'btn small', title: 'the bottom of the world; bedrock cells are skipped', onclick: toBottom(-64) }, '-64')))),
             h('div', { class: 'row' }, h('button', { class: 'btn small', onclick: ground }, 'Top = ground'), h('button', { class: 'btn small', title: 'selection around the operator (needs RCON)', onclick: act(async () => { const p = (await api('GET', '/api/players')).find((q) => !q.bot && q.pos); if (!p) throw new Error('no operator position'); const b = { x0: (p.pos.x >> 4) << 4, z0: (p.pos.z >> 4) << 4 }; fromSel({ x0: b.x0, x1: b.x0 + 15, z0: b.z0, z1: b.z0 + 15 }); f.top.value = p.pos.y - 1; sync(false); }, 'the chunk the operator stands in') }, 'Operator chunk')),
-            info, field('Name', name), field('Lanes', lanesIn, 'one X-Z range per bot, each dug down to the bottom'), field('Method', methodSel), h('label', { class: 'check' }, roadBox, ' keep a haul road (bots can walk in; off = bots leave by pillar)'), field('Depot', h('span', { class: 'row tight' }, depotKind, dx, dy, dz)), h('div', { class: 'field' }, h('span', { class: 'field-label', text: 'Bots (none ticked: every idle bot)' }), chips),
+            info, field('Name', name), field('Lanes', lanesIn, 'one X-Z range per bot, each dug down to the bottom'), field('Method', methodSel), h('label', { class: 'check' }, roadBox, ' keep a haul road (bots can walk in; off = bots leave by pillar)'), field('Depot', h('span', { class: 'row tight' }, depotKind, dx, dy, dz)), field('Depot takes', rankSel), h('label', { class: 'check' }, toolsBox, ' the depot chest is also the tools chest'), h('div', { class: 'field' }, h('span', { class: 'field-label', text: 'Bots (none ticked: every idle bot)' }), chips),
             h('div', { class: 'row' }, h('button', { class: 'btn', onclick: create(false) }, 'Create (paused)'), h('button', { class: 'btn primary', onclick: create(true) }, icon('play', 13), ' Create and start'))])));
     return {
         el,

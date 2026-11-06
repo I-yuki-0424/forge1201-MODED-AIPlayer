@@ -74,7 +74,8 @@ class WorkersPart {
     _canBreak(rec, block) {
         const reg = rec.bot.registry, b = reg.blocksByName[block];
         if (!b || !b.harvestTools) return true;
-        return rec.bot.inventory.items().some((i) => { const it = reg.itemsByName[i.name]; return it && b.harvestTools[it.id]; });
+        const worn = (i) => { try { return require('../../skills/options').isWorn(rec.bot, i); } catch (_) { return false; } };       // a worn-out tool is no tool (the worker thinks so too)
+        return rec.bot.inventory.items().some((i) => { const it = reg.itemsByName[i.name]; return it && b.harvestTools[it.id] && !worn(i); });
     }
     /** A bot that waits for a tool or an item goes back to work by itself as soon as the inventory has it (the operator gave it through the GUI). */
     _watchWaiting() {

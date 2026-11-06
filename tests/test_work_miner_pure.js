@@ -192,6 +192,12 @@ function bot(w, start) {
             const e = { w: world(0), inv, calls: [], sites, here: () => ({ x: 0, y: 1, z: 0 }), pos: () => ({ x: 0, z: 0 }),
                 have: (n) => e.inv[n] || 0, usableTool: (c) => (Object.keys(e.inv).find((n) => n.endsWith(`_${c}`) && e.inv[n] > 0 && !(e.worn || []).includes(n)) || null),
                 canCraft: (n) => craftable.includes(n) || (n === 'stick' && (e.inv.oak_planks || 0) >= 2), itemExists: () => true,
+                run: async (n, a) => {                                    // the work layer's own moves: take_usable picks a usable tool of the class (best tier first)
+                    e.calls.push([n, a.class]);
+                    const item = ['netherite', 'diamond', 'iron', 'stone', 'golden', 'wooden'].map((t) => `${t}_${a.class}`).find((i) => chest[i] >= 1);
+                    if (n !== 'take_usable' || !item) return { ok: false, reason: 'missing_item', detail: { worn: 0 } };
+                    chest[item]--; e.inv[item] = (e.inv[item] || 0) + 1; return { ok: true, detail: { item, left: 200 } };
+                },
                 exec: async (n, a) => {
                     e.calls.push([n, a.item]);
                     if (n === 'withdraw') { if (!(chest[a.item] >= a.count)) return { ok: false, reason: 'missing_item' }; chest[a.item] -= a.count; e.inv[a.item] = (e.inv[a.item] || 0) + a.count; return { ok: true }; }
@@ -204,7 +210,7 @@ function bot(w, start) {
         };
         const tools = new Sites([{ name: 't', x: 5, y: 64, z: 5, tags: ['tools'] }]);
         const a = mk({}, { sites: tools, chest: { iron_pickaxe: 1 } }); const ra = await script.runScript(script.BUILT_IN.get('replace-tool'), a);
-        assert.ok(ra.ok && a.usableTool('pickaxe'), JSON.stringify(ra)); assert.ok(a.calls.some((c) => c[0] === 'withdraw' && c[1] === 'diamond_pickaxe'), 'best tier tried first'); assert.ok(!a.calls.some((c) => c[0] === 'craft'));
+        assert.ok(ra.ok && a.usableTool('pickaxe'), JSON.stringify(ra)); assert.ok(a.calls.some((c) => c[0] === 'take_usable' && c[1] === 'pickaxe'), 'a usable tool is asked for from the tools chest (take_usable), not a withdraw by name'); assert.ok(!a.calls.some((c) => c[0] === 'craft'));
         const b = mk({ iron_ingot: 3, oak_planks: 4, crafting_table: 1 }); const rb = await script.runScript(script.BUILT_IN.get('replace-tool'), b);
         assert.ok(rb.ok && b.inv.iron_pickaxe === 1, JSON.stringify(rb) + JSON.stringify(b.calls)); assert.deepStrictEqual(b.calls.filter((c) => c[0] === 'craft').map((c) => c[1]), ['stick', 'iron_pickaxe']); assert.strictEqual(b.inv.crafting_table, 1, 'the table is taken back');
         const c = mk({ iron_ingot: 2, oak_planks: 4 }); const rc = await script.runScript(script.BUILT_IN.get('replace-tool'), c);
@@ -219,6 +225,7 @@ function bot(w, start) {
         const L = new Ledger({ leaseMs: 1e9, maxAttempts: 6 }); L.addRegion({ id: 'r', anchor: { x: 0, z: 0 }, layers: 1, rows: 3 });
         const tools = new Sites([{ name: 't', x: 5, y: 64, z: 5, tags: ['tools'] }]), inv = {}, chest = { iron_pickaxe: 2 }; let events = [];
         const env = { w: world(0), have: (n) => inv[n] || 0, usableTool: (c) => (inv[`iron_${c}`] > 0 ? 'x' : null), canCraft: () => false, itemExists: () => true, here: () => ({ x: 0, y: 1, z: 0 }), pos: () => ({ x: 0, z: 0 }), now: Date.now,
+            run: async (n, a) => (n === 'take_usable' && chest.iron_pickaxe > 0 ? (chest.iron_pickaxe--, inv.iron_pickaxe = 1, { ok: true, detail: { item: 'iron_pickaxe', left: 200 } }) : { ok: false, reason: 'missing_item', detail: { worn: 0 } }),
             exec: async (n, a) => { if (n === 'withdraw') { chest[a.item]--; inv[a.item] = 1; return { ok: true }; } return { ok: true }; } };
         const job = { ledger: L, runUnit: async () => (inv.iron_pickaxe ? { ok: true, reason: null } : { ok: false, reason: 'missing_tool', detail: { block: 'stone' } }) };
         const handlers = { missing_tool: script.BUILT_IN.get('replace-tool') };

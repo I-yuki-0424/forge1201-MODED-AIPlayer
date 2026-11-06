@@ -18,11 +18,13 @@ const gameId = (item) => (item.includes(':') ? item : `minecraft:${item}`);
  */
 function makeClear({ rcon, name, count, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
     if (!rcon || !BOT.test(name || '')) return null;
-    return async (item, n) => {
+    return async (item, n, { damage } = {}) => {
         if (!NAME.test(item) || !Number.isInteger(n) || n < 1 || n > 2304) return { ok: false, reason: 'invalid_args' };
+        if (damage !== undefined && !(Number.isInteger(damage) && damage >= 0 && damage < 100000)) return { ok: false, reason: 'invalid_args' };
         const before = count(item);
         let reply;
-        try { reply = String(await rcon(`clear ${name} ${gameId(item)} ${n}`)); } catch (e) { return { ok: false, reason: 'refused', detail: { message: String(e.message).slice(0, 80) } }; }
+        // `damage`: one stack, the one with exactly this much wear (item NBT predicate), so that a good tool of the same name is not taken.
+        try { reply = String(await rcon(`clear ${name} ${gameId(item)}${damage !== undefined ? `{Damage:${damage}}` : ''} ${n}`)); } catch (e) { return { ok: false, reason: 'refused', detail: { message: String(e.message).slice(0, 80) } }; }
         const m = /Removed (\d+)/i.exec(reply);
         if (!m || +m[1] < 1) return { ok: false, reason: 'refused', detail: { server: reply.replace(/\x1b\[[0-9;]*m/g, '').trim().slice(0, 100) } };
         for (let i = 0; i < 20 && count(item) > before - Math.min(n, +m[1]); i++) await sleep(100);       // the client's inventory follows the server's packet

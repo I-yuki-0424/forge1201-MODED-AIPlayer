@@ -14,6 +14,7 @@ const SCRIPT_TEMPLATE = {
 function SettingsPanel(getS) {
     const rows = [
         ['retireWorn', 'Retire worn tools', 'A tool with at most 8 uses (or 6 %) left counts as no tool; the next one is used. Off = tools are used until they break.'],
+        ['discardWorn', 'Use up tools and throw them away', 'A tool that is worn out (the Retire worn rule: 8 uses or 6 % left) is thrown away through the server (that exact stack, a good one of the same kind stays); replacements are taken from the tools chest, which hands out usable ones only.'],
         ['scripts', 'Recovery scripts', 'A bot without a usable tool runs the script replace-tool (take one from the tools chest, else craft one) before it waits.'],
         ['autoKit', 'Auto-kit (RCON)', 'A bot that runs out of something is given exactly that, or the kit, by the server.'],
         ['defend', 'Defend itself', 'A bot that is hurt while it works kills the mob next to it, then goes on. Only what attacks it, never every mob in sight.'],

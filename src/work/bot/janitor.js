@@ -40,6 +40,8 @@ function pitPolicy(over = {}) {
         keep: {                            // item -> {min, max}: min is protected and restocked, the rest above max is surplus
             cobblestone: { min: 16, max: 64 }, dirt: { min: 0, max: 32 }, cobbled_deepslate: { min: 0, max: 64 },
         },
+        storeMin: 0,                       // with a depot or sites: items worth less than this are thrown away instead of stored (never one valued >= neverToss)
+        discardWorn: true,                 // a worn-out tool is used up: thrown away (a bool, or a function so that the setting applies to running jobs)
         food: 8,                           // food items wanted (any FOOD) when a depot exists
         depot: null,                       // {kind: 'chest'|'shulker', x, y, z, item?} or null (then everything below neverToss is thrown away)
         ...over,
@@ -50,15 +52,24 @@ function pitPolicy(over = {}) {
  * Operations that bring the inventory to `freeTarget` free slots and trim surplus. `items`: [{name, count}] (main inventory +
  * hotbar, not armour/off hand); `slotsFree`: number of empty slots. Returns [{op: 'toss'|'deposit', item, count, why}].
  */
-function plan(items, slotsFree, policy = pitPolicy()) {
+function plan(items, slotsFree, policy = pitPolicy(), worn = []) {
     const ops = [], keepOf = (n) => policy.keep[n] || null;
+    // 0. Worn-out tools are used up: each such stack goes, whatever the room (exact stack: `damage`, so that a good tool of the same name stays).
+    if ((typeof policy.discardWorn === 'function' ? policy.discardWorn() : policy.discardWorn !== false)) {
+        for (const wn of worn.slice(0, 12)) ops.push({ op: 'toss', item: wn.name, count: 1, damage: wn.damage, why: 'worn_out' });
+    }
     const stacks = new Map();
     for (const it of items) stacks.set(it.name, (stacks.get(it.name) || 0) + it.count);
     const protectedItem = (n) => TOOL.test(n) || FOOD.test(n) || CONTAINER.test(n);
     const out = (op, item, count, why) => { if (count > 0) { ops.push({ op, item, count, why }); } };
     const dispose = (item, count, why) => {
-        if (policy.depot || hasSites(policy)) out('deposit', item, count, why);
-        else if (valueOf(item, policy) < policy.neverToss) out('toss', item, count, why);
+        const v = valueOf(item, policy);
+        if (policy.depot || hasSites(policy)) {
+            // The depot's rank: what is worth less than `storeMin` is thrown away, unless the operator tagged a chest for exactly that kind (junk, food, ...).
+            const own = sitesOf(policy) && sitesOf(policy).classSite ? sitesOf(policy).classSite(item, policy) : null;
+            if (policy.storeMin > 0 && v < policy.storeMin && v < policy.neverToss && !own) out('toss', item, count, why);
+            else out('deposit', item, count, why);
+        } else if (v < policy.neverToss) out('toss', item, count, why);
     };
     let free = slotsFree;
     // 1. Surplus over a keep.max, always (cheap, keeps the stacks from growing back).
@@ -100,7 +111,14 @@ function inventoryOf(bot) {
     const m = new Map();
     for (const i of bot.inventory.items()) m.set(i.name, (m.get(i.name) || 0) + i.count);
     const free = 36 - bot.inventory.items().length;
-    return { items: [...m].map(([name, count]) => ({ name, count })), slotsFree: free };
+    // Worn-out tools, one entry per stack with the damage that picks exactly that stack (options.isWorn; empty while retireWorn is off).
+    const worn = [];
+    for (const i of bot.inventory.items()) {
+        if (!i.maxDurability || !TOOL.test(i.name)) continue;
+        let w = false; try { w = require('../../skills/options').isWorn(bot, i); } catch (_) { /* no options */ }
+        if (w) worn.push({ name: i.name, damage: i.durabilityUsed || 0, left: i.maxDurability - (i.durabilityUsed || 0) });
+    }
+    return { items: [...m].map(([name, count]) => ({ name, count })), slotsFree: free, worn };
 }
 
 /**
@@ -109,9 +127,13 @@ function inventoryOf(bot) {
  * `env`: exec(name, args), inv() -> {items, slotsFree}, here() -> feet cell {x,y,z}, w (world model).
  */
 async function maintain(env, policy) {
-    const { items, slotsFree } = env.inv(), ops = plan(items, slotsFree, policy), done = [];
+    const { items, slotsFree, worn } = env.inv(), ops = plan(items, slotsFree, policy, worn || []), done = [];
     if (!ops.length) return { ok: true, done };
     for (const o of ops.filter((x) => x.op === 'toss')) {
+        if (o.damage !== undefined) {                                               // a worn-out tool: out of the game, that exact stack; never a plain toss (it would pick any stack of the name)
+            if (env.discard) { const r = await env.discard(o.item, 1, { damage: o.damage }); if (r.ok) done.push(o); }
+            continue;
+        }
         const r = await require('./discard').dispose(env, o.item, o.count);        // out of the game, else a place where no job is active, else a plain toss
         if (!r.ok) return { ok: false, reason: r.reason, detail: r.detail, done };
         done.push(o);

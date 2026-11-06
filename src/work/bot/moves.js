@@ -6,6 +6,8 @@ const { run, SkillError } = require('../../skills/runner');
 const { feetCell } = require('../../skills/motion');
 const { holdItem, count } = require('../../skills/commands/item');
 const { mine } = require('../../skills/commands/block');
+const { openAt, station, CONTAINERS, inPlayer } = require('../../skills/commands/gui');
+const options = require('../../skills/options');
 
 /** Low-value blocks a bot may stack: tagged temporary blocks first, then what a pit produces anyway. Never sand or gravel (they fall). */
 const TEMP_ITEMS = ['cobblestone', 'cobbled_deepslate', 'dirt', 'netherrack', 'stone', 'andesite', 'diorite', 'granite', 'tuff', 'deepslate'];
@@ -129,7 +131,47 @@ async function cleanTemp(env) {
     return n;
 }
 
-const MOVES = { pillar: { fn: pillar, ticks: (a) => 200 + 90 * (a.levels || 1) } };
+
+const TIER_ORDER = ['netherite', 'diamond', 'iron', 'stone', 'golden', 'wooden'];
+
+/**
+ * A tool is worn out for the purpose of taking one: few uses left (the work layer's own limits, whether or not retireWorn is on, because a tool
+ * that breaks in the next minute is no replacement). Unlike `options.isWorn` this does not depend on the bot's switch.
+ */
+function wornOut(item) {
+    const left = options.usesLeft(item);
+    return left !== null && left <= Math.max(options.DEFAULTS.wornMin, Math.ceil(item.maxDurability * options.DEFAULTS.wornReserve));
+}
+
+/** The tool to take out of a list of stacks: {pick: the best usable one (tier, then uses left) or null, worn: how many of the class are worn out}. Pure. */
+function pickUsable(items, cls) {
+    const tier = (n) => { const i = TIER_ORDER.indexOf(n.split('_')[0]); return i < 0 ? TIER_ORDER.length : i; };
+    const ofClass = items.filter((i) => i.name.endsWith(`_${cls}`));
+    const usable = ofClass.filter((i) => !wornOut(i)).sort((a, b) => tier(a.name) - tier(b.name) || options.usesLeft(b) - options.usesLeft(a));
+    return { pick: usable[0] || null, worn: ofClass.length - usable.length };
+}
+
+/**
+ * take_usable {class, x, y, z}: open the container at x y z and take ONE tool of that class that can be used: not worn out, the best tier
+ * first, then the one with the most uses left (owner 2026-11-06: the tools chest handed out worn pickaxes). `withdraw` takes the first stack
+ * of a name, which may be the worn one, so this picks the slot itself and shift-clicks it. Reason `missing_item` when the chest has none.
+ */
+async function takeUsable(ctx, { class: cls, x, y, z }) {
+    const bot = ctx.bot;
+    if (!['pickaxe', 'axe', 'shovel', 'sword', 'hoe'].includes(cls)) throw new SkillError('invalid_args', { why: 'class: pickaxe, axe, shovel, sword or hoe' });
+    const win = await openAt(ctx, station(ctx, CONTAINERS, { x, y, z }, 'container'), (b) => bot.openContainer(b));
+    try {
+        const { pick, worn } = pickUsable(win.containerItems(), cls);
+        if (!pick) throw new SkillError('missing_item', { item: cls, where: 'container', why: `no usable ${cls} in the container`, worn });
+        const before = inPlayer(win, pick.type);
+        ctx.phase('take_usable', { item: pick.name, left: options.usesLeft(pick), slot: pick.slot });
+        await ctx.during(bot.clickWindow(pick.slot, 0, 1), 60);                            // shift-click: the stack goes to the player's inventory
+        await ctx.until(() => inPlayer(win, pick.type) >= before + 1, 20);
+        return { item: pick.name, left: options.usesLeft(pick), skippedWorn: worn };
+    } finally { bot.closeWindow(win); }
+}
+
+const MOVES = { pillar: { fn: pillar, ticks: (a) => 200 + 90 * (a.levels || 1) }, take_usable: { fn: takeUsable, ticks: () => 800 } };
 
 /** Run one of the work layer's own movements on `bot` (same result shape as skills.execute). */
 function runMove(bot, name, args = {}, opts = {}) {
@@ -138,4 +180,4 @@ function runMove(bot, name, args = {}, opts = {}) {
     return run(bot, m.fn, args, { ...opts, maxTicks: opts.maxTicks || m.ticks(args) });
 }
 
-module.exports = { pillar, finishPillar, climbTo, cleanTemp, runMove, MOVES, TEMP_ITEMS };
+module.exports = { pillar, finishPillar, climbTo, cleanTemp, runMove, takeUsable, pickUsable, wornOut, MOVES, TEMP_ITEMS };

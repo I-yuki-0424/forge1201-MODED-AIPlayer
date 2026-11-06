@@ -106,6 +106,9 @@ class Sites {
         return end ? { ...best, x: end.x, y: end.y, z: end.z, linked: best.name } : best;     // a link answers with the container it points to
     }
 
+    /** The site tagged for exactly the class of `item` (ore, junk, food ...), not a fallback: null when the operator made none for it. */
+    classSite(item, policy = {}) { return this.find(classify(item, policy)); }
+
     /**
      * Where to put `item` away: the site of its class, else `storage`, else any site that is not a tool chest or a machine. Null when there is none.
      * Tools are never put into a `tools` chest by the upkeep (nobody wants a worn pickaxe there): they are protected in the inventory.

@@ -17,7 +17,7 @@ const bots = [
         tools: [{ name: 'iron_pickaxe', left: 212, max: 250, worn: false }, { name: 'iron_pickaxe', left: 4, max: 250, worn: true }] },
     { name: 'Work2', state: 'online', job: null, working: false, retired: null, pos: { x: 0, y: 70, z: 0 }, health: 20, food: 20, free: 30, pickaxes: 0, inPit: false, script: null, cmd: null, tools: [] },
 ];
-const state = { now: Date.now(), uptime: 1000, server: { host: 'h', port: 1 }, settings: { autoKit: false, retireWorn: true, scripts: true, display: { on: true, paths: true, lanes: true, tags: true } }, rcon: true, kit: {}, maxBots: 24, map: false, bots, log: [],
+const state = { now: Date.now(), uptime: 1000, server: { host: 'h', port: 1 }, settings: { autoKit: false, retireWorn: true, discardWorn: true, scripts: true, display: { on: true, paths: true, lanes: true, tags: true } }, rcon: true, kit: {}, maxBots: 24, map: false, bots, log: [],
     jobs: [{ id: 'j1', kind: 'pit', name: 'cut', state: 'running', spec: { method: 'sweep', road: false, box: {} }, progress: { total: 10, done: 4, stuck: 0, leased: 1, pending: 5, regions: 2, regionsDone: 0 }, bots: ['Work1'], stuck: 0, workers: 1, lanes: 2, box: { x0: 0, z0: 0, x1: 9, z1: 9, y0: 1, y1: 3 }, blocked: null, diff: null }] };
 const answers = {
     'GET /api/session': { ok: true, csrf: 'c' }, 'GET /api/state': state, 'GET /api/players': [{ name: 'Owner', bot: false, pos: { x: 3, y: 64, z: 4 } }],
@@ -49,10 +49,10 @@ const click = (el) => el.dispatchEvent(new w.MouseEvent('click', { bubbles: true
     click(w.document.querySelector('#nav button[data-page="auto"]')); await tick(300);
     const page = w.document.querySelector('#page .page:not(.hidden)');
     const boxes = [...page.querySelectorAll('.setting input')];
-    ok(boxes.length === 10 && boxes[0].checked && boxes[1].checked && !boxes[2].checked, 'six settings, retireWorn and scripts on, auto-kit off');
+    ok(boxes.length === 11 && boxes[0].checked && boxes[1].checked && boxes[2].checked && !boxes[3].checked, 'seven settings (retireWorn, discardWorn, scripts on, auto-kit off) and four display switches');
     boxes[0].checked = false; boxes[0].dispatchEvent(new w.Event('change', { bubbles: true })); await tick();
     ok(sent.some((s) => s[1] === '/api/settings' && s[2] && s[2].retireWorn === false), 'switching retireWorn off posts the setting');
-    const dsp = boxes.slice(6); dsp[1].checked = false; dsp[1].dispatchEvent(new w.Event('change', { bubbles: true })); await tick();
+    const dsp = boxes.slice(7); dsp[1].checked = false; dsp[1].dispatchEvent(new w.Event('change', { bubbles: true })); await tick();
     ok(sent.some((s) => s[1] === '/api/settings' && s[2] && s[2].display && s[2].display.paths === false), 'a display layer is switched through the settings route');
     // ---- Tags page (tagged blocks, links)
     click(w.document.querySelector('#nav button[data-page="tags"]')); await tick(300);
@@ -78,6 +78,12 @@ const click = (el) => el.dispatchEvent(new w.MouseEvent('click', { bubbles: true
     ok(!sent.some((s) => s[1] === '/api/scripts' && s[0] === 'POST'), 'invalid JSON is refused in the page, nothing is sent');
     ta.value = JSON.stringify({ name: 'mine', steps: [{ return: 'ok' }] }); click([...page.querySelectorAll('button')].find((b) => b.textContent === 'Validate and save')); await tick();
     ok(sent.some((s) => s[0] === 'POST' && s[1] === '/api/scripts' && s[2].name === 'mine'), 'a script is sent to be validated and stored');
+    // ---- Pits form: depot rank and the tools chest
+    click(w.document.querySelector('#nav button[data-page="pits"]')); await tick(200);
+    const pitsPg = w.document.querySelector('#page .page:not(.hidden)');
+    const rank = [...pitsPg.querySelectorAll('select')].find((q) => [...q.options].some((o) => o.value === '40'));
+    ok(rank && rank.value === '10', 'the depot rank is offered, no stone or dirt by default');
+    ok(pitsPg.textContent.includes('also the tools chest'), 'and the switch for the tools chest');
     // ---- Pits form
     click(w.document.querySelector('#nav button[data-page="pits"]')); await tick(200);
     const pits = w.document.querySelector('#page .page:not(.hidden)');

@@ -128,4 +128,4 @@ async function withdraw(ctx, { item, count: n, x, y, z }) {
     return { item, moved: n };
 }
 
-module.exports = { craft, smelt, deposit, withdraw, fuelValue };
+module.exports = { craft, smelt, deposit, withdraw, fuelValue, openAt, station, CONTAINERS, inPlayer };

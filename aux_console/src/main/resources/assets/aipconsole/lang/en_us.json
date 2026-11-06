@@ -1,0 +1,7 @@
+{
+  "item.aipconsole.tag_tool": "Tag Tool",
+  "key.aipconsole.open": "Open the work console",
+  "key.categories.aipconsole": "ForgeAIP Console",
+  "aipconsole.tool.info": "%s at %s %s %s. Shift + right-click to tag it.",
+  "aipconsole.browser.starting": "The browser is still starting (MCEF downloads Chromium on the first start). Try again in a moment."
+}

@@ -10,7 +10,7 @@ const shapes = require('./shapes');
 
 const VIEW_TAG = 'aip_see';
 const DEFAULTS = Object.freeze({ on: true, paths: true, lanes: true, tags: true });
-const FRAME_MS = 1500;                      // dust lives 0.4-4 s: redrawn every 1.5 s it reads as continuous
+const FRAME_MS = 1000;                      // dust lives 0.4-4 s: redrawn every second it reads as continuous
 const SHARE = { paths: 0.4, lanes: 0.45, tags: 0.15 };
 const NEAR = 180;                           // blocks (X-Z) from a viewer: farther shapes are not drawn
 const PATH_STALE_MS = 25000;                // a path nobody has refreshed for this long is not shown
@@ -25,18 +25,18 @@ function framePoints(state, cfg, budget) {
         if (b.pos) b.path.cells.forEach((c, k) => { const d = Math.hypot(c[0] + 0.5 - b.pos.x, c[1] - b.pos.y, c[2] + 0.5 - b.pos.z); if (d < best) { best = d; i = k; } });
         const ahead = b.path.cells.slice(i).map(([x, y, z]) => ({ x: x + 0.5, y: y + 0.2, z: z + 0.5, c: b.color }));
         const [lx, ly, lz] = b.path.cells[b.path.cells.length - 1];
-        if (ahead.length && near(ahead[0])) layers.paths.push(...ahead, ...Array(3).fill({ x: lx + 0.5, y: ly + 0.9, z: lz + 0.5, c: b.color, s: 2 }));
+        if (ahead.length && near(ahead[0])) layers.paths.push(...ahead, { x: lx + 0.5, y: ly + 0.9, z: lz + 0.5, c: b.color, k: 'rod' }, { x: lx + 0.5, y: ly + 1.6, z: lz + 0.5, c: b.color, k: 'rod' });
     }
     if (cfg.lanes) for (const l of state.lanes) {
-        const sp = 2, top = l.rim, act = l.activeY;
+        const sp = 1.5, top = l.rim, act = l.activeY;
         const pts = [...shapes.rectOutline(l.box, top + 1.02, sp, l.color)];
-        if (act < top) pts.push(...shapes.rectOutline(l.box, act + 1.02, sp, l.color, 1.5), ...shapes.corners(l.box, act + 1.02, top + 1.02, sp, l.color));
+        if (act < top) pts.push(...shapes.rectOutline(l.box, act + 1.02, sp, l.color), ...shapes.corners(l.box, act + 1.02, top + 1.02, 2, l.color));
         if (pts.length && near(pts[0])) layers.lanes.push(...pts);
     }
     if (cfg.tags) for (const t of state.tags) {
         const c = t.machine ? 6 : 5, base = { x: t.x + 0.5, y: t.y + 1.15, z: t.z + 0.5 };
         if (!near(base)) continue;
-        layers.tags.push(...shapes.segment(base, { ...base, y: base.y + 1.2 }, 0.6, c));
+        layers.tags.push(...shapes.segment(base, { ...base, y: base.y + 1.2 }, 0.6, c), { ...base, y: base.y + 1.5, c, k: 'rod' });
         if (t.end) layers.tags.push(...shapes.segment(base, { x: t.end.x + 0.5, y: t.end.y + 1.15, z: t.end.z + 0.5 }, 1.2, c));
     }
     const out = [];
@@ -51,11 +51,11 @@ class Overlay {
      * @param o.config    () -> {on, paths, lanes, tags}
      * @param o.humans    async () -> [{name, x, y, z}]: the players who should see it (not bots), overworld only
      * @param o.pending   () -> number of commands waiting in the RCON queue
-     * @param o.budget    particles per frame (default 160; measured live: 41 particles in 19 ms)
+     * @param o.budget    particles per frame (default 300; measured live: 41 particles in 19 ms)
      */
     constructor(o) {
-        this.o = { ...o, budget: o.budget > 0 ? o.budget : 160, frameMs: o.frameMs > 0 ? o.frameMs : FRAME_MS };
-        this.timer = null; this.busy = false; this.viewers = []; this.viewersAt = -Infinity; this.tagged = new Set(); this.frames = 0; this.sent = 0;
+        this.o = { ...o, budget: o.budget > 0 ? o.budget : 300, frameMs: o.frameMs > 0 ? o.frameMs : FRAME_MS };
+        this.quiet = false; this.timer = null; this.busy = false; this.viewers = []; this.viewersAt = -Infinity; this.tagged = new Set(); this.frames = 0; this.sent = 0;
     }
     start() { if (!this.timer) { this.timer = setInterval(() => this.frame().catch(() => {}), this.o.frameMs); this.timer.unref?.(); } }
     stop() { clearInterval(this.timer); this.timer = null; }
@@ -70,6 +70,16 @@ class Overlay {
         return humans;
     }
 
+    /**
+     * The server tells every operator, in chat, what a console command did ("[Rcon: Displaying particle ...]"), hundreds of times a minute here. These two
+     * rules switch that off (they hide the feedback of everyone's commands, errors still show): the owner asked for it.
+     */
+    async _quiet() {
+        await this.o.rcon('gamerule sendCommandFeedback false');
+        await this.o.rcon('gamerule logAdminCommands false');
+        this.quiet = true;
+    }
+
     /** Draw one frame. Returns the number of commands sent (0 when off, nobody watches, or the queue is behind). */
     async frame(now = Date.now()) {
         const cfg = { ...DEFAULTS, ...(this.o.config() || {}) };
@@ -77,6 +87,7 @@ class Overlay {
         if (this.o.pending() > 2) return 0;                          // never delay the bots' own commands for decoration
         this.busy = true;
         try {
+            if (!this.quiet && this.o.quiet !== false) await this._quiet();
             const viewers = await this._viewers(now);
             if (!viewers.length) return 0;
             const state = this.o.state(); if (!state) return 0;

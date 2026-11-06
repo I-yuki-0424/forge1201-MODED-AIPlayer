@@ -46,7 +46,7 @@ class WorkService extends EventEmitter {
         this.bots = new Map();            // name -> record
         this.jobs = new Map();            // id -> job
         this.log = [];
-        this.settings = { autoKit: false, retireWorn: true, scripts: true, defend: true, glow: true, directPickup: true, display: { on: true, paths: true, lanes: true, tags: true } };      // retireWorn: a nearly broken tool counts as no tool; scripts: recovery scripts (missing tool) on
+        this.settings = { autoKit: false, retireWorn: true, scripts: true, defend: true, glow: true, directPickup: true, discardWorn: true, display: { on: true, paths: true, lanes: true, tags: true } };      // retireWorn: a nearly broken tool counts as no tool; scripts: recovery scripts (missing tool) on
         this.problems = new Problems({ file: path.join(this.o.dataDir, 'problems.jsonl') });   // problem bots: where, facing, standing on what (problems.js)
         this.sites = new Sites();                                                  // tagged chests by coordinates (sites.js)
         this.scripts = new Map(scriptLib.BUILT_IN);                                // built in + the operator's own (dataDir/scripts/*.json)

@@ -7,6 +7,7 @@ const PALETTE = Object.freeze([
     [1, 0.25, 0.25], [0.25, 0.6, 1], [0.3, 1, 0.35], [1, 0.85, 0.2], [0.85, 0.4, 1], [0.2, 1, 0.9], [1, 0.55, 0.15], [1, 1, 1],
 ]);
 
+const DUST_SIZE = 3;
 const round2 = (v) => Math.round(v * 100) / 100;
 
 /** Points along a segment a -> b (both [x, y, z] or {x, y, z}), `spacing` blocks apart, both ends included. */
@@ -41,10 +42,15 @@ function thin(points, n) {
     return out;
 }
 
-/** `particle` command for a dust point seen by the players the selector `viewers` matches. `force`: visible from far away. */
+/**
+ * `particle` command for a point, seen by the players the selector `viewers` matches. `force`: visible from far away. A plain point is
+ * three dust particles of size 3 (the largest that stays crisp; size 1 was too faint to see), a point with `k: 'rod'` is a few end rods:
+ * white, glowing, they last longer; used for marks (a destination, the top of a tag column).
+ */
 function dustCommand(p, viewers) {
+    if (p.k === 'rod') return `particle minecraft:end_rod ${round2(p.x)} ${round2(p.y)} ${round2(p.z)} 0.08 0.2 0.08 0.01 3 force ${viewers}`;
     const [r, g, b] = PALETTE[((p.c % PALETTE.length) + PALETTE.length) % PALETTE.length];
-    return `particle minecraft:dust ${r} ${g} ${b} ${p.s || 1} ${round2(p.x)} ${round2(p.y)} ${round2(p.z)} 0 0 0 0 1 force ${viewers}`;
+    return `particle minecraft:dust ${r} ${g} ${b} ${p.s || DUST_SIZE} ${round2(p.x)} ${round2(p.y)} ${round2(p.z)} 0.05 0.05 0.05 0 3 force ${viewers}`;
 }
 
 module.exports = { PALETTE, segment, rectOutline, corners, thin, dustCommand };

@@ -80,3 +80,4 @@ tools/site-finder/target/
 tools/tickrate/build/
 tools/tickrate/.gradle/
 tools/tblog/target/
+aux_console/libs/*.jar

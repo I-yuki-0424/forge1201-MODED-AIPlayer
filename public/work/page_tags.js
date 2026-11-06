@@ -67,5 +67,13 @@ function tagsPage() {
             h('p', { class: 'muted small', text: 'Tags say what a chest is for: ore, junk, storage ... tell the upkeep where each kind of item goes; tools is where bots may take tools. A label is any text you like. ' +
                 'A LINK makes a block a symbolic link to a container: for an automatic furnace with a chest and hopper beside it, tag the chest (say ore), tag the furnace as machine and link it to the chest. ' +
                 'Then deposit and withdraw at the furnace (its coordinates, or on the Commands form the "tagged" button) put items into the chest and take the results out of it.' })))));
-    return { el, onShow: load };
+    // From the in-game Tag Tool (#goto=tags&x&y&z): the block's coordinates are filled in; a block that is tagged already opens for editing
+    async function prefill() {
+        if (typeof PREFILL === 'undefined' || !PREFILL || PREFILL.page !== 'tags' || [PREFILL.x, PREFILL.y, PREFILL.z].some(Number.isNaN)) return;
+        const p = PREFILL; PREFILL.page = null;
+        const at = data.sites.find((q) => q.x === p.x && q.y === p.y && q.z === p.z);
+        if (at) edit(at); else { [p.x, p.y, p.z].forEach((v, i) => { xyz[i].value = v; }); name.value = ''; name.focus(); }
+        toast(at ? `${at.name} is tagged: edit it` : `tag the block at ${p.x} ${p.y} ${p.z}`);
+    }
+    return { el, async onShow() { await load(); await prefill(); } };
 }

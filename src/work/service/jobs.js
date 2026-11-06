@@ -47,11 +47,16 @@ class JobsPart {
     }
 
     /** The upkeep policy of a pit: the job's depot and the tagged sites (read live, so a site added later applies to jobs already running). */
-    _pitPolicy(depot) { return janitor.pitPolicy({ ...(depot ? { depot } : {}), sites: () => this.sites }); }
+    _pitPolicy(depot) {
+        return janitor.pitPolicy({ ...(depot ? { depot, storeMin: depot.minValue || 0 } : {}), sites: () => this.sites, discardWorn: () => this.settings.discardWorn !== false });
+    }
 
     _depot(d) {
         need(d && ['chest', 'shulker'].includes(d.kind), 'depot.kind is chest or shulker');
-        return d.kind === 'chest' ? { kind: 'chest', x: int(d.x, 'depot.x'), y: int(d.y, 'depot.y'), z: int(d.z, 'depot.z') } : { kind: 'shulker', item: 'shulker_box' };
+        // minValue: the depot's rank, 0..100 (janitor VALUES): what is worth less is thrown away instead of stored; 0 = store everything.
+        const minValue = d.minValue === undefined ? 0 : d.minValue;
+        need(Number.isInteger(minValue) && minValue >= 0 && minValue <= 100, 'depot.minValue: 0..100');
+        return d.kind === 'chest' ? { kind: 'chest', x: int(d.x, 'depot.x'), y: int(d.y, 'depot.y'), z: int(d.z, 'depot.z'), minValue } : { kind: 'shulker', item: 'shulker_box', minValue };
     }
 
     /** Build job. spec: { name?, structure, origin: {x,y,z}, ops?: [...], bots?, start?, force? } */

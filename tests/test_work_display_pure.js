@@ -23,8 +23,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         const t = shapes.thin(s.concat(s, s), 5); assert.strictEqual(t.length, 5); assert.strictEqual(shapes.thin(s, 50), s);
         assert.strictEqual(shapes.corners({ x0: 0, x1: 1, z0: 0, z1: 1 }, 60, 64, 2, 2).length, 4 * 3);
         const cmd = shapes.dustCommand({ x: 1.234, y: 70, z: -2, c: 0 }, '@a[tag=aip_see]');
-        assert.match(cmd, /^particle minecraft:dust 1 0\.25 0\.25 1 1\.23 70 -2 0 0 0 0 1 force @a\[tag=aip_see\]$/);
-        assert.match(shapes.dustCommand({ x: 0, y: 0, z: 0, c: -1, s: 2 }, '@a'), /dust 1 1 1 2 /, 'a negative or large colour index wraps around the palette');
+        assert.match(cmd, /^particle minecraft:dust 1 0\.25 0\.25 3 1\.23 70 -2 0\.05 0\.05 0\.05 0 3 force @a\[tag=aip_see\]$/);
+        assert.match(shapes.dustCommand({ x: 1, y: 2, z: 3, c: 0, k: 'rod' }, '@a'), /^particle minecraft:end_rod 1 2 3 .* force @a$/);
+        assert.match(shapes.dustCommand({ x: 0, y: 0, z: 0, c: -1, s: 4 }, '@a'), /dust 1 1 1 4 /, 'a negative or large colour index wraps around the palette');
     });
 
     const state = (extra = {}) => ({
@@ -38,7 +39,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         const all = framePoints(state(), { paths: true, lanes: true, tags: true }, 1000);
         const path = all.filter((p) => p.c === 1);
         assert.ok(path.length >= 3 && Math.min(...path.map((p) => p.x)) >= 5.5, 'cells behind the bot (x < 5.5) are not drawn');
-        assert.ok(path.some((p) => p.s === 2), 'the destination has a bigger mark');
+        assert.ok(path.some((p) => p.k === 'rod'), 'the destination has a glowing mark');
         const lane = all.filter((p) => p.c === 2);
         assert.ok(lane.some((p) => Math.abs(p.y - 81.02) < 1e-9) && lane.some((p) => Math.abs(p.y - 71.02) < 1e-9), 'rim and working layer');
         assert.ok(lane.some((p) => p.x === 0 && p.z === 0 && p.y > 72 && p.y < 80), 'corner posts between them');
@@ -53,8 +54,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     await test('overlay: off or nobody watching sends nothing; viewers are tagged once; a backed-up queue skips the frame; every command is a forced dust particle', async () => {
         const sent = []; let pending = 0, cfg = { on: true }, humans = [{ name: 'Seia_Y', x: 0, y: 70, z: 0 }], st = state();
         const o = new Overlay({ rcon: async (c) => { sent.push(c); return ''; }, state: () => st, config: () => cfg, humans: async () => humans, pending: () => pending, budget: 40 });
-        assert.ok((await o.frame(1000)) > 0 && sent.filter((c) => c.startsWith('tag ')).length === 1 && sent[0] === `tag Seia_Y add ${VIEW_TAG}`);
+        assert.ok((await o.frame(1000)) > 0 && sent.filter((c) => c.startsWith('tag ')).length === 1 && sent.includes(`tag Seia_Y add ${VIEW_TAG}`));
         const particles = sent.filter((c) => c.startsWith('particle'));
+        assert.deepStrictEqual(sent.filter((c) => c.startsWith('gamerule')), ['gamerule sendCommandFeedback false', 'gamerule logAdminCommands false']);
         assert.ok(particles.length <= 40 + 12 && particles.every((c) => / force @a\[tag=aip_see\]$/.test(c)), `${particles.length} particles`);
         sent.length = 0; await o.frame(2000); assert.ok(!sent.some((c) => c.startsWith('tag ')), 'tagged once, not every frame');
         sent.length = 0; pending = 5; assert.strictEqual(await o.frame(3000), 0); assert.strictEqual(sent.length, 0); pending = 0;

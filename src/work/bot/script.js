@@ -9,7 +9,7 @@
 //           "optional": a failure does not end the script
 //         { "if": COND, "then": [STEP...], "else": [STEP...] }
 //         { "take": { "item": "iron_ingot", "count": 3, "from": "ore" }, "optional": true }   withdraw from the nearest site with that tag
-//         { "take_tool": { "class": "pickaxe", "from": "tools" } }     the best tool of that class from the tools chest, best tier first
+//         { "take_tool": { "class": "pickaxe", "from": "tools" } }     one USABLE tool of that class from the tools chest (never a worn-out one), best tier first
 //         { "put_away": true }                                          the inventory upkeep (full inventory): items go to the tagged sites
 //         { "station": "crafting_table" } / { "release_station": true } place a table beside the bot (made from planks if needed) / take it back
 //         { "leave_pit": true }                                         out of the pit by the pillar method (needs the job's box)
@@ -22,7 +22,7 @@ const { COMMANDS, validateArgs } = require('../../skills');
 const janitor = require('./janitor');
 
 const MAX_STEPS = 200, MAX_DEPTH = 6;
-const WORK_MOVES = new Set(['pillar']);
+const WORK_MOVES = new Set(['pillar', 'take_usable']);
 const TIERS = ['netherite', 'diamond', 'iron', 'stone', 'golden', 'wooden'];
 const CLASSES = new Set(['pickaxe', 'axe', 'shovel', 'sword', 'hoe']);
 const STEP_KEYS = new Set(['cmd', 'args', 'at', 'table', 'optional', 'if', 'then', 'else', 'take', 'take_tool', 'put_away', 'station', 'release_station', 'leave_pit', 'return', 'log']);
@@ -126,15 +126,13 @@ async function runScript(script, env, { cancel = { cancelled: false }, maxSteps 
                 res = target ? await command('withdraw', { item: t.item, count: t.count || 1 }, { at: t.from }) : { ok: false, reason: 'invalid_target', detail: { why: `no site tagged ${t.from}` } };
                 note(`take ${t.item} from ${t.from}: ${res.ok ? 'ok' : res.reason}`);
             } else if (s.take_tool !== undefined) {
+                // One usable tool of the class from the tools chest (take_usable: not worn out, best tier, most uses left), never a worn one.
                 const { class: cls, from } = s.take_tool; res = { ok: !!toolOf(cls, env) };
                 if (!res.ok && site(from)) {
-                    for (const tier of TIERS) {
-                        const item = `${tier}_${cls}`; if (!(env.itemExists ? env.itemExists(item) : true)) continue;
-                        const r = await command('withdraw', { item, count: 1 }, { at: from });
-                        if (r.ok && toolOf(cls, env)) { res = { ok: true }; note(`took ${item} from ${from}`); break; }
-                        if (r.reason === 'died' || r.reason === 'disconnected' || r.reason === 'cancelled') { res = r; break; }
-                    }
-                    if (!res.ok && !res.reason) { res = { ok: false, reason: 'missing_item', detail: { why: `no usable ${cls} in the ${from} chest` } }; note(res.detail.why); }
+                    const r = await command('take_usable', { class: cls }, { at: from });
+                    if (r.ok && toolOf(cls, env)) { res = { ok: true }; note(`took a ${cls}${r.detail && r.detail.item ? ` (${r.detail.item}, ${r.detail.left} uses left)` : ''} from ${from}`); }
+                    else if (['died', 'disconnected', 'cancelled'].includes(r.reason)) res = r;
+                    else { res = { ok: false, reason: 'missing_item', detail: { why: `no usable ${cls} in the ${from} chest${r.detail && r.detail.worn ? ` (${r.detail.worn} worn out)` : ''}` } }; note(res.detail.why); }
                 }
             } else if (s.put_away) {
                 res = env.policy ? await janitor.maintain(env, { ...env.policy, freeTarget: 36, sites: env.sites || env.policy.sites }) : { ok: true };
