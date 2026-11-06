@@ -227,6 +227,14 @@ async function runUnit(plan, region, u, env) {
         // A few seconds between attempts (something in the way moves on, the server catches up), and a small fix before each one:
         // jump, sidestep, go back to where the bot last worked (env.recover; the worker's ladder).
         for (let tries = 0; !m.ok && !open(c) && tries < 6 && RETRY.has(m.reason); tries++) { if (env.recover) await env.recover(Math.min(tries + 2, 4), m); await (env.pause ? env.pause(10 + 10 * tries) : null); m = await env.exec('mine', mineArgs(c)); }
+        // A cell high above the bot (the audit sent a leftover back, the bot has dug on below it since): nobody can walk up a shaft, so the bot rises to it,
+        // pillar and overhead blocks by hand if need be (moves.climbTo), and digs from there. The temporary column is taken away with the next unit.
+        if (!m.ok && !open(c) && m.reason === 'unreachable' && env.climb && env.here && c.y >= env.here().y + 3) {
+            const cl = await env.climb({ x: c.x, y: c.y, z: c.z });
+            r.climbed = (r.climbed || 0) + 1; if (!cl.ok) r.climbFail = cl.reason;
+            m = await env.exec('mine', mineArgs(c));
+            for (let tries = 0; !m.ok && !open(c) && tries < 3 && RETRY.has(m.reason); tries++) { await (env.pause ? env.pause(10) : null); m = await env.exec('mine', mineArgs(c)); }
+        }
         if (!m.ok && !open(c)) return fail(m, c, 'mine');
         r.mined++;
         // Water that was behind the block is now flowing in. Fill its source, then the cell; if the cell was plugged, dig it again.

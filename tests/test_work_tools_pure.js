@@ -123,6 +123,24 @@ const tool = (name, max, used) => ({ name, maxDurability: max, durabilityUsed: u
         assert.deepStrictEqual(pit.wrongCells(plan, region, 0, w).filter((c) => c.y >= 70), [], 'the audit does not count them');
     });
 
+    await test('pit: a leftover cell far above the bot is reached by climbing (pillar), not retried forever from the floor', async () => {
+        const pit = require('../src/work/jobs/pit');
+        const cells = new Map(); const set = (x, y, z, n) => cells.set(`${x},${y},${z}`, n);
+        set(5, 12, 5, 'stone');                                                   // the leftover, 6 above the bot's floor (y 6)
+        const w = { nameAt: (x, y, z) => cells.get(`${x},${y},${z}`) || 'air', kindAt: (x, y, z) => (cells.has(`${x},${y},${z}`) ? 'solid' : 'air') };
+        const plan = pit.planPit({ x0: 5, z0: 5, x1: 5, z1: 5, top: 12, bottom: 12 }, { method: 'rows', road: false }), region = plan.regions[0], calls = [];
+        let y = 6, risen = false;
+        const env = { w, have: () => 9, pause: async () => {}, here: () => ({ x: 5, y, z: 5 }),
+            exec: async (n, a) => { calls.push(n); if (n !== 'mine') return { ok: true }; if (!risen) return { ok: false, reason: 'unreachable', detail: { why: 'reach block' } }; cells.delete(`${a.x},${a.y},${a.z}`); return { ok: true }; },
+            climb: async (t) => { calls.push('climb'); y = t.y - 1; risen = true; return { ok: true, how: 'climbed', levels: 6 }; } };
+        const r = await pit.runUnit(plan, region, { unit: 0 }, env);
+        assert.ok(r.ok, JSON.stringify(r)); assert.strictEqual(r.detail.climbed, 1); assert.ok(!cells.has('5,12,5'));
+        assert.ok(calls.includes('climb') && calls.indexOf('climb') < calls.lastIndexOf('mine'), calls.join(','));
+        // a cell level with the bot is not climbed to
+        set(5, 12, 5, 'stone'); y = 12; risen = false; calls.length = 0;
+        const r2 = await pit.runUnit(plan, region, { unit: 0 }, env); assert.ok(!calls.includes('climb') && !r2.ok, 'no climbing for a cell at the bot\'s own height');
+    });
+
     // ---- service
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wtools-'));
     const factory = (name) => { const b = new EventEmitter(); Object.assign(b, { username: name, entity: { position: { x: 0, y: 70, z: 0 } }, registry: { blocksByName: { stone: { harvestTools: { 7: true } } }, items: { 7: { name: 'iron_pickaxe' } }, itemsByName: { iron_pickaxe: { id: 7 } } }, inventory: { items: () => b.items, slots: [], emptySlotCount: () => 30 }, quit() {} }); b.items = []; setTimeout(() => b.emit('spawn'), 5); return b; };
