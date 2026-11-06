@@ -30,7 +30,10 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         }
         if (good) {
             const here = feetCell(bot.entity.position);
-            if (Math.abs(here.x - good.x) + Math.abs(here.z - good.z) + Math.abs(here.y - good.y) > 2) await execute(bot, 'move_to', { x: good.x, y: good.y, z: good.z }, { cancel });
+            const dist = Math.abs(here.x - good.x) + Math.abs(here.z - good.z) + Math.abs(here.y - good.y);
+            // Far (three levels or more, or 24 blocks): not on foot. From the surface the planner walked 30 levels down into the pit and a bot fell 86 blocks (live pit 2026-11-07).
+            if (dist > 2 && rcon && (Math.abs(here.y - good.y) >= 3 || Math.hypot(here.x - good.x, here.z - good.z) > 24)) await envObj.back(good);
+            else if (dist > 2) await execute(bot, 'move_to', { x: good.x, y: good.y, z: good.z }, { cancel });
         }
     }
     const { items: dropsNear } = require('./drops');

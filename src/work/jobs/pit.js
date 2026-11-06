@@ -222,6 +222,9 @@ async function runUnit(plan, region, u, env) {
         let s = await seal(c, true);
         if (!s.ok) return s.reason === 'missing_item' && !last ? 'defer' : fail(s, c, 'seal');
         if (open(c)) { r.skipped++; return null; }
+        // The block the bot stands on, with nothing solid within three cells under it: breaking it drops the bot into the open pit (86 blocks, dead; live pit 2026-11-07, a lone
+        // cobblestone pillar at layer 30 killed a bot four times). Left in place: nothing can be done about it from the side, and a floating block hurts nobody.
+        if (standsOnFloater(env, c)) { r.skipped++; r.floating = (r.floating || 0) + 1; return null; }
         // Success is what the world shows: a `mine` that ended in the drop pickup (target_lost: the item was picked up by another
         // bot or despawned) has still opened the cell. Transient reasons (another bot in the crosshair, a slipped aim) get retries.
         let m = await env.exec('mine', mineArgs(c));
@@ -332,6 +335,13 @@ async function goToStation(S, handle, env, open, r) {
     return null;
 }
 
+/** The bot stands on block `c` and nothing solid lies within three cells below it: breaking `c` would drop the bot into the open pit. Pure. */
+function standsOnFloater(env, c) {
+    if (!env.here) return false;
+    const h = env.here();
+    return h.x === c.x && h.z === c.z && h.y === c.y + 1 && ![1, 2, 3].some((d) => isSolid(env.w, c.x, c.y - d, c.z));
+}
+
 /**
  * Pick up what the sweep dropped: item entities near the station, nearest first. Cheap stone and dirt are left once the bot carries what
  * the pit needs of them (the janitor's keep.max: stone for sealing water and for stacking up), everything else is taken.
@@ -393,4 +403,4 @@ function createPitJob(box, ledgerOpts = {}, { lanes = 0, method = 'rows', tile =
     return { kind: 'pit', ledger, plan, runUnit: (regionId, unit, env) => runUnit(plan, byId.get(regionId), unit, env), audit: (env, now, opts) => audit(plan, ledger, env.w, now, auditState, opts), rescue: (env, why) => require('../bot/water').rescue(env, plan.box, { why }) };
 }
 
-module.exports = { aerialTree, planPit, laneBoxes, planRoad, stationsOf, lineCells, unitCells, sealPlan, orderFill, isFluid, exposed, runUnit, wrongCells, audit, createPitJob, SEAL_ITEMS, CHUNK, TILE, SWEEP_R };
+module.exports = { standsOnFloater, aerialTree, planPit, laneBoxes, planRoad, stationsOf, lineCells, unitCells, sealPlan, orderFill, isFluid, exposed, runUnit, wrongCells, audit, createPitJob, SEAL_ITEMS, CHUNK, TILE, SWEEP_R };
