@@ -244,7 +244,7 @@ wired into any job; no expert exists and nothing is on a learning queue.
 
 ### Live check (2026-11-06, the demo server: real Forge 1.20.1 with the play world's mod set, flat world, easy)
 
-`/mnt/data/forgeaip-play/demo` (outside the repo): the same jars as the play world, mounted read-only, own world, RCON and console.
+`/mnt/data/forgeaip-play/demo` (outside the repo): the same jars as the play world, mounted read-only, own world, RCON and console. Ports are loopback only; the owner reaches them through `tailscale serve` routes (game `100.77.246.23:25571`, console `http://100.77.246.23:3023`). Publishing them on the tailnet IP directly does not work: ufw (default deny incoming) drops other tailnet devices' packets to such a socket; only `tailscale serve` listeners get through.
 `scripts/work/todo_live.js` drives the console's own `WorkService` with real bots; grading is the server's. Run: `cd /mnt/data/forgeaip-play/demo && ./live.sh`.
 
 | Check | Result |
