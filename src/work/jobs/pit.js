@@ -289,10 +289,6 @@ async function goToStation(S, handle, env, open, r) {
         const above = S.y - here.y, floor = [1, 2, 3].some((d) => isSolid(env.w, S.x, S.y - d, S.z));
         // No floor within three cells below an open station, and not far above the bot: nobody can stand there (a tile above the ground); work from where the bot is.
         if (open(S) && !floor && above < 3) return null;
-        if (open(S) && floor) {
-            const m = await env.exec('move_to', S);
-            if (m.ok) return null;
-        }
         // Far above or below the bot (three levels or more) and no walk there: the server puts the bot on a standable cell at the station's layer (env.lift). A floating
         // pillar block cannot be climbed down and a shaft not walked up; live pit 2026-11-07, three bots stood on their own pillars 20 levels above their units.
         // Also when the station is far to the side (more than 24 blocks: a bot that respawned at the world spawn): a long walk through jungle, with vines the planner climbs, killed bots.
@@ -300,6 +296,12 @@ async function goToStation(S, handle, env, open, r) {
             const l = await env.lift(S);
             if (l.ok) { r.lifted = (r.lifted || 0) + 1; continue; }
             r.liftFail = l.reason;
+        }
+        // A walk to the station comes after the lift, never before: from the surface the planner walked 30 levels down the pit wall (vines, drops) and bots died of the fall
+        // (live pit 2026-11-07, after a restart brought the bots up to the surface first).
+        if (open(S) && floor) {
+            const m = await env.exec('move_to', S);
+            if (m.ok) return null;
         }
         // The station is three or more levels above the bot and there is no way up on foot (a shaft, a cave under a layer that is still closed): rise by pillar,
         // breaking what is overhead (by hand if no tool fits), and dig the corridor to the station from that layer. Live pit 2026-11-07: four bots stood under an
