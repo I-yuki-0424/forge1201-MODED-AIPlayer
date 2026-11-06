@@ -30,8 +30,8 @@ code { background:var(--chip); padding:1px 5px; border-radius:3px; }
 
 /* grid and panels */
 .grid-12 { display:grid; grid-template-columns:repeat(12, minmax(0, 1fr)); gap:14px; align-items:start; }
-.span-12 { grid-column:span 12; } .span-9 { grid-column:span 9; } .span-8 { grid-column:span 8; } .span-4 { grid-column:span 4; } .span-3 { grid-column:span 3; }
-@media (max-width:1100px) { .span-9, .span-8, .span-4, .span-3 { grid-column:span 12; } }
+.span-12 { grid-column:span 12; } .span-9 { grid-column:span 9; } .span-8 { grid-column:span 8; } .span-6 { grid-column:span 6; } .span-4 { grid-column:span 4; } .span-3 { grid-column:span 3; }
+@media (max-width:1100px) { .span-9, .span-8, .span-6, .span-4, .span-3 { grid-column:span 12; } }
 .panel { background:var(--panel); border:1px solid var(--line); border-radius:6px; box-shadow:var(--shadow); margin-bottom:14px; overflow:hidden; }
 .grid-12 > div > .panel:last-child { margin-bottom:0; }
 .panel-head { display:flex; align-items:center; gap:10px; padding:7px 12px; background:var(--panel-head); border-bottom:1px solid var(--line); min-height:34px; }

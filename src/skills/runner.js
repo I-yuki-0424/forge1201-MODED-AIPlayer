@@ -61,6 +61,7 @@ class Ctx {
         const ev = { t: this.t, phase: name, ...data };
         this.phases.push(ev);
         this.onEvent('phase', ev);
+        if (this.bot.__onPhase) { try { this.bot.__onPhase(ev); } catch (_) { /* an observer (the work display) must not break a command */ } }
     }
 
     /** Apply `frame` and wait for the physics tick that uses it. */

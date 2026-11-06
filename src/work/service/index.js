@@ -46,7 +46,7 @@ class WorkService extends EventEmitter {
         this.bots = new Map();            // name -> record
         this.jobs = new Map();            // id -> job
         this.log = [];
-        this.settings = { autoKit: false, retireWorn: true, scripts: true, defend: true, glow: true, directPickup: true };      // retireWorn: a nearly broken tool counts as no tool; scripts: recovery scripts (missing tool) on
+        this.settings = { autoKit: false, retireWorn: true, scripts: true, defend: true, glow: true, directPickup: true, display: { on: true, paths: true, lanes: true, tags: true } };      // retireWorn: a nearly broken tool counts as no tool; scripts: recovery scripts (missing tool) on
         this.problems = new Problems({ file: path.join(this.o.dataDir, 'problems.jsonl') });   // problem bots: where, facing, standing on what (problems.js)
         this.sites = new Sites();                                                  // tagged chests by coordinates (sites.js)
         this.scripts = new Map(scriptLib.BUILT_IN);                                // built in + the operator's own (dataDir/scripts/*.json)
@@ -58,6 +58,7 @@ class WorkService extends EventEmitter {
         this._watch = setInterval(() => this._watchWaiting(), 2000); this._watch.unref?.();
         this.cmdSeq = 0;
         this.started = Date.now();
+        this._startDisplay();
     }
 
     note(level, msg, extra = {}) {
@@ -98,12 +99,12 @@ class WorkService extends EventEmitter {
         try { this.save(); } catch (_) { /* best effort */ }
         for (const rec of this.bots.values()) { rec.removed = true; clearTimeout(rec.timer); this._stopWorker(rec); try { rec.bot && rec.bot.quit && rec.bot.quit(); } catch (_) { /* gone */ } }
         if (this._rcon) { try { this._rcon.close(); } catch (_) { /* gone */ } }
-        clearInterval(this._watch); this.maps.close();
+        clearInterval(this._watch); this.maps.close(); if (this.display) this.display.stop();
     }
 }
 
 // The service is one class in several files, one per concern (each part is a class whose methods are copied here).
-for (const file of ['bots', 'jobs', 'workers', 'structures', 'operator', 'commands', 'inventories', 'world', 'diagnostics', 'library', 'links', 'views']) {
+for (const file of ['bots', 'jobs', 'workers', 'structures', 'operator', 'commands', 'inventories', 'world', 'diagnostics', 'library', 'links', 'display', 'views']) {
     const Part = Object.values(require(`./${file}`))[0];
     for (const name of Object.getOwnPropertyNames(Part.prototype)) if (name !== 'constructor') Object.defineProperty(WorkService.prototype, name, Object.getOwnPropertyDescriptor(Part.prototype, name));
 }

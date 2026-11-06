@@ -10,6 +10,7 @@ class WorldPart {
     async mapRefresh() { need(this.o.rcon, 'refreshing the map needs RCON (save-all)', 503); await this.rcon('save-all flush'); this.maps.invalidate(); return { ok: true }; }
 
     setSettings(s) {
+        if (s && s.display && typeof s.display === 'object') for (const k of ['on', 'paths', 'lanes', 'tags']) if (typeof s.display[k] === 'boolean') this.settings.display = { ...this.settings.display, [k]: s.display[k] };
         if (s && typeof s.autoKit === 'boolean') this.settings.autoKit = s.autoKit;
         if (s && typeof s.scripts === 'boolean') this.settings.scripts = s.scripts;
         if (s && typeof s.glow === 'boolean') { this.settings.glow = s.glow; if (!s.glow) for (const r of this.bots.values()) this._clearGlow(r); }

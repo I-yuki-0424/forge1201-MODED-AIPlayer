@@ -28,6 +28,22 @@ function SettingsPanel(getS) {
     return { el, update(s) { for (const [k] of rows) if (document.activeElement !== boxes[k]) boxes[k].checked = !!(s.settings && s.settings[k]); } };
 }
 
+/** The in-game display (particles only the operator sees): one switch for all and one per layer. */
+function DisplayPanel() {
+    const rows = [
+        ['on', 'Show in the game', 'Particles drawn in the world for every player on the server who is not a bot (they are tagged aip_see). Nothing is installed on the PC.'],
+        ['paths', 'Walking paths', 'The way each bot is about to walk, in the bot\'s colour, ending in a large mark.'],
+        ['lanes', 'Mining divisions', 'Each pit lane outlined at the rim and at the layer it is digging now, joined by corner posts; build jobs as a box.'],
+        ['tags', 'Tagged blocks', 'A short column over every tagged block, and a dotted line from a machine to the container it is linked to.'],
+    ];
+    const boxes = {};
+    const el = h('div', { class: 'stack' }, rows.map(([k, label, hint]) => {
+        boxes[k] = h('input', { type: 'checkbox', onchange: act(() => api('POST', '/api/settings', { display: { [k]: boxes[k].checked } }), () => `${label}: ${boxes[k].checked ? 'on' : 'off'}`) });
+        return h('label', { class: 'check setting' }, boxes[k], h('span', {}, h('strong', { text: label }), h('div', { class: 'muted small', text: hint })));
+    }));
+    return { el, update(s) { for (const [k] of rows) if (document.activeElement !== boxes[k]) boxes[k].checked = !!(s.settings && s.settings.display && s.settings.display[k]); } };
+}
+
 function ScriptsPanel(getS) {
     let list = [], current = null;
     const listBox = h('div', { class: 'table-wrap' }), editor = h('textarea', { class: 'code', rows: 16, spellcheck: false, 'aria-label': 'script JSON' }), result = h('pre', { class: 'code-out small' });
@@ -85,10 +101,11 @@ function ProblemsPanel() {
 }
 
 function automationPage() {
-    const settings = SettingsPanel(getS), scripts = ScriptsPanel(getS), problems = ProblemsPanel();
+    const settings = SettingsPanel(getS), display = DisplayPanel(), scripts = ScriptsPanel(getS), problems = ProblemsPanel();
     const el = h('div', { class: 'grid-12' },
-        h('div', { class: 'span-12' }, panel('Settings', settings.el)),
+        h('div', { class: 'span-6' }, panel('Settings', settings.el)),
+        h('div', { class: 'span-6' }, panel('In-game display', display.el)),
         h('div', { class: 'span-12' }, panel('Scripts', scripts.el)),
         h('div', { class: 'span-12' }, panel('Problem bots', problems.el)));
-    return { el, onShow() { scripts.load(); problems.load(); }, update(s) { settings.update(s); scripts.syncBots(s); } };
+    return { el, onShow() { scripts.load(); problems.load(); }, update(s) { settings.update(s); display.update(s); scripts.syncBots(s); } };
 }

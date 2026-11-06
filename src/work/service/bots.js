@@ -23,6 +23,7 @@ class BotsPart {
         let bot;
         try { bot = this.factory(rec.name); } catch (e) { rec.error = String(e.message).slice(0, 200); return this._retry(rec); }
         rec.bot = bot;
+        this._trackPath(rec, bot);
         const mine = () => rec.bot === bot && !rec.removed;
         bot.once('spawn', () => { if (!mine()) return; rec.state = 'online'; rec.attempts = 0; rec.since = Date.now(); this.note('info', `bot ${rec.name} online`); this._tagDirect(rec); this._dirty(); this._resume(rec); });
         bot.on('spawn', () => { if (mine() && rec.state === 'online') setTimeout(() => this._resume(rec), 2500); });        // respawn after death

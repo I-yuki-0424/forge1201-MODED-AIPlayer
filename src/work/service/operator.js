@@ -11,8 +11,9 @@ class OperatorPart {
             if (!this._rcon) { const { Rcon } = require('../../rl/rcon'); const r = new Rcon({ ...this.o.rcon, timeoutMs: 8000 }); await r.connect(); this._rcon = r; }
             try { return await this._rcon.command(cmd); } catch (e) { try { this._rcon.close(); } catch (_) { /* gone */ } this._rcon = null; throw e; }
         };
+        this._rconPending = (this._rconPending || 0) + 1;
         const p = this._rconTail.then(run); this._rconTail = p.catch(() => {});
-        return p;
+        return p.finally(() => { this._rconPending--; });
     }
 
     /** Players on the server with their position (RCON: `list`, `data get entity`). Bots are listed too, flagged. */
