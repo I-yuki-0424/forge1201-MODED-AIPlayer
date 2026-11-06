@@ -11,6 +11,22 @@ const TILE = 5;                      // a standing place covers a tile of this m
 const SWEEP_R = 3.9;                 // horizontal reach of a standing place: with the eyes 1.1 above the cell, 3.9 is 4.05 in 3D (reach 4.5, aim margin 0.3)
 const MAX_CELLS = 4_000_000;         // a job this large is a mistake in the arguments, not a request
 const PASSABLE = new Set(['air', 'climb']);
+// Natural tree blocks. One that hangs high above the ground below it cannot be reached on foot: the planner expands 20,000 cells and gives up
+// (30-85 s per try, six tries per unit, bots end up standing on the canopy) - the live pit of 2026-11-07 with top y 90 over ground at y 64 and a tree.
+// The pit leaves such blocks alone (they are not ground; the audit does not count them) and says how many it left.
+const TREE = /(_leaves|_log|_wood|_vines?|^vine|^bamboo|^mangrove_roots)$/;
+const AERIAL_UP = 6;                        // blocks above the ground below: from there on a tree block is out of reach for a bot standing on the ground
+function aerialTree(w, c) {
+    const bare = (n) => String(n || '').replace(/^minecraft:/, '');
+    if (!TREE.test(bare(w.nameAt && w.nameAt(c.x, c.y, c.z)))) return false;
+    let y = c.y - 1;
+    for (let n = 0; n < 200 && y >= -64; n++, y--) {
+        const k = w.kindAt(c.x, y, c.z);
+        if (k === 'unknown') return false;                                   // not loaded: no verdict
+        if (k === 'solid' && !TREE.test(bare(w.nameAt && w.nameAt(c.x, y, c.z)))) break;         // the ground: air and tree blocks below do not count
+    }
+    return c.y - y > AERIAL_UP;
+}
 const UNBREAKABLE = /^(bedrock|barrier|end_portal_frame|end_portal|nether_portal|command_block|structure_block|jigsaw)$/;
 // What the bot fills fluids with, in order of preference: cheap, common in a pit, does not fall (no sand or gravel).
 const SEAL_ITEMS = ['cobblestone', 'cobbled_deepslate', 'dirt', 'netherrack', 'stone', 'andesite', 'diorite', 'granite', 'tuff', 'deepslate'];
@@ -178,7 +194,7 @@ async function runUnit(plan, region, u, env) {
     const cells = unitCells(plan, region, u.unit), r = { mined: 0, sealed: 0, skipped: 0 }, sweep = region.meta.method === 'sweep';
     // A sweep leaves the drops where they fall and picks everything up once at the end (a walk per block would cost more than the digging).
     const mineArgs = (c) => (sweep ? { x: c.x, y: c.y, z: c.z, collect: false } : c);
-    const fail = (res, cell, stage) => ({ ok: false, reason: res.reason, detail: { ...(res.detail || {}), cell, stage, ...r } });
+    const fail = (res, cell, stage) => ({ ok: false, reason: res.reason, detail: { ...(res.detail || {}), cell, block: env.w.nameAt ? env.w.nameAt(cell.x, cell.y, cell.z) : undefined, stage, ...r } });
     const open = (c) => PASSABLE.has(env.w.kindAt(c.x, c.y, c.z));
     // Fill what sealPlan lists. `before`: only fluid that can be seen now (a pocket sealed inside stone cannot be clicked, and it
     // cannot flow until the cell next to it opens: live run p4, a water cell in the wall next to the last stone); after the dig
@@ -201,6 +217,7 @@ async function runUnit(plan, region, u, env) {
     // (a bot with an empty inventory next to a shore) is not a failure of the unit: it is left for after the row, when digging has
     // brought dirt or cobblestone.
     const handle = async (c, last) => {
+        if (isSolid(env.w, c.x, c.y, c.z) && aerialTree(env.w, c)) { r.skipped++; r.aerial = (r.aerial || 0) + 1; return null; }       // out of reach by design, see aerialTree
         let s = await seal(c, true);
         if (!s.ok) return s.reason === 'missing_item' && !last ? 'defer' : fail(s, c, 'seal');
         if (open(c)) { r.skipped++; return null; }
@@ -226,6 +243,12 @@ async function runUnit(plan, region, u, env) {
         return null;
     };
     const deferred = [];
+    // Nothing to dig here (only open air, unbreakable blocks and tree blocks out of reach): done, and the bot does not walk anywhere. Walking to the station
+    // of such a tile sent bots up the canopy of a tree (the planner takes the nearest reachable cell to a station in mid-air: live pit of 2026-11-07).
+    if (cells.every((c) => open(c) || UNBREAKABLE.test(env.w.nameAt(c.x, c.y, c.z) || '') || (isSolid(env.w, c.x, c.y, c.z) && aerialTree(env.w, c)))) {
+        r.skipped += cells.length; r.idle = true;
+        return { ok: true, reason: null, detail: r };
+    }
     if (sweep && cells.station && env.here) {
         const g = await goToStation(cells.station, handle, env, open, r);
         if (g) return g;
@@ -262,6 +285,8 @@ async function goToStation(S, handle, env, open, r) {
     for (let t = 0; t < 10; t++) {
         const here = env.here();
         if (here.x === S.x && here.y === S.y && here.z === S.z) return null;
+        // No floor within three cells below the station: nobody can stand there (a tile above the ground); work from where the bot is.
+        if (open(S) && ![1, 2, 3].some((d) => isSolid(env.w, S.x, S.y - d, S.z))) return null;
         if (open(S)) {
             const m = await env.exec('move_to', S);
             if (m.ok) return null;
@@ -296,7 +321,7 @@ function wrongCells(plan, region, u, w) {
     const out = [];
     for (const c of unitCells(plan, region, u)) {
         const k = w.kindAt(c.x, c.y, c.z);
-        if (k === 'unknown' || PASSABLE.has(k) || UNBREAKABLE.test((w.nameAt && w.nameAt(c.x, c.y, c.z)) || '')) continue;
+        if (k === 'unknown' || PASSABLE.has(k) || UNBREAKABLE.test((w.nameAt && w.nameAt(c.x, c.y, c.z)) || '') || aerialTree(w, c)) continue;
         out.push(c);
     }
     return out;
@@ -336,4 +361,4 @@ function createPitJob(box, ledgerOpts = {}, { lanes = 0, method = 'rows', tile =
     return { kind: 'pit', ledger, plan, runUnit: (regionId, unit, env) => runUnit(plan, byId.get(regionId), unit, env), audit: (env, now, opts) => audit(plan, ledger, env.w, now, auditState, opts), rescue: (env, why) => require('../bot/water').rescue(env, plan.box, { why }) };
 }
 
-module.exports = { planPit, laneBoxes, planRoad, stationsOf, lineCells, unitCells, sealPlan, orderFill, isFluid, exposed, runUnit, wrongCells, audit, createPitJob, SEAL_ITEMS, CHUNK, TILE, SWEEP_R };
+module.exports = { aerialTree, planPit, laneBoxes, planRoad, stationsOf, lineCells, unitCells, sealPlan, orderFill, isFluid, exposed, runUnit, wrongCells, audit, createPitJob, SEAL_ITEMS, CHUNK, TILE, SWEEP_R };

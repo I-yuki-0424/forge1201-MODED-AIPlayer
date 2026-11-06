@@ -23,7 +23,7 @@ class DisplayPart {
 
     /** Remember the way a bot is about to walk (the planner's cells, from the `walk` phase of the action layer). */
     _trackPath(rec, bot) {
-        bot.__onPhase = (ev) => { if (ev && Array.isArray(ev.cells) && ev.cells.length) rec.path = { cells: ev.cells.slice(0, 400), at: Date.now() }; };
+        bot.__onPhase = (ev) => { if (ev && ev.phase) rec.phase = { name: String(ev.phase).slice(0, 24), at: Date.now() }; if (ev && Array.isArray(ev.cells) && ev.cells.length) rec.path = { cells: ev.cells.slice(0, 400), at: Date.now() }; };
     }
 
     displayState() {

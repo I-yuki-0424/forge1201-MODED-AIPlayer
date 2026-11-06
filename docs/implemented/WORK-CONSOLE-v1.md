@@ -341,6 +341,17 @@ pickaxe (230 uses left) over a stone one and two worn ones, a chest with only wo
 entity, rules off, the Tag Tool item exists. The mod compiled against the real MCEF jar (build in `aux_console/README.md`) and loads on a Forge 1.20.1 dedicated server; NOT tested:
 the web view and the key in a real client (none here), the tag item's screen flow.
 
+### Stuck bots in a pit above the ground (2026-11-07, owner: "nothing moves, they stop in an empty spot, glow, no error in the WebUI")
+
+Cause, read from the running job (j16: top y 90 over ground at y 64-68, a tree inside the box): every sweep unit walked to the station in the middle of its tile, also when the tile held
+only air and tree blocks 10-20 above the ground. A station in mid air has no standing cell; the planner (20,000 cells, 30-85 s, six tries per unit) takes the nearest reachable one,
+and that was the canopy: bots climbed onto the leaves, two stood in the same place, glowed, and the page showed nothing. Progress was 122 of 2,400 units in 12 minutes.
+Fixes (`jobs/pit.js`): `aerialTree` (a leaf, log or vine more than 6 above the ground below is not tried and not counted by the audit), a unit with nothing left to dig finishes at once
+without walking, a station without a floor within 3 cells below is not chased, failures carry the block's name. Bots table: the activity column now shows the action layer's phase and
+its age ("walk 14 s", "plan 14 s") and the last problem ("unreachable 248 80 446, 50 s ago"), so a bot that searches or glows says why (`service/bots.js`, `widgets.js`).
+After the fix, same area, four bots: 393 of 2,400 units after 90 s, bots at ground level digging, 0 problems (before: 187, stuck in the canopy). Job reset by the owner's word.
+Not done: tall terrain features other than trees (a floating block of stone would still be tried); the box top should be set at the ground, "Top = ground" does that.
+
 ## Security basis (the console can reach RCON and control bots, so it is an administrative interface)
 
 - Not an extension of the old unauthenticated WebUI (docs/LESSONS.md L3), which stays on loopback and unchanged.

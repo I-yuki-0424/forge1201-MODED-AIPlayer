@@ -11,11 +11,13 @@ class DiagnosticsPart {
             let ctx = null; try { ctx = rec.bot && rec.state === 'online' ? surroundings(rec.bot, require('../../skills/world').fromBot(rec.bot)) : null; } catch (_) { /* no world yet */ }
             const { cell: target, ...rest } = e;                       // `target` = the cell it failed on; `cell` (from the surroundings) = where the bot stood
             this.problems.record({ bot: rec.name, kind, ...rest, target, hp: rec.bot && rec.bot.health }, ctx);
+            rec.problem = { kind, reason: e.reason || null, stage: e.stage || null, cell: target || (ctx && ctx.cell) || null, at: Date.now() };      // shown in the bots table until the next good unit
             if (this.settings.glow && this.o.rcon) this.problems.glow((c) => this.rcon(c), rec.name).catch(() => {});
             this._dirty();
         } catch (_) { /* diagnostic only */ }
     }
-    _clearGlow(rec) { if (this.problems.glowing.has(rec.name) && this.o.rcon) this.problems.unglow((c) => this.rcon(c), rec.name).catch(() => {}); }
+    _clearGlow(rec) {
+        rec.problem = null; if (this.problems.glowing.has(rec.name) && this.o.rcon) this.problems.unglow((c) => this.rcon(c), rec.name).catch(() => {}); }
 
     /** The server's script (server_scripts/forgeaip_direct_pickup.js) gives drops of players tagged `aip_direct` straight to their inventory. */
     _tagDirect(rec, on = this.settings.directPickup) {

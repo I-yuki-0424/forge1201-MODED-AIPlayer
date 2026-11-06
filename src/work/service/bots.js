@@ -69,6 +69,9 @@ class BotsPart {
             // tools with their durability, for the table and the summary: worn = the retireWorn rule passes them over
             tools: items.filter((i) => i.maxDurability && /(_pickaxe|_axe|_shovel|_hoe|_sword)$/.test(i.name)).slice(0, 12).map((i) => ({ name: i.name, left: i.maxDurability - (i.durabilityUsed || 0), max: i.maxDurability, worn: this._worn(b, i) })),
             script: rec.script ? rec.script.name : null,
+            // what it is doing now (the action layer's phase, seconds since it began) and the last problem: a bot that stands and searches a path, or glows, says why
+            phase: rec.phase && rec.state === 'online' && Date.now() - rec.phase.at < 180000 && (rec.worker || rec.cmd && rec.cmd.status === 'running') ? { name: rec.phase.name, s: Math.round((Date.now() - rec.phase.at) / 1000) } : null,
+            problem: rec.problem ? { kind: rec.problem.kind, reason: rec.problem.reason, stage: rec.problem.stage, cell: rec.problem.cell, s: Math.round((Date.now() - rec.problem.at) / 1000) } : null,
             inPit: this._inPit(rec),
         };
     }

@@ -92,6 +92,24 @@ const tool = (name, max, used) => ({ name, maxDurability: max, durabilityUsed: u
         assert.strictEqual(janitor.plan([{ name: 'gravel', count: 64 }], 0, janitor.pitPolicy({ depot, storeMin: 10, sites: () => new Sites([{ name: 'tools', x: 8, y: 9, z: 9, tags: ['tools'] }]) }))[0].op, 'toss', 'a tools chest is not a junk chest');
     });
 
+    await test('pit: a tree block high above the ground is left alone (not tried, not a leftover); low tree blocks and ordinary blocks are dug', async () => {
+        const pit = require('../src/work/jobs/pit');
+        const cells = new Map(); const set = (x, y, z, n) => cells.set(`${x},${y},${z}`, n);
+        for (let y = -64; y <= 63; y++) set(5, y, 5, 'stone');                          // ground to y 63
+        for (let y = 64; y <= 80; y++) set(5, y, 5, 'jungle_log'); set(5, 85, 5, 'oak_leaves');      // a trunk and a leaf with air between
+        const w = { nameAt: (x, y, z) => cells.get(`${x},${y},${z}`) || 'air', kindAt: (x, y, z) => (cells.has(`${x},${y},${z}`) ? 'solid' : 'air') };
+        assert.strictEqual(pit.aerialTree(w, { x: 5, y: 66, z: 5 }), false, 'within reach of the ground');
+        assert.strictEqual(pit.aerialTree(w, { x: 5, y: 70, z: 5 }), true); assert.strictEqual(pit.aerialTree(w, { x: 5, y: 85, z: 5 }), true);
+        assert.strictEqual(pit.aerialTree(w, { x: 5, y: 60, z: 5 }), false, 'stone is never a tree'); assert.strictEqual(pit.aerialTree({ nameAt: () => 'oak_leaves', kindAt: () => 'unknown' }, { x: 0, y: 90, z: 0 }), false, 'not loaded: no verdict');
+        // a unit over the tree: the high blocks are skipped without a single mine call, the low one is dug, the unit is ok
+        const plan = pit.planPit({ x0: 5, z0: 5, x1: 5, z1: 5, top: 85, bottom: 64 }, { method: 'rows', road: false }), region = plan.regions[0], mined = [];
+        const env = { w, have: () => 9, exec: async (n, a) => { if (n === 'mine') { mined.push(a.y); cells.delete(`${a.x},${a.y},${a.z}`); } return { ok: true }; }, here: () => ({ x: 5, y: 64, z: 5 }), pause: async () => {} };
+        let skipped = 0, ok = true;
+        for (let u = 0; u < region.layers * region.rows; u++) { const r = await pit.runUnit(plan, region, { unit: u }, env); ok = ok && r.ok; skipped += r.detail.skipped || 0; }
+        assert.ok(ok); assert.ok(mined.every((y) => y <= 69), `only blocks within reach were dug: ${mined}`); assert.ok(mined.includes(64) && mined.includes(69)); assert.ok(skipped >= 12, `skipped ${skipped}`);
+        assert.deepStrictEqual(pit.wrongCells(plan, region, 0, w).filter((c) => c.y >= 70), [], 'the audit does not count them');
+    });
+
     // ---- service
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wtools-'));
     const factory = (name) => { const b = new EventEmitter(); Object.assign(b, { username: name, entity: { position: { x: 0, y: 70, z: 0 } }, registry: { blocksByName: { stone: { harvestTools: { 7: true } } }, items: { 7: { name: 'iron_pickaxe' } }, itemsByName: { iron_pickaxe: { id: 7 } } }, inventory: { items: () => b.items, slots: [], emptySlotCount: () => 30 }, quit() {} }); b.items = []; setTimeout(() => b.emit('spawn'), 5); return b; };
