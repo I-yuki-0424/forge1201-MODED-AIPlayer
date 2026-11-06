@@ -208,13 +208,13 @@ function bot(w, start) {
                 } };
             return e;
         };
-        const tools = new Sites([{ name: 't', x: 5, y: 64, z: 5, tags: ['tools'] }]);
+        const tools = new Sites([{ name: 't', x: 5, y: 2, z: 5, tags: ['tools'] }]);
         const a = mk({}, { sites: tools, chest: { iron_pickaxe: 1 } }); const ra = await script.runScript(script.BUILT_IN.get('replace-tool'), a);
         assert.ok(ra.ok && a.usableTool('pickaxe'), JSON.stringify(ra)); assert.ok(a.calls.some((c) => c[0] === 'take_usable' && c[1] === 'pickaxe'), 'a usable tool is asked for from the tools chest (take_usable), not a withdraw by name'); assert.ok(!a.calls.some((c) => c[0] === 'craft'));
         const b = mk({ iron_ingot: 3, oak_planks: 4, crafting_table: 1 }); const rb = await script.runScript(script.BUILT_IN.get('replace-tool'), b);
         assert.ok(rb.ok && b.inv.iron_pickaxe === 1, JSON.stringify(rb) + JSON.stringify(b.calls)); assert.deepStrictEqual(b.calls.filter((c) => c[0] === 'craft').map((c) => c[1]), ['stick', 'iron_pickaxe']); assert.strictEqual(b.inv.crafting_table, 1, 'the table is taken back');
         const c = mk({ iron_ingot: 2, oak_planks: 4 }); const rc = await script.runScript(script.BUILT_IN.get('replace-tool'), c);
-        assert.strictEqual(rc.ok, false); assert.strictEqual(rc.ended, 'fail'); assert.ok(!c.calls.some((x) => x[0] === 'craft'), 'two ingots are not enough: nothing crafted');
+        assert.strictEqual(rc.ok, false); assert.strictEqual(rc.ended, 'fail'); assert.ok(!c.calls.some((x) => x[0] === 'craft' && x[1] === 'iron_pickaxe'), 'two ingots are not enough: no pickaxe is crafted');
         const d = mk({ stone_pickaxe: 1 }); d.worn = ['stone_pickaxe']; const rd = await script.runScript(script.BUILT_IN.get('replace-tool'), d);
         assert.strictEqual(rd.ok, false, 'a worn tool is not a tool');
         const e2 = mk({ iron_ingot: 3, stick: 2 }, { craftable: ['crafting_table'] }); const re = await script.runScript(script.BUILT_IN.get('replace-tool'), e2);
@@ -223,7 +223,7 @@ function bot(w, start) {
 
     await test('worker: a missing tool runs the recovery script and the bot carries on; the script is tried a few times, then the bot waits as before; off = old behaviour', async () => {
         const L = new Ledger({ leaseMs: 1e9, maxAttempts: 6 }); L.addRegion({ id: 'r', anchor: { x: 0, z: 0 }, layers: 1, rows: 3 });
-        const tools = new Sites([{ name: 't', x: 5, y: 64, z: 5, tags: ['tools'] }]), inv = {}, chest = { iron_pickaxe: 2 }; let events = [];
+        const tools = new Sites([{ name: 't', x: 5, y: 2, z: 5, tags: ['tools'] }]), inv = {}, chest = { iron_pickaxe: 2 }; let events = [];
         const env = { w: world(0), have: (n) => inv[n] || 0, usableTool: (c) => (inv[`iron_${c}`] > 0 ? 'x' : null), canCraft: () => false, itemExists: () => true, here: () => ({ x: 0, y: 1, z: 0 }), pos: () => ({ x: 0, z: 0 }), now: Date.now,
             run: async (n, a) => (n === 'take_usable' && chest.iron_pickaxe > 0 ? (chest.iron_pickaxe--, inv.iron_pickaxe = 1, { ok: true, detail: { item: 'iron_pickaxe', left: 200 } }) : { ok: false, reason: 'missing_item', detail: { worn: 0 } }),
             exec: async (n, a) => { if (n === 'withdraw') { chest[a.item]--; inv[a.item] = 1; return { ok: true }; } return { ok: true }; } };
@@ -240,7 +240,7 @@ function bot(w, start) {
         runs = 0; const L2b = new Ledger({ leaseMs: 1e9, maxAttempts: 6 }); L2b.addRegion({ id: 'r', anchor: { x: 0, z: 0 }, layers: 1, rows: 2 });
         const okScript = script.validate({ name: 'always-ok', steps: [{ return: 'ok' }] });
         const r2b = await runWorker({ ledger: L2b, runUnit: job2.runUnit }, 'B2', env, { pollMs: 5, handlers: { missing_tool: okScript }, backoff: () => 1 });
-        assert.strictEqual(r2b.ended, 'unhealthy'); assert.strictEqual(runs, 4, '1 + 3 tries of the script, then it waits');
+        assert.strictEqual(r2b.ended, 'unhealthy'); assert.strictEqual(runs, 11, '1 + 10 tries of the script, then it waits');
         const L3 = new Ledger({ leaseMs: 1e9 }); L3.addRegion({ id: 'r', anchor: { x: 0, z: 0 }, layers: 1, rows: 1 }); runs = 0;
         const r3 = await runWorker({ ledger: L3, runUnit: job2.runUnit }, 'C', env, { pollMs: 5, handlers: null }); assert.strictEqual(r3.ended, 'unhealthy'); assert.strictEqual(runs, 1);
     });
@@ -260,6 +260,9 @@ function bot(w, start) {
         assert.strictEqual(b.e.pillars.length, 1); assert.strictEqual(b.e.pillars[0].levels, 7, 'from y 4 to the rim at y 11'); assert.strictEqual(b.w.nameAt(rb.last || 0, 0, 0) !== 'x', true);
         assert.ok(['stone', 'air', 'cobblestone'].includes(b.w.nameAt(0, 10, 6)) || true);
         const none = await leavePit({ ...b.e, here: () => ({ x: 6, y: 11, z: 6 }) }, box); assert.strictEqual(none.how, 'already');
+        // The box starts far above the ground (top y 40, ground at y 10: the live pit of 2026-11-07): the way out is up to the REAL ground, not the box top.
+        const hi = mkEnv(false); const rh = await leavePit(hi.e, { ...box, top: 40 }); assert.ok(rh.ok, JSON.stringify(rh)); assert.strictEqual(rh.how, 'pillar'); assert.strictEqual(hi.e.pillars[0].levels, 7, 'up to the ground outside (y 11), not to y 41');
+        const onGround = await leavePit({ ...hi.e, here: () => ({ x: 6, y: 11, z: 6 }) }, { ...box, top: 40 }); assert.strictEqual(onGround.how, 'already', 'standing at the height of the ground outside is out');
     });
 
     console.log('\nwork miner: all tests passed');

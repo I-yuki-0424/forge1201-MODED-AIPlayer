@@ -56,6 +56,10 @@ class JobsPart {
         // minValue: the depot's rank, 0..100 (janitor VALUES): what is worth less is thrown away instead of stored; 0 = store everything.
         const minValue = d.minValue === undefined ? 0 : d.minValue;
         need(Number.isInteger(minValue) && minValue >= 0 && minValue <= 100, 'depot.minValue: 0..100');
+        if (d.kind === 'chest') {                                       // a depot at coordinates where a bot sees no container is a mistake worth saying at once (it was air on the play world)
+            const bn = this._blockName(int(d.x, 'depot.x'), int(d.y, 'depot.y'), int(d.z, 'depot.z'));
+            need(!bn || /(^|_)(chest|barrel|shulker_box)$/.test(bn), `no container at ${d.x} ${d.y} ${d.z} (there is ${bn}): check the depot coordinates`);
+        }
         return d.kind === 'chest' ? { kind: 'chest', x: int(d.x, 'depot.x'), y: int(d.y, 'depot.y'), z: int(d.z, 'depot.z'), minValue } : { kind: 'shulker', item: 'shulker_box', minValue };
     }
 

@@ -150,7 +150,16 @@ async function maintain(env, policy) {
             if (!groups.has(k)) groups.set(k, { box, ops: [] });
             groups.get(k).ops.push(o);
         }
+        const bad = env.badBoxes || (env.badBoxes = new Set());
+        // A depot that is no container (the coordinates point at air, a chest that was taken away) must not stall the bot at every upkeep: what is worth
+        // little is thrown away, the rest stays in the pack; the box is not tried again by this bot.
+        const giveUp = async (g, why) => {
+            for (const o of g.ops) if (valueOf(o.item, policy) < policy.neverToss) { const r = await require('./discard').dispose(env, o.item, o.count); if (r.ok) done.push({ ...o, op: 'toss', why: 'bad_depot' }); }
+            return why;
+        };
         for (const g of groups.values()) {
+            const key = g.box.kind === 'shulker' ? 'shulker' : `${g.box.x},${g.box.y},${g.box.z}`;
+            if (bad.has(key)) { await giveUp(g, 'bad'); continue; }
             let box = g.box, placed = null;
             if (box.kind === 'shulker') {
                 const spot = shulkerSpot(env.w, env.here());
@@ -162,6 +171,7 @@ async function maintain(env, policy) {
             try {
                 for (const o of g.ops) {
                     const r = await env.exec('deposit', { item: o.item, count: Math.min(o.count, 2304), x: box.x, y: box.y, z: box.z });
+                    if (!r.ok && ['invalid_target', 'no_station'].includes(r.reason) && box.kind !== 'shulker') { bad.add(key); await giveUp(g, r.reason); break; }
                     if (!r.ok) return { ok: false, reason: r.reason, detail: r.detail, done };
                     done.push(o);
                 }

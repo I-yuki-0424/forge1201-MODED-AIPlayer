@@ -19,9 +19,18 @@ function sides(box, f) {
     return all.sort((a, b) => Math.abs(a.x - f.x) + Math.abs(a.z - f.z) - Math.abs(b.x - f.x) - Math.abs(b.z - f.z));
 }
 
-/** A cell outside the box next to `side` where the bot can stand, close to the rim height (the ground may be a little higher or lower). */
+/**
+ * The ground outside the box next to `side`: the highest cell a bot can stand on that is not the top of a tree (the box may start far above the
+ * ground, and the ground at the rim is whatever it is: owner 2026-11-07, the old search looked at the box top and found nothing).
+ */
 function ground(w, box, side) {
-    for (const y of [box.top + 1, box.top + 2, box.top, box.top + 3, box.top - 1]) if (standable(w, { x: side.ox, y, z: side.oz })) return { x: side.ox, y, z: side.oz };
+    const TREE = /(_leaves|_log|_wood|_vines?|^vine)$/;
+    const top = Math.min(319, box.top + 4);
+    for (let y = top; y >= box.bottom; y--) {
+        if (!standable(w, { x: side.ox, y, z: side.oz })) continue;
+        if (TREE.test(String(w.nameAt(side.ox, y - 1, side.oz) || '').replace(/^minecraft:/, ''))) continue;           // a canopy is not the ground
+        return { x: side.ox, y, z: side.oz };
+    }
     return null;
 }
 
@@ -31,8 +40,9 @@ function ground(w, box, side) {
  */
 async function leavePit(env, box, { corridorMax = 40 } = {}) {
     const f = env.here(), w = env.w;
-    if (f.y >= box.top + 1) return { ok: true, how: 'already' };
     const order = sides(box, f);
+    const rim = order.map((x) => ground(w, box, x)).filter(Boolean).reduce((m, g) => Math.max(m, g.y), -Infinity);
+    if (f.y >= box.top + 1 || (Number.isFinite(rim) && f.y >= rim)) return { ok: true, how: 'already' };
     // 1. A way out on foot (the haul road): the planner finds it or does not.
     for (const s of order.slice(0, 2)) {
         const g = ground(w, box, s);
@@ -59,7 +69,8 @@ async function leavePit(env, box, { corridorMax = 40 } = {}) {
     }
     const here = env.here();
     if (here.x !== at.x || here.z !== at.z) return { ok: false, reason: 'unreachable', detail: { why: 'could not reach the edge of the pit at this depth', at, here, dug } };
-    const levels = box.top + 1 - here.y;
+    const levels = g.y - here.y;                                    // up to the ground outside, not to the top of the box
+    if (levels < 1) return { ok: true, how: 'already' };
     const p = await env.run('pillar', { levels });
     if (!p.ok) return { ok: false, reason: p.reason, detail: { ...(p.detail || {}), stage: 'pillar', levels, dug } };
     const out = ground(w, box, s);

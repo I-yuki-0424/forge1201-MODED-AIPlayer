@@ -112,14 +112,17 @@ class Ledger {
         const b = this.bot(botId);
         // A bot is steered away from a unit it just failed only if another live bot exists to take it (else it would never run).
         let alive = 0; for (const x of this.byIdx) if (x.alive) alive++;
-        const shun = alive > 1 ? b.idx : -2;
+        // Owner 2026-11-07: only a bot whose own range is finished helps. Until then it keeps to that range, so a unit it failed cannot go to anybody else:
+        // the bot retries it itself (the worker waits between tries) instead of idling with a range full of units it has shunned.
+        const homeId = b.home !== null ? b.home : b.last, homeR = homeId ? this.regions.get(homeId) : null, stayHome = !!homeR && !this.complete(homeR);
+        const sharedHome = stayHome && homeR.lessees.size - (homeR.lessees.has(b.idx) ? 1 : 0) > 0;           // another bot works this range too: it may take the unit
+        const shun = alive > 1 && !(stayHome && this.maxLead !== Infinity && !sharedHome) ? b.idx : -2;        // (lane jobs only: maxLead is set there)
         let best = null, minFront = Infinity;
         if (this.maxLead !== Infinity) for (const r of this.regions.values()) if (r.front < r.layers && r.front < minFront) minFront = r.front;
-        // Helping (owner 2026-11-06): a bot works its HOME region (the first one it was given) for as long as that has anything it may
-        // take at its current height; only when the home region has nothing left to claim at this height (it is done, or it waits for the
-        // lanes beside it to catch up) does the bot help, and it goes home again the moment home has work. At each height the same rule
-        // applies, so a bot that finished its layer helps the neighbour on THAT layer instead of waiting.
+        // Helping (owner 2026-11-06, tightened 2026-11-07): a bot works its HOME region (the first one it was given). Only a bot whose home region is complete (dug to the bottom) helps.
+        // Help ONLY when the own range is dug to the bottom: until then the bot takes units of its own range or waits for them (lanes in step), and never walks off to another lane's depth.
         for (const r of this.regions.values()) {
+            if (stayHome && r !== homeR) continue;
             if (r.front >= r.layers || !this.ready(r)) continue;
             if (this.maxLead !== Infinity && r.front - minFront > this.maxLead) continue;
             const base = r.front * r.rows;

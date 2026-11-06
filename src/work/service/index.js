@@ -32,7 +32,7 @@ class WorkService extends EventEmitter {
      */
     constructor(opts) {
         super();
-        this.o = { host: 'localhost', port: 25565, maxBots: 24, kit: DEFAULT_KIT, reconnectMs: 3000, coolMs: 60000, repairMs: 15000, restore: true, ...opts };
+        this.o = { host: 'localhost', port: 25565, maxBots: 24, kit: DEFAULT_KIT, reconnectMs: 3000, coolMs: 5000, repairMs: 3000, restore: true, ...opts };
         this.o.kit = this.o.kit || DEFAULT_KIT;               // an explicit `kit: undefined` must not hide the default
         need(this.o.dataDir, 'dataDir');
         for (const d of ['structures', 'jobs', 'scripts']) fs.mkdirSync(path.join(this.o.dataDir, d), { recursive: true });

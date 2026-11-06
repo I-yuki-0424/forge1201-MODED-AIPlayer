@@ -106,6 +106,13 @@ class Sites {
         return end ? { ...best, x: end.x, y: end.y, z: end.z, linked: best.name } : best;     // a link answers with the container it points to
     }
 
+    /** Every site with `tag`, nearest first (links resolved like `find`): a script that cannot use the nearest chest tries the next. */
+    findAll(tag, from = null) {
+        const c = this.list().filter((x) => x.tags.includes(tag) && (tag === 'machine' || !x.tags.includes('machine')));
+        if (from) c.sort((a, b) => Math.hypot(a.x - from.x, a.z - from.z) - Math.hypot(b.x - from.x, b.z - from.z));
+        return c.map((best) => { let end = null; try { end = this.through(best.x, best.y, best.z); } catch (_) { /* broken link: the site itself */ } return end ? { ...best, x: end.x, y: end.y, z: end.z, linked: best.name } : best; });
+    }
+
     /** The site tagged for exactly the class of `item` (ore, junk, food ...), not a fallback: null when the operator made none for it. */
     classSite(item, policy = {}) { return this.find(classify(item, policy)); }
 

@@ -6,9 +6,9 @@ const janitor = require('./janitor');
 const MAX_BAD_STREAK = 12;     // consecutive failed units (each after a fix and a wait) before a bot cools down; the service brings it back
 const BOT_NEEDS = new Set(['missing_tool', 'missing_item']);       // waiting for the operator, not a fault to retry
 const AUDIT_EVERY = 5;         // units between two looks at whether the finished part of the range still matches (job.audit)
-const HANDLER_TRIES = 3;       // runs of a recovery script for one reason in a row (reset by a finished unit) before the bot waits for the operator
+const HANDLER_TRIES = 10;      // runs of a recovery script for one reason in a row (reset by a finished unit) before the bot waits for the operator
 /** Seconds between attempts after the n-th failure in a row: 3, 5, 8, 12, 20, then 30. Problems of the world or the server often pass by themselves. */
-const backoffMs = (n) => [3000, 5000, 8000, 12000, 20000, 30000][Math.min(n, 6) - 1];
+const backoffMs = (n) => [1000, 1000, 2000, 2000, 3000, 5000][Math.min(n, 6) - 1];      // owner 2026-11-07: retry much sooner (was 3, 5, 8, 12, 20, 30 s)
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

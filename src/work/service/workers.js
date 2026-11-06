@@ -2,6 +2,7 @@
 // The loop of a bot that works a job: start, restock, wait for a tool, retire or cool down, finish the job.
 // A part of WorkService (index.js copies these methods onto it).
 const { runWorker } = require('../bot/worker');
+const scriptLib = require('../bot/script');
 const { need, ITEM_ID } = require('./common');
 
 class WorkersPart {
@@ -21,6 +22,14 @@ class WorkersPart {
             if (cancel.cancelled || job.state !== 'running' || rec.state !== 'online') { if (rec.worker && rec.worker.cancel === cancel) rec.worker = null; return; }
             env = this.envFactory(rec.bot, cancel, { worker: true });
             if (env && env.configure) env.configure({ retireWorn: !!this.settings.retireWorn, defend: this.settings.defend !== false });
+            // Three usable pickaxes in the pack before the work starts (stock-tools: from the tools chest, when one is in reach): a worn one is replaced on the spot.
+            if (this.settings.scripts && this.sites.find('tools') && this.scripts.get('stock-tools')) {
+                try {
+                    const senv = Object.assign(Object.create(env), { sites: this.sites, policy: job.policy, box: job.spec.box });
+                    const sr = await scriptLib.runScript(this.scripts.get('stock-tools'), senv, { cancel });
+                    this.note(sr.ok ? 'info' : 'warn', `${rec.name} stock-tools: ${sr.ended}${sr.log && sr.log.length ? ` (${sr.log.slice(-3).join('; ')})` : ''}`, { job: job.id });
+                } catch (e) { this.note('warn', `${rec.name} stock-tools failed: ${String(e.message).slice(0, 100)}`); }
+            }
         } catch (e) { rec.worker = null; this.note('warn', `bot ${rec.name}: cannot start (${e.message})`); return; }
         this._dirty();
         runWorker(job.impl, rec.name, env, {
@@ -32,7 +41,7 @@ class WorkersPart {
                 // A problem is written down where it happens and the bot glows (problems.js): unit failures that are the unit's or the bot's own trouble,
                 // failed repairs, scripts and janitor runs that gave up, a pit range that keeps refilling.
                 if ((ev === 'unit' && !d.ok && !['cancelled'].includes(d.reason)) || ev === 'janitor_failed' || (ev === 'script' && !d.ok) || (ev === 'audit' && d.gaveUp) || ev === 'audit_failed') {
-                    this._problem(rec, ev === 'unit' ? 'unit_failed' : ev, { reason: d.reason || d.ended, stage: d.detail && d.detail.stage, why: d.detail && (d.detail.why || d.detail.goal), cell: d.detail && d.detail.cell, job: job.id, region: d.region, unit: d.unit });
+                    this._problem(rec, ev === 'unit' ? 'unit_failed' : ev, { reason: d.reason || d.ended, stage: d.detail && d.detail.stage, why: ev === 'script' ? (d.log || []).slice(-3).join('; ') : d.detail && (d.detail.why || d.detail.goal), cell: d.detail && d.detail.cell, job: job.id, region: d.region, unit: d.unit });
                 }
                 if (ev === 'defend' && d.fought) this.note('info', `${rec.name} defended itself: ${d.killed}/${d.fought} killed`, { job: job.id });
                 if (ev === 'audit') this.note(d.gaveUp ? 'warn' : 'info', `${d.id} range check: ${d.reopened} unit(s) sent back, ${d.gaveUp} given up on`, { job: job.id, first: d.first });
@@ -49,7 +58,7 @@ class WorkersPart {
                     this.note('debug', `${d.id} ${d.region} u${d.unit} ${d.reason}`, { job: job.id, detail: d.detail });
                 }
                 if (ev === 'janitor_failed') this.note('debug', `${d.id} janitor ${d.reason}`, { job: job.id });
-                if (ev === 'script') this.note(d.ok ? 'info' : 'debug', `${d.id} script ${d.name} for ${d.reason}: ${d.ended}${d.log && d.log.length ? ` (${d.log.slice(-3).join('; ')})` : ''}`, { job: job.id });
+                if (ev === 'script') this.note(d.ok ? 'info' : 'warn', `${d.id} script ${d.name} for ${d.reason}: ${d.ended}${d.log && d.log.length ? ` (${d.log.slice(-4).join('; ')})` : ''}`, { job: job.id });
                 if (ev === 'rescue' && (d.filled || d.surfaced)) this.note('info', `${d.id} water rescue: ${d.surfaced ? 'to the shore, ' : ''}${d.filled} filled${d.ok ? '' : ` (${d.reason})`}`, { job: job.id });
             },
         }).then((res) => this._workerEnded(job, rec, res, cancel), (e) => this._workerEnded(job, rec, { ended: 'error', error: String(e.message).slice(0, 160) }, cancel));
@@ -87,6 +96,12 @@ class WorkersPart {
                 else if (rec.waitFor.item) ok = rec.bot.inventory.items().some((i) => i.name === rec.waitFor.item.replace(/^minecraft:/, '') && i.count > 0);
             } catch (_) { ok = false; }
             if (ok) { rec.retired = null; rec.waitFor = null; rec.fixes = 0; this.note('info', `bot ${rec.name} has what it waited for: continues`); this._resume(rec); this._dirty(); }
+            // Waiting for a tool is not waiting for the operator (owner 2026-11-07): every 15 s the bot tries the replace-tool script again (the tools chest, then
+            // iron or stone made from what it carries), so a chest that was filled or a mined ingot gets it going without a click.
+            else if (rec.waitFor.tool && !rec.script && !rec.worker && this.settings.scripts && Date.now() - (rec.replaceAt || 0) > 15000) {
+                rec.replaceAt = Date.now();
+                this.runScript(rec.name, 'replace-tool').then((r) => { this.note(r.ok ? 'info' : 'warn', `${rec.name} replace-tool while waiting: ${r.ended}${r.log && r.log.length ? ` (${r.log.slice(-4).join('; ')})` : ''}`); }, (e) => this.note('debug', `${rec.name} replace-tool: ${e.message}`));
+            }
         }
     }
 
@@ -118,13 +133,13 @@ class WorkersPart {
                 } else if (res.last === 'missing_item' && rec.missing) {
                     rec.waitFor = { item: rec.missing };
                     rec.retired = `waiting for ${rec.missing.replace('minecraft:', '')}: give some in Inventory and it continues by itself`;
-                } else if ((rec.cool = (rec.cool || 0) + 1) <= 6) {
+                } else {                                              // owner 2026-11-07: never retired for good; a short rest, then it tries again, as often as it takes
                     // Repeated failures after fixes and waits: rest a minute, then try again by itself (up to six times in a row).
-                    rec.retired = `cooling down after ${res.last || 'repeated failures'} (try ${rec.cool} of 6), resumes by itself`;
+                    rec.cool = (rec.cool || 0) + 1; rec.retired = `cooling down after ${res.last || 'repeated failures'} (try ${rec.cool}), resumes by itself`;
                     clearTimeout(rec.coolTimer);
                     rec.coolTimer = setTimeout(() => { if (!rec.removed && rec.retired && rec.retired.startsWith('cooling')) { rec.retired = null; this._resume(rec); this._dirty(); } }, this.o.coolMs);
                     rec.coolTimer.unref?.();
-                } else rec.retired = `retired: ${res.last || 'failed units'} (six cool-downs in a row: look at it in the game, then Resume)`;
+                }
                 this.note('warn', `bot ${rec.name} ${rec.retired}`);
             }
             else if (res.ended === 'stalled') this.note('warn', `bot ${rec.name}: nothing claimable and nothing running (job ${job.id})`);
@@ -138,9 +153,9 @@ class WorkersPart {
     _maybeFinish(job) {
         if ([...job.bots].some((n) => this.bots.get(n)?.worker)) return;                   // wait for the last worker
         const L = job.impl.ledger;
-        if (L.stuck.length && job.repairs < 3) {                                          // up to three repair passes, a few seconds apart (some problems pass by themselves)
+        if (L.stuck.length && job.repairs < 30) {                                          // up to three repair passes, a few seconds apart (some problems pass by themselves)
             job.repairs++;
-            this.note('info', `job ${job.id}: ${L.stuck.length} stuck units, repair pass ${job.repairs} of 3 in ${Math.round(this.o.repairMs / 1000)} s`);
+            this.note('info', `job ${job.id}: ${L.stuck.length} stuck units, repair pass ${job.repairs} of 30 in ${Math.round(this.o.repairMs / 1000)} s`);
             setTimeout(() => {
                 if (job.state !== 'running') return;
                 const n = L.requeueStuck(Date.now());

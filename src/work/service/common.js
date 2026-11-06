@@ -11,7 +11,7 @@ const ACTIVE = new Set(['running', 'paused', 'ready']);
 
 // Pits: more attempts per unit than the default (a unit is retried by other bots after waits), and lanes stay within one layer of each other
 // so that the floors of neighbouring lanes never differ by more than a step (the bots walk between them).
-const PIT_LEDGER = { leaseMs: 45000, maxAttempts: 6, maxLead: 1 };
+const PIT_LEDGER = { leaseMs: 45000, maxAttempts: 30, maxLead: 1 };      // owner 2026-11-07: try far more often before a unit counts as stuck (operation and debugging)
 const DEFAULT_KIT = { iron_pickaxe: { min: 2, give: 3 }, cobblestone: { min: 32, give: 64 }, bread: { min: 8, give: 16 } };
 
 class Problem extends Error {                          // a refusal the caller can show: carries the HTTP status

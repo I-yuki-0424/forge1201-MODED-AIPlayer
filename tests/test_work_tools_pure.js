@@ -45,7 +45,7 @@ const tool = (name, max, used) => ({ name, maxDurability: max, durabilityUsed: u
             run: async (name, a) => { calls.push([name, a]); return have ? { ok: true } : { ok: false, reason: 'missing_item', detail: { worn: 3 } }; } };
         let r = await script.runScript(sc, env);
         assert.deepStrictEqual(calls[0], ['take_usable', { class: 'pickaxe', x: 5, y: 64, z: 5 }]);
-        assert.strictEqual(r.ok, false); assert.ok(r.log.some((l) => /no usable pickaxe in the tools chest \(3 worn out\)/.test(l)), r.log.join('|'));
+        assert.strictEqual(r.ok, false); assert.ok(r.log.some((l) => /no usable pickaxe \(3 worn out\)/.test(l)), r.log.join('|'));
         env.run = async (name, a) => { have = true; return { ok: true, detail: { item: 'iron_pickaxe', left: 200 } }; };
         r = await script.runScript(sc, env); assert.strictEqual(r.ok, true); assert.ok(r.log.some((l) => /took a pickaxe \(iron_pickaxe, 200 uses left\)/.test(l)), r.log.join('|'));
     });

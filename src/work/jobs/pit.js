@@ -226,7 +226,7 @@ async function runUnit(plan, region, u, env) {
         let m = await env.exec('mine', mineArgs(c));
         // A few seconds between attempts (something in the way moves on, the server catches up), and a small fix before each one:
         // jump, sidestep, go back to where the bot last worked (env.recover; the worker's ladder).
-        for (let tries = 0; !m.ok && !open(c) && tries < 4 && RETRY.has(m.reason); tries++) { if (env.recover) await env.recover(tries + 2, m); await (env.pause ? env.pause(40 + 40 * tries) : null); m = await env.exec('mine', mineArgs(c)); }
+        for (let tries = 0; !m.ok && !open(c) && tries < 6 && RETRY.has(m.reason); tries++) { if (env.recover) await env.recover(Math.min(tries + 2, 4), m); await (env.pause ? env.pause(10 + 10 * tries) : null); m = await env.exec('mine', mineArgs(c)); }
         if (!m.ok && !open(c)) return fail(m, c, 'mine');
         r.mined++;
         // Water that was behind the block is now flowing in. Fill its source, then the cell; if the cell was plugged, dig it again.

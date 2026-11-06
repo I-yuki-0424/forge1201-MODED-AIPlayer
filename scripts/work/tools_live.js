@@ -52,7 +52,7 @@ async function main() {
     await S.must(`clear ${A}`); await S.must(`setblock ${BX + 4} ${y} ${BZ + 4} minecraft:air`); await S.must(`setblock ${BX + 4} ${y} ${BZ + 4} minecraft:chest`);
     await S.must(`item replace block ${BX + 4} ${y} ${BZ + 4} container.0 with minecraft:iron_pickaxe{Damage:243}`); await S.must(`item replace block ${BX + 4} ${y} ${BZ + 4} container.1 with minecraft:iron_pickaxe{Damage:245}`);
     const r2 = await svc.runScript(A, 'replace-tool');
-    check('a chest with only worn pickaxes gives nothing and the bot has none', !r2.ok && (await held('minecraft:iron_pickaxe')) === 0 && r2.log.some((l) => /no usable pickaxe in the tools chest \(2 worn out\)/.test(l)), { ended: r2.ended, log: r2.log.slice(0, 3) });
+    check('a chest with only worn pickaxes gives nothing and the bot has none', !r2.ok && (await held('minecraft:iron_pickaxe')) === 0 && r2.log.some((l) => /no usable pickaxe \(2 worn out\)/.test(l)), { ended: r2.ended, log: r2.log.slice(0, 3) });
 
     // ---- use up: worn pickaxes in the pack are thrown away by their wear, the good one stays
     await S.must(`clear ${A}`);

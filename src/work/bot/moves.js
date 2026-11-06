@@ -12,6 +12,7 @@ const options = require('../../skills/options');
 /** Low-value blocks a bot may stack: tagged temporary blocks first, then what a pit produces anyway. Never sand or gravel (they fall). */
 const TEMP_ITEMS = ['cobblestone', 'cobbled_deepslate', 'dirt', 'netherrack', 'stone', 'andesite', 'diorite', 'granite', 'tuff', 'deepslate'];
 
+const HAND_ITEMS = ['dirt', 'coarse_dirt', 'grass_block'];          // blocks a bot breaks without a tool (and they do not fall)
 const PLACE_ABOVE = 1.002;        // feet this far above the old feet cell's floor: the placed block no longer touches the body (jump: 0.42, 0.75, 1.0013 ...)
 
 /**
@@ -31,8 +32,18 @@ async function pillar(ctx, { levels, items = TEMP_ITEMS }) {
     for (let i = 0; i < levels; i++) {
         const f = feetCell(bot.entity.position);
         if (w.kindAt(f.x, f.y - 1, f.z) !== 'solid') throw new SkillError('invalid_target', { why: 'nothing solid under the feet', at: f, done: placed });
-        for (const dy of [1, 2]) if (w.kindAt(f.x, f.y + dy, f.z) !== 'air') throw new SkillError('invalid_target', { why: 'no head room above for the jump', at: { x: f.x, y: f.y + dy, z: f.z }, done: placed });
-        const item = items.find((n) => bot.registry.blocksByName[n] && count(bot, n) >= 1);
+        // A block overhead is broken first (owner 2026-11-07): the cell above the head, then the head cell if it is closed too.
+        for (const dy of [2, 1]) {
+            const c = { x: f.x, y: f.y + dy, z: f.z };
+            if (w.kindAt(c.x, c.y, c.z) === 'air') continue;
+            ctx.phase('pillar_clear_overhead', { cell: c });
+            const r = await mine(ctx, { ...c, collect: false }).then(() => null, (e) => e);
+            if (r || w.kindAt(c.x, c.y, c.z) !== 'air') throw new SkillError('invalid_target', { why: 'no head room above for the jump', at: c, done: placed, cause: r && r.reason });
+        }
+        // Without a pickaxe only blocks that break by hand can be taken away again: dirt first (owner 2026-11-07), else the usual low-value blocks.
+        const handOnly = !bot.inventory.items().some((i) => i.name.endsWith('_pickaxe'));
+        const order = handOnly ? [...HAND_ITEMS, ...items.filter((n) => !HAND_ITEMS.includes(n))] : items;
+        const item = order.find((n) => bot.registry.blocksByName[n] && count(bot, n) >= 1);
         if (!item) throw new SkillError('missing_item', { item: items[0], why: 'no low-value block to stack', tried: items, done: placed });
         await holdItem(ctx, item);
         const look = { yaw: bot.entity.yaw, pitch: -Math.PI / 2 };
