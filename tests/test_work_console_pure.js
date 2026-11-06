@@ -109,6 +109,13 @@ function test(name, fn) { console.log(`--- test: ${name} ---`); return Promise.r
         assert.strictEqual((await call2('DELETE', `/api/jobs/${ok.json.id}`, A)).status, 200);
     });
 
+    await test('every script the page loads is served (a file missing from the static list breaks the page and no other test sees it)', async () => {
+        const html = fs.readFileSync(path.join(__dirname, '../public/work/index.html'), 'utf8');
+        const srcs = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1]).concat([...html.matchAll(/<link rel="stylesheet" href="([^"]+)"/g)].map((m) => m[1]));
+        assert.ok(srcs.includes('/tools.js') && srcs.length >= 8, srcs.join(' '));
+        for (const u of srcs) { const r = await call2('GET', u, {}); assert.strictEqual(r.status, 200, `${u} is ${r.status}`); }
+    });
+
     await test('v5 routes: sites, scripts and Leave pit need the session; bad input is a 400 with the reason, unknown names a 404', async () => {
         for (const [m, u] of [['GET', '/api/sites'], ['POST', '/api/sites'], ['GET', '/api/scripts'], ['POST', '/api/scripts'], ['POST', '/api/bots/Crew1/leave'], ['POST', '/api/scripts/x/run']]) assert.strictEqual((await call2(m, u, {})).status, 401, `${m} ${u} without a session`);
         assert.strictEqual((await call2('POST', '/api/sites', { body: { name: 'a', x: 1, y: 2, z: 3, tags: ['wood'] }, ...A })).status, 400);

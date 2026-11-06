@@ -18,7 +18,7 @@ const { WorkService, Problem, BOT_NAME } = require('./service');
 const { Access } = require('./access');
 
 const PUBLIC = path.join(__dirname, '..', '..', 'public', 'work');
-const STATIC = Object.fromEntries([['/', 'index.html', 'text/html; charset=utf-8'], ...['work.js', 'ui.js', 'map.js', 'cmd.js', 'inv.js', 'blockcolor.js'].map((f) => [`/${f}`, f, 'text/javascript; charset=utf-8']), ['/work.css', 'work.css', 'text/css; charset=utf-8']].map(([u, f, t]) => [u, [f, t]]));
+const STATIC = Object.fromEntries([['/', 'index.html', 'text/html; charset=utf-8'], ...['work.js', 'ui.js', 'map.js', 'cmd.js', 'inv.js', 'tools.js', 'blockcolor.js'].map((f) => [`/${f}`, f, 'text/javascript; charset=utf-8']), ['/work.css', 'work.css', 'text/css; charset=utf-8']].map(([u, f, t]) => [u, [f, t]]));
 const MAX_JSON = 256 * 1024, MAX_UPLOAD = 8 * 1024 * 1024;
 const SESSION_MS = 12 * 3600 * 1000;
 const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
