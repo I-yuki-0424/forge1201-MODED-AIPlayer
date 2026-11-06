@@ -26,7 +26,7 @@ const WORK_MOVES = new Set(['pillar', 'take_usable']);
 const TIERS = ['netherite', 'diamond', 'iron', 'stone', 'golden', 'wooden'];
 const CLASSES = new Set(['pickaxe', 'axe', 'shovel', 'sword', 'hoe']);
 const STEP_KEYS = new Set(['go_back', 'cmd', 'args', 'at', 'table', 'furnace', 'optional', 'gather', 'make_planks', 'if', 'then', 'else', 'take', 'take_tool', 'put_away', 'station', 'release_station', 'leave_pit', 'return', 'log']);
-const COND_KEYS = new Set(['has', 'tool', 'can_craft', 'site', 'free_slots', 'planks', 'logs', 'all', 'any', 'not']);
+const COND_KEYS = new Set(['has', 'tool', 'usable', 'can_craft', 'site', 'free_slots', 'in_pit', 'planks', 'logs', 'all', 'any', 'not']);
 const REACH_DY = 12;                          // a tagged chest more than this many levels above or below the bot is not walked to (the planner would search for a minute and fail)
 const ITEM = /^([a-z0-9_.-]{1,32}:)?[a-z0-9_/]{1,64}$/;
 
@@ -43,6 +43,8 @@ function validateCond(c, depth) {
     else if (k === 'can_craft') { if (typeof v !== 'string' || !ITEM.test(v)) bad('can_craft: an item name'); }
     else if (k === 'site') { if (typeof v !== 'string' || !/^[a-z]{2,12}$/.test(v)) bad('site: a tag'); }
     else if (k === 'free_slots') { if (!Number.isInteger(v) || v < 0 || v > 36) bad('free_slots: 0..36'); }
+    else if (k === 'in_pit') { if (v !== true) bad('in_pit: true'); }
+    else if (k === 'usable') { if (!v || !CLASSES.has(v.class) || !Number.isInteger(v.min) || v.min < 1 || v.min > 9) bad('usable: {class, min: 1..9}'); }
     else if (k === 'planks' || k === 'logs') { if (!Number.isInteger(v) || v < 1 || v > 64) bad(`${k}: 1..64`); }
     else if (k === 'not') validateCond(v, depth + 1);
     else { if (!Array.isArray(v) || !v.length || v.length > 8) bad(`${k}: a list of 1..8 conditions`); for (const x of v) validateCond(x, depth + 1); }
@@ -95,6 +97,8 @@ function holds(c, env) {
     if (k === 'can_craft') return !!(env.canCraft && env.canCraft(v));
     if (k === 'site') return !!(env.sites && env.sites.find(v, env.pos ? env.pos() : null));
     if (k === 'free_slots') return env.inv ? env.inv().slotsFree >= v : false;
+    if (k === 'usable') return (env.usableCount ? env.usableCount(v.class) : toolOf(v.class, env) ? 1 : 0) >= v.min;
+    if (k === 'in_pit') return !!(env.box && env.here && env.w && require('./exit').inPit(env, env.box));
     if (k === 'planks' || k === 'logs') return sumItems(env, k === 'planks' ? /_planks$/ : /_(log|stem|hyphae)$/) >= v;
     if (k === 'not') return !holds(v, env);
     if (k === 'all') return v.every((x) => holds(x, env));
@@ -232,7 +236,8 @@ const REPLACE_TOOL = {
         { if: { not: { has: { item: 'stick', min: 2 } } }, then: [{ take: { item: 'stick', count: 4, from: 'storage' }, optional: true }] },
         { if: { not: { has: { item: 'stick', min: 2 } } }, then: [
             { if: { not: { planks: 2 } }, then: [
-                { if: { not: { logs: 1 } }, then: [{ gather: { target: 'oak_log', count: 2, radius: 24 }, optional: true }] },
+                // Trees are on the surface: from inside the pit the bot would walk to the wall in front of one and back (live pit 2026-11-07), so it does not look.
+                { if: { all: [{ not: { logs: 1 } }, { not: { in_pit: true } }] }, then: [{ gather: { target: 'oak_log', count: 2, radius: 24 }, optional: true }] },
                 { make_planks: 4, optional: true },
             ] },
             { cmd: 'craft', args: { item: 'stick', count: 4 }, optional: true },
@@ -265,18 +270,24 @@ const STOCK_TOOLS = {
     name: 'stock-tools',
     steps: [
         { take_tool: { class: 'pickaxe', from: 'tools', until: 3 }, optional: true },
-        // Sticks for pickaxes made in the pit (iron or stone, replace-tool): from the storage chest, else planks from a tree nearby. Eight sticks make four pickaxes.
-        { if: { not: { has: { item: 'stick', min: 6 } } }, then: [
-            { take: { item: 'stick', count: 8, from: 'storage' }, optional: true },
-            { if: { not: { has: { item: 'stick', min: 6 } } }, then: [
-                { if: { not: { planks: 4 } }, then: [
-                    { if: { not: { logs: 2 } }, then: [{ gather: { target: 'oak_log', count: 3, radius: 24 }, optional: true }] },
-                    { if: { not: { logs: 2 } }, then: [{ gather: { target: 'jungle_log', count: 3, radius: 24 }, optional: true }] },
-                    { if: { not: { logs: 2 } }, then: [{ gather: { target: 'spruce_log', count: 3, radius: 24 }, optional: true }] },
-                    { if: { not: { logs: 2 } }, then: [{ gather: { target: 'birch_log', count: 3, radius: 24 }, optional: true }] },
-                    { make_planks: 8, optional: true },
+        // Still fewer than three (the bot works deep in the pit, the chest is far above): climb out, fill up, be put back (the owner's tools chest first, before anything is crafted).
+        { if: { not: { usable: { class: 'pickaxe', min: 3 } } }, then: [
+            { leave_pit: true, optional: true },
+            { take_tool: { class: 'pickaxe', from: 'tools', until: 3 }, optional: true },
+            { go_back: true, optional: true },
+        ] },
+        // Sticks for pickaxes made in the pit (replace-tool): from the storage chest, else planks from a tree nearby (outside the pit only). Twelve sticks make six pickaxes.
+        { if: { not: { has: { item: 'stick', min: 8 } } }, then: [
+            { take: { item: 'stick', count: 12, from: 'storage' }, optional: true },
+            { if: { all: [{ not: { has: { item: 'stick', min: 8 } } }, { not: { in_pit: true } }] }, then: [
+                { if: { not: { planks: 6 } }, then: [
+                    { if: { not: { logs: 3 } }, then: [{ gather: { target: 'oak_log', count: 4, radius: 24 }, optional: true }] },
+                    { if: { not: { logs: 3 } }, then: [{ gather: { target: 'jungle_log', count: 4, radius: 24 }, optional: true }] },
+                    { if: { not: { logs: 3 } }, then: [{ gather: { target: 'spruce_log', count: 4, radius: 24 }, optional: true }] },
+                    { if: { not: { logs: 3 } }, then: [{ gather: { target: 'birch_log', count: 4, radius: 24 }, optional: true }] },
+                    { make_planks: 12, optional: true },
                 ] },
-                { cmd: 'craft', args: { item: 'stick', count: 8 }, optional: true },
+                { cmd: 'craft', args: { item: 'stick', count: 12 }, optional: true },
             ] },
         ] },
         { return: 'ok' },

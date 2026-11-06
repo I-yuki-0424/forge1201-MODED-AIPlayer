@@ -26,7 +26,8 @@ class Ledger {
      * @param maxAttempts failures (other than the bot's own death) before a unit is `stuck`
      * @param crowd       score penalty per other bot already in a region (huge = help only when nothing unowned is left)
      */
-    constructor({ leaseMs = 60000, maxAttempts = 3, crowd = 1e6, maxLead = Infinity } = {}) {
+    constructor({ leaseMs = 60000, maxAttempts = 3, crowd = 1e6, maxLead = Infinity, lanes = false } = {}) {
+        this.lanes = lanes;           // pit jobs: one range per bot; a bot keeps to its range until it is dug to the bottom, and retries its own failed units itself
         this.maxLead = maxLead;       // a region may start layer f only while f - (the lowest front of any open region) <= maxLead: lanes stay in step
         Object.assign(this, { leaseMs, maxAttempts, crowd });
         this.regions = new Map();
@@ -116,7 +117,7 @@ class Ledger {
         // the bot retries it itself (the worker waits between tries) instead of idling with a range full of units it has shunned.
         const homeId = b.home !== null ? b.home : b.last, homeR = homeId ? this.regions.get(homeId) : null, stayHome = !!homeR && !this.complete(homeR);
         const sharedHome = stayHome && homeR.lessees.size - (homeR.lessees.has(b.idx) ? 1 : 0) > 0;           // another bot works this range too: it may take the unit
-        const shun = alive > 1 && !(stayHome && this.maxLead !== Infinity && !sharedHome) ? b.idx : -2;        // (lane jobs only: maxLead is set there)
+        const shun = alive > 1 && !(stayHome && this.lanes && !sharedHome) ? b.idx : -2;
         let best = null, minFront = Infinity;
         if (this.maxLead !== Infinity) for (const r of this.regions.values()) if (r.front < r.layers && r.front < minFront) minFront = r.front;
         // Helping (owner 2026-11-06, tightened 2026-11-07): a bot works its HOME region (the first one it was given). Only a bot whose home region is complete (dug to the bottom) helps.

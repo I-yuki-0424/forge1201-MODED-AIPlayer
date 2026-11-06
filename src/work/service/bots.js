@@ -24,6 +24,11 @@ class BotsPart {
         try { bot = this.factory(rec.name); } catch (e) { rec.error = String(e.message).slice(0, 200); return this._retry(rec); }
         rec.bot = bot;
         this._trackPath(rec, bot);
+        // How long a bot goes without a physics tick (50 ms each): if every bot shows the same gap at the same moment, the process or the server stalled; one bot alone, it was waiting.
+        bot.on('physicsTick', () => {
+            const now = Date.now(), gap = rec.tickAt ? now - rec.tickAt : 0; rec.tickAt = now;
+            if (gap > 1500 && rec.state === 'online' && mine()) this.note('warn', `${rec.name}: no physics tick for ${gap} ms (phase ${rec.phase ? rec.phase.name : 'none'}); others: ${[...this.bots.values()].filter((r) => r !== rec && r.tickAt).map((r) => `${r.name}:${now - r.tickAt}`).join(' ')}`);
+        });
         const mine = () => rec.bot === bot && !rec.removed;
         bot.once('spawn', () => { if (!mine()) return; rec.state = 'online'; rec.attempts = 0; rec.since = Date.now(); this.note('info', `bot ${rec.name} online`); this._tagDirect(rec); this._dirty(); this._resume(rec); });
         bot.on('spawn', () => { if (mine() && rec.state === 'online') setTimeout(() => this._resume(rec), 2500); });        // respawn after death

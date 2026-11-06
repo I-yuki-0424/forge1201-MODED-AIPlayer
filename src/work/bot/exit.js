@@ -80,4 +80,12 @@ async function leavePit(env, box, { corridorMax = 40 } = {}) {
     return { ok: true, how: 'pillar', levels, dug };
 }
 
-module.exports = { leavePit, sides, ground, standable };
+/** Is the bot below the rim of the pit (inside the box's column and lower than the ground around it)? Walking off for trees or chests from there is a climb. */
+function inPit(env, box) {
+    const f = env.here(), w = env.w;
+    if (f.x < box.x0 - 1 || f.x > box.x1 + 1 || f.z < box.z0 - 1 || f.z > box.z1 + 1) return false;
+    const rim = sides(box, f).map((x) => ground(w, box, x)).filter(Boolean).reduce((m, g) => Math.max(m, g.y), -Infinity);
+    return Number.isFinite(rim) ? f.y < rim - 1 : f.y < box.top;
+}
+
+module.exports = { leavePit, inPit, sides, ground, standable };

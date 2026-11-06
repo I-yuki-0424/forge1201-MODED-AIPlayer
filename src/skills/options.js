@@ -5,7 +5,8 @@
 const DEFAULTS = Object.freeze({
     retireWorn: false,        // treat a nearly broken tool as unusable (the next harvesting tool is taken; none left = missing_tool, worn)
     wornReserve: 0.06,        // ... when no more than this share of its durability is left,
-    wornMin: 8,               // ... or at most this many uses, whichever is more
+    wornMin: 8,
+    planNodes: 20000,         // the most cells one path search may expand (the work layer lowers it: a search for a cell nobody can reach used to burn the whole budget)               // ... or at most this many uses, whichever is more
 });
 
 const get = (bot) => bot.__skillOpts || DEFAULTS;

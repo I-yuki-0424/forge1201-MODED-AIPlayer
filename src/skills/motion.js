@@ -85,7 +85,7 @@ async function walk(ctx, goal, { sprint = true } = {}) {
         }
         if (!path) {
             ctx.phase('plan', { from: cell, goal: goal.label });
-            const r = await planAsync(w, cell, goal.isGoal, goal.h, { maxNodes: goal.maxNodes || 20000 });          // sliced: the other bots keep running while this one searches
+            const r = await planAsync(w, cell, goal.isGoal, goal.h, { maxNodes: Math.min(goal.maxNodes || 20000, (bot.__skillOpts && bot.__skillOpts.planNodes) || 20000) });          // sliced: the other bots keep running while this one searches
             if (!r) {
                 // Standing on something the planner does not model (an edge, a partial block): nudge to the cell centre once.
                 const c = centre(cell);
