@@ -123,22 +123,24 @@ const tool = (name, max, used) => ({ name, maxDurability: max, durabilityUsed: u
         assert.deepStrictEqual(pit.wrongCells(plan, region, 0, w).filter((c) => c.y >= 70), [], 'the audit does not count them');
     });
 
-    await test('pit: a leftover cell far above the bot is reached by climbing (pillar), not retried forever from the floor', async () => {
+    await test('pit: a station far above the bot with no way up is reached by a pillar, then the corridor is dug from that layer (live stall of 2026-11-07)', async () => {
         const pit = require('../src/work/jobs/pit');
         const cells = new Map(); const set = (x, y, z, n) => cells.set(`${x},${y},${z}`, n);
-        set(5, 12, 5, 'stone');                                                   // the leftover, 6 above the bot's floor (y 6)
+        for (let x = 3; x <= 7; x++) for (let z = 3; z <= 7; z++) set(x, 12, z, 'stone');                // the undug layer at y 12; the bot is in a cave 6 below it
         const w = { nameAt: (x, y, z) => cells.get(`${x},${y},${z}`) || 'air', kindAt: (x, y, z) => (cells.has(`${x},${y},${z}`) ? 'solid' : 'air') };
-        const plan = pit.planPit({ x0: 5, z0: 5, x1: 5, z1: 5, top: 12, bottom: 12 }, { method: 'rows', road: false }), region = plan.regions[0], calls = [];
-        let y = 6, risen = false;
-        const env = { w, have: () => 9, pause: async () => {}, here: () => ({ x: 5, y, z: 5 }),
-            exec: async (n, a) => { calls.push(n); if (n !== 'mine') return { ok: true }; if (!risen) return { ok: false, reason: 'unreachable', detail: { why: 'reach block' } }; cells.delete(`${a.x},${a.y},${a.z}`); return { ok: true }; },
-            climb: async (t) => { calls.push('climb'); y = t.y - 1; risen = true; return { ok: true, how: 'climbed', levels: 6 }; } };
+        const plan = pit.planPit({ x0: 3, z0: 3, x1: 7, z1: 7, top: 12, bottom: 12 }, { method: 'sweep', road: false, tile: 5 }), region = plan.regions[0], calls = [];
+        let pos = { x: 5, y: 6, z: 5 };
+        const env = { w, have: () => 9, pause: async () => {}, here: () => ({ ...pos }), temp: new Map(),
+            exec: async (n, a) => {
+                calls.push(n);
+                if (n === 'move_to') return pos.y < 12 ? { ok: false, reason: 'unreachable' } : (pos = { x: a.x, y: a.y, z: a.z }, { ok: true });
+                if (n === 'mine') { if (pos.y < 11) return { ok: false, reason: 'unreachable' }; cells.delete(`${a.x},${a.y},${a.z}`); return { ok: true }; }
+                return { ok: true };
+            },
+            run: async (n, a) => { calls.push(`${n}:${a.levels}`); pos = { ...pos, y: pos.y + a.levels }; return { ok: true, detail: { levels: a.levels, last: { x: pos.x, y: pos.y - 1, z: pos.z } } }; } };
         const r = await pit.runUnit(plan, region, { unit: 0 }, env);
-        assert.ok(r.ok, JSON.stringify(r)); assert.strictEqual(r.detail.climbed, 1); assert.ok(!cells.has('5,12,5'));
-        assert.ok(calls.includes('climb') && calls.indexOf('climb') < calls.lastIndexOf('mine'), calls.join(','));
-        // a cell level with the bot is not climbed to
-        set(5, 12, 5, 'stone'); y = 12; risen = false; calls.length = 0;
-        const r2 = await pit.runUnit(plan, region, { unit: 0 }, env); assert.ok(!calls.includes('climb') && !r2.ok, 'no climbing for a cell at the bot\'s own height');
+        assert.ok(r.ok, JSON.stringify(r)); assert.ok(calls.includes('pillar:6'), calls.join(',')); assert.strictEqual(r.detail.rose, 6);
+        assert.ok([...cells.keys()].every((k) => !k.startsWith('5,12,5')) && env.temp.size === 1, 'the station is dug and the pillar block is on the list to be taken away');
     });
 
     // ---- service
