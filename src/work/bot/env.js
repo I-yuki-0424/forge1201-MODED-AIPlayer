@@ -41,6 +41,12 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
     // worker then runs the water rescue before the next unit (the live pit drowned two bots mid-dig: the water check only ran between units).
     const drowning = () => { const o = bot.oxygenLevel; return typeof o === 'number' && o < 9 && (!!bot.entity.isInWater || require('./water').inWater(w, feetCell(bot.entity.position))); };
     const unitCancel = { get cancelled() { return cancel.cancelled || (gd && defendOn && gd.interrupt.cancelled) || drowning(); } };
+    /** Can this item harvest that block (registry harvestTools)? True when nothing is asked or the block needs no tool. */
+    const canHarvest = (itemName, block) => {
+        if (!block) return true;
+        const reg = bot.registry, b = reg && reg.blocksByName[String(block).replace(/^minecraft:/, '')], it = reg && reg.itemsByName[itemName];
+        return !b || !b.harvestTools || (!!it && !!b.harvestTools[it.id]);
+    };
     const have = (item) => bot.inventory.items().reduce((n, i) => n + (i.name === item ? i.count : 0), 0);
     const disc = require('./discard');
     const feet = () => feetCell(bot.entity.position);
@@ -63,9 +69,11 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
             for (let i = 0; i < 30; i++) { await sleep(100); const p = bot.entity.position; if (Math.abs(p.x - o.x - 0.5) < 2 && Math.abs(p.y - o.y) < 2 && Math.abs(p.z - o.z - 0.5) < 2) return { ok: true }; }
             return { ok: false, reason: 'not_confirmed' };
         },
-        usableCount: (cls) => bot.inventory.items().filter((i) => i.name.endsWith(`_${cls}`) && !require('../../skills/options').isWorn(bot, i)).length,
+        // A tool counts only if it is not worn out AND, when a script is asked to fix a missing tool for a block (`this.need`, set by the worker and the service), it can
+        // harvest that block: a stone pickaxe is no replacement for the one that was missing for gold ore (live 2026-11-07: replace-tool answered ok and the bot waited on).
+        usableCount: function (cls) { return bot.inventory.items().filter((i) => i.name.endsWith(`_${cls}`) && !require('../../skills/options').isWorn(bot, i) && canHarvest(i.name, this && this.need)).length; },
         gather: (a) => require('../jobs/gather').gather(bot, a, { cancel, execute: (b, n, x, o) => execute(b, n, x, o) }),
-        usableTool: (cls) => bot.inventory.items().find((i) => i.name.endsWith(`_${cls}`) && !require('../../skills/options').isWorn(bot, i)) || null,
+        usableTool: function (cls) { return bot.inventory.items().find((i) => i.name.endsWith(`_${cls}`) && !require('../../skills/options').isWorn(bot, i) && canHarvest(i.name, this && this.need)) || null; },
         canCraft: (item) => { const it = bot.registry.itemsByName[item]; return !!it && bot.recipesFor(it.id, null, 1, true).length > 0; },
         itemExists: (n) => !!bot.registry.itemsByName[n],
         // Another bot in (or next to) the cell the bot stands in: a block cannot be placed there (a pillar fails not_confirmed) until one of them steps aside.

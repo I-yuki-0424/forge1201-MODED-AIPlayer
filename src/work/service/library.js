@@ -53,7 +53,7 @@ class LibraryPart {
         try {
             const env = this.envFactory(rec.bot, cancel); if (env && env.configure) env.configure({ retireWorn: !!this.settings.retireWorn });
             const j = rec.job && this.jobs.get(rec.job);
-            const senv = Object.assign(Object.create(env), { sites: this.sites, policy: j && j.policy, box: j && j.spec && j.spec.box });
+            const senv = Object.assign(Object.create(env), { sites: this.sites, policy: j && j.policy, box: j && j.spec && j.spec.box, need: rec.waitFor && rec.waitFor.tool });
             senv.leavePit = (box) => require('../bot/exit').leavePit(senv, box);
             return await scriptLib.runScript(sc, senv, { cancel });
         } finally { rec.script = null; }

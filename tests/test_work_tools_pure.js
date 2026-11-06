@@ -198,6 +198,19 @@ const tool = (name, max, used) => ({ name, maxDurability: max, durabilityUsed: u
         const r = await leavePit(env, box); assert.ok(r.ok && r.how === 'lifted', JSON.stringify(r)); assert.strictEqual(to.y, 11, 'on the surface');
     });
 
+    await test('env: a tool that cannot break the block it was missing for does not count (stone pickaxe vs deepslate gold ore)', () => {
+        const { botEnv } = require('../src/work/bot/env');
+        const bot = new EventEmitter();
+        const reg = { blocksByName: { deepslate_gold_ore: { harvestTools: { 2: true, 3: true } }, stone: { harvestTools: { 1: true, 2: true, 3: true } }, dirt: {} }, itemsByName: { stone_pickaxe: { id: 1 }, iron_pickaxe: { id: 2 }, diamond_pickaxe: { id: 3 } } };
+        let items = [{ name: 'stone_pickaxe', count: 1, maxDurability: 131, durabilityUsed: 10 }];
+        Object.assign(bot, { username: 'Bot', registry: reg, entity: { position: { x: 0.5, y: 5, z: 0.5, floored: () => ({ x: 0, y: 5, z: 0 }) }, isInWater: false }, oxygenLevel: 20, inventory: { items: () => items }, setControlState() {}, blockAt: () => null });
+        const env = botEnv(bot, { cancel: { cancelled: false } }), senv = Object.assign(Object.create(env), { need: 'deepslate_gold_ore' }), plain = Object.assign(Object.create(env), { need: 'stone' });
+        assert.ok(env.usableTool('pickaxe') && plain.usableTool('pickaxe'), 'with no block asked, or stone, a stone pickaxe is a pickaxe');
+        assert.strictEqual(senv.usableTool('pickaxe'), null); assert.strictEqual(senv.usableCount('pickaxe'), 0);
+        items = [...items, { name: 'iron_pickaxe', count: 1, maxDurability: 250, durabilityUsed: 0 }];
+        assert.strictEqual(senv.usableTool('pickaxe').name, 'iron_pickaxe'); assert.strictEqual(senv.usableCount('pickaxe'), 1);
+    });
+
     // ---- service
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wtools-'));
     const factory = (name) => { const b = new EventEmitter(); Object.assign(b, { username: name, entity: { position: { x: 0, y: 70, z: 0 } }, registry: { blocksByName: { stone: { harvestTools: { 7: true } } }, items: { 7: { name: 'iron_pickaxe' } }, itemsByName: { iron_pickaxe: { id: 7 } } }, inventory: { items: () => b.items, slots: [], emptySlotCount: () => 30 }, quit() {} }); b.items = []; setTimeout(() => b.emit('spawn'), 5); return b; };

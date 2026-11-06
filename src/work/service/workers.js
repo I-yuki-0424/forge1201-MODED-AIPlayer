@@ -36,7 +36,7 @@ class WorkersPart {
         runWorker(job.impl, rec.name, env, {
             cancel, policy: job.policy, pollMs: 1000, backoff: this.o.backoff,
             handlers: this.settings.scripts ? { missing_tool: this.scripts.get('replace-tool') } : null,
-            scriptEnv: () => ({ sites: this.sites, policy: job.policy, box: job.spec.box }),
+            scriptEnv: () => ({ sites: this.sites, policy: job.policy, box: job.spec.box, need: rec.missingTool }),
             onEvent: (ev, d) => {
                 if (ev === 'unit' && d.ok) { rec.fixes = 0; rec.cool = 0; this._clearGlow(rec); }
                 // A problem is written down where it happens and the bot glows (problems.js): unit failures that are the unit's or the bot's own trouble,
