@@ -244,7 +244,7 @@ wired into any job; no expert exists and nothing is on a learning queue.
 
 ### Live check (2026-11-06, the demo server: real Forge 1.20.1 with the play world's mod set, flat world, easy)
 
-`/mnt/data/forgeaip-play/demo` (outside the repo): the same jars as the play world, mounted read-only, own world, RCON and console. Ports are loopback only; the owner reaches them through `tailscale serve` routes (game `100.77.246.23:25571`, console `http://100.77.246.23:3023`). Publishing them on the tailnet IP directly does not work: ufw (default deny incoming) drops other tailnet devices' packets to such a socket; only `tailscale serve` listeners get through.
+`/mnt/data/forgeaip-play/demo` (outside the repo): the same jars as the play world, mounted read-only, own world, RCON and console. Ports are loopback only; the owner reaches them over the tailnet at `100.77.246.23:25570` / `:25571` (game) and `http://100.77.246.23:3022` / `:3023` (console), through `tailscale serve` routes. Since 2026-11-06 (owner decision, broker audit 571) ufw has `allow in on tailscale0`, so the whole tailnet is open by default and a route is optional; before that rule an unrouted tailnet port was dropped silently and looked like a dead server. The demo's OP entry must carry the offline UUID (`op <name>` over RCON; itzg's `OPS=` writes the Mojang UUID, which an offline-mode server never matches). Diagnose with `/mnt/data/forgeaip-play/check-access.sh --pc`.
 `scripts/work/todo_live.js` drives the console's own `WorkService` with real bots; grading is the server's. Run: `cd /mnt/data/forgeaip-play/demo && ./live.sh`.
 
 | Check | Result |
