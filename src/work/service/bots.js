@@ -23,6 +23,7 @@ class BotsPart {
         let bot;
         try { bot = this.factory(rec.name); } catch (e) { rec.error = String(e.message).slice(0, 200); return this._retry(rec); }
         rec.bot = bot;
+        bot.__noVines = true;                  // the planner does not climb vines (see skills/world.js)
         this._trackPath(rec, bot);
         // How long a bot goes without a physics tick (50 ms each): if every bot shows the same gap at the same moment, the process or the server stalled; one bot alone, it was waiting.
         bot.on('physicsTick', () => {

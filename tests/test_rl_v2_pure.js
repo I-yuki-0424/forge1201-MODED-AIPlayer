@@ -424,6 +424,15 @@ test('sites (owner 2026-11-02): candidates in order, never reused (state survive
     assert.throws(() => parseArgs(['--base', 't']), /--candidates/);
 });
 
+test('world: a vine is climbable unless the bot has __noVines (work bots do not climb vine walls: they died sliding down them)', () => {
+    const vine = (x, y, z) => (x === 2 && z === 2 && y >= 64 && y <= 70 ? 'vine' : y <= 63 ? 'stone' : 'air');
+    const w1 = require('../src/skills/world').fromBot(worldBot(vine));
+    assert.strictEqual(w1.kindAt(2, 66, 2), 'climb');
+    const b = worldBot(vine); b.__noVines = true;
+    const w2 = require('../src/skills/world').fromBot(b);
+    assert.strictEqual(w2.kindAt(2, 66, 2), 'air'); assert.strictEqual(w2.kindAt(2, 60, 2), 'solid');
+});
+
 test('sites: logs are counted around the site, the start cell is on the forest floor, never on leaves, a log or water', () => {
     const forest = (x, y, z) => {
         if ((x === 3 || x === -4) && z === 0 && y >= 64 && y <= 67) return 'oak_log';        // two trunks, 4 logs each

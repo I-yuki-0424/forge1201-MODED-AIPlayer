@@ -68,6 +68,8 @@ function fromBot(bot) {
     if (c && c.registry === bot.registry) return c.w;
     const Vec3 = require('vec3');
     const blockAt = (x, y, z) => bot.blockAt(new Vec3(x, y, z), false);
+    // `bot.__noVines`: vines are not climbable for this bot (a vine wall is not a way: the pit bots slid down 30 levels of vines and died of the fall when they let go; 2026-11-07).
+    const noVines = !!bot.__noVines;
     let w;
     if (bot.world && typeof bot.world.getBlockStateId === 'function' && typeof bot.world.getColumnAt === 'function') {
         // The copy of prismarine-block mineflayer itself loads (a transitive dependency, not one of ours).
@@ -78,7 +80,7 @@ function fromBot(bot) {
             if (!i) {
                 let b = null;
                 try { b = Block.fromStateId(s, 0); } catch { /* a state the registry does not know */ }
-                i = b && b.name ? { name: b.name, kind: kindOf(b), shapes: shapesOf(b), diggable: b.diggable, block: b }
+                i = b && b.name ? { name: b.name, kind: noVines && b.name === 'vine' ? 'air' : kindOf(b), shapes: shapesOf(b), diggable: b.diggable, block: b }
                     : { name: 'unknown', kind: 'partial', shapes: [], diggable: false, block: null };
                 cache.set(s, i);
             }
@@ -101,7 +103,7 @@ function fromBot(bot) {
             shapesAt: (x, y, z) => { const s = sid(x, y, z); return s < 0 ? [] : info(s).shapes; },
             nameAt: (x, y, z) => { const s = sid(x, y, z); return s < 0 ? null : info(s).name; } };
     } else {
-        w = { blockAt, kindAt: (x, y, z) => kindOf(blockAt(x, y, z)), shapesAt: (x, y, z) => shapesOf(blockAt(x, y, z)),
+        w = { blockAt, kindAt: (x, y, z) => { const b = blockAt(x, y, z); return noVines && b && b.name === 'vine' ? 'air' : kindOf(b); }, shapesAt: (x, y, z) => shapesOf(blockAt(x, y, z)),
             nameAt: (x, y, z) => blockAt(x, y, z)?.name ?? null };
     }
     bot.__skillWorld = { registry: bot.registry, w };
