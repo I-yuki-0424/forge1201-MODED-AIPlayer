@@ -65,6 +65,8 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         usableTool: (cls) => bot.inventory.items().find((i) => i.name.endsWith(`_${cls}`) && !require('../../skills/options').isWorn(bot, i)) || null,
         canCraft: (item) => { const it = bot.registry.itemsByName[item]; return !!it && bot.recipesFor(it.id, null, 1, true).length > 0; },
         itemExists: (n) => !!bot.registry.itemsByName[n],
+        // Another bot in (or next to) the cell the bot stands in: a block cannot be placed there (a pillar fails not_confirmed) until one of them steps aside.
+        crowded: () => !!others && others().some((o) => Math.hypot(o.x - bot.entity.position.x, o.z - bot.entity.position.z) < 0.9),
         pause: (ticks) => sleep(ticks * 50),                       // let the thing in the way (another bot, an item) move on
         exec: (name, args) => execute(bot, name, args, { cancel: unitCancel }),
         have,

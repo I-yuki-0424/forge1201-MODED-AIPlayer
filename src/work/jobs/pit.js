@@ -285,17 +285,20 @@ async function goToStation(S, handle, env, open, r) {
     for (let t = 0; t < 10; t++) {
         const here = env.here();
         if (here.x === S.x && here.y === S.y && here.z === S.z) return null;
-        // No floor within three cells below the station: nobody can stand there (a tile above the ground); work from where the bot is.
-        if (open(S) && ![1, 2, 3].some((d) => isSolid(env.w, S.x, S.y - d, S.z))) return null;
-        if (open(S)) {
+        const above = S.y - here.y, floor = [1, 2, 3].some((d) => isSolid(env.w, S.x, S.y - d, S.z));
+        // No floor within three cells below an open station, and not far above the bot: nobody can stand there (a tile above the ground); work from where the bot is.
+        if (open(S) && !floor && above < 3) return null;
+        if (open(S) && floor) {
             const m = await env.exec('move_to', S);
             if (m.ok) return null;
         }
-        // The station is three or more levels above the bot and there is no way up on foot (a shaft, a cave under the layer that is still closed): rise by
-        // pillar, breaking what is overhead (by hand if no tool fits), and dig the corridor to the station from that layer. Live pit 2026-11-07: four bots
-        // stood under an undug slab, 5 levels below their units, and failed 'unreachable' for ten minutes.
-        if (env.run && S.y - here.y >= 3) {
-            const p = await env.run('pillar', { levels: S.y - here.y });
+        // The station is three or more levels above the bot and there is no way up on foot (a shaft, a cave under a layer that is still closed): rise by pillar,
+        // breaking what is overhead (by hand if no tool fits), and dig the corridor to the station from that layer. Live pit 2026-11-07: four bots stood under an
+        // undug slab, 5-26 levels below their units, and failed 'unreachable' for ten minutes. Another bot in the same cell blocks the first block: sidestep, again.
+        if (env.run && above >= 3) {
+            if (env.crowded && env.crowded() && env.recover) await env.recover(3);
+            let p = await env.run('pillar', { levels: S.y - env.here().y });
+            if (!p.ok && p.reason === 'not_confirmed' && env.recover) { await env.recover(3); p = await env.run('pillar', { levels: Math.max(1, S.y - env.here().y) }); }
             const last = p.detail && p.detail.last; if (last && env.temp) env.temp.set(`${last.x},${last.y},${last.z}`, last);
             r.rose = (r.rose || 0) + ((p.detail && p.detail.levels) || 0);
             if (!p.ok) return { ok: false, reason: p.reason, detail: { ...(p.detail || {}), cell: S, stage: 'rise', ...r } };
