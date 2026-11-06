@@ -7,7 +7,11 @@ const getS = () => S, getPlayers = () => players;
 const ACTIVE = ['running', 'paused', 'ready'];
 
 // ------------------------------------------------------------------------------------------------ login, navigation, polling
-function showLogin() { $('#app').classList.add('hidden'); $('#login').classList.remove('hidden'); }
+function showLogin() {
+    $('#app').classList.add('hidden'); $('#login').classList.remove('hidden');
+    // A line the operator left for whoever signs in (data/notice.txt: "ready, join at ..."); plain text, no secrets in it.
+    api('GET', '/api/notice').then((n) => { const el = $('#notice'); el.textContent = n.text || ''; el.classList.toggle('hidden', !n.text); }).catch(() => {});
+}
 window.addEventListener('work-login-required', showLogin);
 async function boot() {
     try { const s = await api('GET', '/api/session'); session.csrf = s.csrf; } catch (_) { return showLogin(); }

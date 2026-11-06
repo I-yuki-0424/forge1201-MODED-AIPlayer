@@ -65,6 +65,52 @@ async function finishPillar(env, last) {
     return env.exec('mine', { ...last, collect: false });
 }
 
+const WALK_FAILS = new Set(['unreachable', 'stuck', 'timeout', 'not_confirmed']);
+/**
+ * Move to a cell, climbing when there is no way on foot (owner 2026-11-06, 2-3: `move_to` goes down by falling but not up). First the
+ * normal `move_to`. When that finds no way and the target is higher than the bot: clear the column above the head if it is solid, rise
+ * on a pillar of temporary blocks (pillar: one block under the feet at a time, the one two below taken away again), walk the last
+ * stretch, and take the last pillar block away from the side. Temporary blocks always go as a pair: the last one is noted in
+ * `env.temp` (when the env has one) until it is gone, and `cleanTemp` takes whatever was left. `env`: exec, run, w, here().
+ * Returns {ok, how: 'walked' | 'climbed', levels?, reason?, detail?}.
+ */
+async function climbTo(env, t, { maxLevels = 64 } = {}) {
+    let r = await env.exec('move_to', t);
+    if (r.ok) return { ok: true, how: 'walked' };
+    const here = env.here(), dy = t.y - here.y;
+    if (!WALK_FAILS.has(r.reason) || dy < 1) return { ok: false, reason: r.reason, detail: r.detail };
+    if (dy > maxLevels) return { ok: false, reason: 'invalid_args', detail: { why: `${dy} levels up is more than ${maxLevels}` } };
+    // Room to rise: two free cells above every level. A solid roof is dug (a shaft the bot makes is its own to make); fluid or lava is not.
+    for (let k = 1; k <= dy + 1; k++) {
+        const c = { x: here.x, y: here.y + k, z: here.z }, kind = env.w.kindAt(c.x, c.y, c.z);
+        if (kind === 'solid') { const m = await env.exec('mine', { ...c, collect: false }); if (!m.ok && env.w.kindAt(c.x, c.y, c.z) === 'solid') return { ok: false, reason: m.reason, detail: { ...(m.detail || {}), stage: 'clear_roof', cell: c } }; }
+        else if (kind !== 'air' && kind !== 'climb' && kind !== 'unknown') return { ok: false, reason: 'invalid_target', detail: { why: `${kind} in the way above the bot`, cell: c } };
+    }
+    const p = await env.run('pillar', { levels: dy });
+    const last = p.detail && p.detail.last;
+    if (last && env.temp) env.temp.set(`${last.x},${last.y},${last.z}`, last);
+    if (!p.ok) return { ok: false, reason: p.reason, detail: { ...(p.detail || {}), stage: 'pillar', levels: dy } };
+    r = await env.exec('move_to', t);
+    const fin = await finishPillar(env, last);
+    if (fin.ok && last && env.temp) env.temp.delete(`${last.x},${last.y},${last.z}`);
+    if (!r.ok) return { ok: false, reason: r.reason, detail: { ...(r.detail || {}), stage: 'walk_after_climb', levels: dy } };
+    return { ok: true, how: 'climbed', levels: dy, ...(fin.ok ? {} : { left: last }) };
+}
+
+/** Take away temporary blocks that are still standing (a climb that was cut short): not the one the bot stands on. Returns how many are gone. */
+async function cleanTemp(env) {
+    if (!env.temp || !env.temp.size) return 0;
+    let n = 0;
+    const f = env.here();
+    for (const [k, c] of [...env.temp]) {
+        if (env.w.kindAt(c.x, c.y, c.z) !== 'solid') { env.temp.delete(k); continue; }
+        if (c.x === f.x && c.z === f.z && c.y === f.y - 1) continue;                       // standing on it
+        const m = await env.exec('mine', { ...c, collect: false });
+        if (m.ok || env.w.kindAt(c.x, c.y, c.z) !== 'solid') { env.temp.delete(k); n++; }
+    }
+    return n;
+}
+
 const MOVES = { pillar: { fn: pillar, ticks: (a) => 200 + 90 * (a.levels || 1) } };
 
 /** Run one of the work layer's own movements on `bot` (same result shape as skills.execute). */
@@ -74,4 +120,4 @@ function runMove(bot, name, args = {}, opts = {}) {
     return run(bot, m.fn, args, { ...opts, maxTicks: opts.maxTicks || m.ticks(args) });
 }
 
-module.exports = { pillar, finishPillar, runMove, MOVES, TEMP_ITEMS };
+module.exports = { pillar, finishPillar, climbTo, cleanTemp, runMove, MOVES, TEMP_ITEMS };

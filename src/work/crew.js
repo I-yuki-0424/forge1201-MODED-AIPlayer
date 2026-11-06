@@ -208,6 +208,22 @@ class Ledger {
         return n;
     }
 
+    /**
+     * A finished unit turns out not to be in its intended state (a leftover block, a block placed by mistake): back to pending, so
+     * that a bot goes back and fixes it (owner 2026-11-06, 1-1). Units are idempotent, so the re-run only touches what is wrong. Layers
+     * below wait again until this one is settled. Returns false for a unit that is not done.
+     */
+    reopen(regionId, u, now) {
+        const r = this.regions.get(regionId);
+        if (!r || r.state[u] !== DONE) return false;
+        r.state[u] = PENDING; r.attempts[u] = 0; r.avoid[u] = -1; r.owner[u] = -1; r.doneN--;
+        const l = (u / r.rows) | 0;
+        r.settled[l]--;
+        if (l < r.front) r.front = l;
+        this._ev({ t: now, ev: 'reopen', region: regionId, unit: u });
+        return true;
+    }
+
     progress() {
         let total = 0, done = 0, stuck = 0, leased = 0, regionsDone = 0;
         for (const r of this.regions.values()) { total += r.n; done += r.doneN; stuck += r.stuckN; leased += r.leasedN; if (this.complete(r)) regionsDone++; }

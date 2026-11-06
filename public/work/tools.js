@@ -19,6 +19,9 @@ function SettingsPanel(getS) {
         ['retireWorn', 'Retire worn tools', 'A tool with at most 8 uses (or 6 %) left counts as no tool; the next one is used. Off = tools are used until they break.'],
         ['scripts', 'Recovery scripts', 'A bot without a usable tool runs the script replace-tool (take one from the tools chest, else craft one) before it waits.'],
         ['autoKit', 'Auto-kit (RCON)', 'A bot that runs out of something is given exactly that, or the kit, by the server.'],
+        ['defend', 'Defend itself', 'A bot that is hurt while it works kills the mob next to it, then goes on. Only what attacks it, never every mob in sight.'],
+        ['glow', 'Glow on problems (RCON)', 'A bot that hits a problem glows in the game (visible through blocks, from above) until its next finished unit.'],
+        ['directPickup', 'Mined blocks into the inventory (RCON + server script)', 'Drops of blocks a bot breaks go straight into its inventory (server script forgeaip_direct_pickup.js). Off = drops lie on the ground.'],
     ];
     const boxes = {};
     const el = h('div', { class: 'stack' }, rows.map(([k, label, hint]) => {
@@ -103,11 +106,28 @@ function ScriptsPanel(getS) {
     return { el, load, syncBots(s) { const keep = botSel.value, names = s.bots.filter((b) => b.state === 'online' && !b.working).map((b) => b.name); if (botSel.dataset.n !== names.join(',')) { botSel.dataset.n = names.join(','); botSel.replaceChildren(h('option', { value: '', text: 'run on bot…' }), ...names.map((n) => h('option', { value: n, text: n }))); botSel.value = keep; } } };
 }
 
+/** Bots that hit a problem: the recent ones with where they stood and what they faced, and what the problems have in common. */
+function ProblemsPanel() {
+    const body = h('div', { class: 'stack' });
+    async function load() {
+        let d; try { d = await api('GET', '/api/problems?n=40'); } catch (_) { return; }
+        const common = Object.entries(d.common.factors).map(([f, v]) => h('div', { class: 'small' }, h('strong', { text: `${f}: ` }), h('span', { class: 'mono', text: v.slice(0, 4).map((x) => `${x.value} ×${x.count}`).join('   ') })));
+        const rows = d.recent.slice().reverse().slice(0, 25).map((r) => h('tr', {}, h('td', { class: 'mono', text: new Date(r.t).toLocaleTimeString() }), h('td', { text: r.bot }), h('td', { text: r.kind }),
+            h('td', { text: [r.reason, r.stage].filter(Boolean).join(' / ') }), h('td', { class: 'mono', text: r.cell ? r.cell.join(' ') : '' }), h('td', { text: r.heading || '' }), h('td', { text: [r.below, r.ahead].filter(Boolean).join(' | ') })));
+        body.replaceChildren(
+            h('p', { class: 'muted small', text: d.glowing.length ? `Glowing now: ${d.glowing.join(', ')}` : 'Nobody glows now.' }),
+            common.length ? h('div', {}, h('div', { class: 'muted small', text: `Common factors in ${d.common.total} problems (seen at least twice):` }), ...common) : h('p', { class: 'muted small', text: 'No pattern yet.' }),
+            rows.length ? h('div', { class: 'table-wrap' }, h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['Time', 'Bot', 'Kind', 'Reason', 'Cell', 'Facing', 'Below | ahead'].map((x) => h('th', { text: x })))), h('tbody', {}, rows))) : h('p', { class: 'muted', text: 'No problems recorded.' }));
+    }
+    return { el: body, load };
+}
+
 function automationPage() {
-    const settings = SettingsPanel(getS), sites = SitesPanel(getS, getPlayers), scripts = ScriptsPanel(getS);
+    const settings = SettingsPanel(getS), sites = SitesPanel(getS, getPlayers), scripts = ScriptsPanel(getS), problems = ProblemsPanel();
     const el = h('div', { class: 'grid-12' },
         h('div', { class: 'span-4' }, panel('Settings', settings.el)),
         h('div', { class: 'span-8' }, panel('Sites (tagged chests)', sites.el)),
-        h('div', { class: 'span-12' }, panel('Scripts', scripts.el)));
-    return { el, onShow() { sites.load(); scripts.load(); }, update(s) { settings.update(s); scripts.syncBots(s); } };
+        h('div', { class: 'span-12' }, panel('Scripts', scripts.el)),
+        h('div', { class: 'span-12' }, panel('Problem bots', problems.el)));
+    return { el, onShow() { sites.load(); scripts.load(); problems.load(); }, update(s) { settings.update(s); scripts.syncBots(s); } };
 }

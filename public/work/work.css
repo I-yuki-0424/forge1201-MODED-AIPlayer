@@ -113,3 +113,5 @@ textarea.code { width:100%; font-family:ui-monospace,Menlo,Consolas,monospace; f
 .code-out { background:var(--chip); border:1px solid var(--line); border-radius:4px; padding:8px; margin:4px 0; white-space:pre-wrap; overflow:auto; max-height:240px; }
 .tbl tr.on { background:rgba(87,148,242,.12); }
 .pill.tag-tools { background:#3b6fb6; color:#fff; } .pill.tag-ore { background:#9b6b2f; color:#fff; } .pill.tag-junk { background:#6b6b6b; color:#fff; } .pill.tag-storage { background:#2f8f6b; color:#fff; } .pill.tag-food { background:#b6573b; color:#fff; } .pill.tag-blocks { background:#7a5fb0; color:#fff; }
+
+.notice { margin: 0; padding: 10px 12px; border-radius: 6px; border: 1px solid var(--accent, #4c9); background: rgba(76, 204, 153, .12); font-weight: 600; white-space: pre-line; }

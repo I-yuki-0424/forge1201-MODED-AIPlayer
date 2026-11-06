@@ -288,11 +288,52 @@ async function sweepDrops(env, S) {
     return { picked: n, seen, ...(fail ? { fail } : {}) };
 }
 
-/** A pit as a crew job: { ledger, plan, runUnit(regionId, unit, env) }. */
-function createPitJob(box, ledgerOpts = {}, { lanes = 0, method = 'rows', tile = TILE, road = true } = {}) {
-    const plan = planPit(box, { lanes, method, tile, road }), ledger = new Ledger(ledgerOpts), byId = new Map();
-    for (const r of plan.regions) { ledger.addRegion(r); byId.set(r.id, r); }
-    return { kind: 'pit', ledger, plan, runUnit: (regionId, unit, env) => runUnit(plan, byId.get(regionId), unit, env), rescue: (env, why) => require('./water').rescue(env, plan.box, { why }) };
+/**
+ * Cells of a finished unit that are not open: leftover blocks, blocks placed by mistake (a water-control block at a height that was
+ * dug already), water that ran in. Unloaded cells are not judged. Pure; `w` is only read.
+ */
+function wrongCells(plan, region, u, w) {
+    const out = [];
+    for (const c of unitCells(plan, region, u)) {
+        const k = w.kindAt(c.x, c.y, c.z);
+        if (k === 'unknown' || PASSABLE.has(k) || UNBREAKABLE.test((w.nameAt && w.nameAt(c.x, c.y, c.z)) || '')) continue;
+        out.push(c);
+    }
+    return out;
 }
 
-module.exports = { planPit, laneBoxes, planRoad, stationsOf, lineCells, unitCells, sealPlan, orderFill, isFluid, exposed, runUnit, createPitJob, SEAL_ITEMS, CHUNK, TILE, SWEEP_R };
+const AUDIT_BUDGET = 48, AUDIT_REOPEN_MAX = 3;
+/**
+ * Does the range the crew was given still match what it is meant to be (owner 2026-11-06, 1-1)? Looks at finished units, a rotating
+ * slice per call (`budget` units; `full` = all), and sends every unit with a wrong cell back to pending so that a bot goes and
+ * fixes it. A unit sent back `maxReopen` times is left alone and reported (`gaveUp`): something keeps refilling it, and a loop would
+ * be worse than the leftover. `state` = { cursor: Map(region -> next unit), counts: Map("region:unit" -> times reopened) }.
+ */
+function audit(plan, ledger, w, now, state, { budget = AUDIT_BUDGET, full = false, maxReopen = AUDIT_REOPEN_MAX } = {}) {
+    const res = { checked: 0, reopened: [], gaveUp: [] };
+    for (const region of plan.regions) {
+        const reg = ledger.regions.get(region.id);
+        if (!reg || !reg.doneN) continue;
+        let i = full ? 0 : state.cursor.get(region.id) || 0, scanned = 0;
+        for (; scanned < reg.n && (full || res.checked < budget); scanned++, i = (i + 1) % reg.n) {
+            if (reg.state[i] !== 2) continue;                   // DONE
+            res.checked++;
+            const bad = wrongCells(plan, region, i, w);
+            if (!bad.length) continue;
+            const key = `${region.id}:${i}`, n = state.counts.get(key) || 0;
+            if (n >= maxReopen) { if (n === maxReopen) { state.counts.set(key, n + 1); res.gaveUp.push({ region: region.id, unit: i, cells: bad.slice(0, 4) }); } continue; }
+            if (ledger.reopen(region.id, i, now)) { state.counts.set(key, n + 1); res.reopened.push({ region: region.id, unit: i, cells: bad.slice(0, 4), n: bad.length }); }
+        }
+        if (!full) state.cursor.set(region.id, i);
+    }
+    return res;
+}
+
+/** A pit as a crew job: { ledger, plan, runUnit(regionId, unit, env) }. */
+function createPitJob(box, ledgerOpts = {}, { lanes = 0, method = 'rows', tile = TILE, road = true } = {}) {
+    const plan = planPit(box, { lanes, method, tile, road }), ledger = new Ledger(ledgerOpts), byId = new Map(), auditState = { cursor: new Map(), counts: new Map() };
+    for (const r of plan.regions) { ledger.addRegion(r); byId.set(r.id, r); }
+    return { kind: 'pit', ledger, plan, runUnit: (regionId, unit, env) => runUnit(plan, byId.get(regionId), unit, env), audit: (env, now, opts) => audit(plan, ledger, env.w, now, auditState, opts), rescue: (env, why) => require('./water').rescue(env, plan.box, { why }) };
+}
+
+module.exports = { planPit, laneBoxes, planRoad, stationsOf, lineCells, unitCells, sealPlan, orderFill, isFluid, exposed, runUnit, wrongCells, audit, createPitJob, SEAL_ITEMS, CHUNK, TILE, SWEEP_R };

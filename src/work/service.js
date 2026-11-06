@@ -17,6 +17,7 @@ const { catalog } = require('./catalog');
 const { MapStore } = require('./maps');
 const { Sites } = require('./sites');
 const scriptLib = require('./script');
+const { Problems, surroundings } = require('./problems');
 const skills = require('../skills');
 
 const BOT_NAME = /^[A-Za-z0-9_]{3,16}$/;
@@ -77,12 +78,17 @@ class WorkService extends EventEmitter {
         need(this.o.dataDir, 'dataDir');
         for (const d of ['structures', 'jobs', 'scripts']) fs.mkdirSync(path.join(this.o.dataDir, d), { recursive: true });
         this.factory = this.o.factory || defaultFactory(this.o);
-        this.envFactory = this.o.envFactory || ((bot, cancel) => require('./worker').botEnv(bot, { cancel }));
+        // `worker`: the env of a bot that works a job (defence, a place to dump trash away from every job); one-off commands get the plain env.
+        this.envFactory = this.o.envFactory || ((bot, cancel, o = {}) => require('./worker').botEnv(bot, {
+            cancel, rcon: this.o.rcon ? (c) => this.rcon(c) : null,
+            ...(o.worker ? { guard: true, defend: this.settings.defend !== false, avoid: () => this._activeBoxes(), others: () => this._botSpots(bot.username) } : {}),
+        }));
         this.known = this.o.known || null;
         this.bots = new Map();            // name -> record
         this.jobs = new Map();            // id -> job
         this.log = [];
-        this.settings = { autoKit: false, retireWorn: true, scripts: true };      // retireWorn: a nearly broken tool counts as no tool; scripts: recovery scripts (missing tool) on
+        this.settings = { autoKit: false, retireWorn: true, scripts: true, defend: true, glow: true, directPickup: true };      // retireWorn: a nearly broken tool counts as no tool; scripts: recovery scripts (missing tool) on
+        this.problems = new Problems({ file: path.join(this.o.dataDir, 'problems.jsonl') });   // problem bots: where, facing, standing on what (problems.js)
         this.sites = new Sites();                                                  // tagged chests by coordinates (sites.js)
         this.scripts = new Map(scriptLib.BUILT_IN);                                // built in + the operator's own (dataDir/scripts/*.json)
         this._loadScripts();
@@ -152,7 +158,7 @@ class WorkService extends EventEmitter {
         try { bot = this.factory(rec.name); } catch (e) { rec.error = String(e.message).slice(0, 200); return this._retry(rec); }
         rec.bot = bot;
         const mine = () => rec.bot === bot && !rec.removed;
-        bot.once('spawn', () => { if (!mine()) return; rec.state = 'online'; rec.attempts = 0; rec.since = Date.now(); this.note('info', `bot ${rec.name} online`); this._dirty(); this._resume(rec); });
+        bot.once('spawn', () => { if (!mine()) return; rec.state = 'online'; rec.attempts = 0; rec.since = Date.now(); this.note('info', `bot ${rec.name} online`); this._tagDirect(rec); this._dirty(); this._resume(rec); });
         bot.on('spawn', () => { if (mine() && rec.state === 'online') setTimeout(() => this._resume(rec), 2500); });        // respawn after death
         bot.on('death', () => { if (mine()) this.note('warn', `bot ${rec.name} died`); });
         bot.on('error', (e) => { if (mine()) rec.error = String((e && e.message) || e).slice(0, 200); });
@@ -395,8 +401,8 @@ class WorkService extends EventEmitter {
         try {
             if (this.settings.autoKit && this.o.rcon) await this.kitBot(rec.name, { quiet: true }).catch(() => {});
             if (cancel.cancelled || job.state !== 'running' || rec.state !== 'online') { if (rec.worker && rec.worker.cancel === cancel) rec.worker = null; return; }
-            env = this.envFactory(rec.bot, cancel);
-            if (env && env.configure) env.configure({ retireWorn: !!this.settings.retireWorn });
+            env = this.envFactory(rec.bot, cancel, { worker: true });
+            if (env && env.configure) env.configure({ retireWorn: !!this.settings.retireWorn, defend: this.settings.defend !== false });
         } catch (e) { rec.worker = null; this.note('warn', `bot ${rec.name}: cannot start (${e.message})`); return; }
         this._dirty();
         runWorker(job.impl, rec.name, env, {
@@ -404,7 +410,15 @@ class WorkService extends EventEmitter {
             handlers: this.settings.scripts ? { missing_tool: this.scripts.get('replace-tool') } : null,
             scriptEnv: () => ({ sites: this.sites, policy: job.policy, box: job.spec.box }),
             onEvent: (ev, d) => {
-                if (ev === 'unit' && d.ok) { rec.fixes = 0; rec.cool = 0; }
+                if (ev === 'unit' && d.ok) { rec.fixes = 0; rec.cool = 0; this._clearGlow(rec); }
+                // A problem is written down where it happens and the bot glows (problems.js): unit failures that are the unit's or the bot's own trouble,
+                // failed repairs, scripts and janitor runs that gave up, a pit range that keeps refilling.
+                if ((ev === 'unit' && !d.ok && !['cancelled'].includes(d.reason)) || ev === 'janitor_failed' || (ev === 'script' && !d.ok) || (ev === 'audit' && d.gaveUp) || ev === 'audit_failed') {
+                    this._problem(rec, ev === 'unit' ? 'unit_failed' : ev, { reason: d.reason || d.ended, stage: d.detail && d.detail.stage, why: d.detail && (d.detail.why || d.detail.goal), cell: d.detail && d.detail.cell, job: job.id, region: d.region, unit: d.unit });
+                }
+                if (ev === 'defend' && d.fought) this.note('info', `${rec.name} defended itself: ${d.killed}/${d.fought} killed`, { job: job.id });
+                if (ev === 'audit') this.note(d.gaveUp ? 'warn' : 'info', `${d.id} range check: ${d.reopened} unit(s) sent back, ${d.gaveUp} given up on`, { job: job.id, first: d.first });
+                if (ev === 'temp_cleaned') this.note('info', `${d.id} removed ${d.n} temporary block(s)`, { job: job.id });
                 if (ev === 'recover') this.note('debug', `${d.id} fix level ${d.streak + 1} after ${d.reason}`, { job: job.id });
                 if (ev === 'unit') {                                                    // a record of what happened, for the job's detail view (why does it stop?)
                     const e = rec.bot && rec.bot.entity && rec.bot.entity.position;
@@ -765,6 +779,12 @@ class WorkService extends EventEmitter {
                 if (!p || !p.pos) return { ok: false, reason: 'invalid_target', detail: { why: 'no operator position (is the player online?)' } };
                 return skills.execute(bot, 'move_to', { x: p.pos.x, y: p.pos.y, z: p.pos.z }, { cancel });
             }
+            // The operator's move_to climbs when there is no way up on foot (a pillar of temporary blocks, taken away again; moves.js climbTo).
+            // The action layer's own move_to, the one the RL policy has, is unchanged.
+            if (command === 'move_to') {
+                const env = this.envFactory(bot, cancel);
+                if (env && env.climb) { const r = await env.climb({ x: args.x, y: args.y, z: args.z }); return r.ok ? { ok: true, detail: { how: r.how, levels: r.levels } } : r; }
+            }
             return skills.execute(bot, command, args, { cancel });
         })().then(finish, (e) => finish({ ok: false, reason: 'error', detail: { message: String(e.message).slice(0, 160) } }));
     }
@@ -864,12 +884,53 @@ class WorkService extends EventEmitter {
     setSettings(s) {
         if (s && typeof s.autoKit === 'boolean') this.settings.autoKit = s.autoKit;
         if (s && typeof s.scripts === 'boolean') this.settings.scripts = s.scripts;
+        if (s && typeof s.glow === 'boolean') { this.settings.glow = s.glow; if (!s.glow) for (const r of this.bots.values()) this._clearGlow(r); }
+        if (s && typeof s.defend === 'boolean') this.settings.defend = s.defend;      // workers read it at start; bots that work now are told at once below
+        if (s && typeof s.directPickup === 'boolean') { this.settings.directPickup = s.directPickup; for (const r of this.bots.values()) if (r.state === 'online' && !r.removed) this._tagDirect(r, s.directPickup); }
         if (s && typeof s.retireWorn === 'boolean') {
             this.settings.retireWorn = s.retireWorn;                       // the switch applies at once, also to bots that are working
             for (const r of this.bots.values()) if (r.bot && !r.removed) { try { require('../skills/options').configure(r.bot, { retireWorn: s.retireWorn }); } catch (_) { /* not connected */ } }
         }
         this._dirty();
         return this.settings;
+    }
+
+    // ------------------------------------------------------------------------------------------------ problems, glow, direct pickup, boxes
+
+    /** Write a problem down with the bot's surroundings and make it glow. Never throws: it is a diagnostic aid. */
+    _problem(rec, kind, e) {
+        try {
+            let ctx = null; try { ctx = rec.bot && rec.state === 'online' ? surroundings(rec.bot, require('../skills/world').fromBot(rec.bot)) : null; } catch (_) { /* no world yet */ }
+            const { cell: target, ...rest } = e;                       // `target` = the cell it failed on; `cell` (from the surroundings) = where the bot stood
+            this.problems.record({ bot: rec.name, kind, ...rest, target, hp: rec.bot && rec.bot.health }, ctx);
+            if (this.settings.glow && this.o.rcon) this.problems.glow((c) => this.rcon(c), rec.name).catch(() => {});
+            this._dirty();
+        } catch (_) { /* diagnostic only */ }
+    }
+    _clearGlow(rec) { if (this.problems.glowing.has(rec.name) && this.o.rcon) this.problems.unglow((c) => this.rcon(c), rec.name).catch(() => {}); }
+
+    /** The server's script (server_scripts/forgeaip_direct_pickup.js) gives drops of players tagged `aip_direct` straight to their inventory. */
+    _tagDirect(rec, on = this.settings.directPickup) {
+        if (!this.o.rcon || !BOT_NAME.test(rec.name)) return;
+        this.rcon(`tag ${rec.name} ${on ? 'add' : 'remove'} aip_direct`).catch(() => {});
+    }
+
+    problemsView(n = 100) { return { recent: this.problems.recent(Math.min(300, Math.max(1, n | 0))), common: this.problems.common(), glowing: [...this.problems.glowing.keys()] }; }
+
+    /** X-Z boxes of the jobs that are running (where no trash may be dumped). */
+    _activeBoxes() {
+        const out = [];
+        for (const j of this.jobs.values()) {
+            if (j.state !== 'running') continue;
+            const b = this._jobBox(j); if (b && Number.isInteger(b.x0)) out.push({ x0: b.x0, x1: b.x1, z0: b.z0, z1: b.z1 });
+        }
+        return out;
+    }
+    /** Positions of the other online bots. */
+    _botSpots(except) {
+        const out = [];
+        for (const r of this.bots.values()) if (r.name !== except && !r.removed && r.state === 'online' && r.bot && r.bot.entity) out.push({ x: r.bot.entity.position.x, z: r.bot.entity.position.z });
+        return out;
     }
 
     // ------------------------------------------------------------------------------------------------ sites and scripts
@@ -952,7 +1013,7 @@ class WorkService extends EventEmitter {
     status() {
         return {
             now: Date.now(), uptime: Date.now() - this.started, server: { host: this.o.host, port: this.o.port }, settings: this.settings,
-            rcon: !!this.o.rcon, kit: this.o.kit, maxBots: this.o.maxBots, map: this.maps.available,
+            rcon: !!this.o.rcon, kit: this.o.kit, maxBots: this.o.maxBots, map: this.maps.available, problems: this.problems.list.length,
             bots: [...this.bots.values()].filter((b) => !b.removed).map((b) => this._botView(b)),
             jobs: [...this.jobs.values()].map((j) => this._jobView(j)),
             log: this.log.filter((e) => e.level !== 'debug').slice(-60),

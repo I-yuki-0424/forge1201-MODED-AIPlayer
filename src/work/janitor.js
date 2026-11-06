@@ -112,7 +112,7 @@ async function maintain(env, policy) {
     const { items, slotsFree } = env.inv(), ops = plan(items, slotsFree, policy), done = [];
     if (!ops.length) return { ok: true, done };
     for (const o of ops.filter((x) => x.op === 'toss')) {
-        const r = await env.exec('toss', { item: o.item, count: o.count });
+        const r = await require('./discard').dispose(env, o.item, o.count);        // out of the game, else a place where no job is active, else a plain toss
         if (!r.ok) return { ok: false, reason: r.reason, detail: r.detail, done };
         done.push(o);
     }

@@ -93,6 +93,10 @@ function createConsole({ service, token, allowedHosts = [], publicHost = null, a
             if (o) { let oh = null; try { oh = new URL(o).host; } catch (_) { /* bad */ } if (oh !== req.headers.host) return fail(res, 403, 'cross-origin request refused'); }
         }
 
+        if (p === '/api/notice' && m === 'GET') {                       // before the login: a line the operator left for the sign-in screen (ready, address); no secrets
+            let text = ''; try { text = fs.readFileSync(path.join(service.o.dataDir, 'notice.txt'), 'utf8').replace(/[\u0000-\u0008\u000b-\u001f]/g, '').trim().slice(0, 400); } catch (_) { /* none */ }
+            return send(res, 200, { text });
+        }
         if (p === '/api/login' && m === 'POST') {
             const f = fails.get(ip) || { n: 0, until: 0 };
             if (f.n >= 8 && f.until > now()) return fail(res, 429, 'too many attempts, wait ten minutes');
@@ -124,6 +128,7 @@ function createConsole({ service, token, allowedHosts = [], publicHost = null, a
         // ---- state
         if (m === 'GET' && p === '/api/state') return send(res, 200, service.status());
         if (m === 'GET' && p === '/api/log') return send(res, 200, service.log.slice(-Number(url.searchParams.get('n') || 200)));
+        if (m === 'GET' && p === '/api/problems') return send(res, 200, service.problemsView(Number(url.searchParams.get('n') || 100)));
         if (m === 'GET' && p === '/api/players') return send(res, 200, await service.players());
         if (m === 'GET' && p === '/api/surface') return send(res, 200, service.surface(Number(url.searchParams.get('x')), Number(url.searchParams.get('z'))));
         if (m === 'POST' && p === '/api/settings') return send(res, 200, service.setSettings(await json(req)));
