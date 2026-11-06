@@ -233,6 +233,14 @@ const tool = (name, max, used) => ({ name, maxDurability: max, durabilityUsed: u
         assert.strictEqual(calls[1][2], true, 'crafted AT the table (coordinates given)'); assert.ok(st.table && st.furnace);
     });
 
+    await test('placeStation: a bot on a one-block island in open air gets its table attached to the block it stands on', async () => {
+        const w = { nameAt: () => 'stone', kindAt: (x, y, z) => (x === 0 && y === 0 && z === 0 ? 'solid' : 'air') };       // one block, the bot's feet at y 1
+        const placed = []; const env = { w, have: (n) => (n === 'crafting_table' ? 1 : 0), here: () => ({ x: 0, y: 1, z: 0 }), exec: async (n, a) => { placed.push(a); return { ok: true }; } };
+        const st = {}; const r = await script.placeStation(env, st);
+        assert.ok(r.ok, JSON.stringify(placed)); const t = st.table;
+        assert.ok(Math.abs(t.x) + Math.abs(t.y) + Math.abs(t.z) >= 1 && !(t.x === 0 && t.z === 0 && t.y === 1), JSON.stringify(t)); assert.ok(Math.abs(t.x) + Math.abs(t.y) + Math.abs(t.z) <= 3);
+    });
+
     // ---- service
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wtools-'));
     const factory = (name) => { const b = new EventEmitter(); Object.assign(b, { username: name, entity: { position: { x: 0, y: 70, z: 0 } }, registry: { blocksByName: { stone: { harvestTools: { 7: true } } }, items: { 7: { name: 'iron_pickaxe' } }, itemsByName: { iron_pickaxe: { id: 7 } } }, inventory: { items: () => b.items, slots: [], emptySlotCount: () => 30 }, quit() {} }); b.items = []; setTimeout(() => b.emit('spawn'), 5); return b; };

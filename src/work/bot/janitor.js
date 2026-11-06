@@ -209,4 +209,19 @@ function freeSpots(w, f, radius = 2) {
     return out.sort((a, b) => a.d - b.d);
 }
 
-module.exports = { plan, restock, maintain, pitPolicy, inventoryOf, shulkerSpot, freeSpots, valueOf, stackOf, sitesOf, hasSites, VALUES, TOOL, FOOD };
+/**
+ * Air cells next to a solid block within two of the feet, not the bot's own two cells, nearest first: where a block can be hung on the side of something when no floor is
+ * free (a bot on a pillar block in open air has nothing to stand beside, but a table can be attached to the pillar).
+ */
+function attachSpots(w, f, radius = 2) {
+    const out = [], N = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+    for (let dx = -radius; dx <= radius; dx++) for (let dy = -radius; dy <= radius; dy++) for (let dz = -radius; dz <= radius; dz++) {
+        if (dx === 0 && dz === 0 && (dy === 0 || dy === 1)) continue;
+        const x = f.x + dx, y = f.y + dy, z = f.z + dz;
+        if (w.kindAt(x, y, z) !== 'air') continue;
+        if (N.some(([a, b, c]) => w.kindAt(x + a, y + b, z + c) === 'solid')) out.push({ x, y, z, d: Math.hypot(dx, dz) + Math.abs(dy) });
+    }
+    return out.sort((a, b) => a.d - b.d);
+}
+
+module.exports = { plan, restock, maintain, pitPolicy, inventoryOf, shulkerSpot, freeSpots, attachSpots, valueOf, stackOf, sitesOf, hasSites, VALUES, TOOL, FOOD };
