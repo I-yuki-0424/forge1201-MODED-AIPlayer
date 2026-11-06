@@ -182,7 +182,7 @@ async function runScript(script, env, { cancel = { cancelled: false }, maxSteps 
             } else if (s.leave_pit) {
                 if (!st.origin && env.here) st.origin = { ...env.here() };                    // where the bot stood: `go_back` returns there
                 res = env.box && env.leavePit ? await env.leavePit(env.box) : { ok: false, reason: 'invalid_target', detail: { why: 'not in a pit job' } };
-                note(`leave pit: ${res.ok ? res.how : res.reason}${res.levels ? ` (${res.levels} levels)` : ''}`);
+                note(`leave pit: ${res.ok ? res.how : res.reason}${res.levels ? ` (${res.levels} levels)` : ''}${!res.ok && res.detail && res.detail.why ? ` [${String(res.detail.why).slice(0, 70)}]` : ''}${env.here ? ` now y ${env.here().y}` : ''}`);
             } else if (s.go_back) {
                 // Back to where the pit work was left (a road-less pit cannot be walked into again): the server moves the bot there, nothing in the world changes.
                 res = st.origin && env.back ? await env.back(st.origin) : { ok: true };

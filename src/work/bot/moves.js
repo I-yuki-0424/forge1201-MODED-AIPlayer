@@ -41,7 +41,7 @@ async function pillar(ctx, { levels, items = TEMP_ITEMS }) {
             if (r || w.kindAt(c.x, c.y, c.z) !== 'air') throw new SkillError('invalid_target', { why: 'no head room above for the jump', at: c, done: placed, cause: r && r.reason });
         }
         // Without a pickaxe only blocks that break by hand can be taken away again: dirt first (owner 2026-11-07), else the usual low-value blocks.
-        const handOnly = !bot.inventory.items().some((i) => i.name.endsWith('_pickaxe'));
+        const handOnly = !bot.inventory.items().some((i) => i.name.endsWith('_pickaxe') && !options.isWorn(bot, i));          // no usable pickaxe: blocks that break fast by hand first
         const order = handOnly ? [...HAND_ITEMS, ...items.filter((n) => !HAND_ITEMS.includes(n))] : items;
         const item = order.find((n) => bot.registry.blocksByName[n] && count(bot, n) >= 1);
         if (!item) throw new SkillError('missing_item', { item: items[0], why: 'no low-value block to stack', tried: items, done: placed });

@@ -93,7 +93,7 @@ async function mine(ctx, { x, y, z, collect = true, blind = false, hand = false 
     if (/^(air|cave_air|void_air)$/.test(b0.name) || !b0.diggable || ['liquid', 'water'].includes(ctx.world.kindAt(x, y, z))) throw new SkillError('invalid_target', { block: b0.name, target: cell });
     // `hand` (work layer only, never in the action schema): break the block with whatever is in the hand when no tool fits. Slow, no drop that needs the tool,
     // but it takes away a block the bot placed itself (the pillar).
-    const tool = bestTool(bot, b0) || (hand ? { name: null } : null);
+    const tool = bestTool(bot, b0) || (hand ? (bestTool(bot, b0, { ignoreWear: true }) || { name: null }) : null);        // a worn-out tool still breaks a block of its own pillar in a moment; bare hands take 7 s per stone
     if (!tool) {
         const any = skillOpts.get(bot).retireWorn && bestTool(bot, b0, { ignoreWear: true });
         throw new SkillError('missing_tool', { block: b0.name, ...(any && any.name ? { worn: any.name } : {}) });

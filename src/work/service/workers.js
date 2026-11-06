@@ -26,6 +26,7 @@ class WorkersPart {
             if (this.settings.scripts && this.sites.find('tools') && this.scripts.get('stock-tools')) {
                 try {
                     const senv = Object.assign(Object.create(env), { sites: this.sites, policy: job.policy, box: job.spec.box });
+                    senv.leavePit = (box) => require('../bot/exit').leavePit(senv, box);
                     const sr = await scriptLib.runScript(this.scripts.get('stock-tools'), senv, { cancel });
                     this.note(sr.ok ? 'info' : 'warn', `${rec.name} stock-tools: ${sr.ended}${sr.log && sr.log.length ? ` (${sr.log.slice(-12).join('; ')})` : ''}`, { job: job.id });
                 } catch (e) { this.note('warn', `${rec.name} stock-tools failed: ${String(e.message).slice(0, 100)}`); }
