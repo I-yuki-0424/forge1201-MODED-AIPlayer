@@ -37,7 +37,10 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
     // Defence (guard.js): while `defend` is on, a command that runs when the bot is attacked is stopped (reason `cancelled`) and the worker fights first.
     let defendOn = !!defend;
     const gd = withGuard ? require('./guard').attach(bot, { cancel }) : null;
-    const unitCancel = gd ? { get cancelled() { return cancel.cancelled || (defendOn && gd.interrupt.cancelled); } } : cancel;
+    // A unit is interrupted when the operator cancels, when the bot is attacked (guard), or when it is under water with its air running out (below 9 of 20): the
+    // worker then runs the water rescue before the next unit (the live pit drowned two bots mid-dig: the water check only ran between units).
+    const drowning = () => { const o = bot.oxygenLevel; return typeof o === 'number' && o < 9 && (!!bot.entity.isInWater || require('./water').inWater(w, feetCell(bot.entity.position))); };
+    const unitCancel = { get cancelled() { return cancel.cancelled || (gd && defendOn && gd.interrupt.cancelled) || drowning(); } };
     const have = (item) => bot.inventory.items().reduce((n, i) => n + (i.name === item ? i.count : 0), 0);
     const disc = require('./discard');
     const feet = () => feetCell(bot.entity.position);
@@ -105,6 +108,7 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         },
         crowded: () => !!others && others().some((o) => Math.hypot(o.x - bot.entity.position.x, o.z - bot.entity.position.z) < 0.9),
         pause: (ticks) => sleep(ticks * 50),                       // let the thing in the way (another bot, an item) move on
+        unitCancel,
         exec: (name, args) => execute(bot, name, args, { cancel: unitCancel }),
         have,
         inv: () => janitor.inventoryOf(bot),

@@ -158,6 +158,18 @@ const tool = (name, max, used) => ({ name, maxDurability: max, durabilityUsed: u
         assert.ok(r.ok, JSON.stringify(r)); assert.ok(calls.includes('lift') && r.detail.lifted === 1, calls.join(','));
     });
 
+    await test('env: a unit is interrupted when the bot is under water with its air low, and not before (drowned twice in the live pit)', () => {
+        const { botEnv } = require('../src/work/bot/env');
+        const bot = new EventEmitter(); const reg = { blocksByName: {}, itemsByName: {} };
+        Object.assign(bot, { username: 'Bot', registry: reg, entity: { position: { x: 0.5, y: 5, z: 0.5, floored: () => ({ x: 0, y: 5, z: 0 }) }, isInWater: true, onGround: false }, oxygenLevel: 20, inventory: { items: () => [] }, setControlState() {}, blockAt: () => null });
+        const env = botEnv(bot, { cancel: { cancelled: false } });
+        assert.strictEqual(env.unitCancel.cancelled, false, 'full air: go on');
+        bot.oxygenLevel = 5; assert.strictEqual(env.unitCancel.cancelled, true, 'in water, air low: stop and surface');
+        bot.entity.isInWater = false; assert.strictEqual(env.unitCancel.cancelled, false, 'low air but out of the water: go on');
+        bot.entity.isInWater = true; bot.oxygenLevel = 12; assert.strictEqual(env.unitCancel.cancelled, false, 'in water with air to spare: go on');
+        const op = { cancelled: false }, e2 = botEnv(bot, { cancel: op }); bot.oxygenLevel = 20; op.cancelled = true; assert.strictEqual(e2.unitCancel.cancelled, true, 'the operator still cancels');
+    });
+
     // ---- service
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wtools-'));
     const factory = (name) => { const b = new EventEmitter(); Object.assign(b, { username: name, entity: { position: { x: 0, y: 70, z: 0 } }, registry: { blocksByName: { stone: { harvestTools: { 7: true } } }, items: { 7: { name: 'iron_pickaxe' } }, itemsByName: { iron_pickaxe: { id: 7 } } }, inventory: { items: () => b.items, slots: [], emptySlotCount: () => 30 }, quit() {} }); b.items = []; setTimeout(() => b.emit('spawn'), 5); return b; };
