@@ -50,6 +50,10 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         }
         return true;
     };
+    // A standing cell the bot can walk out of: a neighbour on the same level, one step up (with room overhead) or one step down. A one-cell pocket by a chest was
+    // chosen as 'nearest standable' and held two bots for good (live pit 2026-11-07).
+    const walkable = (x, y, z) => w.kindAt(x, y, z) === 'air' && w.kindAt(x, y + 1, z) === 'air' && w.kindAt(x, y - 1, z) === 'solid';
+    const hasExit = (x, y, z) => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => walkable(x + dx, y, z + dz) || (walkable(x + dx, y + 1, z + dz) && w.kindAt(x, y + 2, z) === 'air') || walkable(x + dx, y - 1, z + dz)) ? 1 : 0;
     /** Can this item harvest that block (registry harvestTools)? True when nothing is asked or the block needs no tool. */
     const canHarvest = (itemName, block) => {
         if (!block) return true;
@@ -97,10 +101,10 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
                 const x = S.x + dx, z = S.z + dz;
                 if (w.kindAt(x, y, z) !== 'air' || w.kindAt(x, y + 1, z) !== 'air' || w.kindAt(x, y - 1, z) !== 'solid') continue;
                 if (oth.some((o) => Math.hypot(o.x - (x + 0.5), o.z - (z + 0.5)) < 1.3)) continue;
-                cand.push({ x, y, z, safe: safeStand(x, y, z), d: Math.hypot(dx, dz) + Math.abs(y - S.y) });
+                cand.push({ x, y, z, safe: safeStand(x, y, z), exit: hasExit(x, y, z), d: Math.hypot(dx, dz) + Math.abs(y - S.y) });
             }
             if (!cand.length) return { ok: false, reason: 'unreachable', detail: { why: 'no standable cell near the station' } };
-            cand.sort((a, b) => (b.safe - a.safe) || (a.d - b.d));              // a cell without an edge or fluid beside it first, then the nearest
+            cand.sort((a, b) => (b.exit - a.exit) || (b.safe - a.safe) || (a.d - b.d));      // a cell that can be left on foot first (not a sealed pocket), then one without an edge or fluid beside it, then the nearest
             const c = cand[0];
             try { await rcon(`tp ${bot.username} ${c.x + 0.5} ${c.y} ${c.z + 0.5}`); } catch (e) { return { ok: false, reason: 'refused', detail: { message: String(e.message).slice(0, 80) } }; }
             for (let i = 0; i < 30; i++) { await sleep(100); const p = bot.entity.position; if (Math.abs(p.x - c.x - 0.5) < 1.5 && Math.abs(p.y - c.y) < 1.5 && Math.abs(p.z - c.z - 0.5) < 1.5 && bot.entity.onGround) return { ok: true, to: { x: c.x, y: c.y, z: c.z } }; }

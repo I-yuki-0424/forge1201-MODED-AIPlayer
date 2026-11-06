@@ -186,6 +186,19 @@ const tool = (name, max, used) => ({ name, maxDurability: max, durabilityUsed: u
         const r2 = await water.rescue(env2, { x0: 0, x1: 5, z0: 0, z1: 5, top: 12, bottom: 0 }); assert.strictEqual(r2.reason, 'stuck', 'without a lift the old answer stands');
     });
 
+    await test('env.lift: a one-cell pocket by the target is not "the nearest standable cell": a cell with a way out on foot comes first (two bots stayed sealed in one by a chest)', async () => {
+        const { botEnv } = require('../src/work/bot/env');
+        const solid = (x, y, z) => y <= 0 || (y <= 2 && ((Math.abs(x) === 1 && z === 0) || (Math.abs(z) === 1 && x === 0)));       // a floor, and four walls around (0,1,0)
+        const bot = new EventEmitter(); const sent = [];
+        Object.assign(bot, { username: 'Bot', registry: { blocksByName: {}, itemsByName: {} }, entity: { position: { x: 0.5, y: 1, z: 0.5, floored: () => ({ x: 0, y: 1, z: 0 }) }, onGround: true },
+            blockAt: (v) => (solid(v.x, v.y, v.z) ? { name: 'stone', boundingBox: 'block', shapes: [[0, 0, 0, 1, 1, 1]] } : { name: 'air', boundingBox: 'empty', shapes: [] }),
+            inventory: { items: () => [] }, setControlState() {} });
+        const env = botEnv(bot, { cancel: { cancelled: false }, rcon: async (c) => { sent.push(c); return 'ok'; } });
+        await env.lift({ x: 0, y: 1, z: 0 }, { radius: 3, up: 0, down: 0 });
+        const m = /^tp Bot (-?[\d.]+) (-?[\d.]+) (-?[\d.]+)$/.exec(sent[0] || ''); assert.ok(m, sent.join('|'));
+        assert.ok(!(Math.floor(+m[1]) === 0 && Math.floor(+m[3]) === 0), `not into the pocket: ${sent[0]}`);
+    });
+
     await test('leave pit: the ground outside is the highest standable cell around, not the floor of a hole next to the box; a long climb is a lift there (live: a bot was put at y -59)', async () => {
         const { ground, leavePit } = require('../src/work/bot/exit');
         const top = (x, z) => (x === 4 || (x >= 3 && x <= 5 && z >= 3 && z <= 12) ? -5 : 10);          // ground to y 10; the columns west of the box (x 3..5) are a hole down to y -5
