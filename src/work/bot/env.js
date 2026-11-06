@@ -66,6 +66,25 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         canCraft: (item) => { const it = bot.registry.itemsByName[item]; return !!it && bot.recipesFor(it.id, null, 1, true).length > 0; },
         itemExists: (n) => !!bot.registry.itemsByName[n],
         // Another bot in (or next to) the cell the bot stands in: a block cannot be placed there (a pillar fails not_confirmed) until one of them steps aside.
+        // Walk to the nearest standable cell that no other bot stands in or next to (two bots in one cell blocked each other's pillar for ten minutes).
+        stepAside: async () => {
+            const f = feetCell(bot.entity.position), oth = others ? others() : [];
+            const free = (x, z) => !oth.some((o) => Math.hypot(o.x - (x + 0.5), o.z - (z + 0.5)) < 1.3);
+            let tried = 0;
+            for (let rad = 1; rad <= 3 && tried < 6; rad++) {
+                for (let dx = -rad; dx <= rad && tried < 6; dx++) for (let dz = -rad; dz <= rad && tried < 6; dz++) {
+                    if (Math.max(Math.abs(dx), Math.abs(dz)) !== rad) continue;
+                    for (const dy of [0, 1, -1]) {
+                        const x = f.x + dx, y = f.y + dy, z = f.z + dz;
+                        if (!free(x, z) || w.kindAt(x, y, z) !== 'air' || w.kindAt(x, y + 1, z) !== 'air' || w.kindAt(x, y - 1, z) !== 'solid') continue;
+                        tried++; const m = await execute(bot, 'move_to', { x, y, z }, { cancel });
+                        if (m.ok) return { ok: true, to: { x, y, z } };
+                        break;
+                    }
+                }
+            }
+            return { ok: false, reason: 'unreachable' };
+        },
         crowded: () => !!others && others().some((o) => Math.hypot(o.x - bot.entity.position.x, o.z - bot.entity.position.z) < 0.9),
         pause: (ticks) => sleep(ticks * 50),                       // let the thing in the way (another bot, an item) move on
         exec: (name, args) => execute(bot, name, args, { cancel: unitCancel }),

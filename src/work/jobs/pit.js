@@ -296,9 +296,9 @@ async function goToStation(S, handle, env, open, r) {
         // breaking what is overhead (by hand if no tool fits), and dig the corridor to the station from that layer. Live pit 2026-11-07: four bots stood under an
         // undug slab, 5-26 levels below their units, and failed 'unreachable' for ten minutes. Another bot in the same cell blocks the first block: sidestep, again.
         if (env.run && above >= 3) {
-            if (env.crowded && env.crowded() && env.recover) await env.recover(3);
+            if (env.crowded && env.crowded()) { if (env.stepAside) await env.stepAside(); else if (env.recover) await env.recover(3); }
             let p = await env.run('pillar', { levels: S.y - env.here().y });
-            if (!p.ok && p.reason === 'not_confirmed' && env.recover) { await env.recover(3); p = await env.run('pillar', { levels: Math.max(1, S.y - env.here().y) }); }
+            if (!p.ok && p.reason === 'not_confirmed' && (env.stepAside || env.recover)) { if (env.stepAside) await env.stepAside(); else await env.recover(3); p = await env.run('pillar', { levels: Math.max(1, S.y - env.here().y) }); }
             const last = p.detail && p.detail.last; if (last && env.temp) env.temp.set(`${last.x},${last.y},${last.z}`, last);
             r.rose = (r.rose || 0) + ((p.detail && p.detail.levels) || 0);
             if (!p.ok) return { ok: false, reason: p.reason, detail: { ...(p.detail || {}), cell: S, stage: 'rise', ...r } };
