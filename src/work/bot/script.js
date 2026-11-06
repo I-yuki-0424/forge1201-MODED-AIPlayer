@@ -215,7 +215,7 @@ async function placeStation(env, st, kind = 'crafting_table') {
     if (!spots.length) return { ok: false, reason: 'invalid_target', detail: { why: `no free cell near the bot for a ${kind.replace('_', ' ')}` } };
     let p = { ok: false, reason: 'invalid_target' }, spot = null;
     for (const c of spots.slice(0, 4)) { spot = c; p = await env.exec('place', { x: c.x, y: c.y, z: c.z, item: kind }); if (p.ok) break; if (['died', 'disconnected', 'cancelled'].includes(p.reason)) break; }
-    if (p.ok) st[kind === 'furnace' ? 'furnace' : 'table'] = spot;
+    if (p.ok) st[kind === 'furnace' ? 'furnace' : 'table'] = { x: spot.x, y: spot.y, z: spot.z };          // only the coordinates: the rest would reach the craft command as an unknown argument
     return p;
 }
 

@@ -212,6 +212,17 @@ const tool = (name, max, used) => ({ name, maxDurability: max, durabilityUsed: u
         assert.strictEqual(senv.usableTool('pickaxe').name, 'iron_pickaxe'); assert.strictEqual(senv.usableCount('pickaxe'), 1);
     });
 
+    await test('placeStation: a table goes to a free cell within two blocks when the cells beside the bot are walls, and only x, y, z are kept for the craft command', async () => {
+        const cells = new Map(); const set = (x, y, z, n) => cells.set(`${x},${y},${z}`, n);
+        for (let x = -3; x <= 3; x++) for (let z = -3; z <= 3; z++) set(x, 0, z, 'stone');                        // floor, feet at y 1
+        for (const [x, z] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { set(x, 1, z, 'stone'); set(x, 2, z, 'stone'); }  // walls on all four sides
+        const w = { nameAt: (x, y, z) => cells.get(`${x},${y},${z}`) || 'air', kindAt: (x, y, z) => (cells.has(`${x},${y},${z}`) ? 'solid' : 'air') };
+        const placed = []; const env = { w, have: (n) => (n === 'crafting_table' ? 1 : 0), here: () => ({ x: 0, y: 1, z: 0 }), exec: async (n, a) => { placed.push([n, a]); return { ok: true }; } };
+        const st = {}; const r = await script.placeStation(env, st);
+        assert.ok(r.ok && placed.length === 1, JSON.stringify(placed)); assert.deepStrictEqual(Object.keys(st.table).sort(), ['x', 'y', 'z']);
+        assert.ok(Math.abs(st.table.x) <= 2 && Math.abs(st.table.z) <= 2 && !(Math.abs(st.table.x) + Math.abs(st.table.z) === 1), 'not one of the walls');
+    });
+
     // ---- service
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wtools-'));
     const factory = (name) => { const b = new EventEmitter(); Object.assign(b, { username: name, entity: { position: { x: 0, y: 70, z: 0 } }, registry: { blocksByName: { stone: { harvestTools: { 7: true } } }, items: { 7: { name: 'iron_pickaxe' } }, itemsByName: { iron_pickaxe: { id: 7 } } }, inventory: { items: () => b.items, slots: [], emptySlotCount: () => 30 }, quit() {} }); b.items = []; setTimeout(() => b.emit('spawn'), 5); return b; };
