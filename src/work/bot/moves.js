@@ -59,7 +59,7 @@ async function pillar(ctx, { levels, items = TEMP_ITEMS }) {
         // The block placed the round before is now two below the feet.
         if (prev) {
             ctx.phase('pillar_unstack', { cell: prev });
-            const r = await mine(ctx, { ...prev, collect: false, blind: true }).then(() => null, (e) => e);
+            const r = await mine(ctx, { ...prev, collect: false, blind: true, hand: true }).then(() => null, (e) => e);        // without a pickaxe by hand: the routine is the same (owner 2026-11-07)
             if (r && !(r instanceof SkillError && (r.reason === 'invalid_target' || r.reason === 'missing_tool'))) throw r;          // already gone is fine; no pickaxe for cobblestone leaves the column (cheap)
         }
         prev = cell;
@@ -182,7 +182,7 @@ async function takeUsable(ctx, { class: cls, x, y, z }) {
     } finally { bot.closeWindow(win); }
 }
 
-const MOVES = { pillar: { fn: pillar, ticks: (a) => 200 + 90 * (a.levels || 1) }, take_usable: { fn: takeUsable, ticks: () => 800 } };
+const MOVES = { pillar: { fn: pillar, ticks: (a) => 200 + 260 * (a.levels || 1) }, take_usable: { fn: takeUsable, ticks: () => 800 } };
 
 /** Run one of the work layer's own movements on `bot` (same result shape as skills.execute). */
 function runMove(bot, name, args = {}, opts = {}) {

@@ -94,7 +94,7 @@ function neighbours(w, n) {
  * not found within `maxNodes`, `path` leads to the expanded cell with the lowest h and `partial` is true.
  * Returns null when start itself is no node (not standing, swimming or climbing).
  */
-function plan(w, start, isGoal, h, { maxNodes = 20000 } = {}) {
+function* planSteps(w, start, isGoal, h, { maxNodes = 20000, slice = 600 } = {}) {
     const k0 = nodeKind(w, start.x, start.y, start.z);
     if (!k0) return null;
     const key = (c) => `${c.x},${c.y},${c.z}`;
@@ -106,6 +106,7 @@ function plan(w, start, isGoal, h, { maxNodes = 20000 } = {}) {
         const n = open.pop();
         if (n.closed) continue;
         n.closed = true; expanded++;
+        if (expanded % slice === 0) yield expanded;                                   // a slice is done: the asynchronous driver lets other bots run now
         if (isGoal(n)) return { path: unwind(n), partial: false, expanded };
         if (n.f - n.g < best.f - best.g) best = n;
         for (const m of neighbours(w, n)) {
@@ -116,6 +117,23 @@ function plan(w, start, isGoal, h, { maxNodes = 20000 } = {}) {
         }
     }
     return { path: unwind(best), partial: true, expanded };
+}
+
+
+/** The planner run to the end in one go (every caller that does not mind blocking: the RL candidate lists, tests). */
+function plan(w, start, isGoal, h, opts = {}) {
+    const it = planSteps(w, start, isGoal, h, opts);
+    for (;;) { const r = it.next(); if (r.done) return r.value; }
+}
+
+/**
+ * The same search, in slices of `slice` expansions with the event loop given back in between (owner 2026-11-07). All bots of the work console live
+ * in one Node process: a search of 20,000 cells for a cell nobody can reach took seconds and froze every other bot for that long, so one bot that
+ * wandered stopped them all. Same result as `plan` (the slices only pause the loop).
+ */
+async function planAsync(w, start, isGoal, h, opts = {}) {
+    const it = planSteps(w, start, isGoal, h, opts);
+    for (;;) { const r = it.next(); if (r.done) return r.value; await new Promise((res) => setImmediate(res)); }
 }
 
 function unwind(n) {
@@ -147,4 +165,4 @@ function reachable(w, start, { maxNodes = 1500, radius = 20 } = {}) {
     return { has: (x, y, z) => inside(x, y, z) && done.has(key(x, y, z)), cells };
 }
 
-module.exports = { plan, neighbours, reachable, nodeKind, MAX_DROP, MAX_DROP_WATER };
+module.exports = { plan, planAsync, planSteps, neighbours, reachable, nodeKind, MAX_DROP, MAX_DROP_WATER };

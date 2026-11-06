@@ -148,8 +148,10 @@ async function ready(world, from, items) {
         try { const r = await runMove(b2, 'pillar', { levels: 2 }); assert.strictEqual(r.reason, 'missing_item'); } finally { b2.stop(); }
         const b3 = await ready(scene(new Map()), new Vec3(0.5, 1, 0.5), ['cobblestone']);
         try {
-            const r = await runMove(b3, 'pillar', { levels: 3 });                // no pickaxe: cobblestone cannot be broken, the column is left (cheap), the climb still works
+            const r = await runMove(b3, 'pillar', { levels: 3 });                // no pickaxe: the blocks below are broken by hand (slow), the same routine as with a pickaxe
             assert.strictEqual(r.ok, true, `${r.reason} ${JSON.stringify(r.detail)}`); assert.strictEqual(Math.floor(b3.entity.position.y), 4);
+            const col = [1, 2, 3].map((y) => b3.blockAt(new Vec3(0, y, 0)).name);            // without a pickaxe the lower blocks are broken BY HAND: the same routine, one block left under the feet (owner 2026-11-07)
+            assert.ok(col.filter((n) => n === 'cobblestone').length <= 1, `column ${col}`);
         } finally { b3.stop(); }
     });
 

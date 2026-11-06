@@ -59,6 +59,13 @@ class WorkService extends EventEmitter {
         this.cmdSeq = 0;
         this.started = Date.now();
         this._startDisplay();
+        // All bots live in this one process: whatever blocks the event loop stops every bot. Say so (and what the bots were doing) instead of leaving it a mystery.
+        let lagAt = Date.now();
+        this._lag = setInterval(() => {
+            const now = Date.now(), late = now - lagAt - 250; lagAt = now;
+            if (late > 1200) this.note('warn', `event loop blocked for ${late} ms (every bot stops meanwhile); busy: ${[...this.bots.values()].filter((r) => r.phase && now - r.phase.at < 30000).map((r) => `${r.name}:${r.phase.name}`).join(' ') || 'unknown'}`);
+        }, 250);
+        this._lag.unref?.();
     }
 
     note(level, msg, extra = {}) {
@@ -99,7 +106,7 @@ class WorkService extends EventEmitter {
         try { this.save(); } catch (_) { /* best effort */ }
         for (const rec of this.bots.values()) { rec.removed = true; clearTimeout(rec.timer); this._stopWorker(rec); try { rec.bot && rec.bot.quit && rec.bot.quit(); } catch (_) { /* gone */ } }
         if (this._rcon) { try { this._rcon.close(); } catch (_) { /* gone */ } }
-        clearInterval(this._watch); this.maps.close(); if (this.display) this.display.stop();
+        clearInterval(this._watch); clearInterval(this._lag); this.maps.close(); if (this.display) this.display.stop();
     }
 }
 

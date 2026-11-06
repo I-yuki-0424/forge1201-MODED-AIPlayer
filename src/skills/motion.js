@@ -1,7 +1,7 @@
 'use strict';
 // Walking and aiming, built from frames: steer with yaw, hold forward, jump onto a step, sprint on long straight runs.
 // Shared by every command that has to get somewhere or look at something.
-const { plan, nodeKind } = require('./planner');
+const { planAsync, nodeKind } = require('./planner');
 const { standable } = require('./world');
 const { SkillError } = require('./runner');
 const { EYE, BLOCK_REACH, lookAngles, aimPoints, angleDiff } = require('./geometry');
@@ -85,7 +85,7 @@ async function walk(ctx, goal, { sprint = true } = {}) {
         }
         if (!path) {
             ctx.phase('plan', { from: cell, goal: goal.label });
-            const r = plan(w, cell, goal.isGoal, goal.h, { maxNodes: goal.maxNodes || 20000 });
+            const r = await planAsync(w, cell, goal.isGoal, goal.h, { maxNodes: goal.maxNodes || 20000 });          // sliced: the other bots keep running while this one searches
             if (!r) {
                 // Standing on something the planner does not model (an edge, a partial block): nudge to the cell centre once.
                 const c = centre(cell);

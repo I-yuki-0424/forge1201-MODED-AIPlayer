@@ -5,7 +5,7 @@ const { EventEmitter } = require('events');
 const Vec3 = require('vec3');
 const G = require('../src/skills/geometry');
 const { kindOf, standable } = require('../src/skills/world');
-const { plan } = require('../src/skills/planner');
+const { plan, planAsync } = require('../src/skills/planner');
 const { clearLine } = require('../src/skills/motion');
 const { validateArgs, COMMANDS, REASONS, execute } = require('../src/skills');
 const { run, SkillError } = require('../src/skills/runner');
@@ -92,6 +92,15 @@ const goalCell = (t) => ({ isGoal: (c) => c.x === t.x && c.y === t.y && c.z === 
         assert.strictEqual(kindOf({ name: 'lava', boundingBox: 'empty', shapes: [] }), 'danger');
         assert.strictEqual(kindOf({ name: 'magma_block', boundingBox: 'block', shapes: CUBE }), 'danger');
         assert.strictEqual(kindOf(null), 'unknown');
+    });
+
+    await test('planner: the sliced search gives the same answer as the blocking one and lets other work run in between (all bots share one process)', async () => {
+        const w = fakeWorld(), g = goalCell({ x: 60, y: 1, z: 60 });
+        const a = plan(w, { x: 0, y: 1, z: 0 }, () => false, g.h, { maxNodes: 5000 });                    // a goal nobody reaches: the whole budget is spent
+        let ticks = 0; const timer = setInterval(() => { ticks++; }, 1); const b = await planAsync(w, { x: 0, y: 1, z: 0 }, () => false, g.h, { maxNodes: 5000, slice: 200 }); clearInterval(timer);
+        assert.strictEqual(b.partial, true); assert.strictEqual(b.expanded, a.expanded); assert.deepStrictEqual(b.path.map((c) => `${c.x},${c.y},${c.z}`), a.path.map((c) => `${c.x},${c.y},${c.z}`));
+        assert.ok(ticks >= 1, `timers ran during the search: ${ticks}`);
+        const c = await planAsync(w, { x: 0, y: 1, z: 0 }, goalCell({ x: 6, y: 1, z: 0 }).isGoal, goalCell({ x: 6, y: 1, z: 0 }).h); assert.strictEqual(c.partial, false);
     });
 
     await test('planner: straight line, detour around a wall, step up, bounded drop, unreachable', () => {
