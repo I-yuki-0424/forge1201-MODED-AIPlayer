@@ -69,7 +69,7 @@ class WorkService extends EventEmitter {
     }
 
     note(level, msg, extra = {}) {
-        const e = { t: Date.now(), level, msg: String(msg).slice(0, 300), ...extra };
+        const e = { t: Date.now(), level, msg: String(msg).slice(0, 900), ...extra };
         this.log.push(e); if (this.log.length > 400) this.log.shift();
         this.emit('event', e);
         if (level !== 'debug') console.log(`[work] ${level} ${e.msg}`);

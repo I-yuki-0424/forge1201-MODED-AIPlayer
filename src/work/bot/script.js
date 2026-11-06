@@ -26,7 +26,7 @@ const WORK_MOVES = new Set(['pillar', 'take_usable']);
 const TIERS = ['netherite', 'diamond', 'iron', 'stone', 'golden', 'wooden'];
 const CLASSES = new Set(['pickaxe', 'axe', 'shovel', 'sword', 'hoe']);
 const STEP_KEYS = new Set(['go_back', 'cmd', 'args', 'at', 'table', 'furnace', 'optional', 'gather', 'make_planks', 'if', 'then', 'else', 'take', 'take_tool', 'put_away', 'station', 'release_station', 'leave_pit', 'return', 'log']);
-const COND_KEYS = new Set(['has', 'tool', 'usable', 'can_craft', 'site', 'free_slots', 'in_pit', 'planks', 'logs', 'all', 'any', 'not']);
+const COND_KEYS = new Set(['has', 'tool', 'usable', 'harvests', 'can_craft', 'site', 'free_slots', 'in_pit', 'planks', 'logs', 'all', 'any', 'not']);
 const REACH_DY = 12;                          // a tagged chest more than this many levels above or below the bot is not walked to (the planner would search for a minute and fail)
 const ITEM = /^([a-z0-9_.-]{1,32}:)?[a-z0-9_/]{1,64}$/;
 
@@ -44,6 +44,7 @@ function validateCond(c, depth) {
     else if (k === 'site') { if (typeof v !== 'string' || !/^[a-z]{2,12}$/.test(v)) bad('site: a tag'); }
     else if (k === 'free_slots') { if (!Number.isInteger(v) || v < 0 || v > 36) bad('free_slots: 0..36'); }
     else if (k === 'in_pit') { if (v !== true) bad('in_pit: true'); }
+    else if (k === 'harvests') { if (typeof v !== 'string' || !ITEM.test(v)) bad('harvests: an item name'); }
     else if (k === 'usable') { if (!v || !CLASSES.has(v.class) || !Number.isInteger(v.min) || v.min < 1 || v.min > 9) bad('usable: {class, min: 1..9}'); }
     else if (k === 'planks' || k === 'logs') { if (!Number.isInteger(v) || v < 1 || v > 64) bad(`${k}: 1..64`); }
     else if (k === 'not') validateCond(v, depth + 1);
@@ -98,6 +99,7 @@ function holds(c, env) {
     if (k === 'site') return !!(env.sites && env.sites.find(v, env.pos ? env.pos() : null));
     if (k === 'free_slots') return env.inv ? env.inv().slotsFree >= v : false;
     if (k === 'usable') return (env.usableCount ? env.usableCount(v.class) : toolOf(v.class, env) ? 1 : 0) >= v.min;
+    if (k === 'harvests') return env.canHarvest ? !!env.canHarvest(v) : true;
     if (k === 'in_pit') return !!(env.box && env.here && env.w && require('./exit').inPit(env, env.box));
     if (k === 'planks' || k === 'logs') return sumItems(env, k === 'planks' ? /_planks$/ : /_(log|stem|hyphae)$/) >= v;
     if (k === 'not') return !holds(v, env);
@@ -244,6 +246,7 @@ const REPLACE_TOOL = {
         ] },
         { if: { not: { has: { item: 'iron_ingot', min: 3 } } }, then: [
             { take: { item: 'iron_ingot', count: 3, from: 'ore' }, optional: true },
+            { if: { not: { has: { item: 'iron_ingot', min: 3 } } }, then: [{ take: { item: 'iron_ingot', count: 3, from: 'storage' }, optional: true }] },
             { if: { all: [{ not: { has: { item: 'iron_ingot', min: 3 } } }, { has: { item: 'raw_iron', min: 3 } }] }, then: [
                 { station: 'furnace', optional: true },
                 { cmd: 'smelt', args: { item: 'raw_iron', count: 3 }, furnace: true, optional: true },
@@ -256,7 +259,7 @@ const REPLACE_TOOL = {
             { if: { tool: 'pickaxe' }, then: [{ return: 'ok' }] },
         ] },
         // 3. no iron: a stone pickaxe from cobblestone mined on the way (it breaks stone and iron ore)
-        { if: { all: [{ any: [{ has: { item: 'cobblestone', min: 3 } }, { has: { item: 'cobbled_deepslate', min: 3 } }] }, { has: { item: 'stick', min: 2 } }] }, then: [
+        { if: { all: [{ harvests: 'stone_pickaxe' }, { any: [{ has: { item: 'cobblestone', min: 3 } }, { has: { item: 'cobbled_deepslate', min: 3 } }] }, { has: { item: 'stick', min: 2 } }] }, then: [
             { station: 'crafting_table' },
             { cmd: 'craft', args: { item: 'stone_pickaxe', count: 1 }, table: true },
             { release_station: true },

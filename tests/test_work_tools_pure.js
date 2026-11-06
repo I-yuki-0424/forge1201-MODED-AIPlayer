@@ -207,6 +207,7 @@ const tool = (name, max, used) => ({ name, maxDurability: max, durabilityUsed: u
         const env = botEnv(bot, { cancel: { cancelled: false } }), senv = Object.assign(Object.create(env), { need: 'deepslate_gold_ore' }), plain = Object.assign(Object.create(env), { need: 'stone' });
         assert.ok(env.usableTool('pickaxe') && plain.usableTool('pickaxe'), 'with no block asked, or stone, a stone pickaxe is a pickaxe');
         assert.strictEqual(senv.usableTool('pickaxe'), null); assert.strictEqual(senv.usableCount('pickaxe'), 0);
+        assert.strictEqual(senv.canHarvest('stone_pickaxe'), false, 'the stone pickaxe is not a way to get a gold-ore pickaxe'); assert.strictEqual(senv.canHarvest('iron_pickaxe'), true); assert.strictEqual(plain.canHarvest('stone_pickaxe'), true);
         items = [...items, { name: 'iron_pickaxe', count: 1, maxDurability: 250, durabilityUsed: 0 }];
         assert.strictEqual(senv.usableTool('pickaxe').name, 'iron_pickaxe'); assert.strictEqual(senv.usableCount('pickaxe'), 1);
     });
