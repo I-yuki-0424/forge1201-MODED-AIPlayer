@@ -185,6 +185,19 @@ const tool = (name, max, used) => ({ name, maxDurability: max, durabilityUsed: u
         const r2 = await water.rescue(env2, { x0: 0, x1: 5, z0: 0, z1: 5, top: 12, bottom: 0 }); assert.strictEqual(r2.reason, 'stuck', 'without a lift the old answer stands');
     });
 
+    await test('leave pit: the ground outside is the highest standable cell around, not the floor of a hole next to the box; a long climb is a lift there (live: a bot was put at y -59)', async () => {
+        const { ground, leavePit } = require('../src/work/bot/exit');
+        const top = (x, z) => (x === 4 || (x >= 3 && x <= 5 && z >= 3 && z <= 12) ? -5 : 10);          // ground to y 10; the columns west of the box (x 3..5) are a hole down to y -5
+        const w = { nameAt: () => 'stone', kindAt: (x, y, z) => (y <= top(x, z) ? 'solid' : 'air') };
+        const box = { x0: 6, x1: 12, z0: 3, z1: 12, top: 40, bottom: -20 };
+        const g = ground(w, box, { x: 6, z: 7, ox: 5, oz: 7 });                 // the west side: its own columns are the hole, a column a few steps out is not
+        assert.ok(g && g.y === 11, JSON.stringify(g));
+        let to = null; const pos = { x: 8, y: -4, z: 8 };
+        const env = { w, here: () => ({ ...pos }), have: () => 9, exec: async () => ({ ok: false, reason: 'unreachable' }), run: async () => ({ ok: false, reason: 'unreachable' }), recover: async () => {},
+            lift: async (S) => { to = S; pos.x = S.x; pos.y = S.y; pos.z = S.z; return { ok: true }; } };
+        const r = await leavePit(env, box); assert.ok(r.ok && r.how === 'lifted', JSON.stringify(r)); assert.strictEqual(to.y, 11, 'on the surface');
+    });
+
     // ---- service
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wtools-'));
     const factory = (name) => { const b = new EventEmitter(); Object.assign(b, { username: name, entity: { position: { x: 0, y: 70, z: 0 } }, registry: { blocksByName: { stone: { harvestTools: { 7: true } } }, items: { 7: { name: 'iron_pickaxe' } }, itemsByName: { iron_pickaxe: { id: 7 } } }, inventory: { items: () => b.items, slots: [], emptySlotCount: () => 30 }, quit() {} }); b.items = []; setTimeout(() => b.emit('spawn'), 5); return b; };

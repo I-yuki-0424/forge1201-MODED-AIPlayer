@@ -20,18 +20,25 @@ function sides(box, f) {
 }
 
 /**
- * The ground outside the box next to `side`: the highest cell a bot can stand on that is not the top of a tree (the box may start far above the
- * ground, and the ground at the rim is whatever it is: owner 2026-11-07, the old search looked at the box top and found nothing).
+ * The ground outside the box near `side`: the HIGHEST cell a bot can stand on (not on a tree) in the columns up to six steps out and two to the side. Not the first from
+ * the top of one column: next to a pit that was dug wider than its box the column is a hole and its first standable cell is the bottom of the hole (the lift put a
+ * bot at y -59, live 2026-11-07). The box may also start far above the ground; the search starts four above its top.
  */
 function ground(w, box, side) {
     const TREE = /(_leaves|_log|_wood|_vines?|^vine)$/;
-    const top = Math.min(319, box.top + 4);
-    for (let y = top; y >= box.bottom; y--) {
-        if (!standable(w, { x: side.ox, y, z: side.oz })) continue;
-        if (TREE.test(String(w.nameAt(side.ox, y - 1, side.oz) || '').replace(/^minecraft:/, ''))) continue;           // a canopy is not the ground
-        return { x: side.ox, y, z: side.oz };
+    const top = Math.min(319, box.top + 4), ux = Math.sign(side.ox - side.x), uz = Math.sign(side.oz - side.z);
+    let best = null;
+    for (let k = 1; k <= 6; k++) for (let lat = -2; lat <= 2; lat++) {
+        const x = side.x + ux * k + (uz !== 0 ? lat : 0), z = side.z + uz * k + (ux !== 0 ? lat : 0);
+        for (let y = top; y >= box.bottom; y--) {
+            if (!standable(w, { x, y, z })) continue;
+            if (TREE.test(String(w.nameAt(x, y - 1, z) || '').replace(/^minecraft:/, ''))) continue;           // a canopy is not the ground
+            const d = k + Math.abs(lat);
+            if (!best || y > best.y || (y === best.y && d < best.d)) best = { x, y, z, d };
+            break;
+        }
     }
-    return null;
+    return best && { x: best.x, y: best.y, z: best.z };
 }
 
 /**
@@ -50,8 +57,11 @@ async function leavePit(env, box, { corridorMax = 40 } = {}) {
     }
     // 2. Pillar up at the edge of the nearest side. First get there at the bot's depth, digging the corridor if the layer is still closed
     // (those cells belong to the pit anyway).
-    const s = order[0], g = ground(w, box, s);
+    const s = order[0], g = ground(w, box, s) || order.map((x) => ground(w, box, x)).filter(Boolean).sort((a, b) => b.y - a.y)[0];
     if (!g) return { ok: false, reason: 'unreachable', detail: { why: 'no ground to step onto next to the pit', side: s } };
+    // A climb of more than eight levels is a lift (instant) when the server can do it: a pillar of 40 levels takes minutes and the columns beside the pit may be holes too.
+    const top = order.map((x) => ground(w, box, x)).filter(Boolean).sort((a, b) => b.y - a.y)[0] || g;
+    if (env.lift && top.y - f.y > 8) { const l = await env.lift({ x: top.x, y: top.y, z: top.z }, { radius: 3, down: 2, up: 3 }); if (l.ok) return { ok: true, how: 'lifted', levels: top.y - f.y, dug: 0 }; }
     const at = { x: s.x, y: f.y, z: s.z };
     let dug = 0;
     for (let tries = 0; tries < corridorMax; tries++) {
