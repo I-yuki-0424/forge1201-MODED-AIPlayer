@@ -246,6 +246,16 @@ const tool = (name, max, used) => ({ name, maxDurability: max, durabilityUsed: u
         assert.ok(Math.abs(st.table.x) <= 2 && Math.abs(st.table.z) <= 2 && !(Math.abs(st.table.x) + Math.abs(st.table.z) === 1), 'not one of the walls');
     });
 
+    await test('placeStation: a station placed earlier in the script is used again while the bot stays near it (the furnace step left the table out, and the next table step asked for planks)', async () => {
+        const execs = [];
+        const env = { here: () => ({ x: 0, y: 1, z: 0 }), have: () => 0, w: { kindAt: () => 'air' }, canCraft: () => false, exec: async (n, a) => { execs.push(n); return { ok: true }; }, inv: () => ({ items: [] }) };
+        const st = { table: { x: 1, y: 1, z: 0 } };
+        const r = await script.placeStation(env, st, 'crafting_table');
+        assert.ok(r.ok && r.reused && execs.length === 0, JSON.stringify(r));
+        const far = await script.placeStation({ ...env, here: () => ({ x: 20, y: 1, z: 0 }) }, { table: { x: 1, y: 1, z: 0 } }, 'crafting_table');
+        assert.strictEqual(far.ok, false, 'far from it: not reused (and no planks to make another)');
+    });
+
     await test('placeStation: a furnace is crafted at a crafting table that is placed first (a 3x3 recipe), and the table is placed from the pack', async () => {
         const w = { nameAt: () => 'air', kindAt: (x, y, z) => (y === 0 ? 'solid' : 'air') };
         const calls = []; const inv = { crafting_table: 1, furnace: 0, cobblestone: 20 };

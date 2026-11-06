@@ -207,6 +207,9 @@ async function runScript(script, env, { cancel = { cancelled: false }, maxSteps 
 
 /** A crafting table or a furnace beside the bot: placed from the inventory, made first when there is none (planks / 8 cobblestone). Sets st.table or st.furnace to its x, y, z. */
 async function placeStation(env, st, kind = 'crafting_table') {
+    // Already placed by an earlier step of this script (the furnace needed the table first) and the bot has not walked off: use it again instead of asking for another.
+    const placed = st[kind === 'furnace' ? 'furnace' : 'table'];
+    if (placed && env.here) { const h = env.here(); if (Math.abs(h.x - placed.x) <= 3 && Math.abs(h.y - placed.y) <= 3 && Math.abs(h.z - placed.z) <= 3) return { ok: true, reused: true }; }
     if (count(env, kind) < 1) {
         if (!(env.canCraft && env.canCraft(kind))) return { ok: false, reason: 'missing_materials', detail: { why: kind === 'furnace' ? 'no furnace and no 8 cobblestone to make one' : 'no crafting table and no planks to make one' } };
         // A furnace is a 3x3 recipe: made at a crafting table (placed first when the bot has none out); a table is made in the 2x2 grid.
