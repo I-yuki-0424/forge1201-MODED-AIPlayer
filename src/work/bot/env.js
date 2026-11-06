@@ -41,6 +41,15 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
     // worker then runs the water rescue before the next unit (the live pit drowned two bots mid-dig: the water check only ran between units).
     const drowning = () => { const o = bot.oxygenLevel; return typeof o === 'number' && o < 9 && (!!bot.entity.isInWater || require('./water').inWater(w, feetCell(bot.entity.position))); };
     const unitCancel = { get cancelled() { return cancel.cancelled || (gd && defendOn && gd.interrupt.cancelled) || drowning(); } };
+    /** A cell with air for the body and solid below, and no drop of more than three beside it (no ledge, tree top or pillar edge to walk off: two bots fell to their death after a lift). */
+    const safeStand = (x, y, z) => {
+        if (w.kindAt(x, y, z) !== 'air' || w.kindAt(x, y + 1, z) !== 'air' || w.kindAt(x, y - 1, z) !== 'solid') return false;
+        for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+            if (w.kindAt(x + dx, y, z + dz) === 'water' || w.kindAt(x + dx, y, z + dz) === 'liquid' || w.kindAt(x + dx, y, z + dz) === 'danger') return false;
+            if (![1, 2, 3].some((k) => w.kindAt(x + dx, y - k, z + dz) === 'solid')) return false;
+        }
+        return true;
+    };
     /** Can this item harvest that block (registry harvestTools)? True when nothing is asked or the block needs no tool. */
     const canHarvest = (itemName, block) => {
         if (!block) return true;
@@ -88,10 +97,10 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
                 const x = S.x + dx, z = S.z + dz;
                 if (w.kindAt(x, y, z) !== 'air' || w.kindAt(x, y + 1, z) !== 'air' || w.kindAt(x, y - 1, z) !== 'solid') continue;
                 if (oth.some((o) => Math.hypot(o.x - (x + 0.5), o.z - (z + 0.5)) < 1.3)) continue;
-                cand.push({ x, y, z, d: Math.hypot(dx, dz) + Math.abs(y - S.y) + (dx === 0 && dz === 0 ? 0 : 0) });
+                cand.push({ x, y, z, safe: safeStand(x, y, z), d: Math.hypot(dx, dz) + Math.abs(y - S.y) });
             }
             if (!cand.length) return { ok: false, reason: 'unreachable', detail: { why: 'no standable cell near the station' } };
-            cand.sort((a, b) => a.d - b.d);
+            cand.sort((a, b) => (b.safe - a.safe) || (a.d - b.d));              // a cell without an edge or fluid beside it first, then the nearest
             const c = cand[0];
             try { await rcon(`tp ${bot.username} ${c.x + 0.5} ${c.y} ${c.z + 0.5}`); } catch (e) { return { ok: false, reason: 'refused', detail: { message: String(e.message).slice(0, 80) } }; }
             for (let i = 0; i < 30; i++) { await sleep(100); const p = bot.entity.position; if (Math.abs(p.x - c.x - 0.5) < 1.5 && Math.abs(p.y - c.y) < 1.5 && Math.abs(p.z - c.z - 0.5) < 1.5 && bot.entity.onGround) return { ok: true, to: { x: c.x, y: c.y, z: c.z } }; }
