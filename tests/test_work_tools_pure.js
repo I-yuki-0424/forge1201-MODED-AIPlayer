@@ -143,6 +143,21 @@ const tool = (name, max, used) => ({ name, maxDurability: max, durabilityUsed: u
         assert.ok([...cells.keys()].every((k) => !k.startsWith('5,12,5')) && env.temp.size === 1, 'the station is dug and the pillar block is on the list to be taken away');
     });
 
+    await test('pit: a station far below the bot (the bot stands on its own pillar) is reached by a lift to a standable cell at the layer, not by walking', async () => {
+        const pit = require('../src/work/jobs/pit');
+        const cells = new Map(); const set = (x, y, z, n) => cells.set(`${x},${y},${z}`, n);
+        for (let x = 3; x <= 7; x++) for (let z = 3; z <= 7; z++) { set(x, 5, z, 'stone'); set(x, 6, z, 'stone'); }                 // the floor: top at y 6, the layer to dig is y 6
+        set(5, 20, 5, 'cobblestone');                                                                                                // the bot's pillar block, 14 above
+        const w = { nameAt: (x, y, z) => cells.get(`${x},${y},${z}`) || 'air', kindAt: (x, y, z) => (cells.has(`${x},${y},${z}`) ? 'solid' : 'air') };
+        const plan = pit.planPit({ x0: 3, z0: 3, x1: 7, z1: 7, top: 6, bottom: 6 }, { method: 'sweep', road: false, tile: 5 }), region = plan.regions[0], calls = [];
+        let pos = { x: 5, y: 21, z: 5 };
+        const env = { w, have: () => 9, pause: async () => {}, here: () => ({ ...pos }), temp: new Map(),
+            exec: async (n, a) => { calls.push(n); if (n === 'move_to') return pos.y > 7 ? { ok: false, reason: 'unreachable' } : (pos = { x: a.x, y: a.y, z: a.z }, { ok: true }); if (n === 'mine') { cells.delete(`${a.x},${a.y},${a.z}`); return { ok: true }; } return { ok: true }; },
+            lift: async (S) => { calls.push('lift'); pos = { x: S.x, y: S.y + 1, z: S.z }; return { ok: true, to: pos }; } };
+        const r = await pit.runUnit(plan, region, { unit: 0 }, env);
+        assert.ok(r.ok, JSON.stringify(r)); assert.ok(calls.includes('lift') && r.detail.lifted === 1, calls.join(','));
+    });
+
     // ---- service
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wtools-'));
     const factory = (name) => { const b = new EventEmitter(); Object.assign(b, { username: name, entity: { position: { x: 0, y: 70, z: 0 } }, registry: { blocksByName: { stone: { harvestTools: { 7: true } } }, items: { 7: { name: 'iron_pickaxe' } }, itemsByName: { iron_pickaxe: { id: 7 } } }, inventory: { items: () => b.items, slots: [], emptySlotCount: () => 30 }, quit() {} }); b.items = []; setTimeout(() => b.emit('spawn'), 5); return b; };
