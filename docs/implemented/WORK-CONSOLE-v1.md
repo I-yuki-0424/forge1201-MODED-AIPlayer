@@ -352,6 +352,25 @@ its age ("walk 14 s", "plan 14 s") and the last problem ("unreachable 248 80 446
 After the fix, same area, four bots: 393 of 2,400 units after 90 s, bots at ground level digging, 0 problems (before: 187, stuck in the canopy). Job reset by the owner's word.
 Not done: tall terrain features other than trees (a floating block of stone would still be tried); the box top should be set at the ground, "Top = ground" does that.
 
+## v9 (2026-11-07, `TASK:20261106-042` second half): the owner's batch of seven, and what the live pit taught
+
+Owner's batch (all done, live on the play console): (1) help only after the own range is dug to the bottom (`jobs/crew.js`: `stayHome`, `lanes`), lanes independent (no lock-step, `maxLead` off: a fast lane used to wait for the slowest);
+(2) retries after 1, 1, 2, 2, 3, 5 s (were 3-30), cool-down 5 s, repair every 3 s; (3) nothing is retired for good any more (no Resume button needed), a unit gets 10 attempts and an unreachable cell is retried once;
+(4) resupply from mined items: `replace-tool` v2 (script grammar gained `gather`, `make_planks`, `station: furnace`, `furnace`, `go_back`, conditions `planks`, `logs`, `in_pit`, `usable`): tools chest first, then iron (smelt raw iron in a furnace placed beside the bot) or stone pickaxe, sticks from planks from logs (trees only outside the pit);
+`stock-tools` at job start (three usable pickaxes, 12 sticks); (5) the pillar: overhead blocks are broken first, bare hands or a worn tool break the lower block (so the same routine runs without a pickaxe), dirt first when no pickaxe is usable;
+(6) the tools chest: a far chest is reached by leaving the pit and the bot is put back by `tp` (`go_back`); `take_usable` never takes a worn tool; (7) monitoring: a watcher on `/api/state` for 6 hours, fixes below.
+
+What the live pit (16x16, y 90 to -59, ground y 64, an old bigger hole beside it) taught, each fixed and deployed (tests in `tests/test_work_tools_pure.js`, `test_work_pure.js`, `test_work_moves_sim.js`):
+- bots in the canopy (tree blocks 10-20 above the ground are not tried; units with nothing to dig finish without walking);
+- `leavePit` looked for ground at the box top (y 90) and, later, took the first standable cell from the top of a column (the floor of a hole at y -59): now the highest standable cell within six columns, and a climb over eight levels is a lift;
+- four bots stood under an undug slab / on their own floating pillar blocks, 5-26 levels from their units, and failed `unreachable` for ten minutes: a station three or more levels away that cannot be walked to is reached by `env.lift` (server `tp` to a standable cell at that layer; position only), the pillar is the fallback;
+- two bots in one cell blocked each other's pillar (`not_confirmed`): `env.stepAside` and `env.crowded`;
+- the tools chest handed out worn tools, a worn pickaxe ended the wait for a pickaxe, worn tools are thrown away by exact stack (`clear` with `{Damage:N}`);
+- drowning mid-dig (the water check ran only between units): a unit is cancelled when the bot is in water with air below 9, and the water rescue falls back to a lift when swimming out fails;
+- bot freezing: not the event loop (tick gaps of one bot were 1.5 s while the others' were 1-50 ms): the path search now runs in slices (`planAsync`) and is capped at 6,000 cells for work bots; the lock-step between lanes was the real reason for "the others wait".
+Diagnostics added: the Bots table shows phase and last problem, script logs are complete, `event loop blocked` and `no physics tick` warnings name the bots involved.
+Known limits: the ledger restarts from layer 0 at every console restart (units are idempotent, idle ones take milliseconds); `tp` is used for lift and go_back (a server-side position change, no blocks); leftover cells beside open air that no standable cell reaches stay `stuck` until a repair pass finds them reachable.
+
 ## Security basis (the console can reach RCON and control bots, so it is an administrative interface)
 
 - Not an extension of the old unauthenticated WebUI (docs/LESSONS.md L3), which stays on loopback and unchanged.
