@@ -1,8 +1,5 @@
 'use strict';
-// The Automation page (v5, TASK-20261106-038): settings of the work layer, sites (named chests with tags, by coordinates) and scripts
-// (small JSON programs for the bots). Everything is built with the DOM helpers of ui.js (textContent only); the server validates.
-
-const TAG_HELP = { tools: 'tools anyone may take', ore: 'ores, ingots, gems, coal', storage: 'everything else of value', junk: 'stone, dirt, gravel, rotten flesh', food: 'food', blocks: 'low-value blocks for sealing and stacking' };
+// The Automation page: settings of the work layer, scripts (small JSON programs for the bots) and the problem log. Tagged blocks: page_tags.js. Everything is built with the DOM helpers of ui.js (textContent only); the server validates.
 
 const SCRIPT_TEMPLATE = {
     name: 'my-script',
@@ -29,41 +26,6 @@ function SettingsPanel(getS) {
         return h('label', { class: 'check setting' }, boxes[k], h('span', {}, h('strong', { text: label }), h('div', { class: 'muted small', text: hint })));
     }));
     return { el, update(s) { for (const [k] of rows) if (document.activeElement !== boxes[k]) boxes[k].checked = !!(s.settings && s.settings[k]); } };
-}
-
-function SitesPanel(getS, getPlayers) {
-    let data = { tags: TAG_HELP, sites: [] };
-    const tableBox = h('div', { class: 'table-wrap' }), name = h('input', { placeholder: 'main-chest', maxlength: 24 });
-    const xyz = ['x', 'y', 'z'].map((k) => h('input', { type: 'number', class: 'num', placeholder: k, 'aria-label': k }));
-    const tagBoxes = Object.fromEntries(Object.keys(TAG_HELP).map((t) => [t, h('input', { type: 'checkbox' })]));
-    const near = h('select', { class: 'sel', title: 'containers a bot has loaded around it' }, h('option', { value: '', text: 'chest near a bot…' }));
-    async function load() { try { data = await api('GET', '/api/sites'); } catch (_) { return; } render(); }
-    function render() {
-        const sites = data.sites;
-        tableBox.replaceChildren(sites.length
-            ? h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['Name', 'Position', 'Tags', ''].map((x) => h('th', { text: x })))),
-                h('tbody', {}, sites.map((s) => h('tr', {}, h('td', {}, h('strong', { text: s.name })), h('td', { class: 'mono', text: `${s.x} ${s.y} ${s.z}` }),
-                    h('td', {}, s.tags.map((t) => h('span', { class: `pill tag-${t}`, title: TAG_HELP[t] || t, text: t }))),
-                    h('td', {}, h('button', { class: 'btn small ghost danger', onclick: act(() => { if (!confirm(`Remove site ${s.name}?`)) throw new Error('cancelled'); return api('DELETE', `/api/sites/${s.name}`); }, 'site removed', load) }, 'Remove'))))))
-            : h('p', { class: 'muted', text: 'No sites. Without sites the upkeep uses the job depot or throws cheap items away.' }));
-    }
-    near.addEventListener('focus', async () => {
-        const S = getS(), bots = S ? S.bots.filter((b) => b.state === 'online') : []; if (!bots.length) return;
-        try { const list = await api('GET', `/api/bots/${bots[0].name}/containers`); near.replaceChildren(h('option', { value: '', text: `near ${bots[0].name} (${list.length})` }), ...list.map((c) => h('option', { value: `${c.x},${c.y},${c.z}`, text: `${(c.block || 'container').replace('minecraft:', '')} ${c.x} ${c.y} ${c.z}` }))); } catch (e) { toast(e.message, true); }
-    });
-    near.addEventListener('change', () => { if (near.value) near.value.split(',').forEach((v, i) => { xyz[i].value = v; }); });
-    const add = act(async () => {
-        const tags = Object.entries(tagBoxes).filter(([, b]) => b.checked).map(([t]) => t), p = xyz.map((i) => num(i.value));
-        if (!name.value.trim()) throw new Error('give the site a name'); if (p.some(Number.isNaN)) throw new Error('give x, y and z of the container'); if (!tags.length) throw new Error('tick at least one tag');
-        return api('POST', '/api/sites', { name: name.value.trim(), x: p[0], y: p[1], z: p[2], tags });
-    }, (r) => `site ${r.name} saved`, load);
-    const here = act(async () => { const p = (await api('GET', '/api/players')).find((q) => !q.bot && q.pos); if (!p) throw new Error('no operator online (needs RCON)'); ['x', 'y', 'z'].forEach((k, i) => { xyz[i].value = Math.floor(p.pos[k] ?? p.pos[i]); }); }, 'position of the operator (stand next to the chest, adjust y if needed)', () => {});
-    const el = h('div', { class: 'stack' }, tableBox,
-        h('div', { class: 'sep' }),
-        h('div', { class: 'row' }, field('Name', name), field('x y z', h('span', { class: 'row tight' }, xyz)), field('', h('span', { class: 'row tight' }, near, h('button', { class: 'btn small', onclick: here }, 'My position')))),
-        h('div', { class: 'row' }, Object.entries(TAG_HELP).map(([t, d]) => h('label', { class: 'chip', title: d }, tagBoxes[t], ` ${t}`)), h('button', { class: 'btn primary', onclick: add }, 'Save site')),
-        h('p', { class: 'muted small', text: 'A site is a container (chest, barrel, shulker box) at x y z. Ore, junk and storage tags tell the upkeep where each kind of item goes; a tools chest is where bots may take tools from (nothing is stored there).' }));
-    return { el, load };
 }
 
 function ScriptsPanel(getS) {
@@ -123,11 +85,10 @@ function ProblemsPanel() {
 }
 
 function automationPage() {
-    const settings = SettingsPanel(getS), sites = SitesPanel(getS, getPlayers), scripts = ScriptsPanel(getS), problems = ProblemsPanel();
+    const settings = SettingsPanel(getS), scripts = ScriptsPanel(getS), problems = ProblemsPanel();
     const el = h('div', { class: 'grid-12' },
-        h('div', { class: 'span-4' }, panel('Settings', settings.el)),
-        h('div', { class: 'span-8' }, panel('Sites (tagged chests)', sites.el)),
+        h('div', { class: 'span-12' }, panel('Settings', settings.el)),
         h('div', { class: 'span-12' }, panel('Scripts', scripts.el)),
         h('div', { class: 'span-12' }, panel('Problem bots', problems.el)));
-    return { el, onShow() { sites.load(); scripts.load(); problems.load(); }, update(s) { settings.update(s); scripts.syncBots(s); } };
+    return { el, onShow() { scripts.load(); problems.load(); }, update(s) { settings.update(s); scripts.syncBots(s); } };
 }

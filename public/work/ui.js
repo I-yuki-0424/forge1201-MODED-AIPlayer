@@ -43,6 +43,8 @@ const ICONS = {                       // 24x24 stroke icons (shapes after the Fe
     x: [['line', { x1: 18, y1: 6, x2: 6, y2: 18 }], ['line', { x1: 6, y1: 6, x2: 18, y2: 18 }]],
     play: [['polygon', { points: '5 3 19 12 5 21 5 3' }]],
     pause: [['rect', { x: 6, y: 4, width: 4, height: 16 }], ['rect', { x: 14, y: 4, width: 4, height: 16 }]],
+    tag: [['path', { d: 'M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z' }], ['line', { x1: 7, y1: 7, x2: 7.01, y2: 7 }]],
+    eye: [['path', { d: 'M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z' }], ['circle', { cx: 12, cy: 12, r: 3 }]],
     target: [['circle', { cx: 12, cy: 12, r: 10 }], ['circle', { cx: 12, cy: 12, r: 6 }], ['circle', { cx: 12, cy: 12, r: 2 }]],
 };
 function icon(name, size = 16) {
@@ -88,6 +90,16 @@ function modal(title, body, { wide = false, onClose = null } = {}) {
             h('div', { class: 'modal-body' }, body)));
     document.body.append(back);
     return { close, el: back };
+}
+
+/** A modal list to pick one of {value, text}; resolves with the value, or null when closed. */
+function choose(title, options) {
+    return new Promise((resolve) => {
+        let done = false;
+        const finish = (v) => { done = true; m.close(); resolve(v); };
+        const list = h('div', { class: 'stack' }, options.map((o) => h('button', { class: 'btn', type: 'button', onclick: () => finish(o.value) }, o.text)));
+        const m = modal(title, list, { onClose: () => { if (!done) resolve(null); } });
+    });
 }
 
 const stateDot = (state) => h('span', { class: `dot ${state}`, title: state });

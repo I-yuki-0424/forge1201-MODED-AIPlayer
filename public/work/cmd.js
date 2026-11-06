@@ -34,6 +34,11 @@ function CommandPanel(o) {
         const botPos = () => { const b = single(), bot = b && o.S().bots.find((x) => x.name === b); return bot && bot.pos; };
         const row = h('div', { class: 'row tight' }, argNames.map((n) => xs[n]),
             h('button', { class: 'btn small', type: 'button', title: 'position of the operator (a player on the server)', onclick: act(async () => { const p = (await api('GET', '/api/players')).find((q) => !q.bot && q.pos); if (!p) throw new Error('no operator position (is the player online?)'); set(p.pos); }, null, () => {}) }, 'operator'),
+            h('button', { class: 'btn small', type: 'button', title: 'a tagged block (Tags page): a machine linked to a container is handled through its container', onclick: act(async () => {
+                const l = (await api('GET', '/api/sites')).sites; if (!l.length) throw new Error('nothing is tagged yet (Tags page)');
+                const pick = await choose('Tagged block', l.map((q) => ({ value: q.name, text: `${q.name}${q.label ? ` (${q.label})` : ''}${q.via ? ` → ${q.via}` : ''}  ${q.x} ${q.y} ${q.z}` })));
+                const q = l.find((x) => x.name === pick); if (q) set(q);
+            }, null, () => {}) }, 'tagged'),
             h('button', { class: 'btn small', type: 'button', title: 'position of the chosen bot', onclick: () => { const p = botPos(); if (p) set(p); else toast('choose one bot first', true); } }, 'bot'),
             h('button', { class: 'btn small', type: 'button', title: 'click a spot on the map', onclick: async () => { const p = await pickPoint('Pick a position', o.S, o.players); if (!p) return; xs.x.value = p.x; xs.z.value = p.z; if (xs.y) { try { const g = await api('GET', `/api/surface?x=${p.x}&z=${p.z}`); if (g.y !== null) xs.y.value = g.y + 1; } catch (_) { /* y by hand */ } } } }, 'map'));
         return row;

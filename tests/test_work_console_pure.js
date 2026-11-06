@@ -112,7 +112,7 @@ function test(name, fn) { console.log(`--- test: ${name} ---`); return Promise.r
     await test('every script the page loads is served (a file missing from the static list breaks the page and no other test sees it)', async () => {
         const html = fs.readFileSync(path.join(__dirname, '../public/work/index.html'), 'utf8');
         const srcs = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1]).concat([...html.matchAll(/<link rel="stylesheet" href="([^"]+)"/g)].map((m) => m[1]));
-        assert.ok(srcs.includes('/tools.js') && srcs.length >= 8, srcs.join(' '));
+        assert.ok(srcs.includes('/page_tags.js') && srcs.length >= 12, srcs.join(' '));
         for (const u of srcs) { const r = await call2('GET', u, {}); assert.strictEqual(r.status, 200, `${u} is ${r.status}`); }
     });
 

@@ -30,6 +30,8 @@ class CommandsPart {
         else { need(Array.isArray(bots) && bots.length && bots.length <= this.o.maxBots, 'bots: a list of names or "all"'); names = bots.map(String); }
         need(names.length, 'no bot is online', 409);
         if (spec.rcon) need(this.o.rcon, 'this command needs RCON', 503);
+        const link = this._link(command, args);                 // a machine's coordinates -> its container (links.js); refused verbs throw
+        args = link.args;
         const started = [], refused = [];
         for (const n of names) {
             const rec = this.bots.get(n);
@@ -39,11 +41,11 @@ class CommandsPart {
             if (rec.worker) { refused.push({ name: n, why: `works on job ${rec.job} (pause the job or take the bot off it)` }); continue; }
             if (rec.cmd && rec.cmd.status === 'running') { refused.push({ name: n, why: `busy with ${rec.cmd.name} (send Stop first)` }); continue; }
             if (spec.args.length) { try { this._checkArgs(spec, args); } catch (e) { refused.push({ name: n, why: e.message }); continue; } }
-            this._exec(rec, command, args);
+            this._exec(rec, command, args, link.via);
             started.push(n);
         }
         this._dirty();
-        return { started, refused };
+        return { started, refused, ...(link.via.length ? { via: link.via } : {}) };
     }
 
     _checkArgs(spec, args) {
@@ -65,9 +67,9 @@ class CommandsPart {
         try { skills.validateArgs(spec.name, args); } catch (e) { throw new Problem(`${e.detail && e.detail.why ? e.detail.why : e.reason || e.message}`); }
     }
 
-    _exec(rec, command, args) {
+    _exec(rec, command, args, via = []) {
         const cancel = { cancelled: false }, id = ++this.cmdSeq, t0 = Date.now();
-        rec.cmd = { id, name: command, args, status: 'running', started: t0, cancel, result: null };
+        rec.cmd = { id, name: command, args, via, status: 'running', started: t0, cancel, result: null };
         const bot = rec.bot;
         const finish = (res) => {
             if (!rec.cmd || rec.cmd.id !== id) return;
@@ -130,7 +132,7 @@ class CommandsPart {
     containersNear(name, radius = 24) {
         const rec = this._online(name), b = rec.bot;
         const pos = b.findBlocks({ matching: (blk) => !!blk && inventory.CONTAINER.test(blk.name), maxDistance: Math.min(64, radius), count: 60 });
-        return pos.map((p) => ({ x: p.x, y: p.y, z: p.z, block: b.blockAt(p)?.name || '?' }));
+        return pos.map((p) => ({ x: p.x, y: p.y, z: p.z, block: b.blockAt(p)?.name || '?', site: (this.sites.at(p.x, p.y, p.z) || {}).name || null }));
     }
 
     /** What `gather` would find for a target around a bot (the page's Find button). */

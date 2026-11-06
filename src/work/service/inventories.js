@@ -29,7 +29,7 @@ class InventoriesPart {
     }
 
     async inventory(target) {
-        let t; try { t = inventory.target(target); } catch (e) { throw new Problem(e.message); }
+        let t; try { t = this._linkTarget(inventory.target(target)); } catch (e) { throw new Problem(e.message); }
         if (!this.o.rcon) {
             const rec = t.type === 'entity' ? this.bots.get(t.name) : null;
             need(rec && rec.state === 'online', 'RCON is not configured: only bots can be read (no stack details)', 503);
@@ -41,14 +41,14 @@ class InventoriesPart {
     async moveStack({ src, srcSlot, dst, dstSlot = null }) {
         need(this.o.rcon, 'moving items needs RCON', 503);
         try {
-            const r = await inventory.move(this._run(), src, srcSlot, dst, dstSlot);
+            const r = await inventory.move(this._run(), this._linkTarget(src), srcSlot, this._linkTarget(dst), dstSlot);
             this.note('info', `moved ${r.moved.count} ${r.moved.id.replace('minecraft:', '')}: ${this._who(src)}[${r.from}] -> ${this._who(dst)}[${r.to}]`);
             return r;
         } catch (e) { throw e instanceof Problem ? e : new Problem(e.message, 409); }
     }
     async moveAllStacks({ src, dst }) {
         need(this.o.rcon, 'moving items needs RCON', 503);
-        try { const r = await inventory.moveAll(this._run(), src, dst); this.note('info', `moved ${r.moved.length} stacks ${this._who(src)} -> ${this._who(dst)}${r.stopped ? ' (stopped: ' + r.stopped + ')' : ''}`); return r; }
+        try { const r = await inventory.moveAll(this._run(), this._linkTarget(src), this._linkTarget(dst)); this.note('info', `moved ${r.moved.length} stacks ${this._who(src)} -> ${this._who(dst)}${r.stopped ? ' (stopped: ' + r.stopped + ')' : ''}`); return r; }
         catch (e) { throw e instanceof Problem ? e : new Problem(e.message, 409); }
     }
     _who(t) { return t && t.type === 'entity' ? t.name : t && t.type === 'block' ? `${t.x},${t.y},${t.z}` : '?'; }

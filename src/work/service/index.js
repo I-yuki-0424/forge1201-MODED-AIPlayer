@@ -103,7 +103,7 @@ class WorkService extends EventEmitter {
 }
 
 // The service is one class in several files, one per concern (each part is a class whose methods are copied here).
-for (const file of ['bots', 'jobs', 'workers', 'structures', 'operator', 'commands', 'inventories', 'world', 'diagnostics', 'library', 'views']) {
+for (const file of ['bots', 'jobs', 'workers', 'structures', 'operator', 'commands', 'inventories', 'world', 'diagnostics', 'library', 'links', 'views']) {
     const Part = Object.values(require(`./${file}`))[0];
     for (const name of Object.getOwnPropertyNames(Part.prototype)) if (name !== 'constructor') Object.defineProperty(WorkService.prototype, name, Object.getOwnPropertyDescriptor(Part.prototype, name));
 }

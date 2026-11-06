@@ -7,9 +7,28 @@ const scriptLib = require('../bot/script');
 const { Problem, need } = require('./common');
 
 class LibraryPart {
-    listSites() { return { tags: require('../bot/sites').TAGS, sites: this.sites.list() }; }
+    /** The tagged blocks with what the world says is there now (from a bot's loaded chunks, null if none is near) and where each link ends. */
+    listSites() {
+        const sites = this.sites.list().map((s) => {
+            const out = { ...s, block: this._blockName(s.x, s.y, s.z) };
+            if (s.via) { try { const e = this.sites.through(s.x, s.y, s.z); out.end = { x: e.x, y: e.y, z: e.z, path: e.via }; } catch (e) { out.broken = e.message; } }
+            return out;
+        });
+        return { tags: require('../bot/sites').TAGS, sites };
+    }
     addSite(s) { let site; try { site = this.sites.add(s); } catch (e) { throw new Problem(e.message); } this._dirty(); return site; }
-    removeSite(name) { need(this.sites.remove(String(name)), `no site ${String(name).slice(0, 24)}`, 404); this._dirty(); return { ok: true }; }
+    removeSite(name) {
+        let gone; try { gone = this.sites.remove(String(name)); } catch (e) { throw new Problem(e.message, 409); }
+        need(gone, `no site ${String(name).slice(0, 24)}`, 404); this._dirty(); return { ok: true };
+    }
+    /** Block name at x, y, z from the chunks of any online bot (best effort: null when nobody has the chunk). */
+    _blockName(x, y, z) {
+        for (const rec of this.bots.values()) {
+            if (rec.state !== 'online' || !rec.bot || !rec.bot.blockAt) continue;
+            try { const b = rec.bot.blockAt(new (require('vec3').Vec3)(x, y, z)); if (b) return b.name; } catch (_) { /* not loaded for this bot */ }
+        }
+        return null;
+    }
 
     _loadScripts() {
         const dir = path.join(this.o.dataDir, 'scripts');

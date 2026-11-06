@@ -21,7 +21,7 @@ const state = { now: Date.now(), uptime: 1000, server: { host: 'h', port: 1 }, s
     jobs: [{ id: 'j1', kind: 'pit', name: 'cut', state: 'running', spec: { method: 'sweep', road: false, box: {} }, progress: { total: 10, done: 4, stuck: 0, leased: 1, pending: 5, regions: 2, regionsDone: 0 }, bots: ['Work1'], stuck: 0, workers: 1, lanes: 2, box: { x0: 0, z0: 0, x1: 9, z1: 9, y0: 1, y1: 3 }, blocked: null, diff: null }] };
 const answers = {
     'GET /api/session': { ok: true, csrf: 'c' }, 'GET /api/state': state, 'GET /api/players': [{ name: 'Owner', bot: false, pos: { x: 3, y: 64, z: 4 } }],
-    'GET /api/sites': { tags: { tools: 'x', ore: 'x', storage: 'x', junk: 'x', food: 'x', blocks: 'x' }, sites: [{ name: 'main', x: 1, y: 64, z: 2, tags: ['storage', 'ore'] }] },
+    'GET /api/sites': { tags: { tools: 'x', ore: 'x', storage: 'x', junk: 'x', food: 'x', blocks: 'x', machine: 'x' }, sites: [{ name: 'main', x: 1, y: 64, z: 2, tags: ['storage', 'ore'], block: 'minecraft:chest' }, { name: 'furnace', x: 1, y: 64, z: 3, tags: ['machine'], label: 'auto furnace', via: 'main', block: 'minecraft:furnace', end: { x: 1, y: 64, z: 2, path: ['furnace', 'main'] } }] },
     'GET /api/scripts': [{ name: 'replace-tool', builtIn: true, steps: [{ return: 'ok' }] }, { name: 'mine', builtIn: false, steps: [{ return: 'ok' }, { log: 'x' }] }],
     'GET /api/surface': { y: 64 }, 'GET /api/bots/Work1/containers': [{ x: 5, y: 64, z: 6, block: 'minecraft:chest' }],
     'POST /api/inventory': { kind: 'player', size: 36, slots: [{ slot: 0, id: 'minecraft:iron_pickaxe', count: 1, damage: 200, max: 250, left: 50, label: null, enchanted: false }, { slot: 1, id: 'minecraft:cobblestone', count: 64, damage: null }] },
@@ -38,7 +38,7 @@ w.fetch = async (url, o = {}) => {
 const errors = []; w.addEventListener('error', (e) => errors.push(e.message));
 // classic scripts in one context, as a browser runs them (top-level const/function are shared between the files)
 const vm = require('vm'), ctx = dom.getInternalVMContext();
-for (const f of ['blockcolor.js', 'ui.js', 'map.js', 'cmd.js', 'inv.js', 'tools.js', 'work.js']) new vm.Script(fs.readFileSync(path.join(dir, f), 'utf8'), { filename: f }).runInContext(ctx);
+for (const f of ['blockcolor.js', 'ui.js', 'map.js', 'widgets.js', 'cmd.js', 'inv.js', 'page_overview.js', 'page_map.js', 'page_bots.js', 'page_pits.js', 'page_structures.js', 'page_jobs.js', 'page_inventory.js', 'page_tags.js', 'page_auto.js', 'page_log.js', 'work.js']) new vm.Script(fs.readFileSync(path.join(dir, f), 'utf8'), { filename: f }).runInContext(ctx);
 const tick = (ms = 60) => new Promise((r) => setTimeout(r, ms));
 const click = (el) => el.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
 (async () => {
@@ -49,16 +49,27 @@ const click = (el) => el.dispatchEvent(new w.MouseEvent('click', { bubbles: true
     click(w.document.querySelector('#nav button[data-page="auto"]')); await tick(300);
     const page = w.document.querySelector('#page .page:not(.hidden)');
     const boxes = [...page.querySelectorAll('.setting input')];
-    ok(boxes.length === 3 && boxes[0].checked && boxes[1].checked && !boxes[2].checked, 'three settings, retireWorn and scripts on, auto-kit off');
+    ok(boxes.length === 6 && boxes[0].checked && boxes[1].checked && !boxes[2].checked, 'six settings, retireWorn and scripts on, auto-kit off');
     boxes[0].checked = false; boxes[0].dispatchEvent(new w.Event('change', { bubbles: true })); await tick();
     ok(sent.some((s) => s[1] === '/api/settings' && s[2] && s[2].retireWorn === false), 'switching retireWorn off posts the setting');
-    ok(page.textContent.includes('main') && page.querySelectorAll('.pill.tag-ore').length === 1, 'the site is listed with its tags');
-    const nameIn = page.querySelector('input[placeholder="main-chest"]'); nameIn.value = 'rock';
-    const nums = [...page.querySelectorAll('input.num[aria-label]')]; ['3', '64', '9'].forEach((v, i) => { nums[i].value = v; });
-    const tagBox = [...page.querySelectorAll('.chip')].find((c) => c.textContent.trim() === 'junk').querySelector('input'); tagBox.checked = true;
-    click([...page.querySelectorAll('button')].find((b) => b.textContent === 'Save site')); await tick();
-    ok(sent.some((s) => s[0] === 'POST' && s[1] === '/api/sites' && s[2].name === 'rock' && s[2].x === 3 && s[2].tags.join() === 'junk'), 'a site is saved with name, coordinates and tags');
-    click([...page.querySelectorAll('button')].find((b) => b.textContent === 'Save site')); // missing tag is checked before any request
+    // ---- Tags page (tagged blocks, links)
+    click(w.document.querySelector('#nav button[data-page="tags"]')); await tick(300);
+    const tp = w.document.querySelector('#page .page:not(.hidden)');
+    ok(tp.textContent.includes('main') && tp.querySelectorAll('.pill.tag-ore').length === 1, 'the tagged block is listed with its tags');
+    ok(tp.textContent.includes('→ main'), 'a machine shows its link');
+    const nameIn = tp.querySelector('input[placeholder="smelter"]'); nameIn.value = 'rock';
+    const nums = [...tp.querySelectorAll('input.num[aria-label]')]; ['3', '64', '9'].forEach((v, i) => { nums[i].value = v; });
+    const tagBox = [...tp.querySelectorAll('.chip')].find((c) => c.textContent.trim() === 'junk').querySelector('input'); tagBox.checked = true;
+    const saveBtn = () => [...tp.querySelectorAll('button')].find((b) => b.textContent === 'Save');
+    click(saveBtn()); await tick();
+    ok(sent.some((s) => s[0] === 'POST' && s[1] === '/api/sites' && s[2].name === 'rock' && s[2].x === 3 && s[2].tags.join() === 'junk'), 'a block is saved with name, coordinates and tags');
+    tagBox.checked = false; nameIn.value = 'lone'; const before = sent.length; click(saveBtn()); await tick();
+    ok(sent.length === before, 'nothing to say about the block (no tag, label or link): checked in the page, nothing is sent');
+    const label = tp.querySelector('input[placeholder^="free text"]'); label.value = '自動かまど'; const viaSel = tp.querySelector('select[aria-label="link to"]'); viaSel.value = 'main';
+    click(saveBtn()); await tick();
+    ok(sent.some((s) => s[0] === 'POST' && s[1] === '/api/sites' && s[2].name === 'lone' && s[2].label === '自動かまど' && s[2].via === 'main'), 'a label and a link are sent');
+    // ---- back to Automation: scripts
+    click(w.document.querySelector('#nav button[data-page="auto"]')); await tick(200);
     ok(page.textContent.includes('replace-tool') && page.textContent.includes('built in'), 'scripts are listed, built-in marked');
     const ta = page.querySelector('textarea'); ok(JSON.parse(ta.value).name === 'my-script', 'the editor starts with a template that is valid JSON');
     ta.value = '{ not json'; click([...page.querySelectorAll('button')].find((b) => b.textContent === 'Validate and save')); await tick();
