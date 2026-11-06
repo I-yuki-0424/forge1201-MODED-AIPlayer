@@ -53,7 +53,7 @@ scripts/world/registry-dump.sh                         # after any lock change: 
 (cd docker/world-server && docker compose --profile bench run --rm -T --entrypoint node bench scripts/skills/bench_lv2.js --run-id l1 --seed 1101 --bots 10 --follow <player>)   # LV2: natural terrain (after --pregen 1)
 ```
 
-Pure bots (docs/proposed/WORKERS-v1.md; `src/work/`, not part of the RL action space): live pit check on a disposable server. The owner's play world
+Pure bots (docs/proposed/WORKERS-v1.md; `src/work/`, map in src/work/README.md, not part of the RL action space): live pit check on a disposable server. The owner's play world
 is NOT in this repo: compose, scripts and jars are all in `/mnt/data/forgeaip-play/` (own folder and local git repo, see its README.md):
 
 ```bash
@@ -63,7 +63,7 @@ scripts/world/test-up.sh latest ; (cd docker/world-server && docker compose --pr
 /mnt/data/forgeaip-play/console-up.sh | console-down.sh             # the work console (web UI for pure bots: bots, pits, structure editor, builds), 127.0.0.1:3020, tailnet 3021
 ```
 
-The work console (`src/work/{service,console,blueprint}.js`, `public/work/`, docs/implemented/WORK-CONSOLE-v1.md) is token-authenticated (`console-data/console.token`),
+The work console (`src/work/web/`, `src/work/service/`, `public/work/`, docs/implemented/WORK-CONSOLE-v1.md; file map `src/work/README.md`) is token-authenticated (`console-data/console.token`),
 reaches RCON, and is NOT the old WebUI: keep its auth, CSRF, Host/Origin checks and closed validation when changing it. Bots there use the
 play world's own table (`BOT_MOD_TABLE`). The aux mod is not needed and is not installed (WORK-CONSOLE-v1).
 
@@ -84,6 +84,7 @@ Copy `.env` values (file is git-ignored; never print or commit it):
 
 ```
 index.js            entry: AgentManager + WebUI (the debug WebSocket :3001 is started by each bot_actuator child)
+src/work/           pure bots (jobs, bot, service, web, display ...): map and "where do I change X" in src/work/README.md
 src/skills/         the action layer: 14 commands built only from player inputs (body, planner, runner, commands/*), intents.js + llm_prompt.js for the LLM
 src/work/           pure bots: crew ledger (crew.js), pit (pit.js), structures (build.js), inventory upkeep (janitor.js), worker loop; calls execute() only
 src/skills_bot.js   the bot child process on the action layer (default; BOT_RUNTIME=legacy forks bot_actuator.js); src/vault_client.js reads LLM credentials
@@ -91,7 +92,7 @@ src/rl/             RL environment (env, controls, observation, goal, DPOD file-
 modpack/            the mod set: lock (sha512), pack.py (server sync, .mrpack), install-client.ps1, the bot's block/item table
 tools/registry-dump/  server-only Forge mod (Java) that writes that table on a disposable server
 src/                runtime (agent_manager, bot_actuator + actuator/*, forge_handshake_state_machine, dynamic_registry_injector, middleware, llm_client, web_ui_server)
-tests/              the 10 files run by `npm test` (+ mocks, run_tests.js, smoke.js)
+tests/              the files run by `npm test` (list: package.json) (+ mocks, run_tests.js, smoke.js)
 public/             WebUI (static)
 aux_mod/            optional Forge 1.20.1 companion mod (Java/Gradle; exports the block registry, in-game launcher/HUD)
 docker/             compose for a CUDA dev box and for the full stack (docker/forge-server)

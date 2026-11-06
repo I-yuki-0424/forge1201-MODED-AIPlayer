@@ -163,7 +163,7 @@ server log never reached the server (no `tailscale serve` route for the port); a
 dropped ProtoDef's other arguments (type, context), and its fallback called `readAnon`, which does not exist. Result: in a process that has
 created a bot, `nbt.parse` fails over to the wrong format and returns an empty tag ("not a structure file" for a file the unit tests read fine:
 they never create a bot). Found by the first live run of the console (structure upload worked in `npm test`, failed in the container).
-- **Fix:** the wrapper forwards all arguments and rethrows the real error when there is no `readAnon`; `src/work/blueprint.js` also reads with an
+- **Fix:** the wrapper forwards all arguments and rethrows the real error when there is no `readAnon`; `src/work/jobs/blueprint.js` also reads with an
   explicit format (`gunzip` + `parseUncompressed(.., 'big')`) instead of `nbt.parse`'s detection, which relies on exceptions.
 - **Rule:** a test of anything that reads NBT runs under `applyProtocolBypasses()` (tests/test_blueprint_pure.js does), and a pure test is no
   evidence about a process-wide patch: the first live run of a new feature is part of the task.

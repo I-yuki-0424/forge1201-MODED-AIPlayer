@@ -26,7 +26,7 @@ class WorkService extends EventEmitter {
     /**
      * @param opts.dataDir   where structures, jobs and state.json live (created)
      * @param opts.factory   (name) -> bot (default: real Mineflayer bot of `host`/`port`)
-     * @param opts.envFactory (bot, cancel) -> worker env (default: worker.botEnv)
+     * @param opts.envFactory (bot, cancel) -> worker env (default: env.botEnv)
      * @param opts.rcon      {host, port, password} or null; or an object with command(cmd) (tests)
      * @param opts.known     (blockName) -> bool: does the bots' registry have this block (null = do not check)
      */
@@ -38,7 +38,7 @@ class WorkService extends EventEmitter {
         for (const d of ['structures', 'jobs', 'scripts']) fs.mkdirSync(path.join(this.o.dataDir, d), { recursive: true });
         this.factory = this.o.factory || defaultFactory(this.o);
         // `worker`: the env of a bot that works a job (defence, a place to dump trash away from every job); one-off commands get the plain env.
-        this.envFactory = this.o.envFactory || ((bot, cancel, o = {}) => require('../bot/worker').botEnv(bot, {
+        this.envFactory = this.o.envFactory || ((bot, cancel, o = {}) => require('../bot/env').botEnv(bot, {
             cancel, rcon: this.o.rcon ? (c) => this.rcon(c) : null,
             ...(o.worker ? { guard: true, defend: this.settings.defend !== false, avoid: () => this._activeBoxes(), others: () => this._botSpots(bot.username) } : {}),
         }));

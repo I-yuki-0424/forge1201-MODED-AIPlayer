@@ -29,7 +29,7 @@ Tests: `tests/test_work_pure.js` (pure, in `npm test`), `scripts/work/pit_live.j
 5. **Helpers work from the tail.** A bot with no region of its own joins the busiest one and takes units from the far end
    while the owner works from the head; they meet without talking.
 
-## Part 3 first, because the others use it: the crew ledger (`src/work/crew.js`)
+## Part 3 first, because the others use it: the crew ledger (`src/work/jobs/crew.js`)
 
 Pure and deterministic (the clock is an argument). Regions (a chunk of a pit, a tile of a building) hold `layers x rows`
 units. API: `addRegion`, `claim(bot, pos, now, {batch})`, `done`, `fail(reason)`, `heartbeat`, `leave`, `reap`, `progress`,
@@ -52,7 +52,7 @@ Not done: a persistent ledger. It lives in the process that runs the job (as the
 starts from a world diff (`diffBuild`, and for pits the same units run again, all idempotent), which is why persistence was
 left out.
 
-## Part 1: open-pit excavation (`src/work/pit.js`)
+## Part 1: open-pit excavation (`src/work/jobs/pit.js`)
 
 One command per chunk: `planPit(box)` cuts `{x0,z0,x1,z1,top,bottom}` into chunk-aligned regions; a unit is one row of
 a layer. The unit is `mine` repeated (which already walks, aims, picks the tool, and collects the drop). Expand an area by
@@ -67,7 +67,7 @@ issuing the next box.
   against a solid neighbour (below first), starting from the solid side. That is the owner's method: fill the fluid that would
   flow in the moment the block is removed, also from a neighbouring chunk. Fluid with no solid face anywhere (an open lake) is
   reported `invalid_target`, never tried.
-- **Inventory upkeep (lesson 2, `src/work/janitor.js`).** Before every unit `maintain` keeps `freeTarget` (6) slots free:
+- **Inventory upkeep (lesson 2, `src/work/bot/janitor.js`).** Before every unit `maintain` keeps `freeTarget` (6) slots free:
   surplus over `keep.max` goes first (cobblestone 64, dirt 32), then lowest value first by a value table (dirt 0 ... diamond
   100). Tools, armour, food and containers are never touched; nothing at or above `neverToss` (60) is thrown away: it is stored.
 - **Storage (lesson 3).** `depot` is a chest (fixed coordinates) or a shulker box (the bot places it beside itself, fills it,
@@ -78,7 +78,7 @@ issuing the next box.
 Open: the pit digs rows but not the drop sweep (each `mine` collects its own drop; a sweep after the row would be faster);
 lava lakes and caves below the floor are not planned for (a floor that gives way ends the unit `died`/`stuck`).
 
-## Part 2: structures (`src/work/build.js`)
+## Part 2: structures (`src/work/jobs/build.js`)
 
 - **Format.** The game's own structure file (`.nbt`, as written by the structure block; **Create schematics are the same
   format**) is read by `fromStructureNbt`. `house({w,d,h})` generates a plain house. Cells are `{x,y,z,block}`.

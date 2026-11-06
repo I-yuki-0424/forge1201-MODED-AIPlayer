@@ -5,7 +5,6 @@
 // jumps and gets stuck") then shows its common factors: `common()` counts them. The same record serves 1-1 (pit leftovers).
 const fs = require('fs');
 
-const HEADING = ['south', 'west', 'north', 'east'];            // Minecraft yaw 0 = south (+z), 90 = west (-x), 180 = north, 270 = east
 const BOT = /^[A-Za-z0-9_]{1,16}$/;
 const GLOW_SECONDS = 120;
 

@@ -17,7 +17,8 @@ const { createForgeBot, attachForgeHandshake } = require('../../src/transport/fo
 const { Rcon } = require('../../src/rl/rcon');
 const { Server, sleep } = require('../skills/bench');
 const { createPitJob } = require('../../src/work/jobs/pit');
-const { runWorker, botEnv } = require('../../src/work/bot/worker');
+const { runWorker } = require('../../src/work/bot/worker');
+const { botEnv } = require('../../src/work/bot/env');
 
 function args(argv) {
     const o = { runId: null, bots: 4, w: 32, d: 16, depth: 3, kill: 0, root: '/exchange', timeoutMin: 25, baseX: 2000, baseZ: 2000, floorY: 150, method: 'sweep', road: 0, leave: 0, worn: 0 };

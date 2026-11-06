@@ -3,7 +3,7 @@
 `TASK-20261105-034` (2026-11-05). Owner brief: bring the bot system to the play world (the server on tailnet port 25566), start
 testing the pure-bot features of [WORKERS-v1](../proposed/WORKERS-v1.md), decide whether the aux mod is still needed, and get a
 management UI: designate open-pit areas, add and remove bots, edit structure NBT to make structural parts and build them.
-Code: `src/work/{service,console,blueprint}.js`, `public/work/`. Tests: `tests/test_work_{service,console}_pure.js`,
+Code: `src/work/` (map and "where do I change X": `src/work/README.md`), `public/work/` (one file per page). Tests: `tests/test_work_{service,console}_pure.js`,
 `tests/test_blueprint_pure.js` (all in `npm test`).
 
 ## Answers to the owner's questions
@@ -27,7 +27,7 @@ One Node process (`node src/work/console.js`, container `forgeaip-play-console`)
   has loaded; picking on the map; optional depot (chest at x y z, or a shulker box the bot places). The job is
   [WORKERS-v1](../proposed/WORKERS-v1.md) part 1 unchanged (chunk regions, haul road, water rule, janitor). Limits: 256 blocks per side, 256 deep,
   y -64..319; a pit deeper than its edge is long is refused with the reason; a new job that overlaps an active one is refused unless forced.
-- **Structure library and editor** (`src/work/blueprint.js`). Upload a structure `.nbt` (structure block or Create schematic), see its size,
+- **Structure library and editor** (`src/work/jobs/blueprint.js`). Upload a structure `.nbt` (structure block or Create schematic), see its size,
   counts per block, mods and which blocks the bots cannot place, scrub through its layers, and **edit it into structural parts**: rotate
   90/180/270, mirror x or z, replace (a name keeps the state, a full state `oak_stairs[facing=north]` replaces it), remove blocks, crop,
   fill a box, and **merge** other stored parts at offsets (negative offsets shift the result), then save under a new name or over the old
@@ -47,7 +47,7 @@ Owner feedback after the first session: coordinates alone tell nothing; bots are
 memorised; the pit area should be selected on the map; the page looked sparse. What changed (all verified, see "Checks"):
 
 - **Map from the server's data.** No map mod on the play server has a server-side API (JourneyMap's web map runs in the client), so the map is
-  drawn from the world's region files (`src/work/mca.js`, read-only mount of the server volume at `/world`): top block per column at the
+  drawn from the world's region files (`src/work/world/mca.js`, read-only mount of the server volume at `/world`): top block per column at the
   MOTION_BLOCKING height, colour by block (vanilla table, keywords, hashed colour for mod blocks), shaded by the height step to the north.
   A region (≈ 900 chunks) decodes in ≈ 1 s in a worker thread (the bots' event loop is not blocked) and is cached by modification time;
   the browser caches decoded tiles. The map shows **saved** chunks: **Refresh from server** sends `save-all flush` and reloads. Overworld,
@@ -60,7 +60,7 @@ memorised; the pit area should be selected on the map; the page looked sparse. W
   tabs (Commands, Summary, Inventory, History). Kit and auto-kit are gone from the UI (DPOD concern, owner 2026-11-05); the restock logic stays
   in the service, off by default.
 - **Commands without syntax.** `/api/commands/catalog` lists the 15 action-layer commands plus `come`, `say`, `teleport`, `stop`, with typed
-  arguments (`src/work/catalog.js`, schemas taken from `src/skills/index.js`). The page builds a form from it: grouped dropdown, direction and
+  arguments (`src/work/operator/catalog.js`, schemas taken from `src/skills/index.js`). The page builds a form from it: grouped dropdown, direction and
   slope selects, coordinate fields with **operator / bot / map** helpers (the map helper also reads the ground height), a nearby-entity
   dropdown for attack/pickup/look_at, item fields with a list of what the bot carries. Targets: **All bots**, **Selected (n)**, or one bot.
   Bots run in parallel, each on its own; the answer says who started and who refused (busy, working on a job, offline, bad argument) and
@@ -70,11 +70,11 @@ memorised; the pit area should be selected on the map; the page looked sparse. W
   row). Drag a stack to a free slot of the other side, or double-click for the first free slot; **Move all**. The move is
   `item replace <dst> from <src>` followed by clearing the source, so the stack keeps its NBT and nothing is created; the destination slot is
   re-read first and must be empty. Containers: coordinates, or "find near a bot" (blocks in the chunks a bot has loaded). Players are read with
-  `data get entity` (`src/work/snbt.js` parses the reply), so a bot's inventory and the operator's are handled the same way.
+  `data get entity` (`src/work/world/snbt.js` parses the reply), so a bot's inventory and the operator's are handled the same way.
 - **Look.** Left navigation, stat tiles with sparklines, panels with header strips, dense tables, status dots and pills, light and dark by the
   browser's setting (Grafana's panel layout and the AWS console's filter-table-detail pattern).
 - **Public name.** `WORK_PUBLIC_HOST` (e.g. `bots.i-yuki.com`) makes the console require a valid Cloudflare Access assertion
-  (`Cf-Access-Jwt-Assertion`: RS256 against the team's keys, issuer, audience, expiry, optional e-mail list; `src/work/access.js`) on every
+  (`Cf-Access-Jwt-Assertion`: RS256 against the team's keys, issuer, audience, expiry, optional e-mail list; `src/work/web/access.js`) on every
   request through that name; a valid assertion also signs the owner in without the token. The token login stays for loopback and the tailnet.
   It refuses to start with a public host but without `CF_ACCESS_TEAM` and `CF_ACCESS_AUD`.
 
@@ -116,7 +116,7 @@ data to find the blocks and digging everything within reach of one standing plac
 - **Self-sufficient bots.** A cell whose water seal needs a block the bot does not have yet is left for after the row (digging brings cobblestone or
   dirt). A bot without the tool or the item now **waits, naming it** ("waiting for a pickaxe (to break stone): give one in Inventory and it continues by
   itself") and goes back to work by itself within 2 s of the item appearing in its inventory (the operator gives it through the Inventory page).
-- **`gather {target, count?, radius?}`** (Blocks group; `src/work/gather.js`). `target` is a block or an item name: `iron_ore`, `raw_iron`,
+- **`gather {target, count?, radius?}`** (Blocks group; `src/work/jobs/gather.js`). `target` is a block or an item name: `iron_ore`, `raw_iron`,
   `oak_log`, `cobblestone`, `sand` ...; an item name finds every block that drops it, an ore name brings its deepslate variant. The blocks are found in the
   chunks the bot has loaded (`bot.findBlocks`, up to 64 blocks), exposed ones first, **nearest to where the bot stands now**: so everything within reach
   (4.5 blocks) of one standing place is dug before the bot walks (`mine` only walks when the block is out of reach). Count = items obtained (inventory),
@@ -176,7 +176,7 @@ optional and off by default, `tests/test_skills_*` and the full `npm test` pass)
 | 4 | Helping every block, low efficiency | A bot keeps its **home** region (the first it was given) while home has anything it may take at the current height; only when home has nothing to claim (done, or waiting for the neighbouring lanes through `maxLead`) it helps, the region furthest behind first, from the tail, and it goes **home again** the moment home has work. The rule applies at every height, so a bot that finished its layer helps the neighbour on that layer. | `crew.js` `claim` (`b.home`) | pure (3 regions, 3 bots) + live: helper units appear only at the end of each layer |
 | 5 | Stairs at the edge | **Pillar** (`moves.js`, a work-layer move, not an RL command): look down, jump, place a low-value block under the feet at the top of the jump, land on it; then break the block *two below the feet* **without a line of sight** (`mine` with `blind: true`; the server checks the reach, not the line of sight; the body's only exception to "input only": frame field `cell`). One block is under the bot at any time; `finishPillar` takes the last one away from the side. `exit.js leavePit`: walk if a road allows it, else dig to the edge of the box at the bot's depth (those cells belong to the pit), pillar up the rest, step out. Sweep pits keep no road (`road: false`). Cost: one block per level (the broken block falls into the shaft). | `moves.js`, `exit.js`, `body.js` | physics simulation (prismarine-physics, server refuses a block into the body and a dig beyond 6 blocks): 6 levels, 5 blind breaks, one block left; live: 3 levels, nothing left in the box |
 | 6 | Worn tools | `retireWorn` (setting, **default on**, `POST /api/settings {retireWorn:false}` turns it off at once for running bots too): a stack with <= max(8 uses, 6 %) durability left is not a candidate for `mine`; another stack of the same tool is held instead; none left = `missing_tool` with `detail.worn`. Off = the old behaviour. RL bots never set the option. | `skills/options.js`, `bestTool`, `holdItem(ok)` | simulation (fresh stack taken, only worn = missing_tool/worn, off = old); live: a pickaxe with 4 uses left was passed over |
-| 7 | Scripts | `src/work/script.js`: JSON, closed grammar (`cmd`, `if/then/else`, `take`, `take_tool`, `put_away`, `station`, `release_station`, `leave_pit`, `return`; conditions `has`, `tool`, `can_craft`, `site`, `free_slots`, `all/any/not`), validated when stored (unknown keys, commands, depth > 6, > 200 steps are refused). Built in: **replace-tool** = no usable pickaxe -> best tier from the `tools` chest -> else iron ingots (from the `ore` chest if tagged) + sticks (or planks to make them) -> table (made and placed if needed) -> craft the pickaxe -> take the table back -> back to work; **make-room**. A worker runs `replace-tool` when a unit fails `missing_tool` (3 tries in a row, then the bot waits as before); `settings.scripts` turns it off. API: `GET/POST /api/scripts`, `DELETE /api/scripts/<name>`, `POST /api/scripts/<name>/run {bot}`; the operator's scripts are files in `<dataDir>/scripts/`. | `script.js`, `worker.js`, `service.js` | pure (grammar, each branch of replace-tool, worker handler, 3-try limit) |
+| 7 | Scripts | `src/work/bot/script.js`: JSON, closed grammar (`cmd`, `if/then/else`, `take`, `take_tool`, `put_away`, `station`, `release_station`, `leave_pit`, `return`; conditions `has`, `tool`, `can_craft`, `site`, `free_slots`, `all/any/not`), validated when stored (unknown keys, commands, depth > 6, > 200 steps are refused). Built in: **replace-tool** = no usable pickaxe -> best tier from the `tools` chest -> else iron ingots (from the `ore` chest if tagged) + sticks (or planks to make them) -> table (made and placed if needed) -> craft the pickaxe -> take the table back -> back to work; **make-room**. A worker runs `replace-tool` when a unit fails `missing_tool` (3 tries in a row, then the bot waits as before); `settings.scripts` turns it off. API: `GET/POST /api/scripts`, `DELETE /api/scripts/<name>`, `POST /api/scripts/<name>/run {bot}`; the operator's scripts are files in `<dataDir>/scripts/`. | `script.js`, `worker.js`, `service.js` | pure (grammar, each branch of replace-tool, worker handler, 3-try limit) |
 
 **Live check (2026-11-06, disposable copy of the build world, peaceful, `scripts/work/pit_live.js`, arena 24 x 12 x 3 in a stone block, 4 bots, no kills):**
 
@@ -267,6 +267,57 @@ without the break event of a tagged player: untested with them. Mod drops that s
 for 2-1 were surveyed once on the web: SaltyJoe's AutoPickup (CurseForge, Forge 1.20.1) sends block drops into the inventory; whether it is
 server-side only was not confirmed (one search, listing only), and a content mod would have to be on the owner's client too, so the script was
 used (KubeJS is already on both).
+
+## v7 (2026-11-06, `TASK-20261106-041`): tagged blocks and links, the in-game display, the in-game browser, a code layout you can find things in
+
+### Code layout (owner: "I cannot tell where things are, so I cannot adjust them")
+
+`src/work/` is grouped by role (`jobs/` what a crew does together, `bot/` what one bot does, `service/` the one object everything goes through, `web/` the HTTP
+console, `operator/` forms and inventory pages, `world/` map data, `display/` the in-game display). `service.js` (1,032 lines) is now `service/` with one file per
+concern (bots, jobs, workers, structures, operator, commands, inventories, world, diagnostics, library, links, display, views); `console.js` is a 10-line entry
+point over `web/{http,server,main}.js` and `web/routes/*.js`; the page is one script per page (`public/work/page_*.js`, `widgets.js`, `ui.js`). `src/work/README.md`
+has the file map, a table "I want to change X -> file" and the rules for new code (own file, own test, one job per file). Behaviour was not changed by the move:
+`npm test` passed after each step with the old tests (only `require` paths and the script list of the page test changed).
+
+### Tagged blocks and links ("symbolic links" for inventories)
+
+Page **Tags** (API `/api/sites`). A tagged block is a name, coordinates, an optional free **label** ("auto furnace", any text up to 40 characters, Japanese is fine),
+functional tags (`tools ore storage junk food blocks`, the upkeep reads them; new: `machine`) and an optional **link** `via`: the name of the container that feeds or
+empties it. Like a symbolic link, a link is followed: `deposit` and `withdraw` at the coordinates of a linked machine (or with `site: "<name>"` instead of x y z) run
+on the container; the inventory page shows and moves through the container; the answer says which links were followed. Example: an automatic furnace with a hopper and a
+chest beside it: tag the chest (`ore`), tag the furnace (`machine`) and link it to the chest; then `withdraw iron_ingot 8` at the furnace takes from the chest.
+Rules (tests/test_work_links_pure.js): coordinates are unique per name; a link needs an existing container, not another machine, not itself; loops and chains longer than 4
+are refused (like ELOOP); a container that is the target of a link cannot be removed first; a machine is never where the upkeep puts items away. `smelt` and `craft` on a
+machine are refused with the reason (they would open the machine's own GUI, which an automatic machine does not offer). Not done: opening the real machine
+GUI, chains through several containers per verb, tags for entities. The Commands form has a **tagged** button that fills x y z from a tag.
+Live (demo server, real Forge, `scripts/work/display_live.js`): withdraw 8 / deposit 3 / by name 1 through a furnace linked to a chest, graded from the chest's NBT: pass; the
+furnace itself was never filled.
+
+### In-game display (particles, no mod)
+
+Page Automation, panel "In-game display" (switches for all, paths, mining divisions, tags; default all on). Every 1.5 s the overlay (`display/overlay.js`) draws up to 160
+dust particles with `particle minecraft:dust r g b size x y z 0 0 0 0 1 force @a[tag=aip_see]`: each bot's planned walk (the planner's cells from the `walk` phase,
+only the part ahead of the bot, a large mark on the destination, one colour per bot), each pit lane outlined at the rim and at the layer it is digging now with corner
+posts between them (one colour per lane; a build job as a box), and a short column over every tagged block with a dotted line from a machine to its container. Viewers are
+the players who are not bots and stand in the overworld; the overlay tags them `aip_see` itself (one selector, one command per particle) and draws nothing when nobody
+watches, when a shape is more than 180 blocks from every viewer, or when the RCON queue is more than two commands behind (decoration never delays the bots). Measured on the
+demo server: a frame of 41 particles took 19 ms, the slowest command 2 ms.
+**Why not an auxiliary mod:** a mod that draws real lines needs Java and a build per Forge version and must be installed on every player's PC, and Forge refuses a client
+whose content mods differ; particles show on any client with no install, cover the two things asked for (paths, divisions) and cost 3 small files. The cost is looks:
+dust fades, lines are dotted, thin at distance. If real lines are wanted later the data (`displayState()`) is already what a client mod would draw.
+Not verified: how it looks in a real client (no client here, only the server's replies: every command is accepted). Hook: the action layer's `Ctx.phase` calls `bot.__onPhase`
+when a bot has one set (only the work service sets it; RL bots never do).
+
+### In-game browser (WebDisplays + MCEF, staged)
+
+Reuse, not a new mod: WebDisplays 2.0.2 (MIT) gives the **minePad** (handheld browser) and screens, MCEF 2.1.6 (LGPL) is the Chromium wrapper it needs. Jars, checksums,
+the PC install command and `enable.sh` / `disable.sh` are in `/mnt/data/forgeaip-play/browser/` (README there). Server side tested on the demo server with the play mod set +
+both jars: starts healthy, `webdisplays:minepad` exists; its file server (miniserv, TCP 25566 in the container) is switched off by `enable.sh`. **Not enabled in the play
+world yet:** the owner was online when this was built, WebDisplays is a content mod (the server restarts and every client needs the two jars first), so `enable.sh`
+refuses while a human is online. The page: `#token=<token>` in the address signs in once (the fragment never reaches a server and is removed from the address at once; one
+attempt, no retry loop), `#kiosk` (remembered until `#kiosk=0`) switches to larger controls and one column. Checked under jsdom (`scripts/work/ui_fragment_check.js`, 11 ok).
+Authentication is unchanged: the same `/api/login`, throttle, session cookie and CSRF; a link with the token is a password and belongs only in the PC's own config.
+Not verified: the page inside Chromium-in-Minecraft (no client here), keyboard focus and the game's key capture.
 
 ## Security basis (the console can reach RCON and control bots, so it is an administrative interface)
 

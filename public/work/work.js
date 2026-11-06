@@ -13,8 +13,19 @@ function showLogin() {
     api('GET', '/api/notice').then((n) => { const el = $('#notice'); el.textContent = n.text || ''; el.classList.toggle('hidden', !n.text); }).catch(() => {});
 }
 window.addEventListener('work-login-required', showLogin);
+// A link can carry the sign-in: `#token=<console token>` (the fragment is never sent to any server, and is removed from the address at once).
+// For the in-game browser (WebDisplays minePad or screen), where typing a token is awkward: put the link in its client config once.
+// `#kiosk` (remembered until `#kiosk=0`) switches to larger controls for a small screen in the game.
+const FRAG = new URLSearchParams(location.hash.replace(/^#/, ''));
+const FRAG_TOKEN = FRAG.get('token');
+try { if (FRAG.has('kiosk')) localStorage.setItem('wc_kiosk', FRAG.get('kiosk') === '0' ? '' : '1'); document.body.classList.toggle('kiosk', !!localStorage.getItem('wc_kiosk')); } catch (_) { /* no storage: normal layout */ }
+if (FRAG.has('token') || FRAG.has('kiosk')) history.replaceState(null, '', location.pathname + location.search);
 async function boot() {
-    try { const s = await api('GET', '/api/session'); session.csrf = s.csrf; } catch (_) { return showLogin(); }
+    try { const s = await api('GET', '/api/session'); session.csrf = s.csrf; } catch (_) {
+        if (!FRAG_TOKEN || boot.triedFragment) return showLogin();
+        boot.triedFragment = true;
+        try { const r = await api('POST', '/api/login', { token: FRAG_TOKEN }); session.csrf = r.csrf; return boot(); } catch (_) { return showLogin(); }
+    }
     $('#login').classList.add('hidden'); $('#app').classList.remove('hidden');
     if (!pages.overview) buildPages();
     await refreshAll(); show(location.hash.slice(1) in pages ? location.hash.slice(1) : 'overview');
