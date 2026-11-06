@@ -231,6 +231,12 @@ const REPLACE_TOOL = {
         { if: { site: 'tools' }, then: [
             { leave_pit: true, optional: true },
             { take_tool: { class: 'pickaxe', from: 'tools', until: 2 }, optional: true },
+            // While the bot is up here: what it needs to make a pickaxe down there (the chests are out of reach from the pit bottom).
+            { if: { not: { has: { item: 'iron_ingot', min: 3 } } }, then: [
+                { take: { item: 'iron_ingot', count: 3, from: 'ore' }, optional: true },
+                { if: { not: { has: { item: 'iron_ingot', min: 3 } } }, then: [{ take: { item: 'iron_ingot', count: 3, from: 'storage' }, optional: true }] },
+            ] },
+            { if: { not: { has: { item: 'stick', min: 2 } } }, then: [{ take: { item: 'stick', count: 4, from: 'storage' }, optional: true }] },
             { go_back: true, optional: true },
         ] },
         { if: { tool: 'pickaxe' }, then: [{ return: 'ok' }] },

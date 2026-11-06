@@ -99,9 +99,9 @@ class WorkersPart {
             if (ok) { rec.retired = null; rec.waitFor = null; rec.fixes = 0; this.note('info', `bot ${rec.name} has what it waited for: continues`); this._resume(rec); this._dirty(); }
             // Waiting for a tool is not waiting for the operator (owner 2026-11-07): every 15 s the bot tries the replace-tool script again (the tools chest, then
             // iron or stone made from what it carries), so a chest that was filled or a mined ingot gets it going without a click.
-            else if (rec.waitFor.tool && !rec.script && !rec.worker && this.settings.scripts && Date.now() - (rec.replaceAt || 0) > 15000) {
+            else if (rec.waitFor.tool && !rec.script && !rec.worker && this.settings.scripts && Date.now() - (rec.replaceAt || 0) > Math.min(300000, 15000 * 2 ** Math.min(rec.replaceFails || 0, 5))) {      // 15 s, 30 s, ... up to 5 min while nothing works (an empty chest)
                 rec.replaceAt = Date.now();
-                this.runScript(rec.name, 'replace-tool').then((r) => { this.note(r.ok ? 'info' : 'warn', `${rec.name} replace-tool while waiting: ${r.ended}${r.log && r.log.length ? ` (${r.log.slice(-12).join('; ')})` : ''}`); }, (e) => this.note('debug', `${rec.name} replace-tool: ${e.message}`));
+                this.runScript(rec.name, 'replace-tool').then((r) => { rec.replaceFails = r.ok ? 0 : (rec.replaceFails || 0) + 1; this.note(r.ok ? 'info' : 'warn', `${rec.name} replace-tool while waiting: ${r.ended}${r.log && r.log.length ? ` (${r.log.slice(-12).join('; ')})` : ''}`); }, (e) => this.note('debug', `${rec.name} replace-tool: ${e.message}`));
             }
         }
     }
