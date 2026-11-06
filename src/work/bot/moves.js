@@ -37,7 +37,7 @@ async function pillar(ctx, { levels, items = TEMP_ITEMS }) {
             const c = { x: f.x, y: f.y + dy, z: f.z };
             if (w.kindAt(c.x, c.y, c.z) === 'air') continue;
             ctx.phase('pillar_clear_overhead', { cell: c });
-            const r = await mine(ctx, { ...c, collect: false }).then(() => null, (e) => e);
+            const r = await mine(ctx, { ...c, collect: false, hand: true }).then(() => null, (e) => e);          // a worn tool or bare hands: slow, but the way up is open
             if (r || w.kindAt(c.x, c.y, c.z) !== 'air') throw new SkillError('invalid_target', { why: 'no head room above for the jump', at: c, done: placed, cause: r && r.reason });
         }
         // Without a pickaxe only blocks that break by hand can be taken away again: dirt first (owner 2026-11-07), else the usual low-value blocks.
@@ -182,7 +182,10 @@ async function takeUsable(ctx, { class: cls, x, y, z }) {
     } finally { bot.closeWindow(win); }
 }
 
-const MOVES = { pillar: { fn: pillar, ticks: (a) => 200 + 260 * (a.levels || 1) }, take_usable: { fn: takeUsable, ticks: () => 800 } };
+/** mine_hand {x, y, z}: break one block with a worn tool or bare hands (the way out of a pit when no usable pickaxe is left), no drop collected. */
+const mineHand = (ctx, a) => mine(ctx, { x: a.x, y: a.y, z: a.z, collect: false, hand: true });
+
+const MOVES = { mine_hand: { fn: mineHand, ticks: () => 400 }, pillar: { fn: pillar, ticks: (a) => 200 + 260 * (a.levels || 1) }, take_usable: { fn: takeUsable, ticks: () => 800 } };
 
 /** Run one of the work layer's own movements on `bot` (same result shape as skills.execute). */
 function runMove(bot, name, args = {}, opts = {}) {

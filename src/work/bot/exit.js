@@ -61,7 +61,8 @@ async function leavePit(env, box, { corridorMax = 40 } = {}) {
         const next = lineCells(here, at, here.y).find((c) => !air(w, c.x, c.y, c.z) || !air(w, c.x, c.y + 1, c.z));
         if (!next) break;
         for (const c of [next, { x: next.x, y: next.y + 1, z: next.z }]) if (!air(w, c.x, c.y, c.z)) {
-            const r = await env.exec('mine', { ...c, collect: false });
+            let r = await env.exec('mine', { ...c, collect: false });
+            if (!r.ok && r.reason === 'missing_tool' && env.run) r = await env.run('mine_hand', { x: c.x, y: c.y, z: c.z });          // no usable tool: by hand, slowly
             if (!r.ok && !air(w, c.x, c.y, c.z)) return { ok: false, reason: r.reason, detail: { ...(r.detail || {}), stage: 'corridor', cell: c } };
             dug++;
         }

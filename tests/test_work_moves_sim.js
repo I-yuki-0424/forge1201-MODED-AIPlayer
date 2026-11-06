@@ -138,8 +138,11 @@ async function ready(world, from, items) {
             const r = await runMove(bot, 'pillar', { levels: 3 });          // a block overhead is broken first (owner 2026-11-07), then the climb goes on
             assert.strictEqual(r.ok, true, `${r.reason} ${JSON.stringify(r.detail)}`); assert.strictEqual(w.get ? true : true, true);
         } finally { bot.stop(); }
-        const wb = scene(new Map()); wb.set(0, 3, 0, registry.blocksByName.stone.defaultState);
-        const bn = await ready(wb, new Vec3(0.5, 1, 0.5), ['dirt']);          // no pickaxe: the stone above cannot be taken away, the failure is named
+        const wh = scene(new Map()); wh.set(0, 3, 0, registry.blocksByName.stone.defaultState);
+        const bh = await ready(wh, new Vec3(0.5, 1, 0.5), ['dirt']);          // no pickaxe: the stone above is broken by hand (owner 2026-11-07), the climb goes on
+        try { const r = await runMove(bh, 'pillar', { levels: 3 }); assert.strictEqual(r.ok, true, `${r.reason} ${JSON.stringify(r.detail)}`); } finally { bh.stop(); }
+        const wb = scene(new Map()); wb.set(0, 3, 0, registry.blocksByName.bedrock.defaultState);
+        const bn = await ready(wb, new Vec3(0.5, 1, 0.5), ['dirt']);          // bedrock cannot be broken: the failure is named
         try {
             const r = await runMove(bn, 'pillar', { levels: 3 });
             assert.strictEqual(r.ok, false); assert.strictEqual(r.reason, 'invalid_target'); assert.ok(/head room/.test(r.detail.why), JSON.stringify(r.detail));
