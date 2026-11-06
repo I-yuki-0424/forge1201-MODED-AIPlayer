@@ -77,9 +77,14 @@ const WALK_FAILS = new Set(['unreachable', 'stuck', 'timeout', 'not_confirmed'])
 async function climbTo(env, t, { maxLevels = 64 } = {}) {
     let r = await env.exec('move_to', t);
     if (r.ok) return { ok: true, how: 'walked' };
-    const here = env.here(), dy = t.y - here.y;
+    let here = env.here(), dy = t.y - here.y;
     if (!WALK_FAILS.has(r.reason) || dy < 1) return { ok: false, reason: r.reason, detail: r.detail };
     if (dy > maxLevels) return { ok: false, reason: 'invalid_args', detail: { why: `${dy} levels up is more than ${maxLevels}` } };
+    // Rise next to the target, not wherever the bot happens to stand (a wall is climbed at its foot): walk to the standable cell near the
+    // target's column that is closest to it and can be reached without climbing, then pillar from there.
+    const near = approachCells(env.w, t, here);
+    for (const c of near.slice(0, 4)) { if ((await env.exec('move_to', c)).ok) { here = env.here(); dy = t.y - here.y; break; } }
+    if (dy < 1) { r = await env.exec('move_to', t); return r.ok ? { ok: true, how: 'walked' } : { ok: false, reason: r.reason, detail: r.detail }; }
     // Room to rise: two free cells above every level. A solid roof is dug (a shaft the bot makes is its own to make); fluid or lava is not.
     for (let k = 1; k <= dy + 1; k++) {
         const c = { x: here.x, y: here.y + k, z: here.z }, kind = env.w.kindAt(c.x, c.y, c.z);
@@ -95,6 +100,19 @@ async function climbTo(env, t, { maxLevels = 64 } = {}) {
     if (fin.ok && last && env.temp) env.temp.delete(`${last.x},${last.y},${last.z}`);
     if (!r.ok) return { ok: false, reason: r.reason, detail: { ...(r.detail || {}), stage: 'walk_after_climb', levels: dy } };
     return { ok: true, how: 'climbed', levels: dy, ...(fin.ok ? {} : { left: last }) };
+}
+
+/** Standable cells within 6 blocks (horizontally) of the target column, at or below one block above the bot's feet, nearest to the target first (never the target's own column). */
+function approachCells(w, t, here) {
+    const out = [];
+    for (let dx = -6; dx <= 6; dx++) for (let dz = -6; dz <= 6; dz++) {
+        const d = Math.hypot(dx, dz); if (d < 1 || d > 6) continue;
+        const x = t.x + dx, z = t.z + dz;
+        for (let y = here.y + 1; y >= here.y - 8; y--) {
+            if (w.kindAt(x, y, z) === 'air' && w.kindAt(x, y + 1, z) === 'air' && w.kindAt(x, y - 1, z) === 'solid') { out.push({ x, y, z, d }); break; }
+        }
+    }
+    return out.sort((a, b) => a.d - b.d).map(({ x, y, z }) => ({ x, y, z }));
 }
 
 /** Take away temporary blocks that are still standing (a climb that was cut short): not the one the bot stands on. Returns how many are gone. */

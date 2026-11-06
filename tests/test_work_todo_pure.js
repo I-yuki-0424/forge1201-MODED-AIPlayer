@@ -14,6 +14,7 @@ const { Problems, headingOf } = require('../src/work/problems');
 const moves = require('../src/work/moves');
 const { Guard, isHostile } = require('../src/work/guard');
 const { runWorker } = require('../src/work/worker');
+const esc = require('../src/work/escalation');
 
 setTimeout(() => { console.error('test watchdog: still running after 60 s'); process.exit(2); }, 60000).unref();
 function test(name, fn) { console.log(`--- test: ${name} ---`); return Promise.resolve(fn()).then(() => console.log('[OK]')); }
@@ -193,10 +194,11 @@ function fakeWorld(ground = 0, unloaded = () => false) {
         t.env.w.set(0, 67, 0, 'stone');                                   // a roof in the shaft
         const r = await moves.climbTo(t.env, { x: 4, y: 69, z: 0 });
         assert.deepStrictEqual([r.ok, r.how, r.levels], [true, 'climbed', 4], JSON.stringify(r));
-        assert.deepStrictEqual(t.log.map((l) => l[0]), ['move_to', 'mine', 'run:pillar', 'move_to', 'mine'], 'roof dug, pillar, walk, last block taken away');
-        assert.deepStrictEqual(t.log[1][1], { x: 0, y: 67, z: 0, collect: false });
-        assert.deepStrictEqual(t.log[2][1], { levels: 4 });
-        assert.deepStrictEqual(t.log[4][1], { x: 0, y: 68, z: 0, collect: false }, 'the last pillar block, taken away from the side');
+        assert.deepStrictEqual(t.log.map((l) => l[0]), ['move_to', 'move_to', 'mine', 'run:pillar', 'move_to', 'mine'], 'walk to the foot of the target, roof dug, pillar, walk, last block taken away');
+        assert.ok(Math.hypot(t.log[1][1].x - 4, t.log[1][1].z - 0) <= 1.5, 'the approach cell is next to the target column: ' + JSON.stringify(t.log[1][1]));
+        assert.deepStrictEqual(t.log[2][1], { x: 0, y: 67, z: 0, collect: false });
+        assert.deepStrictEqual(t.log[3][1], { levels: 4 });
+        assert.deepStrictEqual(t.log[5][1], { x: 0, y: 68, z: 0, collect: false }, 'the last pillar block, taken away from the side');
         assert.strictEqual(t.temp.size, 0, 'the pair is complete: nothing left to clean');
         // lower target / invalid / too high: no climbing
         t = mk(() => false, { x: 0, y: 65, z: 0 });
@@ -284,6 +286,19 @@ function fakeWorld(ground = 0, unloaded = () => false) {
         assert.strictEqual((await get('/api/problems'))[0], 401, 'the problem list needs the login');
         fs.rmSync(path.join(dir, 'notice.txt')); assert.strictEqual(JSON.parse((await get('/api/notice'))[1]).text, '');
         srv.close(); await svc.stop();
+    });
+    await test('escalation: the request is built in the closed form the router validates; decisions for other requests are refused', () => {
+        const line = esc.buildRequest({ runId: 'r1', seq: 3, goalId: 'collect_iron', amount: 12, inventory: { stone_pickaxe: 1, coal: 0, 'create:zinc_ingot': 2 }, why: 'amount too large for gather' });
+        assert.ok(line.endsWith('\n')); const m = JSON.parse(line);
+        assert.deepStrictEqual(m, { v: 1, type: 'escalate', run_id: 'r1', seq: 3, goal_id: 'collect_iron', amount: 12, inventory: { stone_pickaxe: 1, 'create:zinc_ingot': 2 }, why: 'amount too large for gather' });
+        for (const bad of [{ goalId: 'Bad' }, { amount: 0 }, { amount: 1.5 }, { amount: 5000 }, { seq: -1 }, { inventory: { 'bad name': 1 } }, { inventory: { dirt: -1 } }, { runId: '' }]) {
+            assert.throws(() => esc.buildRequest({ runId: 'r1', seq: 1, goalId: 'collect_iron', amount: 1, inventory: {}, ...bad }), bad.toString());
+        }
+        const ok = '{"v":1,"type":"route","run_id":"r1","seq":3,"expert":"x_collect_iron","setup":[],"reason":"ok"}';
+        assert.deepStrictEqual(esc.readDecision(ok, { runId: 'r1', seq: 3 }), { expert: 'x_collect_iron', setup: [], reason: 'ok' });
+        assert.throws(() => esc.readDecision(ok, { runId: 'r1', seq: 4 }), /not the decision/);
+        assert.throws(() => esc.readDecision(ok.replace('x_collect_iron', 'x; rm'), { runId: 'r1', seq: 3 }), /bad expert/);
+        assert.deepStrictEqual(esc.readDecision('{"v":1,"type":"route","run_id":"r1","seq":3,"expert":null,"setup":["a_goal"],"reason":"missing_preconditions:x"}', { runId: 'r1', seq: 3 }).expert, null);
     });
     console.log('\nwork TODO 2026-11-06: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

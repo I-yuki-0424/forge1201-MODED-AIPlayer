@@ -5,29 +5,30 @@
 // Who: players with the tag `aip_direct` (the work console tags its bots, `tag <name> add|remove aip_direct`; the "Mined blocks
 // into the inventory" switch on the Automation page). A full inventory leaves the surplus on the ground (give() drops it).
 const AIP_TAG = 'aip_direct'
-const aipRecent = {}      // player name -> [{ t: game time, x, y, z }] of the last blocks they broke
+const aipBroken = []      // the last blocks tagged players broke: { who, t: game time, x, y, z }
 
 BlockEvents.broken(event => {
   const p = event.player
   if (!p || !p.tags.contains(AIP_TAG)) return
-  const list = aipRecent[p.username] || (aipRecent[p.username] = [])
-  list.push({ t: event.level.time, x: event.block.x, y: event.block.y, z: event.block.z })
-  if (list.length > 24) list.shift()
+  aipBroken.push({ who: String(p.username), t: event.level.time, x: event.block.x, y: event.block.y, z: event.block.z })
+  if (aipBroken.length > 32) aipBroken.shift()
 })
 
 EntityEvents.spawned('minecraft:item', event => {
+  if (aipBroken.length === 0) return
   const e = event.entity
   const now = event.level.time
-  for (const name in aipRecent) {
-    const list = aipRecent[name]
-    for (let i = 0; i < list.length; i++) {
-      const b = list[i]
-      if (now - b.t > 2 || Math.abs(e.x - (b.x + 0.5)) > 1.6 || Math.abs(e.y - (b.y + 0.5)) > 1.6 || Math.abs(e.z - (b.z + 0.5)) > 1.6) continue
-      const player = event.server.getPlayer(name)
-      if (!player) continue
-      player.give(e.item)
-      event.cancel()
-      return
-    }
+  // the newest break first: several blocks can break in one tick (vein miners), the drop belongs to the nearest one
+  let best = null, bestD = 99
+  for (let i = aipBroken.length - 1; i >= 0; i--) {
+    const b = aipBroken[i]
+    if (now - b.t > 2) break
+    const d = Math.abs(e.x - (b.x + 0.5)) + Math.abs(e.y - (b.y + 0.5)) + Math.abs(e.z - (b.z + 0.5))
+    if (d < bestD) { bestD = d; best = b }
   }
+  if (!best || bestD > 3) return
+  const player = event.server.getPlayer(best.who)
+  if (!player) return
+  player.give(e.item)
+  event.cancel()
 })

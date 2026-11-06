@@ -224,6 +224,50 @@ restarted; the log shows `Initializing inv_view on FORGE` and the command `inv_v
 display test). Use in game as an operator: `/inv_view ...` (the console of the server answers "incomplete command"; the exact arguments were
 not read from the jar and are **unverified**: use tab completion). The console's own inventory page keeps working and now shows durability.
 
+## v6 (2026-11-06, `TASK-20261106-040`): the BOT TODO batch (range audit, discard, direct pickup, glow, climbing, defence)
+
+Source: the owner's list `LLM-records/2026-11-06-forge1201-moded-aiplayer-bot-system-todo-...` (six items). RL untouched: nothing here is in
+`src/skills` `COMMANDS`, so the action matrix and the spec hash are what every checkpoint was trained on.
+
+| Item | What it does now | Where |
+| :-- | :-- | :-- |
+| 1-1 range differs from its intended state | `pit.audit` looks at finished units (a rotating slice of 48 per call; the whole range once more before the job may end, up to 3 rounds) and sends every unit with a cell that is not open (leftover block, block placed by mistake, water that ran in) back to pending (`Ledger.reopen`; layers below wait again). Runs every 5 units and right after any failed unit. A unit sent back 3 times is left alone and reported (`gaveUp`): something keeps refilling it, a loop would be worse. Unloaded cells are not judged. Job cancelled and resumed: the units are idempotent, the first claim re-digs what is left | `pit.js audit/wrongCells`, `crew.js reopen`, `worker.js` |
+| 1-2 trash loop | `discard.dispose`: (1) the server's `clear <bot> <item> <n>` over RCON (no item entity ever exists), (2) else walk to a dump spot outside every running job's box (+12 margin) and at least 8 blocks from any other bot and toss there, (3) else the plain toss. Option 3 of the note (not picking low-value drops up) is not built: it raises the entity load | `discard.js`, `janitor.js maintain` |
+| 2-1 mined blocks into the inventory | KubeJS server script `modpack/kubejs/server_scripts/forgeaip_direct_pickup.js`: item entities that appear within 2 ticks next to a block that a player tagged `aip_direct` broke are given to that player instead of being spawned; the game still breaks the block (tool wear, loot, statistics). The console tags its bots (`tag <name> add aip_direct`) when they come online; switch "Mined blocks into the inventory" on the Automation page (default on, needs RCON and the script on the server) | script, `service.js _tagDirect` |
+| 2-2 glow on problem bots | any failed unit, failed script or janitor run, an audit that gave up: the bot gets `glowing` for 120 s (`effect give`, visible through blocks), cleared by its next finished unit; the problem is written to `problems.jsonl` with position, cell, facing, the block it stood in / on / faced, job, region, unit, time. `GET /api/problems`, panel "Problem bots" on the Automation page counts what the problems have in common (reason, stage, facing, block below, y, x/z in chunk, absolute z and cell) | `problems.js`, `service.js _problem` |
+| 2-3 Move up | the operator's `move_to` (console only) is `moves.climbTo`: normal `move_to` first; when that finds no way and the target is higher: walk to the standable cell nearest the target's column, dig a solid roof above the head if there is one, rise on a pillar (one block under the feet at a time, the one two below taken away, `pillar`), walk the last stretch, take the last block away from the side. The last block is noted in `env.temp` until it is gone; a worker takes leftovers away before its next unit (`cleanTemp`). Placed and removed as a pair | `moves.js climbTo/cleanTemp` |
+| 2-4 defence | `guard.js`: a threat is a hostile mob (type `hostile` or a known name) within 5 blocks (20 for shooters) AFTER the bot lost health within the last 4 s. The running command is stopped (`cancelled`, not charged to the unit, no bad streak), the bot attacks until nothing attacks (at most 8 rounds), eats when hurt and hungry, claims again. A mob in sight that did not hit is ignored. Switch "Defend itself" (default on) | `guard.js`, `worker.js` |
+
+Router and skill policies (DPOD `integrations/botsystem/experts/`): `src/work/escalation.js` builds the request the router answers and reads its
+decision, in the closed form DPOD validates (cross-checked on 2026-11-06: a request built here is answered by `escalation.answer`). It is not
+wired into any job; no expert exists and nothing is on a learning queue.
+
+### Live check (2026-11-06, the demo server: real Forge 1.20.1 with the play world's mod set, flat world, easy)
+
+`/mnt/data/forgeaip-play/demo` (outside the repo): the same jars as the play world, mounted read-only, own world, RCON and console.
+`scripts/work/todo_live.js` drives the console's own `WorkService` with real bots; grading is the server's. Run: `cd /mnt/data/forgeaip-play/demo && ./live.sh`.
+
+| Check | Result |
+| :-- | :-- |
+| direct pickup: 6 blocks mined with `collect:false` | +6 cobblestone in the inventory, 0 item entities; control (switch off, inventory full of other items): 3 mined, 3 entities on the ground |
+| discard: 30 stacks of junk, bot next to another bot | `clear` freed 14 slots (6 -> 20 free) in 4 operations, 0 item entities, the neighbour received nothing |
+| audit: a cobblestone placed into a finished unit of a 16 x 8 x 3 pit run by 2 bots | "1 unit(s) sent back", dug again, 0 blocks left in the volume on the server, 24 of 24 units |
+| climb: `move_to` onto a plateau 6 high, no way on foot | arrived on top in 9.9 s, 6 levels, 0 cobblestone left at the foot of the wall |
+| defend: a zombie summoned next to a bot that is digging | zombie dead, job finished 18 of 18, 0 stuck units |
+| glow: a problem recorded for a bot | `glowing` in its active effects, problem on record with heading and blocks, cleared again |
+
+Found on the way (fixed, in the repo): the first version of the KubeJS script kept a list per player and handed over only the first drop of a
+run of blocks (3 of 6); one list of recent breaks, nearest break first, handles every drop. KubeJS cannot create its folders inside a bind
+mount owned by root in a rootless container: the demo copies the script through itzg's `/config` with `COPY_CONFIG_DEST=/data`.
+
+Limits: `climbTo` climbs a wall or cliff face (pillar at its foot, step over the top); a target on an isolated tower in the air needs a bridge, which
+is not built. The direct-pickup script does not see drops of blocks that vein-miner mods (MineAllSMP, CutAllSMP are in the play world) break
+without the break event of a tagged player: untested with them. Mod drops that spawn more than 1.6 blocks from the block are left on the ground.
+`clear` needs RCON; without it the dump spot or the plain toss is used. The audit cannot judge cells outside the loaded chunks. Existing mods
+for 2-1 were surveyed once on the web: SaltyJoe's AutoPickup (CurseForge, Forge 1.20.1) sends block drops into the inventory; whether it is
+server-side only was not confirmed (one search, listing only), and a content mod would have to be on the owner's client too, so the script was
+used (KubeJS is already on both).
+
 ## Security basis (the console can reach RCON and control bots, so it is an administrative interface)
 
 - Not an extension of the old unauthenticated WebUI (docs/LESSONS.md L3), which stays on loopback and unchanged.
