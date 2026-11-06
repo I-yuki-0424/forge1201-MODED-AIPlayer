@@ -295,7 +295,8 @@ async function goToStation(S, handle, env, open, r) {
         }
         // Far above or below the bot (three levels or more) and no walk there: the server puts the bot on a standable cell at the station's layer (env.lift). A floating
         // pillar block cannot be climbed down and a shaft not walked up; live pit 2026-11-07, three bots stood on their own pillars 20 levels above their units.
-        if (env.lift && Math.abs(above) >= 3) {
+        // Also when the station is far to the side (more than 24 blocks: a bot that respawned at the world spawn): a long walk through jungle, with vines the planner climbs, killed bots.
+        if (env.lift && (Math.abs(above) >= 3 || Math.hypot(here.x - S.x, here.z - S.z) > 24)) {
             const l = await env.lift(S);
             if (l.ok) { r.lifted = (r.lifted || 0) + 1; continue; }
             r.liftFail = l.reason;

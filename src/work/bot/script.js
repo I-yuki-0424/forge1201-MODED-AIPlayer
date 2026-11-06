@@ -236,7 +236,18 @@ const REPLACE_TOOL = {
                 { take: { item: 'iron_ingot', count: 3, from: 'ore' }, optional: true },
                 { if: { not: { has: { item: 'iron_ingot', min: 3 } } }, then: [{ take: { item: 'iron_ingot', count: 3, from: 'storage' }, optional: true }] },
             ] },
-            { if: { not: { has: { item: 'stick', min: 2 } } }, then: [{ take: { item: 'stick', count: 4, from: 'storage' }, optional: true }] },
+            { if: { not: { has: { item: 'stick', min: 4 } } }, then: [
+                { take: { item: 'stick', count: 8, from: 'storage' }, optional: true },
+                { if: { not: { has: { item: 'stick', min: 4 } } }, then: [
+                    { if: { not: { planks: 6 } }, then: [
+                        { if: { not: { logs: 3 } }, then: [{ gather: { target: 'oak_log', count: 4, radius: 24 }, optional: true }] },
+                        { if: { not: { logs: 3 } }, then: [{ gather: { target: 'jungle_log', count: 4, radius: 24 }, optional: true }] },
+                        { if: { not: { logs: 3 } }, then: [{ gather: { target: 'spruce_log', count: 4, radius: 24 }, optional: true }] },
+                        { make_planks: 12, optional: true },
+                    ] },
+                    { cmd: 'craft', args: { item: 'stick', count: 8 }, optional: true },
+                ] },
+            ] },
             { go_back: true, optional: true },
         ] },
         { if: { tool: 'pickaxe' }, then: [{ return: 'ok' }] },
@@ -268,6 +279,13 @@ const REPLACE_TOOL = {
         { if: { all: [{ harvests: 'stone_pickaxe' }, { any: [{ has: { item: 'cobblestone', min: 3 } }, { has: { item: 'cobbled_deepslate', min: 3 } }] }, { has: { item: 'stick', min: 2 } }] }, then: [
             { station: 'crafting_table' },
             { cmd: 'craft', args: { item: 'stone_pickaxe', count: 1 }, table: true },
+            { release_station: true },
+            { if: { tool: 'pickaxe' }, then: [{ return: 'ok' }] },
+        ] },
+        // 4. nothing else: a wooden pickaxe from planks and sticks (it breaks stone and cobblestone, so the bot can mine its way up to a stone pickaxe)
+        { if: { all: [{ harvests: 'wooden_pickaxe' }, { has: { item: 'stick', min: 2 } }, { planks: 3 }] }, then: [
+            { station: 'crafting_table' },
+            { cmd: 'craft', args: { item: 'wooden_pickaxe', count: 1 }, table: true },
             { release_station: true },
             { if: { tool: 'pickaxe' }, then: [{ return: 'ok' }] },
         ] },
