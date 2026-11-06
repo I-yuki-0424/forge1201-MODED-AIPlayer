@@ -50,7 +50,7 @@ const tool = (name, max, used) => ({ name, maxDurability: max, durabilityUsed: u
         r = await script.runScript(sc, env); assert.strictEqual(r.ok, true); assert.ok(r.log.some((l) => /took a pickaxe \(iron_pickaxe, 200 uses left\)/.test(l)), r.log.join('|'));
     });
 
-    await test('replace-tool: a chest far above is reached by leaving the pit, the tool is taken there, and the bot is put back where it worked (owner 2026-11-07)', async () => {
+    await test('replace-tool: a chest far above is reached by leaving the pit, the tool is taken there, and the bot stays up on open ground (no teleport back onto the old cell: it put bots on islands)', async () => {
         const sites = new Sites([{ name: 'chest', x: 5, y: 64, z: 5, tags: ['tools'] }]);
         let y = -50, got = 0; const calls = [], origin = { x: 3, y: -50, z: 4 };
         const env = { sites, box: { x0: 0, x1: 9, z0: 0, z1: 9, top: 64, bottom: -59 }, here: () => ({ x: 3, y, z: 4 }), pos: () => ({ x: 3, z: 4 }), usableTool: () => (got ? { name: 'iron_pickaxe' } : null), usableCount: () => got,
@@ -59,8 +59,9 @@ const tool = (name, max, used) => ({ name, maxDurability: max, durabilityUsed: u
             run: async (n, a) => { calls.push(`${n}@${y}`); if (y < 60) return { ok: false, reason: 'unreachable' }; got++; return { ok: true, detail: { item: 'iron_pickaxe', left: 240 } }; },
             back: async (o) => { calls.push(`back ${o.x} ${o.y} ${o.z}`); y = o.y; return { ok: true }; } };
         const r = await script.runScript(script.BUILT_IN.get('replace-tool'), env);
-        assert.ok(r.ok, JSON.stringify(r)); assert.deepStrictEqual(calls, ['leave', 'take_usable@64', 'take_usable@64', `back ${origin.x} ${origin.y} ${origin.z}`], 'no walk at depth (the chest is 114 levels up): out, take, back');
-        assert.ok(r.log.some((l) => /leave pit: pillar \(114 levels\)/.test(l)) && r.log.some((l) => /back to 3 -50 4: ok/.test(l)), r.log.join('|'));
+        assert.ok(r.ok, JSON.stringify(r)); assert.deepStrictEqual(calls, ['leave', 'take_usable@64', 'take_usable@64'], 'no walk at depth (the chest is 114 levels up): out, take, no back');
+        assert.ok(r.log.some((l) => /leave pit: pillar \(114 levels\)/.test(l)), r.log.join('|'));
+        assert.ok(!calls.some((c) => /^back/.test(c)), 'not sent back');
     });
 
     await test('janitor: a worn-out tool is thrown away as that exact stack, whatever the room; the switch turns it off; no worn tools, no ops', () => {

@@ -235,7 +235,8 @@ const REPLACE_TOOL = {
         // 1. the tools chest (only a usable tool; a chest far above or below is skipped)
         { take_tool: { class: 'pickaxe', from: 'tools' }, optional: true },
         { if: { tool: 'pickaxe' }, then: [{ return: 'ok' }] },
-        // 1b. the chest is far above (the pit is deep): climb out (pillar), take, and be put back where the work was left
+        // 1b. the chest is far above (the pit is deep): climb out (lift or pillar) and take what is needed up here; the crafting below also happens up here, on open ground. The bot is not
+        // sent back: the next unit lifts it to its layer (a teleport back onto the spot it left put bots on one-block islands in the open pit).
         { if: { site: 'tools' }, then: [
             { leave_pit: true, optional: true },
             { take_tool: { class: 'pickaxe', from: 'tools', until: 2 }, optional: true },
@@ -256,7 +257,6 @@ const REPLACE_TOOL = {
                     { if: { not: { has: { item: 'stick', min: 4 } } }, then: [{ cmd: 'craft', args: { item: 'stick', count: 8 }, optional: true }] },
                 ] },
             ] },
-            { go_back: true, optional: true },
         ] },
         { if: { tool: 'pickaxe' }, then: [{ return: 'ok' }] },
         // 2. made from what the bot carries or can fetch: sticks (planks <- logs <- a tree nearby), then iron (ingots, or raw iron smelted in a furnace) or stone
@@ -309,7 +309,6 @@ const STOCK_TOOLS = {
         { if: { not: { usable: { class: 'pickaxe', min: 3 } } }, then: [
             { leave_pit: true, optional: true },
             { take_tool: { class: 'pickaxe', from: 'tools', until: 3 }, optional: true },
-            { go_back: true, optional: true },
         ] },
         // Sticks for pickaxes made in the pit (replace-tool): from the storage chest, else planks from a tree nearby (outside the pit only). Twelve sticks make six pickaxes.
         { if: { not: { has: { item: 'stick', min: 8 } } }, then: [
