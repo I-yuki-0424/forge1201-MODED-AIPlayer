@@ -1,8 +1,8 @@
 """A small candidate-scoring policy (one per expert) in JAX.
 
 The context vector goes through two layers to a hidden vector h; every candidate row goes through two layers to c_k; the score of candidate k is
-a small network over [c_k, h, c_k * h]; the value comes from h. Weights are shared over the K candidates, so the model does not depend on the order in
-which the environment lists them. About 90 k parameters.
+a small network over [c_k, c_k * h]; the value comes from h. Weights are shared over the K candidates, so the model does not depend on the order in
+which the environment lists them. About 50 k parameters.
 """
 import jax
 import jax.numpy as jnp
@@ -15,11 +15,11 @@ def _lin(key, n_in, n_out, scale=1.0):
     return {"w": jax.random.normal(key, (n_in, n_out), dtype=jnp.float32) * (scale / np.sqrt(n_in)), "b": jnp.zeros((n_out,), dtype=jnp.float32)}
 
 
-def init(key, ctx_dim, cand_dim, hidden=96):
+def init(key, ctx_dim, cand_dim, hidden=64):
     k = jax.random.split(key, 8)
     return {"c1": _lin(k[0], ctx_dim, hidden), "c2": _lin(k[1], hidden, hidden),
             "k1": _lin(k[2], cand_dim, hidden), "k2": _lin(k[3], hidden, hidden),
-            "s1": _lin(k[4], 3 * hidden, hidden), "s2": _lin(k[5], hidden, 1, 0.01),
+            "s1": _lin(k[4], 2 * hidden, hidden), "s2": _lin(k[5], hidden, 1, 0.01),
             "v1": _lin(k[6], hidden, hidden), "v2": _lin(k[7], hidden, 1, 1.0)}
 
 
@@ -35,8 +35,7 @@ def forward(params, ctx, cand, mask):
     """ctx [B, Dc], cand [B, K, Dk], mask [B, K] -> (masked logits [B, K], value [B])."""
     h = jnp.tanh(_dense(params["c2"], jnp.tanh(_dense(params["c1"], ctx))))
     c = jnp.tanh(_dense(params["k2"], jnp.tanh(_dense(params["k1"], cand))))
-    hb = jnp.broadcast_to(h[:, None, :], c.shape)
-    s = jnp.tanh(_dense(params["s1"], jnp.concatenate([c, hb, c * hb], axis=-1)))
+    s = jnp.tanh(_dense(params["s1"], jnp.concatenate([c, c * h[:, None, :]], axis=-1)))
     logits = _dense(params["s2"], s)[..., 0]
     v = _dense(params["v2"], jnp.tanh(_dense(params["v1"], h)))[..., 0]
     return jnp.where(mask, logits, NEG), v
@@ -54,6 +53,13 @@ def act_sample(params, ctx, cand, mask, key):
 def act_greedy(params, ctx, cand, mask):
     logits, v = forward(params, ctx, cand, mask)
     return jnp.argmax(logits, axis=-1), v
+
+
+def trim(cand, mask):
+    """Cut the candidate axis to the longest list in the batch (rounded up to a multiple of 8): the environment lists candidates first and pads after."""
+    last = int(np.max(np.where(mask.any(axis=0))[0], initial=0)) + 1
+    k = min(mask.shape[1], max(8, -(-last // 8) * 8))
+    return cand[:, :k], mask[:, :k]
 
 
 def save(path, params, meta):

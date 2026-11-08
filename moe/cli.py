@@ -19,7 +19,7 @@ def main(argv=None):
     t = sub.add_parser("train")
     t.add_argument("--expert", required=True); t.add_argument("--root", required=True); t.add_argument("--base", required=True); t.add_argument("--shards", required=True)
     t.add_argument("--out", required=True); t.add_argument("--budget", type=int, default=300_000); t.add_argument("--seed", type=int, default=0)
-    t.add_argument("--lr", type=float, default=5e-4); t.add_argument("--ent", type=float, default=0.01); t.add_argument("--min-steps", type=int, default=40_000)
+    t.add_argument("--lr", type=float, default=5e-4); t.add_argument("--ent", type=float, default=0.01); t.add_argument("--min-steps", type=int, default=30_000)
     e = sub.add_parser("eval")
     e.add_argument("--expert", required=True); e.add_argument("--root", required=True); e.add_argument("--base", required=True); e.add_argument("--shards", required=True)
     e.add_argument("--policy", required=True, help="random | solver | net:<checkpoint.npz>"); e.add_argument("--episodes", type=int, default=200)
@@ -76,7 +76,8 @@ class NetPolicy:
         from . import policy
         ctx = np.stack([self.feat.ctx(o.raw) for o in obs_list])
         cc = [self.feat.cands(o.raw) for o in obs_list]
-        a, _ = policy.act_greedy(self.params, ctx, np.stack([c[0] for c in cc]), np.stack([c[1] for c in cc]))
+        cand, mask = policy.trim(np.stack([c[0] for c in cc]), np.stack([c[1] for c in cc]))
+        a, _ = policy.act_greedy(self.params, ctx, cand, mask)
         return [int(x) for x in a]
 
 

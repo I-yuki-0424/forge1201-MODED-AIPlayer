@@ -51,8 +51,8 @@ class EnvState:
         self.pend, self.ret, self.n = None, 0.0, 0
 
 
-def train(vec, expert, out_dir, budget=300_000, seed=0, rollout=4096, epochs=4, minibatch=512, lr=5e-4, ent=0.01, hidden=96,
-          stop_rate=0.97, stop_window=200, min_steps=40_000, log=print, done_file=None):
+def train(vec, expert, out_dir, budget=300_000, seed=0, rollout=4096, epochs=3, minibatch=512, lr=5e-4, ent=0.01, hidden=64,
+          stop_rate=0.97, stop_window=200, min_steps=30_000, log=print, done_file=None):
     cat = catalog.load()
     goal = Goal(expert)
     out = pathlib.Path(out_dir)
@@ -91,7 +91,8 @@ def train(vec, expert, out_dir, budget=300_000, seed=0, rollout=4096, epochs=4, 
         if live:
             ctx = np.stack([feat.ctx(ob.raw) for ob in live])
             cc = [feat.cands(ob.raw) for ob in live]
-            cand, mask = np.stack([c[0] for c in cc]), np.stack([c[1] for c in cc])
+            cand_full, mask_full = np.stack([c[0] for c in cc]), np.stack([c[1] for c in cc])
+            cand, mask = policy.trim(cand_full, mask_full)             # the network sees only as many candidates as the longest list; the buffer keeps all 64
             key, k1 = jax.random.split(key)
             a, lp, v = policy.act_sample(params, ctx, cand, mask, k1)
             a_live, lp_live, v_live = np.asarray(a), np.asarray(lp), np.asarray(v)
@@ -119,7 +120,7 @@ def train(vec, expert, out_dir, budget=300_000, seed=0, rollout=4096, epochs=4, 
                 trajs.setdefault(ob.key, ppo.Traj()).add(p["ctx"], p["cand"], p["mask"], p["a"], p["lp"], p["v"], r, 0.0, float(v_live[i]))
                 st.ret += r
                 steps += 1
-            st.pend = {"ctx": ctx[i], "cand": cand[i], "mask": mask[i], "a": int(a_live[i]), "lp": float(lp_live[i]), "v": float(v_live[i]), "pot": pot}
+            st.pend = {"ctx": ctx[i], "cand": cand_full[i], "mask": mask_full[i], "a": int(a_live[i]), "lp": float(lp_live[i]), "v": float(v_live[i]), "pot": pot}
             vec.act(ob, int(a_live[i]))
         if sum(len(t) for t in trajs.values()) >= rollout:
             data = ppo.batch_of(list(trajs.values()), GAMMA)

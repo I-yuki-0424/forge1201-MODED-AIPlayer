@@ -77,11 +77,12 @@ def make_update(lr=5e-4, clip=0.2, vf=0.5, ent=0.01, max_grad=0.5):
     return opt, step
 
 
-def update(params, opt_state, step, data, rng, epochs=4, minibatch=512):
+def update(params, opt_state, step, data, rng, epochs=3, minibatch=512):
     """Several epochs over `data` (dict of arrays) in shuffled minibatches; advantages are normalised over the whole batch."""
     n = len(data["a"])
     adv = data["adv"]
-    data = dict(data, adv=((adv - adv.mean()) / (adv.std() + 1e-8)).astype(np.float32))
+    cand, mask = policy.trim(data["cand"], data["mask"])
+    data = dict(data, cand=cand, mask=mask, adv=((adv - adv.mean()) / (adv.std() + 1e-8)).astype(np.float32))
     aux_sum, k = {}, 0
     for _ in range(epochs):
         perm = rng.permutation(n)

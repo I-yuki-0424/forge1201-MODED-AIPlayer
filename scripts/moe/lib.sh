@@ -15,7 +15,7 @@ shards_up() {
     w=${W[$((i % ${#W[@]}))]}
     docker rm -f "moe-$name-s$i" >/dev/null 2>&1 || true
     docker run -d --name "moe-$name-s$i" --network none --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true \
-      --memory 700m --cpus "$cpus" --label moe=1 -v "$MOE_ROOT/x":/x -v "$TILES":/tiles:ro -v "$REPO/src/rl":/r:ro -v "$MOE_ROOT/scenarios":/s:ro \
+      --memory 700m --cpus "$cpus" --cpu-shares 256 --label moe=1 -v "$MOE_ROOT/x":/x -v "$TILES":/tiles:ro -v "$REPO/src/rl":/r:ro -v "$MOE_ROOT/scenarios":/s:ro \
       -v "$SIMBIN":/forgeaip-sim:ro debian:bookworm-slim /forgeaip-sim run --root /x --base "$name" --shard "$i" --bots "$bots" --days 3 --tiles /tiles --world "$w" \
       --reward /r/reward-v6.json --progress /r/progress-list.json --seed "$((seed + i))" --scenario "/s/$scn.json" >/dev/null
   done
@@ -25,7 +25,7 @@ shards_down() { docker ps -aq --filter "name=moe-$1-s" | xargs -r docker rm -f >
 # py CPUS MEM ARGS... : python -m moe.cli ARGS in the venv container (repo read-only, exchange read-write)
 py() {
   local cpus=$1 mem=$2; shift 2
-  docker run --rm --network none --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true --cpus "$cpus" --memory "$mem" \
+  docker run --rm --network none --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true --cpus "$cpus" --memory "$mem" --cpu-shares 256 \
     -e PYTHONDONTWRITEBYTECODE=1 -e PYTHONPATH=/w -e XLA_FLAGS="--xla_cpu_multi_thread_eigen=false intra_op_parallelism_threads=$cpus" -e JAX_PLATFORMS=cpu \
     -v moe-venv:/venv:ro -v "$REPO":/w:ro -v "$MOE_ROOT":/m -w /w moe-py:1 /venv/bin/python -m moe.cli "$@"
 }
