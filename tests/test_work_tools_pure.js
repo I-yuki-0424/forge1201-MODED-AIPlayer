@@ -282,7 +282,7 @@ const tool = (name, max, used) => ({ name, maxDurability: max, durabilityUsed: u
     const rec = svc.bots.get('Bot1');
 
     await test('service: a worn pickaxe does not end the wait for a pickaxe (the loop of 13 s seen on the play world); a good one does; with retireWorn off any pickaxe does', () => {
-        options.configure(rec.bot, { retireWorn: true });
+        options.configure(rec.bot, { retireWorn: true, toolPolicy: { iron: 'keep' } });          // iron is used up by default (owner 2026-11-08): this test is about a tool that does retire
         rec.bot.items = [{ ...tool('iron_pickaxe', 250, 240), count: 1 }];
         assert.strictEqual(svc._canBreak(rec, 'stone'), false);
         rec.bot.items = [tool('iron_pickaxe', 250, 240), tool('iron_pickaxe', 250, 5)];

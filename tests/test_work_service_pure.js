@@ -266,7 +266,8 @@ function fakeBot(name) {
         let v = s2.status().bots[0]; assert.deepStrictEqual(v.tools.map((t) => [t.left, t.worn]), [[246, false], [210, false]], 'durability listed; the rule is configured on the bot only when its worker starts, so nothing is worn yet');
         require('../src/skills/options').configure(bots2[0], { retireWorn: true });
         v = s2.status().bots[0]; assert.deepStrictEqual(v.tools.map((t) => [t.left, t.worn]), [[246, false], [210, false]]);
-        bots2[0].inventory.items()[0].durabilityUsed = 245; v = s2.status().bots[0]; assert.strictEqual(v.tools[0].worn, true, '5 uses left is worn (<= 8)');
+        bots2[0].inventory.items()[0].durabilityUsed = 245; v = s2.status().bots[0]; assert.strictEqual(v.tools[0].worn, false, '5 uses left of an iron tool: the default policy uses iron up (owner 2026-11-08), so it is not worn');
+        s2.setSettings({ toolPolicy: { iron: 'keep' } }); v = s2.status().bots[0]; assert.strictEqual(v.tools[0].worn, true, '... and with iron set to keep, 5 uses left is worn (<= 8)'); s2.setSettings({ toolPolicy: { iron: 'use_up' } });
         // sites and scripts
         throwsP(() => s2.addSite({ name: 'a', x: 1, y: 2, z: 3, tags: ['wood'] }), 400, /unknown tag/); throwsP(() => s2.addSite({ name: 'a', x: 1, y: 2, z: 3, tags: [] }), 400);
         s2.addSite({ name: 'tools1', x: 5, y: 64, z: 5, tags: ['tools'] }); assert.strictEqual(s2.listSites().sites.length, 1); assert.ok(s2.listSites().tags.ore);

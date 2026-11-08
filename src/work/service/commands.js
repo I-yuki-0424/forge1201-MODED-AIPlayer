@@ -37,7 +37,7 @@ class CommandsPart {
             const rec = this.bots.get(n);
             if (!rec || rec.removed) { refused.push({ name: n, why: 'no such bot' }); continue; }
             if (rec.state !== 'online') { refused.push({ name: n, why: rec.state }); continue; }
-            if (command === 'stop') { if (rec.cmd && rec.cmd.status === 'running') rec.cmd.cancel.cancelled = true; started.push(n); continue; }
+            if (command === 'stop') { if (rec.cmd && rec.cmd.status === 'running') rec.cmd.cancel.cancelled = true; if (rec.script && rec.script.routine) rec.script.cancel.cancelled = true; started.push(n); continue; }
             if (rec.worker) { refused.push({ name: n, why: `works on job ${rec.job} (pause the job or take the bot off it)` }); continue; }
             if (rec.cmd && rec.cmd.status === 'running') { refused.push({ name: n, why: `busy with ${rec.cmd.name} (send Stop first)` }); continue; }
             if (spec.args.length) { try { this._checkArgs(spec, args); } catch (e) { refused.push({ name: n, why: e.message }); continue; } }

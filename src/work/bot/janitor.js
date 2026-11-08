@@ -55,8 +55,11 @@ function pitPolicy(over = {}) {
 function plan(items, slotsFree, policy = pitPolicy(), worn = []) {
     const ops = [], keepOf = (n) => policy.keep[n] || null;
     // 0. Worn-out tools are used up: each such stack goes, whatever the room (exact stack: `damage`, so that a good tool of the same name stays).
-    if ((typeof policy.discardWorn === 'function' ? policy.discardWorn() : policy.discardWorn !== false)) {
-        for (const wn of worn.slice(0, 12)) ops.push({ op: 'toss', item: wn.name, count: 1, damage: wn.damage, why: 'worn_out' });
+    // A tier whose policy is `keep` (diamond, netherite: stopped before they break) is stashed in a chest instead, whatever the discard switch says.
+    const discard = typeof policy.discardWorn === 'function' ? policy.discardWorn() : policy.discardWorn !== false;
+    for (const wn of worn.slice(0, 12)) {
+        if (wn.keep) ops.push({ op: 'stash', item: wn.name, count: 1, damage: wn.damage, why: 'keep_worn' });
+        else if (discard) ops.push({ op: 'toss', item: wn.name, count: 1, damage: wn.damage, why: 'worn_out' });
     }
     const stacks = new Map();
     for (const it of items) stacks.set(it.name, (stacks.get(it.name) || 0) + it.count);
@@ -117,7 +120,11 @@ function inventoryOf(bot) {
     for (const i of bot.inventory.items()) {
         if (!i.maxDurability || !TOOL.test(i.name)) continue;
         let w = false; try { w = require('../../skills/options').isWorn(bot, i); } catch (_) { /* no options */ }
-        if (w) worn.push({ name: i.name, damage: i.durabilityUsed || 0, left: i.maxDurability - (i.durabilityUsed || 0) });
+        if (w) {
+            // A tier whose policy is 'keep' is stopped before it breaks and kept (stashed), the others that retire are used up and thrown away.
+            const o = require('../../skills/options'), pol = o.get(bot).toolPolicy;
+            worn.push({ name: i.name, damage: i.durabilityUsed || 0, left: i.maxDurability - (i.durabilityUsed || 0), keep: !!(pol && pol[o.tierOf(i.name)] === 'keep') });
+        }
     }
     return { items: [...m].map(([name, count]) => ({ name, count })), slotsFree: free, worn };
 }
@@ -130,6 +137,13 @@ function inventoryOf(bot) {
 async function maintain(env, policy) {
     const { items, slotsFree, worn } = env.inv(), ops = plan(items, slotsFree, policy, worn || []), done = [];
     if (!ops.length) return { ok: true, done };
+    // A kept tool goes into the chest that takes things (never the tools chest: nobody wants a nearly broken pickaxe handed out); with no chest it stays in the pack.
+    for (const o of ops.filter((x) => x.op === 'stash')) {
+        const s = sitesOf(policy) ? sitesOf(policy).placeFor(o.item, env.pos ? env.pos() : null, policy) : null, box = s ? { x: s.x, y: s.y, z: s.z } : policy.depot && policy.depot.kind === 'chest' ? policy.depot : null;
+        if (!box || !env.run) continue;
+        const r = await env.run('stash_worn', { item: o.item, damage: o.damage, x: box.x, y: box.y, z: box.z });
+        if (r.ok) done.push(o);
+    }
     for (const o of ops.filter((x) => x.op === 'toss')) {
         if (o.damage !== undefined) {                                               // a worn-out tool: out of the game, that exact stack; never a plain toss (it would pick any stack of the name)
             if (env.discard) { const r = await env.discard(o.item, 1, { damage: o.damage }); if (r.ok) done.push(o); }

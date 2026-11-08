@@ -50,6 +50,27 @@ class LibraryPart {
         return { name: v.name, steps: v.steps };
     }
     deleteScript(name) { need(this.scripts.has(name) && !scriptLib.BUILT_IN.has(name), `no script ${String(name).slice(0, 32)} (built-in scripts stay)`, 404); this.scripts.delete(name); fs.rmSync(path.join(this.o.dataDir, 'scripts', `${path.basename(name)}.json`), { force: true }); return { ok: true }; }
+    /**
+     * Start a stored script as a routine: over and over until Stop (or the same failure five rounds in a row). Returns at once; progress is `script` / `routine` in the bot view.
+     */
+    startRoutine(botName, scriptName, { pauseMs = 2000 } = {}) {
+        const rec = this.bots.get(botName); need(rec && !rec.removed && rec.state === 'online' && rec.bot, `no online bot ${botName}`, 404);
+        const sc = this.scripts.get(scriptName); need(sc, `no script ${String(scriptName).slice(0, 32)}`, 404);
+        need(Number.isInteger(pauseMs) && pauseMs >= 500 && pauseMs <= 60000, 'pauseMs: 500..60000');
+        need(!rec.worker && !rec.script && !(rec.cmd && rec.cmd.status === 'running'), `bot ${botName} is busy`, 409);
+        const cancel = { cancelled: false }; rec.script = { cancel, name: sc.name, routine: { rounds: 0, fails: 0, since: Date.now() } };
+        (async () => {
+            try {
+                const env = this.envFactory(rec.bot, cancel); if (env && env.configure) env.configure({ retireWorn: !!this.settings.retireWorn });
+                const senv = Object.assign(Object.create(env), { sites: this.sites });
+                senv.leavePit = null;
+                const res = await scriptLib.runLoop(sc, senv, { cancel, pauseMs, onRound: (r) => { if (rec.script) { rec.script.routine.rounds = r.rounds; rec.script.routine.fails = r.fails; rec.script.routine.last = r.last.ok ? 'ok' : r.last.reason || r.last.ended; this._dirty(); } } });
+                this.note(res.ok ? 'info' : 'warn', `${botName}: routine ${sc.name} ${res.ended} after ${res.rounds} rounds${res.reason ? ` (${res.reason})` : ''}`);
+            } catch (e) { this.note('warn', `${botName}: routine ${sc.name} failed: ${String(e.message).slice(0, 120)}`); }
+            finally { rec.script = null; this._dirty(); }
+        })();
+        return { started: true, bot: botName, script: sc.name };
+    }
     /** Run a stored script once on a bot (the operator's "do this now"): { ended, ok, steps, log }. */
     async runScript(botName, scriptName) {
         const rec = this.bots.get(botName); need(rec && !rec.removed && rec.state === 'online' && rec.bot, `no online bot ${botName}`, 404);

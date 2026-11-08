@@ -52,10 +52,10 @@ const click = (el) => el.dispatchEvent(new w.MouseEvent('click', { bubbles: true
     click(w.document.querySelector('#nav button[data-page="auto"]')); await tick(300);
     const page = w.document.querySelector('#page .page:not(.hidden)');
     const boxes = [...page.querySelectorAll('.setting input')];
-    ok(boxes.length === 11 && boxes[0].checked && boxes[1].checked && boxes[2].checked && !boxes[3].checked, 'seven settings (retireWorn, discardWorn, scripts on, auto-kit off) and four display switches');
+    ok(boxes.length === 12 && boxes[0].checked && boxes[1].checked && boxes[2].checked && !boxes[3].checked, 'seven settings (retireWorn, discardWorn, scripts on, auto-kit off) and four display switches');
     boxes[0].checked = false; boxes[0].dispatchEvent(new w.Event('change', { bubbles: true })); await tick();
     ok(sent.some((s) => s[1] === '/api/settings' && s[2] && s[2].retireWorn === false), 'switching retireWorn off posts the setting');
-    const dsp = boxes.slice(7); dsp[1].checked = false; dsp[1].dispatchEvent(new w.Event('change', { bubbles: true })); await tick();
+    const dsp = boxes.slice(8); dsp[1].checked = false; dsp[1].dispatchEvent(new w.Event('change', { bubbles: true })); await tick();
     ok(sent.some((s) => s[1] === '/api/settings' && s[2] && s[2].display && s[2].display.paths === false), 'a display layer is switched through the settings route');
     // ---- Map tiles: a region the server saved again keeps its old picture while the new one loads (it was drawn black: the chunk of a working bot flickered)
     { const T = w.eval('Tiles'), fake = { fake: 'canvas' };

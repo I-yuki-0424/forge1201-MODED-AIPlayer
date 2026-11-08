@@ -20,8 +20,16 @@ class WorldPart {
 
     setSettings(s) {
         if (s && s.display && typeof s.display === 'object') for (const k of ['on', 'paths', 'lanes', 'tags']) if (typeof s.display[k] === 'boolean') this.settings.display = { ...this.settings.display, [k]: s.display[k] };
+        if (s && s.teleport !== undefined) { need(['off', 'near', 'any'].includes(s.teleport), 'teleport: off, near or any'); this.settings.teleport = s.teleport; }
+        if (s && s.toolPolicy && typeof s.toolPolicy === 'object') {
+            const tp = { ...this.settings.toolPolicy };
+            for (const [t, v] of Object.entries(s.toolPolicy)) { need(require('../../skills/options').TIERS.includes(t), `toolPolicy: unknown tier ${String(t).slice(0, 12)}`); need(v === 'use_up' || v === 'keep', 'toolPolicy: use_up or keep'); tp[t] = v; }
+            this.settings.toolPolicy = tp;
+            for (const r of this.bots.values()) if (r.bot && !r.removed) { try { require('../../skills/options').configure(r.bot, { toolPolicy: tp }); } catch (_) { /* not connected */ } }
+        }
         if (s && s.mapSave !== undefined) { need([0, 30, 60, 120, 300].includes(s.mapSave), 'mapSave: 0 (off), 30, 60, 120 or 300 seconds'); this.settings.mapSave = s.mapSave; this._mapSaveTimer(); }
         if (s && typeof s.autoKit === 'boolean') this.settings.autoKit = s.autoKit;
+        if (s && typeof s.reflex === 'boolean') this.settings.reflex = s.reflex;
         if (s && typeof s.scripts === 'boolean') this.settings.scripts = s.scripts;
         if (s && typeof s.glow === 'boolean') { this.settings.glow = s.glow; if (!s.glow) for (const r of this.bots.values()) this._clearGlow(r); }
         if (s && typeof s.discardWorn === 'boolean') this.settings.discardWorn = s.discardWorn;

@@ -67,7 +67,7 @@ class Ctx {
 
     /** Apply `frame` and wait for the physics tick that uses it. */
     tick(frame = {}) {
-        if (this.cancel.cancelled) throw new SkillError('cancelled');
+        if (this.cancel.cancelled || this.bot.__preempt) throw new SkillError('cancelled');          // __preempt: a reflex (work/bot/reflex.js) has taken the body for a moment
         if (this.ended) throw new SkillError('disconnected');
         if (this.dead) throw new SkillError('died');
         if (this.t >= this.maxTicks) throw new SkillError('timeout', { ticks: this.t, phase: this.phaseName });

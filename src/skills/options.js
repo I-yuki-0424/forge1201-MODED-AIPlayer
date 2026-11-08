@@ -6,6 +6,7 @@ const DEFAULTS = Object.freeze({
     retireWorn: false,        // treat a nearly broken tool as unusable (the next harvesting tool is taken; none left = missing_tool, worn)
     wornReserve: 0.06,        // ... when no more than this share of its durability is left,
     wornMin: 8,
+    toolPolicy: null,         // {wooden|stone|iron|golden|diamond|netherite: 'use_up' | 'keep'} (work layer): 'use_up' = used until it breaks (never counts as worn), 'keep' = stops being used just before it breaks; null = every tool retires
     fixture: null,            // (blockName, x, y, z) -> true for a block that must not be broken (src/skills/fixtures.js); null = nothing is protected
     planNodes: 20000,         // the most cells one path search may expand (the work layer lowers it: a search for a cell nobody can reach used to burn the whole budget)               // ... or at most this many uses, whichever is more
 });
@@ -24,12 +25,17 @@ function usesLeft(item) {
     return max ? max - (item.durabilityUsed || 0) : null;
 }
 
-/** Is this stack worn out under the bot's current options? Always false while `retireWorn` is off. */
+const TIERS = Object.freeze(['wooden', 'stone', 'iron', 'golden', 'diamond', 'netherite']);
+/** The material tier of a tool or armour item name (wooden_pickaxe -> wooden, golden_axe -> golden); null for anything else (shears, bows ...). */
+const tierOf = (name) => { const t = String(name || '').split('_')[0]; return TIERS.includes(t) ? t : null; };
+
+/** Is this stack worn out under the bot's current options? Always false while `retireWorn` is off, and for a tier whose policy is 'use_up'. */
 function isWorn(bot, item) {
     const o = get(bot);
     if (!o.retireWorn) return false;
+    if (o.toolPolicy && o.toolPolicy[tierOf(item && item.name)] === 'use_up') return false;
     const left = usesLeft(item);
     return left !== null && left <= Math.max(o.wornMin, Math.ceil(item.maxDurability * o.wornReserve));
 }
 
-module.exports = { DEFAULTS, get, configure, usesLeft, isWorn };
+module.exports = { DEFAULTS, TIERS, get, configure, usesLeft, isWorn, tierOf };

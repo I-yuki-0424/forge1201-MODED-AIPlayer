@@ -18,5 +18,5 @@ module.exports = (service) => async (req, url, m, p) => {
     if (m === 'GET' && p === '/api/scripts') return service.listScripts();
     if (m === 'POST' && p === '/api/scripts') return service.putScript(await json(req));
     if ((a = /^\/api\/scripts\/([a-z0-9][a-z0-9_-]{0,31})$/.exec(p)) && m === 'DELETE') return service.deleteScript(a[1]);
-    if ((a = /^\/api\/scripts\/([a-z0-9][a-z0-9_-]{0,31})\/run$/.exec(p)) && m === 'POST') { const b = await json(req); return service.runScript(String(b.bot), a[1]); }
+    if ((a = /^\/api\/scripts\/([a-z0-9][a-z0-9_-]{0,31})\/run$/.exec(p)) && m === 'POST') { const b = await json(req); return b.repeat === true ? service.startRoutine(String(b.bot), a[1], b.pauseMs === undefined ? {} : { pauseMs: b.pauseMs }) : service.runScript(String(b.bot), a[1]); }
 };

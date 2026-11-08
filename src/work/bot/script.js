@@ -5,7 +5,7 @@
 //
 // A script is plain JSON (stored one file per script, or built in):  { "name": "...", "steps": [ STEP, ... ] }
 //   STEP  { "cmd": "craft", "args": {...}, "at": "tools", "table": true, "optional": true }   one command of the action layer (or "pillar")
-//           "at": a site tag: x, y, z of the nearest tagged site are added to the arguments; "table": the crafting table placed by `station`
+//           "at": a tagged block's name, or a purpose (the nearest one): its x, y, z are added to the arguments; "table": the crafting table placed by `station`
 //           "optional": a failure does not end the script
 //         { "if": COND, "then": [STEP...], "else": [STEP...] }
 //         { "take": { "item": "iron_ingot", "count": 3, "from": "ore" }, "optional": true }   withdraw from the nearest site with that tag
@@ -23,6 +23,7 @@ const janitor = require('./janitor');
 
 const MAX_STEPS = 200, MAX_DEPTH = 8;
 const WORK_MOVES = new Set(['pillar', 'take_usable']);
+const SITE_REF = /^[a-z0-9][a-z0-9_-]{1,23}$/;           // a tagged block by name, or a purpose (tools, ore, any ...)
 const TIERS = ['netherite', 'diamond', 'iron', 'stone', 'golden', 'wooden'];
 const CLASSES = new Set(['pickaxe', 'axe', 'shovel', 'sword', 'hoe']);
 const STEP_KEYS = new Set(['go_back', 'cmd', 'args', 'at', 'table', 'furnace', 'optional', 'gather', 'make_planks', 'if', 'then', 'else', 'take', 'take_tool', 'put_away', 'station', 'release_station', 'leave_pit', 'return', 'log']);
@@ -67,9 +68,9 @@ function validate(script) {
             else if (s.cmd !== undefined) {
                 if (!COMMANDS[s.cmd] && !WORK_MOVES.has(s.cmd)) bad(`unknown command ${String(s.cmd).slice(0, 20)}`);
                 if (s.args !== undefined && (typeof s.args !== 'object' || Array.isArray(s.args))) bad('args is an object');
-                if (s.at !== undefined && !/^[a-z]{2,12}$/.test(s.at)) bad('at: a site tag');
+                if (s.at !== undefined && !SITE_REF.test(s.at)) bad('at: a tagged block (its name) or a purpose');
             } else if (s.take !== undefined) {
-                const t = s.take; if (!t || typeof t.item !== 'string' || !ITEM.test(t.item) || !/^[a-z]{2,12}$/.test(t.from || '') || !(t.count === undefined || (Number.isInteger(t.count) && t.count >= 1 && t.count <= 2304))) bad('take: {item, count?, from: tag}');
+                const t = s.take; if (!t || typeof t.item !== 'string' || !ITEM.test(t.item) || !SITE_REF.test(t.from || '') || !(t.count === undefined || (Number.isInteger(t.count) && t.count >= 1 && t.count <= 2304))) bad('take: {item, count?, from: tag}');
             } else if (s.take_tool !== undefined) {
                 const t = s.take_tool; if (!t || !CLASSES.has(t.class) || !/^[a-z]{2,12}$/.test(t.from || '') || !(t.until === undefined || (Number.isInteger(t.until) && t.until >= 1 && t.until <= 6))) bad('take_tool: {class, from: tag, until?: 1..6}');
             } else if (s.gather !== undefined) {
@@ -117,7 +118,7 @@ async function runScript(script, env, { cancel = { cancelled: false }, maxSteps 
     const st = { steps: 0, log: [], table: null };
     const note = (m) => { if (st.log.length < 60) st.log.push(String(m).slice(0, 160)); };
     const result = (ended, extra = {}) => ({ ok: ended === 'ok' || ended === 'end', ended, steps: st.steps, log: st.log, ...extra });
-    const site = (tag) => (env.sites ? env.sites.find(tag, env.pos ? env.pos() : null) : null);
+    const site = (tag) => (env.sites ? (env.sites.pick ? env.sites.pick(tag, env.pos ? env.pos() : null) : env.sites.find(tag, env.pos ? env.pos() : null)) : null);
     const command = async (name, args, { table = false, furnace = false, at = null, atSite = null } = {}) => {
         let a = { ...(args || {}) };
         if (atSite) a = { ...a, x: atSite.x, y: atSite.y, z: atSite.z };
@@ -252,6 +253,26 @@ async function placeStation(env, st, kind = 'crafting_table') {
     return p;
 }
 
+/**
+ * A routine (owner 2026-11-08): the same script over and over until it is stopped, no policy, nothing decided. A round that fails is repeated after a longer
+ * pause (2, 4, 8 ... up to 16 times the pause); five rounds in a row that fail end it (the reason is the last one's). A round that has nothing to do (an empty chest)
+ * ends well and the next one starts after the pause, so a routine waits for work instead of ending.
+ * `onRound({rounds, fails, last})` reports progress. Returns {ok, ended: 'stopped' | 'gave_up', rounds, reason?, log}.
+ */
+async function runLoop(script, env, { cancel = { cancelled: false }, pauseMs = 2000, stopAfterFails = 5, onRound = () => {}, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+    let rounds = 0, fails = 0, last = null;
+    while (!cancel.cancelled) {
+        last = await runScript(script, env, { cancel });
+        if (last.ended === 'cancelled') break;
+        rounds++; fails = last.ok ? 0 : fails + 1;
+        onRound({ rounds, fails, last });
+        if (fails >= stopAfterFails) return { ok: false, ended: 'gave_up', rounds, reason: last.reason || last.ended, log: last.log };
+        const wait = pauseMs * (fails ? Math.min(16, 2 ** fails) : 1);
+        for (let t = 0; t < wait && !cancel.cancelled; t += 250) await sleep(Math.min(250, wait - t));
+    }
+    return { ok: true, ended: 'stopped', rounds, log: last ? last.log : [] };
+}
+
 // ------------------------------------------------------------------------------------------------------------------------ built in
 
 /** The pack holds what a pickaxe is made of: three iron ingots (or three raw iron and fuel to smelt them), or cobblestone for a stone one, and two sticks. */
@@ -366,4 +387,4 @@ const STOCK_TOOLS = {
 const MAKE_ROOM = { name: 'make-room', steps: [{ put_away: true }, { return: 'ok' }] };
 const BUILT_IN = new Map([[REPLACE_TOOL.name, validate(REPLACE_TOOL)], [MAKE_ROOM.name, validate(MAKE_ROOM)], [STOCK_TOOLS.name, validate(STOCK_TOOLS)]]);
 
-module.exports = { validate, runScript, holds, placeStation, ScriptError, BUILT_IN, REPLACE_TOOL, STOCK_TOOLS, MAKE_ROOM, MAX_STEPS, TIERS, CLASSES };
+module.exports = { validate, runScript, runLoop, holds, placeStation, ScriptError, BUILT_IN, REPLACE_TOOL, STOCK_TOOLS, MAKE_ROOM, MAX_STEPS, TIERS, CLASSES };

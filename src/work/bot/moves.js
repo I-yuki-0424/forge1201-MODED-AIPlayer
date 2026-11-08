@@ -6,7 +6,7 @@ const { run, SkillError } = require('../../skills/runner');
 const { feetCell } = require('../../skills/motion');
 const { holdItem, count } = require('../../skills/commands/item');
 const { mine } = require('../../skills/commands/block');
-const { openAt, station, CONTAINERS, inPlayer } = require('../../skills/commands/gui');
+const { openAt, station, openBox, CONTAINERS, inPlayer } = require('../../skills/commands/gui');
 const options = require('../../skills/options');
 
 /** Low-value blocks a bot may stack: tagged temporary blocks first, then what a pit produces anyway. Never sand or gravel (they fall). */
@@ -170,7 +170,7 @@ function pickUsable(items, cls) {
 async function takeUsable(ctx, { class: cls, x, y, z }) {
     const bot = ctx.bot;
     if (!['pickaxe', 'axe', 'shovel', 'sword', 'hoe'].includes(cls)) throw new SkillError('invalid_args', { why: 'class: pickaxe, axe, shovel, sword or hoe' });
-    const win = await openAt(ctx, station(ctx, CONTAINERS, { x, y, z }, 'container'), (b) => bot.openContainer(b));
+    const win = await openAt(ctx, station(ctx, CONTAINERS, { x, y, z }, 'container'), (b) => openBox(bot, b));
     try {
         const { pick, worn } = pickUsable(win.containerItems(), cls);
         if (!pick) throw new SkillError('missing_item', { item: cls, where: 'container', why: `no usable ${cls} in the container`, worn });
@@ -182,10 +182,29 @@ async function takeUsable(ctx, { class: cls, x, y, z }) {
     } finally { bot.closeWindow(win); }
 }
 
+/**
+ * stash_worn {item, damage, x, y, z}: put ONE exact stack (the item with exactly this much wear) into the container at x y z (owner 2026-11-09: a diamond tool that is
+ * stopped before it breaks is kept, not thrown away). `deposit` takes the first stack of a name, which may be the good one, so the slot is picked here and shift-clicked.
+ */
+async function stashWorn(ctx, { item, damage, x, y, z }) {
+    const bot = ctx.bot;
+    if (typeof item !== 'string' || !Number.isInteger(damage)) throw new SkillError('invalid_args', { why: 'item and damage' });
+    const win = await openAt(ctx, station(ctx, CONTAINERS, { x, y, z }, 'container'), (b) => openBox(bot, b));
+    try {
+        const slot = win.items().find((i) => i.name === item && (i.durabilityUsed || 0) === damage);
+        if (!slot) throw new SkillError('missing_item', { item, why: `no ${item} with ${damage} wear in the pack` });
+        const before = win.containerItems().reduce((n, i) => n + (i.type === slot.type ? i.count : 0), 0);
+        ctx.phase('stash_worn', { item, damage });
+        await ctx.during(bot.clickWindow(slot.slot, 0, 1), 60);                              // shift-click: the stack goes to the container
+        await ctx.until(() => win.containerItems().reduce((n, i) => n + (i.type === slot.type ? i.count : 0), 0) > before, 20, 'not_confirmed');
+        return { item, damage };
+    } finally { bot.closeWindow(win); }
+}
+
 /** mine_hand {x, y, z}: break one block with a worn tool or bare hands (the way out of a pit when no usable pickaxe is left), no drop collected. */
 const mineHand = (ctx, a) => mine(ctx, { x: a.x, y: a.y, z: a.z, collect: false, hand: true });
 
-const MOVES = { mine_hand: { fn: mineHand, ticks: () => 400 }, pillar: { fn: pillar, ticks: (a) => 200 + 260 * (a.levels || 1) }, take_usable: { fn: takeUsable, ticks: () => 800 } };
+const MOVES = { mine_hand: { fn: mineHand, ticks: () => 400 }, pillar: { fn: pillar, ticks: (a) => 200 + 260 * (a.levels || 1) }, take_usable: { fn: takeUsable, ticks: () => 800 }, stash_worn: { fn: stashWorn, ticks: () => 800 } };
 
 /** Run one of the work layer's own movements on `bot` (same result shape as skills.execute). */
 function runMove(bot, name, args = {}, opts = {}) {
@@ -194,4 +213,4 @@ function runMove(bot, name, args = {}, opts = {}) {
     return run(bot, m.fn, args, { ...opts, maxTicks: opts.maxTicks || m.ticks(args) });
 }
 
-module.exports = { pillar, finishPillar, climbTo, cleanTemp, runMove, takeUsable, pickUsable, wornOut, MOVES, TEMP_ITEMS };
+module.exports = { pillar, finishPillar, climbTo, cleanTemp, runMove, takeUsable, stashWorn, pickUsable, wornOut, MOVES, TEMP_ITEMS };

@@ -154,6 +154,14 @@ class Sites {
         return end ? { ...best, x: end.x, y: end.y, z: end.z, linked: best.name } : best;     // a link answers with the container it points to
     }
 
+    /** A tagged block by its NAME, else the nearest one with that purpose (scripts say "nugget-chest" or "tools"); links resolved like `find`. */
+    pick(nameOrTag, from = null) {
+        const s = this.map.get(nameOrTag);
+        if (!s) return this.find(nameOrTag, from);
+        let end = null; try { end = this.through(s.x, s.y, s.z); } catch (_) { /* a broken link: the block itself */ }
+        return end ? { ...s, x: end.x, y: end.y, z: end.z, linked: s.name } : s;
+    }
+
     /** Every site with `tag`, nearest first (links resolved like `find`): a script that cannot use the nearest chest tries the next. */
     findAll(tag, from = null) {
         const c = this.list().filter((x) => x.purpose === canon(tag));

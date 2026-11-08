@@ -39,14 +39,14 @@ class WorkService extends EventEmitter {
         this.factory = this.o.factory || defaultFactory(this.o);
         // `worker`: the env of a bot that works a job (defence, a place to dump trash away from every job); one-off commands get the plain env.
         this.envFactory = this.o.envFactory || ((bot, cancel, o = {}) => require('../bot/env').botEnv(bot, {
-            cancel, rcon: this.o.rcon ? (c) => this.rcon(c) : null,
+            cancel, rcon: this.o.rcon ? (c) => this.rcon(c) : null, moved: (m) => this._moved(bot.username, m), teleport: () => this.settings.teleport || 'near',
             ...(o.worker ? { guard: true, defend: this.settings.defend !== false, avoid: () => this._activeBoxes(), others: () => this._botSpots(bot.username) } : {}),
         }));
         this.known = this.o.known || null;
         this.bots = new Map();            // name -> record
         this.jobs = new Map();            // id -> job
         this.log = [];
-        this.settings = { autoKit: false, retireWorn: true, scripts: true, defend: true, glow: true, directPickup: true, discardWorn: true, display: { on: true, paths: true, lanes: true, tags: true } };      // retireWorn: a nearly broken tool counts as no tool; scripts: recovery scripts (missing tool) on
+        this.settings = { autoKit: false, retireWorn: true, scripts: true, defend: true, glow: true, directPickup: true, discardWorn: true, reflex: true, teleport: 'near', toolPolicy: { wooden: 'use_up', stone: 'use_up', iron: 'use_up', golden: 'use_up', diamond: 'keep', netherite: 'keep' }, display: { on: true, paths: true, lanes: true, tags: true } };      // retireWorn: a nearly broken tool counts as no tool; scripts: recovery scripts (missing tool) on
         this.problems = new Problems({ file: path.join(this.o.dataDir, 'problems.jsonl') });   // problem bots: where, facing, standing on what (problems.js)
         this.sites = new Sites();                                                  // tagged chests by coordinates (sites.js)
         this.placed = new Set();                                                   // "x,y,z" of boxes (chest, shulker box, ender chest) a bot placed from its pack: only these may be broken (skills/fixtures.js)

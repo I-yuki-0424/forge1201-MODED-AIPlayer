@@ -7,7 +7,7 @@ const janitor = require('./janitor');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** The environment of a real Mineflayer bot on the action layer. */
-function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null, others = null, guard: withGuard = false, defend = true } = {}) {
+function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null, others = null, guard: withGuard = false, defend = true, moved = null, teleport = () => 'near' } = {}) {
     const { execute } = require('../../skills');
     const { fromBot } = require('../../skills/world');
     const { feetCell } = require('../../skills/motion');
@@ -34,7 +34,7 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         if (fix === 'back_off') { if (!await sidestep(800)) await hold('jump', 350); return; }          // two cells away: the next approach comes from another side
         if (fix === 'wait') { await sleep(1500 + Math.floor(Math.random() * 2000)); return; }          // something in the way moves on, the server catches up
         if (fix === 'lift') {
-            if (rcon && envObj.lift) { const l = await envObj.lift(f, { radius: 4, up: 2, down: 1 }); if (l.ok) return; }
+            if (rcon && envObj.lift) { const l = await envObj.lift(f, { radius: 4, up: 2, down: 1, purpose: 'recover', why: `escape after ${(failure && failure.reason) || 'a failed move'}` }); if (l.ok) return; }
             if (!await sidestep(800)) await hold('jump', 350);
             return;
         }
@@ -42,7 +42,7 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
             const here = feetCell(bot.entity.position);
             const dist = Math.abs(here.x - good.x) + Math.abs(here.z - good.z) + Math.abs(here.y - good.y);
             // Far (three levels or more, or 24 blocks): not on foot. From the surface the planner walked 30 levels down into the pit and a bot fell 86 blocks (live pit 2026-11-07).
-            if (dist > 2 && rcon && (Math.abs(here.y - good.y) >= 3 || Math.hypot(here.x - good.x, here.z - good.z) > 24)) await envObj.back(good);
+            if (dist > 2 && rcon && (Math.abs(here.y - good.y) >= 3 || Math.hypot(here.x - good.x, here.z - good.z) > 24)) await envObj.back(good, { purpose: 'recover', why: `back to the last good place after ${(failure && failure.reason) || 'a failed move'}` });
             else if (dist > 2) await execute(bot, 'move_to', { x: good.x, y: good.y, z: good.z }, { cancel });
         }
     }
@@ -81,8 +81,9 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         stations: bot.__stations || (bot.__stations = {}),           // crafting table / furnace the bot placed and has not taken back: reused by the next script run (script.js)
         discard: disc.makeClear({ rcon, name: bot.username, count: have }),
         dumpSpot: avoid ? () => disc.dumpSpot(w, feet(), { avoid: avoid(), others: others ? others() : [] }) : null,
-        threat: gd ? () => (defendOn ? gd.threat() : null) : null,
-        defend: gd ? () => gd.defend((name, args) => execute(bot, name, args, { cancel })) : null,
+        threat: gd ? () => (bot.__preempt ? { reflex: true } : defendOn ? gd.threat() : null) : null,
+        // A reflex that has the body (a fall, lava) finishes first; then the fight, if there is one; then the worker runs the stopped unit again.
+        defend: gd ? async () => { for (let i = 0; i < 100 && bot.__preempt; i++) await sleep(100); return gd.defend((name, args) => execute(bot, name, args, { cancel })); } : null,
         dispose: () => { if (gd) gd.detach(); }, rememberGood: () => { good = feetCell(bot.entity.position); escapes.clear(); },
         inWater: () => !!bot.entity.isInWater || require('./water').inWater(w, feetCell(bot.entity.position)),
         items: (near, r) => dropsNear(bot, near, r),
@@ -106,11 +107,11 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         // A long walk in legs inside the loaded chunks (travel.js): a move_to beyond the view distance fails for want of chunks.
         travel: (t, o) => require('./travel').travel({ exec: envObj.exec, here: envObj.here, w, cancel: unitCancel }, t, o),
         // Back to a place the bot left (script step go_back): the server moves it (a road-less pit cannot be entered on foot); without RCON it walks.
-        back: async (o) => {
+        back: async (o, opt = {}) => {
             if (!rcon || !Number.isInteger(o.x) || !Number.isInteger(o.y) || !Number.isInteger(o.z)) return execute(bot, 'move_to', o, { cancel });
             // Not to the exact cell it left: its floor may be gone by now (dug away, flooded) and a bot put there falls to its death (it did, twice). The nearest standable
             // cell around it, the cell itself first (distance 0).
-            const l = await envObj.lift(o, { radius: 3, down: 3, up: 2 });
+            const l = await envObj.lift(o, { radius: 3, down: 3, up: 2, purpose: opt.purpose || 'job', why: opt.why || 'back to the last good place' });
             return l.ok ? { ok: true, to: l.to } : l;
         },
         // A tool counts only if it is not worn out AND, when a script is asked to fix a missing tool for a block (`this.need`, set by the worker and the service), it can
@@ -124,8 +125,13 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         // Another bot in (or next to) the cell the bot stands in: a block cannot be placed there (a pillar fails not_confirmed) until one of them steps aside.
         // Move the bot (server `tp`, position only) to the nearest cell where it can stand at the layer of a station that is far above or below it and cannot be
         // walked to: in a ragged open pit a floating pillar block cannot be climbed down and a shaft cannot be walked up. A cell needs air for the body and solid below.
-        lift: async (S, { radius = 5, down = 0, up = 2 } = {}) => {
+        // `purpose`: 'job' (a station in another layer, a way out of the pit, the water rescue) is always allowed; 'recover' (the escape ladder after a failed move) follows the
+        // operator's `teleport` setting: off = never, near = within 16 blocks across and 6 up or down, any = as far as it takes. Every server move is reported to `moved`
+        // (owner 2026-11-08: "the bot moves as if teleporting"; it was this, and nothing said so).
+        lift: async (S, { radius = 5, down = 0, up = 2, purpose = 'job', why = '' } = {}) => {
             if (!rcon) return { ok: false, reason: 'refused', detail: { why: 'no RCON' } };
+            const mode = teleport();
+            if (purpose === 'recover' && mode === 'off') return { ok: false, reason: 'refused', detail: { why: 'server moves are off for recovery (setting teleport)' } };
             const oth = others ? others() : [], cand = [];
             for (let dx = -radius; dx <= radius; dx++) for (let dz = -radius; dz <= radius; dz++) for (let y = S.y - down; y <= S.y + up; y++) {
                 const x = S.x + dx, z = S.z + dz;
@@ -135,8 +141,11 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
             }
             if (!cand.length) return { ok: false, reason: 'unreachable', detail: { why: 'no standable cell near the station' } };
             cand.sort((a, b) => (b.exit - a.exit) || (b.safe - a.safe) || (a.d - b.d));      // a cell that can be left on foot first (not a sealed pocket), then one without an edge or fluid beside it, then the nearest
-            const c = cand[0];
+            const c = cand[0], p0 = bot.entity.position, dist = Math.round(Math.hypot(c.x + 0.5 - p0.x, c.y - p0.y, c.z + 0.5 - p0.z));
+            if (purpose === 'recover' && mode === 'near' && (Math.hypot(c.x + 0.5 - p0.x, c.z + 0.5 - p0.z) > 16 || Math.abs(c.y - p0.y) > 6)) return { ok: false, reason: 'refused', detail: { why: `${dist} blocks is too far for a recovery move (setting teleport: near)`, dist } };
+            const from = { x: Math.round(p0.x), y: Math.round(p0.y), z: Math.round(p0.z) };
             try { await rcon(`tp ${bot.username} ${c.x + 0.5} ${c.y} ${c.z + 0.5}`); } catch (e) { return { ok: false, reason: 'refused', detail: { message: String(e.message).slice(0, 80) } }; }
+            if (moved) { try { moved({ kind: 'server_tp', from, to: { x: c.x, y: c.y, z: c.z }, dist, purpose, why: why || purpose }); } catch (_) { /* reporting must not break the move */ } }
             for (let i = 0; i < 30; i++) { await sleep(100); const p = bot.entity.position; if (Math.abs(p.x - c.x - 0.5) < 1.5 && Math.abs(p.y - c.y) < 1.5 && Math.abs(p.z - c.z - 0.5) < 1.5 && bot.entity.onGround) return { ok: true, to: { x: c.x, y: c.y, z: c.z } }; }
             return { ok: false, reason: 'not_confirmed' };
         },
