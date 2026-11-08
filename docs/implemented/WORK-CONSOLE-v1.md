@@ -399,6 +399,16 @@ Deployed 2026-11-09: console on the play world restarted twice (jobs come back p
 live, the lava walk-out without a potion, edge-slip block placement on a real cliff edge in a running job, the carried (item) Ender Storage chest as a depot kind (an Ender Storage chest
 is used where it stands, or placed by a script and taken back), the end dimension.
 
+### v10 follow-up (2026-11-09 night, owner's first play test)
+
+| Report | Cause | Fix |
+| :-- | :-- | :-- |
+| F12 view: dropdowns stay open, white blocks | the embedded browser draws no native pop-ups: the list of a `<select>` and the suggestions of `<input list>` are separate windows it never shows | `public/work/kiosk.js` (kiosk layout only): a `<select>` opens the page's own `choose()` box, suggestion lists are left out; modals scroll (`max-height 92vh`). **Not seen in a real client**; other white areas, if any, are not explained. |
+| Remove does nothing | the browser's `confirm()` shows no dialog in the web view (and was never answered) | `ask()` in `ui.js`: a yes/no box of the page, used by every Remove / Delete / Cancel (bots, tags, jobs, scripts, structures). jsdom check: no `confirm()` call, No deletes nothing, Yes sends the DELETE. |
+| 20 bots, nobody can join | `MAX_PLAYERS: "20"` of the play world | 100 in `/mnt/data/forgeaip-play/compose.yaml` (needs a restart: done with `up.sh --force`, the known mcef false positive of `check-mods.py`) |
+| The tagged Ender Chest does not respond | the `tools` tag pointed at 1746 107 1781, where there is no block entity; the two chests stand at 1743 103 1774 (white/white/white) and 1743 103 1775 (blue/white/white). A tag does not move with a chest, and the page could not say so. | the tag is corrected (1743 103 1775); a container tag on a cell a bot sees as air is refused, and a tag whose cell is air shows `⚠ air` in the table. The Inventory page no longer shows an Ender Storage chest as empty: it reads the saved storage (read-only, colours in the note) and refuses to move stacks through the console (the server console cannot reach those items). Live: the tagged chest as tools chest works (`replace-tool` took the diamond pickaxe, left the worn one). |
+| The Ender Chest in the inventory does not work | nothing used it: depots were a chest or a shulker box, and the upkeep treated `enderstorage:ender_chest` as ordinary surplus | depot kind "Ender Storage chest (carried, placed by the bot)" (`depot.item: enderstorage:ender_chest`): placed beside the bot, filled, taken back with its colours; it and the pouch/tank are never put away or thrown away. Live: a lime/lime/lime chest used and picked up again, none left standing. A vanilla ender chest cannot be a depot (without Silk Touch it drops obsidian). |
+
 ## Security basis (the console can reach RCON and control bots, so it is an administrative interface)
 
 - Not an extension of the old unauthenticated WebUI (docs/LESSONS.md L3), which stays on loopback and unchanged.
