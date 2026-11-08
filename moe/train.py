@@ -76,8 +76,8 @@ def train(vec, expert, out_dir, budget=300_000, seed=0, rollout=4096, epochs=3, 
     envs, trajs = {}, {}
     steps = updates = episodes = 0
     recent = []          # 1 = success, last `stop_window` episodes
-    ep_log = open(out / "episodes.jsonl", "a")
-    tr_log = open(out / "train_log.jsonl", "a")
+    ep_log = open(out / "episodes.jsonl", "w")      # a run starts from scratch: no resume, so no stale rows
+    tr_log = open(out / "train_log.jsonl", "w")
     last_report = time.time()
     t_start = time.time()
     solved_at = None

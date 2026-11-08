@@ -2,7 +2,7 @@
 
 The context vector goes through two layers to a hidden vector h; every candidate row goes through two layers to c_k; the score of candidate k is
 a small network over [c_k, c_k * h]; the value comes from h. Weights are shared over the K candidates, so the model does not depend on the order in
-which the environment lists them. About 50 k parameters.
+which the environment lists them. About 40 k parameters.
 """
 import jax
 import jax.numpy as jnp

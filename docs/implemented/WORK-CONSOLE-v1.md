@@ -409,6 +409,32 @@ is used where it stands, or placed by a script and taken back), the end dimensio
 | The tagged Ender Chest does not respond | the `tools` tag pointed at 1746 107 1781, where there is no block entity; the two chests stand at 1743 103 1774 (white/white/white) and 1743 103 1775 (blue/white/white). A tag does not move with a chest, and the page could not say so. | the tag is corrected (1743 103 1775); a container tag on a cell a bot sees as air is refused, and a tag whose cell is air shows `⚠ air` in the table. The Inventory page no longer shows an Ender Storage chest as empty: it reads the saved storage (read-only, colours in the note) and refuses to move stacks through the console (the server console cannot reach those items). Live: the tagged chest as tools chest works (`replace-tool` took the diamond pickaxe, left the worn one). |
 | The Ender Chest in the inventory does not work | nothing used it: depots were a chest or a shulker box, and the upkeep treated `enderstorage:ender_chest` as ordinary surplus | depot kind "Ender Storage chest (carried, placed by the bot)" (`depot.item: enderstorage:ender_chest`): placed beside the bot, filled, taken back with its colours; it and the pouch/tank are never put away or thrown away. Live: a lime/lime/lime chest used and picked up again, none left standing. A vanilla ender chest cannot be a depot (without Silk Touch it drops obsidian). |
 
+## v11 (2026-11-09, `TASK:20261109-045`): the freeze, a watchdog, and "no Resume button needed" made true
+
+**What happened.** At 02:27 JST every bot was dropped by the server ("Timed out") a few seconds after Work5 fell to its death and a Resume was sent. The console process
+was not dead: it ran at 140 % CPU for 100 minutes and answered nothing. Found with the Node inspector on the frozen process (`kill -USR1 1` in the container, then
+`Debugger.pause` / `Profiler` from a second container in the same network namespace): the stack was `runWorker -> job.rescue -> water.rescue -> floodPlan`, the worker
+of Work11 had `failed = 99,639`, `cancel.cancelled = false`, `env.unitCancel.cancelled = true`.
+
+**Cause.** `unitCancel` (env.js) is the operator's cancel OR a guard interrupt OR `drowning()` (air < 9 in water). The water rescue, which is what a drowning bot is sent to,
+ran its swim and its fills through the same token, so every command came back `cancelled` at once. The worker read `cancelled` without an operator cancel as "attacked:
+defend, then claim again", with no wait and no I/O. A loop of microtasks only never lets timers or sockets run, so the keep-alives of all 20 bots (one process) stopped.
+
+**Fixes** (tests: `tests/test_work_freeze_pure.js`, in `npm test`; the worker test hangs on the old code):
+- `env.execFree` (operator cancel only) is what `water.rescue` uses.
+- `worker.js`: a `cancelled` with nothing to fight (`defend().fought == 0`) is a failure like any other (fix, wait, streak, cool-down); a failed unit yields with `setImmediate`.
+- `service/watchdog.js`: a second thread watches a heartbeat of the main thread. After 25 s of silence (`WORK_WATCHDOG_S`, 0 = off) it asks the main thread for its stack through
+  the inspector, writes `freeze.json` (time, count, stack) and kills the process; the container's restart policy brings it back. Three freezes in an hour: jobs come back paused.
+- `restore()`: a job that was running comes back running (setting `resumeJobs`, default on), and the bots work as soon as they are online (before: "jobs are paused: press Start").
+- `_watchResume()` (every 2 s): a bot that is online, belongs to a running job and does nothing (no worker, script or operator command) is started again after 6 s, doubling to 2 min;
+  one that waits for an item or tool the operator must give looks again every 5 minutes. Before, only some endings restarted themselves; `stalled`, `error`, a failed restock or a throwing
+  start left the bot idle until somebody pressed Resume.
+- `rec.missing` accepted `String(undefined)`: Work5 "waited for undefined" four times, for good. It now needs a string.
+
+**Not fixed, seen on the way.** The ledger can deadlock two lane bots on one region when the first bot finishes a unit before the second claims (tests/test_work_miner_pure.js shows it with
+a yield at the top of the worker loop; never seen live). Work20 and Work9 fail on units far from where they stand with `target chunk not loaded` and cool down in a loop (hundreds of
+problem rows). The console uses 1.6 of its 2 GiB with 20 bots.
+
 ## Security basis (the console can reach RCON and control bots, so it is an administrative interface)
 
 - Not an extension of the old unauthenticated WebUI (docs/LESSONS.md L3), which stays on loopback and unchanged.

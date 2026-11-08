@@ -64,6 +64,14 @@ scripts/world/registry-dump.sh                         # after any lock change: 
 (cd docker/world-server && docker compose --profile bench run --rm -T --entrypoint node bench scripts/skills/bench_lv2.js --run-id l1 --seed 1101 --bots 10 --follow <player>)   # LV2: natural terrain (after --pregen 1)
 ```
 
+Experts and router (docs/proposed/MOE-v1.md; `moe/`, Python, runs in the `moe-py:1` image with the `moe-venv` volume, no network; files in `/mnt/data/forgeaip/moe`):
+
+```bash
+scripts/moe/test.sh                          # 16 unit tests
+scripts/moe/train-all.sh [--par 3]           # train + evaluate the 12 experts on simulator shards (held-out worlds vps-s3/s4), controls: baseline.sh
+scripts/moe/router.sh ; scripts/moe/chain.sh chain-placed xgb net 60   # XGBoost/LightGBM router; router + experts as one policy
+```
+
 Pure bots (docs/proposed/WORKERS-v1.md; `src/work/`, map in src/work/README.md, not part of the RL action space): live pit check on a disposable server. The owner's play world
 is NOT in this repo: compose, scripts and jars are all in `/mnt/data/forgeaip-play/` (own folder and local git repo, see its README.md):
 
@@ -96,6 +104,7 @@ Copy `.env` values (file is git-ignored; never print or commit it):
 
 ```
 index.js            entry: AgentManager + WebUI (the debug WebSocket :3001 is started by each legacy bot_actuator child)
+moe/                experts (one small PPO policy per item), rule planner, XGBoost/LightGBM router, chain; tools/sim is its environment (docs/proposed/MOE-v1.md)
 src/work/           pure bots, ~13 role folders (jobs, bot, service, web, operator, world, display): map and "where do I change X" in src/work/README.md; calls execute() only
 src/skills/         the action layer: 14 commands built only from player inputs (body, planner, runner, commands/*), intents.js + llm_prompt.js for the LLM
 src/skills_bot.js   the bot child process on the action layer (default; BOT_RUNTIME=legacy forks bot_actuator.js); src/vault_client.js reads LLM credentials

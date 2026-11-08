@@ -24,7 +24,17 @@ def main(argv=None):
     e.add_argument("--expert", required=True); e.add_argument("--root", required=True); e.add_argument("--base", required=True); e.add_argument("--shards", required=True)
     e.add_argument("--policy", required=True, help="random | solver | net:<checkpoint.npz>"); e.add_argument("--episodes", type=int, default=200)
     e.add_argument("--seed", type=int, default=0); e.add_argument("--out"); e.add_argument("--timeout", type=int, default=900)
+    r = sub.add_parser("router")
+    r.add_argument("--out", required=True); r.add_argument("--n-train", type=int, default=30000); r.add_argument("--n-test", type=int, default=8000); r.add_argument("--seed", type=int, default=0)
+    c = sub.add_parser("chain")
+    c.add_argument("--root", required=True); c.add_argument("--base", required=True); c.add_argument("--shards", required=True)
+    c.add_argument("--router", required=True, help="rules | xgb:<model> | lgb:<model>"); c.add_argument("--experts", required=True, help="net:<runs dir> | solver")
+    c.add_argument("--episodes", type=int, default=60); c.add_argument("--scenario", default="chain"); c.add_argument("--out"); c.add_argument("--timeout", type=int, default=1500)
     a = ap.parse_args(argv)
+    if a.cmd == "router":
+        return _router(a)
+    if a.cmd == "chain":
+        return _chain(a)
     if a.cmd == "gen":
         for p in catalog.write_all(a.out):
             print(p)
@@ -61,6 +71,69 @@ def main(argv=None):
         with open(a.out, "a") as f:
             f.write(json.dumps(s) + "\n")
     pathlib.Path(f"{a.root}/{a.base}.done").write_text("eval")
+    return 0
+
+
+def _router(a):
+    import os
+    import numpy as np
+    from . import router as R, rules
+    cat = catalog.load()
+    rl = rules.Rules(cat)
+    train = R.sample(cat, rl, np.random.default_rng(a.seed + 1), a.n_train)
+    test = R.sample(cat, rl, np.random.default_rng(a.seed + 2), a.n_test)
+    os.makedirs(a.out, exist_ok=True)
+    res = {}
+    for kind in ("xgb", "lgb"):
+        t0 = __import__("time").time()
+        r = R.GBRouter(cat, kind).fit(train)
+        fit_s = __import__("time").time() - t0
+        path = f"{a.out}/router.{kind}"
+        r.save(path)
+        ev = R.evaluate(r, test)
+        ev.update(fit_seconds=round(fit_s, 1), model_bytes=os.path.getsize(path), n_train=a.n_train)
+        res[kind] = ev
+        print(json.dumps({kind: ev}))
+    pathlib.Path(f"{a.out}/router.json").write_text(json.dumps(res, indent=1))
+    return 0
+
+
+def _chain(a):
+    import time
+    from . import chain as C, policy, rules, router as R
+    from .features import Featurizer
+    from . import evaluate
+    cat = catalog.load()
+    vec = _vec(a)
+    t0 = time.time()
+    while vec.vocab() is None:
+        vec.poll(); time.sleep(0.05)
+        if time.time() - t0 > 120:
+            print("no hello", file=sys.stderr); return 1
+    feat = Featurizer(vec.vocab(), cat["items"])
+    if a.router == "rules":
+        route = rules.Rules(cat).next
+    else:
+        kind, path = a.router.split(":", 1)
+        gb = R.GBRouter.load(path, cat)
+        route = gb.route
+    experts, src = {}, "solver"
+    if a.experts.startswith("net:"):
+        src = "net"
+        for e in cat["experts"]:
+            experts[e["id"]], _ = policy.load(f"{a.experts[4:]}/{e['id']}/final.npz")
+    ch = C.Chain(feat, cat, route, experts, cat["chain"]["goal"], 1, src)
+    reached = {e["id"]: 0 for e in cat["experts"]}
+    def on_ep(ob):
+        for eid in set(ch.completed.get(ob.key, [])):
+            reached[eid] += 1
+    s = evaluate.run(vec, ch.decide, a.episodes, a.timeout, on_episode=on_ep)
+    s.update(router=a.router.split(":")[0], experts=src, scenario=a.scenario, expert_goal_reached=reached, router_calls=ch.calls)
+    print(json.dumps(s))
+    if a.out:
+        with open(a.out, "a") as f:
+            f.write(json.dumps(s) + "\n")
+    pathlib.Path(f"{a.root}/{a.base}.done").write_text("chain")
     return 0
 
 

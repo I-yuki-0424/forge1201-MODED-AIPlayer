@@ -19,7 +19,6 @@ def run(vec, decide, episodes, timeout_s=600, on_episode=None):
     """Play until `episodes` episodes ended. `decide(list of Obs) -> list of candidate indices`. Returns a summary dict."""
     outcomes, lengths = collections.Counter(), []
     t0 = time.time()
-    seen_start = {}
     n_done = 0
     while n_done < episodes and time.time() - t0 < timeout_s:
         obs = vec.poll()
@@ -29,7 +28,7 @@ def run(vec, decide, episodes, timeout_s=600, on_episode=None):
         live = []
         for ob in obs:
             if ob.terminated:
-                if ob.step > 0:                      # an episode that ended on its first observation cannot happen; count anything else
+                if ob.step > 0:                      # (a terminal observation at step 0 would be a leftover of a restart)
                     outcomes[ob.outcome or "?"] += 1
                     lengths.append(ob.step)
                     n_done += 1
@@ -43,7 +42,6 @@ def run(vec, decide, episodes, timeout_s=600, on_episode=None):
     n = sum(outcomes.values())
     k = outcomes["success"]
     lo, hi = wilson(k, n)
-    del seen_start
     return {"episodes": n, "success": k, "rate": k / n if n else 0.0, "wilson95": [round(lo, 3), round(hi, 3)], "outcomes": dict(outcomes),
             "mean_commands": sum(lengths) / len(lengths) if lengths else 0.0, "seconds": round(time.time() - t0, 1)}
 
