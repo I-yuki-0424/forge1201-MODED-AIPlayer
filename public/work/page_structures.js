@@ -41,7 +41,7 @@ function structuresPage() {
             h('div', { class: 'small muted', text: detail.names.slice(0, 14).map((n) => `${n.name.replace('minecraft:', '')} ${fmt(n.n)}`).join(', ') + (detail.names.length > 14 ? ', …' : '') }),
             h('div', { class: 'row' }, h('label', {}, 'layer y ', layerY, layerLbl), hover), layerCv,
             h('div', { class: 'row' }, h('a', { href: `/api/structures/${name}/download`, download: `${name}.nbt` }, h('button', { class: 'btn small' }, 'Download .nbt')),
-                h('button', { class: 'btn small danger', onclick: act(async () => { if (!confirm(`Delete ${name}?`)) throw new Error('cancelled'); await api('DELETE', `/api/structures/${name}`); selected = null; detail = null; detailBox.replaceChildren(); editBox.classList.add('hidden'); buildBox.classList.add('hidden'); await load(); }, 'deleted', () => {}) }, 'Delete')));
+                h('button', { class: 'btn small danger', onclick: act(async () => { if (!(await ask(`Delete ${name}?`))) throw new Error('cancelled'); await api('DELETE', `/api/structures/${name}`); selected = null; detail = null; detailBox.replaceChildren(); editBox.classList.add('hidden'); buildBox.classList.add('hidden'); await load(); }, 'deleted', () => {}) }, 'Delete')));
         saveAs.value = `${name}-2`; editBox.classList.remove('hidden'); buildBox.classList.remove('hidden'); drawLayer();
     }
     const btn = (t, fn, cls = '') => h('button', { class: `btn small ${cls}`, onclick: fn }, t);

@@ -100,7 +100,7 @@ input.num { width:78px; } input.wide, .sel.wide { min-width:260px; } .search { w
 
 /* modal, toast */
 .modal-back { position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:flex-start; justify-content:center; padding:5vh 16px; z-index:20; overflow:auto; }
-.modal { background:var(--panel); border:1px solid var(--line); border-radius:6px; width:min(560px, 100%); } .modal.wide { width:min(1100px, 100%); } .modal-body { padding:14px; }
+.modal { background:var(--panel); border:1px solid var(--line); border-radius:6px; width:min(560px, 100%); max-height:92vh; overflow:auto; } .modal.wide { width:min(1100px, 100%); } .modal-body { padding:14px; }
 .toast { position:fixed; right:16px; bottom:16px; background:var(--panel); border:1px solid var(--line); border-left:4px solid var(--accent); padding:10px 14px; border-radius:6px; max-width:min(520px, 90vw); z-index:30; box-shadow:0 4px 14px rgba(0,0,0,.3); } .toast.bad { border-left-color:var(--bad); }
 
 /* v5: durability, automation page */

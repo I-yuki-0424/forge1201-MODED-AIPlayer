@@ -41,7 +41,7 @@ w.fetch = async (url, o = {}) => {
 const errors = []; w.addEventListener('error', (e) => errors.push(e.message));
 // classic scripts in one context, as a browser runs them (top-level const/function are shared between the files)
 const vm = require('vm'), ctx = dom.getInternalVMContext();
-for (const f of ['blockcolor.js', 'ui.js', 'map.js', 'widgets.js', 'cmd.js', 'inv.js', 'page_overview.js', 'page_map.js', 'page_bots.js', 'page_pits.js', 'page_structures.js', 'page_jobs.js', 'page_inventory.js', 'page_tags.js', 'page_auto.js', 'page_log.js', 'work.js']) new vm.Script(fs.readFileSync(path.join(dir, f), 'utf8'), { filename: f }).runInContext(ctx);
+for (const f of ['blockcolor.js', 'ui.js', 'kiosk.js', 'map.js', 'widgets.js', 'cmd.js', 'inv.js', 'page_overview.js', 'page_map.js', 'page_bots.js', 'page_pits.js', 'page_structures.js', 'page_jobs.js', 'page_inventory.js', 'page_tags.js', 'page_auto.js', 'page_log.js', 'work.js']) new vm.Script(fs.readFileSync(path.join(dir, f), 'utf8'), { filename: f }).runInContext(ctx);
 const tick = (ms = 60) => new Promise((r) => setTimeout(r, ms));
 const click = (el) => el.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
 (async () => {
@@ -57,6 +57,23 @@ const click = (el) => el.dispatchEvent(new w.MouseEvent('click', { bubbles: true
     ok(sent.some((s) => s[1] === '/api/settings' && s[2] && s[2].retireWorn === false), 'switching retireWorn off posts the setting');
     const dsp = boxes.slice(8); dsp[1].checked = false; dsp[1].dispatchEvent(new w.Event('change', { bubbles: true })); await tick();
     ok(sent.some((s) => s[1] === '/api/settings' && s[2] && s[2].display && s[2].display.paths === false), 'a display layer is switched through the settings route');
+    // ---- The game's web view has no confirm() and no native select lists: the page asks in its own box and draws its own lists
+    { let confirmCalled = false; w.confirm = () => { confirmCalled = true; return false; };
+      click(w.document.querySelector('#nav button[data-page="tags"]')); await tick(300);
+      const tpg = w.document.querySelector('#page .page:not(.hidden)'), rm = [...tpg.querySelectorAll('button')].find((b) => b.textContent === 'Remove');
+      const before = sent.length; click(rm); await tick(100);
+      ok(!confirmCalled && w.document.querySelector('.modal-back') && /Remove main/.test(w.document.querySelector('.modal-back').textContent), 'Remove asks in a box of the page, not with confirm()');
+      ok(sent.length === before, 'and sends nothing until it is answered');
+      click([...w.document.querySelectorAll('.modal-back button')].find((b) => b.textContent === 'No')); await tick(100);
+      ok(!w.document.querySelector('.modal-back') && sent.length === before, 'No closes it and nothing is deleted');
+      click(rm); await tick(100); click([...w.document.querySelectorAll('.modal-back button')].find((b) => b.textContent === 'Yes')); await tick(200);
+      ok(sent.some((x) => x[0] === 'DELETE' && x[1] === '/api/sites/main'), 'Yes deletes (the request is sent)');
+      w.document.body.classList.add('kiosk'); w.installKiosk();
+      const sel = tpg.querySelector('select[aria-label="purpose"]'), mdown = new w.MouseEvent('mousedown', { bubbles: true, cancelable: true }); sel.dispatchEvent(mdown); await tick(50);
+      ok(mdown.defaultPrevented && w.document.querySelector('.modal-back') && [...w.document.querySelectorAll('.modal-back button')].some((b) => b.textContent.startsWith('trash')), 'in the kiosk a select opens a list drawn by the page');
+      click([...w.document.querySelectorAll('.modal-back button')].find((b) => b.textContent.startsWith('trash'))); await tick(100);
+      ok(sel.value === 'trash' && !w.document.querySelector('.modal-back'), 'choosing sets the select and closes the list');
+      w.document.body.classList.remove('kiosk'); }
     // ---- Map tiles: a region the server saved again keeps its old picture while the new one loads (it was drawn black: the chunk of a working bot flickered)
     { const T = w.eval('Tiles'), fake = { fake: 'canvas' };
       T.tiles.set('overworld/9/9', { canvas: fake, mtime: 1 });

@@ -86,6 +86,30 @@ async function main() {
         check('it broke its own chest and picked it up again, still set to the same colours', br.ok && (await held('enderstorage:ender_chest{Frequency:{left:3,middle:8,right:15}}')) === 1, br.ok ? { got: br.got } : { reason: br.reason, detail: br.detail });
         console.log('[live] item NBT after:', (await S.cmd(`data get entity ${A} Inventory`)).replace(/\x1b\[[0-9;]*m/g, '').slice(-400));
     }
+    // ---- owner 2026-11-09: the tools chest IS an Ender Storage chest (tagged after the job started), and a bot carries an Ender Storage chest as its depot
+    const TX = BX + 16;
+    await S.must(`setblock ${TX} ${y} ${BZ + 4} enderstorage:ender_chest`); await S.must(`data merge block ${TX} ${y} ${BZ + 4} {Frequency:{left:11,middle:0,right:0}}`);   // blue / white / white like the owner's
+    await S.must(`clear ${A}`); await S.must(`give ${A} minecraft:diamond_pickaxe 1`); await S.must(`give ${A} minecraft:iron_pickaxe{Damage:244} 1`);
+    await S.must(`tp ${A} ${TX + 0.5} ${y} ${BZ + 1.5}`); await sleep(1500);
+    check('fill the tools chest: a good diamond pickaxe', (await cmd('deposit', { item: 'diamond_pickaxe', count: 1, x: TX, y, z: BZ + 4 })).ok);
+    check('and a worn iron pickaxe', (await cmd('deposit', { item: 'iron_pickaxe', count: 1, x: TX, y, z: BZ + 4 })).ok);
+    svc.setSettings({ retireWorn: true });
+    // tagged AFTER the bot is up and the chest filled (the owner's order); the tag must be taken as it is
+    svc.addSite({ name: 'tools-e', x: TX, y, z: BZ + 4, purpose: 'tools', ender: { left: 'blue', middle: 'white', right: 'white' } });
+    const rt = await svc.runScript(A, 'replace-tool');
+    check('replace-tool takes the usable pickaxe out of the tagged Ender Storage tools chest', rt.ok && (await held('minecraft:diamond_pickaxe')) === 1 && (await held('minecraft:iron_pickaxe')) === 0, { ended: rt.ended, log: rt.log });
+    await sleep(400);
+    const inv = await svc.inventory({ type: 'block', x: TX, y, z: BZ + 4 });
+    check('the Inventory page answers for it, read-only, with its colours (the contents need the world folder, which this check does not mount)', inv.readOnly && /blue \/ white \/ white/.test(inv.note), { slots: inv.slots.map((q) => q.id), note: inv.note });
+    const janitor2 = require('../../src/work/bot/janitor');
+    await S.must(`clear ${A}`); await S.must(`give ${A} minecraft:cobblestone 300`); await S.must(`give ${A} enderstorage:ender_chest{Frequency:{left:5,middle:5,right:5}} 1`); await sleep(500);
+    await S.must(`tp ${A} ${BX + 6} ${y} ${BZ + 12}`); await sleep(1500);
+    const wenv2 = svc.envFactory(bot, { cancelled: false }, { worker: true });
+    const m2 = await janitor2.maintain(wenv2, janitor2.pitPolicy({ depot: { kind: 'shulker', item: 'enderstorage:ender_chest', minValue: 0 }, freeTarget: 36, sites: () => svc.sites }));
+    await sleep(800);
+    const standing2 = await S.cmd(`fill ${BX + 2} ${y - 1} ${BZ + 9} ${BX + 10} ${y + 2} ${BZ + 15} minecraft:air replace enderstorage:ender_chest`);
+    check('a carried Ender Storage chest (lime / lime / lime) was the depot: used, then picked up again with its colours, none left standing',
+        m2.ok && (await held('enderstorage:ender_chest{Frequency:{left:5,middle:5,right:5}}')) === 1 && /No blocks were filled|Could not/i.test(standing2) && (await held('minecraft:cobblestone')) < 300 && !(wenv2.left && wenv2.left.length), { ok: m2.ok, reason: m2.reason, detail: m2.detail, cobble: await held('minecraft:cobblestone'), left: wenv2.left, standing: standing2.slice(-50) });
     await S.must('save-all flush'); await sleep(1500);
 
     await svc.stop(); await S.must(`forceload remove ${BX - 16} ${BZ - 16} ${BX + 32} ${BZ + 32}`).catch(() => {});

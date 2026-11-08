@@ -13,7 +13,7 @@ function jobsPage() {
             if (j.state === 'running') row.append(h('button', { class: 'btn small', onclick: act(() => api('POST', `/api/jobs/${j.id}/pause`, {}), 'paused') }, icon('pause', 12), ' Pause'));
             if (ACTIVE.includes(j.state)) {
                 row.append(h('button', { class: 'btn small', onclick: act(() => api('POST', `/api/jobs/${j.id}/assign`, { bots: S.bots.filter((b) => b.state === 'online' && !b.job).map((b) => b.name) }), 'assigned') }, 'Add idle bots'));
-                row.append(h('button', { class: 'btn small danger', onclick: act(() => { if (!confirm(`Cancel ${j.id}? Progress in the world stays.`)) throw new Error('cancelled'); return api('POST', `/api/jobs/${j.id}/cancel`, {}); }, 'cancelled') }, 'Cancel'));
+                row.append(h('button', { class: 'btn small danger', onclick: act(async () => { if (!(await ask(`Cancel ${j.id}? Progress in the world stays.`))) throw new Error('cancelled'); return api('POST', `/api/jobs/${j.id}/cancel`, {}); }, 'cancelled') }, 'Cancel'));
             }
             if (p.stuck) row.append(h('button', { class: 'btn small', onclick: act(() => api('POST', `/api/jobs/${j.id}/repair`, {}), (r) => `${r.requeued} units queued again`) }, `Retry ${p.stuck} stuck`));
             if (j.kind === 'build' && S.rcon && ACTIVE.includes(j.state)) row.append(h('button', { class: 'btn small', title: 'give the bots the blocks this build needs', onclick: act(() => api('POST', `/api/jobs/${j.id}/supply`, {}), 'materials given') }, 'Give materials'));

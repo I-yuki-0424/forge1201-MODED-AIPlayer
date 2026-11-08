@@ -87,7 +87,7 @@ function ScriptsPanel(getS) {
         listBox.replaceChildren(h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['Script', 'Steps', ''].map((x) => h('th', { text: x })))),
             h('tbody', {}, list.map((sc) => h('tr', { class: current === sc.name ? 'on' : '' }, h('td', {}, h('strong', { text: sc.name }), sc.builtIn ? h('span', { class: 'pill', text: 'built in' }) : null), h('td', { text: String(sc.steps.length) }),
                 h('td', {}, h('span', { class: 'row tight' }, h('button', { class: 'btn small', onclick: () => open(sc) }, sc.builtIn ? 'Copy to editor' : 'Edit'),
-                    sc.builtIn ? null : h('button', { class: 'btn small ghost danger', onclick: act(() => { if (!confirm(`Delete script ${sc.name}?`)) throw new Error('cancelled'); return api('DELETE', `/api/scripts/${sc.name}`); }, 'script deleted', load) }, 'Delete'))))))));
+                    sc.builtIn ? null : h('button', { class: 'btn small ghost danger', onclick: act(async () => { if (!(await ask(`Delete script ${sc.name}?`))) throw new Error('cancelled'); return api('DELETE', `/api/scripts/${sc.name}`); }, 'script deleted', load) }, 'Delete'))))))));
     }
     const parse = () => { try { return JSON.parse(editor.value); } catch (e) { throw new Error(`not valid JSON: ${e.message}`); } };
     const save = act(async () => { const r = await api('POST', '/api/scripts', parse()); current = r.name; return r; }, (r) => `script ${r.name} saved (validated)`, load);

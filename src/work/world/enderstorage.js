@@ -85,7 +85,8 @@ async function readStore(worldDir) {
         for (const [key, v] of Object.entries(data)) {
             const p = parseKey(key); if (!p || !v) continue;
             const slots = Array.isArray(v.Items) ? v.Items : [];
-            out.push({ key, ...p, size: SIZES[v.size] || slots.length, used: slots.filter((s) => s.id !== 'minecraft:air' && s.Count > 0).length, items: summarize(slots) });
+            out.push({ key, ...p, size: SIZES[v.size] || slots.length, used: slots.filter((s) => s.id !== 'minecraft:air' && s.Count > 0).length, items: summarize(slots),
+                slots: slots.filter((s) => s.id !== 'minecraft:air' && s.Count > 0).map((s) => ({ slot: Number(s.Slot), id: String(s.id), count: Number(s.Count), tag: s.tag && Object.keys(s.tag).length ? s.tag : undefined })) });
         }
         return { file: f, mtimeMs: t, frequencies: out.sort((a, b) => a.key.localeCompare(b.key)) };
     }

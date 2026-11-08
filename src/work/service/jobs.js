@@ -61,7 +61,7 @@ class JobsPart {
             need(!bn || /(^|_)(chest|barrel|shulker_box)$/.test(bn), `no container at ${d.x} ${d.y} ${d.z} (there is ${bn}): check the depot coordinates`);
         }
         const item = d.item === undefined ? 'shulker_box' : d.item;      // any colour of shulker box the bot carries
-        need(typeof item === 'string' && /^(?:[a-z]+_)?shulker_box$/.test(item), 'depot.item: a shulker box (shulker_box, red_shulker_box ...)');
+        need(typeof item === 'string' && /^(?:(?:[a-z]+_)?shulker_box|enderstorage:ender_chest)$/.test(item), 'depot.item: a shulker box (shulker_box, red_shulker_box ...) or enderstorage:ender_chest (the bot carries it, places it, fills it and takes it back; its colours are the item\'s)');
         return d.kind === 'chest' ? { kind: 'chest', x: int(d.x, 'depot.x'), y: int(d.y, 'depot.y'), z: int(d.z, 'depot.z'), minValue } : { kind: 'shulker', item, minValue };
     }
 

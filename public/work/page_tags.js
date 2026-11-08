@@ -41,14 +41,14 @@ function tagsPage() {
         twinSel.replaceChildren(h('option', { value: '', text: 'no twin' }), ...data.sites.filter((s) => s.purpose === 'portal').map((s) => h('option', { value: s.name, text: `↔ ${s.name} (${s.dim || 'overworld'})` })));
         twinSel.value = tk;
         const rows = data.sites.map((s) => h('tr', {},
-            h('td', {}, h('strong', { text: s.name })), h('td', { text: s.label || '' }), h('td', { class: 'mono', text: (s.block || '?').replace('minecraft:', '') }),
+            h('td', {}, h('strong', { text: s.name })), h('td', { text: s.label || '' }), h('td', { class: s.missing ? 'warn mono' : 'mono', title: s.missing ? 'a bot sees air here: the coordinates are wrong, or the block was taken away' : '', text: s.missing ? '⚠ air' : (s.block || '?').replace('minecraft:', '') }),
             h('td', { class: 'mono', text: `${s.x} ${s.y} ${s.z}` }),
             h('td', {}, h('span', { class: `pill tag-${s.purpose}`, title: (data.purposes || data.tags)[s.purpose] || s.purpose, text: s.purpose }),
                 s.purpose === 'portal' ? h('span', { class: 'pill tag-portal', title: 'gate in this dimension; twin on the other side', text: `${s.dim || 'overworld'}${s.twin ? ` ↔ ${s.twin}` : ''}` }) : '',
                 s.ender ? h('span', { class: 'pill ender', title: 'Ender Storage frequency', text: `${s.ender.left} / ${s.ender.middle} / ${s.ender.right}${s.ender.owner ? ' (private)' : ''}` }) : ''),
             h('td', {}, s.via ? h('span', { class: s.broken ? 'warn mono' : 'mono', title: s.broken || (s.end ? `commands run at ${s.end.x} ${s.end.y} ${s.end.z}` : ''), text: s.broken ? `→ ${s.via} (${s.broken})` : `→ ${s.via}` }) : ''),
             h('td', {}, h('span', { class: 'row tight' }, h('button', { class: 'btn small', onclick: () => edit(s) }, 'Edit'),
-                h('button', { class: 'btn small ghost danger', onclick: act(() => { if (!confirm(`Remove ${s.name}?`)) throw new Error('cancelled'); return api('DELETE', `/api/sites/${s.name}`); }, 'tag removed', load) }, 'Remove')))));
+                h('button', { class: 'btn small ghost danger', onclick: act(async () => { if (!(await ask(`Remove ${s.name}?`))) throw new Error('cancelled'); return api('DELETE', `/api/sites/${s.name}`); }, 'tag removed', load) }, 'Remove')))));
         tableBox.replaceChildren(rows.length
             ? h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['Name', 'Label', 'Block', 'Position', 'Tags', 'Link', ''].map((x) => h('th', { text: x })))), h('tbody', {}, rows))
             : h('p', { class: 'muted', text: 'Nothing tagged yet. Without tags the upkeep uses the job depot or throws cheap items away.' }));

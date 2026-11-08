@@ -92,6 +92,22 @@ function modal(title, body, { wide = false, onClose = null } = {}) {
     return { close, el: back };
 }
 
+/**
+ * Ask yes or no in a box of the page: resolves true or false. The browser's own confirm() does not show in the game's web view (MCEF has no dialogs), so a button that
+ * asked for it never did anything (owner 2026-11-09: "Remove does nothing"). Escape or a click outside answers no.
+ */
+function ask(message, { yes = 'Yes', no = 'No', danger = true } = {}) {
+    return new Promise((resolve) => {
+        let done = false;
+        const finish = (v) => { if (done) return; done = true; m.close(); resolve(v); };
+        const m = modal('Please confirm', h('div', { class: 'stack' },
+            h('p', { text: message }),
+            h('div', { class: 'row' }, h('button', { class: `btn${danger ? ' danger' : ' primary'}`, onclick: () => finish(true) }, yes), h('button', { class: 'btn', onclick: () => finish(false) }, no))), { onClose: () => finish(false) });
+        const key = (e) => { if (e.key === 'Escape') { document.removeEventListener('keydown', key); finish(false); } };
+        document.addEventListener('keydown', key);
+    });
+}
+
 /** A modal list to pick one of {value, text}; resolves with the value, or null when closed. */
 function choose(title, options) {
     return new Promise((resolve) => {

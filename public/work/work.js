@@ -21,6 +21,7 @@ const FRAG_TOKEN = FRAG.get('token');
 // `#goto=tags&x=1&y=2&z=3` (the in-game Tag Tool): open that page with the coordinates filled in
 const PREFILL = FRAG.get('goto') ? { page: FRAG.get('goto'), x: Number(FRAG.get('x')), y: Number(FRAG.get('y')), z: Number(FRAG.get('z')) } : null;
 try { if (FRAG.has('kiosk')) localStorage.setItem('wc_kiosk', FRAG.get('kiosk') === '0' ? '' : '1'); document.body.classList.toggle('kiosk', !!localStorage.getItem('wc_kiosk')); } catch (_) { /* no storage: normal layout */ }
+if (document.body.classList.contains('kiosk') && typeof installKiosk === 'function') installKiosk();          // the game's web view draws no native pop-ups (kiosk.js)
 if (FRAG.has('token') || FRAG.has('kiosk') || FRAG.has('goto')) history.replaceState(null, '', location.pathname + location.search);
 async function boot() {
     try { const s = await api('GET', '/api/session'); session.csrf = s.csrf; } catch (_) {

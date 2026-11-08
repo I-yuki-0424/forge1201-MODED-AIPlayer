@@ -11,6 +11,7 @@ class LibraryPart {
     listSites() {
         const sites = this.sites.list().map((s) => {
             const out = { ...s, block: this._blockName(s.x, s.y, s.z) };
+            out.missing = /^(minecraft:)?(air|cave_air|void_air)$/.test(out.block || '') && s.purpose !== 'other';          // the coordinates point at nothing (a bot sees the chunk): wrong cell, or the block was taken away
             if (s.via) { try { const e = this.sites.through(s.x, s.y, s.z); out.end = { x: e.x, y: e.y, z: e.z, path: e.via }; } catch (e) { out.broken = e.message; } }
             return out;
         });
@@ -22,7 +23,13 @@ class LibraryPart {
         if (this.placed.has(`${x},${y},${z}`)) return false;
         return require('../../skills/fixtures').isBox(name) || !!this.sites.at(x, y, z);
     }
-    addSite(s) { let site; try { site = this.sites.add(s); } catch (e) { throw new Problem(e.message); } this._dirty(); return site; }
+    addSite(s) {
+        // A container purpose on a cell that a bot sees as air is a typo in the coordinates (owner 2026-11-09: the tools chest was tagged one chest over and "did not respond").
+        if (s && Number.isInteger(s.x) && Number.isInteger(s.y) && Number.isInteger(s.z) && s.purpose !== 'other' && s.purpose !== 'portal') {
+            const bn = this._blockName(s.x, s.y, s.z);
+            if (bn && /^(minecraft:)?(air|cave_air|void_air)$/.test(bn)) throw new Problem(`there is nothing at ${s.x} ${s.y} ${s.z} (air): check the coordinates (the Tag Tool and "block near a bot" give exact ones)`);
+        }
+        let site; try { site = this.sites.add(s); } catch (e) { throw new Problem(e.message); } this._dirty(); return site; }
     removeSite(name) {
         let gone; try { gone = this.sites.remove(String(name)); } catch (e) { throw new Problem(e.message, 409); }
         need(gone, `no site ${String(name).slice(0, 24)}`, 404); this._dirty(); return { ok: true };

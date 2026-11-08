@@ -69,7 +69,7 @@ function InvPane(o) {
         if (loading || pane.dragging) return;
         if (!readTarget()) { data = null; render(); status.textContent = ''; return; }
         loading = true;
-        try { data = await api('POST', '/api/inventory', { target: tgt }); status.textContent = data.kind === 'container' ? `${data.id.replace('minecraft:', '')} · ${data.slots.length} of ${data.size} slots used` : `${data.slots.length} stacks`; }
+        try { data = await api('POST', '/api/inventory', { target: tgt }); status.textContent = data.kind === 'container' ? `${data.id.replace('minecraft:', '')} · ${data.slots.length} of ${data.size} slots used${data.note ? ` · ${data.note}` : ''}` : `${data.slots.length} stacks`; }
         catch (e) { data = null; status.textContent = e.message; }
         finally { loading = false; }
         render();

@@ -148,5 +148,28 @@ function dataFile(file, content) {
         bot._client.emit('window_items', { windowId: 1, items: new Array(63).fill({}) }); assert.strictEqual(opened.length, 1, 'later updates do not reopen it');
     });
 
+    await test('owner 2026-11-09: a container tagged on air is refused and flagged; the console reads an Ender Storage chest from the saved storage and will not move stacks through it; a carried Ender Storage chest is a depot and is never surplus', async () => {
+        const w = fs.mkdtempSync(path.join(os.tmpdir(), 'ender-')), d = fs.mkdtempSync(path.join(os.tmpdir(), 'ender-data-')); fs.mkdirSync(path.join(w, 'EnderStorage'));
+        dataFile(path.join(w, 'EnderStorage', 'data1.dat'), { 'left=blue,middle=white,right=white,type=item': [{ id: 'minecraft:diamond_pickaxe', n: 1 }, { id: 'minecraft:iron_ingot', n: 5 }] });
+        const cells = new Map([['1,64,1', 'enderstorage:ender_chest'], ['2,64,2', 'air']]);
+        const svc = new WorkService({ dataDir: d, worldDir: w, factory: () => ({}), restore: false, rcon: { command: async (c) => (/Frequency/.test(c) ? 'x has the following block data: {middle: 0, left: 11, right: 0}' : 'ok') } });
+        svc.bots.set('B', { name: 'B', state: 'online', bot: { blockAt: (v) => ({ name: cells.get(`${v.x},${v.y},${v.z}`) || 'stone' }) } });
+        assert.throws(() => svc.addSite({ name: 'tools', x: 2, y: 64, z: 2, purpose: 'tools' }), /nothing at 2 64 2/);
+        svc.addSite({ name: 'tools', x: 1, y: 64, z: 1, purpose: 'tools', ender: { left: 'blue', middle: 'white', right: 'white' } });
+        svc.sites.add({ name: 'gone', x: 2, y: 64, z: 2, purpose: 'any' });
+        const l = svc.listSites().sites; assert.ok(l.find((q) => q.name === 'gone').missing && !l.find((q) => q.name === 'tools').missing);
+        const v = await svc.inventory({ type: 'block', x: 1, y: 64, z: 1 });
+        assert.deepStrictEqual([v.kind, v.readOnly, v.size, v.slots.map((q) => `${q.slot}:${q.id}:${q.count}`)], ['container', true, 27, ['0:minecraft:diamond_pickaxe:1', '1:minecraft:iron_ingot:5']]); assert.match(v.note, /blue \/ white \/ white/);
+        await assert.rejects(() => svc.moveStack({ src: { type: 'block', x: 1, y: 64, z: 1 }, srcSlot: 0, dst: { type: 'entity', name: 'B' }, dstSlot: 0 }), /Ender Storage chest cannot be filled or emptied/);
+        const noSite = new WorkService({ dataDir: d, worldDir: w, factory: () => ({}), restore: false, rcon: svc.o.rcon }); noSite.bots.set('B', svc.bots.get('B'));
+        assert.match((await noSite.inventory({ type: 'block', x: 1, y: 64, z: 1 })).note, /blue \/ white \/ white/, 'colours read from the block entity when the chest is not tagged');
+        assert.deepStrictEqual(svc._depot({ kind: 'shulker', item: 'enderstorage:ender_chest' }), { kind: 'shulker', item: 'enderstorage:ender_chest', minValue: 0 });
+        assert.throws(() => svc._depot({ kind: 'shulker', item: 'enderstorage:ender_tank' }), /shulker box/);
+        const janitor = require('../src/work/bot/janitor');
+        const ops = janitor.plan([{ name: 'enderstorage:ender_chest', count: 1 }, { name: 'cobblestone', count: 500 }], 0, janitor.pitPolicy({ depot: { kind: 'chest', x: 1, y: 1, z: 1 }, freeTarget: 6 }));
+        assert.ok(!ops.some((o) => o.item === 'enderstorage:ender_chest'), 'the carried chest is not put away or thrown away'); assert.ok(ops.some((o) => o.item === 'cobblestone'));
+        clearTimeout(svc._saveTimer); clearTimeout(noSite._saveTimer); fs.rmSync(w, { recursive: true }); fs.rmSync(d, { recursive: true });
+    });
+
     console.log('\nwork ender: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

@@ -4,7 +4,7 @@ function pitsPage() {
     const f = Object.fromEntries(['x0', 'x1', 'z0', 'z1', 'top', 'depth', 'bottom'].map((k) => [k, h('input', { type: 'number', class: 'num', 'aria-label': k })]));
     f.depth.value = 3;
     const lanesIn = h('input', { type: 'number', class: 'num', min: 1, max: 32, placeholder: 'auto', title: 'one X-Z range per bot, dug down to the bottom; auto = one per bot' }), info = h('div', { class: 'info-box' }), chips = h('span', { class: 'chips' }), host = h('div', { class: 'map-host tall-map' }), name = h('input', { placeholder: 'optional', maxlength: 60 });
-    const depotKind = h('select', { class: 'sel' }, [['', 'none (surplus is dropped)'], ['chest', 'chest at x y z'], ['shulker', 'shulker box (placed by the bot)']].map(([v, t]) => h('option', { value: v, text: t }))), dx = h('input', { type: 'number', class: 'num', placeholder: 'x' }), dy = h('input', { type: 'number', class: 'num', placeholder: 'y' }), dz = h('input', { type: 'number', class: 'num', placeholder: 'z' });
+    const depotKind = h('select', { class: 'sel' }, [['', 'none (surplus is dropped)'], ['chest', 'chest at x y z'], ['shulker', 'shulker box (placed by the bot)'], ['ender', 'Ender Storage chest (carried, placed by the bot)']].map(([v, t]) => h('option', { value: v, text: t }))), dx = h('input', { type: 'number', class: 'num', placeholder: 'x' }), dy = h('input', { type: 'number', class: 'num', placeholder: 'y' }), dz = h('input', { type: 'number', class: 'num', placeholder: 'z' });
     // The depot's rank (janitor values: stone 5, coal 40, raw iron 70, diamond 100): what is worth less is thrown away instead of stored.
     const rankSel = h('select', { class: 'sel', title: 'what the depot takes; the rest is thrown away (never anything worth 60 or more)' }, [['0', 'store everything'], ['10', 'no stone, dirt, gravel, sand (value 10 and up)'], ['40', 'ores, coal, wood (40 and up)'], ['60', 'valuable only (60 and up)']].map(([v, t]) => h('option', { value: v, text: t })));
     rankSel.value = '10';
@@ -36,7 +36,7 @@ function pitsPage() {
         if (!ys.length) throw new Error('no bot has that terrain loaded: type the top y');
         f.top.value = Math.max(...ys); sync(false);
     }, 'top = the highest ground found (corners and centre)');
-    const depot = () => { const k = depotKind.value; return !k ? undefined : k === 'chest' ? { kind: 'chest', x: num(dx.value), y: num(dy.value), z: num(dz.value), minValue: Number(rankSel.value) } : { kind: 'shulker', minValue: Number(rankSel.value) }; };
+    const depot = () => { const k = depotKind.value; return !k ? undefined : k === 'chest' ? { kind: 'chest', x: num(dx.value), y: num(dy.value), z: num(dz.value), minValue: Number(rankSel.value) } : k === 'ender' ? { kind: 'shulker', item: 'enderstorage:ender_chest', minValue: Number(rankSel.value) } : { kind: 'shulker', minValue: Number(rankSel.value) }; };
     // "also the tools chest": the depot block gets the purpose `tools` (a new tagged block `depot` when nothing is tagged there)
     async function tagDepotAsTools(d) {
         if (!toolsBox.checked || !d || d.kind !== 'chest') return;

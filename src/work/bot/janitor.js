@@ -21,8 +21,8 @@ const VALUES = new Map(Object.entries({
 }));
 const TOOL = /(_pickaxe|_axe|_shovel|_hoe|_sword|_helmet|_chestplate|_leggings|_boots|^shield$|^bow$|^crossbow$|^trident$|^shears$|^elytra$|fishing_rod|bucket|^flint_and_steel$|wrench|goggles)/;
 const FOOD = /^(bread|cooked_[a-z_]+|baked_potato|apple|golden_apple|carrot|golden_carrot|pumpkin_pie|beef|porkchop|mutton|chicken|cod|salmon|dried_kelp|melon_slice|sweet_berries|cookie|mushroom_stew)$/;
-const CONTAINER = /(^|_)shulker_box$|^ender_chest$|^chest$|^barrel$/;
-const STACK_ONE = /(_pickaxe|_axe|_shovel|_hoe|_sword|_helmet|_chestplate|_leggings|_boots|bucket|^shield$|^bow$|^crossbow$|shulker_box$|^ender_chest$|^elytra$|^trident$|^shears$|^fishing_rod$|^flint_and_steel$|^saddle$|_boat$|^minecart$)/;
+const CONTAINER = /(^|_)shulker_box$|^ender_chest$|^chest$|^barrel$|^enderstorage:ender_(chest|tank)$|^enderstorage:ender_pouch$/;
+const STACK_ONE = /(_pickaxe|_axe|_shovel|_hoe|_sword|_helmet|_chestplate|_leggings|_boots|bucket|^shield$|^bow$|^crossbow$|shulker_box$|^ender_chest$|^enderstorage:ender_(chest|tank)$|^enderstorage:ender_pouch$|^elytra$|^trident$|^shears$|^fishing_rod$|^flint_and_steel$|^saddle$|_boat$|^minecart$)/;
 
 /** The tagged sites of the policy (src/work/sites.js; the object or a function returning it, so that edits to the registry apply to running jobs). */
 const sitesOf = (policy) => { const s = typeof policy.sites === 'function' ? policy.sites() : policy.sites; return s && typeof s.placeFor === 'function' ? s : null; };
