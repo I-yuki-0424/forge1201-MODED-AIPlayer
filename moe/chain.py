@@ -16,6 +16,7 @@ class Chain:
         self.solvers = {i: solvers.Solver(i, feat) for i in self.by_id} if source == "solver" else {}
         self.state = {}
         self.completed = {}
+        self.trace = {}          # env key -> [(step, expert id, pack summary)] : every switch, for diagnosis
         self.calls = 0
 
     def _reached(self, e, inv):
@@ -26,6 +27,7 @@ class Chain:
         if st is None or ob.step == 0:
             st = self.state[ob.key] = {"e": None, "since": 0}
             self.completed[ob.key] = []
+            self.trace[ob.key] = []
         inv = self.feat.named_inventory(ob.raw)
         e = self.by_id.get(st["e"]) if st["e"] else None
         if e is not None and (self._reached(e, inv) or ob.step - st["since"] >= e["max_steps"]):
@@ -36,6 +38,7 @@ class Chain:
             self.calls += 1
             nxt = self.route(self.goal, self.amount, inv)
             st["e"], st["since"] = (None, ob.step) if nxt == DONE else (nxt, ob.step)
+            self.trace[ob.key].append((ob.step, nxt, {k: v for k, v in inv.items() if v and k in self.cat["items"] and k not in ("dirt", "gravel", "apple", "oak_sapling")}))
         return st["e"]
 
     def decide(self, obs_list):

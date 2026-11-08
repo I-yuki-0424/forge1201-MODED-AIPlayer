@@ -9,5 +9,5 @@ py 1 1g gen --out /m/scenarios >/dev/null
 base=ch-$scn-$rt-$ex
 rm -f "$MOE_ROOT/x/$base".s*.current
 shards_up "$base" "$scn" vps-s3,vps-s4 2 2 7000 0.5
-py 1 2g chain --root /m/x --base "$base" --shards 0,1 --router "$r" --experts "$e" --episodes "$n" --scenario "$scn" --out /m/runs/chain.jsonl
+py 1 2g chain --root /m/x --base "$base" --shards 0,1 --router "$r" --experts "$e" --episodes "$n" --scenario "$scn" --out ${CHAIN_OUT:-/m/runs/chain.jsonl} ${CHAIN_TRACE:+--trace $CHAIN_TRACE}
 shards_down "$base"

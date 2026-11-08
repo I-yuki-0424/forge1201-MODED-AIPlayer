@@ -56,7 +56,7 @@ class Catalog(unittest.TestCase):
 
     def test_scenario_has_ranged_kit_junk_and_an_end_that_stops_on_death(self):
         sc = catalog.scenario(catalog.experts(self.cat)["raw_iron"], self.cat)
-        self.assertEqual(sc["end"], {"have": {"raw_iron": 3}, "max_steps": 120, "die": True})
+        self.assertEqual(sc["end"], {"have": {"raw_iron": 3}, "max_steps": 150, "die": True})
         self.assertIn("dirt", sc["kit"])                       # junk the expert has to ignore
         self.assertEqual(sc["kit"]["stone_pickaxe"], [1, 1])
         self.assertEqual(sc["place"][0]["block"], "iron_ore")
@@ -107,6 +107,26 @@ class Algorithm(unittest.TestCase):
         self.assertAlmostEqual(train.transition_reward(g, 0.375, 0.0, "success"), -0.375 - train.STEP_COST + 1.0, places=6)
         self.assertAlmostEqual(train.transition_reward(g, 0.1, 0.0, "died"), -0.1 - train.STEP_COST + train.DEATH, places=6)
         self.assertEqual(train.transition_reward(g, 0.0, 0.0, "timeout"), -train.STEP_COST)
+
+    def test_approach_shaping_rises_as_the_target_comes_into_view_and_near(self):
+        cat = catalog.load()
+        vocab = ["none"] + sorted(set(cat["items"]) | {"stone"})
+        f = features.Featurizer(vocab, cat["items"])
+        e = catalog.experts(cat)["raw_iron"]
+        g = train.Goal(e, f)
+        o = fake_obs(vocab)
+        far, near, other = dict(o), dict(o), dict(o)
+        far["view_item"] = [vocab.index("iron_ore")] + [0] * 127; far["view_dist"] = [0.9] + [1.0] * 127
+        near["view_item"] = [vocab.index("iron_ore")] + [0] * 127; near["view_dist"] = [0.2] + [1.0] * 127
+        other["view_item"] = [vocab.index("stone")] + [0] * 127; other["view_dist"] = [0.1] + [1.0] * 127
+        p0, pf, pn, po = (g.potential(f, x) for x in (o, far, near, other))
+        self.assertEqual(p0, 0.0)
+        self.assertEqual(po, 0.0)
+        self.assertLess(pf, pn)
+        self.assertAlmostEqual(pn, 0.2 * 0.8, places=5)
+        held = fake_obs(vocab, inv=[("raw_iron", 3)])
+        self.assertAlmostEqual(g.potential(f, held), 0.5, places=5)
+        self.assertEqual(train.Goal(catalog.experts(cat)["log"], f).approach_ids, None)
 
     def test_ppo_learns_to_pick_the_one_good_candidate(self):
         """A toy environment with the real tensor shapes: the candidate whose feature 0 is 1 pays. Chance is 1 in 8."""

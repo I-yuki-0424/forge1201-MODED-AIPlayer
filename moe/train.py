@@ -22,16 +22,28 @@ DEATH = -0.2
 
 
 class Goal:
-    """What the catalogue says about an expert's goal, as numbers."""
-    def __init__(self, expert):
+    """What the catalogue says about an expert's goal, as numbers: the potential used for shaping."""
+    APPROACH = 0.2          # weight of "the target block is in view and near" (hand-specified shaping, allowed on this side; potential-based, so it does not change the best policy)
+
+    def __init__(self, expert, feat=None):
         self.have = dict(expert["goal"].get("have", {}))
         self.max_steps = expert["max_steps"]
+        self.approach_ids = None
+        if feat is not None and expert.get("approach"):
+            names = set(expert["approach"])
+            self.approach_ids = np.array([i for i, n in enumerate(feat.names) if n in names], dtype=np.int64)
 
     def potential(self, feat, o):
-        if not self.have:
-            return 0.0
-        counts = feat.counts(o, list(self.have))
-        return 0.5 * sum(min(c / t, 1.0) for c, t in zip(counts, self.have.values())) / len(self.have)
+        p = 0.0
+        if self.have:
+            counts = feat.counts(o, list(self.have))
+            p += 0.5 * sum(min(c / t, 1.0) for c, t in zip(counts, self.have.values())) / len(self.have)
+        if self.approach_ids is not None and len(self.approach_ids):
+            vi, vd = np.asarray(o["view_item"]), np.asarray(o["view_dist"], dtype=np.float32)
+            hit = np.isin(vi, self.approach_ids)
+            if hit.any():
+                p += self.APPROACH * (1.0 - float(vd[hit].min()))        # view_dist is 1 for "nothing", smaller is nearer
+        return p
 
 
 def transition_reward(goal, pot_prev, pot_next, outcome):
@@ -54,7 +66,7 @@ class EnvState:
 def train(vec, expert, out_dir, budget=300_000, seed=0, rollout=4096, epochs=3, minibatch=512, lr=5e-4, ent=0.01, hidden=64,
           stop_rate=0.97, stop_window=200, min_steps=30_000, log=print, done_file=None):
     cat = catalog.load()
-    goal = Goal(expert)
+    goal = None
     out = pathlib.Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
@@ -64,6 +76,7 @@ def train(vec, expert, out_dir, budget=300_000, seed=0, rollout=4096, epochs=3, 
             raise RuntimeError("no hello from the simulator within 120 s")
         time.sleep(0.05)
     feat = Featurizer(vec.vocab(), cat["items"])
+    goal = Goal(expert, feat)
     key = jax.random.PRNGKey(seed)
     key, k0 = jax.random.split(key)
     params = policy.init(k0, feat.ctx_dim, feat.cand_dim, hidden)

@@ -34,7 +34,7 @@ def check(cat):
     items = set(cat["items"])
     seen = set()
     for e in cat["experts"]:
-        extra = set(e) - {"id", "doc", "makes", "needs", "goal", "max_steps", "hostiles", "start"}
+        extra = set(e) - {"id", "doc", "makes", "needs", "goal", "max_steps", "hostiles", "start", "approach"}
         if extra:
             raise CatalogError(f"{e.get('id')}: unknown keys {sorted(extra)}")
         if e["id"] in seen or not e["id"].replace("_", "").isalnum():
@@ -51,6 +51,9 @@ def check(cat):
                 raise CatalogError(f"{e['id']}: kit range of {n}")
         if e["makes"] not in goal.get("have", {}):
             raise CatalogError(f"{e['id']}: `makes` must be a key of goal.have")
+        for b in e.get("approach", []):
+            if not isinstance(b, str) or not b:
+                raise CatalogError(f"{e['id']}: approach lists block names")
         if e["max_steps"] < 1 or not 0 <= e["hostiles"] <= 5:
             raise CatalogError(f"{e['id']}: max_steps/hostiles")
     makers = [e["makes"] for e in cat["experts"]]

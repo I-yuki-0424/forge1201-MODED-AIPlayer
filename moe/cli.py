@@ -29,7 +29,7 @@ def main(argv=None):
     c = sub.add_parser("chain")
     c.add_argument("--root", required=True); c.add_argument("--base", required=True); c.add_argument("--shards", required=True)
     c.add_argument("--router", required=True, help="rules | xgb:<model> | lgb:<model>"); c.add_argument("--experts", required=True, help="net:<runs dir> | solver")
-    c.add_argument("--episodes", type=int, default=60); c.add_argument("--scenario", default="chain"); c.add_argument("--out"); c.add_argument("--timeout", type=int, default=1500)
+    c.add_argument("--episodes", type=int, default=60); c.add_argument("--trace", type=int, default=0, help="print the expert switches of the first N episodes"); c.add_argument("--scenario", default="chain"); c.add_argument("--out"); c.add_argument("--timeout", type=int, default=1500)
     a = ap.parse_args(argv)
     if a.cmd == "router":
         return _router(a)
@@ -124,9 +124,13 @@ def _chain(a):
             experts[e["id"]], _ = policy.load(f"{a.experts[4:]}/{e['id']}/final.npz")
     ch = C.Chain(feat, cat, route, experts, cat["chain"]["goal"], 1, src)
     reached = {e["id"]: 0 for e in cat["experts"]}
+    traced = [0]
     def on_ep(ob):
         for eid in set(ch.completed.get(ob.key, [])):
             reached[eid] += 1
+        if traced[0] < a.trace:
+            traced[0] += 1
+            print(json.dumps({"episode_end": ob.outcome, "commands": ob.step, "trace": ch.trace.get(ob.key, [])[:40]}))
     s = evaluate.run(vec, ch.decide, a.episodes, a.timeout, on_episode=on_ep)
     s.update(router=a.router.split(":")[0], experts=src, scenario=a.scenario, expert_goal_reached=reached, router_calls=ch.calls)
     print(json.dumps(s))
