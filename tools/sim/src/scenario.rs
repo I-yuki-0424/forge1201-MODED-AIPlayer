@@ -18,7 +18,7 @@ struct Place { id: String, block: u16, size: (u32, u32), buried: bool, depth: (i
 pub struct End { have: Vec<(String, u32)>, entry: Option<String>, max_steps: u32, max_ticks: i64, die: bool }
 #[derive(Debug)]
 pub struct Scenario {
-    pub id: String, kit: Vec<(String, u32)>, kit_on_death: bool, hostiles: f64, craft_slots: Option<usize>, place: Vec<Place>,
+    pub id: String, kit: Vec<(String, (u32, u32))>, kit_on_death: bool, hostiles: f64, craft_slots: Option<usize>, place: Vec<Place>,
     pub score: Option<HashSet<String>>, pub pre_done: PreDone, pub weights: Vec<(String, f64)>, end: Option<End>,
 }
 
@@ -51,8 +51,10 @@ impl Scenario {
         let mut kit = vec![];
         for (k, v) in j.get("kit").obj() {
             if d.item(k) == 0 { return Err(format!("scenario: unknown item `{}` in kit", k)); }
-            if v.i() < 1 { return Err(format!("scenario: kit count of `{}` must be >= 1", k)); }
-            kit.push((k.clone(), v.i() as u32));
+            // a count, or [lo, hi]: drawn at the start of every episode (a standardised start distribution, docs/proposed/MOE-v1.md); a range may start at 0
+            let (lo, hi) = range(v, (1.0, 1.0), &format!("kit count of `{}`", k))?;
+            if lo < 0.0 || hi < 1.0 || (matches!(v, J::Num(_)) && lo < 1.0) { return Err(format!("scenario: kit count of `{}` must be >= 1 (a range may start at 0)", k)); }
+            kit.push((k.clone(), (lo as u32, hi as u32)));
         }
         let kit_on_death = match j.get("on_death").s() { "" | "empty" => false, "kit" => true, o => return Err(format!("scenario: on_death `{}` (empty|kit)", o)) };
         let hostiles = if j.get("hostiles").is_null() { 1.0 } else { j.get("hostiles").f() };
@@ -126,16 +128,22 @@ impl Scenario {
         }))).collect())
     }
 
-    fn give_kit(&self, s: &mut Sim) { for (n, c) in &self.kit { s.give(n, *c); } }
+    fn give_kit(&self, s: &mut Sim, rng: Option<&mut Rng>) {
+        let mut rng = rng;
+        for (n, (lo, hi)) in &self.kit {
+            let c = match rng.as_deref_mut() { Some(r) if hi > lo => lo + r.below((hi - lo + 1) as u64) as u32, _ => *lo };      // after a death (no rng): the least
+            if c > 0 { s.give(n, c); }
+        }
+    }
     /// After a death: the scenario's kit again if it says so (the world edits stay as they are).
-    pub fn respawned(&self, s: &mut Sim) { s.hostile_scale = self.hostiles; s.craft_slots = self.craft_slots; if self.kit_on_death { self.give_kit(s); } }
+    pub fn respawned(&self, s: &mut Sim) { s.hostile_scale = self.hostiles; s.craft_slots = self.craft_slots; if self.kit_on_death { self.give_kit(s, None); } }
 
     /// Set the episode up on `s` (standing at its start): kit, mob level, a random heading, the placements. Err = this start cannot
     /// host the scenario (nothing reachable at that distance); the caller tries another site. Returns the record for events.jsonl.
     pub fn start(&self, s: &mut Sim, rng: &mut Rng) -> Result<J, String> {
         s.hostile_scale = self.hostiles; s.craft_slots = self.craft_slots;
         s.yaw = rng.f() * std::f64::consts::TAU;
-        self.give_kit(s);
+        self.give_kit(s, Some(rng));
         let st = s.pos;
         let far = self.place.iter().map(|p| p.dist.1).fold(0.0, f64::max);
         let walk: HashSet<[i32; 3]> = s.flood_n(80_000, far.ceil() as i32 + 6).nodes.into_iter().collect();
@@ -202,6 +210,24 @@ mod tests {
         let mut v = vec![];
         for x in c[0] - r..=c[0] + r { for z in c[2] - r..=c[2] + r { for y in 56..=70 { if s.blk(x, y, z) == Some(b) && s.edits.contains_key(&(x, y, z)) { v.push([x, y, z]); } } } }
         v
+    }
+
+    #[test]
+    fn kit_counts_may_be_ranges_drawn_per_episode_and_a_range_may_start_at_zero() {
+        let d = Rc::new(Data::load());
+        assert!(scn(r#"{"id":"a","kit":{"stick":0}}"#, &d).is_err(), "a plain count of 0 is still an error");
+        assert!(scn(r#"{"id":"a","kit":{"stick":[3,1]}}"#, &d).unwrap_err().contains("empty range"));
+        assert!(scn(r#"{"id":"a","kit":{"stick":[0,0]}}"#, &d).is_err());
+        let sc = scn(r#"{"id":"r","kit":{"stick":[0,4],"cobblestone":[10,12],"coal":3}}"#, &d).unwrap();
+        let (mut sticks, mut seen_zero, mut seen_four) = (std::collections::HashSet::new(), false, false);
+        for seed in 1..80u64 {
+            let mut s = flat_sized(9); let mut rng = Rng(seed * 104729 | 1);
+            sc.start(&mut s, &mut rng).unwrap();
+            let (st, co, cl) = (s.count("stick"), s.count("cobblestone"), s.count("coal"));
+            assert!(st <= 4 && (10..=12).contains(&co) && cl == 3, "seed {} stick {} cobble {} coal {}", seed, st, co, cl);
+            sticks.insert(st); seen_zero |= st == 0; seen_four |= st == 4;
+        }
+        assert!(seen_zero && seen_four && sticks.len() == 5, "the whole range is drawn: {:?}", sticks);
     }
 
     #[test]
