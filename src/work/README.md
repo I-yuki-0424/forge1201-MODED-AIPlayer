@@ -29,7 +29,12 @@ escalation.js  request to the DPOD router (not wired into any job)
 | water rules / defence / problem log and glow | `bot/water.js` / `bot/guard.js` / `bot/problems.js` |
 | what a bot keeps, throws away, puts in which chest | `bot/janitor.js`, `bot/discard.js` |
 | scripts (recovery when a tool is missing) | `bot/script.js` |
-| tagged blocks, labels, links | `bot/sites.js` (rules), `service/library.js` + `service/links.js` (service) |
+| tagged blocks, purposes, labels, links, portals | `bot/sites.js` (rules), `service/library.js` + `service/links.js` (service) |
+| Ender Storage (colours, what is inside) | `world/enderstorage.js`, `service/ender.js`; opening the chest: `transport/forge_windows.js` |
+| what a bot never breaks / what it picked up again | `skills/fixtures.js` (rule), `bot/janitor.js` (the shulker depot) |
+| long walks, portals, routes across dimensions | `bot/travel.js`, `bot/portal.js`, `bot/route.js`, command `journey` in `service/commands.js` |
+| reflexes (fall, lava) / how a stuck bot gets out | `bot/reflex.js` / `bot/escape.js`, `recover` and `lift` in `bot/env.js` |
+| routines (a script repeated until Stop), tool durability policy | `runLoop` in `bot/script.js` + `service/library.js`; `skills/options.js` (`toolPolicy`), `bot/moves.js` (`stash_worn`) |
 | the roster, reconnecting, bot views | `service/bots.js`, `service/views.js` |
 | creating, starting, pausing jobs | `service/jobs.js` |
 | the worker loop's reaction to failures (retire, cool down, restock) | `service/workers.js` |
