@@ -12,6 +12,7 @@ module.exports = (service) => async (req, url, m, p) => {
     if (m === 'POST' && p === '/api/settings') return service.setSettings(await json(req));
     // sites (tagged blocks by coordinates) and scripts
     if (m === 'GET' && p === '/api/sites') return service.listSites();
+    if (m === 'GET' && p === '/api/enderstorage') return service.enderStorage();
     if (m === 'POST' && p === '/api/sites') return service.addSite(await json(req));
     if ((a = /^\/api\/sites\/([a-z0-9][a-z0-9_-]{0,23})$/.exec(p)) && m === 'DELETE') return service.removeSite(a[1]);
     if (m === 'GET' && p === '/api/scripts') return service.listScripts();

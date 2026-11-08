@@ -21,7 +21,10 @@ const state = { now: Date.now(), uptime: 1000, server: { host: 'h', port: 1 }, s
     jobs: [{ id: 'j1', kind: 'pit', name: 'cut', state: 'running', spec: { method: 'sweep', road: false, box: {} }, progress: { total: 10, done: 4, stuck: 0, leased: 1, pending: 5, regions: 2, regionsDone: 0 }, bots: ['Work1'], stuck: 0, workers: 1, lanes: 2, box: { x0: 0, z0: 0, x1: 9, z1: 9, y0: 1, y1: 3 }, blocked: null, diff: null }] };
 const answers = {
     'GET /api/session': { ok: true, csrf: 'c' }, 'GET /api/state': state, 'GET /api/players': [{ name: 'Owner', bot: false, pos: { x: 3, y: 64, z: 4 } }],
-    'GET /api/sites': { tags: { tools: 'x', ore: 'x', storage: 'x', junk: 'x', food: 'x', blocks: 'x', machine: 'x' }, sites: [{ name: 'main', x: 1, y: 64, z: 2, tags: ['storage', 'ore'], block: 'minecraft:chest' }, { name: 'furnace', x: 1, y: 64, z: 3, tags: ['machine'], label: 'auto furnace', via: 'main', block: 'minecraft:furnace', end: { x: 1, y: 64, z: 2, path: ['furnace', 'main'] } }] },
+    'GET /api/sites': { tags: { tools: 'x', ore: 'x', trash: 'x', food: 'x', blocks: 'x', any: 'x', free: 'x', furnace: 'x', other: 'x' }, purposes: { tools: 'x', ore: 'x', trash: 'x', food: 'x', blocks: 'x', any: 'x', free: 'x', furnace: 'x', other: 'x' }, colours: ['white', 'orange', 'blue', 'red'], migrated: [],
+        sites: [{ name: 'main', x: 1, y: 64, z: 2, purpose: 'ore', tags: ['ore'], block: 'minecraft:chest' }, { name: 'furnace', x: 1, y: 64, z: 3, purpose: 'furnace', tags: ['furnace'], label: 'auto furnace', via: 'main', block: 'minecraft:furnace', end: { x: 1, y: 64, z: 2, path: ['furnace', 'main'] } },
+            { name: 'tools-e', x: 4, y: 64, z: 2, purpose: 'tools', tags: ['tools'], ender: { left: 'blue', middle: 'white', right: 'white' }, block: 'enderstorage:ender_chest' }] },
+    'GET /api/enderstorage': { available: true, colours: ['white', 'blue'], frequencies: [{ key: 'k', label: 'blue / white / white', left: 'blue', middle: 'white', right: 'white', size: 27, used: 2, items: [{ item: 'minecraft:diamond_pickaxe', count: 2 }], sites: [{ name: 'tools-e', purpose: 'tools', x: 4, y: 64, z: 2 }] }] },
     'GET /api/scripts': [{ name: 'replace-tool', builtIn: true, steps: [{ return: 'ok' }] }, { name: 'mine', builtIn: false, steps: [{ return: 'ok' }, { log: 'x' }] }],
     'GET /api/surface': { y: 64 }, 'GET /api/bots/Work1/containers': [{ x: 5, y: 64, z: 6, block: 'minecraft:chest' }],
     'POST /api/inventory': { kind: 'player', size: 36, slots: [{ slot: 0, id: 'minecraft:iron_pickaxe', count: 1, damage: 200, max: 250, left: 50, label: null, enchanted: false }, { slot: 1, id: 'minecraft:cobblestone', count: 64, damage: null }] },
@@ -61,12 +64,13 @@ const click = (el) => el.dispatchEvent(new w.MouseEvent('click', { bubbles: true
     ok(tp.textContent.includes('→ main'), 'a machine shows its link');
     const nameIn = tp.querySelector('input[placeholder="smelter"]'); nameIn.value = 'rock';
     const nums = [...tp.querySelectorAll('input.num[aria-label]')]; ['3', '64', '9'].forEach((v, i) => { nums[i].value = v; });
-    const tagBox = [...tp.querySelectorAll('.chip')].find((c) => c.textContent.trim() === 'junk').querySelector('input'); tagBox.checked = true;
+    const purposeSel = tp.querySelector('select[aria-label="purpose"]'); purposeSel.value = 'trash';
     const saveBtn = () => [...tp.querySelectorAll('button')].find((b) => b.textContent === 'Save');
     click(saveBtn()); await tick();
-    ok(sent.some((s) => s[0] === 'POST' && s[1] === '/api/sites' && s[2].name === 'rock' && s[2].x === 3 && s[2].tags.join() === 'junk'), 'a block is saved with name, coordinates and tags');
-    tagBox.checked = false; nameIn.value = 'lone'; const before = sent.length; click(saveBtn()); await tick();
-    ok(sent.length === before, 'nothing to say about the block (no tag, label or link): checked in the page, nothing is sent');
+    ok(sent.some((s) => s[0] === 'POST' && s[1] === '/api/sites' && s[2].name === 'rock' && s[2].x === 3 && s[2].purpose === 'trash'), 'a block is saved with name, coordinates and purpose');
+    purposeSel.value = 'other'; nameIn.value = 'lone'; const before = sent.length; click(saveBtn()); await tick();
+    ok(sent.length === before, 'nothing to say about the block (purpose other, no label or link): checked in the page, nothing is sent');
+    ok(tp.textContent.includes('blue / white / white') && tp.textContent.includes('2 minecraft:diamond_pickaxe'.replace('minecraft:', '')) && tp.textContent.includes('tools-e: tools'), 'the Ender Storage table shows the colours, what is inside and what the chest is used for');
     const label = tp.querySelector('input[placeholder^="free text"]'); label.value = '自動かまど'; const viaSel = tp.querySelector('select[aria-label="link to"]'); viaSel.value = 'main';
     click(saveBtn()); await tick();
     ok(sent.some((s) => s[0] === 'POST' && s[1] === '/api/sites' && s[2].name === 'lone' && s[2].label === '自動かまど' && s[2].via === 'main'), 'a label and a link are sent');

@@ -21,12 +21,12 @@ const throws = (fn, re) => { try { fn(); } catch (e) { assert.match(e.message, r
         assert.strictEqual(f.label, '自動かまど'); assert.strictEqual(f.via, 'smelter-chest');
         throws(() => s.add({ name: 'x1', x: 1, y: 1, z: 1, tags: ['machine'], via: 'nothing' }), /no site nothing/);
         throws(() => s.add({ name: 'x1', x: 10, y: 64, z: 6, tags: ['ore'] }), /already tagged as smelter/);
-        throws(() => s.add({ name: 'x1', x: 1, y: 1, z: 1 }), /at least one tag or a label/);
+        throws(() => s.add({ name: 'x1', x: 1, y: 1, z: 1 }), /choose a purpose or write a label/);
         throws(() => s.add({ name: 'x1', x: 1, y: 1, z: 1, label: 'a<b' }), /label/);
         throws(() => s.add({ name: 'x1', x: 1, y: 1, z: 1, tags: ['ore'], via: 'x1' }), /itself/);
         throws(() => s.add({ name: 'x1', x: 1, y: 1, z: 1, tags: ['machine'], via: 'smelter' }), /container, not to another machine/);
         s.add({ name: 'just-a-label', x: 3, y: 3, z: 3, label: 'the big tree' });                  // a label alone is a valid tag
-        assert.strictEqual(s.get('just-a-label').tags.length, 0);
+        assert.strictEqual(s.get('just-a-label').purpose, 'other');
     });
 
     await test('through: follows the link to the container; unlinked blocks answer null; loops, depth and missing targets are errors; the target cannot be removed', () => {
@@ -86,7 +86,7 @@ const throws = (fn, re) => { try { fn(); } catch (e) { assert.match(e.message, r
         await test('listing: label, block in the world, where the link ends; removing the container is refused over the API too', async () => {
             const l = svc.listSites(), f = l.sites.find((x) => x.name === 'smelter');
             assert.strictEqual(f.label, 'auto furnace'); assert.strictEqual(f.block, 'furnace'); assert.deepStrictEqual(f.end, { x: 10, y: 64, z: 5, path: ['smelter', 'smelter-chest'] });
-            assert.ok(l.tags.machine);
+            assert.ok(l.tags.furnace && l.purposes.furnace);
             assert.throws(() => svc.removeSite('smelter-chest'), (e) => e.status === 409 && /target of smelter/.test(e.message));
             svc.removeSite('smelter'); svc.removeSite('smelter-chest');
         });

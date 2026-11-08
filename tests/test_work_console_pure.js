@@ -119,7 +119,8 @@ function test(name, fn) { console.log(`--- test: ${name} ---`); return Promise.r
     await test('v5 routes: sites, scripts and Leave pit need the session; bad input is a 400 with the reason, unknown names a 404', async () => {
         for (const [m, u] of [['GET', '/api/sites'], ['POST', '/api/sites'], ['GET', '/api/scripts'], ['POST', '/api/scripts'], ['POST', '/api/bots/Crew1/leave'], ['POST', '/api/scripts/x/run']]) assert.strictEqual((await call2(m, u, {})).status, 401, `${m} ${u} without a session`);
         assert.strictEqual((await call2('POST', '/api/sites', { body: { name: 'a', x: 1, y: 2, z: 3, tags: ['wood'] }, ...A })).status, 400);
-        const ok = await call2('POST', '/api/sites', { body: { name: 'ore1', x: 1, y: 64, z: 3, tags: ['ore', 'storage'] }, ...A }); assert.strictEqual(ok.status, 200);
+        assert.strictEqual((await call2('POST', '/api/sites', { body: { name: 'ore1', x: 1, y: 64, z: 3, tags: ['ore', 'storage'] }, ...A })).status, 400, 'two purposes for one block are refused');
+        const ok = await call2('POST', '/api/sites', { body: { name: 'ore1', x: 1, y: 64, z: 3, purpose: 'ore' }, ...A }); assert.strictEqual(ok.status, 200);
         const list = await call2('GET', '/api/sites', A); assert.deepStrictEqual(list.json.sites.map((x) => x.name), ['ore1']); assert.ok(list.json.tags.tools);
         assert.strictEqual((await call2('DELETE', '/api/sites/ore1', A)).status, 200); assert.strictEqual((await call2('DELETE', '/api/sites/ore1', A)).status, 404);
         assert.strictEqual((await call2('DELETE', '/api/sites/..%2Fx', A)).status, 404, 'a name outside the pattern never reaches the service');

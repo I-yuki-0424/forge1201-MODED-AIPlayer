@@ -20,7 +20,7 @@ class LinksPart {
         }
         const at = ['x', 'y', 'z'].every((k) => Number.isInteger(a[k])) ? this.sites.at(a.x, a.y, a.z) : null;
         if (!at) return { args: a, via: [] };
-        if (NOT_ON_MACHINE.has(command) && (at.via || at.tags.includes('machine'))) {
+        if (NOT_ON_MACHINE.has(command) && (at.via || at.purpose === 'furnace')) {
             throw new Problem(`${at.name} is a machine${at.via ? ` linked to ${at.via}` : ''}: use deposit to put items in and withdraw to take them out (it works on the container, ${command} would open the machine itself)`);
         }
         if (!REDIRECT.has(command) || !at.via) return { args: a, via: [] };

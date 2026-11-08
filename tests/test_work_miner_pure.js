@@ -187,13 +187,13 @@ function bot(w, start) {
         assert.strictEqual(miss.ok, false); assert.strictEqual(miss.reason, 'missing_item');
     });
 
-    await test('sites: validated tags and coordinates; items are put away by class (ore, junk, storage), tools are not stored; the janitor deposits to the right chest', async () => {
+    await test('sites: validated purposes and coordinates; items are put away by class (ore, trash, any), tools are not stored; the janitor deposits to the right chest', async () => {
         const S = new Sites();
         S.add({ name: 'tools1', x: 10, y: 64, z: 10, tags: ['tools'] }); S.add({ name: 'ore1', x: 12, y: 64, z: 10, tags: ['ore'] });
-        S.add({ name: 'rock', x: 14, y: 64, z: 10, tags: ['junk', 'blocks'] }); S.add({ name: 'main', x: 16, y: 64, z: 10, tags: ['storage'] });
+        S.add({ name: 'rock', x: 14, y: 64, z: 10, purpose: 'trash' }); S.add({ name: 'main', x: 16, y: 64, z: 10, purpose: 'any' });
         assert.throws(() => S.add({ name: 'x', x: 1, y: 1, z: 1, tags: ['wood'] }), /unknown tag/); assert.throws(() => S.add({ name: 'x', x: 1.5, y: 1, z: 1, tags: ['ore'] }), /integer/);
-        assert.throws(() => S.add({ name: 'Bad Name', x: 1, y: 1, z: 1, tags: ['ore'] }), /site name/); assert.throws(() => S.add({ name: 'e', x: 1, y: 1, z: 1, tags: [] }), /tag/);
-        assert.deepStrictEqual(['raw_iron', 'diamond', 'cobblestone', 'oak_planks', 'iron_pickaxe', 'bread', 'create:raw_zinc'].map((n) => classify(n)), ['ore', 'ore', 'junk', 'storage', 'tools', 'food', 'ore']);
+        assert.throws(() => S.add({ name: 'Bad Name', x: 1, y: 1, z: 1, tags: ['ore'] }), /site name/); assert.throws(() => S.add({ name: 'e', x: 1, y: 1, z: 1, tags: [] }), /purpose/);
+        assert.deepStrictEqual(['raw_iron', 'diamond', 'cobblestone', 'oak_planks', 'iron_pickaxe', 'bread', 'create:raw_zinc'].map((n) => classify(n)), ['ore', 'ore', 'trash', 'any', 'tools', 'food', 'ore']);
         assert.strictEqual(S.placeFor('raw_iron').name, 'ore1'); assert.strictEqual(S.placeFor('cobblestone').name, 'rock'); assert.strictEqual(S.placeFor('oak_planks').name, 'main');
         assert.strictEqual(S.placeFor('iron_pickaxe').name, 'main', 'a tool is never put into the tools chest by the upkeep');
         const only = new Sites([{ name: 'tools1', x: 1, y: 1, z: 1, tags: ['tools'] }]); assert.strictEqual(only.placeFor('cobblestone'), null, 'only a tool chest: nowhere to put it');

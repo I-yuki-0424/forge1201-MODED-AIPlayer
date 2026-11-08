@@ -1,28 +1,40 @@
 'use strict';
-// Sites: named places, given by coordinates, with tags that say what they are for (owner 2026-11-06). The simplest thing that works:
-// the operator writes down where a chest is and what it is; the work layer decides with plain if-statements (janitor, scripts).
-//   tools    a chest full of tools that bots may take from freely (nothing is stored there by the upkeep)
-//   ore      ores, raw metal, ingots, gems, coal
-//   storage  everything of value that is not an ore
-//   junk     low-value items: stone, dirt, gravel, rotten flesh ...
-//   food     food
-//   blocks   low-value building blocks (stack-up and water sealing)
-//   machine  a machine (furnace, crusher, ...) with no usable inventory of its own: it is linked (`via`) to a container
-// A site is a block at x, y, z with a free `label` ("auto furnace") and tags. A site can be a LINK, like a symbolic link in a file system
+// Sites: named places, given by coordinates, each with ONE purpose that says what the block is for (owner 2026-11-06; purposes normalised 2026-11-09:
+// the old free-form tags had no clear meaning, so the list is closed and chosen from a pulldown). The work layer decides with plain if-statements.
+//   tools    supplies tools: bots take usable tools from it; the upkeep never stores anything there
+//   ore      ores, raw metal, ingots, gems and coal are put in
+//   trash    rubbish is put in: stone, dirt, gravel, rotten flesh ...                     (was `junk`)
+//   food     food is put in
+//   blocks   low-value building blocks for sealing water and stacking up
+//   any      anything may be put in; the fallback for everything of value that has no chest of its own   (was `storage`)
+//   free     the contents may be used freely: bots take what they need from it; nothing is put in by the upkeep
+//   furnace  treated as a furnace (or any machine): items go in and out through the container it is linked to (`via`)   (was `machine`)
+//   other    no automatic use: only commands, links and the display work with it
+// A site is a block at x, y, z with a free `label` ("auto furnace") and a purpose. A site can be a LINK, like a symbolic link in a file system
 // (owner 2026-11-06): `via` names the container that feeds or empties a machine (a chest and hopper beside an automatic furnace). A command
 // on the machine's coordinates (`deposit`, `withdraw`, the inventory page) is carried out on the container: `through` follows the link.
+// An Ender Storage chest is a site whose `ender` field holds its three colours (+ owner when private); see world/enderstorage.js.
 // Nothing here talks to the game: `janitor.maintain`, `script.js` and the service (service/links.js) read it.
 const janitor = require('./janitor');
+const ender = require('../world/enderstorage');
 
-const TAGS = Object.freeze({
-    tools: 'a chest of tools that bots may take from freely',
-    ore: 'ores, raw metal, ingots, gems and coal go here',
-    storage: 'everything of value that is not an ore',
-    junk: 'low-value items: stone, dirt, gravel, rotten flesh',
-    food: 'food',
+const PURPOSES = Object.freeze({
+    tools: 'supplies tools: bots take usable tools from it, nothing is stored there',
+    ore: 'ore, raw metal, ingots, gems and coal are put in',
+    trash: 'rubbish is put in: stone, dirt, gravel, rotten flesh',
+    food: 'food is put in',
     blocks: 'low-value building blocks for sealing water and stacking up',
-    machine: 'a machine whose items go in and out through the container it is linked to (via)',
+    any: 'anything may be put in (the fallback for everything of value)',
+    free: 'its contents may be used freely: bots take what they need, nothing is put in',
+    furnace: 'treated as a furnace: its items go in and out through the container it is linked to (via)',
+    other: 'no automatic use: only commands, links and the display work with it',
 });
+const TAGS = PURPOSES;                                      // the old name, still exported
+const ALIASES = Object.freeze({ junk: 'trash', storage: 'any', machine: 'furnace' });
+const canon = (t) => (ALIASES[t] || t);
+// When a stored block has several old tags the most specific one is kept as its purpose.
+const PRIORITY = ['furnace', 'tools', 'free', 'ore', 'food', 'blocks', 'trash', 'any', 'other'];
+const STORES = new Set(['ore', 'trash', 'food', 'blocks', 'any']);         // purposes the upkeep puts items into
 const MAX_HOPS = 4;                                      // a link to a link to a link ...; deeper is refused like ELOOP
 const NAME = /^[a-z0-9][a-z0-9_-]{0,23}$/;
 const COORD = 30_000_000;
@@ -30,27 +42,48 @@ const LABEL = /^[^\u0000-\u001f\u007f<>"`\\]{1,40}$/;
 
 const ORE = /(_ore$|^raw_|_ingot$|_nugget$|^diamond$|^emerald$|^coal$|^charcoal$|^redstone$|^lapis_lazuli$|^quartz$|^ancient_debris$|^netherite_scrap$|^amethyst_shard$|^copper_ingot$|^glowstone_dust$)/;
 
-/** Which tag an item belongs under when it is put away: tools, food, ore, junk (low value) or storage. */
+/** Which purpose an item belongs under when it is put away: tools, food, ore, trash (low value) or any. */
 function classify(name, policy = {}) {
     if (janitor.TOOL.test(name)) return 'tools';
     if (janitor.FOOD.test(name)) return 'food';
     if (ORE.test(name) || /:(raw_|.*_ingot$|.*_nugget$)/.test(name)) return 'ore';
-    if (janitor.valueOf(name, policy) <= 5) return 'junk';
-    return 'storage';
+    if (janitor.valueOf(name, policy) <= 5) return 'trash';
+    return 'any';
 }
 
 const needInt = (v, what) => { if (!Number.isInteger(v) || Math.abs(v) > COORD) throw new Error(`${what} must be an integer`); return v; };
 
-/** The registry: name -> {name, x, y, z, tags[], label?, via?}. */
+/**
+ * The purpose a record asks for: `purpose`, else the old `tags` (aliases mapped). More than one distinct old tag is refused when strict (a request) and
+ * reduced to the most specific one when loose (a stored list from before 2026-11-09); the dropped ones are listed in `Sites#migrated`.
+ */
+function purposeOf(s, strict, name, migrated) {
+    if (s.purpose !== undefined && s.purpose !== null && s.purpose !== '') {
+        const p = canon(String(s.purpose));
+        if (!PURPOSES[p]) throw new Error(`unknown purpose ${String(s.purpose).slice(0, 20)}; known: ${Object.keys(PURPOSES).join(', ')}`);
+        return p;
+    }
+    const tags = [...new Set((Array.isArray(s.tags) ? s.tags : []).map((t) => canon(String(t))))];
+    for (const t of tags) if (!PURPOSES[t]) throw new Error(`unknown tag ${String(t).slice(0, 20)}; known: ${Object.keys(PURPOSES).join(', ')}`);
+    if (tags.length > 1) {
+        if (strict) throw new Error(`choose one purpose, not ${tags.join(' + ')}`);
+        const keep = PRIORITY.find((t) => tags.includes(t));
+        if (migrated) migrated.push({ name, was: tags, now: keep });
+        return keep;
+    }
+    return tags[0] || 'other';
+}
+
+/** The registry: name -> {name, x, y, z, purpose, tags: [purpose], label?, via?, ender?}. */
 class Sites {
-    constructor(list = []) { this.map = new Map(); for (const s of list) { try { this.add(s, { loose: true }); } catch (_) { /* a bad stored entry is dropped, not fatal */ } } this._dropDangling(); }
+    constructor(list = []) { this.map = new Map(); this.migrated = []; for (const s of list) { try { this.add(s, { loose: true }); } catch (_) { /* a bad stored entry is dropped, not fatal */ } } this._dropDangling(); }
 
     /** `loose`: do not require that the `via` target is already there (a stored list is read in any order). */
     add(s, { loose = false } = {}) {
         if (!s || typeof s !== 'object') throw new Error('site missing');
         if (typeof s.name !== 'string' || !NAME.test(s.name)) throw new Error('site name: a-z 0-9 _ - (max 24)');
-        const tags = [...new Set(Array.isArray(s.tags) ? s.tags : [])];
-        for (const t of tags) if (!TAGS[t]) throw new Error(`unknown tag ${String(t).slice(0, 20)}; known: ${Object.keys(TAGS).join(', ')}`);
+        const purpose = purposeOf(s, !loose, s.name, this.migrated);
+        let freq; if (s.ender !== undefined && s.ender !== null) freq = ender.frequency(s.ender);          // throws with a message for the operator
         const label = s.label === undefined || s.label === null || s.label === '' ? undefined : String(s.label).trim();
         if (label !== undefined && !LABEL.test(label)) throw new Error('label: 1-40 characters, no control characters or < > " ` \\');
         const via = s.via === undefined || s.via === null || s.via === '' ? undefined : String(s.via);
@@ -58,12 +91,13 @@ class Sites {
             if (!NAME.test(via)) throw new Error('via: the name of another site');
             if (via === s.name) throw new Error('a site cannot be linked to itself');
             if (!loose && !this.map.has(via)) throw new Error(`via: no site ${via.slice(0, 24)} (tag the container first)`);
-            if (!loose && this.map.get(via).tags.includes('machine')) throw new Error('via: link to the container, not to another machine');
+            if (!loose && this.map.get(via).purpose === 'furnace') throw new Error('via: link to the container, not to another machine');
         }
-        if (!tags.length && label === undefined && via === undefined) throw new Error('give at least one tag or a label');
-        const site = { name: s.name, x: needInt(s.x, 'x'), y: needInt(s.y, 'y'), z: needInt(s.z, 'z'), tags };
+        if (purpose === 'other' && label === undefined && via === undefined && !freq) throw new Error('choose a purpose or write a label');
+        const site = { name: s.name, x: needInt(s.x, 'x'), y: needInt(s.y, 'y'), z: needInt(s.z, 'z'), purpose, tags: [purpose] };
         if (label !== undefined) site.label = label;
         if (via !== undefined) site.via = via;
+        if (freq) site.ender = freq;
         const same = this.at(site.x, site.y, site.z);
         if (same && same.name !== site.name) throw new Error(`${site.x} ${site.y} ${site.z} is already tagged as ${same.name}`);
         this.map.set(site.name, site);
@@ -97,9 +131,9 @@ class Sites {
         return { x: s.x, y: s.y, z: s.z, via: [...walked, s.name] };
     }
 
-    /** The nearest site with `tag` (to `from` {x,z}, or the first by name). */
+    /** The nearest site with purpose `tag` (to `from` {x,z}, or the first by name); old names (junk, storage, machine) work too. */
     find(tag, from = null) {
-        const c = this.list().filter((s) => s.tags.includes(tag) && (tag === 'machine' || !s.tags.includes('machine')));
+        const c = this.list().filter((s) => s.purpose === canon(tag));
         const best = from ? c.sort((a, b) => Math.hypot(a.x - from.x, a.z - from.z) - Math.hypot(b.x - from.x, b.z - from.z))[0] : c[0];
         if (!best) return null;
         let end = null; try { end = this.through(best.x, best.y, best.z); } catch (_) { /* a broken link: the site itself */ }
@@ -108,7 +142,7 @@ class Sites {
 
     /** Every site with `tag`, nearest first (links resolved like `find`): a script that cannot use the nearest chest tries the next. */
     findAll(tag, from = null) {
-        const c = this.list().filter((x) => x.tags.includes(tag) && (tag === 'machine' || !x.tags.includes('machine')));
+        const c = this.list().filter((x) => x.purpose === canon(tag));
         if (from) c.sort((a, b) => Math.hypot(a.x - from.x, a.z - from.z) - Math.hypot(b.x - from.x, b.z - from.z));
         return c.map((best) => { let end = null; try { end = this.through(best.x, best.y, best.z); } catch (_) { /* broken link: the site itself */ } return end ? { ...best, x: end.x, y: end.y, z: end.z, linked: best.name } : best; });
     }
@@ -117,14 +151,14 @@ class Sites {
     classSite(item, policy = {}) { return this.find(classify(item, policy)); }
 
     /**
-     * Where to put `item` away: the site of its class, else `storage`, else any site that is not a tool chest or a machine. Null when there is none.
-     * Tools are never put into a `tools` chest by the upkeep (nobody wants a worn pickaxe there): they are protected in the inventory.
+     * Where to put `item` away: the site of its class, else an `any` chest, else any site that takes items at all (ore, trash, food, blocks, any). Null when there is none.
+     * Tools are never put into a `tools` chest by the upkeep (nobody wants a worn pickaxe there): they are protected in the inventory. `free`, `furnace` and `other` sites are never filled.
      */
     placeFor(item, from = null, policy = {}) {
         const tag = classify(item, policy);
-        return this.find(tag === 'tools' ? 'storage' : tag, from) || this.find('storage', from)
-            || this.list().filter((s) => !s.tags.includes('tools') && !s.tags.includes('machine')).sort((a, b) => (from ? Math.hypot(a.x - from.x, a.z - from.z) - Math.hypot(b.x - from.x, b.z - from.z) : 0))[0] || null;
+        return this.find(tag === 'tools' ? 'any' : tag, from) || this.find('any', from)
+            || this.list().filter((s) => STORES.has(s.purpose)).sort((a, b) => (from ? Math.hypot(a.x - from.x, a.z - from.z) - Math.hypot(b.x - from.x, b.z - from.z) : 0))[0] || null;
     }
 }
 
-module.exports = { Sites, TAGS, classify, NAME, MAX_HOPS };
+module.exports = { Sites, TAGS, PURPOSES, ALIASES, canon, classify, NAME, MAX_HOPS };

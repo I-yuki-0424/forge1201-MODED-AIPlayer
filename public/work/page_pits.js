@@ -37,12 +37,12 @@ function pitsPage() {
         f.top.value = Math.max(...ys); sync(false);
     }, 'top = the highest ground found (corners and centre)');
     const depot = () => { const k = depotKind.value; return !k ? undefined : k === 'chest' ? { kind: 'chest', x: num(dx.value), y: num(dy.value), z: num(dz.value), minValue: Number(rankSel.value) } : { kind: 'shulker', minValue: Number(rankSel.value) }; };
-    // "also the tools chest": the depot block gets the tag `tools` (kept next to its other tags; a new tagged block `depot` when nothing is tagged there)
+    // "also the tools chest": the depot block gets the purpose `tools` (a new tagged block `depot` when nothing is tagged there)
     async function tagDepotAsTools(d) {
         if (!toolsBox.checked || !d || d.kind !== 'chest') return;
         const sites = (await api('GET', '/api/sites')).sites, at = sites.find((q) => q.x === d.x && q.y === d.y && q.z === d.z);
-        const body = at ? { ...at, tags: [...new Set([...at.tags, 'tools'])] } : { name: 'depot', x: d.x, y: d.y, z: d.z, tags: ['tools', 'storage'] };
-        delete body.block; delete body.end; delete body.broken;
+        const body = at ? { ...at, purpose: 'tools' } : { name: 'depot', x: d.x, y: d.y, z: d.z, purpose: 'tools' };
+        delete body.block; delete body.end; delete body.broken; delete body.tags;
         await api('POST', '/api/sites', body);
     }
     const create = (start) => act(async () => { const b = box(); if (!b) throw new Error('select an area and give top and depth'); const d = depot(); await tagDepotAsTools(d); return api('POST', '/api/jobs/pit', { name: name.value.trim() || undefined, box: b, depot: d, bots: [...picked], lanes: Number.isInteger(num(lanesIn.value)) ? num(lanesIn.value) : undefined, method: methodSel.value, road: roadBox.checked, start }); }, (r) => `job ${r.id} created${start ? ' and started' : ''}`);

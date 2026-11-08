@@ -50,7 +50,7 @@ class DisplayPart {
         }
         for (const s of this.sites.list()) {
             let end = null; try { end = this.sites.through(s.x, s.y, s.z); } catch (_) { /* a broken link is not drawn */ }
-            tags.push({ name: s.name, x: s.x, y: s.y, z: s.z, machine: s.tags.includes('machine'), end });
+            tags.push({ name: s.name, x: s.x, y: s.y, z: s.z, machine: s.purpose === 'furnace', end });
         }
         return { bots, lanes, tags };
     }

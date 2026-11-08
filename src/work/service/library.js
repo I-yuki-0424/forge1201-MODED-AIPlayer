@@ -14,7 +14,8 @@ class LibraryPart {
             if (s.via) { try { const e = this.sites.through(s.x, s.y, s.z); out.end = { x: e.x, y: e.y, z: e.z, path: e.via }; } catch (e) { out.broken = e.message; } }
             return out;
         });
-        return { tags: require('../bot/sites').TAGS, sites };
+        const { PURPOSES } = require('../bot/sites');
+        return { tags: PURPOSES, purposes: PURPOSES, sites, migrated: this.sites.migrated, colours: require('../world/enderstorage').COLOURS };
     }
     addSite(s) { let site; try { site = this.sites.add(s); } catch (e) { throw new Problem(e.message); } this._dirty(); return site; }
     removeSite(name) {

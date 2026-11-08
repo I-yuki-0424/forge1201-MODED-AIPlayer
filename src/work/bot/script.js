@@ -248,10 +248,10 @@ const REPLACE_TOOL = {
             // While the bot is up here: what it needs to make a pickaxe down there (the chests are out of reach from the pit bottom).
             { if: { not: { has: { item: 'iron_ingot', min: 3 } } }, then: [
                 { take: { item: 'iron_ingot', count: 3, from: 'ore' }, optional: true },
-                { if: { not: { has: { item: 'iron_ingot', min: 3 } } }, then: [{ take: { item: 'iron_ingot', count: 3, from: 'storage' }, optional: true }] },
+                { if: { not: { has: { item: 'iron_ingot', min: 3 } } }, then: [{ take: { item: 'iron_ingot', count: 3, from: 'any' }, optional: true }] },
             ] },
             { if: { any: [{ not: { has: { item: 'stick', min: 4 } } }, { all: [{ not: { has: { item: 'crafting_table', min: 1 } } }, { not: { planks: 4 } }] }] }, then: [
-                { take: { item: 'stick', count: 8, from: 'storage' }, optional: true },
+                { take: { item: 'stick', count: 8, from: 'any' }, optional: true },
                 { if: { any: [{ not: { has: { item: 'stick', min: 4 } } }, { not: { planks: 6 } }] }, then: [
                     { if: { not: { planks: 6 } }, then: [
                         { if: { not: { logs: 3 } }, then: [{ gather: { target: 'oak_log', count: 4, radius: 24 }, optional: true }] },
@@ -265,7 +265,7 @@ const REPLACE_TOOL = {
         ] },
         { if: { tool: 'pickaxe' }, then: [{ return: 'ok' }] },
         // 2. made from what the bot carries or can fetch: sticks (planks <- logs <- a tree nearby), then iron (ingots, or raw iron smelted in a furnace) or stone
-        { if: { not: { has: { item: 'stick', min: 2 } } }, then: [{ take: { item: 'stick', count: 4, from: 'storage' }, optional: true }] },
+        { if: { not: { has: { item: 'stick', min: 2 } } }, then: [{ take: { item: 'stick', count: 4, from: 'any' }, optional: true }] },
         { if: { not: { has: { item: 'stick', min: 2 } } }, then: [
             { if: { not: { planks: 2 } }, then: [
                 // Trees are on the surface: from inside the pit the bot would walk to the wall in front of one and back (live pit 2026-11-07), so it does not look.
@@ -276,7 +276,7 @@ const REPLACE_TOOL = {
         ] },
         { if: { not: { has: { item: 'iron_ingot', min: 3 } } }, then: [
             { take: { item: 'iron_ingot', count: 3, from: 'ore' }, optional: true },
-            { if: { not: { has: { item: 'iron_ingot', min: 3 } } }, then: [{ take: { item: 'iron_ingot', count: 3, from: 'storage' }, optional: true }] },
+            { if: { not: { has: { item: 'iron_ingot', min: 3 } } }, then: [{ take: { item: 'iron_ingot', count: 3, from: 'any' }, optional: true }] },
             { if: { all: [{ not: { has: { item: 'iron_ingot', min: 3 } } }, { has: { item: 'raw_iron', min: 3 } }] }, then: [
                 { station: 'furnace', optional: true },
                 { cmd: 'smelt', args: { item: 'raw_iron', count: 3 }, furnace: true, optional: true },
@@ -317,7 +317,7 @@ const STOCK_TOOLS = {
         ] },
         // Sticks for pickaxes made in the pit (replace-tool): from the storage chest, else planks from a tree nearby (outside the pit only). Twelve sticks make six pickaxes.
         { if: { not: { has: { item: 'stick', min: 8 } } }, then: [
-            { take: { item: 'stick', count: 12, from: 'storage' }, optional: true },
+            { take: { item: 'stick', count: 12, from: 'any' }, optional: true },
             { if: { all: [{ not: { has: { item: 'stick', min: 8 } } }, { not: { in_pit: true } }] }, then: [
                 { if: { not: { planks: 6 } }, then: [
                     { if: { not: { logs: 3 } }, then: [{ gather: { target: 'oak_log', count: 4, radius: 24 }, optional: true }] },
