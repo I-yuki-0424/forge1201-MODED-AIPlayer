@@ -56,6 +56,7 @@ function CommandPanel(o) {
             if (a.type === 'dir') el = h('select', { class: 'sel' }, DIRS.map((d) => h('option', { value: d, text: d })));
             else if (a.type === 'dy') el = h('select', { class: 'sel' }, [[0, 'level'], [-1, 'down (stair)'], [1, 'up (stair)']].map(([v, t]) => h('option', { value: v, text: t })));
             else if (a.type === 'dest') el = h('select', { class: 'sel' }, DESTS.map(([v, t]) => h('option', { value: v, text: t })));
+            else if (a.type === 'dim') el = h('select', { class: 'sel' }, [['', 'this dimension'], ['overworld', 'overworld'], ['nether', 'nether'], ['end', 'end']].map(([v, t]) => h('option', { value: v, text: t })));
             else if (a.type === 'bool') el = h('input', { type: 'checkbox' });
             else if (a.type === 'count') el = h('input', { type: 'number', class: 'num', min: 1, max: 2304, value: a.optional ? '' : 1, placeholder: a.optional ? 'all' : '1' });
             else if (a.type === 'int') el = h('input', { type: 'number', class: 'num' });

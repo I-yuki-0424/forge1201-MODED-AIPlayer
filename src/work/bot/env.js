@@ -89,6 +89,22 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         configure: (o) => { if (o && typeof o.defend === 'boolean') defendOn = o.defend; return require('../../skills/options').configure(bot, o); },
         run: (name, args) => require('./moves').runMove(bot, name, args, { cancel }),
         climb: (t) => require('./moves').climbTo(envObj, t),
+        dimension: () => String((bot.game && bot.game.dimension) || 'overworld').replace('minecraft:', '').replace('the_', ''),
+        // Face a cell and press forward until `until()` is true or `ms` is up (a portal is entered by walking into it); `ahead`: keep the heading the bot has.
+        walkInto: async (cell, { until, ms = 8000 } = {}) => {
+            const t0 = Date.now();
+            try {
+                while (!(cancel && cancel.cancelled) && Date.now() - t0 < ms) {
+                    if (until && until()) return true;
+                    if (!cell.ahead) { const p = bot.entity.position; await bot.look(Math.atan2(-(cell.x + 0.5 - p.x), -(cell.z + 0.5 - p.z)), 0, true); }
+                    bot.setControlState('forward', true); await sleep(100);
+                }
+                return !!(until && until());
+            } finally { bot.setControlState('forward', false); }
+        },
+        cross: (gate, o) => require('./portal').cross(envObj, gate, o),
+        // A long walk in legs inside the loaded chunks (travel.js): a move_to beyond the view distance fails for want of chunks.
+        travel: (t, o) => require('./travel').travel({ exec: envObj.exec, here: envObj.here, w, cancel: unitCancel }, t, o),
         // Back to a place the bot left (script step go_back): the server moves it (a road-less pit cannot be entered on foot); without RCON it walks.
         back: async (o) => {
             if (!rcon || !Number.isInteger(o.x) || !Number.isInteger(o.y) || !Number.isInteger(o.z)) return execute(bot, 'move_to', o, { cancel });

@@ -56,7 +56,7 @@ class BotsPart {
         const now = Date.now();
         for (const rec of this.bots.values()) {
             const dim = rec.bot && rec.state === 'online' && rec.bot.game ? String(rec.bot.game.dimension || '').replace('minecraft:', '') : '';
-            if (!dim || dim === 'overworld' || now - (rec.dimTry || 0) < 15000) continue;
+            if (!dim || dim === 'overworld' || rec.crossing || now - (rec.dimTry || 0) < 15000) continue;      // `crossing`: a journey through a portal is on purpose
             rec.dimTry = now;
             let depot = null;
             for (const j of this.jobs.values()) { const d = j.spec && j.spec.depot; if (d && Number.isInteger(d.x) && Number.isInteger(d.y) && Number.isInteger(d.z)) { depot = d; if (['running', 'paused'].includes(j.state)) break; } }

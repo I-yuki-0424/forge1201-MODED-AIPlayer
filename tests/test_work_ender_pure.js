@@ -23,7 +23,7 @@ function dataFile(file, content) {
 
 (async () => {
     await test('purposes: a closed list, old names still work, one purpose per block', () => {
-        assert.deepStrictEqual(Object.keys(PURPOSES), ['tools', 'ore', 'trash', 'food', 'blocks', 'any', 'free', 'furnace', 'other']);
+        assert.deepStrictEqual(Object.keys(PURPOSES), ['tools', 'ore', 'trash', 'food', 'blocks', 'any', 'free', 'furnace', 'portal', 'other']);
         const s = new Sites();
         assert.strictEqual(s.add({ name: 'a', x: 1, y: 1, z: 1, purpose: 'trash' }).purpose, 'trash');
         const old = s.add({ name: 'b', x: 2, y: 1, z: 1, tags: ['junk'] });

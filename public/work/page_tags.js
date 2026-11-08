@@ -15,6 +15,8 @@ function tagsPage() {
     const useEnder = h('input', { type: 'checkbox', 'aria-label': 'Ender Storage chest' });
     const col = ['left', 'middle', 'right'].map((k) => h('select', { class: 'sel', 'aria-label': `${k} colour` }));
     const owner = h('input', { placeholder: 'owner UUID (private chest only)', maxlength: 36, 'aria-label': 'owner UUID' });
+    const dimSel = h('select', { class: 'sel', 'aria-label': 'dimension of a portal' }, ['overworld', 'nether', 'end'].map((d) => h('option', { value: d, text: d })));
+    const twinSel = h('select', { class: 'sel', 'aria-label': 'portal on the other side' });
     const enderBox = h('div', { class: 'table-wrap' });
     let known = '';
 
@@ -35,10 +37,14 @@ function tagsPage() {
         const keep = via.value;
         via.replaceChildren(h('option', { value: '', text: 'no link' }), ...data.sites.filter((s) => s.purpose !== 'furnace' && !s.via).map((s) => h('option', { value: s.name, text: `→ ${s.name}${s.label ? ` (${s.label})` : ''}` })));
         via.value = keep;
+        const tk = twinSel.value;
+        twinSel.replaceChildren(h('option', { value: '', text: 'no twin' }), ...data.sites.filter((s) => s.purpose === 'portal').map((s) => h('option', { value: s.name, text: `↔ ${s.name} (${s.dim || 'overworld'})` })));
+        twinSel.value = tk;
         const rows = data.sites.map((s) => h('tr', {},
             h('td', {}, h('strong', { text: s.name })), h('td', { text: s.label || '' }), h('td', { class: 'mono', text: (s.block || '?').replace('minecraft:', '') }),
             h('td', { class: 'mono', text: `${s.x} ${s.y} ${s.z}` }),
             h('td', {}, h('span', { class: `pill tag-${s.purpose}`, title: (data.purposes || data.tags)[s.purpose] || s.purpose, text: s.purpose }),
+                s.purpose === 'portal' ? h('span', { class: 'pill tag-portal', title: 'gate in this dimension; twin on the other side', text: `${s.dim || 'overworld'}${s.twin ? ` ↔ ${s.twin}` : ''}` }) : '',
                 s.ender ? h('span', { class: 'pill ender', title: 'Ender Storage frequency', text: `${s.ender.left} / ${s.ender.middle} / ${s.ender.right}${s.ender.owner ? ' (private)' : ''}` }) : ''),
             h('td', {}, s.via ? h('span', { class: s.broken ? 'warn mono' : 'mono', title: s.broken || (s.end ? `commands run at ${s.end.x} ${s.end.y} ${s.end.z}` : ''), text: s.broken ? `→ ${s.via} (${s.broken})` : `→ ${s.via}` }) : ''),
             h('td', {}, h('span', { class: 'row tight' }, h('button', { class: 'btn small', onclick: () => edit(s) }, 'Edit'),
@@ -58,7 +64,7 @@ function tagsPage() {
     }
     function edit(s) {
         name.value = s.name; label.value = s.label || ''; [s.x, s.y, s.z].forEach((v, i) => { xyz[i].value = v; }); via.value = s.via || '';
-        purpose.value = s.purpose || 'other'; useEnder.checked = !!s.ender;
+        purpose.value = s.purpose || 'other'; useEnder.checked = !!s.ender; dimSel.value = s.dim || 'overworld'; twinSel.value = s.twin || '';
         if (s.ender) { col[0].value = s.ender.left; col[1].value = s.ender.middle; col[2].value = s.ender.right; owner.value = s.ender.owner || ''; } else owner.value = '';
         tagBox.replaceChildren(h('span', { class: 'muted small', text: (data.purposes || data.tags)[purpose.value] || '' }));
         name.focus();
@@ -78,6 +84,7 @@ function tagsPage() {
         if (purpose.value === 'other' && !label.value.trim() && !via.value && !useEnder.checked) throw new Error('choose a purpose, write a label or choose a link');
         const body = { name: name.value.trim(), x: p[0], y: p[1], z: p[2], purpose: purpose.value };
         if (label.value.trim()) body.label = label.value.trim(); if (via.value) body.via = via.value;
+        if (purpose.value === 'portal') { body.dim = dimSel.value; if (twinSel.value) body.twin = twinSel.value; }
         if (useEnder.checked) body.ender = { left: col[0].value, middle: col[1].value, right: col[2].value, ...(owner.value.trim() ? { owner: owner.value.trim() } : {}) };
         return api('POST', '/api/sites', body);
     }, (r) => `${r.name} saved`, load);
@@ -91,6 +98,7 @@ function tagsPage() {
         h('div', { class: 'span-12' }, panel('Tag a block', h('div', { class: 'stack' },
             h('div', { class: 'row' }, field('Name', name), field('Label', label), field('x y z', h('span', { class: 'row tight' }, xyz)), field('', h('span', { class: 'row tight' }, near, h('button', { class: 'btn small', onclick: here }, 'My position')))),
             h('div', { class: 'row' }, field('Purpose', purpose), tagBox),
+            h('div', { class: 'row' }, field('Portal: dimension', dimSel), field('twin gate (other side)', twinSel)),
             h('div', { class: 'row' }, field('Ender Storage chest', h('span', { class: 'row tight' }, useEnder, ' colours', ...col, owner))),
             h('div', { class: 'row' }, field('Link to (container)', via), h('button', { class: 'btn primary', onclick: save }, 'Save')),
             h('p', { class: 'muted small', text: 'The purpose says what a block is for: ore, trash, any ... tell the upkeep where each kind of item goes; tools is where bots may take tools; free is a chest whose contents bots may use at will. A label is any text you like. ' +

@@ -48,6 +48,37 @@ class CommandsPart {
         return { started, refused, ...(link.via.length ? { via: link.via } : {}) };
     }
 
+    /**
+     * journey {x, z, y?, dim?, viaNether?}: walk in legs; into another dimension through a tagged gate that leads there; by the Nether when asked and worth it
+     * (bot/route.js plans, bot/travel.js walks, bot/portal.js crosses). `rec.crossing` keeps the dimension watch from sending the bot back meanwhile.
+     */
+    async _journey(rec, cancel, args) {
+        const route = require('../bot/route'), env = this.envFactory(rec.bot, cancel);
+        const h = env.here(), from = { dim: env.dimension(), x: h.x, y: h.y, z: h.z };
+        const to = { dim: args.dim || from.dim, x: args.x, y: Number.isInteger(args.y) ? args.y : undefined, z: args.z };
+        const steps = route.plan(this.sites, from, to, { viaNether: !!args.viaNether });
+        if (!steps) return { ok: false, reason: 'invalid_target', detail: { why: `no tagged portal leads from ${from.dim} to ${to.dim} (tag the gates: purpose portal, its dimension, its twin on the other side)` } };
+        rec.crossing = true;
+        const log = [];
+        try {
+            for (const s of steps) {
+                if (cancel.cancelled) return { ok: false, reason: 'cancelled', detail: { steps: log } };
+                let r;
+                if (s.walk) {
+                    r = await env.travel({ x: s.walk.x, y: s.walk.gate ? undefined : s.walk.y, z: s.walk.z }, s.walk.gate ? { near: 4 } : undefined);
+                    if (!r.ok && !s.walk.gate && r.detail && r.detail.stage === 'last step' && env.climb) r = await env.climb({ x: s.walk.x, y: s.walk.y, z: s.walk.z });
+                    log.push(`walk in ${s.walk.dim}: ${r.ok ? 'ok' : r.reason}`);
+                } else {
+                    const gate = this.sites.get(s.cross);
+                    r = await env.cross({ x: gate.x, y: gate.y, z: gate.z });
+                    log.push(`cross ${s.cross}: ${r.ok ? `${r.from} -> ${r.to}` : r.reason}`);
+                }
+                if (!r.ok) return { ok: false, reason: r.reason, detail: { ...(r.detail || {}), steps: log } };
+            }
+            return { ok: true, detail: { steps: log } };
+        } finally { rec.crossing = false; }
+    }
+
     _checkArgs(spec, args) {
         if (spec.meta) {
             if (spec.name === 'say') { need(typeof args.text === 'string' && args.text.trim().length && args.text.length <= 100, 'text: 1-100 characters'); need(!args.text.trim().startsWith('/'), 'text must not start with /'); }
@@ -60,6 +91,12 @@ class CommandsPart {
                 need(typeof args.target === 'string' && /^([a-z0-9_.-]{1,32}:)?[a-z0-9_/]{1,64}$/.test(args.target), 'target: a block or item name such as iron_ore, raw_iron, oak_log');
                 if (args.count !== undefined) need(Number.isInteger(args.count) && args.count >= 1 && args.count <= 2304, 'count: 1..2304');
                 if (args.radius !== undefined) need(Number.isInteger(args.radius) && args.radius >= 4 && args.radius <= 64, 'radius: 4..64');
+            }
+            if (spec.name === 'journey') {
+                for (const k of ['x', 'z']) int(args[k], k);
+                if (args.y !== undefined) int(args.y, 'y');
+                if (args.dim !== undefined) need(['overworld', 'nether', 'end'].includes(args.dim), 'dim: overworld, nether or end');
+                if (args.viaNether !== undefined) need(typeof args.viaNether === 'boolean', 'viaNether: true or false');
             }
             if (spec.name === 'come' && args.player !== undefined) need(inventory.NAME.test(String(args.player)), 'player name');
             return;
@@ -87,6 +124,7 @@ class CommandsPart {
                 const r = String(await this.rcon(`tp ${rec.name} ${dest}`)).replace(/\x1b\[[0-9;]*m/g, '');
                 return /^Teleported/i.test(r.trim()) ? { ok: true } : { ok: false, reason: 'refused', detail: { server: r.trim().slice(0, 120) } };
             }
+            if (command === 'journey') return this._journey(rec, cancel, args);
             if (command === 'gather') {
                 return gatherer.gather(bot, { target: String(args.target), count: args.count || 16, radius: args.radius || 32 }, {
                     cancel, execute: (b, n, a, o) => skills.execute(b, n, a, o),
@@ -102,6 +140,13 @@ class CommandsPart {
             // The action layer's own move_to, the one the RL policy has, is unchanged.
             if (command === 'move_to') {
                 const env = this.envFactory(bot, cancel);
+                // Far away (beyond the chunks the bot has loaded) the walk is split into legs; the last step is the ordinary move_to / climb (bot/travel.js).
+                const travel = require('../bot/travel');
+                if (env && env.travel && env.here && Math.hypot(env.here().x - args.x, env.here().z - args.z) > travel.FAR) {
+                    const r = await env.travel({ x: args.x, y: args.y, z: args.z });
+                    if (r.ok) return { ok: true, detail: { how: 'legs', legs: r.legs, walked: r.walked } };
+                    if (!(r.detail && r.detail.stage === 'last step') || !env.climb) return r;
+                }
                 if (env && env.climb) { const r = await env.climb({ x: args.x, y: args.y, z: args.z }); return r.ok ? { ok: true, detail: { how: r.how, levels: r.levels } } : r; }
             }
             return skills.execute(bot, command, args, { cancel });

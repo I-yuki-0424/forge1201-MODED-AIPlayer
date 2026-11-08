@@ -28,6 +28,7 @@ const META = [
     { name: 'come', group: 'Movement', meta: true, doc: 'Walk to the operator (a player on the server).', args: [{ name: 'player', type: 'player', optional: true }] },
     { name: 'say', group: 'Chat', meta: true, doc: 'Say something in chat (not a command: text starting with / is refused).', args: [{ name: 'text', type: 'text' }] },
     { name: 'teleport', group: 'Operator', meta: true, rcon: true, doc: 'Teleport the bot (server command): to a player, or to coordinates.', args: [{ name: 'player', type: 'player', optional: true }, { name: 'x', type: 'int', optional: true }, { name: 'y', type: 'int', optional: true }, { name: 'z', type: 'int', optional: true }] },
+    { name: 'journey', group: 'Movement', meta: true, doc: 'A long walk to x, y, z, in legs (a plain walk fails where the chunks are not loaded). Choose another dimension and the route goes through a tagged portal that leads there; "by the Nether" shortens a long overworld walk when gates are tagged on both sides. Experimental.', args: [{ name: 'x', type: 'int' }, { name: 'z', type: 'int' }, { name: 'y', type: 'int', optional: true }, { name: 'dim', type: 'dim', optional: true }, { name: 'viaNether', type: 'bool', optional: true }] },
     { name: 'stop', group: 'Movement', meta: true, doc: 'Cancel what the bot is doing right now.', args: [] },
 ];
 

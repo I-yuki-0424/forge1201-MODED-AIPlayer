@@ -9,6 +9,7 @@
 //   any      anything may be put in; the fallback for everything of value that has no chest of its own   (was `storage`)
 //   free     the contents may be used freely: bots take what they need from it; nothing is put in by the upkeep
 //   furnace  treated as a furnace (or any machine): items go in and out through the container it is linked to (`via`)   (was `machine`)
+//   portal   a Nether or End portal the bots may walk through on a route (owner 2026-11-08): `dim` says which dimension it stands in, `twin` names the gate on the other side
 //   other    no automatic use: only commands, links and the display work with it
 // A site is a block at x, y, z with a free `label` ("auto furnace") and a purpose. A site can be a LINK, like a symbolic link in a file system
 // (owner 2026-11-06): `via` names the container that feeds or empties a machine (a chest and hopper beside an automatic furnace). A command
@@ -27,13 +28,15 @@ const PURPOSES = Object.freeze({
     any: 'anything may be put in (the fallback for everything of value)',
     free: 'its contents may be used freely: bots take what they need, nothing is put in',
     furnace: 'treated as a furnace: its items go in and out through the container it is linked to (via)',
+    portal: 'a Nether or End portal bots may walk through on a route: give its dimension and link it to the gate on the other side (twin)',
     other: 'no automatic use: only commands, links and the display work with it',
 });
 const TAGS = PURPOSES;                                      // the old name, still exported
 const ALIASES = Object.freeze({ junk: 'trash', storage: 'any', machine: 'furnace' });
 const canon = (t) => (ALIASES[t] || t);
 // When a stored block has several old tags the most specific one is kept as its purpose.
-const PRIORITY = ['furnace', 'tools', 'free', 'ore', 'food', 'blocks', 'trash', 'any', 'other'];
+const PRIORITY = ['furnace', 'portal', 'tools', 'free', 'ore', 'food', 'blocks', 'trash', 'any', 'other'];
+const DIMS = Object.freeze(['overworld', 'nether', 'end']);
 const STORES = new Set(['ore', 'trash', 'food', 'blocks', 'any']);         // purposes the upkeep puts items into
 const MAX_HOPS = 4;                                      // a link to a link to a link ...; deeper is refused like ELOOP
 const NAME = /^[a-z0-9][a-z0-9_-]{0,23}$/;
@@ -83,6 +86,14 @@ class Sites {
         if (!s || typeof s !== 'object') throw new Error('site missing');
         if (typeof s.name !== 'string' || !NAME.test(s.name)) throw new Error('site name: a-z 0-9 _ - (max 24)');
         const purpose = purposeOf(s, !loose, s.name, this.migrated);
+        let dim; if (s.dim !== undefined && s.dim !== null && s.dim !== '') { dim = String(s.dim).replace(/^minecraft:/, '').replace('the_', ''); if (!DIMS.includes(dim)) throw new Error(`dim: one of ${DIMS.join(', ')}`); }
+        const twin = s.twin === undefined || s.twin === null || s.twin === '' ? undefined : String(s.twin);
+        if (twin !== undefined) {
+            if (!NAME.test(twin)) throw new Error('twin: the name of the gate on the other side');
+            if (twin === s.name) throw new Error('a gate cannot be its own twin');
+            if (purpose !== 'portal') throw new Error('twin belongs to a portal');
+        }
+        if (purpose === 'portal' && !dim) dim = 'overworld';
         let freq; if (s.ender !== undefined && s.ender !== null) freq = ender.frequency(s.ender);          // throws with a message for the operator
         const label = s.label === undefined || s.label === null || s.label === '' ? undefined : String(s.label).trim();
         if (label !== undefined && !LABEL.test(label)) throw new Error('label: 1-40 characters, no control characters or < > " ` \\');
@@ -98,6 +109,8 @@ class Sites {
         if (label !== undefined) site.label = label;
         if (via !== undefined) site.via = via;
         if (freq) site.ender = freq;
+        if (dim) site.dim = dim;
+        if (twin !== undefined) site.twin = twin;
         const same = this.at(site.x, site.y, site.z);
         if (same && same.name !== site.name) throw new Error(`${site.x} ${site.y} ${site.z} is already tagged as ${same.name}`);
         this.map.set(site.name, site);
@@ -108,12 +121,13 @@ class Sites {
     remove(name) {
         const users = this.list().filter((s) => s.via === name);
         if (users.length) throw new Error(`${name} is the target of ${users.map((u) => u.name).join(', ')}: remove those links first`);
+        for (const g of this.map.values()) if (g.twin === name) delete g.twin;                  // a gate whose twin is removed is a gate without a twin, not a refusal (twins point at each other)
         return this.map.delete(name);
     }
     get(name) { return this.map.get(name) || null; }
     list() { return [...this.map.values()].sort((a, b) => a.name.localeCompare(b.name)); }
     at(x, y, z) { for (const s of this.map.values()) if (s.x === x && s.y === y && s.z === z) return s; return null; }
-    _dropDangling() { for (const s of this.map.values()) if (s.via && !this.map.has(s.via)) delete s.via; }
+    _dropDangling() { for (const s of this.map.values()) { if (s.via && !this.map.has(s.via)) delete s.via; if (s.twin && !this.map.has(s.twin)) delete s.twin; } }
 
     /**
      * Follow the links from a block. Null when the block has none (it is its own target); else {x, y, z, via: [names walked]}, the
@@ -161,4 +175,4 @@ class Sites {
     }
 }
 
-module.exports = { Sites, TAGS, PURPOSES, ALIASES, canon, classify, NAME, MAX_HOPS };
+module.exports = { Sites, TAGS, PURPOSES, ALIASES, DIMS, canon, classify, NAME, MAX_HOPS };
