@@ -10,6 +10,7 @@ const { MapStore } = require('../world/maps');
 const { Sites } = require('../bot/sites');
 const scriptLib = require('../bot/script');
 const { Problems } = require('../bot/problems');
+const watchdog = require('./watchdog');
 const { need, BOT_NAME, STRUCT_NAME, DEFAULT_KIT, Problem, normalizeBox } = require('./common');
 
 /** Default bot factory: a Mineflayer bot with the FML3 handshake and the mod table (BOT_MOD_TABLE). */
@@ -46,7 +47,7 @@ class WorkService extends EventEmitter {
         this.bots = new Map();            // name -> record
         this.jobs = new Map();            // id -> job
         this.log = [];
-        this.settings = { autoKit: false, retireWorn: true, scripts: true, defend: true, glow: true, directPickup: true, discardWorn: true, reflex: true, teleport: 'near', toolPolicy: { wooden: 'use_up', stone: 'use_up', iron: 'use_up', golden: 'use_up', diamond: 'keep', netherite: 'keep' }, display: { on: true, paths: true, lanes: true, tags: true } };      // retireWorn: a nearly broken tool counts as no tool; scripts: recovery scripts (missing tool) on
+        this.settings = { autoKit: false, retireWorn: true, scripts: true, resumeJobs: true, defend: true, glow: true, directPickup: true, discardWorn: true, reflex: true, teleport: 'near', toolPolicy: { wooden: 'use_up', stone: 'use_up', iron: 'use_up', golden: 'use_up', diamond: 'keep', netherite: 'keep' }, display: { on: true, paths: true, lanes: true, tags: true } };      // retireWorn: a nearly broken tool counts as no tool; scripts: recovery scripts (missing tool) on
         this.problems = new Problems({ file: path.join(this.o.dataDir, 'problems.jsonl') });   // problem bots: where, facing, standing on what (problems.js)
         this.sites = new Sites();                                                  // tagged chests by coordinates (sites.js)
         this.placed = new Set();                                                   // "x,y,z" of boxes (chest, shulker box, ender chest) a bot placed from its pack: only these may be broken (skills/fixtures.js)
@@ -56,7 +57,7 @@ class WorkService extends EventEmitter {
         this._saveTimer = null;
         this._rcon = null; this._rconTail = Promise.resolve();
         this.maps = new MapStore(this.o.worldDir || null);
-        this._watch = setInterval(() => { this._watchWaiting(); this._watchDimension(); }, 2000); this._watch.unref?.();
+        this._watch = setInterval(() => { this._watchWaiting(); this._watchDimension(); this._watchResume(); }, 2000); this._watch.unref?.();
         this.cmdSeq = 0;
         this.started = Date.now();
         this._startDisplay();
@@ -92,16 +93,22 @@ class WorkService extends EventEmitter {
         this._mapSaveTimer();
         this.sites = new Sites(d.sites || []);
         for (const k of Array.isArray(d.placed) ? d.placed : []) if (/^-?\d+,-?\d+,-?\d+$/.test(k)) this.placed.add(k);
+        const fz = watchdog.lastFreeze(this.o.dataDir), looping = !!(fz && fz.n >= 3 && Date.now() - fz.at < 3600000);
+        const resume = this.settings.resumeJobs !== false && !looping;
+        if (looping) this.note('warn', `the process was frozen ${fz.n} times in the last hour (top of stack: ${(fz.stack || []).slice(0, 3).join(' < ')}): jobs come back paused, press Start`);
         for (const j of d.jobs || []) {
             try {
                 const job = await this._rebuild(j);
-                job.state = ['finished', 'cancelled'].includes(j.state) ? j.state : 'paused';
+                // A job that was running when the process ended comes back running (owner 2026-11-09: "it should resume by itself"); the world is the truth, units run again are no-ops.
+                // Not after repeated freezes (watchdog.js): then it comes back paused so that a job that freezes the process cannot do it again every minute.
+                job.state = ['finished', 'cancelled'].includes(j.state) ? j.state : (j.state === 'running' && resume ? 'running' : 'paused');
                 job.bots = new Set((j.bots || []).filter((n) => BOT_NAME.test(n)));
                 this.jobs.set(job.id, job);
             } catch (e) { this.note('warn', `job ${j.id} not restored: ${e.message}`); }
         }
         for (const b of d.bots || []) if (BOT_NAME.test(b.name)) { try { this.addBot(b.name, { job: this.jobs.has(b.job) ? b.job : null }); } catch (e) { this.note('warn', `bot ${b.name}: ${e.message}`); } }
-        this.note('info', `restored ${this.bots.size} bots, ${this.jobs.size} jobs (jobs are paused: press Start)`);
+        const running = [...this.jobs.values()].filter((j) => j.state === 'running').length;
+        this.note('info', `restored ${this.bots.size} bots, ${this.jobs.size} jobs${running ? `, ${running} running again (bots work as soon as they are online)` : ' (paused: press Start)'}`);
     }
 
     async stop() {

@@ -77,12 +77,13 @@ function floodPlan(w, box, centre, { R = 8, max = 48 } = {}) {
  */
 async function rescue(env, box, { why = null, maxFill = 48 } = {}) {
     const out = { ok: true, surfaced: false, filled: 0, why };
+    const exec = env.execFree || env.exec;                // not the unit's cancel token: a bot that is drowning is exactly who needs these commands to run
     try {
         let f = env.here();
         if (inWater(env.w, f)) {
             const shore = shoreCell(env.w, f);
             out.surfaced = true;
-            if (shore) { const m = await env.exec('move_to', shore); if (!m.ok && env.recover) await env.recover(2, m); }
+            if (shore) { const m = await exec('move_to', shore); if (!m.ok && env.recover) await env.recover(2, m); }
             else if (env.recover) await env.recover(2, { reason: 'in_water' });
             f = env.here();
             // Swimming out did not work (a flooded pit bottom: no shore within reach): the server puts the bot on the nearest dry standable cell (env.lift), up to 14 blocks away.
@@ -96,7 +97,7 @@ async function rescue(env, box, { why = null, maxFill = 48 } = {}) {
             for (const c of plan.fill) {
                 item = SEAL_ITEMS.find((n) => env.have(n) >= 1);
                 if (!item) return { ...out, ok: false, reason: 'missing_item', detail: { why: 'no block to stop the water with', tried: SEAL_ITEMS } };
-                const p = await env.exec('place', { x: c.x, y: c.y, z: c.z, item, fluid: true });
+                const p = await exec('place', { x: c.x, y: c.y, z: c.z, item, fluid: true });
                 if (!p.ok) { if (p.reason === 'died' || p.reason === 'disconnected' || p.reason === 'cancelled') return { ...out, ok: false, reason: p.reason, detail: p.detail }; continue; }
                 out.filled++;
             }

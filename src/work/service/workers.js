@@ -15,7 +15,7 @@ class WorkersPart {
     async _startWorker(job, rec) {
         if (!rec || rec.worker || rec.removed || rec.state !== 'online' || job.state !== 'running' || rec.retired) return;
         const cancel = { cancelled: false };
-        rec.worker = { cancel, job: job.id, since: Date.now() };
+        rec.worker = { cancel, job: job.id, since: Date.now() }; rec.idleSince = 0;
         let env;
         try {
             if (this.settings.autoKit && this.o.rcon) await this.kitBot(rec.name, { quiet: true }).catch(() => {});
@@ -38,7 +38,7 @@ class WorkersPart {
             handlers: this.settings.scripts ? { missing_tool: this.scripts.get('replace-tool') } : null,
             scriptEnv: () => ({ sites: this.sites, policy: job.policy, box: job.spec.box, need: rec.missingTool }),
             onEvent: (ev, d) => {
-                if (ev === 'unit' && d.ok) { rec.fixes = 0; rec.cool = 0; this._clearGlow(rec); }
+                if (ev === 'unit' && d.ok) { rec.fixes = 0; rec.cool = 0; rec.autoTries = 0; this._clearGlow(rec); }
                 // A problem is written down where it happens and the bot glows (problems.js): unit failures that are the unit's or the bot's own trouble,
                 // failed repairs, scripts and janitor runs that gave up, a pit range that keeps refilling.
                 if ((ev === 'unit' && !d.ok && !['cancelled'].includes(d.reason)) || ev === 'janitor_failed' || (ev === 'script' && !d.ok) || (ev === 'audit' && d.gaveUp) || ev === 'audit_failed') {
@@ -54,7 +54,7 @@ class WorkersPart {
                     if (job.recent.length > 120) job.recent.shift();
                 }
                 if (ev === 'unit' && !d.ok) {
-                    rec.missing = d.reason === 'missing_item' && d.detail && ITEM_ID.test(String(d.detail.item)) ? String(d.detail.item) : null;
+                    rec.missing = d.reason === 'missing_item' && d.detail && typeof d.detail.item === 'string' && ITEM_ID.test(d.detail.item) ? d.detail.item : null;      // String(undefined) passes ITEM_ID: Work5 "waited for undefined" until somebody pressed Resume (2026-11-09)
                     rec.missingTool = d.reason === 'missing_tool' && d.detail && typeof d.detail.block === 'string' ? d.detail.block : null;
                     this.note('debug', `${d.id} ${d.region} u${d.unit} ${d.reason}`, { job: job.id, detail: d.detail });
                 }
@@ -103,6 +103,29 @@ class WorkersPart {
                 rec.replaceAt = Date.now();
                 this.runScript(rec.name, 'replace-tool').then((r) => { rec.replaceFails = r.ok ? 0 : (rec.replaceFails || 0) + 1; this.note(r.ok ? 'info' : 'warn', `${rec.name} replace-tool while waiting: ${r.ended}${r.log && r.log.length ? ` (${r.log.slice(-12).join('; ')})` : ''}`); }, (e) => this.note('debug', `${rec.name} replace-tool: ${e.message}`));
             }
+        }
+    }
+
+    /**
+     * The design rule (owner 2026-11-07, WORK-CONSOLE-v1 "no permanent retirement") as a supervisor: a bot that is online, belongs to a running job and does nothing
+     * (no worker, no script, no operator command) is put back to work after a pause that grows with each try (6 s, 12 s ... 2 min) and starts again at the next finished unit.
+     * Before this only some endings restarted themselves; a worker that ended 'stalled' or 'error', a restock that failed, a start that threw, or a bot whose job
+     * came back after a restart stayed idle until somebody pressed Resume. A bot that waits for a tool or an item the operator gives keeps waiting, but looks again every 5 minutes.
+     */
+    _watchResume() {
+        const now = Date.now();
+        for (const rec of this.bots.values()) {
+            if (rec.removed || rec.state !== 'online' || !rec.job || rec.worker || rec.script || (rec.cmd && rec.cmd.status === 'running')) { rec.idleSince = 0; continue; }
+            const job = this.jobs.get(rec.job);
+            if (!job || job.state !== 'running' || !job.bots.has(rec.name) || (job.impl && job.impl.ledger && job.impl.ledger.finished())) { rec.idleSince = 0; continue; }
+            if (rec.retired && /^cooling/.test(rec.retired) && rec.coolTimer) continue;      // has its own timer
+            if (!rec.idleSince) { rec.idleSince = now; continue; }
+            const waiting = !!rec.waitFor, pause = waiting ? 300000 : Math.min(120000, 6000 * 2 ** Math.min(rec.autoTries || 0, 4));
+            if (now - rec.idleSince < pause) continue;
+            rec.autoTries = (rec.autoTries || 0) + 1; rec.idleSince = 0;
+            this.note('info', `bot ${rec.name} was idle on running job ${job.id}${rec.retired ? ` (${String(rec.retired).slice(0, 60)})` : ''}: resumed automatically (try ${rec.autoTries})`);
+            rec.retired = null; rec.waitFor = null; rec.missing = null; rec.fixes = 0;
+            this._resume(rec); this._dirty();
         }
     }
 

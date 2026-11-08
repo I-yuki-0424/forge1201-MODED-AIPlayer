@@ -6,6 +6,7 @@ const { WorkService } = require('../service');
 const { Access } = require('./access');
 const { createConsole } = require('./server');
 const { loadToken } = require('./http');
+const watchdog = require('../service/watchdog');
 
 /** Table of the bots' registry -> (name) -> bool, from BOT_MOD_TABLE (the same file the handshake uses). */
 function knownFromTable(file) {
@@ -32,6 +33,9 @@ async function main() {
     const { server } = createConsole({ service, token, access, publicHost: env.WORK_PUBLIC_HOST || null, allowedHosts: (env.WORK_ALLOWED_HOSTS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean) });
     const bind = env.WORK_BIND || '127.0.0.1', port = Number(env.WORK_PORT) || 3020;
     server.listen(port, bind, () => console.log(`[console] http://${bind}:${port}  server ${service.o.host}:${service.o.port}  table ${service.known ? table : 'none (vanilla names only)'}  rcon ${service.o.rcon ? 'on' : 'off'}  token file ${tokenFile}`));
+    // A loop that never yields would freeze every bot at once (2026-11-09): a second thread notices, writes where it was and kills the process; the container restarts it.
+    const wd = watchdog.start({ dir: dataDir, limitMs: (env.WORK_WATCHDOG_S === undefined ? 25 : Number(env.WORK_WATCHDOG_S)) * 1000 });
+    if (wd) { const ok = setTimeout(() => watchdog.forget(dataDir), 10 * 60 * 1000); ok.unref(); }       // ten quiet minutes: the freezes are forgotten
     const down = async () => { server.close(); await service.stop(); process.exit(0); };
     process.on('SIGTERM', down); process.on('SIGINT', down);
 }

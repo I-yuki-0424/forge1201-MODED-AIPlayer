@@ -172,6 +172,9 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         pause: (ticks) => sleep(ticks * 50),                       // let the thing in the way (another bot, an item) move on
         unitCancel,
         exec: (name, args) => execute(bot, name, args, { cancel: unitCancel }),
+        // For the water rescue: stopped by the operator only. `drowning()` is what sends the worker to the rescue, so the rescue's own commands must not be cancelled by it
+        // (live 2026-11-09: every swim and fill came back `cancelled` at once, the worker claimed the next unit, which was cancelled at once too: 99,639 failures in a loop that never yielded and froze all 20 bots).
+        execFree: (name, args) => execute(bot, name, args, { cancel }),
         have,
         inv: () => janitor.inventoryOf(bot),
         here: feet,

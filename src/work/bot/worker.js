@@ -81,14 +81,17 @@ async function runWorker(job, id, env, { cancel = { cancelled: false }, policy =
                 sinceAudit++;
                 if (r.ok) { L.done(id, claim.region, u.unit, now()); units++; streak = 0; for (const k of Object.keys(tries)) tries[k] = 0; if (env.rememberGood) env.rememberGood(); continue; }
                 failed++; sinceAudit = AUDIT_EVERY;                // a failure is the moment to check that the range is what it should be
+                await new Promise((res) => setImmediate(res));      // a failed unit can come back at once (cancelled, invalid ...): timers and sockets (the keep-alives of every bot in this process) get their turn before the next round
                 L.fail(id, claim.region, u.unit, r.reason, now(), r.detail);
                 if (r.reason === 'died' || r.reason === 'disconnected') { L.leave(id, now()); return { ended: r.reason, units, failed }; }
                 for (const rest of claim.units) if (rest.unit > u.unit) L.fail(id, claim.region, rest.unit, 'cancelled', now());   // back to the pool, not counted
                 // Stopped by an attack (not by the operator): fight, then claim again; this is neither a failure of the unit nor a bad streak.
+                // Only when there was something to fight. An interrupt with nothing to fight (a bot short of air that the rescue did not bring out, a stale threat flag) is a failure
+                // like any other and goes through the fix and the wait below: re-claiming at once made a loop with no I/O in it, which froze the whole process (live 2026-11-09).
                 if (r.reason === 'cancelled' && !cancel.cancelled && env.defend) {
                     const d = await env.defend(); onEvent('defend', { id, ...d });
                     if (d.ended === 'died' || d.ended === 'disconnected') { L.leave(id, now()); return { ended: d.ended, units, failed }; }
-                    break;
+                    if (d.fought) break;
                 }
                 if (BOT_NEEDS.has(r.reason) && await recover(r.reason)) break;       // solved by a script (a tool from the tools chest, one crafted): claim again
                 if (BOT_NEEDS.has(r.reason)) { L.leave(id, now()); return { ended: 'unhealthy', units, failed, last: r.reason }; }   // it needs a tool or an item: the service waits for it

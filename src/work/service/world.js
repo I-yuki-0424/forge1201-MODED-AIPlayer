@@ -31,6 +31,7 @@ class WorldPart {
         if (s && typeof s.autoKit === 'boolean') this.settings.autoKit = s.autoKit;
         if (s && typeof s.reflex === 'boolean') this.settings.reflex = s.reflex;
         if (s && typeof s.scripts === 'boolean') this.settings.scripts = s.scripts;
+        if (s && typeof s.resumeJobs === 'boolean') this.settings.resumeJobs = s.resumeJobs;      // read when the console starts: running jobs come back running
         if (s && typeof s.glow === 'boolean') { this.settings.glow = s.glow; if (!s.glow) for (const r of this.bots.values()) this._clearGlow(r); }
         if (s && typeof s.discardWorn === 'boolean') this.settings.discardWorn = s.discardWorn;
         if (s && typeof s.defend === 'boolean') this.settings.defend = s.defend;      // workers read it at start; bots that work now are told at once below
