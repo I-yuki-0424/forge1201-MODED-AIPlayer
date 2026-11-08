@@ -227,7 +227,7 @@ mod tests {
         assert_eq!(sc.ended(&s, &none, 1, false), "", "the item without the entry is not the goal");
         assert_eq!(sc.ended(&s, &ate, 1, false), "success");
         assert_eq!(sc.ended(&s, &ate, 99, true), "success", "success wins over a late death and the step limit");
-        let grp = scn(r#"{"id":"g","end":{"have":{"#log":3},"max_steps":5}}"#, &d).unwrap();
+        let grp = scn(r##"{"id":"g","end":{"have":{"#log":3},"max_steps":5}}"##, &d).unwrap();
         let mut u = flat_sized(9); u.give("oak_log", 2); assert_eq!(grp.ended(&u, &none, 1, false), "", "two logs of one species are not three");
         u.give("birch_log", 1); assert_eq!(grp.ended(&u, &none, 1, false), "success", "species are summed");
         let mut t = flat_sized(9);
