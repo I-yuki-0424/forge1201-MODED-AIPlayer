@@ -1,6 +1,6 @@
 # aux_console: the work console inside the game (Forge 1.20.1 mod, id `aipconsole`)
 
-- **F12** (rebindable in Controls, "ForgeAIP Console") opens the work console in a full-screen web view (MCEF, Chromium); Esc or F12 closes it.
+- **F12** (rebindable in Controls, "ForgeAIP Console") opens the work console in a full-screen web view (MCEF, Chromium); Esc or F12 hides it. The browser keeps running in the background while you are in the world (the next F12 shows the same session at once, the page is not loaded again); it is closed when you leave the world or the address in the config changes. The Tag Tool loads the address again in the same browser.
 - **Tag Tool** (`/give @s aipconsole:tag_tool`, also in the creative Tools tab): right-click a block shows what and where; **shift + right-click** opens the console's
   Tags page for that block (coordinates filled in; an already tagged block opens for editing), where tags, label and link are set. It changes nothing in the world.
 - Client config `config/aipconsole-client.toml`: `url` (default `http://100.77.246.23:3021/`), `token` (the console token; sent only as a `#fragment` that no server

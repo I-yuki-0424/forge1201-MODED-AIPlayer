@@ -16,9 +16,14 @@ import net.minecraft.network.chat.Component;
  * A full-screen web view over the game (MCEF, Chromium): the work console as a page, like the web view of a game's shop screen.
  * Closes with Escape or the key that opened it (F12). Structure after MCEF's own ExampleScreen (mouse and key forwarding, GUI-scale
  * conversion, texture drawn as one quad); only the address, the margin and the close key differ.
+ *
+ * The browser is kept alive between openings (owner 2026-11-09: every F12 opened a new session, which was slow): closing the screen only hides it, the page keeps
+ * running in the background and the next F12 shows it at once. It is closed when the player leaves the world, or when the address in the config changed.
  */
 public class WebViewScreen extends Screen {
     private static final int MARGIN = 8;
+    private static MCEFBrowser shared;
+    private static String sharedUrl;
     private final String url;
     private MCEFBrowser browser;
 
@@ -27,11 +32,26 @@ public class WebViewScreen extends Screen {
         this.url = url;
     }
 
+    /** The one browser: created on first use, reused afterwards; `reload` (the Tag Tool aims it at a block) loads the address again in the same browser. */
+    private static MCEFBrowser acquire(String url, String base, boolean reload) {
+        if (shared != null && !base.equals(sharedUrl)) release();                      // the address in the config changed
+        if (shared == null) { shared = MCEF.createBrowser(url, false); sharedUrl = base; }
+        else if (reload) shared.loadURL(url);
+        return shared;
+    }
+
+    /** Close the background browser (the player left the world). */
+    public static void release() {
+        if (shared != null) { try { shared.close(); } catch (RuntimeException ignored) { /* already gone */ } shared = null; sharedUrl = null; }
+    }
+
+    private static String baseOf(String url) { int i = url.indexOf('#'); return i < 0 ? url : url.substring(0, i); }
+
     @Override
     protected void init() {
         super.init();
         if (browser == null) {
-            browser = MCEF.createBrowser(url, false);
+            browser = acquire(url, baseOf(url), url.contains("#goto="));
             resizeBrowser();
         }
     }
@@ -49,7 +69,7 @@ public class WebViewScreen extends Screen {
 
     @Override
     public void onClose() {
-        if (browser != null) { browser.close(); browser = null; }
+        if (browser != null) { browser.setFocus(false); browser = null; }          // hidden, not closed: the next F12 shows the running page
         super.onClose();
     }
 
