@@ -144,6 +144,7 @@ function createForgeBot({ host = 'localhost', port = 25565, username, viewDistan
 function attachForgeHandshake(bot, { registry = 'auto', table } = {}) {
     bot.on('inject_allowed', () => {
         hardenClientChatParsers(bot);
+        require('./forge_windows').attach(bot);                 // screens a mod opens through its own channel (Ender Storage)
         const handshake = new ForgeHandshakeStateMachine(bot._client);
         handshake.on('handshake_complete', (payloads) => {
             if (registry === 'legacy') {

@@ -10,8 +10,11 @@ const { count } = require('./item');
 const STATION_RANGE = 16;
 const FUEL = { coal: 8, charcoal: 8, coal_block: 80, blaze_rod: 12, lava_bucket: 100, stick: 0.5 };
 const fuelValue = (name) => FUEL[name] ?? (/_planks$|_log$|_wood$|_stem$/.test(name) ? 1.5 : 0);
-const CONTAINERS = /^(chest|trapped_chest|barrel|(?:[a-z]+_)?shulker_box)$/;
+// ender_chest = the player's own (vanilla); enderstorage:ender_chest = CodeChicken's Ender Storage (the contents belong to its three colours, work/world/enderstorage.js)
+const CONTAINERS = /^(chest|trapped_chest|barrel|ender_chest|enderstorage:ender_chest|(?:[a-z]+_)?shulker_box)$/;
 
+// Mineflayer's openContainer only accepts its own list of vanilla block names; a mod chest is opened as any block with a screen.
+const openBox = (bot, b) => (/^enderstorage:/.test(b.name) ? bot.openBlock(b) : bot.openContainer(b));
 const inContainer = (win, id) => win.containerItems().reduce((s, i) => s + (i.type === id ? i.count : 0), 0);
 // While a container or furnace is open Mineflayer keeps the player's items in the window's own slots; bot.inventory catches up on close.
 const inPlayer = (win, id) => win.items().reduce((s, i) => s + (i.type === id ? i.count : 0), 0);
@@ -105,7 +108,7 @@ async function deposit(ctx, { item, count: n, x, y, z }) {
     const bot = ctx.bot, it = bot.registry.itemsByName[item];
     if (!it) throw new SkillError('invalid_args', { item });
     if (count(bot, item) < n) throw new SkillError('missing_item', { item, want: n, have: count(bot, item) });
-    const win = await openAt(ctx, station(ctx, CONTAINERS, { x, y, z }, 'container'), (b) => bot.openContainer(b));
+    const win = await openAt(ctx, station(ctx, CONTAINERS, { x, y, z }, 'container'), (b) => openBox(bot, b));
     const c0 = inContainer(win, it.id);
     ctx.phase('deposit', { item, count: n });
     await ctx.during(win.deposit(it.id, null, n), 60);
@@ -118,7 +121,7 @@ async function deposit(ctx, { item, count: n, x, y, z }) {
 async function withdraw(ctx, { item, count: n, x, y, z }) {
     const bot = ctx.bot, it = bot.registry.itemsByName[item];
     if (!it) throw new SkillError('invalid_args', { item });
-    const win = await openAt(ctx, station(ctx, CONTAINERS, { x, y, z }, 'container'), (b) => bot.openContainer(b));
+    const win = await openAt(ctx, station(ctx, CONTAINERS, { x, y, z }, 'container'), (b) => openBox(bot, b));
     if (inContainer(win, it.id) < n) { bot.closeWindow(win); throw new SkillError('missing_item', { item, where: 'container', want: n }); }
     const before = inPlayer(win, it.id);
     ctx.phase('withdraw', { item, count: n });

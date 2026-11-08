@@ -49,6 +49,7 @@ class WorkService extends EventEmitter {
         this.settings = { autoKit: false, retireWorn: true, scripts: true, defend: true, glow: true, directPickup: true, discardWorn: true, display: { on: true, paths: true, lanes: true, tags: true } };      // retireWorn: a nearly broken tool counts as no tool; scripts: recovery scripts (missing tool) on
         this.problems = new Problems({ file: path.join(this.o.dataDir, 'problems.jsonl') });   // problem bots: where, facing, standing on what (problems.js)
         this.sites = new Sites();                                                  // tagged chests by coordinates (sites.js)
+        this.placed = new Set();                                                   // "x,y,z" of boxes (chest, shulker box, ender chest) a bot placed from its pack: only these may be broken (skills/fixtures.js)
         this.scripts = new Map(scriptLib.BUILT_IN);                                // built in + the operator's own (dataDir/scripts/*.json)
         this._loadScripts();
         this.seq = 0;
@@ -78,7 +79,7 @@ class WorkService extends EventEmitter {
     save() {
         const f = path.join(this.o.dataDir, 'state.json');
         const data = {
-            settings: this.settings, seq: this.seq, sites: this.sites.list(),
+            settings: this.settings, seq: this.seq, sites: this.sites.list(), placed: [...this.placed].slice(-300),
             bots: [...this.bots.values()].filter((b) => !b.removed).map((b) => ({ name: b.name, job: b.job })),
             jobs: [...this.jobs.values()].map((j) => ({ id: j.id, kind: j.kind, name: j.name, spec: j.spec, state: j.state, created: j.created, bots: [...j.bots] })),
         };
@@ -89,6 +90,7 @@ class WorkService extends EventEmitter {
         let d; try { d = JSON.parse(fs.readFileSync(path.join(this.o.dataDir, 'state.json'), 'utf8')); } catch (_) { return; }
         this.settings = { ...this.settings, ...(d.settings || {}) }; this.seq = d.seq || 0;
         this.sites = new Sites(d.sites || []);
+        for (const k of Array.isArray(d.placed) ? d.placed : []) if (/^-?\d+,-?\d+,-?\d+$/.test(k)) this.placed.add(k);
         for (const j of d.jobs || []) {
             try {
                 const job = await this._rebuild(j);

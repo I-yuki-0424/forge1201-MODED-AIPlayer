@@ -177,7 +177,13 @@ async function maintain(env, policy) {
                     done.push(o);
                 }
             } finally {
-                if (placed) await env.exec('mine', placed);          // take the box (and what is in it) back
+                // Take the box (and what is in it) back at once (owner 2026-11-09: what the bot placed is picked up when the task is done). A failed break is
+                // tried again after a small fix; a box that stays is listed in `left` so that the caller can say so instead of silently leaving it standing.
+                if (placed) {
+                    let r = await env.exec('mine', placed);
+                    for (let i = 0; !r.ok && i < 3; i++) { if (env.recover) await env.recover(2 + i, r); r = await env.exec('mine', placed); }
+                    if (!r.ok) (env.left || (env.left = [])).push({ ...placed, reason: r.reason });
+                }
             }
         }
     }

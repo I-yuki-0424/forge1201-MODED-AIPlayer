@@ -17,6 +17,11 @@ class LibraryPart {
         const { PURPOSES } = require('../bot/sites');
         return { tags: PURPOSES, purposes: PURPOSES, sites, migrated: this.sites.migrated, colours: require('../world/enderstorage').COLOURS };
     }
+    /** Must this block stay? A box or a tagged block that no bot placed from its pack is the owner's (skills/fixtures.js); the bots use what is inside, never break it. */
+    isFixture(name, x, y, z) {
+        if (this.placed.has(`${x},${y},${z}`)) return false;
+        return require('../../skills/fixtures').isBox(name) || !!this.sites.at(x, y, z);
+    }
     addSite(s) { let site; try { site = this.sites.add(s); } catch (e) { throw new Problem(e.message); } this._dirty(); return site; }
     removeSite(name) {
         let gone; try { gone = this.sites.remove(String(name)); } catch (e) { throw new Problem(e.message, 409); }

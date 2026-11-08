@@ -60,7 +60,9 @@ class JobsPart {
             const bn = this._blockName(int(d.x, 'depot.x'), int(d.y, 'depot.y'), int(d.z, 'depot.z'));
             need(!bn || /(^|_)(chest|barrel|shulker_box)$/.test(bn), `no container at ${d.x} ${d.y} ${d.z} (there is ${bn}): check the depot coordinates`);
         }
-        return d.kind === 'chest' ? { kind: 'chest', x: int(d.x, 'depot.x'), y: int(d.y, 'depot.y'), z: int(d.z, 'depot.z'), minValue } : { kind: 'shulker', item: 'shulker_box', minValue };
+        const item = d.item === undefined ? 'shulker_box' : d.item;      // any colour of shulker box the bot carries
+        need(typeof item === 'string' && /^(?:[a-z]+_)?shulker_box$/.test(item), 'depot.item: a shulker box (shulker_box, red_shulker_box ...)');
+        return d.kind === 'chest' ? { kind: 'chest', x: int(d.x, 'depot.x'), y: int(d.y, 'depot.y'), z: int(d.z, 'depot.z'), minValue } : { kind: 'shulker', item, minValue };
     }
 
     /** Build job. spec: { name?, structure, origin: {x,y,z}, ops?: [...], bots?, start?, force? } */

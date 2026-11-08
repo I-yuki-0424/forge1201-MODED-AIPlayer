@@ -242,6 +242,7 @@ async function runUnit(plan, region, u, env) {
             const l = await env.lift(c);
             if (l.ok) { r.lifted = (r.lifted || 0) + 1; m = await env.exec('mine', mineArgs(c)); }
         }
+        if (!m.ok && m.reason === 'protected') { r.skipped++; r.protected = (r.protected || 0) + 1; return null; }       // the owner's chest or a tagged block inside the box: left standing (src/skills/fixtures.js)
         if (!m.ok && !open(c)) return fail(m, c, 'mine');
         r.mined++;
         // Water that was behind the block is now flowing in. Fill its source, then the cell; if the cell was plugged, dig it again.

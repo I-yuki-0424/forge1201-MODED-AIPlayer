@@ -18,6 +18,7 @@ const REASONS = Object.freeze({
     no_station: 'no crafting table / furnace / container within range',
     unreachable: 'no walking path to a position from which the target can be reached',
     stuck: 'a path exists but the bot stopped making progress along it',
+    protected: 'the block is a fixture the owner placed (a chest, ender chest or shulker box the bot did not place, or a tagged block): it is never broken',
     not_visible: 'no unobstructed line from the eye to the target',
     not_confirmed: 'the input was sent but the server did not confirm the expected change',
     target_lost: 'the target entity disappeared without being killed or picked up',

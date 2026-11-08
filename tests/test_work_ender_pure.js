@@ -103,5 +103,50 @@ function dataFile(file, content) {
         fs.rmSync(w, { recursive: true }); fs.rmSync(d, { recursive: true });
     });
 
+    await test('fixtures: a box or tagged block no bot placed is never broken; an own box is; the pit leaves a fixture standing', async () => {
+        const fixtures = require('../src/skills/fixtures'), skillOpts = require('../src/skills/options'), { mine } = require('../src/skills/commands/block'), { SkillError } = require('../src/skills/runner');
+        for (const n of ['chest', 'trapped_chest', 'barrel', 'ender_chest', 'shulker_box', 'red_shulker_box', 'enderstorage:ender_chest', 'enderstorage:ender_tank']) assert.ok(fixtures.isBox(n), n);
+        for (const n of ['stone', 'chest_minecart', 'enderstorage:ender_pouch', 'create:item_vault', 'furnace']) assert.ok(!fixtures.isBox(n), n);
+        const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ender-data-'));
+        const svc = new WorkService({ dataDir: d, factory: () => ({}), restore: false });
+        svc.addSite({ name: 'smelter', x: 7, y: 64, z: 7, purpose: 'furnace' });
+        assert.ok(svc.isFixture('chest', 1, 64, 1), 'the owner\'s chest'); assert.ok(svc.isFixture('furnace', 7, 64, 7), 'a tagged block of any kind'); assert.ok(!svc.isFixture('stone', 2, 64, 2));
+        svc.placed.add('1,64,1'); assert.ok(!svc.isFixture('chest', 1, 64, 1), 'a box a bot placed is its own');
+        const bot = { __placed: svc.placed, entity: { effects: {} }, registry: {}, inventory: { items: () => [] } };
+        skillOpts.configure(bot, { fixture: (n, x, y, z) => svc.isFixture(n, x, y, z) });
+        const ctx = (name) => ({ bot, world: { blockAt: () => ({ name, diggable: true }), kindAt: () => 'solid' } });
+        await assert.rejects(() => mine(ctx('chest'), { x: 9, y: 64, z: 9 }), (e) => e instanceof SkillError && e.reason === 'protected', 'refused');
+        await assert.rejects(() => mine(ctx('enderstorage:ender_chest'), { x: 9, y: 64, z: 9 }), (e) => e.reason === 'protected');
+        await assert.rejects(() => mine(ctx('furnace'), { x: 7, y: 64, z: 7 }), (e) => e.reason === 'protected', 'tagged');
+        await assert.rejects(() => mine(ctx('chest'), { x: 1, y: 64, z: 1 }), (e) => e.reason !== 'protected', 'an own box gets past the rule (and fails later only for want of a tool in this fake)');
+        const plain = { entity: { effects: {} }, registry: {}, inventory: { items: () => [] } };
+        await assert.rejects(() => mine({ bot: plain, world: ctx('chest').world }, { x: 9, y: 64, z: 9 }), (e) => e.reason !== 'protected', 'no rule configured (RL bots): unchanged');
+        // the ledger is kept across a restart
+        svc.save(); const svc2 = new WorkService({ dataDir: d, factory: () => ({}), restore: false }); await svc2.restore(); assert.ok(svc2.placed.has('1,64,1'));
+        fs.rmSync(d, { recursive: true });
+        // placing a box remembers it, breaking forgets it
+        const b2 = {}; fixtures.markPlaced(b2, 'shulker_box', { x: 1, y: 2, z: 3 }); fixtures.markPlaced(b2, 'stone', { x: 4, y: 2, z: 3 });
+        assert.ok(fixtures.isOwn(b2, { x: 1, y: 2, z: 3 }) && !fixtures.isOwn(b2, { x: 4, y: 2, z: 3 })); fixtures.unmark(b2, { x: 1, y: 2, z: 3 }); assert.ok(!fixtures.isOwn(b2, { x: 1, y: 2, z: 3 }));
+    });
+
+    await test('windows: a screen a CCL mod opens over ccl:internal becomes an open_window of the right size (Ender Storage chest: 27 slots + the player)', () => {
+        const { attach, parseOpen } = require('../src/transport/forge_windows');
+        const title = '{"translate":"block.enderstorage.ender_chest"}';
+        const pay = Buffer.concat([Buffer.from([0x0a, 0x33, 0x01, title.length]), Buffer.from(title), Buffer.from([0x01, 0x0a, 0x00])]);
+        assert.deepStrictEqual(parseOpen(pay), { menuType: 51, windowId: 1, title });
+        assert.strictEqual(parseOpen(Buffer.from([0x0b, 1, 1])), null); assert.strictEqual(parseOpen(Buffer.from([0x0a, 0x33, 0x01, 0x7f])), null, 'title longer than the data'); assert.strictEqual(parseOpen(Buffer.from([])), null);
+        const { EventEmitter } = require('events'); const bot = { _client: new EventEmitter() }; attach(bot); attach(bot);
+        const opened = []; bot._client.on('open_window', (p) => opened.push(p));
+        bot._client.emit('window_items', { windowId: 1, items: new Array(63).fill({}) });
+        assert.strictEqual(opened.length, 0, 'items alone open nothing');
+        bot._client.emit('custom_payload', { channel: 'other:channel', data: pay }); bot._client.emit('window_items', { windowId: 1, items: new Array(63).fill({}) });
+        assert.strictEqual(opened.length, 0, 'another channel is ignored');
+        bot._client.emit('custom_payload', { channel: 'ccl:internal', data: pay });
+        bot._client.emit('window_items', { windowId: 2, items: new Array(63).fill({}) }); assert.strictEqual(opened.length, 0, 'another window id');
+        bot._client.emit('window_items', { windowId: 1, items: new Array(63).fill({}) });
+        assert.deepStrictEqual(opened, [{ windowId: 1, inventoryType: 'forge:menu_51', windowTitle: title, slotCount: 27 }], 'once, with the slot count');
+        bot._client.emit('window_items', { windowId: 1, items: new Array(63).fill({}) }); assert.strictEqual(opened.length, 1, 'later updates do not reopen it');
+    });
+
     console.log('\nwork ender: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

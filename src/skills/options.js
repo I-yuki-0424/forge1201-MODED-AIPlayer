@@ -6,6 +6,7 @@ const DEFAULTS = Object.freeze({
     retireWorn: false,        // treat a nearly broken tool as unusable (the next harvesting tool is taken; none left = missing_tool, worn)
     wornReserve: 0.06,        // ... when no more than this share of its durability is left,
     wornMin: 8,
+    fixture: null,            // (blockName, x, y, z) -> true for a block that must not be broken (src/skills/fixtures.js); null = nothing is protected
     planNodes: 20000,         // the most cells one path search may expand (the work layer lowers it: a search for a cell nobody can reach used to burn the whole budget)               // ... or at most this many uses, whichever is more
 });
 

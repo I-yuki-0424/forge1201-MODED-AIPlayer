@@ -8,6 +8,7 @@ const { follow, cellGoal, reachGoal, approachUntil, approachBlock, aimAtBlock, c
 const { holdItem, count, resolveItemName } = require('./item');
 const { collectDrops } = require('./entity');
 const skillOpts = require('../options');
+const fixtures = require('../fixtures');
 
 const REPLACEABLE = /^(air|cave_air|void_air|grass|tall_grass|fern|large_fern|dead_bush|snow|seagrass|vine|glow_lichen)$/;
 const FLUID = /^(water|lava)$/;     // `place` with fluid:true may fill these (work/pit.js water rule)
@@ -91,6 +92,9 @@ async function mine(ctx, { x, y, z, collect = true, blind = false, hand = false 
     const b0 = ctx.world.blockAt(x, y, z);
     if (!b0) throw new SkillError('unreachable', { why: 'target chunk not loaded' });
     if (/^(air|cave_air|void_air)$/.test(b0.name) || !b0.diggable || ['liquid', 'water'].includes(ctx.world.kindAt(x, y, z))) throw new SkillError('invalid_target', { block: b0.name, target: cell });
+    // Owner rule: a box the bot did not place (and a tagged block) is a fixture. The bot may use what is inside, never break it.
+    const fixture = skillOpts.get(bot).fixture;
+    if (fixture && !fixtures.isOwn(bot, cell) && fixture(b0.name, x, y, z)) throw new SkillError('protected', { block: b0.name, target: cell });
     // `hand` (work layer only, never in the action schema): break the block with whatever is in the hand when no tool fits. Slow, no drop that needs the tool,
     // but it takes away a block the bot placed itself (the pillar).
     const tool = bestTool(bot, b0) || (hand ? (bestTool(bot, b0, { ignoreWear: true }) || { name: null }) : null);        // a worn-out tool still breaks a block of its own pillar in a moment; bare hands take 7 s per stone
@@ -131,6 +135,7 @@ async function mine(ctx, { x, y, z, collect = true, blind = false, hand = false 
         }
     }
     await ctx.tick({});
+    fixtures.unmark(bot, cell);                                     // an own box that was picked up again is no longer remembered
     // Success is the break the server confirmed. The drop is collected when it can be: many drops are random (leaves,
     // gravel, grass) or fall out of reach (a log felled from a tree top), and the server counts the block as mined either
     // way (run train3, Train6: every leaf/log on a tree top ended not_confirmed while the statistic rose).
@@ -194,7 +199,7 @@ async function place(ctx, { x, y, z, item, fluid = false }) {
         const look = { yaw: bot.entity.yaw, pitch: bot.entity.pitch, sneak };
         await ctx.tick({ ...look, use: true });
         await ctx.tick(look);
-        try { await ctx.until(placed, 10, 'not_confirmed', look); return { against: r.cell, face: hit.face }; } catch (e) { if (e.reason !== 'not_confirmed') throw e; }
+        try { await ctx.until(placed, 10, 'not_confirmed', look); fixtures.markPlaced(bot, item, cell); return { against: r.cell, face: hit.face }; } catch (e) { if (e.reason !== 'not_confirmed') throw e; }
         if (++tried >= 3) break;
     }
     throw new SkillError(tried ? 'not_confirmed' : 'not_visible', { target: cell, tried });
