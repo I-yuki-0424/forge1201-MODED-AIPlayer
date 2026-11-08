@@ -126,6 +126,15 @@ function bot(w, start) {
             assert.strictEqual(pit.standsOnFloater({ w: w4, here: () => ({ x: 5, y: 1, z: 2 }) }, { x: 5, y: 0, z: 2 }), expect, `floor ${floor}`);
             assert.strictEqual(pit.standsOnFloater({ w: w4, here: () => ({ x: 4, y: 1, z: 2 }) }, { x: 5, y: 0, z: 2 }), false, 'standing beside it: fine');
         }
+        // the bot on a one-block pillar: `mine` never stands above its target and says unreachable; the pit digs it blind from where it stands
+        const w5 = world(0); const standing = bot(w5, { x: 5, y: 1, z: 2 }); const seen = []; const o5 = standing.exec;
+        standing.exec = async (n, a) => { if (n === 'move_to') return { ok: true }; if (n === 'mine' && a.x === 5 && a.y === 0 && a.z === 2) { seen.push(!!a.blind); if (!a.blind) return { ok: false, reason: 'unreachable', detail: { goal: 'reach block', expanded: 1 } }; } return o5(n, a); };
+        const j5 = pit.createPitJob({ x0: 0, z0: 0, x1: 9, z1: 4, top: 0, bottom: 0 }, {}, { method: 'sweep' });
+        const reg5 = j5.plan.regions[0]; j5.ledger.join('A');
+        let tile5 = null; for (let u = 0; u < reg5.meta.stations.length && tile5 === null; u++) if (pit.unitCells(j5.plan, reg5, u).some((c) => c.x === 5 && c.y === 0 && c.z === 2)) tile5 = u;
+        standing.st.here = { x: 5, y: 1, z: 2 };
+        const r5 = await j5.runUnit(reg5.id, { unit: tile5, layer: 0, row: tile5 }, standing);
+        assert.ok(seen.includes(true), `no blind dig tried: ${seen.join(',')}`); assert.ok(r5.ok !== undefined);
         // with a lift: the first 'unreachable' puts the bot on a standable cell by the block (once per cell), and the mine is tried again
         const lifts = []; const stuck = bot(world(0), { x: 0, y: 1, z: 0 }); const o3 = stuck.exec; let freed = false;
         stuck.exec = async (n, a) => (n === 'mine' && !freed ? { ok: false, reason: 'unreachable', detail: { why: 'no path' } } : o3(n, a));

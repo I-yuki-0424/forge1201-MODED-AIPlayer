@@ -232,6 +232,9 @@ async function runUnit(plan, region, u, env) {
         // jump, sidestep, go back to where the bot last worked (env.recover; the worker's ladder).
         // Retrying a cell nobody can reach changes nothing: one more look for 'unreachable', then the unit fails and is tried again later (repair passes).
         for (let tries = 0; !m.ok && !open(c) && tries < (m.reason === 'unreachable' ? 1 : 6) && RETRY.has(m.reason); tries++) { if (env.recover) await env.recover(Math.min(tries + 2, 4), m); await (env.pause ? env.pause(10 + 10 * tries) : null); m = await env.exec('mine', mineArgs(c)); }
+        // The bot stands on the block (the `mine` command never stands above its target; on a one-block pillar there is no other cell): dig it from where it stands, blind. It drops one
+        // block onto the pillar below (the floor check above guarantees there is one within three cells). Live pit 2026-11-07: bots walked between the rim and such pillars for an hour.
+        if (!m.ok && !open(c) && m.reason === 'unreachable' && env.here) { const h = env.here(); if (h.x === c.x && h.z === c.z && h.y === c.y + 1) { r.blind = (r.blind || 0) + 1; m = await env.exec('mine', { ...mineArgs(c), blind: true }); } }
         // Nothing to walk on from where the bot stands (a one-block pillar over a void: the search expands a single node) and the block is out of reach: the server puts
         // the bot on a standable cell next to the block (env.lift), once per cell. Live pit 2026-11-07: two bots stood on leftover pillars and failed 'unreachable' for good.
         if (!m.ok && !open(c) && m.reason === 'unreachable' && env.lift && !liftedFor.has(`${c.x},${c.y},${c.z}`)) {
