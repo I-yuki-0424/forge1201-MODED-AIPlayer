@@ -13,12 +13,28 @@ const Tiles = {
         if (force) for (const k of [...this.tiles.keys()]) if (k.startsWith(dim + '/')) this.tiles.delete(k);
         return list;
     },
+    /** Re-read the region list now and then (the server saves its chunks every few minutes): changed regions are fetched again as they are drawn, the old picture stays until then. */
+    startPolling(ms = 15000) {
+        if (this.timer) return;
+        this.timer = setInterval(async () => {
+            if (document.hidden) return;
+            for (const dim of [...this.index.keys()]) {
+                try {
+                    const list = (await api('GET', `/api/map/regions?dim=${dim}`)).regions, old = this.index.get(dim) || [];
+                    const same = list.length === old.length && list.every((r, i) => r.rx === old[i].rx && r.rz === old[i].rz && r.mtime === old[i].mtime);
+                    if (!same) { this.index.set(dim, list); this.listeners.forEach((f) => f()); }
+                } catch (_) { /* the next tick tries again */ }
+            }
+        }, ms);
+    },
     get(dim, rx, rz, mtime) {
         const key = `${dim}/${rx}/${rz}`, t = this.tiles.get(key);
-        if (t && (t.loading || t.mtime === mtime)) return t;
-        this.tiles.set(key, { loading: true });
+        if (t && ((t.loading && t.want === mtime) || (!t.loading && t.mtime === mtime))) return t;
+        // The stale picture stays until the new one is ready. It used to be replaced by an empty entry here, so a region the server had just saved was drawn black until the
+        // reload arrived (the chunk the bot works in flickered between black and map every time it was saved).
+        this.tiles.set(key, { loading: true, want: mtime, canvas: t && t.canvas, mtime: t && t.mtime });
         this.waiting.push({ key, dim, rx, rz }); this.pump();
-        return t && t.canvas ? t : null;            // the stale picture stays until the new one is ready
+        return t && t.canvas ? t : null;
     },
     pump() {
         while (this.active < 3 && this.waiting.length) {
@@ -30,10 +46,12 @@ const Tiles = {
                 const img = new ImageData(512, 512); BlockColor.paintRegion(r.names, bin(r.idx), bin(r.h), img.data, 512);
                 c.getContext('2d').putImageData(img, 0, 0);
                 this.tiles.set(job.key, { canvas: c, mtime: r.mtime });
-            }).catch(() => this.tiles.set(job.key, { empty: true, mtime: -1 })).finally(() => { this.active--; this.listeners.forEach((f) => f()); this.pump(); });
+            }).catch(() => { const old = this.tiles.get(job.key); this.tiles.set(job.key, old && old.canvas ? { canvas: old.canvas, mtime: old.mtime } : { empty: true, mtime: -1 }); }).finally(() => { this.active--; this.listeners.forEach((f) => f()); this.pump(); });
         }
     },
 };
+
+Tiles.startPolling();
 
 class MapView {
     /**

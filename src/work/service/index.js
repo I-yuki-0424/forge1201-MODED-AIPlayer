@@ -89,6 +89,7 @@ class WorkService extends EventEmitter {
     async restore() {
         let d; try { d = JSON.parse(fs.readFileSync(path.join(this.o.dataDir, 'state.json'), 'utf8')); } catch (_) { return; }
         this.settings = { ...this.settings, ...(d.settings || {}) }; this.seq = d.seq || 0;
+        this._mapSaveTimer();
         this.sites = new Sites(d.sites || []);
         for (const k of Array.isArray(d.placed) ? d.placed : []) if (/^-?\d+,-?\d+,-?\d+$/.test(k)) this.placed.add(k);
         for (const j of d.jobs || []) {
@@ -108,7 +109,7 @@ class WorkService extends EventEmitter {
         try { this.save(); } catch (_) { /* best effort */ }
         for (const rec of this.bots.values()) { rec.removed = true; clearTimeout(rec.timer); this._stopWorker(rec); try { rec.bot && rec.bot.quit && rec.bot.quit(); } catch (_) { /* gone */ } }
         if (this._rcon) { try { this._rcon.close(); } catch (_) { /* gone */ } }
-        clearInterval(this._watch); clearInterval(this._lag); this.maps.close(); if (this.display) this.display.stop();
+        clearInterval(this._watch); clearInterval(this._lag); clearInterval(this._mapSave); this.maps.close(); if (this.display) this.display.stop();
     }
 }
 

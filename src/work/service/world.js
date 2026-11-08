@@ -9,8 +9,18 @@ class WorldPart {
     /** Ask the server to write its chunks to disk, then forget the cached regions: the map follows what the server has saved. */
     async mapRefresh() { need(this.o.rcon, 'refreshing the map needs RCON (save-all)', 503); await this.rcon('save-all flush'); this.maps.invalidate(); return { ok: true }; }
 
+    /** The map follows the files the server saves; with `mapSave` the service asks it to save (save-all, not flush: no wait for the disk) so that it follows the bots more closely. */
+    _mapSaveTimer() {
+        clearInterval(this._mapSave); this._mapSave = null;
+        const every = this.settings.mapSave | 0;
+        if (!every || !this.o.rcon) return;
+        this._mapSave = setInterval(() => { this.rcon('save-all').then(() => this.maps.invalidate()).catch(() => {}); }, every * 1000);
+        this._mapSave.unref?.();
+    }
+
     setSettings(s) {
         if (s && s.display && typeof s.display === 'object') for (const k of ['on', 'paths', 'lanes', 'tags']) if (typeof s.display[k] === 'boolean') this.settings.display = { ...this.settings.display, [k]: s.display[k] };
+        if (s && s.mapSave !== undefined) { need([0, 30, 60, 120, 300].includes(s.mapSave), 'mapSave: 0 (off), 30, 60, 120 or 300 seconds'); this.settings.mapSave = s.mapSave; this._mapSaveTimer(); }
         if (s && typeof s.autoKit === 'boolean') this.settings.autoKit = s.autoKit;
         if (s && typeof s.scripts === 'boolean') this.settings.scripts = s.scripts;
         if (s && typeof s.glow === 'boolean') { this.settings.glow = s.glow; if (!s.glow) for (const r of this.bots.values()) this._clearGlow(r); }

@@ -14,19 +14,29 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
     const w = fromBot(bot);
     let good = null;                                             // the feet cell where the bot last finished a unit: a place it can stand and work
     const hold = async (key, ms) => { bot.setControlState(key, true); await sleep(ms); bot.setControlState(key, false); };
-    /** One basic fix per level, then the caller waits: 2 jump, 3 step to a safe neighbouring cell, 4+ walk back to the last good place. */
-    async function recover(level) {
+    /**
+     * One basic fix per call, then the caller waits. The first failure in a place gets the gentlest (level 2 jump, 3 step aside, 4 back to the last good place);
+     * the same failure in the same place again gets a different one (escape.js: step back, a pause, a server lift ...), not the same fix over and over.
+     */
+    const escapes = new Map();
+    async function recover(level, failure) {
         if (cancel && cancel.cancelled) return;
-        if (level === 2) { await hold('jump', 350); await sleep(250); await hold('jump', 350); return; }
-        if (level === 3) {
-            const f = feetCell(bot.entity.position), dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]].sort(() => Math.random() - 0.5);
-            for (const [dx, dz] of dirs) {                       // free feet and head cell ahead, solid floor, no fluid or danger: safe to step into
-                const k = (y) => w.kindAt(f.x + dx, f.y + y, f.z + dz);
-                if (k(0) === 'air' && k(1) === 'air' && k(-1) === 'solid') {
-                    await bot.look(Math.atan2(-dx, -dz), 0, true); await hold('forward', 350); return;
-                }
-            }
-            await hold('jump', 350); return;
+        const esc = require('./escape'), f = feetCell(bot.entity.position);
+        const { fix, h } = esc.pick(escapes, level, failure, f);
+        const stepTo = async (dx, dz, ms) => { await bot.look(Math.atan2(-dx, -dz), 0, true); await hold('forward', ms); };
+        const roomAt = (dx, dz) => { const k = (y) => w.kindAt(f.x + dx, f.y + y, f.z + dz); return k(0) === 'air' && k(1) === 'air' && k(-1) === 'solid'; };   // free feet and head cell, solid floor
+        const sidestep = async (ms) => {
+            for (let i = 0; i < 4; i++) { const [dx, dz] = esc.freshDirection(h); if (roomAt(dx, dz)) { await stepTo(dx, dz, ms); return true; } }
+            return false;
+        };
+        if (fix === 'jump') { await hold('jump', 350); await sleep(250); await hold('jump', 350); return; }
+        if (fix === 'sidestep') { if (!await sidestep(350)) await hold('jump', 350); return; }
+        if (fix === 'back_off') { if (!await sidestep(800)) await hold('jump', 350); return; }          // two cells away: the next approach comes from another side
+        if (fix === 'wait') { await sleep(1500 + Math.floor(Math.random() * 2000)); return; }          // something in the way moves on, the server catches up
+        if (fix === 'lift') {
+            if (rcon && envObj.lift) { const l = await envObj.lift(f, { radius: 4, up: 2, down: 1 }); if (l.ok) return; }
+            if (!await sidestep(800)) await hold('jump', 350);
+            return;
         }
         if (good) {
             const here = feetCell(bot.entity.position);
@@ -68,11 +78,12 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
     const feet = () => feetCell(bot.entity.position);
     const envObj = {
         w, now: Date.now, recover, temp: new Map(),
+        stations: bot.__stations || (bot.__stations = {}),           // crafting table / furnace the bot placed and has not taken back: reused by the next script run (script.js)
         discard: disc.makeClear({ rcon, name: bot.username, count: have }),
         dumpSpot: avoid ? () => disc.dumpSpot(w, feet(), { avoid: avoid(), others: others ? others() : [] }) : null,
         threat: gd ? () => (defendOn ? gd.threat() : null) : null,
         defend: gd ? () => gd.defend((name, args) => execute(bot, name, args, { cancel })) : null,
-        dispose: () => { if (gd) gd.detach(); }, rememberGood: () => { good = feetCell(bot.entity.position); },
+        dispose: () => { if (gd) gd.detach(); }, rememberGood: () => { good = feetCell(bot.entity.position); escapes.clear(); },
         inWater: () => !!bot.entity.isInWater || require('./water').inWater(w, feetCell(bot.entity.position)),
         items: (near, r) => dropsNear(bot, near, r),
         configure: (o) => { if (o && typeof o.defend === 'boolean') defendOn = o.defend; return require('../../skills/options').configure(bot, o); },

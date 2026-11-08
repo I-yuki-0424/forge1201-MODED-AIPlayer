@@ -57,6 +57,13 @@ const click = (el) => el.dispatchEvent(new w.MouseEvent('click', { bubbles: true
     ok(sent.some((s) => s[1] === '/api/settings' && s[2] && s[2].retireWorn === false), 'switching retireWorn off posts the setting');
     const dsp = boxes.slice(7); dsp[1].checked = false; dsp[1].dispatchEvent(new w.Event('change', { bubbles: true })); await tick();
     ok(sent.some((s) => s[1] === '/api/settings' && s[2] && s[2].display && s[2].display.paths === false), 'a display layer is switched through the settings route');
+    // ---- Map tiles: a region the server saved again keeps its old picture while the new one loads (it was drawn black: the chunk of a working bot flickered)
+    { const T = w.eval('Tiles'), fake = { fake: 'canvas' };
+      T.tiles.set('overworld/9/9', { canvas: fake, mtime: 1 });
+      const got = T.get('overworld', 9, 9, 2);
+      ok(got && got.canvas === fake && T.tiles.get('overworld/9/9').canvas === fake, 'a tile whose file changed is still drawn from the old picture');
+      ok(T.get('overworld', 9, 9, 2).canvas === fake && T.waiting.filter((j) => j.key === 'overworld/9/9').length <= 1, 'and asked for only once while loading');
+      T.tiles.delete('overworld/9/9'); T.waiting.length = 0; }
     // ---- Tags page (tagged blocks, links)
     click(w.document.querySelector('#nav button[data-page="tags"]')); await tick(300);
     const tp = w.document.querySelector('#page .page:not(.hidden)');

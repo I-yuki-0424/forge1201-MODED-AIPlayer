@@ -21,7 +21,7 @@
 const { COMMANDS, validateArgs } = require('../../skills');
 const janitor = require('./janitor');
 
-const MAX_STEPS = 200, MAX_DEPTH = 6;
+const MAX_STEPS = 200, MAX_DEPTH = 8;
 const WORK_MOVES = new Set(['pillar', 'take_usable']);
 const TIERS = ['netherite', 'diamond', 'iron', 'stone', 'golden', 'wooden'];
 const CLASSES = new Set(['pickaxe', 'axe', 'shovel', 'sword', 'hoe']);
@@ -180,7 +180,14 @@ async function runScript(script, env, { cancel = { cancelled: false }, maxSteps 
                 res = await placeStation(env, st, s.station);
                 note(`${s.station.replace('_', ' ')} ${res.ok ? 'placed' : res.reason}`);
             } else if (s.release_station) {
-                if (st.table) { res = await env.exec('mine', { ...st.table }); st.table = null; }
+                // Both stations come back into the pack (owner 2026-11-09: a furnace and a table per tool replacement filled the surface). A table or furnace that cannot be
+                // taken back stays remembered (env.stations) and is used again by the next run instead of a new one being placed.
+                for (const k of ['table', 'furnace']) {
+                    if (!st[k]) continue;
+                    const kind = k === 'table' ? 'crafting_table' : 'furnace', r = await env.exec('mine', { ...st[k] });
+                    if (r.ok) { if (env.stations) delete env.stations[kind]; st[k] = null; note(`${kind.replace('_', ' ')} taken back`); }
+                    else { note(`${kind.replace('_', ' ')} stays: ${r.reason}`); if (k === 'table') res = r; }
+                }
             } else if (s.leave_pit) {
                 if (!st.origin && env.here) st.origin = { ...env.here() };                    // where the bot stood: `go_back` returns there
                 res = env.box && env.leavePit ? await env.leavePit(env.box) : { ok: false, reason: 'invalid_target', detail: { why: 'not in a pit job' } };
@@ -205,10 +212,22 @@ async function runScript(script, env, { cancel = { cancelled: false }, maxSteps 
     return result('end');
 }
 
+/** The remembered station of this kind, when the block is still there and within a short walk (12 blocks across, 4 up or down); else null. */
+function recallStation(env, kind) {
+    const m = env.stations && env.stations[kind];
+    if (!m || !env.w || !env.here) return null;
+    const h = env.here();
+    if (env.w.nameAt(m.x, m.y, m.z) !== kind) { delete env.stations[kind]; return null; }       // taken away or broken since
+    return Math.abs(h.x - m.x) <= 12 && Math.abs(h.z - m.z) <= 12 && Math.abs(h.y - m.y) <= 4 ? { x: m.x, y: m.y, z: m.z } : null;
+}
+
 /** A crafting table or a furnace beside the bot: placed from the inventory, made first when there is none (planks / 8 cobblestone). Sets st.table or st.furnace to its x, y, z. */
 async function placeStation(env, st, kind = 'crafting_table') {
     // Already placed by an earlier step of this script (the furnace needed the table first) and the bot has not walked off: use it again instead of asking for another.
     const placed = st[kind === 'furnace' ? 'furnace' : 'table'];
+    // A station of an earlier run (kept in env.stations, see release_station) that is still there and near: use it, do not place and craft another.
+    const known = !placed && recallStation(env, kind);
+    if (known) { st[kind === 'furnace' ? 'furnace' : 'table'] = known; return { ok: true, reused: true, remembered: true }; }
     if (placed && env.here) { const h = env.here(); if (Math.abs(h.x - placed.x) <= 3 && Math.abs(h.y - placed.y) <= 3 && Math.abs(h.z - placed.z) <= 3) return { ok: true, reused: true }; }
     if (count(env, kind) < 1) {
         if (!(env.canCraft && env.canCraft(kind))) return { ok: false, reason: 'missing_materials', detail: { why: kind === 'furnace' ? 'no furnace and no 8 cobblestone to make one' : 'no crafting table and no planks to make one' } };
@@ -226,11 +245,21 @@ async function placeStation(env, st, kind = 'crafting_table') {
     if (!spots.length) return { ok: false, reason: 'invalid_target', detail: { why: `no free cell near the bot for a ${kind.replace('_', ' ')}` } };
     let p = { ok: false, reason: 'invalid_target' }, spot = null;
     for (const c of spots.slice(0, 6)) { spot = c; p = await env.exec('place', { x: c.x, y: c.y, z: c.z, item: kind }); if (p.ok) break; if (['died', 'disconnected', 'cancelled'].includes(p.reason)) break; }
-    if (p.ok) st[kind === 'furnace' ? 'furnace' : 'table'] = { x: spot.x, y: spot.y, z: spot.z };          // only the coordinates: the rest would reach the craft command as an unknown argument
+    if (p.ok) {
+        st[kind === 'furnace' ? 'furnace' : 'table'] = { x: spot.x, y: spot.y, z: spot.z };          // only the coordinates: the rest would reach the craft command as an unknown argument
+        if (env.stations) env.stations[kind] = { x: spot.x, y: spot.y, z: spot.z };
+    }
     return p;
 }
 
 // ------------------------------------------------------------------------------------------------------------------------ built in
+
+/** The pack holds what a pickaxe is made of: three iron ingots (or three raw iron and fuel to smelt them), or cobblestone for a stone one, and two sticks. */
+const CRAFTABLE_BELOW = { all: [{ has: { item: 'stick', min: 2 } }, { any: [
+    { has: { item: 'iron_ingot', min: 3 } },
+    { all: [{ has: { item: 'raw_iron', min: 3 } }, { any: [{ has: { item: 'coal', min: 1 } }, { has: { item: 'charcoal', min: 1 } }, { planks: 3 }, { logs: 2 }] }] },
+    { all: [{ harvests: 'stone_pickaxe' }, { any: [{ has: { item: 'cobblestone', min: 3 } }, { has: { item: 'cobbled_deepslate', min: 3 } }] }] },
+] }] };
 
 /** The owner's example: no usable tool -> a free one from the tools chest -> else craft one (iron, sticks) -> back to work. */
 const REPLACE_TOOL = {
@@ -242,7 +271,8 @@ const REPLACE_TOOL = {
         { if: { tool: 'pickaxe' }, then: [{ return: 'ok' }] },
         // 1b. the chest is far above (the pit is deep): climb out (lift or pillar) and take what is needed up here; the crafting below also happens up here, on open ground. The bot is not
         // sent back: the next unit lifts it to its layer (a teleport back onto the spot it left put bots on one-block islands in the open pit).
-        { if: { site: 'tools' }, then: [
+        // Not when the pack already makes one (owner 2026-11-09: the bot climbed all the way up with the iron, the sticks and the cobblestone in its pack): that is crafted below.
+        { if: { all: [{ site: 'tools' }, { not: CRAFTABLE_BELOW }] }, then: [
             { leave_pit: true, optional: true },
             { take_tool: { class: 'pickaxe', from: 'tools', until: 2 }, optional: true },
             // While the bot is up here: what it needs to make a pickaxe down there (the chests are out of reach from the pit bottom).

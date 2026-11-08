@@ -242,6 +242,41 @@ function bot(w, start) {
         assert.strictEqual(rd.ok, false, 'a worn tool is not a tool');
         const e2 = mk({ iron_ingot: 3, stick: 2 }, { craftable: ['crafting_table'] }); const re = await script.runScript(script.BUILT_IN.get('replace-tool'), e2);
         assert.ok(re.ok && e2.calls.some((x) => x[1] === 'crafting_table'), 'no table in the pack: made from planks first');
+        // owner 2026-11-09: a bot that holds what a pickaxe is made of does not climb to the tools chest (a long trip out of a deep pit) to take one
+        const trip = (inv) => { const e = mk(inv, { sites: tools }); e.box = { x0: 0, z0: 0, x1: 9, z1: 9 }; e.leavePit = async () => { e.calls.push(['leave_pit']); return { ok: true }; }; return e; };
+        const f = trip({ iron_ingot: 3, stick: 2, crafting_table: 1 }); const rf = await script.runScript(script.BUILT_IN.get('replace-tool'), f);
+        assert.ok(rf.ok && f.inv.iron_pickaxe === 1 && !f.calls.some((x) => x[0] === 'leave_pit'), `crafted below, no climb: ${JSON.stringify(f.calls)}`);
+        const g = trip({ cobblestone: 5, stick: 2, crafting_table: 1 }); g.canHarvest = () => true; g.exec = ((o) => async (n, a) => (n === 'craft' && a.item === 'stone_pickaxe' ? (g.inv.stone_pickaxe = 1, { ok: true }) : o(n, a)))(g.exec);
+        await script.runScript(script.BUILT_IN.get('replace-tool'), g); assert.ok(!g.calls.some((x) => x[0] === 'leave_pit'), 'cobblestone and sticks make a stone pickaxe below too');
+        const h = trip({}); await script.runScript(script.BUILT_IN.get('replace-tool'), h); assert.ok(h.calls.some((x) => x[0] === 'leave_pit'), 'nothing to craft from: the climb to the tools chest is still made');
+        const h2 = trip({ iron_ingot: 3 }); await script.runScript(script.BUILT_IN.get('replace-tool'), h2); assert.ok(h2.calls.some((x) => x[0] === 'leave_pit'), 'ingots but no sticks: not craftable below');
+    });
+
+    await test('stations: a table or furnace the bot could not take back is used again by the next run; one that is gone or far away is not; release takes both back', async () => {
+        const w = world(0), stations = {}, placed = [];
+        const env = (inv) => ({ w, stations, inv, calls: [], sites: new Sites(), here: () => ({ x: 0, y: 1, z: 0 }), pos: () => ({ x: 0, z: 0 }), have: (n) => env.cur.inv[n] || 0, canCraft: () => true, itemExists: () => true,
+            exec: async (n, a) => {
+                env.cur.calls.push([n, a.item || `${a.x},${a.y},${a.z}`]);
+                if (n === 'place') { env.cur.inv[a.item]--; w.set(a.x, a.y, a.z, a.item); placed.push(a.item); return { ok: true }; }
+                if (n === 'mine') { if (env.keep) return { ok: false, reason: 'unreachable' }; env.cur.inv[w.nameAt(a.x, a.y, a.z)] = 1; w.set(a.x, a.y, a.z, 'air'); return { ok: true }; }
+                if (n === 'craft') { if (a.item === 'iron_pickaxe' && a.x === undefined) return { ok: false, reason: 'no_station' }; return { ok: true }; }
+                return { ok: true };
+            } });
+        const sc = { name: 'x', steps: [{ station: 'crafting_table' }, { station: 'furnace' }, { cmd: 'craft', args: { item: 'iron_pickaxe', count: 1 }, table: true }, { release_station: true }] };
+        env.keep = true;                                                                  // taking them back fails (the bot cannot reach them)
+        env.cur = env(); env.cur.inv = { crafting_table: 1, furnace: 1 }; let r = await script.runScript(script.validate(sc), env.cur);
+        assert.deepStrictEqual(placed, ['crafting_table', 'furnace']); assert.ok(stations.crafting_table && stations.furnace, 'both are remembered');
+        env.cur = env(); env.cur.inv = { crafting_table: 1, furnace: 1 }; r = await script.runScript(script.validate(sc), env.cur);
+        assert.deepStrictEqual(placed, ['crafting_table', 'furnace'], 'the second run placed nothing new'); assert.ok(r.log.some((l) => /stays/.test(l)));
+        const t = stations.crafting_table; w.set(t.x, t.y, t.z, 'air');                    // someone took the table away
+        env.cur = env(); env.cur.inv = { crafting_table: 1, furnace: 1 }; await script.runScript(script.validate(sc), env.cur);
+        assert.strictEqual(placed.filter((x) => x === 'crafting_table').length, 2, 'a gone table is placed again'); assert.strictEqual(placed.filter((x) => x === 'furnace').length, 1);
+        env.keep = false;                                                                  // now it can take them back: nothing is remembered afterwards
+        env.cur = env(); env.cur.inv = { crafting_table: 1, furnace: 1 }; r = await script.runScript(script.validate(sc), env.cur);
+        assert.ok(r.log.filter((l) => /taken back/.test(l)).length === 2 && !stations.crafting_table && !stations.furnace, JSON.stringify(r.log));
+        // a station far away is not walked to
+        stations.furnace = { x: 40, y: 1, z: 0 }; w.set(40, 1, 0, 'furnace'); env.cur = env(); env.cur.inv = { crafting_table: 1, furnace: 1 }; const n0 = placed.length;
+        await script.runScript(script.validate({ name: 'y', steps: [{ station: 'furnace' }] }), env.cur); assert.strictEqual(placed.length, n0 + 1, 'a furnace 40 blocks away is not reused');
     });
 
     await test('worker: a missing tool runs the recovery script and the bot carries on; the script is tried a few times, then the bot waits as before; off = old behaviour', async () => {
