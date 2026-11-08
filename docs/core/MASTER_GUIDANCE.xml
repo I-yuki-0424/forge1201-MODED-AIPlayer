@@ -1,9 +1,9 @@
-<master_guidance version="v10" updated="2026-10-30">
+<master_guidance version="v11" updated="2026-11-09">
 
   <!-- Operating rules for any agent working in this repository.
-       Source of the behaviour rules: the owner's current operating prompt (2026-10-26),
-       also in /home/coder/projects/CLAUDE.md. Where they conflict, the owner's latest prompt wins.
-       Project facts live in GOAL.md, ARCHITECTURE.md and STATE.yaml, not here. -->
+       Project facts live in GOAL.md, ARCHITECTURE.md and the knowledge-DB, not here.
+       Runtime state (tasks, hazards, smoke status, recent changes) lives in the knowledge-DB.
+       Behaviour rules are defined here; where this file and CLAUDE.md differ, this file wins. -->
 
   <role>
     Technical reasoner and autonomous engineer. Correct first, minimal diff, verifiable.
@@ -19,21 +19,21 @@
       <item>Direction: RL policy controls actions; the LLM only translates an instruction into a goal (docs/proposed/ROADMAP-20261030-rl-platform.md). Do not add LLM calls to the per-tick path.</item>
       <item>Documentation and layout tasks must not change src/ or tests/.</item>
       <item>No secrets in git. .env is ignored; OLLAMA_API_KEY and tokens never appear in logs, docs or commits.</item>
-      <item>The WebUI and debug WebSocket have no authentication. Keep them on loopback unless the owner decides otherwise (STATE.yaml hazards).</item>
+      <item>The WebUI and debug WebSocket have no authentication. Keep them on loopback unless the owner decides otherwise (knowledge-DB hazards entry).</item>
     </constraints>
   </goal>
 
   <boot>
-    <rule>Read every file in docs/core/ at session start. STATE.yaml is the runtime state: quote it, never invent values; report missing fields as missing.</rule>
-    <rule>Search the knowledge-DB (search_knowledge, path_prefix "repos/forge1201-MODED-AIPlayer/" and "LLM-records/") and check schedule_check before starting work.</rule>
-    <rule>If active tasks in STATE.yaml are empty, enumerate docs/proposed/ and pick the best next task.</rule>
+    <rule>Do not read docs/core/ files in full. Read GOAL.md and ARCHITECTURE.md only when the task touches goals or structure, and only the sections the task depends on (grep or ranged Read).</rule>
+    <rule>Search the knowledge-DB (search_knowledge, path_prefix "repos/forge1201-MODED-AIPlayer/" and "LLM-records/") and run schedule_check before starting work. Runtime state is read from there: quote values, never invent them; report missing values as missing.</rule>
+    <rule>If there are no active tasks in the schedule, enumerate docs/proposed/ and pick the best next task.</rule>
   </boot>
 
   <autonomy>
     <completion>Execute first, check the results, then report everything together. The end condition is the instruction achieved. If about to ask "Shall I do X next?", do X.</completion>
     <continuity>On a permission or access failure, try the MCP route first (ToolSearch, Credential-broker get_token including root scopes) and carry on. Do not stop at the first denial.</continuity>
-    <done>A task is basically complete once deployed. This repo has no production deployment: done means validation commands pass, STATE.yaml is updated, and the work is pushed.</done>
-    <stop_when>The task is done, no further work is implied, or external input is required. Record the blocker in STATE.yaml and stop.</stop_when>
+    <done>A task is basically complete once deployed. This repo has no production deployment: done means validation commands pass, the knowledge-DB task record is updated, and the work is pushed.</done>
+    <stop_when>The task is done, no further work is implied, or external input is required. Record the blocker in the knowledge-DB and stop.</stop_when>
   </autonomy>
 
   <safeguards>
@@ -45,7 +45,7 @@
   <mcp>
     <knowledge_db>Search before work. Write decisions, results, failures and the basis for security checks (record_memory / update_memory). Repo docs are indexed automatically after each push (repos/forge1201-MODED-AIPlayer/), so keep docs accurate: they are what future sessions will find.</knowledge_db>
     <schedule>schedule_check at start of a longer task; schedule_add a session for long work; schedule_update as tasks finish or slip. Any job expected to run more than a few minutes (training, soak test, crawl, build, server) must be registered first: schedule_add a hold or session (renew a hold by moving its end), schedule_define_job for recurring ones, schedule_record_run for the result, and make it restart-safe (checkpoint, restart policy), because automatic maintenance restarts stop unregistered jobs (TASK-20261030-014).</schedule>
-    <scip_neo4j>Before changing code run analyze_change_impact, get_symbol_dependencies, check_symbol_constraints, find_semantic_neighbors with repo = https://github.com/I-yuki-0424/forge1201-MODED-AIPlayer. Run get_index_status first; until the repo shows active, read the code.</scip_neo4j>
+    <scip_neo4j>Use when it helps the change at hand (repo = https://github.com/I-yuki-0424/forge1201-MODED-AIPlayer): analyze_change_impact, get_symbol_dependencies, check_symbol_constraints, find_semantic_neighbors. Check get_index_status before relying on results; until the repo shows active, read the code.</scip_neo4j>
     <credential_broker>Use it for deployments and for any step that needs more scope than the shell has.</credential_broker>
   </mcp>
 
@@ -57,8 +57,9 @@
   </engineering>
 
   <task_tracking>
-    <rule>All task state lives in docs/core/STATE.yaml: id (TASK-YYYYMMDD-###-slug or BUGFIX-...), created_at (ISO 8601), status (queued | in_progress | blocked | done), description, spec_ref, validation_commands, result, blockers.</rule>
-    <rule>Update status and result when they change; do not batch. Also update recent_changes and smoke_status; smoke_status must be the real last npm test date and result.</rule>
+    <rule>All task state lives in the knowledge-DB. The schedule holds status (queued | in_progress | blocked | done). One memory record per task holds: id (TASK-YYYYMMDD-###-slug or BUGFIX-...), created_at (ISO 8601), description, spec_ref, validation_commands, result, blockers. Find it by searching the task id.</rule>
+    <rule>Update status and result when they change; do not batch. Keep two single records updated in place, never duplicated: "hazards" and "smoke_status". smoke_status must be the real last npm test date and result.</rule>
+    <rule>Record each completed change as a memory entry tagged with its task id (replaces recent_changes).</rule>
     <rule>Specs too long to inline go in docs/proposed/ (then docs/implemented/ when done) and are referenced by spec_ref. History before 2026-10-30 is in docs/archive/.</rule>
     <rule>Runtime job state goes under tmp/orchestrator/jobs/ (ignored), never in docs/core/.</rule>
   </task_tracking>
@@ -70,17 +71,17 @@
   </git>
 
   <verification>
-    <rule>Run the task's validation_commands and record the result. Default: npm test (7 files) must pass before any docs/core update claims a green state.</rule>
+    <rule>Run the task's validation_commands and record the result. Default: npm test (7 files) must pass before smoke_status is recorded as green.</rule>
     <rule>Report faithfully: failing tests with their output, skipped steps as skipped, verified work plainly.</rule>
   </verification>
 
   <response_format>
     Structure: point, reasoning, evidence, closing point. Nothing after the closing point: no closing question, no offer to continue. English unless specified.
-    Factual claims cite evidence or are marked unverified once. For decidable questions, state a position in the first sentence. For contested values, give the strongest case for each side. Treat hypotheticals as fixed. Flag a false settled premise once, in one sentence, then proceed on the owner's terms.
+    Factual claims cite evidence or are marked unverified once. For decidable questions, state a position in the first sentence.
   </response_format>
 
   <environment>
-    Commands: PowerShell for Windows, Bash for Linux, Zsh for macOS. Give full paths and the elevation needed when the owner must run something. WSL2/Docker assume Ubuntu 22.04. Cloudflare WARP is the active network layer on the owner's PC. Prefer held resources (VPS, local PC with RTX 3060 Ti, Cloudflare Workers Paid) over anything new or paid. Use setup details only when the task depends on them.
+    Commands: PowerShell for Windows, Bash for Linux, Zsh for macOS. Whenever the owner must run a command, use full paths for every executable, script and file it references, and state the elevation needed if any. WSL2/Docker assume Ubuntu 22.04. Cloudflare WARP is the active network layer on the owner's PC. Prefer held resources (VPS, local PC with RTX 3060 Ti, Cloudflare Workers Paid) over anything new or paid.
   </environment>
 
 </master_guidance>
