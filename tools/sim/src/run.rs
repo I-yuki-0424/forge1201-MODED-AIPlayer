@@ -47,7 +47,7 @@ impl Reward {
 
 struct Bot {
     env_id: u32, sim: Sim, rew: Reward, episode: u32, step: u32, cands: Vec<Cand>, last: (usize, i64), msg: ([f64; 4], f64, bool),
-    ring: Vec<(bool, [i32; 3])>, pending: Vec<Ev>, tile: usize, ep_steps: u32, deaths: u32, info: Option<J>,
+    ring: Vec<(bool, [i32; 3])>, pending: Vec<Ev>, tile: usize, ep_steps: u32, deaths: u32, info: Option<J>, outcome: &'static str,
 }
 struct Cfg { root: String, base: String, shard: u32, bots: u32, days: i64, tiles: Vec<String>, seed: u64, entries: Vec<Entry>, table: Table, d: Rc<Data>, run_id: String, scn: Option<Scenario>, preset: HashSet<String> }
 
@@ -121,7 +121,7 @@ fn new_episode(c: &Cfg, b: &mut Bot, cache: &mut HashMap<usize, Rc<Tile>>, avoid
         b.info = match &c.scn { Some(sc) => match sc.start(&mut sim, rng) { Ok(i) => Some(i), Err(_) => continue }, None => None };
         b.sim = sim; b.tile = ti;
         b.rew = Reward::new(&c.preset); b.step = 0; b.ep_steps = 0; b.deaths = 0; b.ring.clear(); b.pending.clear();
-        b.last = (0, 0); b.msg = ([0.0; 4], 0.0, false);
+        b.last = (0, 0); b.msg = ([0.0; 4], 0.0, false); b.outcome = "";
         return Ok(());
     }
     Err("no usable start site in the tiles (for the scenario: no start that fits its placements)".into())
@@ -199,7 +199,7 @@ pub fn run(argv: &[String]) -> Result<(), String> {
     let mut bs: Vec<Bot> = vec![];
     for k in 0..cfg.bots {
         let dummy = Sim::new(d.clone(), Rc::new(Tile { name: String::new(), site: [0; 3], cx0: 0, cz0: 0, w: 0, h: 0, chunks: vec![] }), 1);
-        let mut b = Bot { env_id: off + k, sim: dummy, rew: Reward::new(&cfg.preset), episode: 0, step: 0, cands: vec![], last: (0, 0), msg: ([0.0; 4], 0.0, false), ring: vec![], pending: vec![], tile: 0, ep_steps: 0, deaths: 0, info: None };
+        let mut b = Bot { env_id: off + k, sim: dummy, rew: Reward::new(&cfg.preset), episode: 0, step: 0, cands: vec![], last: (0, 0), msg: ([0.0; 4], 0.0, false), ring: vec![], pending: vec![], tile: 0, ep_steps: 0, deaths: 0, info: None, outcome: "" };
         let avoid = bs.first().map(|x: &Bot| x.tile);
         new_episode(&cfg, &mut b, &mut cache, avoid, &mut rng)?;
         log_start(&mut events, &b);
@@ -268,12 +268,14 @@ pub fn run(argv: &[String]) -> Result<(), String> {
             }
             let ridx = REASONS.iter().position(|r| *r == if o.ok { "ok" } else { o.reason }).unwrap_or(0);
             b.last = (ridx, o.ticks.max(1));
-            b.msg = (terms, total_r, b.sim.tick >= limit);
+            let outcome = cfg.scn.as_ref().map_or("", |sc| sc.ended(&b.sim, &b.rew.done, b.ep_steps + 1, died));
+            b.outcome = if !outcome.is_empty() { outcome } else if b.sim.tick >= limit { "days" } else { "" };
+            b.msg = (terms, total_r, b.sim.tick >= limit || !outcome.is_empty());
             b.step += 1; b.ep_steps += 1; total += 1;
             send_obs(&cfg, &mut ch, &mut bs[bi]);
             if bs[bi].msg.2 {
                 // episode over: one summary row (entries reached this episode with the step of the first time, deaths), then the next one
-                { let b = &bs[bi]; let row = J::o(vec![("event", J::st("episode_end")), ("env_id", J::n(b.env_id as f64)), ("episode", J::n(b.episode as f64)), ("steps", J::n(b.ep_steps as f64)), ("deaths", J::n(b.deaths as f64)), ("inv", J::Obj(b.sim.held().into_iter().map(|(k, v)| (k, J::n(v as f64))).collect())),
+                { let b = &bs[bi]; let row = J::o(vec![("event", J::st("episode_end")), ("outcome", J::st(b.outcome)), ("env_id", J::n(b.env_id as f64)), ("episode", J::n(b.episode as f64)), ("steps", J::n(b.ep_steps as f64)), ("deaths", J::n(b.deaths as f64)), ("inv", J::Obj(b.sim.held().into_iter().map(|(k, v)| (k, J::n(v as f64))).collect())),
                     ("reached", J::Obj(b.rew.at.iter().map(|(k, v)| (k.clone(), J::n(*v as f64))).collect())),
                     ("audit", J::Obj({ let mut a: Vec<(String, J)> = b.sim.audit.iter().map(|(k, v)| (k.clone(), J::n(*v as f64))).collect(); a.sort_by(|x, y| x.0.cmp(&y.0)); a }))]); let _ = writeln!(events, "{}", row.dump()); }
                 let avoid = bs.iter().enumerate().find(|(i, _)| *i != bi).map(|(_, x)| x.tile);
@@ -299,7 +301,7 @@ fn send_obs(cfg: &Cfg, ch: &mut Chan, b: &mut Bot) {
     let prog = b.rew.progress(&cfg.entries);
     let o = obs::observe(&mut b.sim, &b.cands, &prog, b.last, clock);
     let terms = J::o(TERMS.iter().enumerate().map(|(i, t)| (*t, J::n(b.msg.0[i]))).collect());
-    ch.send(b.env_id, "obs", vec![("episode", J::n(b.episode as f64)), ("step", J::n(b.step as f64)), ("obs", o), ("reward", J::n(b.msg.1)), ("reward_terms", terms), ("terminated", J::Bool(b.msg.2)), ("truncated", J::Bool(false))]);
+    ch.send(b.env_id, "obs", vec![("episode", J::n(b.episode as f64)), ("step", J::n(b.step as f64)), ("obs", o), ("reward", J::n(b.msg.1)), ("reward_terms", terms), ("terminated", J::Bool(b.msg.2)), ("truncated", J::Bool(false)), ("outcome", J::st(if b.msg.2 { b.outcome } else { "" }))]);
 }
 
 #[cfg(test)]

@@ -12,12 +12,22 @@ use std::collections::HashSet;
 pub enum PreDone { No, Unscored, List(Vec<String>) }
 #[derive(Debug)]
 struct Place { id: String, block: u16, size: (u32, u32), buried: bool, depth: (i32, i32), dist: (f64, f64), bearing: (f64, f64) }
+/// When an episode ends before the days run out (per-goal training of one expert, docs/proposed/MOE-v1.md): all of `have` held and the progress
+/// `entry` reached = "success"; a death with `die` = "died"; `max_steps` commands or `max_ticks` game ticks = "timeout".
+#[derive(Debug)]
+pub struct End { have: Vec<(String, u32)>, entry: Option<String>, max_steps: u32, max_ticks: i64, die: bool }
 #[derive(Debug)]
 pub struct Scenario {
     pub id: String, kit: Vec<(String, u32)>, kit_on_death: bool, hostiles: f64, craft_slots: Option<usize>, place: Vec<Place>,
-    pub score: Option<HashSet<String>>, pub pre_done: PreDone, pub weights: Vec<(String, f64)>,
+    pub score: Option<HashSet<String>>, pub pre_done: PreDone, pub weights: Vec<(String, f64)>, end: Option<End>,
 }
 
+/// Names in `end.have` that stand for a family of items (wood comes in many species): `#log` = every *_log, `#planks` = every *_planks.
+const GROUPS: [&str; 2] = ["#log", "#planks"];
+fn held_n(s: &Sim, n: &str) -> u32 {
+    let suffix = match n { "#log" => "_log", "#planks" => "_planks", _ => return s.count(n) };
+    s.held().iter().filter(|(k, _)| k.ends_with(suffix)).map(|(_, c)| *c).sum()
+}
 fn keys(j: &J, ok: &[&str], what: &str) -> Result<(), String> {
     if let J::Obj(v) = j { for (k, _) in v { if !ok.contains(&k.as_str()) { return Err(format!("scenario: unknown key `{}` in {}", k, what)); } } Ok(()) } else { Err(format!("scenario: {} must be an object", what)) }
 }
@@ -35,7 +45,7 @@ impl Scenario {
         Scenario::parse(&j, d, entries)
     }
     pub fn parse(j: &J, d: &Data, entries: &[String]) -> Result<Scenario, String> {
-        keys(j, &["v", "id", "doc", "kit", "on_death", "hostiles", "craft_slots", "place", "reward"], "the scenario")?;
+        keys(j, &["v", "id", "doc", "kit", "on_death", "hostiles", "craft_slots", "place", "reward", "end"], "the scenario")?;
         let id = j.get("id").s().to_string();
         if id.is_empty() || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') { return Err("scenario: `id` is required ([A-Za-z0-9_-])".into()); }
         let mut kit = vec![];
@@ -72,7 +82,31 @@ impl Scenario {
             if !["survival", "death", "progress", "invalid"].contains(&k.as_str()) { return Err(format!("scenario: unknown reward term `{}`", k)); }
             weights.push((k.clone(), v.f()));
         }
-        Ok(Scenario { id, kit, kit_on_death, hostiles, craft_slots, place, score, pre_done, weights })
+        let e = j.get("end");
+        let end = if e.is_null() { None } else {
+            keys(e, &["have", "entry", "max_steps", "max_ticks", "die"], "end")?;
+            let mut have = vec![];
+            for (k, v) in e.get("have").obj() {
+                if d.item(k) == 0 && !GROUPS.contains(&k.as_str()) { return Err(format!("scenario: unknown item `{}` in end.have", k)); }
+                if v.i() < 1 { return Err(format!("scenario: end.have count of `{}` must be >= 1", k)); }
+                have.push((k.clone(), v.i() as u32));
+            }
+            let entry = if e.get("entry").is_null() { None } else { let x = e.get("entry").s().to_string(); if !entries.contains(&x) { return Err(format!("scenario: unknown progress entry `{}` in end.entry", x)); } Some(x) };
+            if have.is_empty() && entry.is_none() { return Err("scenario: `end` needs `have` or `entry` (what counts as success)".into()); }
+            let (max_steps, max_ticks) = (e.get("max_steps").i().max(0) as u32, e.get("max_ticks").i().max(0));
+            if max_steps == 0 && max_ticks == 0 { return Err("scenario: `end` needs max_steps or max_ticks (an episode that cannot fail would never end)".into()); }
+            Some(End { have, entry, max_steps, max_ticks, die: e.get("die").b() })
+        };
+        Ok(Scenario { id, kit, kit_on_death, hostiles, craft_slots, place, score, pre_done, weights, end })
+    }
+
+    /// How the episode ends now, if it does: "success", "died", "timeout" or "" (goes on). `steps` = commands run this episode, `reached` = progress entries reached.
+    pub fn ended(&self, s: &Sim, reached: &HashSet<String>, steps: u32, died: bool) -> &'static str {
+        let e = match &self.end { Some(e) => e, None => return "" };
+        if e.have.iter().all(|(n, c)| held_n(s, n) >= *c) && e.entry.as_ref().map_or(true, |x| reached.contains(x)) { return "success"; }
+        if died && e.die { return "died"; }
+        if (e.max_steps > 0 && steps >= e.max_steps) || (e.max_ticks > 0 && s.tick >= e.max_ticks) { return "timeout"; }
+        ""
     }
 
     /// The entries shown as reached from the first observation (not paid).
@@ -168,6 +202,42 @@ mod tests {
         let mut v = vec![];
         for x in c[0] - r..=c[0] + r { for z in c[2] - r..=c[2] + r { for y in 56..=70 { if s.blk(x, y, z) == Some(b) && s.edits.contains_key(&(x, y, z)) { v.push([x, y, z]); } } } }
         v
+    }
+
+    #[test]
+    fn an_end_condition_needs_a_goal_and_a_limit_and_names_are_checked() {
+        let d = Data::load();
+        assert!(scn(r#"{"id":"a","end":{"max_steps":5}}"#, &d).unwrap_err().contains("have"));
+        assert!(scn(r#"{"id":"a","end":{"have":{"stick":1}}}"#, &d).unwrap_err().contains("max_steps"));
+        assert!(scn(r#"{"id":"a","end":{"have":{"stickk":1},"max_steps":5}}"#, &d).unwrap_err().contains("stickk"));
+        assert!(scn(r#"{"id":"a","end":{"entry":"nope","max_steps":5}}"#, &d).unwrap_err().contains("nope"));
+        assert!(scn(r#"{"id":"a","end":{"have":{"stick":0},"max_steps":5}}"#, &d).is_err());
+        assert!(scn(r#"{"id":"a","end":{"have":{"stick":1},"max_steps":5,"typo":1}}"#, &d).unwrap_err().contains("typo"));
+        assert!(scn(r#"{"id":"a","end":{"have":{"stick":1},"entry":"eat_food","max_ticks":100,"die":true}}"#, &d).is_ok());
+    }
+
+    #[test]
+    fn an_episode_ends_in_success_when_the_goal_is_held_and_in_timeout_or_death_otherwise() {
+        let d = Rc::new(Data::load());
+        let sc = scn(r#"{"id":"e","end":{"have":{"stick":2},"entry":"eat_food","max_steps":10,"max_ticks":500,"die":true}}"#, &d).unwrap();
+        let mut s = flat_sized(9);
+        let none: HashSet<String> = HashSet::new(); let ate: HashSet<String> = ["eat_food".to_string()].into_iter().collect();
+        assert_eq!(sc.ended(&s, &none, 1, false), "", "nothing held, early: goes on");
+        s.give("stick", 2);
+        assert_eq!(sc.ended(&s, &none, 1, false), "", "the item without the entry is not the goal");
+        assert_eq!(sc.ended(&s, &ate, 1, false), "success");
+        assert_eq!(sc.ended(&s, &ate, 99, true), "success", "success wins over a late death and the step limit");
+        let grp = scn(r#"{"id":"g","end":{"have":{"#log":3},"max_steps":5}}"#, &d).unwrap();
+        let mut u = flat_sized(9); u.give("oak_log", 2); assert_eq!(grp.ended(&u, &none, 1, false), "", "two logs of one species are not three");
+        u.give("birch_log", 1); assert_eq!(grp.ended(&u, &none, 1, false), "success", "species are summed");
+        let mut t = flat_sized(9);
+        assert_eq!(sc.ended(&t, &none, 10, false), "timeout");
+        assert_eq!(sc.ended(&t, &none, 3, true), "died");
+        t.tick = 500; assert_eq!(sc.ended(&t, &none, 3, false), "timeout");
+        let plain = scn(r#"{"id":"p"}"#, &d).unwrap();
+        assert_eq!(plain.ended(&t, &ate, 1000, true), "", "no end block: the days decide, as before");
+        let nodie = scn(r#"{"id":"n","end":{"have":{"stick":1},"max_steps":5}}"#, &d).unwrap();
+        assert_eq!(nodie.ended(&t, &none, 2, true), "", "a death does not end it without `die`");
     }
 
     #[test]
