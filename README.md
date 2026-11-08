@@ -1,227 +1,83 @@
-# Minecraft Forge 1.20.1 AI Player System
+# Minecraft Forge 1.20.1 AI Player
 
-This framework provides an autonomous AI player system using Mineflayer designed specifically for Minecraft 1.20.1 Forge environments. It resolves the fundamental protocol and registry incompatibilities between standard Mineflayer and Forge servers.
+An autonomous player for **modded Minecraft 1.20.1 (Forge 47.x)** servers, built on [Mineflayer](https://github.com/PrismarineJS/mineflayer).
+Stock Mineflayer cannot join a Forge server: it fails the FML3 login handshake and cannot read the remapped block/item registry. This
+repository supplies those missing parts, an action layer made only of player inputs, a pure-bot work layer, and an RL environment.
 
-## Core Architecture
+It is also the Minecraft test bed of the owner's research on [Decision-Process-order-driven (DPOD)](https://github.com/I-yuki-0424/Decision-Process-order-driven):
+**control belongs to an RL policy, and the LLM only turns an instruction into a goal**, once per instruction, outside the control loop.
+Purpose, direction and the link to DPOD: [`docs/core/GOAL.md`](docs/core/GOAL.md).
 
-The system is split into an **Agent Manager** (main process) and isolated **Bot Actuators** (child processes). This ensures stability and prevents pathfinding loops from crashing the main orchestrator.
+## What is in it
 
-### Key Components
+| Part | Where | What it does |
+| :-- | :-- | :-- |
+| Forge bridge | `src/forge_handshake_state_machine.js`, `src/transport/` | Answers the FML3 login (`login_plugin_request`, host suffix `\0FML3\0`), buffers the registry sync, shared by every bot type |
+| Mod registry | `src/transport/mod_registry.js`, `modpack/*.registry.json` | Installs mod blocks and items exactly: ids from the handshake, state counts, properties and collision boxes from a registry dump |
+| Action layer | `src/skills/` | 14 commands (`move_to`, `mine`, `place`, `craft`, `smelt`, `attack`, ...), each a sequence of per-tick input frames, graded by what the **server** confirms, ending in `ok` or a reason from a closed list. Spec: [`SKILLS-v1`](docs/implemented/SKILLS-v1.md) |
+| Orchestrator | `index.js`, `src/agent_manager.js` | Parent process: forks one child per bot (`src/skills_bot.js`; `BOT_RUNTIME=legacy` forks the old `src/bot_actuator.js`), queues chat, calls the LLM |
+| Pure bots | `src/work/`, `public/work/` | Bots that need no decisions: crews that dig pits, build structures, gather items, run scripts and routines; token-authenticated web console. Map: [`src/work/README.md`](src/work/README.md), spec: [`WORK-CONSOLE-v1`](docs/implemented/WORK-CONSOLE-v1.md) |
+| RL environment | `src/rl/` | Observation, controls, goals and a file API that DPOD's `integrations/botsystem/` drives as the policy. Spec: [`RL-INTERFACE-v1`](docs/implemented/RL-INTERFACE-v1.md) |
+| Mod set | `modpack/` | Vanilla + Create + optimisation mods, pinned by sha512 in `forgeaip-create.lock.json`; `pack.py` syncs a server or builds the `.mrpack`. Spec: [`MODPACK-v1`](docs/implemented/MODPACK-v1.md) |
+| Servers | `docker/rl-server`, `docker/world-server`, `scripts/rl`, `scripts/world` | A disposable RL server, and the persistent build world with snapshots ([`WORLD-v1`](docs/implemented/WORLD-v1.md)) |
+| Companion mods | `aux_console/`, `aux_mod/` (Java, Gradle) | `aux_console`: in-game console and web view for the work layer. `aux_mod`: an older companion mod, unused |
 
-| Component | Responsibility |
-| :--- | :--- |
-| `forge_handshake_state_machine.js` | **FML3 Protocol Bridge**: Handles the complex Forge Mod Loader (FML3) handshake, spoofing mod lists and registry acknowledgments to allow standard Mineflayer login. |
-| `dynamic_registry_injector.js` | **Vanilla-First Mapping**: Intercepts dynamic registry synchronization packets and maps Forge-specific ID shifts back to valid Vanilla block definitions. This prevents crashes in the Pathfinder and Physics engine. |
-| `bot_actuator.js` | **Autonomous Execution**: Manages the bot instance, Mineflayer plugins (Pathfinder), and physics stabilization. |
-| `agent_manager.js` | **Lifecycle Management**: Orchestrates multiple bot processes and handles automatic recovery from kicks or crashes. |
+Legacy and rollback: `src/bot_actuator.js` (about 6.7k lines, the former LLM-planned action path) and `src/dynamic_registry_injector.js`.
+They are kept only for `BOT_RUNTIME=legacy`.
 
-## Forge 1.20.1 Compatibility (Final Resolution)
+## Quick start
 
-The system achieves stability in modded environments through a **Vanilla-Mapping strategy**:
-- **Protocol Bypasses**: Problematic modded packets (recipes, tags, advancements) are intercepted and ignored at the protocol level to prevent stream desync.
-- **Pathfinder Stability**: Uses a strictly validated block mapping that prevents the common `TypeError: reading 'length'` crash in `mineflayer-pathfinder`.
-- **Physics Synchronization**: Resolves "floating mid-air" issues by ensuring the bot's internal registry accurately reflects the server's solid ground, even when block IDs are shifted by mods.
-- **Server as Truth**: Implements logic to immediately synchronize position and velocity with the server, ensuring natural knockback and gravity.
+Requirements: Node **20 LTS** (`.nvmrc`; 22.11 also works, **22.23.4 does not**: it rejects the `\0FML3\0` host marker, [`LESSONS` L2](docs/LESSONS.md)),
+a Forge 1.20.1 server, and an Ollama-compatible LLM endpoint.
 
-## Getting Started
-
-1.  **Configure**: Copy your values into `.env` (git-ignored; see `docs/references/variable_map.md`) or set environment variables.
-2.  **Install**: `npm ci` (Node 20 LTS, see `.nvmrc`; Node 22.23.4 breaks the FML3 login, `docs/LESSONS.md` L2)
-3.  **Run**: `node index.js`
-4.  **Test**: `npm test` (7 files, no server needed)
-
-Project documentation starts at [`docs/README.md`](docs/README.md); agent rules at [`CLAUDE.md`](CLAUDE.md).
-
-## WebUI Dashboard
-
-A local WebUI is available at `http://localhost:3000` after starting the bot. You can use this dashboard to view bot health, inventory, active tasks, and send chat commands directly without in-game access.
-**The dashboard has no login and listens on all interfaces; do not expose port 3000/3001 to the internet** (the Docker stack publishes them on `127.0.0.1` only; `docs/LESSONS.md` L3).
-If port `3000` is already in use, the server automatically retries on the next port (`3001`, `3002`, ...). Check `bot_system.log` for the actual line: `[WebUI] Dashboard available at http://localhost:<port>`.
-
-## Docker Usage
-
-Docker is optional for normal bot usage. You can run the system directly with `node index.js`.
-Use Docker when you want a reproducible full stack (Forge server + bot + WebUI) or when validating environment-dependent issues.
-
-## Configuration & Requirements
-
-- **Node.js**: Node 20 LTS (tested 20.20.2 and 22.11.0). [Download here](https://nodejs.org/)
-- **Ollama (Local LLM)**: For local hosting, install [Ollama](https://ollama.com/) and run `ollama run gpt-oss:20b` (recommended model).
-- **Model Switching**: Edit `OLLAMA_MODEL` and `OLLAMA_URL` in `.env` or configuration files to switch between cloud APIs (like OpenAI/Anthropic via proxies) and local hosting.
-- **Hardware Requirements**:
-  - 1 Bot (Local LLM): 16GB RAM, modern 6-core CPU, 8GB+ VRAM GPU (for 20B models).
-  - 3+ Bots: 32GB RAM, 12GB+ VRAM.
-  - Cloud API: Minimal requirements (4GB RAM).
-
-## Streamlined Startup
-
-Windows users can simply double-click `run.bat` to launch the system. Linux/Mac users can run `./run.sh`.
-
-## Commands
-
-Once the bot is online, you can use the following in-game chat commands:
-- `come`: Calculates a path and moves to your position.
-- `goto <x> <z>` / `goto <x> <y> <z>`: Move to specific coordinates.
-- `goto <waypoint_name>`: Travel to a named internal waypoint (cross-dimension supported).
-- `goto <structure>`: Use `/locate` to find a structure (e.g. `fortress`, `village`, `stronghold`) and navigate to it.
-- `status`: Reports current coordinates, health, and ground state.
-- `dump_chunks`: Dumps all currently loaded blocks around the bot to a file `chunk_dump.json`.
-- `stop`: Immediately cancels all current goals.
-
-## Action Reference
-
-Actions are sent via IPC as `EXECUTE_ACTION` messages. Key action types:
-
-| Action | Parameters | Description |
-| :--- | :--- | :--- |
-| `come` | — | Follow the nearest player. |
-| `goto` | `x, z` or `x, y, z` | Move to coordinates. If `y` is below current by 10+, prefers natural paths before digging. |
-| `goto` | `target: "<name>"` | Travel to a named internal waypoint, JourneyMap waypoint, or run `/locate` for structures. Cross-dimension travel is handled automatically. |
-| `add_waypoint` | `name: "<name>"` | Save current position + dimension as a named waypoint to `data/waypoints.json`. |
-| `collect` | `target, quantity` | Collect items by mining nearby blocks. |
-| `craft` | `target, quantity` | Craft items using available materials. |
-| `give` | `item, target` | Give items to a player. |
-| `place` | `target, x, y, z` | Place a block at coordinates. |
-| `equip` | `target` | Equip an item from inventory. |
-| `eat` | `target` | Eat a food item. |
-| `smelt` | `target, quantity` | Smelt items in a furnace. |
-| `kill` | `target, quantity` | Hunt and kill entities. |
-| `sleep` | — | Sleep in a nearby bed. |
-| `brew` | `potion` | Brew a potion. |
-| `enchant` | `target` | Enchant an item. |
-| `explore` | `direction, distance, target` | Explore in a direction, optionally scanning for a structure. |
-| `navigate_portal` | `target: "nether"\|"end"` | Find and enter a portal. |
-| `activate_end_portal` | — | Insert Eyes of Ender and activate the End portal. |
-
-> **End Portal requirement:** The bot enters the End portal by walking into the frame. If lava was placed below the End Portal room (common in modded servers to block entry), it must be cleared before `navigate_portal(end)` will succeed. Remove the lava manually or via a build command before issuing the portal navigation order.
-| `place_pattern` | `target, x, y, z` | Place a named block pattern. |
-| `status` | — | Report position, health, and environment. |
-| `stop` | — | Cancel all active goals. |
-
-## Waypoint System
-
-The bot maintains a persistent waypoint file at `data/waypoints.json`. Each entry stores:
-```json
-{ "name": "base", "x": 100, "y": 64, "z": 200, "dimension": "overworld" }
+```bash
+npm ci
+cp your-values .env      # git-ignored; variables below and in docs/references/variable_map.md
+node index.js            # or ./run.sh, or run.bat on Windows
+npm test                 # needs no server
 ```
 
-**Adding waypoints:**
-- Via action: `{ "action": "add_waypoint", "name": "my_base" }`
-- Manually edit `data/waypoints.json`
+| Variable | Default | Meaning |
+| :-- | :-- | :-- |
+| `MC_HOST`, `MC_PORT` | `localhost`, `25565` | Forge server |
+| `BOT_NAMES` / `BOT_NAME` | `AI_Bot_01` | Bot user names (comma separated) |
+| `OLLAMA_URL`, `OLLAMA_MODEL`, `OLLAMA_API_KEY` | model `gpt-oss:20b-cloud` | LLM endpoint (full URL, e.g. `http://<host>:11434/api/generate`; inside WSL2 use the Windows gateway IP, not `localhost`) |
+| `OLLAMA_AUTH_SCHEME` | `Bearer` | Empty sends the key bare |
+| `BOT_RUNTIME` | `skills` | `legacy` forks the old actuator |
 
-**Using waypoints:**
-- `{ "action": "goto", "target": "my_base" }` — navigates there, crossing dimensions if needed.
+On the owner's VPS the LLM credentials come from the vault record `ollama/forgeaip` first and `.env` is the fallback
+([`WORLD-v1`](docs/implemented/WORLD-v1.md)). Full variable list and IPC schema: [`docs/references/variable_map.md`](docs/references/variable_map.md).
 
-Dimensions: `overworld`, `the_nether`, `the_end`.
+The bot itself needs no GPU. A local 20B-class model needs about 16 GB RAM and 8 GB VRAM; a cloud endpoint needs almost nothing.
 
-## AI Debugging (WSL/Local CLI)
+## Tests
 
-If you are an AI agent (like geminiCLI) running in a WSL environment or interacting with the system locally, **do not** run testing commands or the bot directly in the shell as the high volume of stream output can crash your session.
-Instead:
-1. **Execution:** Execute all commands via Windows PowerShell.
-2. **Logs:** Read from `bot_system.log` instead of standard output.
-3. **State Tracking:** Read the `ai_debug.json` file. It updates every 5 seconds with the bot's current timestamp, health, coordinates, and action queue to detect if the bot is stuck or running in place.
-4. **Vision/Memory:** Use the `dump_chunks` command in-game, then read `chunk_dump.json` to see exactly what blocks the bot's internal memory has loaded.
+`npm test` runs the 35 files listed in `package.json` (mock Forge server, handshake, registry, action-layer simulation, RL environment,
+work layer). None needs a Minecraft server. One file: `node tests/test_skills_pure.js`. Live checks that do need a real Forge server
+(`scripts/skills/bench.js`, `scripts/work/*_live.js`, `scripts/rl/verify_game_side.py`) are described in the specs above.
+On the VPS there is no Node on the host; use `docker run --rm --network none -v "$PWD":/w -w /w node:20-slim npm test` (see [`CLAUDE.md`](CLAUDE.md)).
 
-## Recording the Bot's Perspective
+## Security
 
-There is no built-in screen recorder, but there are two practical approaches:
+- The bot WebUI (`:3000`, retrying `3001`, `3002`, ...) and the debug WebSocket (`:3001`) have **no login**. Keep them on loopback; the Docker stacks publish them on `127.0.0.1` only ([`LESSONS` L3](docs/LESSONS.md)).
+- The work console (`src/work/web/`) is token-authenticated, with CSRF and Host/Origin checks and closed validation; keep all of them when changing it.
+- `.env` is git-ignored. API keys never go into logs, docs or commits ([`LESSONS` L5](docs/LESSONS.md)).
 
-1. **OBS Studio (recommended):** Add a "Game Capture" or "Window Capture" source pointed at the Minecraft window. This records exactly what the client renders, including the bot's POV if you spectate it (`/spectate <botName>`).
+## Debugging a bot without watching it
 
-2. **ReplayMod (Forge mod):** Install [ReplayMod](https://replaymod.com/) on the Forge client. It records the full session from any spectated angle and lets you render it afterwards. It works with Forge 1.20.1.
+Do not stream a running bot into an agent session: read the files instead.
 
-> **Note:** The bot itself runs headlessly via Node.js (no rendered client). To record visually, you must spectate the bot from a separate Minecraft client and capture that window.
+- `bot_system.log`: INFO-level log; the WebUI line shows the actual port (`[WebUI] Dashboard available at http://localhost:<port>`).
+- `ai_debug_<bot>.json`: rewritten every few seconds with timestamp, health, position and queue, so a stuck bot is visible.
+- Per-tick command traces and the failure taxonomy of the action layer: [`SKILLS-v1`](docs/implemented/SKILLS-v1.md).
+- `node scripts/extract_debug_logs.js` scans the log for error keywords; the scenario suite is `scripts/beta_debugger.js` ([`AI_DEBUGGING`](docs/guides/AI_DEBUGGING.md)).
 
----
-*Note: This framework is optimized for reliability on vanilla blocks within a Forge environment. Modded block entities are treated as non-solid by default to ensure safe gravity and movement.*
+To record the bot's point of view, spectate it from a separate client (`/spectate <botName>`) and capture that window with OBS or ReplayMod;
+the bot itself is headless.
 
-tmp
-## AI Prompt for Wiki Data
+## Documentation
 
-  You are generating a Minecraft 1.20.1 wiki knowledge file for a    
-  bot's RAG system.
+Start at [`docs/README.md`](docs/README.md). Agent rules are in [`CLAUDE.md`](CLAUDE.md) and [`docs/core/MASTER_GUIDANCE.xml`](docs/core/MASTER_GUIDANCE.xml);
+design is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) (the code wins on conflict); incidents and the rules they produced are in [`docs/LESSONS.md`](docs/LESSONS.md).
 
-  Rules:
-  - Output plain text only, no markdown tables, no code blocks.      
-  - Write exactly ONE fact per line.
-  - Each line must be self-contained and understandable without      
-  context.
-  - Use underscores for compound game terms: ender_dragon, oak_log,  
-  nether_fortress, fire_resistance.
-  - Keep each line under 120 characters.
-  - Do not use headers as standalone lines — every line must contain 
-  at least one concrete fact.
-  - Avoid filler phrases ("you can", "it is possible to", "note      
-  that") — state the fact directly.
-
-  Topic: [INSERT TOPIC HERE — e.g. "Ender Dragon fight strategy",    
-  "all brewing recipes", "mob drops and spawning conditions"]        
-
-Exhaustively list every single verifiable fact about the topic. Do not stop until all data points are covered.
-
-  Recommended topics to generate for this project:
-
-  ┌─────────────────┬─────────────────────────────────────────────┐  
-  │      File       │              Topic to request               │  
-  ├─────────────────┼─────────────────────────────────────────────┤  
-  │ mobs.md         │ all hostile mob drops, spawn conditions,    │  
-  │                 │ and combat weaknesses                       │  
-  ├─────────────────┼─────────────────────────────────────────────┤  
-  │ potions.md      │ all brewing recipes with ingredients and    │  
-  │                 │ effects                                     │  
-  ├─────────────────┼─────────────────────────────────────────────┤  
-  │ enchanting.md   │ all enchantments, max levels, and what      │  
-  │                 │ items they apply to                         │  
-  ├─────────────────┼─────────────────────────────────────────────┤  
-  │ structures.md   │ nether fortress, stronghold, bastion, ocean │  
-  │                 │  monument layouts and loot                  │  
-  ├─────────────────┼─────────────────────────────────────────────┤  
-  │ ender_dragon.md │ full Ender Dragon fight: crystals, phases,  │  
-  │                 │ breath, perch, exit portal                  │  
-  ├─────────────────┼─────────────────────────────────────────────┤  
-  │ redstone.md     │ redstone components, timing, and common     │
-  │                 │ contraption recipes                         │    ├─────────────────┼─────────────────────────────────────────────┤
-  │ nether.md       │ Nether biomes, mobs, fortresses, bastions,  │  
-  │                 │ gold bartering                              │    └─────────────────┴─────────────────────────────────────────────┘
-# list of all MODs
-appleskin-forge-mc1.20.1-2.5.1.jar
-architectury-9.2.14-forge (1).jar
-balm-forge-1.20.1-7.3.38-all.jar
-chunkloaders-1.2.9-forge-mc1.20.1.jar
-CodeChickenLib-1.20.1-4.4.0.516-universal.jar
-constructionwand-1.20.1-2.11.jar
-copycats-3.0.7+mc.1.20.1-forge.jar
-create-1.20.1-6.0.8.jar
-create-stuff-additions1.20.1_v2.1.0.jar
-createaddition-1.20.1-1.3.3.jar
-createbigcannons-5.11.1-mc.1.20.1-forge.jar
-createdeco-2.0.3-1.20.1-forge.jar
-createliquidfuel-2.1.1-1.20.1.jar
-createsifter-1.20.1-1.8.6-6.0.6.jar
-createteleporters2.3-1.20.1.jar.disabled
-create_connected-1.1.13-mc1.20.1-all.jar
-create_hypertube-0.4.0-FORGE.jar
-create_jetpack-forge-4.4.6.jar
-create_mecanical_extruder-1.20.1-1.6.11-6.0.6.jar
-EnderStorage-1.20.1-2.11.0.188-universal.jar
-ferritecore-6.0.1-forge.jar
-fusion-1.2.12-forge-mc1.20.1.jar
-geckolib-forge-1.20.1-4.8.3.jar
-gravestone-forge-1.20.1-1.0.35.jar
-jei-1.20.1-forge-15.20.0.112.jar
-journeymap-1.20.1-5.10.3-forge.jar
-kotlinforforge-4.12.0-all.jar
-kubejs-forge-2001.6.5-build.16.jar
-modernfix-forge-5.26.2+mc1.20.1.jar
-rhino-forge-2001.2.3-build.10.jar
-ritchiesprojectilelib-2.1.1-mc.1.20.1-forge.jar
-SimpleBackups-1.20.1-3.1.18.jar
-supermartijn642configlib-1.1.8-forge-mc1.20.jar
-supermartijn642corelib-1.1.20-forge-mc1.20.1.jar
-torchmaster-20.1.9.jar
-waystones-forge-1.20.1-14.1.20.jar
-[1.20.1][forge47.1.0]mod_CutAllSMP_v2.5.2.jar
-[1.20.1][forge47.1.0]mod_DigAllSMP_v2.3.3.jar
-[1.20.1][forge47.1.0]mod_MineAllSMP_v2.6.6.jar
-[1.20.1][forge47.1.0]mod_StorageBox_v3.2.5.jar
+Licence: Apache-2.0.

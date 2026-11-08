@@ -1,21 +1,32 @@
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-Parent rules (all repos on this VPS): `/home/coder/projects/CLAUDE.md`. Where this file is more specific, follow this file.
+Parent rules (all repos on this VPS): `/home/coder/projects/CLAUDE.md`. Precedence: **`docs/core/MASTER_GUIDANCE.xml` (v11) wins over
+this file**, this file wins over the parent file. MASTER_GUIDANCE holds the behaviour rules (autonomy, safeguards, MCP use, engineering,
+git, task tracking, response format); this file holds the commands and the map of the code, so it does not repeat the rules. Read the XML
+when a task touches tokens, scheduling, tracking or git hygiene.
 
 ## Boot Protocol
 
-At the start of every session read **all files in `docs/core/`**: `MASTER_GUIDANCE.xml` (rules),
-`GOAL.md` (purpose and the link to Decision-Process-order-driven), `STATE.yaml` (live state: quote it, never invent
-values). Then search the knowledge-DB (`search_knowledge`, `path_prefix: repos/forge1201-MODED-AIPlayer/`) and
-run `schedule_check`. If `active_tasks` is empty, pick from `docs/proposed/`. Documentation map: `docs/README.md`.
+1. Search the knowledge-DB (`search_knowledge` with `path_prefix` `repos/forge1201-MODED-AIPlayer/` and again `LLM-records/`) and run
+   `schedule_check`. **Runtime state (tasks, hazards, `smoke_status`, change history) lives there, not in the repo.** Quote values, never
+   invent them, report missing ones as missing. The schedule holds the AIPlayer task entries (006-014); a task's memory record is found by
+   searching its id.
+2. Do **not** read `docs/core/` in full. Read `GOAL.md` (purpose, the RL-policy/LLM split, the DPOD link) or `docs/ARCHITECTURE.md` only
+   when the task touches goals or structure, and only the sections it needs (grep or ranged Read).
+3. If the schedule has no active task, pick from `docs/proposed/`. Documentation map: `docs/README.md`.
+
+`docs/core/STATE.yaml` is a frozen v10 snapshot (last entry `TASK-20261109-043`, which holds the most recent detailed results and limits
+of the work console). Use it as history; do **not** update it. Keep the two single records `hazards` and `smoke_status` in the
+knowledge-DB (`update_memory` in place, never duplicated); neither existed when searched on 2026-11-09, so create each once.
 
 ## Commands
 
 There is **no Node.js on the VPS**. Run Node through the rootless docker (as `coder`, plain `docker`):
 
 ```bash
-# All tests (11 files, must pass before STATE.yaml claims a green state). Node 20 or 22.11; NOT 22.23.4 (docs/LESSONS.md L2).
+# All tests (the 35 files listed in package.json; must pass before smoke_status is recorded green). Node 20 or 22.11; NOT 22.23.4 (docs/LESSONS.md L2).
+# (MASTER_GUIDANCE still says "7 files": the file list in package.json is the truth.)
 docker run --rm --network none -v "$PWD":/w -w /w node:20-slim npm test
 # One file
 docker run --rm --network none -v "$PWD":/w -w /w node:20-slim node tests/test_fml3_handshake_logic_pure.js
@@ -65,7 +76,8 @@ scripts/world/test-up.sh latest ; (cd docker/world-server && docker compose --pr
 
 The work console (`src/work/web/`, `src/work/service/`, `public/work/`, docs/implemented/WORK-CONSOLE-v1.md; file map `src/work/README.md`) is token-authenticated (`console-data/console.token`),
 reaches RCON, and is NOT the old WebUI: keep its auth, CSRF, Host/Origin checks and closed validation when changing it. Bots there use the
-play world's own table (`BOT_MOD_TABLE`). The aux mod is not needed and is not installed (WORK-CONSOLE-v1).
+play world's own table (`BOT_MOD_TABLE`). `aux_console/` (mod `aipconsole`: F12 web view of the console, Tag Tool item; build command in its README) is
+installed on the play server and the owner's PC; `aux_mod/` is an older, unused project.
 
 On the owner's PC (Windows/WSL2): `npm ci`, `npm test`, `npm run test:e2e`, `node index.js` (or `run.bat` / `./run.sh`).
 Running the bot needs a Forge 1.20.1 server and an Ollama-compatible endpoint, which exist only on the owner's PC.
@@ -83,10 +95,9 @@ Copy `.env` values (file is git-ignored; never print or commit it):
 ## Repository layout
 
 ```
-index.js            entry: AgentManager + WebUI (the debug WebSocket :3001 is started by each bot_actuator child)
-src/work/           pure bots (jobs, bot, service, web, display ...): map and "where do I change X" in src/work/README.md
+index.js            entry: AgentManager + WebUI (the debug WebSocket :3001 is started by each legacy bot_actuator child)
+src/work/           pure bots, ~13 role folders (jobs, bot, service, web, operator, world, display): map and "where do I change X" in src/work/README.md; calls execute() only
 src/skills/         the action layer: 14 commands built only from player inputs (body, planner, runner, commands/*), intents.js + llm_prompt.js for the LLM
-src/work/           pure bots: crew ledger (crew.js), pit (pit.js), structures (build.js), inventory upkeep (janitor.js), worker loop; calls execute() only
 src/skills_bot.js   the bot child process on the action layer (default; BOT_RUNTIME=legacy forks bot_actuator.js); src/vault_client.js reads LLM credentials
 src/rl/             RL environment (env, controls, observation, goal, DPOD file-API runner); src/transport/ = login/FML3 factory shared with the actuator, mod_registry.js = exact mod blocks/items
 modpack/            the mod set: lock (sha512), pack.py (server sync, .mrpack), install-client.ps1, the bot's block/item table
@@ -94,11 +105,12 @@ tools/registry-dump/  server-only Forge mod (Java) that writes that table on a d
 src/                runtime (agent_manager, bot_actuator + actuator/*, forge_handshake_state_machine, dynamic_registry_injector, middleware, llm_client, web_ui_server)
 tests/              the files run by `npm test` (list: package.json) (+ mocks, run_tests.js, smoke.js)
 public/             WebUI (static)
-aux_mod/            optional Forge 1.20.1 companion mod (Java/Gradle; exports the block registry, in-game launcher/HUD)
-docker/             compose for a CUDA dev box and for the full stack (docker/forge-server)
+aux_console/        Forge 1.20.1 mod `aipconsole` (Java/Gradle): F12 web view of the work console, Tag Tool; aux_mod/ = older unused companion mod
+tools/              registry-dump (Java), sim (Rust simulator), tblog (training log -> TensorBoard), site-finder, tickrate, train-dash
+docker/             compose for a CUDA dev box, the full stack (forge-server), the RL server (rl-server) and the build world (world-server)
 data/               system_presets.json + junk_list.json (tracked); data/sample/configs (mod dictionary); everything else here is runtime state and ignored
 scripts/            tooling; scripts/adhoc = old probes, not tests
-docs/               core/ (rules, goal, state), ARCHITECTURE, LESSONS, guides, references, proposed, implemented, archive
+docs/               core/ (MASTER_GUIDANCE rules, GOAL; STATE.yaml frozen), ARCHITECTURE, LESSONS, guides, references, proposed, implemented, archive
 ```
 
 ## Architecture
@@ -107,11 +119,15 @@ The system connects a Mineflayer bot to a Minecraft 1.20.1 Forge server, bridgin
 
 ### Process Model
 
-`index.js` → `AgentManager` (parent) → `bot_actuator.js` (child via `fork()`), IPC:
+`index.js` → `AgentManager` (parent) → `skills_bot.js` (child via `fork()`; `bot_actuator.js` when `BOT_RUNTIME=legacy`), same IPC either way:
 - Parent→Child: `EXECUTE_ACTION` (array of action objects)
 - Child→Parent: `USER_CHAT`, `ERROR`, `STATUS`
 
-`AgentManager` queues chat, enforces a 5 s LLM cooldown, and tracks in-flight LLM calls per bot (`activeLlmRequests`, keyed by botId). On a new `EXECUTE_ACTION` the actuator sets `currentCancelToken.cancelled = true`, drains the queue, then awaits `isExecuting` before assigning a new token (prevents races).
+The pure bots in `src/work/` are a separate process (`src/work/console.js`, started by the play world's `console-up.sh`), not forked by `AgentManager`.
+Direction (GOAL.md, MASTER_GUIDANCE `<constraints>`): the LLM is being confined to instruction-to-goal translation and the RL policy picks actions;
+do not add LLM calls to a per-tick path. Today's `AgentManager` still plans with the LLM; that is the thing to move, not to extend.
+
+`AgentManager` queues chat, enforces a 5 s LLM cooldown, and tracks in-flight LLM calls per bot (`activeLlmRequests`, keyed by botId). On a new `EXECUTE_ACTION` the legacy actuator sets `currentCancelToken.cancelled = true`, drains the queue, then awaits `isExecuting` before assigning a new token (prevents races).
 
 ### Forge Protocol Bridge (`src/forge_handshake_state_machine.js`)
 
@@ -141,7 +157,7 @@ Initialises Mineflayer with pathfinder, collectblock, DynamicRegistryInjector an
 - **`ensureToolFor(block)`**: skips fluid/air; crafts tools only for diggable solids.
 - **`withTimeout(ms, promise)`** wraps every async action; per-block collect cap `Math.min(timeoutMs, 20000)`.
 - **Pathfinder limits**: `thinkTimeout = 5000`, `tickTimeout = 5` (prevents heap exhaustion on mod terrain).
-- **Actions**: come, goto, collect, give, place, craft, equip, eat, smelt, kill, sleep, brew, enchant, explore, navigate_portal, activate_end_portal, place_pattern, status, stop (more in README "Action Reference").
+- **Actions**: come, goto, collect, give, place, craft, equip, eat, smelt, kill, sleep, brew, enchant, explore, navigate_portal, activate_end_portal, place_pattern, status, stop. The mapping from these to the 14 action-layer commands is in `docs/implemented/SKILLS-v1.md` (the old README action table is gone).
 
 ### LLM client, middleware
 
@@ -149,8 +165,10 @@ Initialises Mineflayer with pathfinder, collectblock, DynamicRegistryInjector an
 
 ## Task and docs workflow
 
-- Task state: `docs/core/STATE.yaml`; specs in `docs/proposed/` → `docs/implemented/`; old history in `docs/archive/`.
-- After every code change update `STATE.yaml` (`recent_changes`, `smoke_status` = the real last test run) .
+- Task state: the knowledge-DB (schedule for status, one memory record per task; see MASTER_GUIDANCE `<task_tracking>`); specs in `docs/proposed/` → `docs/implemented/`; history before 2026-10-30 in `docs/archive/`.
+- After a code change: run the task's `validation_commands`, record each completed change as a memory entry tagged with its task id, and update `smoke_status` with the real last `npm test` date and result. Not `STATE.yaml`.
+- A job that runs more than a few minutes (server, training, soak test, build) is registered on the schedule first (`schedule_add`), restart-safe (MASTER_GUIDANCE `<mcp>`).
+- Docs are indexed into the knowledge-DB after each push: keep them accurate, give each doc a specific first heading and a one-sentence opening (`docs/README.md`).
 - Commit format `TASK:<task-id> <type>: <description>`. Commit in coherent units, push each; `main` equals `origin/main` when finished.
 - Docs-only tasks do not modify `src/` or `tests/`.
 - Before changing a symbol run scip-neo4j `analyze_change_impact` / `get_symbol_dependencies` / `check_symbol_constraints` with `repo=https://github.com/I-yuki-0424/forge1201-MODED-AIPlayer`; use `get_index_status` to confirm the index is active, else read the code.

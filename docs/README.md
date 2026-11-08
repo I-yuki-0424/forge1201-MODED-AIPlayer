@@ -1,11 +1,12 @@
 # Documentation map
 
-Read order for a new session: [core/MASTER_GUIDANCE.xml](core/MASTER_GUIDANCE.xml) (rules) →
-[core/GOAL.md](core/GOAL.md) (purpose, DPOD link) → [core/STATE.yaml](core/STATE.yaml) (what is happening now).
+Start of a session: search the knowledge-DB and run `schedule_check` (runtime state lives there since MASTER_GUIDANCE v11), then read
+[core/GOAL.md](core/GOAL.md) (purpose, DPOD link) or [ARCHITECTURE.md](ARCHITECTURE.md) only for the sections the task needs. The rules are
+[core/MASTER_GUIDANCE.xml](core/MASTER_GUIDANCE.xml); [core/STATE.yaml](core/STATE.yaml) is a frozen v10 snapshot (history, not updated).
 
 | Where | What | Changes how |
 | :-- | :-- | :-- |
-| `core/` | Rules, goal, live task state. The only files an agent must read at boot. | Edited in place; `STATE.yaml` after every code change |
+| `core/` | Rules (`MASTER_GUIDANCE.xml`), goal (`GOAL.md`), frozen v10 state (`STATE.yaml`). Read only the parts a task needs. | Edited in place; `STATE.yaml` no longer updated |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Original design spec: FML3 bridge, registry injector, middleware, process model | Rarely; code wins on conflict |
 | [LESSONS.md](LESSONS.md) | Incidents and the rule each one produced (read before changing LFS, Node, ports) | Append |
 | `guides/` | How-to for operators and AI agents ([AI_DEBUGGING.md](guides/AI_DEBUGGING.md)) | Edited |
@@ -30,7 +31,7 @@ failures: e.g. check a positive control before trusting a null result), `LLM-rec
 
 ## Task workflow
 
-1. Pick or create an entry in `core/STATE.yaml`; large specs go to `proposed/` and are referenced by `spec_ref`.
+1. Pick or create the task in the knowledge-DB (schedule entry + one memory record, MASTER_GUIDANCE `<task_tracking>`); large specs go to `proposed/` and are referenced by `spec_ref`.
 2. Implement; run `npm test` (see [../CLAUDE.md](../CLAUDE.md) for the docker command).
-3. Update `STATE.yaml` (`recent_changes`, `smoke_status`), move the spec to `implemented/`, commit as
+3. Record the change and `smoke_status` in the knowledge-DB, move the spec to `implemented/`, commit as
    `TASK:<id> <type>: <description>`, push.
