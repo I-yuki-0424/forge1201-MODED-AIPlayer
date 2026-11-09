@@ -100,8 +100,8 @@ const keepAlive = setInterval(() => {}, 1000);          // the line's own timers
         const mk = (name) => {
             const b = new EventEmitter(), spawn = {};
             Object.assign(b, { username: name, isSleeping: false, entity: { position: { x: 0.5, y: 1, z: 0.5 } },
-                blockAt: (p) => { const x = Math.floor(p.x), y = Math.floor(p.y), z = Math.floor(p.z); return (x === 10 && y === 1 && z === 10) || (x === 11 && y === 1 && z === 10) ? { name: 'red_bed', position: { x, y, z } } : { name: 'air', position: { x, y, z } }; },
-                findBlock: () => ({ name: 'red_bed', position: { ...BEDPOS } }), lookAt: async () => {}, wake: async () => { b.isSleeping = false; rec.push(`${name}:wake`); },
+                blockAt: (p) => { if (typeof p.floored !== 'function') throw new TypeError('pos.floored is not a function'); const x = Math.floor(p.x), y = Math.floor(p.y), z = Math.floor(p.z); return (x === 10 && y === 1 && z === 10) || (x === 11 && y === 1 && z === 10) ? { name: 'red_bed', position: { x, y, z } } : { name: 'air', position: { x, y, z } }; },
+                findBlock: () => ({ name: 'red_bed', position: { ...BEDPOS } }), lookAt: async (p) => { if (typeof p.minus !== 'function') throw new TypeError('point.minus is not a function'); }, wake: async () => { b.isSleeping = false; rec.push(`${name}:wake`); },
                 activateBlock: async () => { at.active++; at.max = Math.max(at.max, at.active); rec.push(`${name}:touch`); await sleep(20); b.spawn = { ...BEDPOS }; b.isSleeping = true; b.emit('sleep'); at.active--; } });
             return b;
         };
@@ -116,7 +116,9 @@ const keepAlive = setInterval(() => {}, 1000);          // the line's own timers
         const none = mk('Work5'); none.findBlock = () => null; const nb = await bed.setSpawn({ env: { w, here: () => ({ x: 0, y: 1, z: 0 }) }, bot: none, gates, who: 'Work5', cancel: { cancelled: false }, walk: async () => ({ ok: true }) });
         assert.ok(!nb.ok && nb.reason === 'invalid_target');
         // a key for both halves of a bed
-        const bk = mk('K'); assert.strictEqual(bed.bedKey(bk, bk.blockAt({ x: 10, y: 1, z: 10 })), bed.bedKey(bk, bk.blockAt({ x: 11, y: 1, z: 10 })));
+        const V = require('vec3'), bk = mk('K'); assert.strictEqual(bed.bedKey(bk, bk.blockAt(new V(10, 1, 10))), bed.bedKey(bk, bk.blockAt(new V(11, 1, 10))));
+        const viaAt = await run('Work6', { at: { x: 10, y: 1, z: 10 } }); assert.ok(viaAt.ok, `a bed given by coordinates: ${JSON.stringify(viaAt)}`);
+        const noAt = await run('Work7', { at: { x: 3, y: 1, z: 3 } }); assert.ok(!noAt.ok && noAt.reason === 'invalid_target', 'no bed at those coordinates');
         // a bot that never gets done is cancelled by its time limit, the next one goes
         const g2 = new Gates({ holdMs: 80, waitMs: 5000 }), stuck = mk('Slow'); stuck.activateBlock = async () => { await sleep(400); };
         const pos2 = { x: 0, y: 1, z: 0 };

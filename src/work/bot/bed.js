@@ -2,13 +2,15 @@
 // Setting a respawn point at a bed (owner 2026-11-09): the bot touches the bed (the server sets the respawn point at the touch, day or night; at night the bot lies down, and
 // wakes at once instead of sleeping until morning). Many bots are sent to one bed in a line (queue.js): one at a time, in name order, each with a time limit; a bot that cannot
 // do it is sent away and the next one goes. The old version crowded them on one block and the first one slept on.
+const Vec3 = require('vec3');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const blockAt = (bot, x, y, z) => bot.blockAt(new Vec3(x, y, z));          // mineflayer calls .floored() on the argument: a plain {x, y, z} throws (live 2026-11-09: set_spawn failed for all 20 bots)
 const BED = /_bed$/;
 const SIDES = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
 /** The bed block to use: the one at x y z when given (that cell must be a bed), else the nearest bed within `radius`. Returns the block or null. */
 function findBed(bot, at = null, radius = 48) {
-    if (at && Number.isInteger(at.x) && Number.isInteger(at.y) && Number.isInteger(at.z)) { const b = bot.blockAt({ x: at.x, y: at.y, z: at.z }); return b && BED.test(b.name) ? b : null; }
+    if (at && Number.isInteger(at.x) && Number.isInteger(at.y) && Number.isInteger(at.z)) { const b = blockAt(bot, at.x, at.y, at.z); return b && BED.test(b.name) ? b : null; }
     return bot.findBlock({ matching: (b) => !!b && BED.test(b.name), maxDistance: radius }) || null;
 }
 
@@ -16,7 +18,7 @@ function findBed(bot, at = null, radius = 48) {
 function bedKey(bot, b) {
     const name = b.name; let best = { x: b.position.x, z: b.position.z, y: b.position.y };
     for (const [dx, dz] of SIDES) {
-        const o = bot.blockAt({ x: b.position.x + dx, y: b.position.y, z: b.position.z + dz });
+        const o = blockAt(bot, b.position.x + dx, b.position.y, b.position.z + dz);
         if (o && o.name === name && (o.position.x < best.x || (o.position.x === best.x && o.position.z < best.z))) best = { x: o.position.x, y: o.position.y, z: o.position.z };
     }
     return `bed:${best.x},${best.y},${best.z}`;
@@ -69,9 +71,9 @@ async function setSpawn(o) {
         }
         if (c.cancelled) return { ok: false, reason: ticket && ticket.evicted ? 'timeout' : 'cancelled', detail: { why: ticket && ticket.evicted ? 'took longer than the time limit at the bed' : 'cancelled', bed: bedPos } };
         if (!near) return { ok: false, reason: 'unreachable', detail: { why: 'no way to stand next to the bed', bed: bedPos } };
-        const fresh = bot.blockAt(bedPos);
+        const fresh = blockAt(bot, bedPos.x, bedPos.y, bedPos.z);
         if (!fresh || !BED.test(fresh.name)) return { ok: false, reason: 'invalid_target', detail: { why: 'the bed is gone', bed: bedPos } };
-        await bot.lookAt({ x: bedPos.x + 0.5, y: bedPos.y + 0.5, z: bedPos.z + 0.5 }, true).catch(() => {});
+        await bot.lookAt(new Vec3(bedPos.x + 0.5, bedPos.y + 0.5, bedPos.z + 0.5), true).catch(() => {});
         let onSleep; const slept = new Promise((r) => { onSleep = () => r(true); bot.once('sleep', onSleep); });
         try { await bot.activateBlock(fresh); } catch (e) { bot.removeListener('sleep', onSleep); return { ok: false, reason: 'not_confirmed', detail: { why: `the touch failed: ${String(e.message).slice(0, 80)}`, bed: bedPos } }; }
         const lay = await Promise.race([slept, sleep(1500).then(() => false)]);
