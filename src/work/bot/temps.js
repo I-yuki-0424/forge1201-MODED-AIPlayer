@@ -10,7 +10,8 @@ const fixtures = require('../../skills/fixtures');
 
 const MAX = 4000, MAX_AGE_MS = 3 * 24 * 3600 * 1000;
 const KINDS = new Set(['seal', 'pillar', 'scaffold', 'reflex', 'rescue']);
-const CLEAN_NEAR = new Set(['pillar', 'scaffold', 'reflex', 'rescue']);           // taken away by whoever passes (a seal needs the fluid check, and the pit's cleanup)
+const CLEAN_NEAR = new Set(['pillar', 'scaffold', 'reflex']);                      // taken away by whoever passes
+const HOLDS_BACK = new Set(['seal', 'rescue']);                                    // blocks that stop water: taken away only when no fluid lies beside or above them, and only by the pit's own cleanup (a first version let every bot that passed remove the water rescue's fills: 369 listed, the pit flooded again, rescue time went from 27-108 to 273-404 bot-s a minute)
 const dimOf = fixtures.dimOf;
 const keyOf = (dim, x, y, z) => `${dim}|${x},${y},${z}`;
 
@@ -44,7 +45,7 @@ class Temps {
 
     /**
      * What `env.temp` is for one bot: the Map-like list moves.js and the worker use (set / delete / size / iterate [key, cell]). It shows what this bot placed, and any block of a kind that
-     * is cleaned by whoever passes within 10 blocks of it (a bot that was stopped half way left its pillar for the next one). Seals are not in it.
+     * is cleaned by whoever passes within 10 blocks of it (a bot that was stopped half way left its pillar for the next one). Seals and the water rescue's fills are not in it.
      */
     view(bot) {
         const self = this, mine = (r) => r.dim === dimOf(bot) && CLEAN_NEAR.has(r.kind) && (r.by === bot.username || near(bot, r, 10));
@@ -90,7 +91,7 @@ async function cleanTemps(env, o = {}) {
         if (env.w.nameAt && r.item && !String(env.w.nameAt(r.x, r.y, r.z) || '').endsWith(String(r.item).replace(/^minecraft:/, ''))) { temps.remove(dim, r); out.forgotten++; continue; }       // another block now: not ours any more
         const f = env.here();
         if (f.x === r.x && f.z === r.z && f.y === r.y + 1) continue;                            // standing on it
-        if (r.kind === 'seal' && !holdsNothingBack(env.w, r)) { out.kept++; continue; }         // still holds water back
+        if (HOLDS_BACK.has(r.kind) && !holdsNothingBack(env.w, r)) { out.kept++; continue; }    // still holds water back
         if (!temps.claim(dim, r, env.bot.username)) continue;
         out.tried++;
         const m = await env.exec('mine', { x: r.x, y: r.y, z: r.z, collect: false });

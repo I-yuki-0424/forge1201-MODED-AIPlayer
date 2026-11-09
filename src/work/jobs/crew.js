@@ -137,7 +137,7 @@ class Ledger {
         const r = this.regions.get(regionId); if (!r) return false;
         const was = r.state[u], l = (u / r.rows) | 0;
         if (was === DONE) { r.doneN--; } else if (was === STUCK) { r.stuckN--; this.stuck = this.stuck.filter((s) => !(s.region === regionId && s.unit === u)); } else return false;
-        r.state[u] = PENDING; r.attempts[u] = 0; r.avoid[u] = -1; r.owner[u] = -1; r.hold[u] = now + holdMs; r.sig[u] = null; r.same[u] = 0;
+        r.state[u] = PENDING; r.attempts[u] = 0; if (was !== STUCK) r.avoid[u] = -1; r.owner[u] = -1; r.hold[u] = now + holdMs; r.sig[u] = null; r.same[u] = 0;       // a parked unit keeps the bot that failed it to avoid: another bot tries it from another place first
         r.settled[l]--; r.checked[l] = 0;
         if (l < r.front) r.front = l;
         this._ev({ t: now, ev: 'requeue_unit', region: regionId, unit: u });

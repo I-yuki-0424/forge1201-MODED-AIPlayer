@@ -36,8 +36,8 @@ const botOf = (name, x, z, dim = 'minecraft:overworld') => ({ username: name, ga
 
     await test('env.temp view: what this bot placed or what stands within 10 blocks, Map-like; seals are not in it', () => {
         const T = new Temps(), a = botOf('A', 0, 0), view = T.view(a);
-        view.set('5,60,5', { x: 5, y: 60, z: 5 }); T.add({ dim: 'overworld', x: 100, y: 60, z: 100, kind: 'pillar', by: 'B' }); T.add({ dim: 'overworld', x: 3, y: 64, z: 2, kind: 'reflex', by: 'B' }); T.add({ dim: 'overworld', x: 2, y: 64, z: 2, kind: 'seal', by: 'B' });
-        assert.strictEqual(view.size, 2, 'its own pillar block and the reflex block beside it; not the far one, not the seal');
+        view.set('5,60,5', { x: 5, y: 60, z: 5 }); T.add({ dim: 'overworld', x: 100, y: 60, z: 100, kind: 'pillar', by: 'B' }); T.add({ dim: 'overworld', x: 3, y: 64, z: 2, kind: 'reflex', by: 'B' }); T.add({ dim: 'overworld', x: 2, y: 64, z: 2, kind: 'seal', by: 'B' }); T.add({ dim: 'overworld', x: 4, y: 64, z: 4, kind: 'rescue', by: 'B' }); T.add({ dim: 'overworld', x: 5, y: 64, z: 4, kind: 'rescue', by: 'A' });
+        assert.strictEqual(view.size, 2, 'its own pillar block and the reflex block beside it; not the far one, not the seal, not a fill of the water rescue (not even its own: they stop water)');
         assert.deepStrictEqual([...view].map(([k]) => k).sort(), ['3,64,2', '5,60,5']);
         assert.ok(view.has('5,60,5')); assert.ok(view.delete('5,60,5')); assert.strictEqual(view.size, 1); assert.ok(!view.delete('nonsense'));
         const nether = T.view(botOf('A', 0, 0, 'minecraft:the_nether')); assert.strictEqual(nether.size, 0, 'another dimension');
@@ -50,10 +50,10 @@ const botOf = (name, x, z, dim = 'minecraft:overworld') => ({ username: name, ga
         w.set(0, 0, 1, 'unknown'); assert.ok(!holdsNothingBack(w, { x: 0, y: 0, z: 0 }));
     });
 
-    await test('cleanTemps: pillar and rescue blocks go, a seal that holds water stays, gone blocks are forgotten, a claimed block is left to its bot, another block is not ours', async () => {
+    await test('cleanTemps: pillar and scaffold blocks go, a seal or a rescue fill that holds water stays, gone blocks are forgotten, a claimed block is left to its bot, another block is not ours', async () => {
         const w = world({ '0,64,0': 'cobblestone', '1,64,0': 'dirt', '5,64,5': 'cobblestone', '6,64,5': 'water', '9,64,9': 'cobblestone', '3,64,3': 'stone' });
         const T = new Temps(), bot = botOf('A', 0, 0), mined = [];
-        T.add({ dim: 'overworld', x: 0, y: 64, z: 0, item: 'cobblestone', kind: 'pillar', by: 'B' }); T.add({ dim: 'overworld', x: 1, y: 64, z: 0, item: 'dirt', kind: 'rescue', by: 'B' });
+        T.add({ dim: 'overworld', x: 0, y: 64, z: 0, item: 'cobblestone', kind: 'pillar', by: 'B' }); T.add({ dim: 'overworld', x: 1, y: 64, z: 0, item: 'dirt', kind: 'scaffold', by: 'B' });
         T.add({ dim: 'overworld', x: 5, y: 64, z: 5, item: 'cobblestone', kind: 'seal', by: 'B' });                     // water beside it
         T.add({ dim: 'overworld', x: 7, y: 64, z: 7, item: 'cobblestone', kind: 'seal', by: 'B' });                     // already gone
         T.add({ dim: 'overworld', x: 3, y: 64, z: 3, item: 'cobblestone', kind: 'pillar', by: 'B' });                   // the world has stone there now: not ours
@@ -65,6 +65,9 @@ const botOf = (name, x, z, dim = 'minecraft:overworld') => ({ username: name, ga
         assert.ok(T.has('overworld', { x: 5, y: 64, z: 5 }), 'the seal that holds water back is still listed'); assert.ok(T.has('overworld', { x: 9, y: 64, z: 9 }));
         assert.ok(!T.has('overworld', { x: 0, y: 64, z: 0 }) && !T.has('overworld', { x: 7, y: 64, z: 7 }) && !T.has('overworld', { x: 3, y: 64, z: 3 }));
         // water gone: the seal can go; with a box only what lies inside it (and two cells around) is looked at
+        // a rescue fill is held back like a seal: with water beside it, it stays; the pit's cleanup takes it when the water is gone
+        T.add({ dim: 'overworld', x: 8, y: 64, z: 8, item: 'cobblestone', kind: 'rescue', by: 'B' }); w.set(8, 64, 8, 'cobblestone'); w.set(8, 64, 9, 'water');
+        const rr = await cleanTemps(env, { radius: 30 }); assert.ok(T.has('overworld', { x: 8, y: 64, z: 8 }) && !mined.includes('8,64,8'), 'a rescue fill with water beside it is not broken: ' + JSON.stringify(rr)); w.set(8, 64, 9, null); T.remove('overworld', { x: 8, y: 64, z: 8 });
         w.set(6, 64, 5, null); mined.length = 0;
         const r2 = await cleanTemps(env, { box: { x0: 0, x1: 10, z0: 0, z1: 10, top: 70, bottom: 60 }, max: 5 });
         assert.deepStrictEqual(mined, ['5,64,5'], JSON.stringify(mined)); assert.strictEqual(r2.broken, 1);
