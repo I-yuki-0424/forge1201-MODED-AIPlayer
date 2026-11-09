@@ -221,7 +221,9 @@ async function runUnit(plan, region, u, env) {
         const hidden = before ? sp.unsupported.filter((f) => exposed(env.w, f, c)) : sp.unsupported;
         if (hidden.length) return { ok: false, reason: 'invalid_target', detail: { why: 'fluid with nothing to seal it against', cells: hidden.slice(0, 4) } };
         for (const f of list) {
-            const item = SEAL_ITEMS.find((n) => env.have(n) >= 1);
+            let item = SEAL_ITEMS.find((n) => env.have(n) >= 1);
+            // Nothing to seal with and nowhere to fetch it (`any` is insert-only): a block from the undug part of the pit beside the bot, as the pillar takes one (moves.js harvest).
+            if (!item && env.run && env.within) { const hv = await env.run('harvest', { items: SEAL_ITEMS }); if (hv.ok && hv.detail && hv.detail.got) { r.harvested = (r.harvested || 0) + 1; item = SEAL_ITEMS.find((n) => env.have(n) >= 1); } }
             if (!item) return { ok: false, reason: 'missing_item', detail: { why: 'no block to seal water with', tried: SEAL_ITEMS } };
             const p = await placeAt(f, item);
             if (!p.ok) return p;

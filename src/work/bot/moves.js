@@ -269,7 +269,10 @@ async function stashWorn(ctx, { item, damage, x, y, z }) {
 /** mine_hand {x, y, z}: break one block with a worn tool or bare hands (the way out of a pit when no usable pickaxe is left), no drop collected. */
 const mineHand = (ctx, a) => mine(ctx, { x: a.x, y: a.y, z: a.z, collect: false, hand: true });
 
-const MOVES = { mine_hand: { fn: mineHand, ticks: () => 400 }, pillar: { fn: pillar, ticks: (a) => 200 + 260 * (a.levels || 1) }, take_usable: { fn: takeUsable, ticks: () => 800 }, deposit_many: { fn: depositMany, ticks: (a) => 400 + 120 * ((a.items && a.items.length) || 1) }, stash_worn: { fn: stashWorn, ticks: () => 800 } };
+// harvest: one stackable block out of the undug part of the pit beside the bot (for the water rule when the pack holds nothing to seal with: a chest tagged `any` is insert-only, so there is
+// nothing to fetch back). `within` is the pit box (the environment adds it), `items` what is wanted.
+const harvest = async (ctx, a) => harvestBlock(ctx, feetCell(ctx.bot.entity.position), a.within, a.items || []);
+const MOVES = { mine_hand: { fn: mineHand, ticks: () => 400 }, harvest: { fn: harvest, ticks: () => 700 }, pillar: { fn: pillar, ticks: (a) => 200 + 260 * (a.levels || 1) }, take_usable: { fn: takeUsable, ticks: () => 800 }, deposit_many: { fn: depositMany, ticks: (a) => 400 + 120 * ((a.items && a.items.length) || 1) }, stash_worn: { fn: stashWorn, ticks: () => 800 } };
 Object.assign(MOVES, require('./bridge').MOVES);          // bridge, sneak_walk: work over an abyss (bridge.js; no circular import: it does not need this file)
 
 /** Run one of the work layer's own movements on `bot` (same result shape as skills.execute). */

@@ -125,6 +125,21 @@ function fakeWorld(ground = 0, init = {}) {
         assert.strictEqual((await botEnv(b, { cancel: { cancelled: false } }).rejoin({ x: 1, y: 2, z: 3 })).reason, 'refused');
     });
 
+    await test('pit: with nothing to seal water with the bot takes a block from the undug part of the pit (harvest) instead of waiting for a chest that is insert-only', async () => {
+        const w = fakeWorld(60, { '2,64,2': 'water' }); for (let x = 0; x <= 4; x++) for (let z = 0; z <= 4; z++) if (!(x === 2 && z === 2)) w.set(x, 64, z, 'stone');
+        const job = pit.createPitJob({ x0: 2, z0: 2, x1: 2, z1: 2, top: 64, bottom: 64 }, {}, { road: false }), reg = job.plan.regions[0], inv = {}, asked = [];
+        const env = { w, within: { x0: 0, x1: 4, z0: 0, z1: 4, top: 64, bottom: 60 }, have: (i) => inv[i] || 0,
+            run: async (n, a) => { asked.push([n, a.items && a.items[0]]); inv.cobblestone = 1; return { ok: true, detail: { tried: 1, got: 'cobblestone' } }; },
+            exec: async (n, a) => { if (n === 'place') { if (!inv[a.item]) return { ok: false, reason: 'missing_item' }; inv[a.item]--; w.set(a.x, a.y, a.z, a.item); return { ok: true }; } w.set(a.x, a.y, a.z, 'air'); return { ok: true }; } };
+        const r = await job.runUnit(reg.id, { unit: 0, layer: 0, row: 0 }, env);
+        assert.ok(r.ok, JSON.stringify(r)); assert.deepStrictEqual(asked[0], ['harvest', 'cobblestone']); assert.strictEqual(r.detail.harvested, 1);
+        // outside a pit job (no box) nothing is harvested: the old failure, so the bot waits for the operator
+        const w2 = fakeWorld(60, { '2,64,2': 'water' }); for (let x = 0; x <= 4; x++) for (let z = 0; z <= 4; z++) if (!(x === 2 && z === 2)) w2.set(x, 64, z, 'stone');
+        const j2 = pit.createPitJob({ x0: 2, z0: 2, x1: 2, z1: 2, top: 64, bottom: 64 }, {}, { road: false });
+        const r2 = await j2.runUnit(j2.plan.regions[0].id, { unit: 0, layer: 0, row: 0 }, { w: w2, have: () => 0, exec: async () => ({ ok: true }) });
+        assert.strictEqual(r2.reason, 'missing_item');
+    });
+
     await test('queue: a container takes `slots` bots at a time (the others wait), the bed one; the time limit and eviction are per bot', async () => {
         const g = new Gates({ holdMs: 60000, waitMs: 60000, slotsFor: (k) => (k.startsWith('box:') ? 3 : 1) });
         const t = []; for (let i = 0; i < 5; i++) t.push(g.enter('box:1,2,3', `W${i}`));

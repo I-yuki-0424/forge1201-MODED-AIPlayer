@@ -144,7 +144,7 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         within: null,
         run: (name, args) => (CHEST_MOVES.has(name)
             ? queued(args, cancel, (c) => require('./moves').runMove(bot, name, args, { cancel: c }))
-            : require('./moves').runMove(bot, name, name === 'pillar' && envObj.within && !args.within ? { ...args, within: envObj.within } : args, { cancel })),
+            : require('./moves').runMove(bot, name, (name === 'pillar' || name === 'harvest') && envObj.within && !args.within ? { ...args, within: envObj.within } : args, { cancel })),
         // Take a turn at a container before walking to it (reach.js approach); null = go on, else the failure. `release` gives the turn back when the walk failed.
         reserve: async (cell) => {
             if (!gates || !isCell(cell) || held.has(boxKey(cell))) return null;

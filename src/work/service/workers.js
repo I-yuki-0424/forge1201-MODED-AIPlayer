@@ -210,8 +210,9 @@ class WorkersPart {
                 } else {                                              // owner 2026-11-07: never retired for good; a short rest, then it tries again, as often as it takes
                     // Repeated failures after fixes and waits: rest a minute, then try again by itself (up to six times in a row).
                     rec.cool = (rec.cool || 0) + 1; rec.retired = `cooling down after ${res.last || 'repeated failures'} (try ${rec.cool}), resumes by itself`;
+                    const coolFor = this.o.coolMs * Math.min(24, 2 ** Math.min(rec.cool - 1, 6));      // 5 s, 10, 20, 40, 80, 120 s: a bot that fails over and over (nothing to seal with, no way out) stops hammering the same thing; one finished unit resets it
                     clearTimeout(rec.coolTimer);
-                    rec.coolTimer = setTimeout(() => { if (!rec.removed && rec.retired && rec.retired.startsWith('cooling')) { rec.retired = null; this._resume(rec); this._dirty(); } }, this.o.coolMs);
+                    rec.coolTimer = setTimeout(() => { if (!rec.removed && rec.retired && rec.retired.startsWith('cooling')) { rec.retired = null; this._resume(rec); this._dirty(); } }, coolFor);
                     rec.coolTimer.unref?.();
                 }
                 this.note('warn', `bot ${rec.name} ${rec.retired}`);
