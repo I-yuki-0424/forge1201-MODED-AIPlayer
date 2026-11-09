@@ -195,6 +195,7 @@ class SkillSpace {
         // block is in reach: a node whose eye is within BLOCK_REACH of the block centre (line of sight is left to the command).
         const reach = w.sid ? reachable(w, here, { maxNodes: REACH_NODES, radius: REACH_RADIUS }) : null;
         const nodes = reach ? reach.cells : [];
+        this.lastNodes = nodes;                     // the walker's reachable cells of this call (src/experts/space.js adds moves toward targets beyond the view)
         const canStand = (x, y, z) => !reach || reach.has(x, y, z);
         const reachFrom = (list) => (x, y, z) => !reach || list.some(([a, b, c]) => (a - x) ** 2 + (b + EYE - y - 0.5) ** 2 + (c - z) ** 2 <= BLOCK_REACH * BLOCK_REACH);
         const inReach = reachFrom(nodes);

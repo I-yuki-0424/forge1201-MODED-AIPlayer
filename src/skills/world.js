@@ -70,7 +70,11 @@ const isInteractive = (name) => INTERACTIVE.test(name || '');
  */
 function fromBot(bot) {
     const c = bot.__skillWorld;
-    if (c && c.registry === bot.registry) return c.w;
+    // The model is kept per bot, but not past a change of the world object (login, respawn, dimension change: mineflayer builds a new one) and not when it was built before the world
+    // had the state-id readers (a model made at that moment has no `sid`: no reach flood, every candidate unfiltered, blockAt for everything: live 2026-11-09, the stuck-escape expert
+    // was offered moves out of a shaft that no planner can walk).
+    const fast = !!bot.world && typeof bot.world.getBlockStateId === 'function' && typeof bot.world.getColumnAt === 'function';
+    if (c && c.registry === bot.registry && c.world === bot.world && (!fast || !!c.w.sid)) return c.w;
     const Vec3 = require('vec3');
     const blockAt = (x, y, z) => bot.blockAt(new Vec3(x, y, z), false);
     // `bot.__noVines`: vines are not climbable for this bot (a vine wall is not a way: the pit bots slid down 30 levels of vines and died of the fall when they let go; 2026-11-07).
@@ -111,7 +115,7 @@ function fromBot(bot) {
         w = { blockAt, kindAt: (x, y, z) => { const b = blockAt(x, y, z); return noVines && b && b.name === 'vine' ? 'air' : kindOf(b); }, shapesAt: (x, y, z) => shapesOf(blockAt(x, y, z)),
             nameAt: (x, y, z) => blockAt(x, y, z)?.name ?? null };
     }
-    bot.__skillWorld = { registry: bot.registry, w };
+    bot.__skillWorld = { registry: bot.registry, world: bot.world, w };
     return w;
 }
 

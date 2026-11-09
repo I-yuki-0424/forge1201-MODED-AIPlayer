@@ -31,7 +31,31 @@ def main(argv=None):
     c.add_argument("--router", required=True, help="rules | xgb:<model> | lgb:<model>"); c.add_argument("--experts", required=True, help="net:<runs dir> | solver")
     c.add_argument("--episodes", type=int, default=60); c.add_argument("--trace", type=int, default=0, help="print the expert switches of the first N episodes"); c.add_argument("--scenario", default="chain"); c.add_argument("--out"); c.add_argument("--timeout", type=int, default=1500)
     c.add_argument("--dump-states", default="", help="write every state the router saw, labelled by the rules (DAgger data for the router)"); c.add_argument("--trace-steps", action="store_true", help="with --trace: also the expert and command of each of the last 400 steps"); c.add_argument("--trace-fail", action="store_true", help="trace only the episodes that did not succeed"); c.add_argument("--greedy-stall", action="store_true", help="control: the first chain's behaviour, a stalled expert is called again with the greedy action")
+    x = sub.add_parser("export"); x.add_argument("--runs", required=True); x.add_argument("--out", required=True); x.add_argument("--experts", default="move,unstick")
+    gd = sub.add_parser("golden"); gd.add_argument("--expert", required=True); gd.add_argument("--root", required=True); gd.add_argument("--base", required=True); gd.add_argument("--shards", required=True)
+    gd.add_argument("--weights", required=True); gd.add_argument("--n", type=int, default=30); gd.add_argument("--out", required=True)
     a = ap.parse_args(argv)
+    if a.cmd == "export":
+        from . import export
+        for p in export.export_models(a.runs, a.out, tuple(a.experts.split(","))):
+            print(p)
+        return 0
+    if a.cmd == "golden":
+        import time
+        from . import export, policy
+        from .features import Featurizer
+        cat0 = catalog.load()
+        vec = _vec(a)
+        t0 = time.time()
+        while vec.vocab() is None:
+            vec.poll(); time.sleep(0.05)
+            if time.time() - t0 > 120:
+                print("no hello", file=sys.stderr); return 1
+        params, _ = policy.load(a.weights)
+        n = export.record_golden(vec, Featurizer(vec.vocab(), cat0["items"]), vec.vocab(), catalog.experts(cat0)[a.expert], params, a.n, a.out)
+        print(n)
+        pathlib.Path(f"{a.root}/{a.base}.done").write_text("golden")
+        return 0
     if a.cmd == "router":
         return _router(a)
     if a.cmd == "chain":
