@@ -28,6 +28,7 @@ class WorldPart {
             for (const r of this.bots.values()) if (r.bot && !r.removed) { try { require('../../skills/options').configure(r.bot, { toolPolicy: tp }); } catch (_) { /* not connected */ } }
         }
         if (s && s.mapSave !== undefined) { need([0, 30, 60, 120, 300].includes(s.mapSave), 'mapSave: 0 (off), 30, 60, 120 or 300 seconds'); this.settings.mapSave = s.mapSave; this._mapSaveTimer(); }
+        if (s && s.chestSlots !== undefined) { need(Number.isInteger(s.chestSlots) && s.chestSlots >= 1 && s.chestSlots <= 6, 'chestSlots: 1..6 bots at a chest at the same time'); this.settings.chestSlots = s.chestSlots; }
         if (s && typeof s.autoKit === 'boolean') this.settings.autoKit = s.autoKit;
         if (s && typeof s.reflex === 'boolean') this.settings.reflex = s.reflex;
         if (s && typeof s.scripts === 'boolean') this.settings.scripts = s.scripts;

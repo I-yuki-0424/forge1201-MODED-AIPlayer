@@ -144,6 +144,7 @@ function unitCells(plan, region, u) {
 }
 
 const RETRY = new Set(['not_visible', 'not_confirmed', 'stuck', 'unreachable', 'target_lost', 'timeout']);
+const CELL_FAILS = new Set([...RETRY, 'invalid_target']);       // failures that belong to one cell: the rest of the tile can still be dug
 const NEIGH4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const isFluid = (w, x, y, z) => { const k = w.kindAt(x, y, z); return k === 'water' || k === 'liquid' || (k === 'danger' && /lava/.test(w.nameAt(x, y, z) || '')); };
 const isSolid = (w, x, y, z) => w.kindAt(x, y, z) === 'solid';
@@ -201,6 +202,19 @@ async function runUnit(plan, region, u, env) {
     // Fill what sealPlan lists. `before`: only fluid that can be seen now (a pocket sealed inside stone cannot be clicked, and it
     // cannot flow until the cell next to it opens: live run p4, a water cell in the wall next to the last stone); after the dig
     // the opened cell is the window onto it, so everything is filled then, the pocket first and the opened cell last.
+    const liftedFor = new Set();
+    // A placement the bot cannot reach a face for (unreachable) or that ends in a swim it cannot get out of (stuck): the same walk is not tried again. The server puts the bot on a standable
+    // cell beside the fluid cell, once per cell, and the placement is tried from there (a different approach); if that fails too, the failure goes up and the unit is parked.
+    const placeAt = async (f, item) => {
+        let p = await env.exec('place', { x: f.x, y: f.y, z: f.z, item, fluid: true });
+        const key = `p${f.x},${f.y},${f.z}`;
+        if (!p.ok && (p.reason === 'unreachable' || p.reason === 'stuck') && env.lift && !liftedFor.has(key)) {
+            liftedFor.add(key);
+            const l = await env.lift(f, { radius: 4, up: 2, down: 1, skipSame: true });
+            if (l.ok) { r.lifted = (r.lifted || 0) + 1; p = await env.exec('place', { x: f.x, y: f.y, z: f.z, item, fluid: true }); }
+        }
+        return p;
+    };
     const seal = async (c, before) => {
         const sp = sealPlan(env.w, [c]);
         const list = before ? sp.fill.filter((f) => (f.x === c.x && f.y === c.y && f.z === c.z) || exposed(env.w, f, c)) : sp.fill;
@@ -209,7 +223,7 @@ async function runUnit(plan, region, u, env) {
         for (const f of list) {
             const item = SEAL_ITEMS.find((n) => env.have(n) >= 1);
             if (!item) return { ok: false, reason: 'missing_item', detail: { why: 'no block to seal water with', tried: SEAL_ITEMS } };
-            const p = await env.exec('place', { x: f.x, y: f.y, z: f.z, item, fluid: true });
+            const p = await placeAt(f, item);
             if (!p.ok) return p;
             r.sealed++;
         }
@@ -218,7 +232,6 @@ async function runUnit(plan, region, u, env) {
     // One cell. Returns null when it is open afterwards, or the failure. A cell whose water rule needs a block the bot does not have yet
     // (a bot with an empty inventory next to a shore) is not a failure of the unit: it is left for after the row, when digging has
     // brought dirt or cobblestone.
-    const liftedFor = new Set();
     const handle = async (c, last) => {
         if (isSolid(env.w, c.x, c.y, c.z) && aerialTree(env.w, c)) { r.skipped++; r.aerial = (r.aerial || 0) + 1; return null; }       // out of reach by design, see aerialTree
         let s = await seal(c, true);
@@ -241,7 +254,7 @@ async function runUnit(plan, region, u, env) {
         // the bot on a standable cell next to the block (env.lift), once per cell. Live pit 2026-11-07: two bots stood on leftover pillars and failed 'unreachable' for good.
         if (!m.ok && !open(c) && m.reason === 'unreachable' && env.lift && !liftedFor.has(`${c.x},${c.y},${c.z}`)) {
             liftedFor.add(`${c.x},${c.y},${c.z}`);
-            const l = await env.lift(c);
+            const l = await env.lift(c, { skipSame: true });
             if (l.ok) { r.lifted = (r.lifted || 0) + 1; m = await env.exec('mine', mineArgs(c)); }
         }
         if (!m.ok && m.reason === 'protected') { r.skipped++; r.protected = (r.protected || 0) + 1; return null; }       // the owner's chest or a tagged block inside the box: left standing (src/skills/fixtures.js)
@@ -271,11 +284,15 @@ async function runUnit(plan, region, u, env) {
         const g = await goToStation(cells.station, handle, env, open, r);
         if (g) return g;
     }
+    // A cell that cannot be done (unreachable, a fluid with nothing to seal it against ...) does not stop the others: the rest of the tile is dug, and only then the unit fails with the first
+    // failure. Retried later, the unit finds everything else open and spends its time on the one cell that is wrong, not on all of them again. Two failed cells end the unit at once
+    // (the bot is probably somewhere it cannot work), and so does anything that is not about the cell (died, cancelled, a missing tool or item).
+    const failures = [];
     for (const c of cells) {
         if (UNBREAKABLE.test(env.w.nameAt(c.x, c.y, c.z) || '')) { r.skipped++; continue; }         // bedrock at the bottom of the world
         const res = await handle(c, false);
         if (res === 'defer') { deferred.push(c); r.deferred = (r.deferred || 0) + 1; continue; }
-        if (res) return res;
+        if (res) { if (!CELL_FAILS.has(res.reason) || failures.length >= 1) return failures[0] || res; failures.push(res); r.failedCells = failures.length; continue; }
         // The middle cell is open: step down into it, so that the whole tile is within an arm's length (a failed step only costs reach).
         if (sweep && env.here && cells.station && c.x === cells.station.x && c.z === cells.station.z && open(c)) {
             // Never step into a hole with nothing under it (the bottom layer of an End island, a gap: owner 2026-11-09). The tile is dug from where the bot stands; work that cannot be
@@ -284,7 +301,8 @@ async function runUnit(plan, region, u, env) {
             const h = env.here(); if (h.x !== c.x || h.y !== c.y || h.z !== c.z) { await env.exec('move_to', c); r.stepped = (r.stepped || 0) + 1; }
         }
     }
-    for (const c of deferred) { const res = await handle(c, true); if (res) return res; }
+    for (const c of deferred) { const res = await handle(c, true); if (res) { if (failures.length) return failures[0]; return res; } }
+    if (failures.length) return { ...failures[0], detail: { ...failures[0].detail, failedCells: failures.length, mined: r.mined } };
     if (sweep && env.items && r.mined) { const sd = await sweepDrops(env, cells.station || cells[0]); r.picked = sd.picked; r.seen = sd.seen; if (sd.fail) r.pickFail = sd.fail; }
     return { ok: true, reason: null, detail: r };
 }
@@ -303,6 +321,7 @@ function lineCells(from, to, y) {
  * Returns null when the bot stands there (or cannot be brought closer: the sweep then works from where it is), or a failure.
  */
 async function goToStation(S, handle, env, open, r) {
+    let lifts = 0;                       // at most two server lifts per walk to a station: a lift that lands in the same cell again changes nothing (live: Work17 lifted 0 blocks every 20 s)
     for (let t = 0; t < 10; t++) {
         const here = env.here();
         if (here.x === S.x && here.y === S.y && here.z === S.z) return null;
@@ -312,8 +331,9 @@ async function goToStation(S, handle, env, open, r) {
         // Far above or below the bot (three levels or more) and no walk there: the server puts the bot on a standable cell at the station's layer (env.lift). A floating
         // pillar block cannot be climbed down and a shaft not walked up; live pit 2026-11-07, three bots stood on their own pillars 20 levels above their units.
         // Also when the station is far to the side (more than 24 blocks: a bot that respawned at the world spawn): a long walk through jungle, with vines the planner climbs, killed bots.
-        if (env.lift && (Math.abs(above) >= 3 || Math.hypot(here.x - S.x, here.z - S.z) > 24)) {
-            const l = await env.lift(S);
+        if (env.lift && lifts < 2 && (Math.abs(above) >= 3 || Math.hypot(here.x - S.x, here.z - S.z) > 24)) {
+            lifts++;
+            const l = await env.lift(S, { skipSame: true });
             if (l.ok) { r.lifted = (r.lifted || 0) + 1; continue; }
             r.liftFail = l.reason;
         }

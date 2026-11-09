@@ -13,7 +13,11 @@ const tile = (label, value, sub, sp) => h('div', { class: 'tile' }, h('div', { c
 const bar = (pct, cls = '') => { const b = h('div', { class: `bar ${cls}` }, h('i')); b.firstChild.style.width = `${clamp(pct, 0, 100)}%`; return b; };
 const ago = (t) => { const s = Math.max(0, Math.round((Date.now() - t) / 1000)); return s < 90 ? `${s}s` : s < 5400 ? `${Math.round(s / 60)}m` : `${Math.round(s / 3600)}h`; };
 const progText = (p) => (p.queue ? `in line ${p.queue}/${p.of}` : p.turn ? 'at the bed' : `${p.got}/${p.want}`);       // gather: got/want; set_spawn: the place in the line at the bed
-const botActivity = (b) => { const base = b.retired ? 'waiting' : b.working ? `job ${b.job}` : b.cmd && b.cmd.status === 'running' ? `${b.cmd.name}${b.cmd.progress ? ` ${progText(b.cmd.progress)}` : '…'}` : b.state === 'online' ? 'idle' : b.state; return base + (b.phase && (b.working || (b.cmd && b.cmd.status === 'running')) ? ` · ${b.phase.name} ${b.phase.s}s` : '') + (b.reflex ? ` · ⚡ reflex ${b.reflex.kind} (${b.reflex.s}s ago)` : '') + (b.moved ? ` · ⇢ moved by the server ${b.moved.dist} blocks (${b.moved.why}, ${b.moved.s}s ago)` : '') + (b.problem ? ` · ⚠ ${b.problem.reason || b.problem.kind}${b.problem.cell ? ` ${[].concat(b.problem.cell).join(' ')}` : ''} (${b.problem.s}s ago)` : ''); };
+// What the bot is doing NOW (owner 2026-11-09: "it says Digging but it is standing still"): the worker's activity, not the action layer's last phase, which stays set for minutes.
+// A phase is shown only while it is fresh; how long the bot has not moved is shown when it is 10 s or more.
+const ACT_WORDS = { claim: 'taking a unit', unit: 'working a unit', janitor: 'upkeep (chest trip)', audit: 'checking the range', sweep: 'final sweep', rescue: 'water rescue', defend: 'fighting', recover: 'fixing a failure', backoff: 'pausing after a failure', idle: 'waiting for a unit (layer above not done, or units on hold)', script: 'script', line: 'waiting in line at a chest', lift: 'moved by the server', chest: 'at the chest' };
+const actText = (a) => { if (!a) return ''; const name = a.sub ? a.sub.name : a.name, s = a.sub ? a.sub.s : a.s; return `${ACT_WORDS[name] || name} ${s}s${a.phase && !a.sub ? ` · ${a.phase}` : ''}${a.still >= 10 ? ` · not moving ${a.still}s` : ''}`; };
+const botActivity = (b) => { const base = b.retired ? 'waiting' : b.working ? `job ${b.job}` : b.cmd && b.cmd.status === 'running' ? `${b.cmd.name}${b.cmd.progress ? ` ${progText(b.cmd.progress)}` : '…'}` : b.state === 'online' ? 'idle' : b.state; return base + (b.act && b.working ? ` · ${actText(b.act)}` : b.phase && (b.cmd && b.cmd.status === 'running') ? ` · ${b.phase.name} ${b.phase.s}s` : '') + (b.reflex ? ` · ⚡ reflex ${b.reflex.kind} (${b.reflex.s}s ago)` : '') + (b.moved ? ` · ⇢ moved by the server ${b.moved.dist} blocks (${b.moved.why}, ${b.moved.s}s ago)` : '') + (b.problem ? ` · ⚠ ${b.problem.reason || b.problem.kind}${b.problem.cell ? ` ${[].concat(b.problem.cell).join(' ')}` : ''} (${b.problem.s}s ago)` : ''); };
 const posText = (p) => (p ? `${Math.round(p.x)}, ${Math.round(p.y)}, ${Math.round(p.z)}` : '-');
 
 function makeMap(canvasHost, o) {                       // canvas that follows the size of its container
@@ -38,4 +42,29 @@ function botTable(bots, { compact = false, selection = null, onRow = null, filte
             h('td', {}, h('strong', { text: b.name })), h('td', {}, stateDot(b.state), ' ', b.state), h('td', {}, botActivity(b), b.retired ? h('div', { class: 'warn small', text: b.retired }) : null, b.cmd && b.cmd.status !== 'running' && !b.working ? h('div', { class: `small ${b.cmd.status === 'ok' ? 'ok' : 'warn'}`, text: `${b.cmd.name}: ${b.cmd.status}${b.cmd.result && b.cmd.result.reason ? ' (' + b.cmd.result.reason + ')' : ''}` }) : null),
             h('td', { class: 'mono', text: posText(b.pos) }), h('td', { text: b.health ?? '-' }), h('td', { text: b.food ?? '-' }), compact ? null : h('td', { text: b.state === 'online' ? b.pickaxes : '-' }))) : [h('tr', {}, h('td', { colspan: 9, class: 'muted', text: 'No bots.' }))]));
     return t;
+}
+
+/**
+ * Pick bots by number (owner 2026-11-09: "from number X to number Y, working in parallel"). Works on the bot chips of a page (a `.chip` per bot with a hidden checkbox, text
+ * "Work7" or "Work7 (busy)"): Select ticks exactly the bots numbered from..to, Add keeps what is ticked, "idle only" leaves out bots that already have a job, None clears.
+ * The page's own change handlers do the rest, so the picked set of every page (pit, build, place) follows.
+ */
+function botRangePicker(chipsEl) {
+    const from = h('input', { type: 'number', class: 'num', min: 0, placeholder: 'from', 'aria-label': 'first bot number', title: 'the number in the bot name: Work7 is 7' });
+    const to = h('input', { type: 'number', class: 'num', min: 0, placeholder: 'to', 'aria-label': 'last bot number' });
+    const idle = h('input', { type: 'checkbox', checked: true });
+    const chips = () => [...chipsEl.querySelectorAll('.chip')].map((c) => { const m = /^(.*?)(\d+)(\s*\(busy\))?$/.exec(c.textContent.trim()); return { c, cb: c.querySelector('input'), n: m ? Number(m[2]) : NaN, busy: !!(m && m[3]) }; });
+    const set = (x, v) => { if (x.cb.checked !== v) { x.cb.checked = v; x.cb.dispatchEvent(new Event('change', { bubbles: true })); } };
+    const apply = (keep) => {
+        const a = num(from.value), b = num(to.value);
+        if (Number.isNaN(a) || Number.isNaN(b)) return toast('give both numbers: from and to (Work7 is number 7)', true);
+        const lo = Math.min(a, b), hi = Math.max(a, b); let n = 0;
+        for (const x of chips()) { const hit = x.n >= lo && x.n <= hi && !(idle.checked && x.busy); if (hit) n++; set(x, hit || (keep && x.cb.checked)); }
+        toast(n ? `${n} bot${n > 1 ? 's' : ''} ticked (numbers ${lo} to ${hi})` : `no ${idle.checked ? 'idle ' : ''}bot is numbered ${lo} to ${hi}`, !n);
+    };
+    return h('div', { class: 'row tight', title: 'pick the bots of this job by number' },
+        h('span', { class: 'muted small', text: 'by number' }), from, h('span', { class: 'muted', text: '–' }), to,
+        h('button', { class: 'btn small', onclick: () => apply(false) }, 'Select'), h('button', { class: 'btn small', onclick: () => apply(true) }, 'Add'),
+        h('button', { class: 'btn small ghost', onclick: () => { for (const x of chips()) set(x, false); } }, 'None'),
+        h('label', { class: 'check small' }, idle, ' idle only'));
 }

@@ -120,6 +120,7 @@ class BotsPart {
             routine: rec.script && rec.script.routine ? { ...rec.script.routine } : null,
             // what it is doing now (the action layer's phase, seconds since it began) and the last problem: a bot that stands and searches a path, or glows, says why
             phase: rec.phase && rec.state === 'online' && Date.now() - rec.phase.at < 180000 && (rec.worker || rec.cmd && rec.cmd.status === 'running') ? { name: rec.phase.name, s: Math.round((Date.now() - rec.phase.at) / 1000) } : null,
+            act: this._actView(rec),
             problem: rec.problem ? { kind: rec.problem.kind, reason: rec.problem.reason, stage: rec.problem.stage, cell: rec.problem.cell, s: Math.round((Date.now() - rec.problem.at) / 1000) } : null,
             inPit: this._inPit(rec),
             reflex: rec.reflex && Date.now() - rec.reflex.at < 120000 ? { kind: rec.reflex.kind, s: Math.round((Date.now() - rec.reflex.at) / 1000), n: rec.reflexes } : null,

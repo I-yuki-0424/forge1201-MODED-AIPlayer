@@ -19,7 +19,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * @param opts    { cancel, policy (janitor), pollMs, batch, onEvent, handlers: { missing_tool: script, ... }, scriptEnv: () => extra env for scripts (sites, policy, box) }
  * @returns       { ended: 'finished' | 'cancelled' | 'died' | 'disconnected', units, failed }
  */
-async function runWorker(job, id, env, { cancel = { cancelled: false }, policy = null, pollMs = 500, batch = 1, onEvent = () => {}, backoff: backoffOpt, handlers = null, scriptEnv = null } = {}) {
+async function runWorker(job, id, env, { cancel = { cancelled: false }, policy = null, pollMs = 500, batch = 1, onEvent = () => {}, backoff: backoffOpt, handlers = null, scriptEnv = null, act: actOpt = null, sub: subOpt = null } = {}) {
+    // What the bot is doing right now, named for the page and the health row (claim, unit, janitor, audit, rescue, recover, backoff, idle ...). The environment can refine it (line, lift, chest).
+    const act = (name) => { if (actOpt) { try { actOpt(name); } catch (_) { /* a display hook never stops work */ } } };
+    if (env && typeof env === 'object') { env.act = act; env.sub = (name) => { if (subOpt) { try { subOpt(name); } catch (_) { /* a display hook never stops work */ } } }; }
     const backoff = backoffOpt || backoffMs;
     const tries = {};
     // A recovery script (work/script.js) for what the bot lacks, run before it gives up and waits for the operator.
@@ -30,6 +33,7 @@ async function runWorker(job, id, env, { cancel = { cancelled: false }, policy =
         if (!sc || (tries[`${reason}:${sc.name}`] = (tries[`${reason}:${sc.name}`] || 0) + 1) > HANDLER_TRIES) return false;
         const senv = Object.assign(Object.create(env), scriptEnv ? scriptEnv() : {});
         senv.leavePit = (box) => require('./exit').leavePit(senv, box);
+        act('script');
         let out; try { out = await require('./script').runScript(sc, senv, { cancel }); } catch (e) { out = { ok: false, ended: 'error', reason: String(e.message).slice(0, 80), steps: 0, log: [] }; }
         onEvent('script', { id, name: sc.name, reason, ended: out.ended, ok: out.ok, steps: out.steps, log: out.log });
         return out.ok;
@@ -53,12 +57,14 @@ async function runWorker(job, id, env, { cancel = { cancelled: false }, policy =
     const wait = async (ms) => { for (let t = 0; t < ms && !cancel.cancelled; t += 500) await sleep(Math.min(500, ms - t)); };
     try {
         while (!cancel.cancelled) {
-            if (sinceAudit >= AUDIT_EVERY) { sinceAudit = 0; audit(false); }
+            if (sinceAudit >= AUDIT_EVERY) { sinceAudit = 0; act('audit'); audit(false); }
+            act('claim');
             const claim = L.claim(id, env.pos(), now(), { batch });
             if (!claim) {
                 // Before the job is called finished, look at the whole range once more: what is wrong goes back to work. A pit does it chunk by chunk (job.sweep: the bot walks to
                 // the chunk, reads it from the top layer down); the others look at what their bot can see (a few rounds at most).
                 if (L.finished() && job.sweep) {
+                    act('sweep');
                     const sw = await job.sweep(env, now());
                     if (sw.region) {                                                             // the next chunk, or the units that were sent back
                         onEvent('sweep', { id, ...sw });
@@ -70,6 +76,7 @@ async function runWorker(job, id, env, { cancel = { cancelled: false }, policy =
                 if (L.finished()) { if (job.cleanup) await job.cleanup(env); return { ended: 'finished', units, failed }; }
                 // The next layer waits for units other bots are still running; if nobody is running anything, nothing will change.
                 if (L.progress().leased === 0 && ++idle > 20) { L.leave(id, now()); return { ended: 'stalled', units, failed }; }
+                act('idle');                                    // nothing claimable: the next layer waits for other bots' units, or the units left are on hold after a failure
                 await sleep(pollMs);
                 continue;
             }
@@ -78,13 +85,15 @@ async function runWorker(job, id, env, { cancel = { cancelled: false }, policy =
                 if (cancel.cancelled) { L.leave(id, now()); return { ended: 'cancelled', units, failed }; }
                 // A bot that fell into water: to the surface and the shore first, then stop the water (work/water.js).
                 if (job.rescue && env.inWater && env.inWater()) {
+                    act('rescue');
                     const rr = await job.rescue(env, 'in_water'); onEvent('rescue', { id, ok: rr.ok, reason: rr.reason, filled: rr.filled, surfaced: rr.surfaced });
                     if (!rr.ok && (rr.reason === 'died' || rr.reason === 'disconnected')) { L.leave(id, now()); return { ended: rr.reason, units, failed }; }
                 }
                 // Attacked while working: kill what attacks (defensive only, guard.js), then work on. Temporary blocks still standing go first.
-                if (env.threat && env.defend && env.threat()) { const d = await env.defend(); onEvent('defend', { id, ...d }); if (d.ended === 'died' || d.ended === 'disconnected') { L.leave(id, now()); return { ended: d.ended, units, failed }; } }
+                if (env.threat && env.defend && env.threat()) { act('defend'); const d = await env.defend(); onEvent('defend', { id, ...d }); if (d.ended === 'died' || d.ended === 'disconnected') { L.leave(id, now()); return { ended: d.ended, units, failed }; } }
                 if (env.temp && env.temp.size) { try { const n = await require('./moves').cleanTemp(env); if (n) onEvent('temp_cleaned', { id, n }); } catch (_) { /* tried again at the next unit */ } }
                 if (policy) {
+                    act('janitor');
                     const m = await janitor.maintain(env, policy);        // a stalled janitor must not stall the job: log, carry on
                     if (!m.ok) onEvent('janitor_failed', { id, reason: m.reason, detail: m.detail });
                     const moved = (m.done || []).filter((d) => d.op === 'deposit');
@@ -92,13 +101,15 @@ async function runWorker(job, id, env, { cancel = { cancelled: false }, policy =
                 }
                 if (env.takeCancelCause) env.takeCancelCause();                       // forget a flicker of an earlier unit: the cause of THIS unit's stop is what is wanted
                 const t0 = now();
+                act('unit');
                 const r = await job.runUnit(claim.region, u, env);
                 onEvent('unit', { id, region: claim.region, unit: u.unit, role: claim.role, ok: r.ok, reason: r.reason, ms: now() - t0, detail: r.reason === 'cancelled' && env.takeCancelCause ? { ...(r.detail || {}), cause: env.takeCancelCause() || 'unknown' } : r.detail });
                 sinceAudit++;
                 if (r.ok) { L.done(id, claim.region, u.unit, now()); units++; streak = 0; for (const k of Object.keys(tries)) tries[k] = 0; if (env.rememberGood) env.rememberGood(); continue; }
                 failed++; sinceAudit = AUDIT_EVERY;                // a failure is the moment to check that the range is what it should be
                 await new Promise((res) => setImmediate(res));      // a failed unit can come back at once (cancelled, invalid ...): timers and sockets (the keep-alives of every bot in this process) get their turn before the next round
-                L.fail(id, claim.region, u.unit, r.reason, now(), r.detail);
+                const fi = L.fail(id, claim.region, u.unit, r.reason, now(), r.detail);
+                if (fi && fi.parked) onEvent('parked', { id, region: claim.region, unit: u.unit, reason: r.reason, why: fi.why, detail: r.detail });
                 if (r.reason === 'died' || r.reason === 'disconnected') { L.leave(id, now()); return { ended: r.reason, units, failed }; }
                 for (const rest of claim.units) if (rest.unit > u.unit) L.fail(id, claim.region, rest.unit, 'cancelled', now());   // back to the pool, not counted
                 // Stopped by an attack (not by the operator): fight, then claim again; this is neither a failure of the unit nor a bad streak.
@@ -115,16 +126,18 @@ async function runWorker(job, id, env, { cancel = { cancelled: false }, policy =
                 if (streak >= MAX_BAD_STREAK) { L.leave(id, now()); await bringBack(`${streak} failures in a row (${r.reason})`); return { ended: 'unhealthy', units, failed, last: r.reason }; }
                 // Basic fixes before the next try: the ladder (wait / jump / sidestep / back to where it last worked) and a pause of a few seconds.
                 onEvent('recover', { id, streak, reason: r.reason });
+                act('recover');
                 if (job.rescue) { try { const rr = await job.rescue(env, r.reason); if (rr.filled || rr.surfaced) onEvent('rescue', { id, ok: rr.ok, reason: rr.reason, filled: rr.filled, surfaced: rr.surfaced }); } catch (_) { /* a failed rescue is not a failed unit */ } }
                 if (env.recover) { try { await env.recover(streak + 1, r); } catch (_) { /* a failed fix is not a failed unit */ } }
-                await wait(backoff(streak));
+                // The failed unit is parked or on hold: the next claim is another unit, in another place. Waiting here would only be standing still.
+                if (!(fi && (fi.parked || fi.held))) { act('backoff'); await wait(backoff(streak)); }
                 break;
             }
         }
         L.leave(id, now());
         if (job.cleanup) await job.cleanup(env);
         return { ended: 'cancelled', units, failed };
-    } finally { clearInterval(hb); if (env.dispose) env.dispose(); }
+    } finally { clearInterval(hb); act(null); if (env.dispose) env.dispose(); }
 }
 
 module.exports = { runWorker, backoffMs, MAX_BAD_STREAK };

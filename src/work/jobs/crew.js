@@ -11,6 +11,9 @@
 //      the head, so the two meet in the middle without talking to each other.
 // A unit that fails for its own reasons (not the bot's death) is retried by ANOTHER bot, up to maxAttempts, then `stuck`
 // (reported, never retried forever; the layer below does not wait for it).
+// Failure memory (owner 2026-11-09: "retrying many times toward the same place that already failed is pointless"): a unit that fails twice IN THE SAME WAY (same reason, stage, cell
+// and words) is parked at once (`stuck`: the layer goes on, the repair pass tries it later, when the neighbours are dug and the water is sealed), not after `maxAttempts` identical
+// tries; and a failed unit is not claimable for a few seconds (`holdMs`), so the bot works on the other units of its range first instead of hammering the one that just failed.
 
 const PENDING = 0, LEASED = 1, DONE = 2, STUCK = 3;
 const BOT_FAULT = new Set(['died', 'disconnected', 'cancelled']);   // not the unit's fault: no attempt is counted
@@ -20,13 +23,23 @@ const BOT_FAULT = new Set(['died', 'disconnected', 'cancelled']);   // not the u
 const isBotSide = (reason, detail) => BOT_FAULT.has(reason) || reason === 'missing_tool' || reason === 'missing_item'
     || (reason === 'unreachable' && !!detail && detail.why === 'target chunk not loaded');
 
+/** What a failure looked like: its reason, the stage it happened in, the cell and the words. Two failures with the same signature are the same try failing the same way. Null: not enough to compare. */
+function failureSig(reason, detail) {
+    const d = detail || {}, c = d.cell || d.target;
+    const cell = c && Number.isInteger(c.x) ? `${c.x},${c.y},${c.z}` : Array.isArray(c) ? c.join(',') : '';
+    const sig = [reason, d.stage || '', cell, String(d.why || d.goal || '').slice(0, 60)].join('|');
+    return cell || d.stage || d.why ? sig : null;
+}
+
 class Ledger {
     /**
      * @param leaseMs     how long a lease lives without heartbeat
      * @param maxAttempts failures (other than the bot's own death) before a unit is `stuck`
      * @param crowd       score penalty per other bot already in a region (huge = help only when nothing unowned is left)
      */
-    constructor({ leaseMs = 60000, maxAttempts = 3, crowd = 1e6, maxLead = Infinity, lanes = false } = {}) {
+    constructor({ leaseMs = 60000, maxAttempts = 3, crowd = 1e6, maxLead = Infinity, lanes = false, sameLimit = Infinity, holdMs = 0 } = {}) {
+        this.sameLimit = sameLimit;   // identical failures in a row (same reason, stage, cell, words) before a unit is parked as stuck
+        this.holdMs = holdMs;         // a unit that failed is not claimable for this long (x2 per identical failure in a row); the bot takes its other units meanwhile
         this.lanes = lanes;           // pit jobs: one range per bot; a bot keeps to its range until it is dug to the bottom, and retries its own failed units itself
         this.maxLead = maxLead;       // a region may start layer f only while f - (the lowest front of any open region) <= maxLead: lanes stay in step
         Object.assign(this, { leaseMs, maxAttempts, crowd });
@@ -45,7 +58,7 @@ class Ledger {
         this.regions.set(id, {
             id, anchor, layers, rows, deps, meta, n,
             state: new Uint8Array(n), attempts: new Uint8Array(n), owner: new Int32Array(n).fill(-1),
-            until: new Float64Array(n), avoid: new Int32Array(n).fill(-1),
+            until: new Float64Array(n), avoid: new Int32Array(n).fill(-1), hold: new Float64Array(n), sig: new Array(n).fill(null), same: new Uint8Array(n),
             settled: new Int32Array(layers), front: 0, doneN: 0, stuckN: 0, leasedN: 0, lessees: new Map(),
         });
     }
@@ -128,7 +141,7 @@ class Ledger {
             if (this.maxLead !== Infinity && r.front - minFront > this.maxLead) continue;
             const base = r.front * r.rows;
             let any = false, pending = 0;
-            for (let i = 0; i < r.rows; i++) if (r.state[base + i] === PENDING && r.avoid[base + i] !== shun) { any = true; pending++; }
+            for (let i = 0; i < r.rows; i++) if (r.state[base + i] === PENDING && r.avoid[base + i] !== shun && r.hold[base + i] <= now) { any = true; pending++; }
             if (!any) continue;
             const others = r.lessees.size - (r.lessees.has(b.idx) ? 1 : 0);
             const d = Math.hypot(r.anchor.x - pos.x, r.anchor.z - pos.z);
@@ -145,7 +158,7 @@ class Ledger {
         for (const i of order) {
             if (units.length >= batch) break;
             const u = base + i;
-            if (r.state[u] !== PENDING || r.avoid[u] === shun) continue;
+            if (r.state[u] !== PENDING || r.avoid[u] === shun || r.hold[u] > now) continue;
             r.state[u] = LEASED; r.owner[u] = b.idx; r.until[u] = now + this.leaseMs; r.leasedN++;
             r.lessees.set(b.idx, (r.lessees.get(b.idx) || 0) + 1);
             b.leases.add(`${r.id}\u0000${u}`);
@@ -175,7 +188,7 @@ class Ledger {
         r.leasedN--; if (!r.leasedN) this.leased.delete(r.id);
     }
 
-    /** The unit failed with `reason` (a runner reason). Bot-side reasons do not count against the unit. */
+    /** The unit failed with `reason` (a runner reason). Bot-side reasons do not count against the unit. Returns { parked, same, held } (undefined for a bot-side failure): parked = now `stuck`, held = not claimable for `holdMs`. */
     fail(botId, regionId, u, reason, now, detail = null) {
         if (isBotSide(reason, detail)) reason = 'cancelled';           // the bot's own trouble (see isBotSide): release the unit, count nothing
         const r = this.regions.get(regionId), b = this.bot(botId);
@@ -185,11 +198,17 @@ class Ledger {
         if (BOT_FAULT.has(reason)) { b.faults++; return; }
         b.failed++;
         r.attempts[u]++; r.avoid[u] = b.idx;
-        this._ev({ t: now, ev: 'fail', bot: botId, region: regionId, unit: u, reason });
-        if (r.attempts[u] >= this.maxAttempts) {
+        // The same failure again (not "some" failure): the same try is not made a third time.
+        const sig = failureSig(reason, detail);
+        r.same[u] = sig && sig === r.sig[u] ? Math.min(250, r.same[u] + 1) : 1; r.sig[u] = sig;
+        if (this.holdMs) r.hold[u] = now + this.holdMs * Math.min(8, 2 ** (r.same[u] - 1));
+        this._ev({ t: now, ev: 'fail', bot: botId, region: regionId, unit: u, reason, same: r.same[u] });
+        if (r.attempts[u] >= this.maxAttempts || r.same[u] >= this.sameLimit) {
             r.state[u] = STUCK; r.stuckN++; this._settle(r, u);
             this.stuck.push({ region: regionId, unit: u, layer: (u / r.rows) | 0, row: u % r.rows, reason, detail });
+            return { parked: true, same: r.same[u], why: r.same[u] >= this.sameLimit ? 'same_failure' : 'attempts' };
         }
+        return { parked: false, same: r.same[u], held: this.holdMs > 0 };
     }
 
     /** The bot is gone (disconnect, death handled elsewhere): its units are free at once, nothing is counted against them. */
@@ -204,7 +223,7 @@ class Ledger {
         let n = 0;
         for (const s of this.stuck.splice(0)) {
             const r = this.regions.get(s.region);
-            r.state[s.unit] = PENDING; r.attempts[s.unit] = 0; r.avoid[s.unit] = -1; r.stuckN--; r.settled[s.layer]--;
+            r.state[s.unit] = PENDING; r.attempts[s.unit] = 0; r.avoid[s.unit] = -1; r.hold[s.unit] = 0; r.sig[s.unit] = null; r.same[s.unit] = 0; r.stuckN--; r.settled[s.layer]--;
             if (s.layer < r.front) r.front = s.layer;
             n++;
         }
@@ -220,7 +239,7 @@ class Ledger {
     reopen(regionId, u, now) {
         const r = this.regions.get(regionId);
         if (!r || r.state[u] !== DONE) return false;
-        r.state[u] = PENDING; r.attempts[u] = 0; r.avoid[u] = -1; r.owner[u] = -1; r.doneN--;
+        r.state[u] = PENDING; r.attempts[u] = 0; r.avoid[u] = -1; r.owner[u] = -1; r.hold[u] = 0; r.sig[u] = null; r.same[u] = 0; r.doneN--;
         const l = (u / r.rows) | 0;
         r.settled[l]--;
         if (l < r.front) r.front = l;
@@ -240,4 +259,4 @@ class Ledger {
     }
 }
 
-module.exports = { Ledger, PENDING, LEASED, DONE, STUCK, BOT_FAULT, isBotSide };
+module.exports = { Ledger, PENDING, LEASED, DONE, STUCK, BOT_FAULT, isBotSide, failureSig };

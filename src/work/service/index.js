@@ -47,7 +47,8 @@ class WorkService extends EventEmitter {
         }));
         this.known = this.o.known || null;
         this.stockMiss = new scriptLib.Misses({ ttlMs: this.o.stockMissMs || 120000 });         // containers found without an item, for every bot (script.js)
-        this.gates = new Gates({ holdMs: 60000, waitMs: 180000 });                  // the lines at beds and containers (bot/queue.js)
+        // A chest takes `chestSlots` bots at a time (default 3), the tools chest and beds one: bots take tools one after another, and sleeping is one at a time.
+        this.gates = new Gates({ holdMs: 60000, waitMs: 180000, slotsFor: (key) => this._slotsFor(key) });                  // the lines at beds and containers (bot/queue.js)
         this.bots = new Map();            // name -> record
         this.jobs = new Map();            // id -> job
         this.log = [];
@@ -76,6 +77,36 @@ class WorkService extends EventEmitter {
         this._lag.unref?.();
         this._lagMax = 0;
         this._health = setInterval(() => this._heartbeat(), this.o.healthMs || 60000); this._health.unref?.();
+        this._sampler = setInterval(() => this._sampleBots(), 2000); this._sampler.unref?.();
+    }
+
+    /** How many bots may be at the container `key` ("box:x,y,z") at once; 1 for anything else (a bed) and for a tools chest. */
+    _slotsFor(key) {
+        const m = /^box:(-?\d+),(-?\d+),(-?\d+)$/.exec(key);
+        if (!m) return 1;
+        const site = this.sites && this.sites.at(+m[1], +m[2], +m[3]);
+        if (site && (site.purpose === 'tools' || site.purpose === 'free')) return 1;
+        const n = this.settings && Number.isInteger(this.settings.chestSlots) ? this.settings.chestSlots : 3;
+        return Math.max(1, Math.min(6, n));
+    }
+
+    /** Every 2 s: has each working bot moved? Feeds the health row (time standing still per activity) and the page ("still 45 s"). */
+    _sampleBots() {
+        const now = Date.now();
+        for (const rec of this.bots.values()) {
+            const p = rec.bot && rec.bot.entity && rec.state === 'online' ? rec.bot.entity.position : null;
+            if (!rec.act || !p) { rec.stillSince = 0; rec.lastPos = null; continue; }
+            const l = rec.lastPos;
+            if (!l || Math.abs(l.x - p.x) >= 0.25 || Math.abs(l.y - p.y) >= 0.25 || Math.abs(l.z - p.z) >= 0.25) { rec.stillSince = now; rec.lastPos = { x: p.x, y: p.y, z: p.z }; }
+            this.health.sample(rec.name, p);
+        }
+    }
+
+    /** What a bot is doing in words, for the page: the activity (and its stretch inside it), the action layer's phase only while it is fresh, and how long it has not moved. */
+    _actView(rec) {
+        if (!rec.act || rec.state !== 'online') return null;
+        const now = Date.now(), ph = rec.phase && now - rec.phase.at < 10000 ? rec.phase.name : null;
+        return { name: rec.act.name, s: Math.round((now - rec.act.at) / 1000), sub: rec.act.sub ? { name: rec.act.sub.name, s: Math.round((now - rec.act.sub.at) / 1000) } : null, phase: rec.act.name === 'unit' ? ph : null, lastPhase: rec.phase ? { name: rec.phase.name, s: Math.round((now - rec.phase.at) / 1000) } : null, still: rec.stillSince ? Math.round((now - rec.stillSince) / 1000) : 0 };
     }
 
     /** Once a minute: the window's counters and a snapshot of the bots, into the log (one line) and health.jsonl; a window without a finished unit is a warning. */
@@ -85,7 +116,7 @@ class WorkService extends EventEmitter {
             const low = bottoms.length ? Math.min(...bottoms) + 4 : null;
             const bots = [...this.bots.values()].filter((r) => !r.removed && r.state === 'online').map((r) => ({
                 name: r.name, working: !!(r.worker || r.script || (r.cmd && r.cmd.status === 'running')), retired: r.retired,
-                phase: r.phase && Date.now() - r.phase.at < 180000 ? r.phase.name : null,
+                phase: r.act ? (r.act.sub ? r.act.sub.name : r.act.name === 'unit' ? `unit:${r.phase && Date.now() - r.phase.at < 15000 ? r.phase.name : 'quiet'}` : r.act.name) : null,
                 onFloor: low !== null && !!(r.bot && r.bot.entity && r.bot.entity.position.y <= low),
             }));
             const h = this.health.flush({ bots, lines: this.gates.busy(), lagMs: this._lagMax }); this._lagMax = 0;
@@ -140,7 +171,7 @@ class WorkService extends EventEmitter {
         try { this.save(); } catch (_) { /* best effort */ }
         for (const rec of this.bots.values()) { rec.removed = true; clearTimeout(rec.timer); this._stopWorker(rec); try { rec.bot && rec.bot.quit && rec.bot.quit(); } catch (_) { /* gone */ } }
         if (this._rcon) { try { this._rcon.close(); } catch (_) { /* gone */ } }
-        clearInterval(this._watch); clearInterval(this._lag); clearInterval(this._mapSave); this.maps.close(); if (this.display) this.display.stop();
+        clearInterval(this._watch); clearInterval(this._lag); clearInterval(this._sampler); clearInterval(this._mapSave); this.maps.close(); if (this.display) this.display.stop();
     }
 }
 

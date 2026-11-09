@@ -56,12 +56,16 @@ class WorkersPart {
         this._dirty();
         runWorker(job.impl, rec.name, env, {
             cancel, policy: job.policy, pollMs: 1000, backoff: this.o.backoff,
+            // What the bot is doing now (the page shows it, the health row adds up the time): not the last phase of the action layer, which stays on the page for minutes after the bot has stopped.
+            act: (name) => { rec.act = name ? { name, at: Date.now(), sub: null } : null; this.health.act(rec.name, name); },
+            sub: (name) => { if (rec.act) rec.act.sub = name ? { name, at: Date.now() } : null; this.health.sub(rec.name, name); },
             // What a bot does before it waits for the operator: a missing tool is made (the class the block needs: a sword for a cobweb, a pickaxe for stone), a missing item is fetched
             // from the containers (Ender Storage first). A function picks the script from the failed command.
             handlers: this.settings.scripts ? { missing_tool: (r) => this._toolScript(rec, r && r.detail && r.detail.block), missing_item: (r) => scriptLib.fetchScript(r && r.detail) } : null,
             scriptEnv: () => ({ sites: this.sites, policy: job.policy, box: job.spec.box, need: rec.missingTool }),
             onEvent: (ev, d) => {
                 if (ev === 'unit') this.health.unit(d);
+                if (ev === 'parked') { this.health.park(d); this.note('info', `${d.id} parked ${d.region} u${d.unit} (${d.reason}${d.detail && d.detail.stage ? ` at ${d.detail.stage}` : ''}${d.detail && d.detail.why ? `: ${String(d.detail.why).slice(0, 60)}` : ''}): ${d.why === 'same_failure' ? 'the same failure twice' : 'too many tries'}, the range goes on, the repair pass tries it again`, { job: job.id, cell: d.detail && d.detail.cell }); }
                 if (ev === 'janitor_done') this.health.deposit(d);
                 if (ev === 'janitor_failed') this.health.deposit({ failed: true });
                 if (ev === 'unit' && d.ok) { rec.fixes = 0; rec.cool = 0; rec.autoTries = 0; this._clearGlow(rec); }

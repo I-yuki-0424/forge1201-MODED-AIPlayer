@@ -9,8 +9,11 @@
 const sleepless = (f, ms) => { const t = setTimeout(f, ms); if (t.unref) t.unref(); return t; };
 
 class Gate {
-    constructor(key, { holdMs, waitMs }, onIdle = null) { this.key = key; this.holdMs = holdMs; this.waitMs = waitMs; this.holder = null; this.line = []; this.onIdle = onIdle; }
-    _idle() { if (!this.holder && !this.line.length && this.onIdle) this.onIdle(this); }
+    // `slots`: how many bots may use the thing at the same time. A bed is one; a chest (an Ender chest in particular: its contents are the same for everyone who opens it) takes a few at once:
+    // with one place 13-16 of 20 bots stood in the line while 3 were served, 70-90 s per deposit trip (live 2026-11-09).
+    constructor(key, { holdMs, waitMs, slots = 1 }, onIdle = null) { this.key = key; this.holdMs = holdMs; this.waitMs = waitMs; this.slots = Math.max(1, slots | 0); this.holders = new Set(); this.line = []; this.onIdle = onIdle; }
+    get holder() { return this.holders.values().next().value || null; }
+    _idle() { if (!this.holders.size && !this.line.length && this.onIdle) this.onIdle(this); }
 
     /** Resolves with a ticket when it is the caller's turn; rejects with reason 'timeout' (waited too long) or 'cancelled'. */
     enter(who, { cancel = null, holdMs = this.holdMs, waitMs = this.waitMs, onTurn = null } = {}) {
@@ -34,34 +37,37 @@ class Gate {
     _drop(w) { clearTimeout(w.timer); if (w.poll) clearInterval(w.poll); const i = this.line.indexOf(w); if (i >= 0) this.line.splice(i, 1); this._idle(); }
 
     _next() {
-        if (this.holder || !this.line.length) return;
+        while (this.holders.size < this.slots && this.line.length) this._serve();
+    }
+    _serve() {
         const w = this.line.shift(); clearTimeout(w.timer); if (w.poll) clearInterval(w.poll);
-        const t = w.ticket; t.since = Date.now(); this.holder = t;
-        const arm = () => sleepless(() => { if (this.holder === t) { t.evicted = true; this._leave(t); } }, t.holdMs);
+        const t = w.ticket; t.since = Date.now(); this.holders.add(t);
+        const arm = () => sleepless(() => { if (this.holders.has(t)) { t.evicted = true; this._leave(t); } }, t.holdMs);
         t.timer = arm();                                                      // the front place runs out: the bot is out of the line, its command is cancelled (t.cancelled)
         // A visit of several commands (one deposit per item kind) renews the limit after each: the limit is for a command that does not finish, not for a long pack.
-        t.renew = () => { if (this.holder !== t || t.left || t.evicted) return; clearTimeout(t.timer); t.timer = arm(); };
+        t.renew = () => { if (!this.holders.has(t) || t.left || t.evicted) return; clearTimeout(t.timer); t.timer = arm(); };
         if (w.onTurn) { try { w.onTurn(t); } catch (_) { /* a display callback must not break the line */ } }
         w.resolve(t);
     }
 
     _leave(t) {
         if (t.left) return; t.left = true; clearTimeout(t.timer);
-        if (this.holder === t) this.holder = null;
+        this.holders.delete(t);
         this._next(); this._idle();
     }
 
     /** Who is in line, front first: the holder, then the waiters. */
-    snapshot() { return [...(this.holder ? [this.holder.who] : []), ...this.line.map((w) => w.ticket.who)]; }
+    snapshot() { return [...[...this.holders].map((t) => t.who), ...this.line.map((w) => w.ticket.who)]; }
     place(who) { return this.snapshot().indexOf(who); }
 }
 
 class Gates {
     constructor(o = {}) { this.o = { holdMs: 45000, waitMs: 240000, ...o }; this.gates = new Map(); }
-    gate(key) { let g = this.gates.get(key); if (!g) this.gates.set(key, g = new Gate(key, this.o, (x) => { if (this.gates.get(key) === x) this.gates.delete(key); })); return g; }
+    // `slotsFor(key)` (optional): how many bots may use `key` at once; the default is one.
+    gate(key) { let g = this.gates.get(key); if (!g) this.gates.set(key, g = new Gate(key, { ...this.o, slots: this.o.slotsFor ? this.o.slotsFor(key) : 1 }, (x) => { if (this.gates.get(key) === x) this.gates.delete(key); })); return g; }
     enter(key, who, opt) { return this.gate(key).enter(who, opt); }
     /** Lines with someone in them: for the page. */
-    busy() { return [...this.gates.values()].map((g) => ({ key: g.key, line: g.snapshot() })).filter((g) => g.line.length); }
+    busy() { return [...this.gates.values()].map((g) => ({ key: g.key, line: g.snapshot(), serving: g.holders.size, slots: g.slots })).filter((g) => g.line.length); }
 }
 
 /** Natural order of bot names (Work2 before Work10): the order a crowd lines up in. */

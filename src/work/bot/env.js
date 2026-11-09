@@ -88,7 +88,10 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
     const isCell = (a) => !!a && Number.isInteger(a.x) && Number.isInteger(a.y) && Number.isInteger(a.z);
     const SENT_AWAY = new Set(['timeout', 'stuck', 'unreachable', 'not_confirmed', 'not_visible']);
     const lineFail = (e, key) => ({ ok: false, reason: e && e.reason === 'cancelled' ? 'cancelled' : 'timeout', detail: { stage: 'queue', key, why: String((e && e.message) || e).slice(0, 120) } });
-    const enter = async (cell, base, o = {}) => { try { return { t: await gates.enter(boxKey(cell), bot.username, { cancel: base, ...o }) }; } catch (e) { return { fail: lineFail(e, boxKey(cell)) }; } };
+    // A short stretch inside whatever the bot is doing (waiting in a line, a server lift, a chest window) is told to the worker (env.sub) so that the health row can say how long it took;
+    // when it ends the bot is back in its activity (a unit keeps its phase).
+    const around = async (n, fn) => { if (envObj.sub) envObj.sub(n); try { return await fn(); } finally { if (envObj.sub) envObj.sub(null); } };
+    const enter = (cell, base, o = {}) => around('line', async () => { try { return { t: await gates.enter(boxKey(cell), bot.username, { cancel: base, ...o }) }; } catch (e) { return { fail: lineFail(e, boxKey(cell)) }; } });
     /** A few blocks away from a cell (not into the way of the next bot): the standable cell 5 to 9 blocks off that is nearest to where the bot stands. */
     const sendAway = async (cell) => {
         const f = feet(), c = [];
@@ -111,7 +114,7 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         if (!t || t.left || t.evicted) { const e = await enter(cell, base); if (e.fail) return e.fail; t = e.t; }
         const c = { get cancelled() { return base.cancelled || t.evicted; } };
         let r;
-        try { r = await call(c); } finally { t.leave(); }
+        try { r = await around('chest', () => call(c)); } finally { t.leave(); }
         if (t.evicted && !r.ok && !base.cancelled) r = { ...r, ok: false, reason: 'timeout', detail: { ...(r.detail || {}), stage: 'queue', why: 'held the line longer than its time limit: next bot' } };
         if (!r.ok && (t.evicted || SENT_AWAY.has(r.reason)) && !base.cancelled) { try { await sendAway(cell); } catch (_) { /* leaving the spot is a courtesy */ } }
         return r;
@@ -122,11 +125,11 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         const k = boxKey(cell); let t = held.get(k); held.delete(k);
         if (!t || t.left || t.evicted) { const e = await enter(cell, cancel); if (e.fail) return e.fail; t = e.t; }
         visits.set(k, t);
-        try { return await fn(); } finally { visits.delete(k); t.leave(); }
+        try { return await around('chest', fn); } finally { visits.delete(k); t.leave(); }
     };
     const CHEST_OPS = new Set(['deposit', 'withdraw']), CHEST_MOVES = new Set(['take_usable', 'stash_worn', 'deposit_many']);
     const envObj = {
-        w, now: Date.now, recover, temp: new Map(), stockMiss,
+        w, now: Date.now, recover, temp: new Map(), stockMiss, act: null, sub: null,
         stations: bot.__stations || (bot.__stations = {}),           // crafting table / furnace the bot placed and has not taken back: reused by the next script run (script.js)
         discard: disc.makeClear({ rcon, name: bot.username, count: have }),
         dumpSpot: avoid ? () => disc.dumpSpot(w, feet(), { avoid: avoid(), others: others ? others() : [] }) : null,
@@ -202,7 +205,8 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         // `purpose`: 'job' (a station in another layer, a way out of the pit, the water rescue) is always allowed; 'recover' (the escape ladder after a failed move) follows the
         // operator's `teleport` setting: off = never, near = within 16 blocks across and 6 up or down, any = as far as it takes. Every server move is reported to `moved`
         // (owner 2026-11-08: "the bot moves as if teleporting"; it was this, and nothing said so).
-        lift: async (S, { radius = 5, down = 0, up = 2, purpose = 'job', why = '' } = {}) => {
+        lift: (S, o = {}) => around('lift', async () => {
+            const { radius = 5, down = 0, up = 2, purpose = 'job', why = '', skipSame = false } = o;
             if (!rcon) return { ok: false, reason: 'refused', detail: { why: 'no RCON' } };
             const mode = teleport();
             if (purpose === 'recover' && mode === 'off') return { ok: false, reason: 'refused', detail: { why: 'server moves are off for recovery (setting teleport)' } };
@@ -217,12 +221,13 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
             cand.sort((a, b) => (b.exit - a.exit) || (b.safe - a.safe) || (a.d - b.d));      // a cell that can be left on foot first (not a sealed pocket), then one without an edge or fluid beside it, then the nearest
             const c = cand[0], p0 = bot.entity.position, dist = Math.round(Math.hypot(c.x + 0.5 - p0.x, c.y - p0.y, c.z + 0.5 - p0.z));
             if (purpose === 'recover' && mode === 'near' && (Math.hypot(c.x + 0.5 - p0.x, c.z + 0.5 - p0.z) > 16 || Math.abs(c.y - p0.y) > 6)) return { ok: false, reason: 'refused', detail: { why: `${dist} blocks is too far for a recovery move (setting teleport: near)`, dist } };
+            if (skipSame && dist === 0) return { ok: true, to: { x: c.x, y: c.y, z: c.z }, same: true };         // `skipSame` (the pit asks): already standing there = no server move (it was logged as "moved 0 blocks" every try); goBack still moves the bot
             const from = { x: Math.round(p0.x), y: Math.round(p0.y), z: Math.round(p0.z) };
             try { await rcon(`tp ${bot.username} ${c.x + 0.5} ${c.y} ${c.z + 0.5}`); } catch (e) { return { ok: false, reason: 'refused', detail: { message: String(e.message).slice(0, 80) } }; }
             if (moved) { try { moved({ kind: 'server_tp', from, to: { x: c.x, y: c.y, z: c.z }, dist, purpose, why: why || purpose }); } catch (_) { /* reporting must not break the move */ } }
             for (let i = 0; i < 30; i++) { await sleep(100); const p = bot.entity.position; if (Math.abs(p.x - c.x - 0.5) < 1.5 && Math.abs(p.y - c.y) < 1.5 && Math.abs(p.z - c.z - 0.5) < 1.5 && bot.entity.onGround) return { ok: true, to: { x: c.x, y: c.y, z: c.z } }; }
             return { ok: false, reason: 'not_confirmed' };
-        },
+        }),
         // Walk to the nearest standable cell that no other bot stands in or next to (two bots in one cell blocked each other's pillar for ten minutes).
         stepAside: async () => {
             const f = feetCell(bot.entity.position), oth = others ? others() : [];
