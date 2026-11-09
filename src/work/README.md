@@ -36,6 +36,9 @@ escalation.js  request to the DPOD router (not wired into any job)
 | Ender Storage (colours, what is inside) | `world/enderstorage.js`, `service/ender.js`; opening the chest: `transport/forge_windows.js` |
 | what a bot never breaks / what it picked up again | `skills/fixtures.js` (rule), `bot/janitor.js` (the shulker depot) |
 | long walks, portals, routes across dimensions | `bot/travel.js`, `bot/portal.js`, `bot/route.js`, command `journey` in `service/commands.js` |
+| dimensions: names, limits, designated ranges, 1:8 conversion / jobs and commands in another dimension / the server jump | `world/dimensions.js` / `_dimSpec`, `checkRange`, `_enterDim` (`service/jobs.js`, `service/workers.js`), `_serverJump` in `service/commands.js` |
+| work over an abyss (bridge, sneak walk back) / what is under a cell | `bot/bridge.js` (`workOver`, moves `bridge`, `sneak_walk`) / `bot/abyss.js` |
+| breaking bedrock (frame, WIP) / villager trades (WIP) | `bot/bedrock.js` (setting `bedrockExploit`) / `bot/trade.js` (commands `trades`, `trade`) |
 | reflexes (fall, lava) / how a stuck bot gets out | `bot/reflex.js` / `bot/escape.js`, `recover` and `lift` in `bot/env.js` |
 | routines (a script repeated until Stop), tool durability policy | `runLoop` in `bot/script.js` + `service/library.js`; `skills/options.js` (`toolPolicy`), `bot/moves.js` (`stash_worn`) |
 | lines at beds and containers (FIFO, time limit, sent away) / the bed command | `bot/queue.js` (`Gates`) + `queued` / `reserve` in `bot/env.js` / `bot/bed.js`, `_setSpawn` in `service/commands.js` |
