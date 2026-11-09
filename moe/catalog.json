@@ -838,7 +838,7 @@
     "trap": {
      "depth": [
       3,
-      12
+      24
      ],
      "kind": "shaft"
     },
@@ -858,7 +858,7 @@
       "trap": {
        "depth": [
         3,
-        12
+        24
        ],
        "kind": "pocket"
       }

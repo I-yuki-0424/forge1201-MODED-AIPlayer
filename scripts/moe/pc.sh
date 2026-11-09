@@ -96,6 +96,9 @@ for l in sys.stdin:
 tail -n 20 ~/moe/logs/*.log | grep -a "held-out" | cut -c1-260
 EOS
   wsl_run "$f"; rm -f "$f";;
+report)   # the markdown tables of moe.report for the runs of TAG, made on the PC
+  tag=${1:?tag}; [[ $tag =~ ^[a-z0-9_-]+$ ]] || { echo "bad tag" >&2; exit 2; }
+  f=$(tmp); printf 'cd ~/moe/code && PYTHONPATH=~/moe/code JAX_PLATFORMS=cpu ~/gpuvenv/bin/python -m moe.report ~/moe/runs/%s\n' "$tag" > "$f"; wsl_run "$f"; rm -f "$f";;
 pull)
   sub=${1:-}
   [[ $sub =~ ^[A-Za-z0-9_./-]*$ ]] || { echo "bad subdir" >&2; exit 2; }

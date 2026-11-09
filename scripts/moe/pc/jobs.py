@@ -74,15 +74,16 @@ def cli(args, log, timeout=None):
     return r.stdout.decode().strip().splitlines()[-1] if r.stdout.strip() else ""
 
 
-def evaluate(tag, e, scn, policy, episodes, seed, log, out):
+def evaluate(tag, e, scn, policy, episodes, seed, log, out, worlds=("vps-s3", "vps-s4")):
     """One evaluation on the held-out worlds: policy = net | solver | random. Rows go to `out` (jsonl) with the scenario name."""
     base = f"{tag}-ev-{e['id']}-{scn}-{policy}"
-    procs = shards_up(base, [scn], ["vps-s3", "vps-s4"], 2, 2, 9000 + seed, log)
+    procs = shards_up(base, [scn], list(worlds), 2, 2, 9000 + seed, log)
     try:
         pol = {"net": f"net:{MOE / 'runs' / tag / e['id'] / 'final.npz'}", "solver": "solver", "random": "random"}[policy]
         last = cli(["eval", "--expert", e["id"], "--root", str(X), "--base", base, "--shards", "0,1", "--policy", pol, "--episodes", str(episodes), "--seed", str(seed + 1)], log, timeout=3600)
         row = json.loads(last)
         row["scenario"] = scn
+        row["worlds"] = ",".join(worlds)
         with open(out, "a") as f:
             f.write(json.dumps(row) + "\n")
         return row
@@ -130,7 +131,7 @@ def main():
     c.add_argument("--episodes", type=int, default=60); c.add_argument("--greedy-stall", action="store_true"); c.add_argument("--seed", type=int, default=0); c.add_argument("--out", default="chain.jsonl")
     c.add_argument("--trace", type=int, default=0)
     v = sub.add_parser("eval"); v.add_argument("--tag", required=True); v.add_argument("--expert", required=True); v.add_argument("--scenario", required=True); v.add_argument("--policy", default="net")
-    v.add_argument("--episodes", type=int, default=200); v.add_argument("--seed", type=int, default=0)
+    v.add_argument("--episodes", type=int, default=200); v.add_argument("--seed", type=int, default=0); v.add_argument("--worlds", default="vps-s3,vps-s4")
     a = ap.parse_args()
     cat = catalog()
     ex = {e["id"]: e for e in cat["experts"]}
@@ -148,7 +149,7 @@ def main():
         print(cli(["router", "--out", str(runs / "router")], runs / "router.log"))
         return
     if a.cmd == "eval":
-        print(evaluate(a.tag, ex[a.expert], a.scenario, a.policy, a.episodes, a.seed, runs / "eval.log", runs / f"eval-{a.expert}.jsonl"))
+        print(evaluate(a.tag, ex[a.expert], a.scenario, a.policy, a.episodes, a.seed, runs / "eval.log", runs / f"eval-{a.expert}.jsonl", tuple(a.worlds.split(","))))
         return
     if a.cmd == "chain":
         base = f"{a.tag}-ch-{a.scenario}-{a.router}-{a.experts}"

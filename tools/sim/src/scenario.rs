@@ -135,7 +135,11 @@ impl Scenario {
     /// How the episode ends now, if it does: "success", "died", "timeout" or "" (goes on). `steps` = commands run this episode, `reached` = progress entries reached.
     pub fn ended(&self, s: &Sim, reached: &HashSet<String>, steps: u32, died: bool) -> &'static str {
         let e = match &self.end { Some(e) => e, None => return "" };
-        let there = e.reach.map_or(true, |r| s.way.map_or(false, |w| { let d = |a: i32, b: i32| ((a - b) as f64).powi(2); (d(w[0], s.pos[0]) + d(w[1], s.pos[1]) + d(w[2], s.pos[2])).sqrt() <= r }));
+        // a waypoint is a fixed cell; a trap is left when the bot is back at the ground level above it (the `sky` of the scan: the same number the expert sees), wherever it comes out
+        let there = e.reach.map_or(true, |r| {
+            let target = if self.trap.is_some() { crate::scan::nearest(s, 4, &None).first().copied() } else { s.way };
+            target.map_or(false, |w| { let d = |a: i32, b: i32| ((a - b) as f64).powi(2); (d(w[0], s.pos[0]) + d(w[1], s.pos[1]) + d(w[2], s.pos[2])).sqrt() <= r })
+        });
         if e.have.iter().all(|(n, c)| held_n(s, n) >= *c) && e.entry.as_ref().map_or(true, |x| reached.contains(x)) && there { return "success"; }
         if died && e.die { return "died"; }
         if (e.max_steps > 0 && steps >= e.max_steps) || (e.max_ticks > 0 && s.tick >= e.max_ticks) { return "timeout"; }
@@ -537,7 +541,7 @@ mod tests {
         let dd = d3(s.pos, t);
         assert!((29.0..=52.0).contains(&dd), "nearest iron at {}", dd);
         assert!(first[1].is_none() && first[0].is_none(), "no coal, no log in a flat stone world");
-        assert_eq!(first[4].map(|x| x[1]), Some(s.pos[1]), "sky = the standing height of the surface");
+        assert_eq!(first[4], Some(s.pos), "sky = the ground above the bot: here its own cell");
         let c = crate::obs::candidates(&mut s);
         let far: Vec<_> = c.iter().filter(|c| c.feat[7] == 1.0 && matches!(c.args, crate::obs::Args::Move(_))).collect();
         assert!(far.iter().any(|c| c.item == s.d.item("iron_ore")), "a scan move toward the iron");
@@ -621,11 +625,14 @@ mod tests {
             assert_eq!(s.way, Some(top));
             assert!(s.reach().nodes.len() <= 2, "{}: walked out? {} cells", kind, s.reach().nodes.len());
             let sky = crate::scan::scan(&s).1[4];
-            let sk = sky.expect("sky");
-            assert!(sk[1] == top[1] && (sk[0] - top[0]).abs() <= 2 && (sk[2] - top[2]).abs() <= 2, "{}: the sky target is the surface beside/above: {:?} vs {:?}", kind, sk, top);
+            assert_eq!(sky, Some(top), "{}: the sky target is the ground above the shaft", kind);
             assert_eq!(sc.ended(&s, &HashSet::new(), 1, false), "");
-            s.pos = top;
-            assert_eq!(sc.ended(&s, &HashSet::new(), 1, false), "success");
+            s.pos = [top[0] + 1, top[1], top[2]];
+            assert_eq!(crate::scan::scan(&s).1[4], Some(s.pos), "standing on the ground: the sky is the bot's own cell");
+            s.pos = [top[0] + 7, top[1], top[2] - 5];
+            assert_eq!(sc.ended(&s, &HashSet::new(), 1, false), "success", "out of the trap anywhere on the ground");
+            s.pos = [top[0], top[1] - 4, top[2]];
+            assert_eq!(sc.ended(&s, &HashSet::new(), 1, false), "", "4 blocks under the ground is still inside");
         }
     }
 

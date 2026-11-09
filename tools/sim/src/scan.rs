@@ -75,19 +75,15 @@ fn natural_top(s: &Sim, x: i32, z: i32) -> Option<i32> {
         if let Some(&y) = c.1.get(&(x, z)) { return Some(y); }
         for y in (MINY..MINY + 380).rev() {
             let b = s.tile.get(x, y, z)?;
-            if !matches!(s.d.block(b).kind, crate::data::Kind::Air | crate::data::Kind::Passable) { c.1.insert((x, z), y); return Some(y); }
+            let bl = s.d.block(b);
+            if !matches!(bl.kind, crate::data::Kind::Air | crate::data::Kind::Passable) && !bl.name.ends_with("_leaves") && !bl.name.ends_with("_log") { c.1.insert((x, z), y); return Some(y); }
         }
         None
     })
 }
-/// The standing cell on top of column (x, z): the first non-air cell from the sky down (leaves count as ground; the bot cannot walk through them).
-pub fn surface(s: &Sim, x: i32, z: i32) -> Option<[i32; 3]> {
-    let nat = natural_top(s, x, z)?;
-    let mut y = nat + 24;                                                  // placed blocks may stand above the natural top
-    while y > nat && !solid_ish(s, x, y, z)? { y -= 1; }
-    while y > MINY && !solid_ish(s, x, y, z)? { y -= 1; }                  // a carved top (a shaft) is air: on down to the next solid cell
-    Some([x, y + 1, z])
-}
+/// The standing cell on the ground of column (x, z), as the world was generated: canopy and trunks do not count, and neither do the bot's own edits (a shaft
+/// dug into the ground is still "under the ground" and its sky is the ground level above it, which does not move while the bot climbs the shaft).
+pub fn surface(s: &Sim, x: i32, z: i32) -> Option<[i32; 3]> { natural_top(s, x, z).map(|y| [x, y + 1, z]) }
 
 /// The M nearest cells of group `g` within CHUNKS chunks of the bot, nearest first.
 pub fn nearest(s: &Sim, g: usize, ix: &Option<Rc<Idx>>) -> Vec<[i32; 3]> {
@@ -95,15 +91,8 @@ pub fn nearest(s: &Sim, g: usize, ix: &Option<Rc<Idx>>) -> Vec<[i32; 3]> {
     let mut v: Vec<(f64, [i32; 3])> = vec![];
     match g {
         3 => { if let Some(w) = s.way { v.push((d3(me, w), w)); } }
-        // the top of the highest column within 2 blocks (a shaft's own column is open to the sky, its rim is not), the nearest of equal height
-        4 => {
-            let mut best: Option<[i32; 3]> = None;
-            for dz in -2..=2 { for dx in -2..=2 { if let Some(t) = surface(s, me[0] + dx, me[2] + dz) {
-                let better = best.map_or(true, |b| t[1] > b[1] || (t[1] == b[1] && d3(me, t) < d3(me, b)));
-                if better { best = Some(t); }
-            } } }
-            if let Some(t) = best { v.push((d3(me, t), t)); }
-        }
+        // the ground above the bot: it stays where it is while the bot digs up toward it, and is the bot's own cell once it stands on the ground (or above it)
+        4 => { if let Some(t) = surface(s, me[0], me[2]) { let t = if me[1] > t[1] { me } else { t }; v.push((d3(me, t), t)); } }
         _ => {
             let want = |p: [i32; 3]| -> bool { s.blk(p[0], p[1], p[2]).map_or(false, |b| group_of(&s.d.block(b).name) == Some(g)) };
             // the cheap distance test first: the block lookups run only for cells that would enter the M nearest
