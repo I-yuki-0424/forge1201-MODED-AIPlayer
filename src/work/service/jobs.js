@@ -273,6 +273,7 @@ class JobsPart {
     /** Give every stuck unit another round (the repair pass of pit_live.js); the job runs again if it had ended. */
     repairJob(id) {
         const job = this._job(id), n = job.impl.ledger.requeueStuck(Date.now());
+        if (n) job.repairs = 0;
         if (job.state === 'finished' && n) { job.state = 'paused'; this.startJob(id); }
         this._dirty();
         return { requeued: n, job: this._jobView(job) };

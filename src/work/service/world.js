@@ -37,6 +37,7 @@ class WorldPart {
         if (s && typeof s.glow === 'boolean') { this.settings.glow = s.glow; if (!s.glow) for (const r of this.bots.values()) this._clearGlow(r); }
         if (s && typeof s.discardWorn === 'boolean') this.settings.discardWorn = s.discardWorn;
         if (s && typeof s.bedrockExploit === 'boolean') this.settings.bedrockExploit = s.bedrockExploit;      // bot/bedrock.js: off unless the operator turns it on
+        if (s && typeof s.autoRepair === 'boolean') this.settings.autoRepair = s.autoRepair;      // stuck units of a finished job are tried again by themselves (workers.js _watchRepair)
         if (s && typeof s.endDump === 'boolean') this.settings.endDump = s.endDump;      // the dump at the end of a finished pit or build (workers.js _endDump)
         if (s && s.endDumpEnder !== undefined) { let f; try { f = require('../world/enderstorage').frequency(s.endDumpEnder); } catch (e) { need(false, e.message); } need(!f.owner, 'endDumpEnder: a public chest (three colours), no owner'); this.settings.endDumpEnder = f; }
         if (s && typeof s.defend === 'boolean') this.settings.defend = s.defend;      // workers read it at start; bots that work now are told at once below

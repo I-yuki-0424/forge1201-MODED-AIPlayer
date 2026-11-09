@@ -218,15 +218,18 @@ class Ledger {
         b.alive = false; b.last = null;
     }
 
-    /** Give every stuck unit another round of attempts (a repair pass after the job has finished). Returns how many. */
-    requeueStuck(now) {
+    /** Give every stuck unit another round of attempts (a repair pass after the job has finished). `retriable(s)` leaves out the ones a retry cannot help (they stay stuck). Returns how many. */
+    requeueStuck(now, retriable = () => true) {
         let n = 0;
+        const keep = [];
         for (const s of this.stuck.splice(0)) {
+            if (!retriable(s)) { keep.push(s); continue; }
             const r = this.regions.get(s.region);
             r.state[s.unit] = PENDING; r.attempts[s.unit] = 0; r.avoid[s.unit] = -1; r.hold[s.unit] = 0; r.sig[s.unit] = null; r.same[s.unit] = 0; r.stuckN--; r.settled[s.layer]--;
             if (s.layer < r.front) r.front = s.layer;
             n++;
         }
+        this.stuck.push(...keep);
         if (n) this._ev({ t: now, ev: 'requeue', n });
         return n;
     }

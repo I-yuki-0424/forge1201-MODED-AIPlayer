@@ -225,21 +225,52 @@ class WorkersPart {
         this._dirty();
     }
 
+    /**
+     * Every few seconds: a finished job that still has stuck units gets another round when its time has come (setting `autoRepair`, on by default). The crew that is free then does it
+     * (else any idle bot); the job runs again, its quick repair passes included, and ends again. After the last round (`gaveUp`) only the Retry button starts it.
+     */
+    _watchRepair() {
+        if (this.settings.autoRepair === false) return;
+        const now = Date.now();
+        for (const job of this.jobs.values()) {
+            const a = job.auto;
+            if (job.state !== 'finished' || !a || a.gaveUp || now < a.next) continue;
+            const L = job.impl.ledger;
+            if (!L.stuck.some(RETRIABLE)) { a.gaveUp = true; continue; }
+            const free = (r) => r && !r.removed && r.state === 'online' && !r.job && !r.worker && !r.script && !(r.cmd && r.cmd.status === 'running');
+            let bots = (job.crew || []).map((n) => this.bots.get(n)).filter(free);
+            if (!bots.length) bots = [...this.bots.values()].filter(free).slice(0, 4);
+            if (!bots.length) { a.next = now + 60000; continue; }                                  // nobody free: look again in a minute, the round is not used up
+            const n = L.requeueStuck(now, RETRIABLE);
+            a.n++; a.next = now + AUTO_REPAIR_MIN[Math.min(a.n, AUTO_REPAIR_MIN.length - 1)] * 60000; a.gaveUp = a.n >= AUTO_REPAIR_MIN.length;
+            if (!n) continue;
+            job.state = 'paused'; job.repairs = 0; job.bots.clear();
+            for (const r of bots) { r.job = job.id; r.retired = null; job.bots.add(r.name); }
+            this.note('info', `job ${job.id}: automatic retry ${a.n} of ${AUTO_REPAIR_MIN.length} (${n} stuck units, ${bots.length} bots)`);
+            try { this.startJob(job.id); } catch (e) { this.note('warn', `job ${job.id}: automatic retry failed to start: ${String(e.message).slice(0, 100)}`); }
+        }
+    }
+
     _maybeFinish(job) {
         if ([...job.bots].some((n) => this.bots.get(n)?.worker)) return;                   // wait for the last worker
         const L = job.impl.ledger;
-        if (L.stuck.length && job.repairs < 30) {                                          // up to three repair passes, a few seconds apart (some problems pass by themselves)
+        if (L.stuck.some(RETRIABLE) && job.repairs < QUICK_REPAIRS) {                      // quick repair passes while the crew is still there (some problems pass by themselves): 3, 6, 12, 24, 48, 60 s
             job.repairs++;
-            this.note('info', `job ${job.id}: ${L.stuck.length} stuck units, repair pass ${job.repairs} of 30 in ${Math.round(this.o.repairMs / 1000)} s`);
+            const wait = Math.min(60000, this.o.repairMs * 2 ** (job.repairs - 1));
+            this.note('info', `job ${job.id}: ${L.stuck.length} stuck units, repair pass ${job.repairs} of ${QUICK_REPAIRS} in ${Math.round(wait / 1000)} s`);
             setTimeout(() => {
                 if (job.state !== 'running') return;
-                const n = L.requeueStuck(Date.now());
+                const n = L.requeueStuck(Date.now(), RETRIABLE);
                 if (n) for (const name of job.bots) this._startWorker(job, this.bots.get(name));
                 else this._maybeFinish(job);
-            }, this.o.repairMs).unref?.();
+            }, wait).unref?.();
             return;
         }
         job.state = 'finished'; job.ended = Date.now();
+        // Stuck units that remain are tried again by themselves later, with a growing pause, by whoever of the crew is free then (_watchRepair): nobody has to press Retry (owner 2026-11-10).
+        job.crew = [...job.bots];
+        if (L.stuck.length) job.auto = { n: job.auto ? job.auto.n : 0, next: Date.now() + AUTO_REPAIR_MIN[Math.min(job.auto ? job.auto.n : 0, AUTO_REPAIR_MIN.length - 1)] * 60000, gaveUp: !L.stuck.some(RETRIABLE) };
+        else job.auto = null;
         if (job.kind === 'build') {
             const rec = [...job.bots].map((n) => this.bots.get(n)).find((r) => r && r.state === 'online');
             if (rec) { try { job.diff = job.impl.diff(require('../../skills/world').fromBot(rec.bot)).length; } catch (_) { /* world not readable */ } }
@@ -278,4 +309,9 @@ class WorkersPart {
     }
 }
 
-module.exports = { WorkersPart };
+/** A failure a retry cannot change: the block is a fixture (never broken) or the arguments are wrong. Everything else (a path, water, a missing tool, a timeout) may be different later. */
+const RETRIABLE = (s) => !['protected', 'invalid_args'].includes(s.reason);
+const QUICK_REPAIRS = 6;
+const AUTO_REPAIR_MIN = [2, 5, 10, 20, 40, 60];            // minutes before automatic round 1, 2, ...; after the last the job is left as it is (the Retry button still works)
+
+module.exports = { WorkersPart, RETRIABLE, AUTO_REPAIR_MIN };

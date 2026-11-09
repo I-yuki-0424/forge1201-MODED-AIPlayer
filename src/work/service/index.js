@@ -52,7 +52,7 @@ class WorkService extends EventEmitter {
         this.bots = new Map();            // name -> record
         this.jobs = new Map();            // id -> job
         this.log = [];
-        this.settings = { autoKit: false, retireWorn: true, scripts: true, resumeJobs: true, defend: true, glow: true, directPickup: true, discardWorn: true, reflex: true, endDump: true, bedrockExploit: false, endDumpEnder: { left: 'white', middle: 'white', right: 'white' }, teleport: 'near', experts: true, toolPolicy: { wooden: 'use_up', stone: 'use_up', iron: 'use_up', golden: 'use_up', diamond: 'keep', netherite: 'keep' }, display: { on: true, paths: true, lanes: true, tags: true } };      // retireWorn: a nearly broken tool counts as no tool; scripts: recovery scripts (missing tool) on
+        this.settings = { autoKit: false, retireWorn: true, scripts: true, resumeJobs: true, defend: true, glow: true, directPickup: true, discardWorn: true, reflex: true, autoRepair: true, endDump: true, bedrockExploit: false, endDumpEnder: { left: 'white', middle: 'white', right: 'white' }, teleport: 'near', experts: true, toolPolicy: { wooden: 'use_up', stone: 'use_up', iron: 'use_up', golden: 'use_up', diamond: 'keep', netherite: 'keep' }, display: { on: true, paths: true, lanes: true, tags: true } };      // retireWorn: a nearly broken tool counts as no tool; scripts: recovery scripts (missing tool) on
         this.problems = new Problems({ file: path.join(this.o.dataDir, 'problems.jsonl') });   // problem bots: where, facing, standing on what (problems.js)
         this.health = new Health({ file: this.o.dataDir ? path.join(this.o.dataDir, 'health.jsonl') : null });   // where the time goes, once a minute (health.js)
         this.sites = new Sites();                                                  // tagged chests by coordinates (sites.js)
@@ -63,7 +63,7 @@ class WorkService extends EventEmitter {
         this._saveTimer = null;
         this._rcon = null; this._rconTail = Promise.resolve();
         this.maps = new MapStore(this.o.worldDir || null);
-        this._watch = setInterval(() => { this._watchWaiting(); this._watchDimension(); this._watchResume(); }, 2000); this._watch.unref?.();
+        this._watch = setInterval(() => { this._watchWaiting(); this._watchDimension(); this._watchResume(); this._watchRepair(); }, 2000); this._watch.unref?.();
         this.cmdSeq = 0;
         this.started = Date.now();
         this._startDisplay();

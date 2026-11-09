@@ -192,6 +192,36 @@ function fakeWorld(ground = 0, init = {}) {
         const r2 = svc.assign(b.id, svc.botsInRange(5, 6)); assert.ok(r2.bots.includes('Work5') && r2.bots.includes('Work6'), 'the two freed bots go to the other job');
     }).catch((e) => { console.log('service range test:', e && e.message); throw e; });
 
+    await test('automatic retry of stuck units (owner 2026-11-10): fixtures are not retried, the pause grows, the free crew is used, the Retry button needs no press', () => {
+        const { WorkersPart, RETRIABLE, AUTO_REPAIR_MIN } = require('../src/work/service/workers');
+        const L = new Ledger({ maxAttempts: 1 });
+        L.addRegion({ id: 'r', anchor: { x: 0, z: 0 }, layers: 1, rows: 3 }); L.join('A');
+        for (const reason of ['protected', 'unreachable', 'timeout']) { const c = L.claim('A', { x: 0, z: 0 }, 0); L.fail('A', 'r', c.units[0].unit, reason, 1, { stage: reason, cell: { x: 1, y: 1, z: 1 } }); }
+        assert.strictEqual(L.stuck.length, 3);
+        assert.strictEqual(L.requeueStuck(5, RETRIABLE), 2); assert.deepStrictEqual(L.stuck.map((x) => x.reason), ['protected'], 'the fixture stays stuck, it is not retried');
+        assert.strictEqual(L.requeueStuck(6), 1, 'the Retry button (no filter) still takes everything');
+        // the watcher
+        const job = { id: 'j1', state: 'finished', crew: ['B1', 'B2'], bots: new Set(), repairs: 6, auto: { n: 0, next: 1000, gaveUp: false }, impl: { ledger: { stuck: [{ reason: 'timeout' }], requeueStuck: () => 1 } } };
+        const bot = (name, extra = {}) => ({ name, state: 'online', job: null, worker: null, script: null, cmd: null, removed: false, ...extra });
+        const bots = new Map([['B1', bot('B1', { cmd: { status: 'running' } })], ['B2', bot('B2')], ['X', bot('X')]]);
+        const notes = [], started = [];
+        const svc = { settings: {}, jobs: new Map([['j1', job]]), bots, note: (l, m) => notes.push(m), startJob: (id) => started.push(id) };
+        const realNow = Date.now; try {
+            Date.now = () => 500; WorkersPart.prototype._watchRepair.call(svc); assert.strictEqual(started.length, 0, 'not yet');
+            Date.now = () => 2000; svc.settings.autoRepair = false; WorkersPart.prototype._watchRepair.call(svc); assert.strictEqual(started.length, 0, 'switched off');
+            svc.settings.autoRepair = true; WorkersPart.prototype._watchRepair.call(svc);
+            assert.deepStrictEqual(started, ['j1']); assert.deepStrictEqual([...job.bots], ['B2'], 'the crew member that is free (B1 is busy with a command; X is not of the crew)');
+            assert.strictEqual(bots.get('B2').job, 'j1'); assert.strictEqual(job.state, 'paused'); assert.strictEqual(job.repairs, 0);
+            assert.strictEqual(job.auto.n, 1); assert.strictEqual(job.auto.next, 2000 + AUTO_REPAIR_MIN[1] * 60000, 'the pause grows: 2, 5, 10 ...');
+            // nobody free: the round is not used up
+            job.state = 'finished'; job.auto = { n: 1, next: 0, gaveUp: false }; for (const b of bots.values()) b.job = 'other';
+            WorkersPart.prototype._watchRepair.call(svc); assert.strictEqual(job.auto.n, 1); assert.strictEqual(job.auto.next, 2000 + 60000);
+            // the last round
+            for (const b of bots.values()) b.job = null; job.auto = { n: AUTO_REPAIR_MIN.length - 1, next: 0, gaveUp: false }; Date.now = () => 90000; WorkersPart.prototype._watchRepair.call(svc);
+            assert.strictEqual(job.auto.gaveUp, true, 'after the last round only the button is left');
+        } finally { Date.now = realNow; }
+    });
+
     clearInterval(keepAlive);
     console.log('all flow tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

@@ -16,7 +16,7 @@ class ViewsPart {
         const L = job.impl.ledger, p = L.progress();
         const v = {
             id: job.id, kind: job.kind, name: job.name, state: job.state, spec: { ...job.spec, file: undefined }, progress: p, bots: [...job.bots],
-            stuck: L.stuck.length, repairs: job.repairs, workers: [...job.bots].filter((n) => this.bots.get(n)?.worker?.job === job.id).length, created: job.created, started: job.started, ended: job.ended, diff: job.diff,
+            stuck: L.stuck.length, repairs: job.repairs, auto: job.auto ? { n: job.auto.n, of: 6, inS: Math.max(0, Math.round((job.auto.next - Date.now()) / 1000)), gaveUp: !!job.auto.gaveUp } : null, workers: [...job.bots].filter((n) => this.bots.get(n)?.worker?.job === job.id).length, created: job.created, started: job.started, ended: job.ended, diff: job.diff,
             summary: job.summary, box: this._jobBox(job), lanes: job.kind === 'pit' ? job.impl.plan.regions.length : null,
         };
         // Running with nobody able to work: every assigned bot is retired, offline or gone (the page shows it, nothing else will).
