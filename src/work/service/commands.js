@@ -177,7 +177,7 @@ class CommandsPart {
             // A container verb goes through the line at that container (bot/queue.js via env.exec): many bots sent to one chest come one after another (owner 2026-11-09).
             if ((command === 'deposit' || command === 'withdraw') && ['x', 'y', 'z'].every((k) => Number.isInteger(args[k]))) {
                 const env = this.envFactory(bot, cancel);
-                try { return await env.exec(command, args); } finally { if (env && env.dispose) env.dispose(); }
+                if (env && typeof env.exec === 'function') { try { return await env.exec(command, args); } finally { if (env.dispose) env.dispose(); } }
             }
             return skills.execute(bot, command, args, { cancel });
         })().then(finish, (e) => finish({ ok: false, reason: 'error', detail: { message: String(e.message).slice(0, 160) } }));
