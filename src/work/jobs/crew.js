@@ -21,7 +21,7 @@ const BOT_FAULT = new Set(['died', 'disconnected', 'cancelled']);   // not the u
 // Likewise what the bot lacks: another bot with a pickaxe or blocks can run the unit (live run p3: three iron pickaxes wore out at
 // ~250 blocks each and every unit they were on was charged as an attempt).
 const isBotSide = (reason, detail) => BOT_FAULT.has(reason) || reason === 'missing_tool' || reason === 'missing_item'
-    || (reason === 'unreachable' && !!detail && detail.why === 'target chunk not loaded');
+    || (reason === 'unreachable' && !!detail && (detail.why === 'target chunk not loaded' || detail.botSide === true));
 
 /** What a failure looked like: its reason, the stage it happened in, the cell and the words. Two failures with the same signature are the same try failing the same way. Null: not enough to compare. */
 function failureSig(reason, detail) {

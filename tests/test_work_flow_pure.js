@@ -93,6 +93,38 @@ function fakeWorld(ground = 0, init = {}) {
         assert.ok(n <= 4, `${n} lifts: at most two for the walk to the station and one per failed cell (two cells end the unit)`);
     });
 
+    await test('pit: a bot that is 1,500 blocks from its station (respawned at the world spawn) is sent back by the server, once or twice, never walks a corridor toward it', async () => {
+        const w = fakeWorld(60); for (let x = 0; x <= 4; x++) for (let z = 0; z <= 4; z++) w.set(x, 64, z, 'stone');
+        const job = pit.createPitJob({ x0: 0, z0: 0, x1: 4, z1: 4, top: 64, bottom: 64 }, {}, { method: 'sweep', road: false }), reg = job.plan.regions[0];
+        let at = { x: 1500, y: 64, z: 1500 }, sent = 0; const calls = [];
+        const env = { w, have: () => 9, here: () => at, rejoin: async (S) => { sent++; at = { x: S.x, y: S.y + 1, z: S.z }; return { ok: true }; }, lift: async () => ({ ok: false, reason: 'unreachable' }),
+            exec: async (n, a) => { calls.push(n); if (n === 'mine') w.set(a.x, a.y, a.z, 'air'); return { ok: true }; } };
+        const r = await job.runUnit(reg.id, { unit: 0, layer: 0, row: 0 }, env);
+        assert.ok(r.ok, JSON.stringify(r)); assert.strictEqual(sent, 1); assert.strictEqual(r.detail.rejoined, 1); assert.ok(calls.includes('mine'));
+        // the server knows no open cell: the unit fails at once as the bot's trouble, with nothing mined and no corridor
+        const w2 = fakeWorld(60); for (let x = 0; x <= 4; x++) for (let z = 0; z <= 4; z++) w2.set(x, 64, z, 'stone');
+        const j2 = pit.createPitJob({ x0: 0, z0: 0, x1: 4, z1: 4, top: 64, bottom: 64 }, {}, { method: 'sweep', road: false }), calls2 = [];
+        const r2 = await j2.runUnit(j2.plan.regions[0].id, { unit: 0, layer: 0, row: 0 }, { w: w2, have: () => 9, here: () => ({ x: 1500, y: 64, z: 1500 }), rejoin: async () => ({ ok: false, reason: 'unreachable', detail: { why: 'no open cell' } }), exec: async (n) => { calls2.push(n); return { ok: true }; } });
+        assert.strictEqual(r2.ok, false); assert.strictEqual(r2.detail.botSide, true); assert.strictEqual(calls2.length, 0, 'nothing was dug');
+        const L = new Ledger({ maxAttempts: 3, sameLimit: 2, holdMs: 1000 }); L.addRegion({ id: 'r', anchor: { x: 0, z: 0 }, layers: 1, rows: 1 }); L.join('A');
+        const u = L.claim('A', { x: 0, z: 0 }, 0).units[0].unit; assert.strictEqual(L.fail('A', 'r', u, 'unreachable', 1, r2.detail), undefined, 'the unit is not charged: it is the bot that is far away');
+        // sent back twice and still far (a lift that does nothing): no corridor of 1,500 blocks either
+        const r3 = await j2.runUnit(j2.plan.regions[0].id, { unit: 0, layer: 0, row: 0 }, { w: w2, have: () => 9, here: () => ({ x: 300, y: 64, z: 300 }), lift: async () => ({ ok: false, reason: 'unreachable' }), rejoin: async () => ({ ok: true }), exec: async (n) => { calls2.push(n); return { ok: true }; } });
+        assert.strictEqual(r3.ok, false); assert.ok(/still far/.test(r3.detail.why) && r3.detail.rejoined === 2, JSON.stringify(r3.detail));
+    });
+
+    await test('env.rejoin: the server moves the bot only where it says the cell and the one above are air; the next try is the last good place; no RCON, no move', async () => {
+        const { EventEmitter } = require('events'), { botEnv } = require('../src/work/bot/env');
+        const b = new EventEmitter(), cmds = [];
+        Object.assign(b, { username: 'Bot', registry: { blocksByName: {}, itemsByName: {} }, entity: { position: { x: 270.5, y: 140, z: 458.5, floored: () => ({ x: 270, y: 140, z: 458 }) }, onGround: true }, blockAt: () => null, inventory: { items: () => [] } });
+        const rcon = async (c) => { cmds.push(c); const m = /run tp Bot ([\d.-]+) ([\d.-]+) ([\d.-]+)/.exec(c); if (!m || /1753 141/.test(c)) return ''; b.entity.position.x = +m[1]; b.entity.position.y = +m[2]; b.entity.position.z = +m[3]; return `Teleported Bot to ${m[1]}, ${m[2]}, ${m[3]}`; };
+        const e = botEnv(b, { cancel: { cancelled: false }, rcon });
+        const bad = await e.rejoin({ x: 1753, y: 140, z: 1801 }); assert.strictEqual(bad.ok, false); assert.strictEqual(bad.detail.botSide, true); assert.ok(/execute if block 1753 141 1801 minecraft:air if block 1753 142 1801 minecraft:air run tp Bot/.test(cmds[0]), cmds[0]);
+        const e2 = botEnv(b, { cancel: { cancelled: false }, rcon: async (c) => { cmds.push(c); const m = /run tp Bot ([\d.-]+) ([\d.-]+) ([\d.-]+)/.exec(c); b.entity.position.x = +m[1]; b.entity.position.y = +m[2]; b.entity.position.z = +m[3]; return 'Teleported'; } });
+        const ok = await e2.rejoin({ x: 1753, y: 139, z: 1801 }); assert.deepStrictEqual([ok.ok, ok.to.x, ok.to.y, ok.to.z, ok.at], [true, 1753, 140, 1801, 'the station']);
+        assert.strictEqual((await botEnv(b, { cancel: { cancelled: false } }).rejoin({ x: 1, y: 2, z: 3 })).reason, 'refused');
+    });
+
     await test('queue: a container takes `slots` bots at a time (the others wait), the bed one; the time limit and eviction are per bot', async () => {
         const g = new Gates({ holdMs: 60000, waitMs: 60000, slotsFor: (k) => (k.startsWith('box:') ? 3 : 1) });
         const t = []; for (let i = 0; i < 5; i++) t.push(g.enter('box:1,2,3', `W${i}`));

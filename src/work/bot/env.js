@@ -228,6 +228,30 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
             for (let i = 0; i < 30; i++) { await sleep(100); const p = bot.entity.position; if (Math.abs(p.x - c.x - 0.5) < 1.5 && Math.abs(p.y - c.y) < 1.5 && Math.abs(p.z - c.z - 0.5) < 1.5 && bot.entity.onGround) return { ok: true, to: { x: c.x, y: c.y, z: c.z } }; }
             return { ok: false, reason: 'not_confirmed' };
         }),
+        // A bot far from its job (it died and came back at the world spawn, 1,500 blocks away): the chunks of the job are not in its world model, so `lift` finds nothing to stand on and a walk
+        // cannot even start. The server puts it on the cell above the station (or on the last good place) when, and only when, the server itself says both cells there are air; nothing is
+        // guessed, a cell that is not open (or a chunk that is not loaded) is no destination. Live 2026-11-09: four bots stood at the spawn for 20 minutes, each trying a 180-block corridor.
+        rejoin: (S, { why = 'back to the job' } = {}) => around('lift', async () => {
+            if (!rcon) return { ok: false, reason: 'refused', detail: { why: 'no RCON' } };
+            const tries = [];
+            if (S && Number.isInteger(S.x)) tries.push({ x: S.x, y: S.y + 1, z: S.z, name: 'the station' });
+            if (good) tries.push({ x: good.x, y: good.y, z: good.z, name: 'the last good place' });
+            const p0 = bot.entity.position, from = { x: Math.round(p0.x), y: Math.round(p0.y), z: Math.round(p0.z) };
+            for (const t of tries) {
+                let out = '';
+                try { out = String(await rcon(`execute if block ${t.x} ${t.y} ${t.z} minecraft:air if block ${t.x} ${t.y + 1} ${t.z} minecraft:air run tp ${bot.username} ${t.x + 0.5} ${t.y} ${t.z + 0.5}`)); } catch (e) { return { ok: false, reason: 'refused', detail: { message: String(e.message).slice(0, 80) } }; }
+                if (!/teleported/i.test(out)) continue;
+                for (let i = 0; i < 40; i++) {
+                    await sleep(100); const p = bot.entity.position;
+                    if (Math.abs(p.x - t.x - 0.5) < 2 && Math.abs(p.y - t.y) < 3 && Math.abs(p.z - t.z - 0.5) < 2) {
+                        if (moved) { try { moved({ kind: 'server_tp', from, to: { x: t.x, y: t.y, z: t.z }, dist: Math.round(Math.hypot(t.x - from.x, t.z - from.z)), purpose: 'job', why: `${why} (${t.name})` }); } catch (_) { /* reporting must not break the move */ } }
+                        await sleep(600);                                  // the chunks around the new place arrive
+                        return { ok: true, to: { x: t.x, y: t.y, z: t.z }, at: t.name };
+                    }
+                }
+            }
+            return { ok: false, reason: 'unreachable', detail: { why: 'far from the job and the server knows no open cell to send the bot to', botSide: true, stage: 'rejoin' } };
+        }),
         // Walk to the nearest standable cell that no other bot stands in or next to (two bots in one cell blocked each other's pillar for ten minutes).
         stepAside: async () => {
             const f = feetCell(bot.entity.position), oth = others ? others() : [];

@@ -321,10 +321,21 @@ function lineCells(from, to, y) {
  * Returns null when the bot stands there (or cannot be brought closer: the sweep then works from where it is), or a failure.
  */
 async function goToStation(S, handle, env, open, r) {
+    let rejoins = 0;                     // a bot far from the station (it respawned at the world spawn) is sent back first, at most twice
     let lifts = 0;                       // at most two server lifts per walk to a station: a lift that lands in the same cell again changes nothing (live: Work17 lifted 0 blocks every 20 s)
     for (let t = 0; t < 10; t++) {
         const here = env.here();
         if (here.x === S.x && here.y === S.y && here.z === S.z) return null;
+        // Far away, or the station's chunk is not in the bot's world: no lift, walk or corridor can work from here. The server puts the bot beside the job (env.rejoin); where that is not
+        // possible the unit fails at once as the bot's own trouble (never a corridor of 180 blocks toward a station nobody can see).
+        const far = Math.hypot(here.x - S.x, here.z - S.z) > 64 || env.w.kindAt(S.x, S.y, S.z) === 'unknown';
+        if (far && env.rejoin) {
+            if (rejoins >= 2) return { ok: false, reason: 'unreachable', detail: { why: 'still far from the station after being sent back', botSide: true, stage: 'rejoin', cell: S, ...r } };
+            rejoins++;
+            const j = await env.rejoin(S);
+            if (!j.ok) return { ok: false, reason: j.reason || 'unreachable', detail: { ...(j.detail || {}), botSide: true, stage: 'rejoin', cell: S, ...r } };
+            r.rejoined = (r.rejoined || 0) + 1; continue;
+        }
         const above = S.y - here.y, floor = [1, 2, 3].some((d) => isSolid(env.w, S.x, S.y - d, S.z));
         // No floor within three cells below an open station, and not far above the bot: nobody can stand there (a tile above the ground); work from where the bot is.
         if (open(S) && !floor && above < 3) return null;
@@ -355,6 +366,7 @@ async function goToStation(S, handle, env, open, r) {
             if (!p.ok) return { ok: false, reason: p.reason, detail: { ...(p.detail || {}), cell: S, stage: 'rise', ...r } };
             continue;
         }
+        if (env.rejoin && (Math.hypot(here.x - S.x, here.z - S.z) > 24 || Math.abs(above) > 24)) return { ok: false, reason: 'unreachable', detail: { why: 'too far from the station to dig a corridor toward it', botSide: true, stage: 'station', cell: S, ...r } };
         const next = lineCells(here, S, S.y).find((c) => !open(c) && !UNBREAKABLE.test(env.w.nameAt(c.x, c.y, c.z) || ''));
         if (!next) return null;
         const res = await handle(next, true);
