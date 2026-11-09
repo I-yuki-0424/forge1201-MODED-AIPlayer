@@ -11,6 +11,7 @@ const { Sites } = require('../bot/sites');
 const { Gates } = require('../bot/queue');
 const scriptLib = require('../bot/script');
 const { Problems } = require('../bot/problems');
+const { Health } = require('./health');
 const watchdog = require('./watchdog');
 const { need, BOT_NAME, STRUCT_NAME, DEFAULT_KIT, Problem, normalizeBox } = require('./common');
 
@@ -51,6 +52,7 @@ class WorkService extends EventEmitter {
         this.log = [];
         this.settings = { autoKit: false, retireWorn: true, scripts: true, resumeJobs: true, defend: true, glow: true, directPickup: true, discardWorn: true, reflex: true, endDump: true, bedrockExploit: false, endDumpEnder: { left: 'white', middle: 'white', right: 'white' }, teleport: 'near', toolPolicy: { wooden: 'use_up', stone: 'use_up', iron: 'use_up', golden: 'use_up', diamond: 'keep', netherite: 'keep' }, display: { on: true, paths: true, lanes: true, tags: true } };      // retireWorn: a nearly broken tool counts as no tool; scripts: recovery scripts (missing tool) on
         this.problems = new Problems({ file: path.join(this.o.dataDir, 'problems.jsonl') });   // problem bots: where, facing, standing on what (problems.js)
+        this.health = new Health({ file: this.o.dataDir ? path.join(this.o.dataDir, 'health.jsonl') : null });   // where the time goes, once a minute (health.js)
         this.sites = new Sites();                                                  // tagged chests by coordinates (sites.js)
         this.placed = new Set();                                                   // "x,y,z" of boxes (chest, shulker box, ender chest) a bot placed from its pack: only these may be broken (skills/fixtures.js)
         this.scripts = new Map(scriptLib.BUILT_IN);                                // built in + the operator's own (dataDir/scripts/*.json)
@@ -67,9 +69,28 @@ class WorkService extends EventEmitter {
         let lagAt = Date.now();
         this._lag = setInterval(() => {
             const now = Date.now(), late = now - lagAt - 250; lagAt = now;
+            this._lagMax = Math.max(this._lagMax || 0, late);
             if (late > 1200) this.note('warn', `event loop blocked for ${late} ms (every bot stops meanwhile); busy: ${[...this.bots.values()].filter((r) => r.phase && now - r.phase.at < 30000).map((r) => `${r.name}:${r.phase.name}`).join(' ') || 'unknown'}`);
         }, 250);
         this._lag.unref?.();
+        this._lagMax = 0;
+        this._health = setInterval(() => this._heartbeat(), this.o.healthMs || 60000); this._health.unref?.();
+    }
+
+    /** Once a minute: the window's counters and a snapshot of the bots, into the log (one line) and health.jsonl; a window without a finished unit is a warning. */
+    _heartbeat() {
+        try {
+            const bottoms = [...this.jobs.values()].filter((j) => j.state === 'running' && j.kind === 'pit' && j.spec && j.spec.box).map((j) => j.spec.box.bottom);
+            const low = bottoms.length ? Math.min(...bottoms) + 4 : null;
+            const bots = [...this.bots.values()].filter((r) => !r.removed && r.state === 'online').map((r) => ({
+                name: r.name, working: !!(r.worker || r.script || (r.cmd && r.cmd.status === 'running')), retired: r.retired,
+                phase: r.phase && Date.now() - r.phase.at < 180000 ? r.phase.name : null,
+                onFloor: low !== null && !!(r.bot && r.bot.entity && r.bot.entity.position.y <= low),
+            }));
+            const h = this.health.flush({ bots, lines: this.gates.busy(), lagMs: this._lagMax }); this._lagMax = 0;
+            if (bots.length || h.row.done || h.row.failed || h.row.cancelled) this.note(h.warn ? 'warn' : 'info', h.text);
+            if (h.warn) this.note('warn', `STALL: ${h.warn}; ${h.text}`);
+        } catch (e) { this.note('debug', `heartbeat failed: ${e.message}`); }
     }
 
     note(level, msg, extra = {}) {

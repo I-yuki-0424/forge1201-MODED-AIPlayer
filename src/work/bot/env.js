@@ -54,7 +54,10 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
     // A unit is interrupted when the operator cancels, when the bot is attacked (guard), or when it is under water with its air running out (below 9 of 20): the
     // worker then runs the water rescue before the next unit (the live pit drowned two bots mid-dig: the water check only ran between units).
     const drowning = () => { const o = bot.oxygenLevel; return typeof o === 'number' && o < 9 && (!!bot.entity.isInWater || require('./water').inWater(w, feetCell(bot.entity.position))); };
-    const unitCancel = { get cancelled() { return cancel.cancelled || (gd && defendOn && gd.interrupt.cancelled) || drowning(); } };
+    // The first reason a unit was stopped is kept (takeCancelCause) so that a `cancelled` result says why: 17 cancelled units cost more bot time than 27 finished ones in one live window and nothing said which of the three it was.
+    let stopCause = null;
+    const causeNow = () => cancel.cancelled ? 'operator' : (gd && defendOn && gd.interrupt.cancelled) ? 'attacked' : drowning() ? 'drowning' : null;
+    const unitCancel = { get cancelled() { const c = causeNow(); if (c && !stopCause) stopCause = c; return !!c; } };
     /** A cell with air for the body and solid below, and no drop of more than three beside it (no ledge, tree top or pillar edge to walk off: two bots fell to their death after a lift). */
     const safeStand = (x, y, z) => {
         if (w.kindAt(x, y, z) !== 'air' || w.kindAt(x, y + 1, z) !== 'air' || w.kindAt(x, y - 1, z) !== 'solid') return false;
@@ -229,6 +232,8 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         crowded: () => !!others && others().some((o) => Math.hypot(o.x - bot.entity.position.x, o.z - bot.entity.position.z) < 0.9),
         pause: (ticks) => sleep(ticks * 50),                       // let the thing in the way (another bot, an item) move on
         unitCancel,
+        /** Why the last unit was stopped (operator, attacked, drowning, reflex), then forgotten; null when nothing stopped it. */
+        takeCancelCause: () => { const c = stopCause || (bot.__preempt ? 'reflex' : null); stopCause = null; return c; },
         exec: (name, args) => (CHEST_OPS.has(name) ? queued(args, unitCancel, (c) => execute(bot, name, args, { cancel: c })) : execute(bot, name, args, { cancel: unitCancel })),
         // For the water rescue: stopped by the operator only. `drowning()` is what sends the worker to the rescue, so the rescue's own commands must not be cancelled by it
         // (live 2026-11-09: every swim and fill came back `cancelled` at once, the worker claimed the next unit, which was cancelled at once too: 99,639 failures in a loop that never yielded and froze all 20 bots).

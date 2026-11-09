@@ -88,9 +88,10 @@ async function runWorker(job, id, env, { cancel = { cancelled: false }, policy =
                     const m = await janitor.maintain(env, policy);        // a stalled janitor must not stall the job: log, carry on
                     if (!m.ok) onEvent('janitor_failed', { id, reason: m.reason, detail: m.detail });
                 }
+                if (env.takeCancelCause) env.takeCancelCause();                       // forget a flicker of an earlier unit: the cause of THIS unit's stop is what is wanted
                 const t0 = now();
                 const r = await job.runUnit(claim.region, u, env);
-                onEvent('unit', { id, region: claim.region, unit: u.unit, role: claim.role, ok: r.ok, reason: r.reason, ms: now() - t0, detail: r.detail });
+                onEvent('unit', { id, region: claim.region, unit: u.unit, role: claim.role, ok: r.ok, reason: r.reason, ms: now() - t0, detail: r.reason === 'cancelled' && env.takeCancelCause ? { ...(r.detail || {}), cause: env.takeCancelCause() || 'unknown' } : r.detail });
                 sinceAudit++;
                 if (r.ok) { L.done(id, claim.region, u.unit, now()); units++; streak = 0; for (const k of Object.keys(tries)) tries[k] = 0; if (env.rememberGood) env.rememberGood(); continue; }
                 failed++; sinceAudit = AUDIT_EVERY;                // a failure is the moment to check that the range is what it should be

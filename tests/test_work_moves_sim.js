@@ -217,6 +217,17 @@ async function ready(world, from, items) {
         } finally { bot.stop(); }
     });
 
+    await test('mine: a cobweb is broken by hand when no sword or shears are at hand (the cell is what the pit needs); stone without a pickaxe is still missing_tool (a hand would destroy the drop)', async () => {
+        const w = scene(new Map()); w.set(0, 1, 0, registry.blocksByName.cobweb.defaultState); w.set(0, 1, 1, registry.blocksByName.stone.defaultState);
+        const bot = await ready(w, new Vec3(1.5, 1, 0.5), ['cobblestone']);                  // no tool of any kind
+        try {
+            const web = await execute(bot, 'mine', { x: 0, y: 1, z: 0 });
+            assert.strictEqual(web.ok, true, `${web.reason} ${JSON.stringify(web.detail)}`); assert.strictEqual(bot.blockAt(new Vec3(0, 1, 0)).name, 'air', 'the cobweb is gone');
+            const rock = await execute(bot, 'mine', { x: 0, y: 1, z: 1 });
+            assert.strictEqual(rock.reason, 'missing_tool'); assert.strictEqual(rock.detail.block, 'stone', 'the record names the block');
+        } finally { bot.stop(); }
+    });
+
     // The abyss bridge (src/work/bot/bridge.js, owner 2026-11-09), on the same physics: sneak so the body cannot leave the block, the side face of the block under the feet, onto the new block.
     // The platform is x <= 0; east of it (x 1..20, y -10..0) is a void, so a bot that steps off falls and the move ends with `stuck` (the move checks the level it walks on).
     const voidEast = () => { const w = scene(new Map()); fill(w, [1, 20], [-10, 0], [-6, 6], S.air); return w; };

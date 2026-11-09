@@ -30,14 +30,20 @@ function surroundings(bot, w) {
 
 class Problems {
     /** @param file JSONL file to append to (or null); `max` entries are kept in memory. */
-    constructor({ file = null, max = 300, now = Date.now } = {}) { Object.assign(this, { file, max, now }); this.list = []; this.glowing = new Map(); }
+    constructor({ file = null, max = 300, now = Date.now, maxBytes = 8e6 } = {}) { Object.assign(this, { file, max, now, maxBytes }); this.list = []; this.glowing = new Map(); this.writes = 0; }
 
     /** Write one problem down. `e`: {bot, kind, reason?, stage?, job?, region?, unit?, cell?, why?} + `ctx` from surroundings(). */
     record(e, ctx = null) {
         const row = { t: this.now(), ...e, ...(ctx || {}) };
         for (const k of Object.keys(row)) if (row[k] === undefined || row[k] === null) delete row[k];
         this.list.push(row); if (this.list.length > this.max) this.list.shift();
-        if (this.file) { try { fs.appendFileSync(this.file, JSON.stringify(row) + '\n'); } catch (_) { /* the log is a convenience */ } }
+        if (this.file) {
+            try {
+                // The file grew to 16 MB (45,000 rows in three days) with no bound: past `maxBytes` it moves to <file>.1 (one older generation kept), checked every 200 rows.
+                if (++this.writes % 200 === 1) { try { if (fs.statSync(this.file).size > this.maxBytes) fs.renameSync(this.file, this.file + '.1'); } catch (_) { /* no file yet */ } }
+                fs.appendFileSync(this.file, JSON.stringify(row) + '\n');
+            } catch (_) { /* the log is a convenience */ }
+        }
         return row;
     }
 

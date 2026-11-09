@@ -61,11 +61,12 @@ class WorkersPart {
             handlers: this.settings.scripts ? { missing_tool: (r) => this._toolScript(rec, r && r.detail && r.detail.block), missing_item: (r) => scriptLib.fetchScript(r && r.detail) } : null,
             scriptEnv: () => ({ sites: this.sites, policy: job.policy, box: job.spec.box, need: rec.missingTool }),
             onEvent: (ev, d) => {
+                if (ev === 'unit') this.health.unit(d);
                 if (ev === 'unit' && d.ok) { rec.fixes = 0; rec.cool = 0; rec.autoTries = 0; this._clearGlow(rec); }
                 // A problem is written down where it happens and the bot glows (problems.js): unit failures that are the unit's or the bot's own trouble,
                 // failed repairs, scripts and janitor runs that gave up, a pit range that keeps refilling.
                 if ((ev === 'unit' && !d.ok && !['cancelled'].includes(d.reason)) || ev === 'janitor_failed' || (ev === 'script' && !d.ok) || (ev === 'audit' && d.gaveUp) || ev === 'audit_failed') {
-                    this._problem(rec, ev === 'unit' ? 'unit_failed' : ev, { reason: d.reason || d.ended, stage: d.detail && d.detail.stage, why: ev === 'script' ? (d.log || []).slice(-3).join('; ') : d.detail && (d.detail.why || d.detail.goal), cell: d.detail && d.detail.cell, job: job.id, region: d.region, unit: d.unit });
+                    this._problem(rec, ev === 'unit' ? 'unit_failed' : ev, { reason: d.reason || d.ended, stage: d.detail && d.detail.stage, why: ev === 'script' ? (d.log || []).slice(-3).join('; ') : d.detail && (d.detail.why || d.detail.goal), block: d.detail && d.detail.block, item: d.detail && (d.detail.item || (Array.isArray(d.detail.tried) ? d.detail.tried.slice(0, 3).join('|') : undefined)), worn: d.detail && d.detail.worn, cell: d.detail && d.detail.cell, job: job.id, region: d.region, unit: d.unit });
                 }
                 if (ev === 'defend' && d.fought) this.note('info', `${rec.name} defended itself: ${d.killed}/${d.fought} killed`, { job: job.id });
                 if (ev === 'audit') this.note(d.gaveUp ? 'warn' : 'info', `${d.id} range check: ${d.reopened} unit(s) sent back, ${d.gaveUp} given up on`, { job: job.id, first: d.first });
@@ -81,6 +82,10 @@ class WorkersPart {
                 if (ev === 'unit' && !d.ok) {
                     rec.missing = d.reason === 'missing_item' && d.detail && typeof d.detail.item === 'string' && ITEM_ID.test(d.detail.item) ? d.detail.item : null;      // String(undefined) passes ITEM_ID: Work5 "waited for undefined" until somebody pressed Resume (2026-11-09)
                     rec.missingTool = d.reason === 'missing_tool' && d.detail && typeof d.detail.block === 'string' ? d.detail.block : null;
+                    if (d.reason === 'missing_tool' || d.reason === 'missing_item') {          // the bot is short of something: say WHAT (the problem list said only "missing_tool")
+                        const what = rec.missingTool || (d.detail && (d.detail.item || d.detail.block)) || '?', key = `${d.reason}:${what}`;
+                        if (Date.now() - ((rec._needNoted = rec._needNoted || {})[key] || 0) > 300000) { rec._needNoted[key] = Date.now(); this.note('warn', `${rec.name} is short of ${d.reason === 'missing_tool' ? 'a tool for' : 'an item:'} ${String(what).replace('minecraft:', '')} (unit ${d.region} u${d.unit}${d.detail && d.detail.worn ? `, only worn ${d.detail.worn}` : ''})`, { job: job.id }); }
+                    }
                     this.note('debug', `${d.id} ${d.region} u${d.unit} ${d.reason}`, { job: job.id, detail: d.detail });
                 }
                 if (ev === 'janitor_failed') this.note('debug', `${d.id} janitor ${d.reason}`, { job: job.id });
