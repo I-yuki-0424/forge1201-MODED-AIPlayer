@@ -111,8 +111,9 @@ class Chain:
             elif self.source == "solver":
                 acts = self._solver(eid, rel).decide(sub)
             else:
-                ctx = np.stack([self.feat.ctx(o.raw, rel) for o in sub])
-                cc = [self.feat.cands(o.raw, rel) for o in sub]
+                sk = self.by_id[eid].get("kind", "item") == "skill"
+                ctx = np.stack([self.feat.ctx(o.raw, rel, sk) for o in sub])
+                cc = [self.feat.cands(o.raw, rel, sk) for o in sub]
                 cand, mask = policy.trim(np.stack([c[0] for c in cc]), np.stack([c[1] for c in cc]))
                 if sample:
                     import jax

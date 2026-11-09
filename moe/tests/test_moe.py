@@ -252,6 +252,13 @@ class Scan(unittest.TestCase):
         o2 = fake_obs(self.vocab, scan={"iron": [(30, 0, 0)], "coal": [(1, 0, 0)]})
         np.testing.assert_array_equal(self.f.ctx(o, (2,))[-features.NG - features.T * features.TGT:-features.T * features.TGT], self.f.ctx(o2, (2,))[-features.NG - features.T * features.TGT:-features.T * features.TGT])
 
+    def test_a_skill_expert_sees_anonymous_targets_so_waypoints_and_ore_look_alike(self):
+        way = fake_obs(self.vocab, scan={"way": [(12, 0, 3)]})
+        iron = fake_obs(self.vocab, scan={"iron": [(12, 0, 3)]})
+        np.testing.assert_array_equal(self.f.ctx(way, (3,), True), self.f.ctx(iron, (2,), True))
+        self.assertFalse(np.array_equal(self.f.ctx(way, (3,), False), self.f.ctx(iron, (2,), False)), "an item expert does see the group")
+        self.assertTrue(train.Goal(catalog.experts(self.cat)["move"], self.f).skill)
+
     def test_the_candidate_column_is_the_progress_toward_the_nearest_relevant_target(self):
         cs = {0: [0, 0, 0.6, 0, 0], 1: [0, 0, -0.5, 0, 0]}
         o = fake_obs(self.vocab, cands=[(1, "iron_ore", 0.5), (1, "none", 0.5)], scan={"iron": [(20, 0, 0)], "coal": [(5, 0, 0)]}, cand_scan=cs)

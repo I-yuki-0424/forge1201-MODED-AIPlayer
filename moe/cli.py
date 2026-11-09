@@ -62,7 +62,7 @@ def main(argv=None):
     elif a.policy == "solver":
         pol = solvers.Solver(a.expert, feat, a.seed, rel=catalog.relevance(expert))
     elif a.policy.startswith("net:"):
-        pol = NetPolicy(a.policy[4:], feat, catalog.relevance(expert))
+        pol = NetPolicy(a.policy[4:], feat, catalog.relevance(expert), expert.get("kind", "item") == "skill")
     else:
         print("unknown policy", file=sys.stderr); return 2
     s = evaluate.run(vec, pol.decide, a.episodes, a.timeout)
@@ -144,17 +144,18 @@ def _chain(a):
 
 class NetPolicy:
     """Greedy policy of a trained expert (checkpoint of moe.policy.save)."""
-    def __init__(self, path, feat, rel=()):
+    def __init__(self, path, feat, rel=(), anon=False):
         from . import policy
         self.params, self.meta = policy.load(path)
         self.feat = feat
         self.rel = rel
+        self.anon = anon
 
     def decide(self, obs_list):
         import numpy as np
         from . import policy
-        ctx = np.stack([self.feat.ctx(o.raw, self.rel) for o in obs_list])
-        cc = [self.feat.cands(o.raw, self.rel) for o in obs_list]
+        ctx = np.stack([self.feat.ctx(o.raw, self.rel, self.anon) for o in obs_list])
+        cc = [self.feat.cands(o.raw, self.rel, self.anon) for o in obs_list]
         cand, mask = policy.trim(np.stack([c[0] for c in cc]), np.stack([c[1] for c in cc]))
         a, _ = policy.act_greedy(self.params, ctx, cand, mask)
         return [int(x) for x in a]

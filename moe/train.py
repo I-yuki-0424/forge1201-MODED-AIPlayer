@@ -38,7 +38,7 @@ class Goal:
     def potential(self, feat, o):
         p = 0.0
         if self.rel and o.get("scan") is not None:
-            tg, g = feat.targets(o, self.rel)
+            tg, g = feat.targets(o, self.rel, self.skill)
             if g is not None:                                   # nearest relevant target within 4 chunks, hidden or not: 1 at the target, 0 at 64 blocks
                 p += (1.0 if self.skill else 0.4) * (1.0 - float(tg[0, 3]))
         if self.have:
@@ -109,8 +109,8 @@ def train(vec, expert, out_dir, budget=300_000, seed=0, rollout=4096, epochs=3, 
         live = [ob for ob in obs if not ob.terminated]
         v_live, a_live, lp_live = [], [], []
         if live:
-            ctx = np.stack([feat.ctx(ob.raw, rel) for ob in live])
-            cc = [feat.cands(ob.raw, rel) for ob in live]
+            ctx = np.stack([feat.ctx(ob.raw, rel, goal.skill) for ob in live])
+            cc = [feat.cands(ob.raw, rel, goal.skill) for ob in live]
             cand_full, mask_full = np.stack([c[0] for c in cc]), np.stack([c[1] for c in cc])
             cand, mask = policy.trim(cand_full, mask_full)             # the network sees only as many candidates as the longest list; the buffer keeps all 64
             key, k1 = jax.random.split(key)

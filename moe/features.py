@@ -63,9 +63,10 @@ class Featurizer:
         return out
 
     @staticmethod
-    def targets(o, rel):
+    def targets(o, rel, anon=False):
         """The T nearest scanned cells of the groups in `rel` (indices into GROUPS) as rows [dx, dy, dz, dist, present, group one-hot], nearest first, and the group of the nearest.
-        Only what the router called relevant is shown: the expert cannot see (or be distracted by) the other groups."""
+        Only what the router called relevant is shown: the expert cannot see (or be distracted by) the other groups.
+        `anon` (the skill experts): the group one-hot is left out, so a movement expert trained on waypoints walks to ore or a tree the same way."""
         out = np.zeros((T, TGT), dtype=np.float32)
         sc = o.get("scan")
         if not rel or sc is None:
@@ -74,13 +75,14 @@ class Featurizer:
         rows = sorted(((sc[g, m, 3], g, m) for g in rel for m in range(M) if sc[g, m, 4] > 0), key=lambda r: r[0])[:T]
         for i, (_, g, m) in enumerate(rows):
             out[i, :5] = sc[g, m]
-            out[i, 5 + g] = 1.0
+            if not anon:
+                out[i, 5 + g] = 1.0
         return out, (rows[0][1] if rows else None)
 
-    def ctx(self, o, rel=()):
-        tg, _ = self.targets(o, rel)
+    def ctx(self, o, rel=(), anon=False):
+        tg, _ = self.targets(o, rel, anon)
         relv = np.zeros(NG, dtype=np.float32)
-        for g in rel:
+        for g in () if anon else rel:
             relv[g] = 1.0
         inv = np.zeros(self.n_core + 1, dtype=np.float32)
         logs = planks = 0
@@ -115,7 +117,7 @@ class Featurizer:
         return np.concatenate([np.asarray(o["self"], dtype=np.float32), np.asarray(o["clock"], dtype=np.float32), inv, tot, hist.reshape(-1),
                                cat_cnt, cat_min, item_cnt, item_min, ent, reason, dt, relv, tg.reshape(-1)]).astype(np.float32)
 
-    def cands(self, o, rel=()):
+    def cands(self, o, rel=(), anon=False):
         """(cand [K, cand_dim], mask [K]) of an observation. The last column is the progress of each command toward the nearest relevant target (blocks / 16, signed)."""
         cmd = np.asarray(o["cand_cmd"], dtype=np.int64)
         item = np.asarray(o["cand_item"], dtype=np.int64)
