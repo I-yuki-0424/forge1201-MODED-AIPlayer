@@ -6,9 +6,9 @@
 
 | Situation | Before | Now (setting `experts`, default on) |
 | :-- | :-- | :-- |
-| the escape ladder's `return` fix (`env.recover`): the bot is 3+ levels from its last good place, or 24+ blocks away, up to 60 blocks | the server `tp`s it back (`env.back`), or the planner walks it (and walked into pits) | the **stuck-escape expert** (levels) or the **movement expert** (distance) takes it back on foot, digging and climbing; the server moves it only if that fails |
-| a recovery `lift` (`purpose: 'recover'`) | `tp` to the nearest standable cell | the stuck-escape expert walks, digs and climbs to that cell first; `tp` only if it fails, and not at all with setting `teleport = off` |
-| a long walk where no leg can be walked (`env.travel`, `bot/travel.js`: `unreachable`, `stuck`, `timeout`, `not_visible`) | the walk fails | the movement expert takes the bot toward the target inside the loaded chunks, then the legs go on |
+| the escape ladder's `return` fix (`env.recover`): the bot is 3+ levels from its last good place, or 24+ blocks away, and the place is within 24 blocks (|dx|+|dy|+|dz|) | the server `tp`s it back (`env.back`), or the planner walks it (and walked into pits) | the **stuck-escape expert** (levels) or the **movement expert** (distance) takes it back on foot, digging and climbing; the server moves it only if that fails |
+| a recovery `lift` (`purpose: 'recover'`) | `tp` to the nearest standable cell | within 16 blocks, the stuck-escape expert walks, digs and climbs to that cell first (30 s at most); `tp` only if it fails, and not at all with setting `teleport = off` |
+| a long walk where no leg can be walked (`env.travel`, `bot/travel.js`: `unreachable`, `stuck`, `timeout`, `not_visible`) | the walk fails | the movement expert takes the bot toward the target inside the loaded chunks (60 s at most), then the legs go on |
 | operator commands (Movement group) | - | `expert_walk x y z` and `expert_escape [x y z]` (without a cell: the open ground around, found from the loaded chunks by `src/experts/ground.js`) |
 
 Every use writes one line to the service log (`<bot>: the unstick expert got the bot from ... to ... in N steps, S s: <why>`) and counts in `rec.expertUses`. Setting: `PUT settings {experts: false}` turns all of it off. Job moves (`purpose: 'job'`: pit exits, `rejoin`, `goBack`) are unchanged: they stay server moves or pillars.
@@ -30,7 +30,8 @@ The experts choose among the action layer's own commands (`move_to`, `mine`, `tu
 
 - **Parity** (`tests/test_experts_pure.js`, in `npm test`): 28 observations recorded from the simulator, the context vector, candidate rows, mask and scores of the JavaScript code equal the Python ones (worst difference 6e-6 in a score), the greedy action is the same in all 28; runner tests for budget, cancel, fatal reasons and the stall rule.
 - **Live, real Forge server** (`scripts/work/expert_live.js`, the demo server, stone arena in the sky, graded by the server's position of the bot): 13 of 13. Open ground 30 blocks (2 steps, 7 s); round a 41-block wall (3 steps, 8 s; the plain planner: 10 s); shafts 4 / 8 / 14 deep (4 / 8 / 14 steps, 10 / 25 / 48 s: a staircase up); sealed pockets 6 / 12 under the surface (7 / 13 steps, 23 / 46 s); `expert_escape` without a target from 6 and 10 deep; the escape ladder from 9 levels down with `teleport = off`; a walk out of a walled courtyard where no leg can be walked; and no server move in any of them.
-- **Not measured**: how often the experts are used in a real pit job, and what they cost there. After the console restart, `health.jsonl` (`time.lift`, `time.recover`, `failed`) and the log lines above are where to look.
+- **First 25 minutes in the real pit job** (20 bots, first version, before the limits above): 72 expert uses, 1,888 bot-seconds (about 6 % of the bot time). Long walks (`travel`, 56+ blocks, no way on foot): 12 of 16 got the bot there, 31 s on average. Short returns to the last good place: 13 of 25 ok, 6-10 s. The 12 recoveries that were sent 50-140 blocks or 30-60 levels timed out after a minute each (the bots were climbing, not stuck) and the server moved them anyway: that is why returns are now limited to 24 blocks and lifts to 16 (30 s). Units per minute went back to 50-58 within 12 minutes of the restart (baseline before: 58-66).
+- **Not measured**: the effect of the limited version in the pit; `health.jsonl` (`time.lift`, `time.recover`, `failed`) and the log lines above are where to look.
 
 ## A bug found by the live check, fixed in `src/skills/world.js`
 

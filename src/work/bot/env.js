@@ -43,9 +43,9 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
             const here = feetCell(bot.entity.position);
             const dist = Math.abs(here.x - good.x) + Math.abs(here.z - good.z) + Math.abs(here.y - good.y);
             // Far (three levels or more, or 24 blocks): not on foot. From the surface the planner walked 30 levels down into the pit and a bot fell 86 blocks (live pit 2026-11-07).
-            if (dist > 2 && expertsOn() && dist <= 60 && (!rcon || Math.abs(here.y - good.y) >= 3 || Math.hypot(here.x - good.x, here.z - good.z) > 24)) {
+            if (dist > 2 && expertsOn() && dist <= EXPERT_RETURN && (!rcon || Math.abs(here.y - good.y) >= 3 || Math.hypot(here.x - good.x, here.z - good.z) > 24)) {
                 // far or on another level: the planner walked into pits from here (live pit 2026-11-07), a server move looks like teleporting: the expert goes back, digging if it must
-                const e = await envObj.expertMove(good, { why: `back to the last good place after ${(failure && failure.reason) || 'a failed move'}`, escape: dist > 2 && (Math.abs(here.y - good.y) >= 3) });
+                const e = await envObj.expertMove(good, { why: `back to the last good place after ${(failure && failure.reason) || 'a failed move'}`, escape: Math.abs(here.y - good.y) >= 3, maxMs: 45000 });
                 if (e.ok) return;
             }
             if (dist > 2 && rcon && (Math.abs(here.y - good.y) >= 3 || Math.hypot(here.x - good.x, here.z - good.z) > 24)) await envObj.back(good, { purpose: 'recover', why: `back to the last good place after ${(failure && failure.reason) || 'a failed move'}` });
@@ -135,6 +135,9 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
     // The trained RL experts (src/experts, docs/implemented/EXPERTS-v1.md): the movement expert walks where the planner finds no way, the stuck-escape expert digs and climbs out of a hole;
     // both run on the action layer's own commands (with this bot's cancel, fixtures and tool rules). Setting `experts` (default on). Every use is reported to `expertLog`.
     const expertsOn = () => !!experts && experts() !== false;
+    // How far the experts are asked to go (measured in the live pit, 2026-11-09, 20 bots: 72 uses in 25 minutes; the 12 that were sent 50-140 blocks or 30-60 levels timed out after a minute
+    // each and the server moved the bot anyway, while the short ones took 6-15 s): a recovery goes on foot when the place is within 24 blocks (|dx|+|dy|+|dz|), a lift within 16.
+    const EXPERT_RETURN = 24, EXPERT_LIFT = 16;
     const useExpert = async (name, target, o = {}) => {
         if (!expertsOn()) return { ok: false, reason: 'refused', detail: { why: 'the experts are off (setting experts)' } };
         const t0 = Date.now(), from = feetCell(bot.entity.position);
@@ -228,7 +231,7 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
             // No leg of any length could be walked: the movement expert takes the bot toward the target inside the loaded chunks (round what the planner cannot, through what it must dig), then the legs go on.
             const here = feetCell(bot.entity.position), aim = tr.legCandidates(w, here, t)[0];
             if (!aim) return r;
-            const e = await envObj.expertMove({ x: aim.x, y: aim.y, z: aim.z }, { why: `no way on foot toward ${t.x} ${t.z} (${r.reason})` });
+            const e = await envObj.expertMove({ x: aim.x, y: aim.y, z: aim.z }, { why: `no way on foot toward ${t.x} ${t.z} (${r.reason})`, maxMs: 60000 });
             if (!e.ok) return { ...r, detail: { ...(r.detail || {}), expert: e.reason } };
             r = await run();
             return r.ok ? { ...r, expert: true } : r;
@@ -260,8 +263,8 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
             // A recovery move first on foot, by the stuck-escape expert (owner 2026-11-09: "it moves as if teleporting"): the standable cell the server move would pick, reached by walking, digging
             // and climbing; the server moves the bot only when that fails (and not at all with setting teleport = off).
             if (purpose === 'recover' && expertsOn()) {
-                const c0 = pickCell(S, { radius, down, up });
-                if (c0) { const e = await envObj.expertMove({ x: c0.x, y: c0.y, z: c0.z }, { escape: true, why: `escape after ${why || 'a failed move'}`, maxMs: 60000 }); if (e.ok) return { ok: true, to: { x: c0.x, y: c0.y, z: c0.z }, how: 'expert' }; }
+                const c0 = pickCell(S, { radius, down, up }), f0 = feetCell(bot.entity.position);
+                if (c0 && Math.abs(c0.x - f0.x) + Math.abs(c0.y - f0.y) + Math.abs(c0.z - f0.z) <= EXPERT_LIFT) { const e = await envObj.expertMove({ x: c0.x, y: c0.y, z: c0.z }, { escape: true, why: `escape after ${why || 'a failed move'}`, maxMs: 30000 }); if (e.ok) return { ok: true, to: { x: c0.x, y: c0.y, z: c0.z }, how: 'expert' }; }
             }
             if (!rcon) return { ok: false, reason: 'refused', detail: { why: 'no RCON' } };
             const mode = teleport();
