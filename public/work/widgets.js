@@ -40,7 +40,7 @@ function dimPicker(onchange) {
 /** "View from y": the layer a map looks down from (blank = the surface; the Nether starts at 70 because its roof is bedrock). `.set(y)` follows the map's own choice. */
 function sliceControl(getMap) {
     const inp = h('input', { type: 'number', class: 'num', placeholder: 'surface', min: -64, max: 320, 'aria-label': 'view from y', title: 'The map looks down from this layer and shows the first block it meets (blank = the surface). In the Nether the surface is the bedrock roof, so it starts at y 70.' });
-    inp.addEventListener('input', () => { const mv = getMap(); if (mv) mv.setSlice(inp.value === '' ? null : Number(inp.value)); });
+    let t = null; inp.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { const mv = getMap(); if (mv) mv.setSlice(inp.value === '' ? null : Number(inp.value)); }, 450); });          // a pause after typing: every layer is a fresh read of the regions
     return { el: h('span', { class: 'row tight' }, h('span', { class: 'field-label', text: 'view from y' }), inp), set(y) { inp.value = y === null || y === undefined ? '' : y; } };
 }
 /** Buttons that make a selecting map easier to use: Select / Pan, Clear, Bigger. */
