@@ -2,7 +2,7 @@
 // The Automation page: settings of the work layer, scripts (small JSON programs for the bots) and the problem log. Tagged blocks: page_tags.js. Everything is built with the DOM helpers of ui.js (textContent only); the server validates.
 
 // A routine (run with "Repeat until stopped"): take nine iron nuggets from the chest named nugget-chest, make an ingot at the crafting table tagged nugget-table, and with nine
-// ingots make a block and put it back into the chest. Tag the two blocks on the Tags page first (any purpose; the chest 'any', the table 'other').
+// ingots make a block and put it back into the chest. Tag the two blocks on the Tags page first (any purpose; the chest 'free' (a chest tagged 'any' is insert-only: nothing is taken out of it), the table 'other').
 const ROUTINE_TEMPLATE = {
     name: 'nuggets-to-blocks',
     steps: [

@@ -29,6 +29,8 @@ const WHITE = { left: 'white', middle: 'white', right: 'white' };
         { name: 'junk', x: 5, y: 64, z: 0, purpose: 'trash' }, { name: 'gate', x: 900, y: 64, z: 0, purpose: 'portal' },
     ]);
     const from = { x: 0, z: 0 };
+    // The same blocks with the chests that were tagged `any` tagged `free` (bots may take from those): `any` itself is insert-only.
+    const mkFree = () => new Sites(mk().list().map((x) => (x.purpose === 'any' ? { ...x, purpose: 'free', tags: ['free'] } : x)));
 
     await test('sites: a standing container is usable within 10 chunks only; portals and links to other kinds are never filtered; the radius is a setting of the registry', () => {
         const s = mk();
@@ -49,12 +51,16 @@ const WHITE = { left: 'white', middle: 'white', right: 'white' };
         assert.strictEqual(l.find('any', from), null, 'the chest is 500 blocks away');
     });
 
-    await test('sites.sources: Ender Storage first, then the asked purpose, then the rest, nearest first; rubbish and food chests are not sources', () => {
+    await test('sites.sources: Ender Storage first, then the asked purpose, then the rest, nearest first; rubbish and food chests are not sources; a chest tagged any is insert-only', () => {
         const s = mk();
-        assert.deepStrictEqual(s.sources(from, 'tools').map((x) => x.name), ['ender', 'tools', 'near']);
-        assert.deepStrictEqual(s.sources(from).map((x) => x.name), ['ender', 'tools', 'near']);
-        assert.deepStrictEqual(s.sources(from, 'trash').map((x) => x.name), ['ender', 'junk', 'tools', 'near'], 'asked for explicitly, the rubbish chest is a source again')
+        assert.deepStrictEqual(s.sources(from, 'tools').map((x) => x.name), ['tools'], 'ender and near are tagged any: nothing is taken out of them');
+        assert.deepStrictEqual(s.sources(from).map((x) => x.name), ['tools']);
+        assert.deepStrictEqual(s.sources(from, 'any').map((x) => x.name), ['tools'], 'asking for the purpose any (from: any in a script) is no way in either');
+        assert.deepStrictEqual(s.sources(from, 'trash').map((x) => x.name), ['junk', 'tools'], 'asked for explicitly, the rubbish chest is a source again');
         assert.ok(!s.sources(from).some((x) => x.name === 'junk'));
+        assert.strictEqual(s.withdrawable({ x: 150, y: -59, z: 0 }), false, 'by coordinates'); assert.strictEqual(s.withdrawable('ender'), false, 'by name'); assert.strictEqual(s.withdrawable({ x: 10, y: 64, z: 0 }), true); assert.strictEqual(s.withdrawable({ x: 777, y: 1, z: 1 }), true, 'an unknown block is not judged');
+        const f = new Sites([{ name: 'ender', x: 150, y: -59, z: 0, purpose: 'free', ender: WHITE }, { name: 'tools', x: 10, y: 64, z: 0, purpose: 'tools' }, { name: 'any', x: 3, y: 64, z: 0, purpose: 'any' }]);
+        assert.deepStrictEqual(f.sources(from).map((x) => x.name), ['ender', 'tools'], 'a free chest is a source, Ender Storage first');
     });
 
     await test('reach.approach: near = walk on; another layer = the server puts the bot there; far across = a walk in legs first; no way = a failure (strict) or try on foot', async () => {
@@ -72,7 +78,7 @@ const WHITE = { left: 'white', middle: 'white', right: 'white' };
     });
 
     await test('script take: the containers are asked in priority order (Ender first), each only once per run, the bot is brought to a chest in another layer, then the script goes on', async () => {
-        const s = mk(), log = []; let y = 64;
+        const s = mkFree(), log = []; let y = 64;
         const stock = { near: 5 };                                           // the Ender chest has none of it
         const env = { sites: s, pos: () => ({ x: 0, z: 0 }), here: () => ({ x: 0, y, z: 0 }), have: () => 0, inv: () => ({ items: [], slotsFree: 30 }),
             lift: async (c) => { log.push(`lift ${c.y}`); y = c.y; return { ok: true }; },
@@ -86,7 +92,7 @@ const WHITE = { left: 'white', middle: 'white', right: 'white' };
     });
 
     await test('take_tool: the tools chest and every other container within reach are asked; a chest that cannot be reached is passed over', async () => {
-        const s = mk(), asked = []; let have = false;
+        const s = mkFree(), asked = []; let have = false;
         const env = { sites: s, pos: () => ({ x: 0, z: 0 }), here: () => ({ x: 0, y: 64, z: 0 }), usableTool: () => (have ? { name: 'iron_sword' } : null), usableCount: () => (have ? 1 : 0),
             lift: async () => ({ ok: false, reason: 'unreachable' }),
             run: async (name, a) => { asked.push(`${a.x},${a.y},${a.z}`); if (a.x === 100) { have = true; return { ok: true, detail: { item: 'iron_sword', left: 200 } }; } return { ok: false, reason: 'missing_item' }; } };
@@ -134,7 +140,7 @@ const WHITE = { left: 'white', middle: 'white', right: 'white' };
 
     await test('fetchScript: a missing item is taken from the containers, the first acceptable one that exists; nothing named = no script', async () => {
         assert.strictEqual(script.fetchScript({}), null); assert.strictEqual(script.fetchScript({ item: '../x y' }), null); assert.strictEqual(script.fetchScript(null), null);
-        const s = new Sites([{ name: 'e', x: 5, y: 64, z: 5, purpose: 'any', ender: WHITE }]), inv = { dirt: 0 }, tried = [];
+        const s = new Sites([{ name: 'e', x: 5, y: 64, z: 5, purpose: 'free', ender: WHITE }]), inv = { dirt: 0 }, tried = [];
         const env = { sites: s, pos: () => ({ x: 0, z: 0 }), here: () => ({ x: 0, y: 64, z: 0 }), have: (i) => inv[i] || 0, inv: () => ({ items: [], slotsFree: 30 }),
             exec: async (name, a) => { tried.push(a.item); if (a.item === 'dirt') { inv.dirt = 64; return { ok: true }; } return { ok: false, reason: 'missing_item' }; } };
         const r = await script.runScript(script.fetchScript({ tried: ['cobblestone', 'cobbled_deepslate', 'dirt', 'stone'] }), env);
@@ -211,7 +217,7 @@ const WHITE = { left: 'white', middle: 'white', right: 'white' };
     await test('enddump: everything but tools and containers, most valuable first; the Ender chest takes what fits, the rest goes to the chest of its class; nothing is thrown away', async () => {
         const items = [{ name: 'iron_pickaxe', count: 1 }, { name: 'enderstorage:ender_chest', count: 1 }, { name: 'shulker_box', count: 1 }, { name: 'water_bucket', count: 1 }, { name: 'cobblestone', count: 500 }, { name: 'coal', count: 20 }, { name: 'diamond', count: 3 }];
         assert.deepStrictEqual(planDump(items).map((x) => x.name), ['diamond', 'coal', 'cobblestone']);
-        const s = new Sites([{ name: 'e', x: 5, y: 64, z: 5, purpose: 'any', ender: WHITE }, { name: 'plain', x: 20, y: 64, z: 5, purpose: 'any' }, { name: 'blue', x: 6, y: 64, z: 5, purpose: 'other', ender: { left: 'blue', middle: 'white', right: 'white' } }]);
+        const s = new Sites([{ name: 'e', x: 5, y: 64, z: 5, purpose: 'free', ender: WHITE }, { name: 'plain', x: 20, y: 64, z: 5, purpose: 'any' }, { name: 'blue', x: 6, y: 64, z: 5, purpose: 'other', ender: { left: 'blue', middle: 'white', right: 'white' } }]);
         const pack = Object.fromEntries(items.map((i) => [i.name, i.count])), chest = { e: 100, plain: 1e9, blue: 1e9 }, put = [];
         const env = { inv: () => ({ items: Object.entries(pack).map(([name, count]) => ({ name, count })), slotsFree: 5 }), have: (n) => pack[n] || 0, pos: () => ({ x: 0, z: 0 }), here: () => ({ x: 0, y: 64, z: 0 }),
             exec: async (name, a) => { const who = s.list().find((x) => x.x === a.x).name; const m = Math.min(a.count, chest[who]); chest[who] -= m; pack[a.item] -= m; put.push(`${who}:${a.item}:${m}`); return m === a.count ? { ok: true } : { ok: false, reason: 'not_confirmed' }; } };
@@ -224,11 +230,11 @@ const WHITE = { left: 'white', middle: 'white', right: 'white' };
 
     await test('enddump: no usable storage = the pack stays as it is and the reason says why; a chest beyond 10 chunks does not count; a bot that died stops it', async () => {
         const pack = { diamond: 2 }, env = { inv: () => ({ items: [{ name: 'diamond', count: 2 }], slotsFree: 30 }), have: (n) => pack[n] || 0, pos: () => ({ x: 0, z: 0 }), here: () => ({ x: 0, y: 64, z: 0 }), exec: async () => ({ ok: true }) };
-        const far = new Sites([{ name: 'e', x: 900, y: 64, z: 0, purpose: 'any', ender: WHITE }]);
+        const far = new Sites([{ name: 'e', x: 900, y: 64, z: 0, purpose: 'free', ender: WHITE }]);
         const r = await endDump(env, { sites: far, freq: WHITE });
         assert.strictEqual(r.ok, false); assert.strictEqual(r.reason, 'invalid_target'); assert.ok(/no tagged storage within 10 chunks/.test(r.detail.why)); assert.deepStrictEqual(r.left, [{ item: 'diamond', count: 2, reason: 'no_site' }]);
         assert.deepStrictEqual((await endDump({ ...env, inv: () => ({ items: [{ name: 'iron_axe', count: 1 }], slotsFree: 30 }) }, { sites: far })).dumped, [], 'only tools: nothing to do, and no storage needed');
-        const near = new Sites([{ name: 'e', x: 5, y: 64, z: 5, purpose: 'any', ender: WHITE }]);
+        const near = new Sites([{ name: 'e', x: 5, y: 64, z: 5, purpose: 'free', ender: WHITE }]);
         const dead = await endDump({ ...env, exec: async () => ({ ok: false, reason: 'died' }) }, { sites: near, freq: WHITE });
         assert.strictEqual(dead.ok, false); assert.strictEqual(dead.reason, 'died');
     });
@@ -279,7 +285,7 @@ const WHITE = { left: 'white', middle: 'white', right: 'white' };
     });
 
     await test('service: _endDump runs only when the switch is on, only for bots that are free, and releases them afterwards; a cancelled job never gets here', async () => {
-        svc.sites = new Sites([{ name: 'e', x: 5, y: 64, z: 5, purpose: 'any', ender: WHITE }]);
+        svc.sites = new Sites([{ name: 'e', x: 5, y: 64, z: 5, purpose: 'free', ender: WHITE }]);
         const pack = { diamond: 4 }, deposits = [];
         svc.envFactory = () => ({ inv: () => ({ items: Object.entries(pack).map(([name, count]) => ({ name, count })), slotsFree: 20 }), have: (n) => pack[n] || 0, pos: () => ({ x: 0, z: 0 }), here: () => ({ x: 0, y: 64, z: 0 }), configure() {}, dispose() {},
             exec: async (name, a) => { deposits.push(`${name} ${a.item} ${a.count}`); pack[a.item] -= a.count; return { ok: true }; } });

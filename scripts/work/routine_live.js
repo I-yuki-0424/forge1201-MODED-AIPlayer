@@ -31,7 +31,7 @@ async function main() {
     // 162 nuggets in the chest: 18 ingots = two blocks
     for (let s = 0; s < 3; s++) await S.must(`item replace block ${BX + 2} ${y} ${BZ} container.${s} with minecraft:iron_nugget 54`);
     await S.must(`tp ${A} ${BX + 3} ${y} ${BZ + 2}`); await sleep(1500);
-    svc.addSite({ name: 'nugget-chest', x: BX + 2, y, z: BZ, purpose: 'any' });
+    svc.addSite({ name: 'nugget-chest', x: BX + 2, y, z: BZ, purpose: 'free' });
     svc.addSite({ name: 'nugget-table', x: BX + 4, y, z: BZ, purpose: 'other', label: 'crafting table' });
     svc.putScript({ name: 'nuggets-to-blocks', steps: [
         { if: { not: { has: { item: 'iron_nugget', min: 9 } } }, then: [{ take: { item: 'iron_nugget', count: 9, from: 'nugget-chest' }, optional: true }] },

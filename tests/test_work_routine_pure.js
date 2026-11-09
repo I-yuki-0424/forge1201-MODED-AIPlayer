@@ -24,7 +24,7 @@ const EXAMPLE = {
 /** A bot next to a chest with nuggets and a table: take/craft/deposit change a pack and a chest the way the real ones do. */
 function fake(chestNuggets) {
     const inv = {}, chest = { iron_nugget: chestNuggets }, calls = [];
-    const sites = new Sites([{ name: 'nugget-chest', x: 1, y: 64, z: 0, purpose: 'any' }, { name: 'nugget-table', x: 2, y: 64, z: 0, purpose: 'other', label: 'table' }]);
+    const sites = new Sites([{ name: 'nugget-chest', x: 1, y: 64, z: 0, purpose: 'free' }, { name: 'nugget-table', x: 2, y: 64, z: 0, purpose: 'other', label: 'table' }]);
     const env = { sites, inv: () => ({ items: [], slotsFree: 20 }), here: () => ({ x: 0, y: 64, z: 0 }), pos: () => ({ x: 0, z: 0 }), w: {}, have: (n) => inv[n] || 0, canCraft: () => true, itemExists: () => true,
         exec: async (n, a) => {
             calls.push([n, a.item, a.x]);
@@ -69,7 +69,7 @@ function fake(chestNuggets) {
     await test('service: startRoutine runs in the background, shows rounds, stops with the stop command, refuses a busy bot', async () => {
         const f = fake(0), d = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-'));
         const svc = new WorkService({ dataDir: d, factory: () => ({}), restore: false, envFactory: () => f.env });
-        svc.sites.add({ name: 'nugget-chest', x: 1, y: 64, z: 0, purpose: 'any' }); svc.sites.add({ name: 'nugget-table', x: 2, y: 64, z: 0, purpose: 'other', label: 'table' });
+        svc.sites.add({ name: 'nugget-chest', x: 1, y: 64, z: 0, purpose: 'free' }); svc.sites.add({ name: 'nugget-table', x: 2, y: 64, z: 0, purpose: 'other', label: 'table' });
         svc.bots.set('R', { name: 'R', bot: { entity: {} }, state: 'online' });
         svc.putScript(EXAMPLE);
         const r = svc.startRoutine('R', 'nuggets-to-blocks', { pauseMs: 500 });

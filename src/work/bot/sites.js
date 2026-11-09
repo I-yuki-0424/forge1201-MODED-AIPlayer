@@ -191,8 +191,16 @@ class Sites {
      */
     sources(from = null, prefer = null) {
         const want = prefer ? canon(prefer) : null, rank = (s) => (s.ender ? 0 : 2) + (want && s.purpose === want ? 0 : 1);
-        return this.list().filter((s) => CONTAINER_PURPOSES.has(s.purpose) && (!['trash', 'food'].includes(s.purpose) || s.purpose === want) && this.reachable(s, from))      // rubbish and food chests hold nothing a missing tool or material is made of
+        // `any` is insert-only (owner 2026-11-09: "occasionally it pulls the contents out of Any"): it is the fallback for everything of value, never a place to look for something.
+        // `from: any` in a script means "from any container", not "from the chest tagged any": that chest is left out even when it is asked for by purpose.
+        return this.list().filter((s) => this.withdrawable(s) && CONTAINER_PURPOSES.has(s.purpose) && (!['trash', 'food'].includes(s.purpose) || s.purpose === want) && this.reachable(s, from))      // rubbish and food chests hold nothing a missing tool or material is made of
             .sort((a, b) => rank(a) - rank(b) || (from ? flat(a, from) - flat(b, from) : 0)).map((s) => this._end(s));
+    }
+
+    /** May a bot take items OUT of this site? Not from `any` (insert-only). A site given as a block {x, y, z} or a name is looked up; unknown blocks are not judged. */
+    withdrawable(s) {
+        const site = s && s.purpose === undefined ? (typeof s === 'string' ? this.map.get(s) : (Number.isInteger(s && s.x) ? this.at(s.x, s.y, s.z) : null)) : s;
+        return !(site && site.purpose === 'any');
     }
 
     /** The site tagged for exactly the class of `item` (ore, junk, food ...), not a fallback: null when the operator made none for it. */

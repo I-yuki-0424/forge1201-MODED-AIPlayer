@@ -10,7 +10,9 @@ const { collectDrops } = require('./entity');
 const skillOpts = require('../options');
 const fixtures = require('../fixtures');
 
-const REPLACEABLE = /^(air|cave_air|void_air|grass|tall_grass|fern|large_fern|dead_bush|snow|seagrass|vine|glow_lichen)$/;
+// bubble_column and tall_seagrass are replaceable in the game (a block placed there replaces them) and are what a pit under water meets all the time: refusing them
+// ended 124 of 364 failed units in 30 min as `invalid_target: cell holds bubble_column / tall_seagrass` (live pit 2026-11-09), and the unit was tried again for ever.
+const REPLACEABLE = /^(air|cave_air|void_air|grass|tall_grass|fern|large_fern|dead_bush|snow|seagrass|tall_seagrass|bubble_column|vine|glow_lichen)$/;
 const FLUID = /^(water|lava)$/;     // `place` with fluid:true may fill these (work/pit.js water rule)
 const LOOK_RANGE = 64;
 

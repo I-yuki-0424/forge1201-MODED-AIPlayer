@@ -132,6 +132,8 @@ async function runScript(script, env, { cancel = { cancelled: false }, maxSteps 
         else if (at) { const s = site(at); if (!s) return { ok: false, reason: 'invalid_target', detail: { why: `no site tagged ${at} within ${reachText()}` } }; a = { ...a, x: s.x, y: s.y, z: s.z }; }
         if (table) { if (!st.table) return { ok: false, reason: 'no_station', detail: { why: 'no crafting table placed (use station first)' } }; a = { ...a, ...st.table }; }
         if (furnace) { if (!st.furnace) return { ok: false, reason: 'no_station', detail: { why: 'no furnace placed (use station first)' } }; a = { ...a, ...st.furnace }; }
+        // Insert-only: a script never takes anything out of a site tagged `any` (sites.js withdrawable), whatever it names or points at.
+        if ((name === 'withdraw' || name === 'take_usable') && env.sites && env.sites.withdrawable && !env.sites.withdrawable({ x: a.x, y: a.y, z: a.z })) return { ok: false, reason: 'invalid_target', detail: { why: 'a site tagged any is insert-only: nothing is taken out of it' } };
         if (WORK_MOVES.has(name)) return env.run ? env.run(name, a) : { ok: false, reason: 'invalid_args', detail: { why: 'no work moves here' } };
         try { validateArgs(name, a); } catch (e) { return { ok: false, reason: e.reason || 'invalid_args', detail: e.detail }; }
         return env.exec(name, a);
