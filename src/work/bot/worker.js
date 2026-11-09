@@ -87,6 +87,8 @@ async function runWorker(job, id, env, { cancel = { cancelled: false }, policy =
                 if (policy) {
                     const m = await janitor.maintain(env, policy);        // a stalled janitor must not stall the job: log, carry on
                     if (!m.ok) onEvent('janitor_failed', { id, reason: m.reason, detail: m.detail });
+                    const moved = (m.done || []).filter((d) => d.op === 'deposit');
+                    if (moved.length) onEvent('janitor_done', { id, ok: m.ok, kinds: moved.length, items: moved.reduce((a, d) => a + (d.count || 0), 0) });
                 }
                 if (env.takeCancelCause) env.takeCancelCause();                       // forget a flicker of an earlier unit: the cause of THIS unit's stop is what is wanted
                 const t0 = now();

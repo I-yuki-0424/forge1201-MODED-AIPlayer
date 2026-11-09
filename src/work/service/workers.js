@@ -62,6 +62,8 @@ class WorkersPart {
             scriptEnv: () => ({ sites: this.sites, policy: job.policy, box: job.spec.box, need: rec.missingTool }),
             onEvent: (ev, d) => {
                 if (ev === 'unit') this.health.unit(d);
+                if (ev === 'janitor_done') this.health.deposit(d);
+                if (ev === 'janitor_failed') this.health.deposit({ failed: true });
                 if (ev === 'unit' && d.ok) { rec.fixes = 0; rec.cool = 0; rec.autoTries = 0; this._clearGlow(rec); }
                 // A problem is written down where it happens and the bot glows (problems.js): unit failures that are the unit's or the bot's own trouble,
                 // failed repairs, scripts and janitor runs that gave up, a pit range that keeps refilling.

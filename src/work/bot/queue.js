@@ -37,7 +37,10 @@ class Gate {
         if (this.holder || !this.line.length) return;
         const w = this.line.shift(); clearTimeout(w.timer); if (w.poll) clearInterval(w.poll);
         const t = w.ticket; t.since = Date.now(); this.holder = t;
-        t.timer = sleepless(() => { if (this.holder === t) { t.evicted = true; this._leave(t); } }, t.holdMs);      // the front place runs out: the bot is out of the line, its command is cancelled (t.cancelled)
+        const arm = () => sleepless(() => { if (this.holder === t) { t.evicted = true; this._leave(t); } }, t.holdMs);
+        t.timer = arm();                                                      // the front place runs out: the bot is out of the line, its command is cancelled (t.cancelled)
+        // A visit of several commands (one deposit per item kind) renews the limit after each: the limit is for a command that does not finish, not for a long pack.
+        t.renew = () => { if (this.holder !== t || t.left || t.evicted) return; clearTimeout(t.timer); t.timer = arm(); };
         if (w.onTurn) { try { w.onTurn(t); } catch (_) { /* a display callback must not break the line */ } }
         w.resolve(t);
     }

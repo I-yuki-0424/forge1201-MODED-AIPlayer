@@ -44,6 +44,8 @@ async function endDump(env, { sites, policy = {}, freq = DEFAULT_FREQ, box = nul
     // A pit: out of it first (the pillar method), so that the way to the chest is a walk and not a climb of 100 layers; a lift covers what the walk cannot.
     if (box && env.leavePit) { try { if (require('./exit').inPit(env, box)) await env.leavePit(box); } catch (_) { /* the lift below changes the layer */ } }
     const dumped = [], stay = [];
+    // One turn at the main chest for the whole dump (env.visit): every item kind used to queue again behind the other bots.
+    const body = async () => {
     for (const it of dump) {
         const cands = [primary, ...sites.storesFor(it.name, env.pos(), policy)].filter(Boolean).filter((s, k, a) => a.findIndex((t) => t.x === s.x && t.y === s.y && t.z === s.z) === k);
         let last = null;
@@ -63,6 +65,11 @@ async function endDump(env, { sites, policy = {}, freq = DEFAULT_FREQ, box = nul
         if (rest > 0) stay.push({ item: it.name, count: rest, reason: last ? last.reason : 'no_site' });
     }
     return { ok: !stay.length, dumped, left: stay, ...(stay.length ? { reason: stay[0].reason } : {}) };
+    };
+    const res = primary && env.visit ? await env.visit(primary, body) : await body();
+    if (res && res.dumped) return res;
+    // no turn came: nothing was moved
+    return { ok: false, reason: (res && res.reason) || 'timeout', detail: res && res.detail, dumped, left: left(dump, (res && res.reason) || 'timeout') };
 }
 
 module.exports = { endDump, planDump, dumpSite, kept, DEFAULT_FREQ };

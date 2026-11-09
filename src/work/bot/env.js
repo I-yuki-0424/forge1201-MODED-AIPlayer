@@ -100,9 +100,14 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         for (const t of c.slice(0, 2)) { const m = await Promise.race([execute(bot, 'move_to', { x: t.x, y: t.y, z: t.z }, { cancel, maxTicks: 240 }), sleep(9000).then(() => ({ ok: false }))]); if (m.ok) return { ok: true, to: t }; }
         return { ok: false, reason: 'unreachable' };
     };
+    // A visit: ONE turn for all the commands a bot runs on a container in a row (every item kind of a deposit). Before, each deposit command queued again behind the whole crowd:
+    // a bot with ten kinds of items stood in the line ten times, and 13-16 of 20 bots waited at the Ender chest while three used it (live 2026-11-09, 'deposit does nothing').
+    const visits = new Map();                                    // "box:x,y,z" -> the ticket of the visit in progress
     const queued = async (cell, base, call) => {
         if (!gates || !isCell(cell)) return call(base);
-        const k = boxKey(cell); let t = held.get(k); held.delete(k);
+        const k = boxKey(cell), open = visits.get(k);
+        if (open && !open.left && !open.evicted) { if (open.renew) open.renew(); return call({ get cancelled() { return base.cancelled || open.evicted; } }); }
+        let t = held.get(k); held.delete(k);
         if (!t || t.left || t.evicted) { const e = await enter(cell, base); if (e.fail) return e.fail; t = e.t; }
         const c = { get cancelled() { return base.cancelled || t.evicted; } };
         let r;
@@ -110,6 +115,14 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         if (t.evicted && !r.ok && !base.cancelled) r = { ...r, ok: false, reason: 'timeout', detail: { ...(r.detail || {}), stage: 'queue', why: 'held the line longer than its time limit: next bot' } };
         if (!r.ok && (t.evicted || SENT_AWAY.has(r.reason)) && !base.cancelled) { try { await sendAway(cell); } catch (_) { /* leaving the spot is a courtesy */ } }
         return r;
+    };
+    /** Run `fn` (commands on the container at `cell`) under one turn of its line. Returns fn's result, or the failure when no turn came ({ok:false, reason, detail}). Without lines: just fn. */
+    const visit = async (cell, fn) => {
+        if (!gates || !isCell(cell) || visits.has(boxKey(cell))) return fn();
+        const k = boxKey(cell); let t = held.get(k); held.delete(k);
+        if (!t || t.left || t.evicted) { const e = await enter(cell, cancel); if (e.fail) return e.fail; t = e.t; }
+        visits.set(k, t);
+        try { return await fn(); } finally { visits.delete(k); t.leave(); }
     };
     const CHEST_OPS = new Set(['deposit', 'withdraw']), CHEST_MOVES = new Set(['take_usable', 'stash_worn']);
     const envObj = {
@@ -138,7 +151,7 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
             return null;
         },
         release: (cell) => { if (!isCell(cell)) return; const t = held.get(boxKey(cell)); if (t) { held.delete(boxKey(cell)); t.leave(); } },
-        sendAway,
+        sendAway, visit,
         // The last place that worked, or where it stands: the server puts the bot back on its feet instead of leaving it stopped where it cannot go on (owner 2026-11-09: they are moved
         // by the server when stuck anyway; "teleport back instead of staying stopped for good"). A 'job' move: always allowed, whatever the recovery setting says.
         goBack: async (why = 'sent back') => {

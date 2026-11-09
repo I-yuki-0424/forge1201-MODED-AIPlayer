@@ -186,14 +186,20 @@ async function maintain(env, policy) {
             try {
                 // A chest in another layer or out of a move_to's sight: bring the bot there first (the live pit's Ender chests stood on its floor and every deposit failed `unreachable`).
                 if (box.kind !== 'shulker') { const a = await require('./reach').approach(env, box, { why: 'to deposit', strict: false }); if (a) return { ok: false, reason: a.reason, detail: a.detail, done }; }          // not reachable now: nothing is thrown away for that, the next upkeep tries again
-                for (const o of g.ops) {
-                    const r = await env.exec('deposit', { item: o.item, count: Math.min(o.count, 2304), x: box.x, y: box.y, z: box.z });
-                    if (!r.ok && ['invalid_target', 'no_station'].includes(r.reason) && box.kind !== 'shulker') { bad.add(key); await giveUp(g, r.reason); break; }
-                    // What is wrong with ONE item (a name the action layer refuses, a stack that is gone) is no reason to leave the rest of the pack unstored: the next item is tried.
-                    if (!r.ok && ['invalid_args', 'missing_item'].includes(r.reason)) { (skipped = skipped || []).push({ item: o.item, reason: r.reason, detail: r.detail }); continue; }
-                    if (!r.ok) return { ok: false, reason: r.reason, detail: r.detail, done };
-                    done.push(o);
-                }
+                const run = async () => {
+                    for (const o of g.ops) {
+                        const r = await env.exec('deposit', { item: o.item, count: Math.min(o.count, 2304), x: box.x, y: box.y, z: box.z });
+                        if (!r.ok && ['invalid_target', 'no_station'].includes(r.reason) && box.kind !== 'shulker') { bad.add(key); await giveUp(g, r.reason); return null; }
+                        // What is wrong with ONE item (a name the action layer refuses, a stack that is gone) is no reason to leave the rest of the pack unstored: the next item is tried.
+                        if (!r.ok && ['invalid_args', 'missing_item'].includes(r.reason)) { (skipped = skipped || []).push({ item: o.item, reason: r.reason, detail: r.detail }); continue; }
+                        if (!r.ok) return { ok: false, reason: r.reason, detail: r.detail };
+                        done.push(o);
+                    }
+                    return null;
+                };
+                // One turn at the container for the whole group (env.visit), not one per item kind.
+                const fail = box.kind !== 'shulker' && env.visit ? await env.visit(box, run) : await run();
+                if (fail) return { ok: false, reason: fail.reason, detail: fail.detail, done };
             } finally {
                 // Take the box (and what is in it) back at once (owner 2026-11-09: what the bot placed is picked up when the task is done). A failed break is
                 // tried again after a small fix; a box that stays is listed in `left` so that the caller can say so instead of silently leaving it standing.

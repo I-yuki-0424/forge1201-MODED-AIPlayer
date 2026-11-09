@@ -86,6 +86,23 @@ const keepAlive = setInterval(() => {}, 1000);          // the line's own timers
             const r1 = await e1.exec('deposit', { item: 'dirt', x: 3, y: 1, z: 3 }); assert.ok(r1.ok); assert.ok((await second).ok);
             assert.deepStrictEqual(log.filter((l) => /deposit/.test(l)), ['E:deposit', 'F:deposit']);
             const e3 = env('G'); assert.strictEqual(await e3.reserve(chest), null); e3.release(chest); assert.strictEqual(gates.gates.size, 0, 'a turn given back frees the line');
+            // a visit: all the deposits of one bot are ONE turn (before, each item kind queued again behind the others: H ran its five items interleaved with I's and J's)
+            log.length = 0; behave.H = 'ok'; behave.I = 'ok'; behave.J = 'ok';
+            const eh = env('H'), ei = env('I'), ej = env('J');
+            const items = ['a', 'b', 'c', 'd', 'e'], dep = (e, n) => async () => { for (const it of items) { const r = await e.exec('deposit', { item: it + n, x: 3, y: 1, z: 3 }); assert.ok(r.ok); } return null; };
+            await Promise.all([eh.visit(chest, dep(eh, 'H')), ei.visit(chest, dep(ei, 'I')), ej.visit(chest, dep(ej, 'J'))]);
+            const who = log.filter((l) => /deposit/.test(l)).map((l) => l[0]).join('');
+            assert.strictEqual(who, 'HHHHHIIIIIJJJJJ', `each bot's items together: ${who}`); assert.strictEqual(gates.gates.size, 0, 'the turn is given back at the end of the visit');
+            // without a visit the same loop interleaves (the old behaviour, still what a single command does)
+            log.length = 0; const ek = env('K'), el = env('L'); behave.K = 'ok'; behave.L = 'ok';
+            await Promise.all([dep(ek, 'K')(), dep(el, 'L')()]);
+            assert.ok(/KLKL/.test(log.filter((l) => /deposit/.test(l)).map((l) => l[0]).join('')), 'plain commands queue one by one');
+            // a visit is not cut short by the per-command limit while it makes progress (renewed after each item), and a failed turn comes back as a failure
+            const slow = env('M'); behave.M = 'ok';
+            const long = await slow.visit(chest, async () => { for (let i = 0; i < 4; i++) { const r = await slow.exec('deposit', { item: 'x' + i, x: 3, y: 1, z: 3 }); if (!r.ok) return r; } return null; });
+            assert.strictEqual(long, null, `holdMs 250 ms, four items of 20 ms: ${JSON.stringify(long)}`);
+            const g3 = new Gates({ holdMs: 5000, waitMs: 60 }), blocker = await g3.enter('box:3,1,3', 'Z'), en = botEnv(mkbot('N'), { cancel: { cancelled: false }, gates: g3 });
+            const nofl = await en.visit(chest, async () => null); assert.strictEqual(nofl.ok, false); assert.strictEqual(nofl.reason, 'timeout'); blocker.leave();
             // approach asks for a turn and gives it back when the walk fails
             const { approach } = require('../src/work/bot/reach'); const calls = [];
             const fake = { here: () => ({ x: 0, y: 1, z: 0 }), reserve: async (c) => { calls.push('reserve'); return null; }, release: () => calls.push('release'), travel: async () => ({ ok: false, reason: 'unreachable' }) };
