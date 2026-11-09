@@ -71,6 +71,13 @@ def shards_down(procs):
             p.kill()
 
 
+def cleanup(base):
+    """The exchange files of a finished run (observations as JSON lines, step events): 100 GB for one evening of runs on the PC, never read again."""
+    import shutil
+    for d in X.glob(f"{base}-s*-sim*"):
+        shutil.rmtree(d, ignore_errors=True)
+
+
 def cli(args, log, timeout=None):
     r = subprocess.run([PY, "-m", "moe.cli", *args], env=ENV, stdout=subprocess.PIPE, stderr=open(log, "ab"), preexec_fn=nice, timeout=timeout, cwd=str(MOE / "code"))
     with open(log, "ab") as f:                      # keep the whole stdout (chain traces) next to the stderr
@@ -93,6 +100,7 @@ def evaluate(tag, e, scn, policy, episodes, seed, log, out, worlds=("vps-s3", "v
         return row
     finally:
         shards_down(procs)
+        cleanup(base)
 
 
 def pipeline(a, e):
@@ -110,6 +118,7 @@ def pipeline(a, e):
                    "--seed", str(a.seed), "--stop-rate", str(0.995 if a.hard else STOP.get(eid, 0.97)), "--stop-window", str(500 if a.hard else 200)], log)
     finally:
         shards_down(procs)
+        cleanup(base)
     (out / "train_result.json").write_text(res + "\n")
     rows = {}
     if (out / "final.npz").exists():
@@ -179,6 +188,7 @@ def main():
             print(cli(args, runs / "chain.log", timeout=7200))
         finally:
             shards_down(procs)
+            cleanup(base)
 
 
 if __name__ == "__main__":
