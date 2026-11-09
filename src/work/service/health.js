@@ -11,12 +11,13 @@ class Health {
         Object.assign(this, { file, maxBytes, stallMin, now });
         this.zero = 0; this._reset(); this.writes = 0;
     }
-    _reset() { this.since = this.now(); this.done = 0; this.fail = {}; this.cancel = {}; this.ms = { ok: 0, fail: 0, cancel: 0 }; this.needs = {}; }
+    _reset() { this.since = this.now(); this.done = 0; this.quick = 0; this.fail = {}; this.cancel = {}; this.ms = { ok: 0, fail: 0, cancel: 0 }; this.needs = {}; }
 
     /** One unit result as the worker reports it: { ok, reason, ms, detail }. */
     unit(d) {
         const ms = Math.max(0, d.ms | 0);
-        if (d.ok) { this.done++; this.ms.ok += ms; return; }
+        // A unit that finished in under 300 ms was already done in the world (a job brought back after a restart runs its finished units again as no-ops): not work, not counted in the rate.
+        if (d.ok) { if (ms < 300) this.quick++; else { this.done++; this.ms.ok += ms; } return; }
         if (d.reason === 'cancelled') { const c = (d.detail && d.detail.cause) || 'unknown'; this.cancel[c] = (this.cancel[c] || 0) + 1; this.ms.cancel += ms; return; }
         const k = d.reason || 'unknown'; this.fail[k] = (this.fail[k] || 0) + 1; this.ms.fail += ms;
         if (k === 'missing_tool' || k === 'missing_item') { const w = String((d.detail && (d.detail.block || d.detail.item)) || '?').replace(/^minecraft:/, ''); const n = `${k}:${w}`; this.needs[n] = (this.needs[n] || 0) + 1; }
@@ -32,16 +33,16 @@ class Health {
         for (const b of bots) { if (b.working) { working++; const p = b.phase || '-'; phases[p] = (phases[p] || 0) + 1; } if (b.retired) waiting++; }
         const failN = Object.values(this.fail).reduce((a, n) => a + n, 0), cancelN = Object.values(this.cancel).reduce((a, n) => a + n, 0);
         const row = {
-            t, sec, done: this.done, perMin: Math.round((this.done * 60 / sec) * 10) / 10, failed: failN, cancelled: cancelN,
+            t, sec, done: this.done, quick: this.quick, perMin: Math.round((this.done * 60 / sec) * 10) / 10, failed: failN, cancelled: cancelN,
             fail: this.fail, cancel: this.cancel, needs: this.needs, botSec: { ok: Math.round(this.ms.ok / 1000), fail: Math.round(this.ms.fail / 1000), cancel: Math.round(this.ms.cancel / 1000) },
             bots: bots.length, working, waiting, phases, floor: bots.filter((b) => b.onFloor).length,
             queues: (snap.lines || []).map((l) => ({ key: l.key, n: l.line.length })), lagMs: snap.lagMs || 0,
         };
         // A window in which nobody finished a unit although bots were working: counted, and after `stallMin` of them said once per run of them.
         let warn = null;
-        if (this.done === 0 && working > 0) { this.zero++; if (this.zero === this.stallMin || (this.zero > this.stallMin && this.zero % 10 === 0)) warn = `no unit finished for ${this.zero} min with ${working} bots working`; } else this.zero = 0;
+        if (this.done === 0 && this.quick === 0 && working > 0) { this.zero++; if (this.zero === this.stallMin || (this.zero > this.stallMin && this.zero % 10 === 0)) warn = `no unit finished for ${this.zero} min with ${working} bots working`; } else this.zero = 0;
         const top = (o, n = 3) => Object.entries(o).sort((a, b) => b[1] - a[1]).slice(0, n).map(([k, v]) => `${k} ${v}`).join(', ');
-        const text = `health ${sec}s: ${this.done} units (${row.perMin}/min), failed ${failN}${failN ? ` (${top(this.fail)})` : ''}, cancelled ${cancelN}${cancelN ? ` (${top(this.cancel)})` : ''}; bot time ok ${row.botSec.ok}s fail ${row.botSec.fail}s cancel ${row.botSec.cancel}s; ${working}/${bots.length} working${waiting ? `, ${waiting} waiting` : ''} [${top(phases, 6)}]${row.queues.length ? `; lines ${row.queues.map((q) => `${q.key.replace(/^box:/, '')}=${q.n}`).join(' ')}` : ''}${Object.keys(this.needs).length ? `; needs ${top(this.needs)}` : ''}`;
+        const text = `health ${sec}s: ${this.done} units (${row.perMin}/min)${this.quick ? ` + ${this.quick} already done` : ''}, failed ${failN}${failN ? ` (${top(this.fail)})` : ''}, cancelled ${cancelN}${cancelN ? ` (${top(this.cancel)})` : ''}; bot time ok ${row.botSec.ok}s fail ${row.botSec.fail}s cancel ${row.botSec.cancel}s; ${working}/${bots.length} working${waiting ? `, ${waiting} waiting` : ''} [${top(phases, 6)}]${row.queues.length ? `; lines ${row.queues.map((q) => `${q.key.replace(/^box:/, '')}=${q.n}`).join(' ')}` : ''}${Object.keys(this.needs).length ? `; needs ${top(this.needs)}` : ''}`;
         this._write(row);
         this._reset();
         return { row, text, warn };

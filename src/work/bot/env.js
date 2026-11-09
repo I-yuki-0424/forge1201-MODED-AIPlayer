@@ -8,7 +8,7 @@ const dimensions = require('../world/dimensions');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** The environment of a real Mineflayer bot on the action layer. */
-function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null, others = null, guard: withGuard = false, defend = true, moved = null, teleport = () => 'near', gates = null } = {}) {
+function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null, others = null, guard: withGuard = false, defend = true, moved = null, teleport = () => 'near', gates = null, stockMiss = null } = {}) {
     const { execute } = require('../../skills');
     const { fromBot } = require('../../skills/world');
     const { feetCell } = require('../../skills/motion');
@@ -113,7 +113,7 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
     };
     const CHEST_OPS = new Set(['deposit', 'withdraw']), CHEST_MOVES = new Set(['take_usable', 'stash_worn']);
     const envObj = {
-        w, now: Date.now, recover, temp: new Map(),
+        w, now: Date.now, recover, temp: new Map(), stockMiss,
         stations: bot.__stations || (bot.__stations = {}),           // crafting table / furnace the bot placed and has not taken back: reused by the next script run (script.js)
         discard: disc.makeClear({ rcon, name: bot.username, count: have }),
         dumpSpot: avoid ? () => disc.dumpSpot(w, feet(), { avoid: avoid(), others: others ? others() : [] }) : null,

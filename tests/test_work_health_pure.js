@@ -8,6 +8,8 @@ const { Health } = require('../src/work/service/health');
 const { Problems } = require('../src/work/bot/problems');
 const { runWorker } = require('../src/work/bot/worker');
 const { Ledger } = require('../src/work/jobs/crew');
+const script = require('../src/work/bot/script');
+const { Sites } = require('../src/work/bot/sites');
 
 setTimeout(() => { console.error('test watchdog: still running after 20 s'); process.exit(2); }, 20000).unref();
 function test(name, fn) { console.log(`--- test: ${name} ---`); return Promise.resolve(fn()).then(() => console.log('[OK]')); }
@@ -16,13 +18,13 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'health-'));
 (async () => {
     await test('a window counts finished, failed and cancelled units with the bot time each cost, names what the bot was short of, and resets', () => {
         let t = 1000000; const h = new Health({ now: () => t });
-        h.unit({ ok: true, ms: 12000 }); h.unit({ ok: true, ms: 8000 });
+        h.unit({ ok: true, ms: 12000 }); h.unit({ ok: true, ms: 8000 }); for (let i = 0; i < 50; i++) h.unit({ ok: true, ms: 20 });
         h.unit({ ok: false, reason: 'unreachable', ms: 7000, detail: { why: 'reach block' } });
         h.unit({ ok: false, reason: 'cancelled', ms: 15000, detail: { cause: 'drowning' } }); h.unit({ ok: false, reason: 'cancelled', ms: 15000, detail: { cause: 'drowning' } }); h.unit({ ok: false, reason: 'cancelled', ms: 1000 });
         h.unit({ ok: false, reason: 'missing_tool', ms: 100, detail: { block: 'minecraft:cobweb' } });
         t += 60000;
         const { row, text, warn } = h.flush({ bots: [{ name: 'a', working: true, phase: 'dig' }, { name: 'b', working: true, phase: 'deposit', onFloor: true }, { name: 'c', working: false, retired: 'waiting for a sword' }], lines: [{ key: 'box:1,-59,2', line: ['a', 'b'] }], lagMs: 40 });
-        assert.strictEqual(row.done, 2); assert.strictEqual(row.perMin, 2); assert.strictEqual(row.failed, 2); assert.strictEqual(row.cancelled, 3);
+        assert.strictEqual(row.done, 2); assert.strictEqual(row.quick, 50, 'units found already done are counted apart'); assert.strictEqual(row.perMin, 2); assert.strictEqual(row.failed, 2); assert.strictEqual(row.cancelled, 3);
         assert.deepStrictEqual(row.cancel, { drowning: 2, unknown: 1 }, 'a cancel without a cause says unknown, not nothing');
         assert.deepStrictEqual(row.botSec, { ok: 20, fail: 7, cancel: 31 }, 'the cancelled units cost more than the finished ones: that is what the row exists to show');
         assert.deepStrictEqual(row.needs, { 'missing_tool:cobweb': 1 });
@@ -65,6 +67,21 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'health-'));
         assert.strictEqual(res.ended, 'finished');
         const c = events.find((d) => d.reason === 'cancelled');
         assert.ok(c, JSON.stringify(events)); assert.strictEqual(c.detail.cause, 'drowning', 'the stale cause was taken (and dropped) at the start of the unit');
+    });
+
+    await test('a container one bot found without a tool is not visited again by the others for the time limit (20 bots x 3 classes at one door was the standstill); a chest filled later is looked at again', async () => {
+        let t = 0; const miss = new script.Misses({ ttlMs: 1000, now: () => t });
+        assert.strictEqual(miss.has('sword@1,2,3'), false); miss.add('sword@1,2,3'); assert.strictEqual(miss.has('sword@1,2,3'), true); assert.strictEqual(miss.has('axe@1,2,3'), false);
+        t = 1001; assert.strictEqual(miss.has('sword@1,2,3'), false, 'expired'); assert.strictEqual(miss.size, 0);
+        t = 0; const visits = []; const sites = new Sites([{ name: 'tools', x: 10, y: 64, z: 0, purpose: 'tools' }]);
+        const bot = () => ({ sites, pos: () => ({ x: 0, z: 0 }), here: () => ({ x: 0, y: 64, z: 0 }), usableTool: () => null, usableCount: () => 0, stockMiss: miss,
+            run: async (name, a) => { visits.push(`${name}@${a.x}`); return { ok: false, reason: 'missing_item' }; } });
+        const sc = script.validate({ name: 't', steps: [{ take_tool: { class: 'sword', from: 'tools' }, optional: true }, { return: 'ok' }] });
+        await script.runScript(sc, bot()); await script.runScript(sc, bot()); await script.runScript(sc, bot());
+        assert.strictEqual(visits.length, 1, `three bots, one visit: ${visits}`);
+        t = 5000; await script.runScript(sc, bot()); assert.strictEqual(visits.length, 2, 'asked again after the time limit');
+        const solo = []; const env = { ...bot(), stockMiss: null, run: async (n, a) => { solo.push(1); return { ok: false, reason: 'missing_item' }; } };
+        await script.runScript(sc, env); await script.runScript(sc, env); assert.strictEqual(solo.length, 2, 'without the shared memory (tests, one-off commands) nothing changes');
     });
 
     fs.rmSync(tmp, { recursive: true, force: true });

@@ -116,6 +116,11 @@ function holds(c, env) {
  */
 async function runScript(script, env, { cancel = { cancelled: false }, maxSteps = MAX_STEPS * 4 } = {}) {
     const st = { steps: 0, log: [], table: null, miss: new Set() };      // miss: "item@x,y,z" of containers this run found without the item
+    // What one bot found, all find: a container without the item is not asked again by the next bot for `ttl` (env.stockMiss, shared by the service). Twenty bots at the start each visited
+    // the one tools chest for a sword, an axe and a shovel it never held: 60 visits through a one-door line, 18 bots waiting at once (live 2026-11-09).
+    const shared = env.stockMiss || null;
+    const missed = (k) => st.miss.has(k) || !!(shared && shared.has(k));
+    const markMiss = (k) => { st.miss.add(k); if (shared) shared.add(k); };
     const note = (m) => { if (st.log.length < 60) st.log.push(String(m).slice(0, 160)); };
     const result = (ended, extra = {}) => ({ ok: ended === 'ok' || ended === 'end', ended, steps: st.steps, log: st.log, ...extra });
     const site = (tag) => (env.sites ? (env.sites.pick ? env.sites.pick(tag, env.pos ? env.pos() : null) : env.sites.find(tag, env.pos ? env.pos() : null)) : null);
@@ -147,13 +152,13 @@ async function runScript(script, env, { cancel = { cancelled: false }, maxSteps 
                 res = srcs.length ? { ok: false, reason: 'missing_item', detail: { why: `no container has ${t.item}`, tried: why } } : { ok: false, reason: 'invalid_target', detail: { why: `no container within ${reachText()} (tagged ${t.from})` } };
                 for (const chest of srcs) {
                     const k = `${t.item}@${chest.x},${chest.y},${chest.z}`;
-                    if (st.miss.has(k)) continue;                                         // this run already found the chest without it
+                    if (missed(k)) continue;                                         // this run already found the chest without it
                     const a = await approach(env, chest, { why: `to take ${t.item}` });
                     if (a) { why.push(`${chest.name}: ${a.reason}`); if (['died', 'disconnected', 'cancelled'].includes(a.reason)) { res = a; break; } continue; }
                     let r = await command('withdraw', { item: t.item, count: want }, { atSite: chest });
                     if (!r.ok && r.reason === 'missing_item' && want > 1) r = await command('withdraw', { item: t.item, count: 1 }, { atSite: chest });      // fewer than asked: what there is
                     if (r.ok) { res = r; note(`took ${t.item} from ${chest.name}`); break; }
-                    if (r.reason === 'missing_item') st.miss.add(k);
+                    if (r.reason === 'missing_item') markMiss(k);
                     why.push(`${chest.name}: ${r.reason}`);
                     if (['died', 'disconnected', 'cancelled'].includes(r.reason)) { res = r; break; }
                 }
@@ -170,14 +175,14 @@ async function runScript(script, env, { cancel = { cancelled: false }, maxSteps 
                     for (const chest of chests) {
                         if (usable() >= until) break;
                         const k = `${cls}@${chest.x},${chest.y},${chest.z}`;
-                        if (st.miss.has(k)) continue;
+                        if (missed(k)) continue;
                         const a = await approach(env, chest, { why: `to take a ${cls}` });
                         if (a) { why.push(`${chest.name}: ${a.reason}`); if (['died', 'disconnected', 'cancelled'].includes(a.reason)) { res = a; break; } continue; }
                         for (let n = 0; n < 6 && usable() < until; n++) {
                             const r = await command('take_usable', { class: cls }, { atSite: chest });
                             if (r.ok) { note(`took a ${cls}${r.detail && r.detail.item ? ` (${r.detail.item}, ${r.detail.left} uses left)` : ''} from ${chest.name}`); continue; }
                             if (['died', 'disconnected', 'cancelled'].includes(r.reason)) { res = r; break; }
-                            if (r.reason === 'missing_item') st.miss.add(k);
+                            if (r.reason === 'missing_item') markMiss(k);
                             why.push(`${chest.name}: ${r.reason === 'missing_item' ? `no usable ${cls}${r.detail && r.detail.worn ? ` (${r.detail.worn} worn out)` : ''}` : r.reason}`);
                             break;
                         }
@@ -443,9 +448,17 @@ const STOCK_TOOLS = {
         { return: 'ok' },
     ],
 };
+/** Containers found without an item, remembered for `ttlMs` by every bot (a chest filled meanwhile is looked at again after that). Keys are "item@x,y,z". */
+class Misses {
+    constructor({ ttlMs = 120000, now = Date.now } = {}) { Object.assign(this, { ttlMs, now }); this.m = new Map(); }
+    has(k) { const t = this.m.get(k); if (t === undefined) return false; if (this.now() - t > this.ttlMs) { this.m.delete(k); return false; } return true; }
+    add(k) { this.m.set(k, this.now()); if (this.m.size > 500) for (const [key, t] of this.m) if (this.now() - t > this.ttlMs) this.m.delete(key); }
+    get size() { return this.m.size; }
+}
+
 /** A full inventory: put everything away by the sites (ore, junk, storage), then carry on. */
 const MAKE_ROOM = { name: 'make-room', steps: [{ put_away: true }, { return: 'ok' }] };
 const BUILT_IN = new Map([[REPLACE_TOOL.name, validate(REPLACE_TOOL)], [MAKE_ROOM.name, validate(MAKE_ROOM)], [STOCK_TOOLS.name, validate(STOCK_TOOLS)],
     ...MAKEABLE.filter((c) => c !== 'pickaxe').map((c) => { const sc = replaceScript(c); return [sc.name, validate(sc)]; })]);
 
-module.exports = { validate, runScript, runLoop, holds, placeStation, ScriptError, BUILT_IN, REPLACE_TOOL, STOCK_TOOLS, MAKE_ROOM, MAX_STEPS, TIERS, CLASSES, replaceScript, toolScriptName, toolClassesOf, craftClassFor, fetchScript, MAKE, MAKEABLE };
+module.exports = { Misses, validate, runScript, runLoop, holds, placeStation, ScriptError, BUILT_IN, REPLACE_TOOL, STOCK_TOOLS, MAKE_ROOM, MAX_STEPS, TIERS, CLASSES, replaceScript, toolScriptName, toolClassesOf, craftClassFor, fetchScript, MAKE, MAKEABLE };
