@@ -103,7 +103,7 @@ def scenario(e, cat, variant=None):
           "place": json.loads(json.dumps(start["place"])), "end": end}
     if cat.get("v") == 2:
         sc["scan"] = True                                    # v2 experts always get the scan observation; which groups they see is the router's call
-        for k in ("waypoint", "trap"):
+        for k in ("waypoint", "trap", "require"):
             if k in start:
                 sc[k] = start[k]
     return sc
@@ -142,7 +142,8 @@ def chain_scenarios(cat):
     placed = [{"id": "coal", "block": "coal_ore", "size": [2, 5], "mode": "surface", "dist": [4, 40] if far else [4, 12]},
               {"id": "iron", "block": "iron_ore", "size": [3, 5], "mode": "surface", "dist": [6, 48] if far else [6, 16]}]
     scan = {"scan": True} if far else {}
-    return [{"v": 1, "id": "chain-natural", "doc": c["doc"], "end": end, **scan},
+    nat = {"require": ["coal", "iron"]} if far else {}                 # natural ore: a start without coal and iron within 4 chunks is not a start
+    return [{"v": 1, "id": "chain-natural", "doc": c["doc"], "end": end, **scan, **nat},
             {"v": 1, "id": "chain-placed", "doc": c["doc"] + " Coal and iron ore are placed on the surface around the start.", "hostiles": 0.3, "place": placed, "end": end, **scan}]
 
 

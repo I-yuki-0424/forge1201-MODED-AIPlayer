@@ -20,6 +20,9 @@ RULES = {
     "raw_iron": [("mine", r"iron_ore$"), ("move_to", r"iron_ore$")],
     "iron_ingot": [("smelt", r"^raw_iron$"), ("place", r"^furnace$")],
     "iron_pickaxe": [("craft", r"^iron_pickaxe$"), ("place", r"^crafting_table$")],
+    "wooden_sword": [("craft", r"^wooden_sword$"), ("place", r"^crafting_table$")],
+    "stone_sword": [("craft", r"^stone_sword$"), ("place", r"^crafting_table$")],
+    "torch": [("craft", r"^torch$")],
     # the skill experts (MOE-v2) have no item rules: they follow the progress column toward the nearest relevant target, see Solver.skill
     "move": [], "unstick": [],
 }

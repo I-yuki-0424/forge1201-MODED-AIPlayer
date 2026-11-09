@@ -51,7 +51,8 @@ set -e
 D=/mnt/c/forgeaip/dl
 mkdir -p ~/moe/code ~/moe/logs ~/moe/runs ~/moe/x ~/moe/scenarios ~/sim
 cp "$D/forgeaip-sim-moe2" ~/sim/forgeaip-sim-moe2.new && mv -f ~/sim/forgeaip-sim-moe2.new ~/sim/forgeaip-sim-moe2 && chmod +x ~/sim/forgeaip-sim-moe2
-rm -rf ~/moe/code/moe && (cd ~/moe/code && tar xzf "$D/moe.tgz") && cp "$D/jobs.py" ~/moe/jobs.py
+rm -rf ~/moe/code.new ~/moe/code.old && mkdir -p ~/moe/code.new && (cd ~/moe/code.new && tar xzf "$D/moe.tgz") && cp "$D/jobs.py" ~/moe/jobs.py
+mv ~/moe/code/moe ~/moe/code.old 2>/dev/null || true; mkdir -p ~/moe/code && mv ~/moe/code.new/moe ~/moe/code/moe
 for m in scipy xgboost lightgbm; do ~/gpuvenv/bin/python -c "import $m" 2>/dev/null || NEED="$NEED $m"; done
 if [ -n "${NEED:-}" ]; then
   if command -v uv >/dev/null || [ -x ~/.local/bin/uv ]; then U=$(command -v uv || echo ~/.local/bin/uv); $U pip install --python ~/gpuvenv/bin/python $NEED 2>&1 | tail -3

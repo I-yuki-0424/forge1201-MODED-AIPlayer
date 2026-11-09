@@ -363,7 +363,64 @@
        48
       ]
      }
-    ]
+    ],
+    "variants": {
+     "buried": {
+      "kit": {
+       "wooden_pickaxe": [
+        1,
+        1
+       ],
+       "stone_pickaxe": [
+        0,
+        1
+       ],
+       "cobblestone": [
+        0,
+        16
+       ]
+      },
+      "place": [
+       {
+        "id": "coal",
+        "block": "coal_ore",
+        "size": [
+         2,
+         5
+        ],
+        "mode": "buried",
+        "depth": [
+         3,
+         8
+        ],
+        "dist": [
+         2,
+         24
+        ]
+       }
+      ]
+     },
+     "natural": {
+      "kit": {
+       "wooden_pickaxe": [
+        1,
+        1
+       ],
+       "stone_pickaxe": [
+        0,
+        1
+       ],
+       "cobblestone": [
+        0,
+        16
+       ]
+      },
+      "place": [],
+      "require": [
+       "coal"
+      ]
+     }
+    }
    },
    "approach": [
     "coal_ore"
@@ -415,7 +472,64 @@
        48
       ]
      }
-    ]
+    ],
+    "variants": {
+     "buried": {
+      "kit": {
+       "stone_pickaxe": [
+        1,
+        1
+       ],
+       "cobblestone": [
+        0,
+        24
+       ],
+       "coal": [
+        0,
+        4
+       ]
+      },
+      "place": [
+       {
+        "id": "iron",
+        "block": "iron_ore",
+        "size": [
+         3,
+         5
+        ],
+        "mode": "buried",
+        "depth": [
+         3,
+         10
+        ],
+        "dist": [
+         2,
+         24
+        ]
+       }
+      ]
+     },
+     "natural": {
+      "kit": {
+       "stone_pickaxe": [
+        1,
+        1
+       ],
+       "cobblestone": [
+        0,
+        24
+       ],
+       "coal": [
+        0,
+        4
+       ]
+      },
+      "place": [],
+      "require": [
+       "iron"
+      ]
+     }
+    }
    },
    "approach": [
     "iron_ore"
@@ -503,6 +617,111 @@
      "stone_pickaxe": [
       0,
       1
+     ]
+    },
+    "place": []
+   }
+  },
+  {
+   "id": "wooden_sword",
+   "doc": "Put the table down, craft the wooden sword.",
+   "makes": "wooden_sword",
+   "needs": {
+    "crafting_table": 1,
+    "#planks": 2,
+    "stick": 1
+   },
+   "goal": {
+    "have": {
+     "wooden_sword": 1
+    }
+   },
+   "max_steps": 30,
+   "hostiles": 0.3,
+   "start": {
+    "kit": {
+     "crafting_table": [
+      1,
+      1
+     ],
+     "oak_planks": [
+      2,
+      6
+     ],
+     "birch_planks": [
+      0,
+      2
+     ],
+     "stick": [
+      1,
+      4
+     ]
+    },
+    "place": []
+   }
+  },
+  {
+   "id": "stone_sword",
+   "doc": "Put the table down, craft the stone sword.",
+   "makes": "stone_sword",
+   "needs": {
+    "crafting_table": 1,
+    "cobblestone": 2,
+    "stick": 1
+   },
+   "goal": {
+    "have": {
+     "stone_sword": 1
+    }
+   },
+   "max_steps": 30,
+   "hostiles": 0.3,
+   "start": {
+    "kit": {
+     "crafting_table": [
+      1,
+      1
+     ],
+     "cobblestone": [
+      2,
+      16
+     ],
+     "stick": [
+      1,
+      4
+     ],
+     "wooden_pickaxe": [
+      0,
+      1
+     ]
+    },
+    "place": []
+   }
+  },
+  {
+   "id": "torch",
+   "doc": "Craft torches from coal and a stick.",
+   "makes": "torch",
+   "needs": {
+    "coal": 1,
+    "stick": 1
+   },
+   "goal": {
+    "have": {
+     "torch": 1
+    }
+   },
+   "max_steps": 20,
+   "hostiles": 0.3,
+   "start": {
+    "kit": {
+     "coal": [
+      1,
+      6
+     ],
+     "stick": [
+      1,
+      6
      ]
     },
     "place": []

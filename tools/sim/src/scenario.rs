@@ -20,7 +20,7 @@ pub struct End { have: Vec<(String, u32)>, entry: Option<String>, max_steps: u32
 pub struct Scenario {
     pub id: String, kit: Vec<(String, (u32, u32))>, kit_on_death: bool, hostiles: f64, craft_slots: Option<usize>, place: Vec<Place>,
     pub score: Option<HashSet<String>>, pub pre_done: PreDone, pub weights: Vec<(String, f64)>, end: Option<End>,
-    scan: bool, waypoint: Option<((f64, f64), (f64, f64), u32, Option<(i32, i32)>)>, trap: Option<((i32, i32), bool)>,
+    scan: bool, require: Vec<usize>, waypoint: Option<((f64, f64), (f64, f64), u32, Option<(i32, i32)>)>, trap: Option<((i32, i32), bool)>,
 }
 
 /// Names in `end.have` that stand for a family of items (wood comes in many species): `#log` = every *_log, `#planks` = every *_planks.
@@ -46,7 +46,7 @@ impl Scenario {
         Scenario::parse(&j, d, entries)
     }
     pub fn parse(j: &J, d: &Data, entries: &[String]) -> Result<Scenario, String> {
-        keys(j, &["v", "id", "doc", "kit", "on_death", "hostiles", "craft_slots", "place", "reward", "end", "scan", "waypoint", "trap"], "the scenario")?;
+        keys(j, &["v", "id", "doc", "kit", "on_death", "hostiles", "craft_slots", "place", "reward", "end", "scan", "waypoint", "trap", "require"], "the scenario")?;
         let id = j.get("id").s().to_string();
         if id.is_empty() || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') { return Err("scenario: `id` is required ([A-Za-z0-9_-])".into()); }
         let mut kit = vec![];
@@ -77,6 +77,12 @@ impl Scenario {
         // MOE-v2: `scan` = the observation carries the target scan (scan.rs); `waypoint` = a cell the bot has to reach, `dist` blocks away on foot (a movement
         // expert's task); `trap` = the bot starts `depth` blocks under the surface in a shaft or a closed pocket and the waypoint is the cell it started from.
         let scan = j.get("scan").b();
+        // `require` [group, ...]: the start must have a cell of each group within 4 chunks (natural ore: a site without any is not a start for this scenario)
+        let mut require = vec![];
+        for g in j.get("require").arr() {
+            match crate::scan::GROUPS.iter().position(|x| *x == g.s()) { Some(i) if i < crate::scan::NATURAL => require.push(i), _ => return Err(format!("scenario: require `{}` (log|coal|iron)", g.s())) }
+        }
+        if !require.is_empty() && !scan { return Err("scenario: `require` needs `scan`".into()); }
         let waypoint = if j.get("waypoint").is_null() { None } else {
             keys(j.get("waypoint"), &["dist", "bearing", "detour", "depth"], "waypoint")?;
             let dist = range(j.get("waypoint").get("dist"), (8.0, 32.0), "waypoint dist")?;
@@ -123,7 +129,7 @@ impl Scenario {
             if max_steps == 0 && max_ticks == 0 { return Err("scenario: `end` needs max_steps or max_ticks (an episode that cannot fail would never end)".into()); }
             Some(End { have, entry, max_steps, max_ticks, die: e.get("die").b(), reach })
         };
-        Ok(Scenario { id, kit, kit_on_death, hostiles, craft_slots, place, score, pre_done, weights, end, scan, waypoint, trap })
+        Ok(Scenario { id, kit, kit_on_death, hostiles, craft_slots, place, score, pre_done, weights, end, scan, require, waypoint, trap })
     }
 
     /// How the episode ends now, if it does: "success", "died", "timeout" or "" (goes on). `steps` = commands run this episode, `reached` = progress entries reached.
@@ -214,6 +220,10 @@ impl Scenario {
             let d = cells.iter().map(|c| (((c[0] - st[0]) as f64).powi(2) + ((c[2] - st[2]) as f64).powi(2)).sqrt()).fold(f64::MAX, f64::min);
             rec.push((p.id.as_str(), J::o(vec![("block", J::st(&s.d.block(p.block).name)), ("dist", J::n((d * 10.0).round() / 10.0)),
                 ("cells", J::Arr(cells.iter().map(|c| J::nums(&[c[0] as f64, c[1] as f64, c[2] as f64])).collect()))])));
+        }
+        if !self.require.is_empty() {
+            let (_, first) = crate::scan::scan(s);
+            for g in &self.require { if first[*g].is_none() { return Err(format!("no {} within 4 chunks of this start", crate::scan::GROUPS[*g])); } }
         }
         Ok(J::o(vec![("event", J::st("scenario")), ("scenario", J::st(&self.id)), ("yaw", J::n((s.yaw * 1000.0).round() / 1000.0)), ("start", J::nums(&[st[0] as f64, st[1] as f64, st[2] as f64])), ("place", J::o(rec))]))
     }
@@ -569,6 +579,19 @@ mod tests {
         }
         assert!(scn(r#"{"id":"w","end":{"reach":3,"max_steps":9}}"#, &d).unwrap_err().contains("waypoint"));
         assert!(scn(r#"{"id":"w","waypoint":{},"trap":{}}"#, &d).is_err());
+    }
+
+    #[test]
+    fn a_required_group_must_be_within_four_chunks_of_the_start() {
+        let d = Rc::new(Data::load());
+        let sc = scn(r#"{"id":"r","scan":true,"hostiles":0,"require":["iron"]}"#, &d).unwrap();
+        let mut s = flat_sized(9);
+        assert!(sc.start(&mut s, &mut Rng(1)).unwrap_err().contains("iron"), "flat stone world: no iron");
+        let ok = scn(r#"{"id":"r","scan":true,"hostiles":0,"require":["iron"],"place":[{"id":"i","block":"iron_ore","size":3,"dist":[10,20]}]}"#, &d).unwrap();
+        let mut s = flat_sized(9);
+        assert!(ok.start(&mut s, &mut Rng(1)).is_ok());
+        assert!(scn(r#"{"id":"r","require":["iron"]}"#, &d).is_err());
+        assert!(scn(r#"{"id":"r","scan":true,"require":["way"]}"#, &d).is_err());
     }
 
     #[test]

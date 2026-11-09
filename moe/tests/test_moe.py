@@ -38,12 +38,12 @@ class Catalog(unittest.TestCase):
     def setUp(self):
         self.cat = catalog.load()
 
-    def test_twelve_item_experts_each_make_one_item_two_skill_experts_make_none_and_every_need_has_a_maker(self):
+    def test_fifteen_item_experts_each_make_one_item_two_skill_experts_make_none_and_every_need_has_a_maker(self):
         items = [e for e in self.cat["experts"] if e.get("kind", "item") == "item"]
         skills = [e for e in self.cat["experts"] if e.get("kind") == "skill"]
-        self.assertEqual((len(items), sorted(e["id"] for e in skills)), (12, ["move", "unstick"]))
+        self.assertEqual((len(items), sorted(e["id"] for e in skills)), (15, ["move", "unstick"]))
         makers = [e["makes"] for e in items]
-        self.assertEqual(len(set(makers)), 12)
+        self.assertEqual(len(set(makers)), 15)
         for e in skills:
             self.assertIsNone(e["makes"])
             self.assertIn("reach", e["goal"])
