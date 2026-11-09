@@ -85,6 +85,14 @@ class BotsPart {
         this.note('info', `${name} was moved by the server ${m.dist} blocks (${m.why}): ${m.from.x} ${m.from.y} ${m.from.z} -> ${m.to.x} ${m.to.y} ${m.to.z}`);
         this._dirty();
     }
+    /** A trained expert (src/experts) took over a move: one line for the log and a counter per bot (`rec.expertUses`: {expert: {n, ok}}). */
+    _expertLog(name, m) {
+        const rec = this.bots.get(name); if (!rec) return;
+        const u = (rec.expertUses = rec.expertUses || {}), e = (u[m.expert] = u[m.expert] || { n: 0, ok: 0 });
+        e.n++; if (m.ok) e.ok++;
+        this.note(m.ok ? 'info' : 'warn', `${name}: the ${m.expert} expert ${m.ok ? 'got the bot' : `failed (${m.reason})`} from ${m.from.x} ${m.from.y} ${m.from.z} to ${m.to.x} ${m.to.y} ${m.to.z} (aim ${m.target.x} ${m.target.y} ${m.target.z}) in ${m.steps} steps, ${Math.round(m.ms / 1000)} s${m.why ? `: ${m.why}` : ''}`);
+        this._dirty();
+    }
     _retry(rec) {
         if (rec.removed) return;
         rec.state = 'offline';

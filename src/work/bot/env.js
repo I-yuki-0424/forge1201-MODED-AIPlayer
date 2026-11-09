@@ -8,7 +8,7 @@ const dimensions = require('../world/dimensions');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** The environment of a real Mineflayer bot on the action layer. */
-function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null, others = null, guard: withGuard = false, defend = true, moved = null, teleport = () => 'near', gates = null, stockMiss = null } = {}) {
+function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null, others = null, guard: withGuard = false, defend = true, moved = null, teleport = () => 'near', gates = null, stockMiss = null, experts = null, expertLog = null } = {}) {
     const { execute } = require('../../skills');
     const { fromBot } = require('../../skills/world');
     const { feetCell } = require('../../skills/motion');
@@ -43,6 +43,11 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
             const here = feetCell(bot.entity.position);
             const dist = Math.abs(here.x - good.x) + Math.abs(here.z - good.z) + Math.abs(here.y - good.y);
             // Far (three levels or more, or 24 blocks): not on foot. From the surface the planner walked 30 levels down into the pit and a bot fell 86 blocks (live pit 2026-11-07).
+            if (dist > 2 && expertsOn() && dist <= 60 && (!rcon || Math.abs(here.y - good.y) >= 3 || Math.hypot(here.x - good.x, here.z - good.z) > 24)) {
+                // far or on another level: the planner walked into pits from here (live pit 2026-11-07), a server move looks like teleporting: the expert goes back, digging if it must
+                const e = await envObj.expertMove(good, { why: `back to the last good place after ${(failure && failure.reason) || 'a failed move'}`, escape: dist > 2 && (Math.abs(here.y - good.y) >= 3) });
+                if (e.ok) return;
+            }
             if (dist > 2 && rcon && (Math.abs(here.y - good.y) >= 3 || Math.hypot(here.x - good.x, here.z - good.z) > 24)) await envObj.back(good, { purpose: 'recover', why: `back to the last good place after ${(failure && failure.reason) || 'a failed move'}` });
             else if (dist > 2) await execute(bot, 'move_to', { x: good.x, y: good.y, z: good.z }, { cancel });
         }
@@ -127,6 +132,31 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         visits.set(k, t);
         try { return await around('chest', fn); } finally { visits.delete(k); t.leave(); }
     };
+    // The trained RL experts (src/experts, docs/implemented/EXPERTS-v1.md): the movement expert walks where the planner finds no way, the stuck-escape expert digs and climbs out of a hole;
+    // both run on the action layer's own commands (with this bot's cancel, fixtures and tool rules). Setting `experts` (default on). Every use is reported to `expertLog`.
+    const expertsOn = () => !!experts && experts() !== false;
+    const useExpert = async (name, target, o = {}) => {
+        if (!expertsOn()) return { ok: false, reason: 'refused', detail: { why: 'the experts are off (setting experts)' } };
+        const t0 = Date.now(), from = feetCell(bot.entity.position);
+        let r;
+        try { r = await require('../../experts').drive(bot, name, target, { exec: (n, a) => execute(bot, n, a, { cancel: unitCancel }), cancel: unitCancel, maxMs: o.maxMs || 90000, maxSteps: o.maxSteps }); }
+        catch (e) { r = { ok: false, reason: 'internal', steps: 0, detail: { message: String((e && e.message) || e).slice(0, 120) } }; }
+        const out = { ok: !!r.ok, reason: r.ok ? undefined : r.reason, detail: { expert: name, steps: r.steps, from, to: feetCell(bot.entity.position), target, remaining: r.dist !== undefined ? Math.round(r.dist * 10) / 10 : undefined, ms: Date.now() - t0, why: o.why } };
+        if (expertLog) { try { expertLog({ expert: name, ok: out.ok, reason: out.reason, steps: r.steps, from, to: out.detail.to, target, ms: out.detail.ms, why: o.why || '' }); } catch (_) { /* reporting must not break the move */ } }
+        return out;
+    };
+    /** The cell a recovery move would go to: standable, a way out first, no edge or fluid beside it, then the nearest (the same ranking as `lift`). null when there is none. */
+    const pickCell = (S, { radius = 5, down = 0, up = 2 } = {}) => {
+        const oth = others ? others() : [], cand = [];
+        for (let dx = -radius; dx <= radius; dx++) for (let dz = -radius; dz <= radius; dz++) for (let y = S.y - down; y <= S.y + up; y++) {
+            const x = S.x + dx, z = S.z + dz;
+            if (w.kindAt(x, y, z) !== 'air' || w.kindAt(x, y + 1, z) !== 'air' || w.kindAt(x, y - 1, z) !== 'solid') continue;
+            if (oth.some((o) => Math.hypot(o.x - (x + 0.5), o.z - (z + 0.5)) < 1.3)) continue;
+            cand.push({ x, y, z, safe: safeStand(x, y, z), exit: hasExit(x, y, z), d: Math.hypot(dx, dz) + Math.abs(y - S.y) });
+        }
+        cand.sort((a, b) => (b.exit - a.exit) || (b.safe - a.safe) || (a.d - b.d));
+        return cand[0] || null;
+    };
     const CHEST_OPS = new Set(['deposit', 'withdraw']), CHEST_MOVES = new Set(['take_usable', 'stash_worn', 'deposit_many']);
     const envObj = {
         w, now: Date.now, recover, temp: new Map(), stockMiss, act: null, sub: null,
@@ -164,6 +194,15 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
             return envObj.lift(here, { radius: 8, up: 2, down: 2, purpose: 'job', why });
         },
         climb: (t) => require('./moves').climbTo(envObj, t),
+        /** The movement expert (or, from inside a hole, the stuck-escape expert: `escape`) takes the bot to the cell `target`. {ok, reason, detail} like a command. */
+        expertMove: (target, o = {}) => useExpert(o.escape ? 'unstick' : 'move', target, o),
+        /** The stuck-escape expert: out of a shaft, pit or sealed pocket, to `target` or, when none is given, the open ground around. */
+        expertEscape: (target = null, o = {}) => {
+            const g = target || require('../../experts/ground').groundAbove(w, feetCell(bot.entity.position));
+            if (!g) return Promise.resolve({ ok: false, reason: 'unreachable', detail: { why: 'no open ground found in the loaded chunks around the bot' } });
+            return useExpert('unstick', { x: g.x, y: g.y, z: g.z }, { why: o.why || 'stuck', ...o });
+        },
+        expertsOn,
         dimension: () => { const d = (bot.game && bot.game.dimension) || 'overworld'; return dimensions.canon(d) || String(d); },
         // The limits of the dimension the bot is in (world/dimensions.js; an unknown one takes what the login packet said), and work over an abyss (bridge.js: a bridge out, the job, the walk back).
         profile: () => dimensions.profile(envObj.dimension(), bot.game ? { minY: bot.game.minY, height: bot.game.height } : null),
@@ -182,7 +221,18 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         },
         cross: (gate, o) => require('./portal').cross(envObj, gate, o),
         // A long walk in legs inside the loaded chunks (travel.js): a move_to beyond the view distance fails for want of chunks.
-        travel: (t, o) => require('./travel').travel({ exec: envObj.exec, here: envObj.here, w, cancel: unitCancel }, t, o),
+        travel: async (t, o) => {
+            const tr = require('./travel'), run = () => tr.travel({ exec: envObj.exec, here: envObj.here, w, cancel: unitCancel }, t, o);
+            let r = await run();
+            if (r.ok || !expertsOn() || !['unreachable', 'stuck', 'timeout', 'not_visible'].includes(r.reason)) return r;
+            // No leg of any length could be walked: the movement expert takes the bot toward the target inside the loaded chunks (round what the planner cannot, through what it must dig), then the legs go on.
+            const here = feetCell(bot.entity.position), aim = tr.legCandidates(w, here, t)[0];
+            if (!aim) return r;
+            const e = await envObj.expertMove({ x: aim.x, y: aim.y, z: aim.z }, { why: `no way on foot toward ${t.x} ${t.z} (${r.reason})` });
+            if (!e.ok) return { ...r, detail: { ...(r.detail || {}), expert: e.reason } };
+            r = await run();
+            return r.ok ? { ...r, expert: true } : r;
+        },
         // Back to a place the bot left (script step go_back): the server moves it (a road-less pit cannot be entered on foot); without RCON it walks.
         back: async (o, opt = {}) => {
             if (!rcon || !Number.isInteger(o.x) || !Number.isInteger(o.y) || !Number.isInteger(o.z)) return execute(bot, 'move_to', o, { cancel });
@@ -207,6 +257,12 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         // (owner 2026-11-08: "the bot moves as if teleporting"; it was this, and nothing said so).
         lift: (S, o = {}) => around('lift', async () => {
             const { radius = 5, down = 0, up = 2, purpose = 'job', why = '', skipSame = false } = o;
+            // A recovery move first on foot, by the stuck-escape expert (owner 2026-11-09: "it moves as if teleporting"): the standable cell the server move would pick, reached by walking, digging
+            // and climbing; the server moves the bot only when that fails (and not at all with setting teleport = off).
+            if (purpose === 'recover' && expertsOn()) {
+                const c0 = pickCell(S, { radius, down, up });
+                if (c0) { const e = await envObj.expertMove({ x: c0.x, y: c0.y, z: c0.z }, { escape: true, why: `escape after ${why || 'a failed move'}`, maxMs: 60000 }); if (e.ok) return { ok: true, to: { x: c0.x, y: c0.y, z: c0.z }, how: 'expert' }; }
+            }
             if (!rcon) return { ok: false, reason: 'refused', detail: { why: 'no RCON' } };
             const mode = teleport();
             if (purpose === 'recover' && mode === 'off') return { ok: false, reason: 'refused', detail: { why: 'server moves are off for recovery (setting teleport)' } };

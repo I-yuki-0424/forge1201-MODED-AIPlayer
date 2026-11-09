@@ -162,6 +162,11 @@ class CommandsPart {
                 for (const k of xyz) int(args[k], k);
                 if (args.dim !== undefined) { need(dimensions.isDim(args.dim) && xyz.length === 3 && !args.player, 'dim goes with x, y, z (not with a player)'); try { dimensions.checkPoint({ dim: args.dim, x: args.x, y: args.y, z: args.z }); } catch (e) { need(false, e.message); } }
             }
+            if (spec.name === 'expert_walk' || spec.name === 'expert_escape') {
+                const xyz = ['x', 'y', 'z'].filter((k) => args[k] !== undefined);
+                need(spec.name === 'expert_escape' ? [0, 3].includes(xyz.length) : xyz.length === 3, spec.name === 'expert_escape' ? 'give all of x, y, z or none' : 'x, y and z are required');
+                for (const k of xyz) int(args[k], k);
+            }
             if (spec.name === 'gather') {
                 need(typeof args.target === 'string' && /^([a-z0-9_.-]{1,32}:)?[a-z0-9_/]{1,64}$/.test(args.target), 'target: a block or item name such as iron_ore, raw_iron, oak_log');
                 if (args.count !== undefined) need(Number.isInteger(args.count) && args.count >= 1 && args.count <= 2304, 'count: 1..2304');
@@ -227,6 +232,11 @@ class CommandsPart {
                 const r = String(await this.rcon(`${into}tp ${rec.name} ${dest}`)).replace(/\x1b\[[0-9;]*m/g, '');
                 if (/^Teleported/i.test(r.trim())) { if (args.dim) rec.inDim = dimensions.canon(args.dim); return { ok: true }; }
                 return { ok: false, reason: 'refused', detail: { server: r.trim().slice(0, 120) } };
+            }
+            if (command === 'expert_walk' || command === 'expert_escape') {
+                const env = this.envFactory(bot, cancel), t = args.x !== undefined ? { x: args.x, y: args.y, z: args.z } : null;
+                if (command === 'expert_walk') return env.expertMove(t, { why: 'operator command', maxMs: 150000 });
+                return env.expertEscape(t, { why: 'operator command', maxMs: 150000 });
             }
             if (command === 'journey') return this._journey(rec, cancel, args);
             if (command === 'set_spawn') return this._setSpawn(rec, cancel, args, id);

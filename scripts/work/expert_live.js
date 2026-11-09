@@ -25,6 +25,7 @@ async function main() {
     svc.addBot(A);
     const until = async (cond, ms, what) => { const t0 = Date.now(); while (!(await cond())) { if (Date.now() - t0 > ms) throw new Error(`timeout: ${what}`); await sleep(250); } };
     await until(() => svc.status().bots.every((b) => b.state === 'online'), 120000, 'bot online'); await sleep(2500);
+    const origMoved = svc._moved.bind(svc); let movesSeen = 0; svc._moved = (n, m) => { movesSeen++; return origMoved(n, m); };
     const bot = svc.bots.get(A).bot, env = svc.envFactory(bot, { cancelled: false });
     S.name = A;
     await S.must(`gamemode survival ${A}`); await S.must('time set day'); await S.must('gamerule doMobSpawning false'); await S.must(`effect give ${A} minecraft:resistance 99999 4 true`);
@@ -79,6 +80,32 @@ async function main() {
         await S.must(`fill ${sx} ${TOP - depth} ${sz} ${sx} ${TOP - depth + 1} ${sz} minecraft:air`);
         await run(`dig out of a sealed pocket ${depth} under the surface: the stuck-escape expert`, 'unstick', { x: sx, y: TOP - depth, z: sz }, surf(sx, sz), { reach: 3.5 });
     }
+    // 5. through the work layer: the operator command, the recovery ladder, the long walk. Every server move would be reported to `moved`: none may happen here.
+    const env2 = svc.envFactory(bot, { cancelled: false });
+    svc.settings.teleport = 'off';
+    for (const depth of [6, 10]) {
+        const sx = X0 + 10, sz = Z0 + 10;
+        await S.must(`fill ${X0} ${TOP - 20} ${Z0} ${X0 + W - 1} ${TOP} ${Z0 + W - 1} minecraft:stone`);
+        await S.must(`fill ${sx} ${TOP - depth + 1} ${sz} ${sx} ${TOP} ${sz} minecraft:air`);
+        await run(`operator command expert_escape in a shaft ${depth} deep (no target given: the ground is found from the chunks)`, 'unstick', { x: sx, y: TOP - depth + 1, z: sz }, surf(sx, sz), {
+            reach: 4, fn: async () => { const r = await svc.runCommand({ bots: [A], command: 'expert_escape', args: {} }); const t0 = Date.now(); while (Date.now() - t0 < 120000) { const c = svc.bots.get(A).cmd; if (c && c.status !== 'running') break; await sleep(300); } return { ok: svc.bots.get(A).cmd.status === 'ok', reason: svc.bots.get(A).cmd.result && svc.bots.get(A).cmd.result.reason, started: r.started }; } });
+    }
+    {   // the recovery ladder: the last good place is on the surface, the bot is 9 levels down in a shaft; the 'return' fix is the first at level 4
+        const sx = X0 + 10, sz = Z0 + 10, depth = 9;
+        await S.must(`fill ${X0} ${TOP - 20} ${Z0} ${X0 + W - 1} ${TOP} ${Z0 + W - 1} minecraft:stone`);
+        await S.must(`fill ${sx} ${TOP - depth + 1} ${sz} ${sx} ${TOP} ${sz} minecraft:air`);
+        await give(); await putAt(surf(sx + 3, sz)); env2.rememberGood();
+        await run('recovery ladder: back to the last good place from 9 levels down, with the server moves off', 'unstick', { x: sx, y: TOP - depth + 1, z: sz }, surf(sx + 3, sz), { reach: 4, fn: async () => { await env2.recover(4, { reason: 'stuck' }); return { ok: true, steps: 0 }; } });
+    }
+    {   // a long walk where no leg can be walked: the bot stands in a walled courtyard (walls 4 high, 14 x 14), the target is outside
+        const cx = X0 + 24, cz = Z0 + 24;
+        await S.must(`fill ${X0} ${TOP - 20} ${Z0} ${X0 + W - 1} ${TOP} ${Z0 + W - 1} minecraft:stone`);
+        await S.must(`fill ${cx - 7} ${TOP + 1} ${cz - 7} ${cx + 7} ${TOP + 4} ${cz + 7} minecraft:stone`);
+        await S.must(`fill ${cx - 6} ${TOP + 1} ${cz - 6} ${cx + 6} ${TOP + 4} ${cz + 6} minecraft:air`);
+        await run('walk out of a walled courtyard (no way on foot): travel falls back to the movement expert', 'move', surf(cx, cz), surf(cx + 20, cz), { reach: 4, fn: async () => { const r = await env2.travel({ x: cx + 20, y: TOP + 1, z: cz }, { leg: 12 }); return { ok: r.ok, reason: r.reason, steps: r.legs, expert: r.expert }; } });
+    }
+    svc.settings.teleport = 'near';
+    check('no server move happened (the service was never told of one)', movesSeen === 0, { movesSeen });
     await S.must(`forceload remove all`);
     await svc.stop();
     const failed = results.filter((x) => !x.ok);

@@ -20,6 +20,7 @@ class WorldPart {
 
     setSettings(s) {
         if (s && s.display && typeof s.display === 'object') for (const k of ['on', 'paths', 'lanes', 'tags']) if (typeof s.display[k] === 'boolean') this.settings.display = { ...this.settings.display, [k]: s.display[k] };
+        if (s && s.experts !== undefined) { need(typeof s.experts === 'boolean', 'experts: true or false (the trained movement and stuck-escape experts)'); this.settings.experts = s.experts; }
         if (s && s.teleport !== undefined) { need(['off', 'near', 'any'].includes(s.teleport), 'teleport: off, near or any'); this.settings.teleport = s.teleport; }
         if (s && s.toolPolicy && typeof s.toolPolicy === 'object') {
             const tp = { ...this.settings.toolPolicy };
