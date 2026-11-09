@@ -1,5 +1,6 @@
 'use strict';
 // Shared by the parts of the service: closed-form validation helpers, limits, the error that carries an HTTP status.
+const dimensions = require('../world/dimensions');
 const BOT_NAME = /^[A-Za-z0-9_]{3,16}$/;
 const STRUCT_NAME = /^[a-z0-9][a-z0-9_-]{0,47}$/;
 const ITEM_ID = /^([a-z0-9_.-]{1,32}:)?[a-z0-9_/]{1,64}$/;
@@ -20,13 +21,15 @@ class Problem extends Error {                          // a refusal the caller c
 const need = (cond, msg, status) => { if (!cond) throw new Problem(msg, status); };
 const int = (v, what) => { need(Number.isInteger(v) && Math.abs(v) <= COORD, `${what} must be an integer`); return v; };
 
-function normalizeBox(b) {
+/** The box of a pit, checked against the limits of its dimension (world/dimensions.js; an unknown one: `limits` {minY, height} from a bot that has been there). */
+function normalizeBox(b, dim = 'overworld', limits = null) {
     need(b && typeof b === 'object', 'box missing');
+    let P; try { P = dimensions.profile(dim, limits); } catch (e) { throw new Problem(e.message); }
     const x0 = Math.min(int(b.x0, 'x0'), int(b.x1, 'x1')), x1 = Math.max(b.x0, b.x1);
     const z0 = Math.min(int(b.z0, 'z0'), int(b.z1, 'z1')), z1 = Math.max(b.z0, b.z1);
     const top = Math.max(int(b.top, 'top'), int(b.bottom, 'bottom')), bottom = Math.min(b.top, b.bottom);
     need(x1 - x0 < MAX_SIDE && z1 - z0 < MAX_SIDE, `a pit is at most ${MAX_SIDE} blocks per side (make several)`);
-    need(top <= MAX_Y && bottom >= MIN_Y, `y must be between ${MIN_Y} and ${MAX_Y}`);
+    need(top <= P.maxY && bottom >= P.minY, `y must be between ${P.minY} and ${P.maxY} in ${P.name}`);
     need(top - bottom + 1 <= MAX_DEPTH, `a pit is at most ${MAX_DEPTH} deep`);
     return { x0, z0, x1, z1, top, bottom };
 }

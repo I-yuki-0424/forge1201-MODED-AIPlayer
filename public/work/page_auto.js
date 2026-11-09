@@ -35,6 +35,7 @@ function SettingsPanel(getS) {
         ['reflex', 'Reflexes', 'A bot that falls 5 blocks or more puts water on the ground below with a water bucket (and takes it up again), or a block under its feet against the wall; one in lava drinks a fire resistance potion or walks out. The task stops for that moment and the work goes on. Experimental.'],
         ['glow', 'Glow on problems (RCON)', 'A bot that hits a problem glows in the game (visible through blocks, from above) until its next finished unit.'],
         ['endDump', 'Empty the pack when a job is finished', 'When a pit or a build is finished (not after a Move or another small command) every bot puts everything it carries into the Ender chest white / white / white, except tools and containers; what does not fit goes to the chest the upkeep would use. Needs that chest tagged; it is used only within 10 chunks.'],
+        ['bedrockExploit', 'Bedrock breaking (exploit)', 'Lets the command break_bedrock run (bot/bedrock.js). Only the frame exists: no method is implemented yet, so it refuses with the reason. Off by default; even when on it works only inside a designated range, only on real bedrock in the bedrock layers, and never at the End exit.'],
         ['directPickup', 'Mined blocks into the inventory (RCON + server script)', 'Drops of blocks a bot breaks go straight into its inventory (server script forgeaip_direct_pickup.js). Off = drops lie on the ground.'],
     ];
     const boxes = {};

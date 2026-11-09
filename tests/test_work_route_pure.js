@@ -24,7 +24,8 @@ function gates() {
         const s = gates();
         assert.deepStrictEqual([s.get('ne-home').dim, s.get('ne-home').twin, s.get('ow-home').twin], ['nether', 'ow-home', 'ne-home']);
         assert.strictEqual(s.add({ name: 'p', x: 1, y: 1, z: 1, purpose: 'portal' }).dim, 'overworld', 'overworld unless said');
-        throws(() => s.add({ name: 'q', x: 2, y: 1, z: 1, purpose: 'portal', dim: 'mars' }), /dim: one of/);
+        throws(() => s.add({ name: 'q', x: 2, y: 1, z: 1, purpose: 'portal', dim: 'mars' }), /dim: overworld, nether, end/);
+        assert.strictEqual(s.add({ name: 'tf', x: 4, y: 1, z: 1, purpose: 'portal', dim: 'twilightforest:twilight_forest' }).dim, 'twilightforest:twilight_forest', 'a modded dimension id is a dimension');
         throws(() => s.add({ name: 'q', x: 2, y: 1, z: 1, purpose: 'ore', twin: 'p' }), /belongs to a portal/);
         throws(() => s.add({ name: 'q', x: 2, y: 1, z: 1, purpose: 'portal', twin: 'q' }), /own twin/);
         assert.strictEqual(s.add({ name: 'r', x: 3, y: 1, z: 1, purpose: 'portal', dim: 'minecraft:the_nether' }).dim, 'nether');

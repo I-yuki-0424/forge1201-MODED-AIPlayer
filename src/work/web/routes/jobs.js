@@ -7,6 +7,8 @@ module.exports = (service) => async (req, url, m, p) => {
     let a;
     if (m === 'POST' && p === '/api/jobs/pit') return service.createPit(await json(req));
     if (m === 'POST' && p === '/api/jobs/build') return service.createBuild(await json(req));
+    if (m === 'POST' && p === '/api/range/check') return service.checkRange(await json(req));
+    if (m === 'GET' && p === '/api/dimensions') return service.dimensionsList();
     if (m === 'POST' && p === '/api/layout/preview') return service.previewLayout(await json(req));
     if (m === 'POST' && p === '/api/jobs/layout') return service.createLayout(await json(req));
     if ((a = /^\/api\/jobs\/(j\d{1,9})(?:\/(start|pause|cancel|repair|supply|assign|unassign))?$/.exec(p))) {

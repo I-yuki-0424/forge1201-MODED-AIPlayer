@@ -5,6 +5,8 @@
 //   floor  the rectangle x0..x1 by z0..z1, ONE layer at y
 //   wall   a straight line from (x0, z0) to (x1, z1), `height` layers from y up; it must run along x (z0 = z1) or along z (x0 = x1)
 //   room   the four walls around the rectangle x0..x1 by z0..z1, `height` layers from y up (the middle stays open; lay a floor separately)
+// `dim` (default overworld) and `limits` ({minY, height}, for a dimension nobody has described) decide which heights are allowed.
+const dimensions = require('../world/dimensions');
 const MAX_CELLS = 40000, MAX_SIDE = 256, MAX_HEIGHT = 64;
 const KINDS = ['floor', 'wall', 'room'];
 const BLOCK = /^([a-z0-9_.-]{1,32}:)?[a-z0-9_]{1,64}$/;
@@ -25,7 +27,8 @@ function layout(s) {
     for (const k of ['x0', 'z0', 'x1', 'z1', 'y']) if (!Number.isInteger(s[k]) || Math.abs(s[k]) > 29_999_000) bad(`${k} must be an integer`);
     const height = s.kind === 'floor' ? 1 : s.height === undefined ? 3 : s.height;
     if (!Number.isInteger(height) || height < 1 || height > MAX_HEIGHT) bad(`height: 1..${MAX_HEIGHT}`);
-    if (s.y < -64 || s.y + height - 1 > 319) bad('the layers must lie between y -64 and y 319');
+    const P = dimensions.profile(s.dim === undefined ? 'overworld' : s.dim, s.limits);          // throws a DimensionError with a sentence for an unknown spelling
+    if (s.y < P.minY || s.y + height - 1 > P.maxY) bad(`the layers must lie between y ${P.minY} and y ${P.maxY} in ${P.name}`);
     const block = s.block.replace(/^minecraft:/, '');
     let x0 = Math.min(s.x0, s.x1), x1 = Math.max(s.x0, s.x1), z0 = Math.min(s.z0, s.z1), z1 = Math.max(s.z0, s.z1);
     if (s.kind === 'wall' && x0 !== x1 && z0 !== z1) bad('a wall runs straight: along x (z from = z to) or along z (x from = x to). Drag a line on the map, or make one pair of numbers equal.');

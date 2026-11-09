@@ -109,6 +109,18 @@ function test(name, fn) { console.log(`--- test: ${name} ---`); return Promise.r
         assert.strictEqual((await call2('DELETE', `/api/jobs/${ok.json.id}`, A)).status, 200);
     });
 
+    await test('dimensions over HTTP: the range check and the dimension list need a session; a pit in the Nether is created with its dimension and refused above its ceiling', async () => {
+        for (const [m, u] of [['GET', '/api/dimensions'], ['POST', '/api/range/check']]) assert.strictEqual((await call2(m, u, {})).status, 401, `${m} ${u} without a session`);
+        const l = await call2('GET', '/api/dimensions', A); assert.strictEqual(l.status, 200); assert.deepStrictEqual(l.json.dimensions.slice(0, 3).map((d) => d.name), ['overworld', 'nether', 'end']);
+        const c = await call2('POST', '/api/range/check', { body: { dim: 'minecraft:the_nether', x0: 0, x1: 15, z0: 0, z1: 15 }, ...A }); assert.strictEqual(c.status, 200); assert.strictEqual(c.json.range.dim, 'nether'); assert.strictEqual(c.json.range.y1, 122);
+        assert.strictEqual((await call2('POST', '/api/range/check', { body: { dim: 'mars', x0: 0, x1: 1, z0: 0, z1: 1 }, ...A })).status, 400);
+        assert.strictEqual((await call2('POST', '/api/range/check', { body: { dim: 'nether', x0: 0, x1: 1, z0: 0, z1: 1, y1: 400 }, ...A })).status, 400);
+        const spec = { name: 'nether cut', dim: 'nether', box: { x0: 1000, z0: 1000, x1: 1010, z1: 1010, top: 100, bottom: 98 } };
+        assert.strictEqual((await call2('POST', '/api/jobs/pit', { body: { ...spec, box: { ...spec.box, top: 300 } }, ...A })).status, 400);
+        const ok = await call2('POST', '/api/jobs/pit', { body: spec, ...A }); assert.strictEqual(ok.status, 200);
+        assert.strictEqual((await call2('DELETE', `/api/jobs/${ok.json.id}`, A)).status, 200);
+    });
+
     await test('every script the page loads is served (a file missing from the static list breaks the page and no other test sees it)', async () => {
         const html = fs.readFileSync(path.join(__dirname, '../public/work/index.html'), 'utf8');
         const srcs = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1]).concat([...html.matchAll(/<link rel="stylesheet" href="([^"]+)"/g)].map((m) => m[1]));

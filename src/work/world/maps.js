@@ -4,6 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const { Worker } = require('worker_threads');
+const dimensions = require('./dimensions');
 
 const DIMS = { overworld: 'region', nether: 'DIM-1/region', end: 'DIM1/region' };
 const FILE = /^r\.(-?\d{1,7})\.(-?\d{1,7})\.mca$/;
@@ -15,7 +16,15 @@ class MapStore {
         this.worker = null; this.pending = new Map(); this.seq = 0; this.queue = Promise.resolve();
     }
     get available() { return !!this.dir && fs.existsSync(path.join(this.dir, DIMS.overworld)); }
-    _dir(dim) { if (!(dim in DIMS)) throw Object.assign(new Error('dimension is overworld, nether or end'), { status: 400 }); return path.join(this.dir, DIMS[dim]); }
+    // A dimension of a mod lives in dimensions/<namespace>/<path>/region (Twilight Forest: dimensions/twilightforest/twilight_forest/region). `canon` has refused '..' and empty parts.
+    _dir(dim) {
+        const d = dimensions.canon(dim);
+        if (!d) throw Object.assign(new Error('dimension is overworld, nether, end or a dimension id'), { status: 400 });
+        if (DIMS[d]) return path.join(this.dir, DIMS[d]);
+        const [ns, ...rest] = d.split(':'), dir = path.resolve(this.dir, 'dimensions', ns, rest.join(':'), 'region');
+        if (!dir.startsWith(path.resolve(this.dir, 'dimensions') + path.sep)) throw Object.assign(new Error('dimension id outside the world folder'), { status: 400 });
+        return dir;
+    }
 
     /** Region files that hold data: [{rx, rz, bytes, mtime}]. */
     index(dim) {

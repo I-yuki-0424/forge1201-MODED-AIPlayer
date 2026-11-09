@@ -13,6 +13,8 @@ function placePage() {
     const block = h('input', { value: 'cobblestone', list: 'place-blocks', class: 'wide', placeholder: 'cobblestone or create:andesite_casing', autocomplete: 'off' }), blocks = h('datalist', { id: 'place-blocks' }, COMMON.map((n) => h('option', { value: n })));
     const name = h('input', { placeholder: 'optional', maxlength: 60 }), info = h('div', { class: 'info-box' }), explain = h('div', { class: 'muted small' }), chips = h('span', { class: 'chips' }), host = h('div', { class: 'map-host tall-map' });
     const side = h('canvas', { class: 'layer-canvas', width: 360, height: 120 }), sideNote = h('div', { class: 'muted small' }), sideBox = h('div', { class: 'hidden' }, h('div', { class: 'inv-section', text: 'Side view (as seen from the front)' }), side, sideNote);
+    const dimIn = h('input', { class: 'wide', value: 'overworld', list: 'dim-ids-place', maxlength: 70, autocomplete: 'off', title: 'overworld, nether, end, or a dimension id' }), dimList = h('datalist', { id: 'dim-ids-place' }, ['overworld', 'nether', 'end', 'twilightforest:twilight_forest'].map((d) => h('option', { value: d })));
+    const dimNow = () => (dimIn.value.trim() || 'overworld');
     const picked = new Set(); let kind = 'wall', mv = null, last = null, timer = 0, seq = 0;
     const kindBtns = KINDS.map(([k, t]) => h('button', { class: 'btn', type: 'button', onclick: () => setKind(k) }, t));
     function setKind(k) {
@@ -24,7 +26,7 @@ function placePage() {
     const spec = () => {
         const v = ['x0', 'z0', 'x1', 'z1', 'y'].map((k) => num(f[k].value));
         if (v.some(Number.isNaN)) return null;
-        const [x0, z0, x1, z1, y] = v, s = { kind, block: block.value.trim(), x0, z0, x1, z1, y };
+        const [x0, z0, x1, z1, y] = v, s = { kind, block: block.value.trim(), x0, z0, x1, z1, y, dim: dimNow() };
         if (kind !== 'floor') { const hh = num(f.height.value); if (Number.isNaN(hh)) return null; s.height = hh; }
         if (kind === 'wall' && x0 !== x1 && z0 !== z1) { if (Math.abs(x1 - x0) >= Math.abs(z1 - z0)) s.z1 = z0; else s.x1 = x0; }          // the line follows the longer direction (the page says so)
         return s;
@@ -64,6 +66,7 @@ function placePage() {
     }
     for (const k of Object.keys(f)) f[k].addEventListener('input', preview);
     block.addEventListener('input', preview);
+    dimIn.addEventListener('change', () => { if (mv) { mv.setDim(dimNow()); Tiles.loadIndex(dimNow()).then(() => mv.fit()); } preview(); });
     // The map gives a box of two corners; a wall is the line from where the drag began to where it ended (along the longer direction).
     const fromSel = (b) => {
         const a = mv && mv.sel && mv.sel.anchor ? mv.sel.anchor : [b.x0, b.z0], e = mv && mv.sel ? [mv.sel.x, mv.sel.z] : [b.x1, b.z1];
@@ -91,7 +94,7 @@ function placePage() {
             h('div', { class: 'row tight' }, kindBtns), explain,
             h('div', { class: 'grid-form' }, field('x from', f.x0), field('x to', f.x1), field('z from', f.z0), field('z to', f.z1), field('level y', f.y), field('height', f.height)),
             h('div', { class: 'row' }, h('button', { class: 'btn small', onclick: onGround }, 'On the ground'), h('button', { class: 'btn small', onclick: replaceTop }, 'Replace the top layer')),
-            field('Block', block, 'any block the bots can place; mod blocks by their full name'), blocks, info, sideBox, field('Name', name), h('div', { class: 'field' }, h('span', { class: 'field-label', text: 'Bots (none ticked: every idle bot)' }), chips),
+            field('Dimension', dimIn, 'the heights allowed are those of the dimension; the bots are taken there before they start'), dimList, field('Block', block, 'any block the bots can place; mod blocks by their full name'), blocks, info, sideBox, field('Name', name), h('div', { class: 'field' }, h('span', { class: 'field-label', text: 'Bots (none ticked: every idle bot)' }), chips),
             h('div', { class: 'row' }, h('button', { class: 'btn', onclick: create(false) }, 'Create (paused)'), h('button', { class: 'btn primary', onclick: create(true) }, icon('play', 13), ' Create and start'))])));
     setKind('wall');
     return {

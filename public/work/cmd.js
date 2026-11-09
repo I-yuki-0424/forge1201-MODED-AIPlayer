@@ -16,6 +16,7 @@ function CommandPanel(o) {
     const targetSel = h('select', { class: 'sel', 'aria-label': 'Target bots' }), cmdSel = h('select', { class: 'sel wide', 'aria-label': 'Command' });
     const doc = h('div', { class: 'muted small cmd-doc' }), fields = h('div', { class: 'cmd-fields' }), result = h('div', { class: 'cmd-result' });
     const items = h('datalist', { id: `items-${Math.random().toString(36).slice(2, 7)}` });
+    const dims = h('datalist', { id: 'cmd-dims' }, ['overworld', 'nether', 'end', 'twilightforest:twilight_forest'].map((d) => h('option', { value: d })));
     let spec = null, inputs = {}, entityRefresh = null;
 
     const names = () => { const t = o.targets().find((x) => x.value === targetSel.value) || o.targets()[0]; return t ? t.names : []; };
@@ -56,7 +57,7 @@ function CommandPanel(o) {
             if (a.type === 'dir') el = h('select', { class: 'sel' }, DIRS.map((d) => h('option', { value: d, text: d })));
             else if (a.type === 'dy') el = h('select', { class: 'sel' }, [[0, 'level'], [-1, 'down (stair)'], [1, 'up (stair)']].map(([v, t]) => h('option', { value: v, text: t })));
             else if (a.type === 'dest') el = h('select', { class: 'sel' }, DESTS.map(([v, t]) => h('option', { value: v, text: t })));
-            else if (a.type === 'dim') el = h('select', { class: 'sel' }, [['', 'this dimension'], ['overworld', 'overworld'], ['nether', 'nether'], ['end', 'end']].map(([v, t]) => h('option', { value: v, text: t })));
+            else if (a.type === 'dim') el = h('input', { type: 'text', class: 'wide', list: 'cmd-dims', maxlength: 70, placeholder: 'this dimension (or overworld, nether, end, twilightforest:twilight_forest)', autocomplete: 'off' });
             else if (a.type === 'bool') el = h('input', { type: 'checkbox' });
             else if (a.type === 'count') el = h('input', { type: 'number', class: 'num', min: 1, max: 2304, value: a.optional ? '' : 1, placeholder: a.optional ? 'all' : '1' });
             else if (a.type === 'int') el = h('input', { type: 'number', class: 'num' });
@@ -116,7 +117,7 @@ function CommandPanel(o) {
     const root = h('div', { class: 'cmdpanel' },
         h('div', { class: 'row' }, o.fixed ? null : field('Send to', targetSel), field('Command', cmdSel),
             h('span', { class: 'row tight cmd-quick' }, h('button', { class: 'btn', type: 'button', title: 'cancel what the bots are doing', onclick: () => { setCommand('stop'); send(); } }, 'Stop'), h('button', { class: 'btn', type: 'button', title: 'walk to the operator', onclick: () => { setCommand('come'); send(); } }, 'Come to me'))),
-        doc, fields, items,
+        doc, fields, items, dims,
         h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', onclick: send }, icon('play', 13), ' Send'), h('span', { class: 'muted small', text: 'Bots working on a job refuse commands: pause the job or take them off it.' })), result);
     targetSel.addEventListener('change', () => { refreshItems(); if (spec && spec.args.some((a) => a.type === 'entity') && single()) entityRefresh && entityRefresh(); });
     cmdSel.addEventListener('change', () => setCommand(cmdSel.value));

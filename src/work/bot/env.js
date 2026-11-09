@@ -3,6 +3,7 @@
 // (jump, sidestep, back to the last good place), defence (guard.js), discard, tools, the inventory. Everything a job may ask of a bot is here;
 // the loop that claims units and retries is worker.js.
 const janitor = require('./janitor');
+const dimensions = require('../world/dimensions');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -144,7 +145,10 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
             return envObj.lift(here, { radius: 8, up: 2, down: 2, purpose: 'job', why });
         },
         climb: (t) => require('./moves').climbTo(envObj, t),
-        dimension: () => String((bot.game && bot.game.dimension) || 'overworld').replace('minecraft:', '').replace('the_', ''),
+        dimension: () => { const d = (bot.game && bot.game.dimension) || 'overworld'; return dimensions.canon(d) || String(d); },
+        // The limits of the dimension the bot is in (world/dimensions.js; an unknown one takes what the login packet said), and work over an abyss (bridge.js: a bridge out, the job, the walk back).
+        profile: () => dimensions.profile(envObj.dimension(), bot.game ? { minY: bot.game.minY, height: bot.game.height } : null),
+        workOver: (work, opt = {}) => require('./bridge').workOver(envObj, work, { minY: envObj.profile().minY, ...opt }),
         // Face a cell and press forward until `until()` is true or `ms` is up (a portal is entered by walking into it); `ahead`: keep the heading the bot has.
         walkInto: async (cell, { until, ms = 8000 } = {}) => {
             const t0 = Date.now();

@@ -7,6 +7,7 @@ const { catalog } = require('../operator/catalog');
 const skills = require('../../skills');
 const { Problem, need, int } = require('./common');
 const { byName } = require('../bot/queue');
+const dimensions = require('../world/dimensions');
 
 class CommandsPart {
     catalog() { return catalog(); }
@@ -57,9 +58,10 @@ class CommandsPart {
     async _journey(rec, cancel, args) {
         const route = require('../bot/route'), env = this.envFactory(rec.bot, cancel);
         const h = env.here(), from = { dim: env.dimension(), x: h.x, y: h.y, z: h.z };
-        const to = { dim: args.dim || from.dim, x: args.x, y: Number.isInteger(args.y) ? args.y : undefined, z: args.z };
+        const to = { dim: args.dim ? dimensions.need(args.dim) : from.dim, x: args.x, y: Number.isInteger(args.y) ? args.y : undefined, z: args.z };
         const steps = route.plan(this.sites, from, to, { viaNether: !!args.viaNether });
-        if (!steps) return { ok: false, reason: 'invalid_target', detail: { why: `no tagged portal leads from ${from.dim} to ${to.dim} (tag the gates: purpose portal, its dimension, its twin on the other side)` } };
+        if (!steps && args.viaServer) return this._serverJump(rec, env, to);
+        if (!steps) return { ok: false, reason: 'invalid_target', detail: { why: `no tagged portal leads from ${from.dim} to ${to.dim} (tag the gates: purpose portal, its dimension, its twin on the other side; or tick "by the server" and give y: the server puts the bot there)` } };
         rec.crossing = true;
         const log = [];
         try {
@@ -77,8 +79,61 @@ class CommandsPart {
                 }
                 if (!r.ok) return { ok: false, reason: r.reason, detail: { ...(r.detail || {}), steps: log } };
             }
+            rec.inDim = to.dim;                                              // the operator sent it here: the dimension watch (bots.js) lets it stay
             return { ok: true, detail: { steps: log } };
         } finally { rec.crossing = false; }
+    }
+
+    /**
+     * The way into a dimension with no tagged gate (the Twilight Forest has no portal a bot can walk into; an unknown dimension has none yet): the SERVER puts the bot there
+     * (`execute in <dimension> run tp`), at an explicit y. Then it waits for the dimension to change and for ground under the feet; no floor (a gap, an island edge) is a failure that
+     * says so (bridge.js works from a cell that has one). Needs RCON; a server move of the 'job' kind, so the recovery setting `teleport` does not apply.
+     */
+    async _serverJump(rec, env, to) {
+        if (!this.o.rcon) return { ok: false, reason: 'refused', detail: { why: 'a server jump needs RCON' } };
+        if (!Number.isInteger(to.y)) return { ok: false, reason: 'invalid_args', detail: { why: 'a server jump needs y (the server cannot know where the floor is in a dimension nobody has loaded)' } };
+        try { dimensions.checkPoint(to, rec.bot && rec.bot.game ? { minY: rec.bot.game.minY, height: rec.bot.game.height } : null); } catch (e) { return { ok: false, reason: 'invalid_args', detail: { why: e.message } }; }
+        rec.crossing = true;
+        try {
+            const r = String(await this.rcon(`execute in ${dimensions.rconId(to.dim)} run tp ${rec.name} ${to.x}.5 ${to.y} ${to.z}.5`)).replace(/\x1b\[[0-9;]*m/g, '').trim();
+            if (!/^Teleported/i.test(r)) return { ok: false, reason: 'refused', detail: { server: r.slice(0, 120) } };
+            for (let i = 0; i < 40 && env.dimension() !== to.dim; i++) await new Promise((res) => setTimeout(res, 250));
+            if (env.dimension() !== to.dim) return { ok: false, reason: 'timeout', detail: { why: `the server said it moved the bot, but it is still in ${env.dimension()}` } };
+            for (let i = 0; i < 24 && !rec.bot.entity.onGround; i++) await new Promise((res) => setTimeout(res, 250));
+            if (!rec.bot.entity.onGround) return { ok: false, reason: 'stuck', detail: { why: `arrived in ${to.dim} but there is no floor under the bot (an abyss or an island edge): bring it back or bridge from a cell that has one`, at: env.here() } };
+            rec.inDim = to.dim;
+            this.note('info', `${rec.name} was put into ${to.dim} at ${to.x} ${to.y} ${to.z} by the server`);
+            return { ok: true, detail: { steps: [`server jump to ${to.dim}`] } };
+        } finally { rec.crossing = false; }
+    }
+
+    /** trades / trade (bot/trade.js, WIP): the full list of what a villager offers goes to the log (the result detail is cut at 240 characters). */
+    async _trade(rec, cancel, list, args) {
+        const env = this.envFactory(rec.bot, cancel);
+        try {
+            const r = await require('../bot/trade').trade(rec.bot, env, { list, entity: args.entity, get: args.get, give: args.give, index: args.index, maxPrice: args.maxPrice, count: args.count });
+            if (r.ok && list) {
+                const t = r.detail.trades, line = t.map((d) => `${d.index}: ${d.give.map((g) => `${g.count} ${g.item}`).join(' + ')} -> ${d.get.count} ${d.get.item}${d.left ? '' : ' (sold out)'}`).join(' | ');
+                this.note('info', `${rec.name}: villager #${r.detail.villager} offers ${t.length}: ${line}`.slice(0, 900));
+                return { ok: true, detail: { villager: r.detail.villager, offers: t.length, see: 'the log lists them' } };
+            }
+            return r;
+        } finally { if (env && env.dispose) env.dispose(); }
+    }
+
+    /** bridge {x, y, z, job?, item?}: bridge to the cell beside the block, do the job (mine / place / nothing), walk back (bot/bridge.js). */
+    async _bridge(rec, cancel, args) {
+        const env = this.envFactory(rec.bot, cancel);
+        try { return await env.workOver({ x: args.x, y: args.y, z: args.z }, { job: args.job === 'none' ? null : args.job || null, item: args.item }); } finally { if (env && env.dispose) env.dispose(); }
+    }
+
+    /** break_bedrock {x, y, z, radius?}: the frame of the exploit (bot/bedrock.js, setting bedrockExploit, off by default). The designated range is the block, or a box of `radius` around it. */
+    async _bedrock(rec, cancel, args) {
+        const env = this.envFactory(rec.bot, cancel), r = args.radius || 0, dim = env.dimension(), learned = rec.bot.game ? { minY: rec.bot.game.minY, height: rec.bot.game.height } : null;
+        try {
+            let range; try { const P = dimensions.profile(dim, learned); range = dimensions.designate({ dim, x0: args.x - r, x1: args.x + r, z0: args.z - r, z1: args.z + r, y0: Math.max(P.minY, args.y - r), y1: Math.min(P.maxY, args.y + r) }, { learned }); } catch (e) { return { ok: false, reason: 'invalid_args', detail: { why: e.message } }; }
+            return await require('../bot/bedrock').breakBedrock(env, { x: args.x, y: args.y, z: args.z }, { enabled: !!this.settings.bedrockExploit, range, learned });
+        } finally { if (env && env.dispose) env.dispose(); }
     }
 
     /**
@@ -105,6 +160,7 @@ class CommandsPart {
                 const xyz = ['x', 'y', 'z'].filter((k) => args[k] !== undefined);
                 need((args.player && inventory.NAME.test(String(args.player))) || xyz.length === 3, 'give a player or all of x, y, z');
                 for (const k of xyz) int(args[k], k);
+                if (args.dim !== undefined) { need(dimensions.isDim(args.dim) && xyz.length === 3 && !args.player, 'dim goes with x, y, z (not with a player)'); try { dimensions.checkPoint({ dim: args.dim, x: args.x, y: args.y, z: args.z }); } catch (e) { need(false, e.message); } }
             }
             if (spec.name === 'gather') {
                 need(typeof args.target === 'string' && /^([a-z0-9_.-]{1,32}:)?[a-z0-9_/]{1,64}$/.test(args.target), 'target: a block or item name such as iron_ore, raw_iron, oak_log');
@@ -114,8 +170,31 @@ class CommandsPart {
             if (spec.name === 'journey') {
                 for (const k of ['x', 'z']) int(args[k], k);
                 if (args.y !== undefined) int(args.y, 'y');
-                if (args.dim !== undefined) need(['overworld', 'nether', 'end'].includes(args.dim), 'dim: overworld, nether or end');
+                if (args.dim !== undefined) need(dimensions.isDim(args.dim), 'dim: overworld, nether, end, or a dimension id such as twilightforest:twilight_forest');
                 if (args.viaNether !== undefined) need(typeof args.viaNether === 'boolean', 'viaNether: true or false');
+                if (args.viaServer !== undefined) need(typeof args.viaServer === 'boolean', 'viaServer: true or false');
+                const to = args.dim ? dimensions.canon(args.dim) : null;
+                if (to) { try { dimensions.checkPoint({ dim: to, x: args.x, y: args.y, z: args.z }); } catch (e) { need(false, e.message); } }
+            }
+            if (spec.name === 'trades' || spec.name === 'trade') {
+                if (args.entity !== undefined) need(Number.isInteger(args.entity) && args.entity >= 0, 'entity: the villager\'s id (pick it from the nearby list)');
+                for (const k of ['get', 'give']) if (args[k] !== undefined) need(typeof args[k] === 'string' && /^([a-z0-9_.-]{1,32}:)?[a-z0-9_/]{1,64}$/.test(args[k]), `${k}: an item name such as emerald or paper`);
+                if (spec.name === 'trade') {
+                    if (args.index !== undefined) need(Number.isInteger(args.index) && args.index >= 0 && args.index < 64, 'index: 0..63 (see the list from "trades")');
+                    if (args.maxPrice !== undefined) need(Number.isInteger(args.maxPrice) && args.maxPrice >= 1 && args.maxPrice <= 64, 'maxPrice: 1..64');
+                    if (args.count !== undefined) need(Number.isInteger(args.count) && args.count >= 1 && args.count <= 64, 'count: 1..64 uses of the trade');
+                    need(args.index !== undefined || args.get || args.give, 'name the trade: its index, or the item it gives (get) or takes (give)');
+                }
+            }
+            if (spec.name === 'bridge') {
+                for (const k of ['x', 'y', 'z']) int(args[k], k);
+                if (args.job !== undefined) need(['mine', 'place', 'none'].includes(args.job), 'job: mine, place or none');
+                if (args.job === 'place') need(typeof args.item === 'string' && /^([a-z0-9_.-]{1,32}:)?[a-z0-9_/]{1,64}$/.test(args.item), 'item: the block to place there');
+            }
+            if (spec.name === 'break_bedrock') {
+                for (const k of ['x', 'y', 'z']) int(args[k], k);
+                if (args.radius !== undefined) need(Number.isInteger(args.radius) && args.radius >= 0 && args.radius <= 8, 'radius: 0..8');
+                need(this.settings.bedrockExploit, 'bedrock breaking is off: turn on "Bedrock breaking (exploit)" on the Automation page first');
             }
             if (spec.name === 'set_spawn') {
                 const xyz = ['x', 'y', 'z'].filter((k) => args[k] !== undefined);
@@ -144,12 +223,16 @@ class CommandsPart {
         (async () => {
             if (command === 'say') { bot.chat(String(args.text)); return { ok: true }; }
             if (command === 'teleport') {
-                const dest = args.player ? String(args.player) : `${args.x} ${args.y} ${args.z}`;
-                const r = String(await this.rcon(`tp ${rec.name} ${dest}`)).replace(/\x1b\[[0-9;]*m/g, '');
-                return /^Teleported/i.test(r.trim()) ? { ok: true } : { ok: false, reason: 'refused', detail: { server: r.trim().slice(0, 120) } };
+                const dest = args.player ? String(args.player) : `${args.x} ${args.y} ${args.z}`, into = args.dim ? `execute in ${dimensions.rconId(args.dim)} run ` : '';
+                const r = String(await this.rcon(`${into}tp ${rec.name} ${dest}`)).replace(/\x1b\[[0-9;]*m/g, '');
+                if (/^Teleported/i.test(r.trim())) { if (args.dim) rec.inDim = dimensions.canon(args.dim); return { ok: true }; }
+                return { ok: false, reason: 'refused', detail: { server: r.trim().slice(0, 120) } };
             }
             if (command === 'journey') return this._journey(rec, cancel, args);
             if (command === 'set_spawn') return this._setSpawn(rec, cancel, args, id);
+            if (command === 'trades' || command === 'trade') return this._trade(rec, cancel, command === 'trades', args);
+            if (command === 'bridge') return this._bridge(rec, cancel, args);
+            if (command === 'break_bedrock') return this._bedrock(rec, cancel, args);
             if (command === 'gather') {
                 return gatherer.gather(bot, { target: String(args.target), count: args.count || 16, radius: args.radius || 32 }, {
                     cancel, execute: (b, n, a, o) => skills.execute(b, n, a, o),

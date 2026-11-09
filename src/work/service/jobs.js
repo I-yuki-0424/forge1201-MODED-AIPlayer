@@ -7,6 +7,7 @@ const bp = require('../jobs/blueprint');
 const build = require('../jobs/build');
 const pit = require('../jobs/pit');
 const janitor = require('../bot/janitor');
+const dimensions = require('../world/dimensions');
 const { Problem, need, int, normalizeBox, overlap, STRUCT_NAME, MIN_Y, MAX_Y, ACTIVE, PIT_LEDGER } = require('./common');
 
 class JobsPart {
@@ -19,16 +20,45 @@ class JobsPart {
         for (const k of p.footprint) { const [x, z] = k.split(',').map(Number); if (x < box.x0) box.x0 = x; if (x > box.x1) box.x1 = x; if (z < box.z0) box.z0 = z; if (z > box.z1) box.z1 = z; }
         return (job._box = box);
     }
+    /** The dimension a job is in (default overworld; older stored jobs have none) and, for a dimension we have no profile of, the limits a bot there has told us (bot.game.minY / height). */
+    _dimSpec(spec) {
+        let dim; try { dim = spec.dim === undefined || spec.dim === null || spec.dim === '' ? 'overworld' : dimensions.need(spec.dim); } catch (e) { throw new Problem(e.message); }
+        return { dim, limits: this._limits(dim) };
+    }
+    _limits(dim) {
+        for (const rec of this.bots.values()) { const b = rec.bot; if (rec.state === 'online' && !rec.removed && b && b.game && dimensions.canon(b.game.dimension) === dim && Number.isInteger(b.game.minY) && Number.isInteger(b.game.height)) return { minY: b.game.minY, height: b.game.height }; }
+        return null;
+    }
+
+    /** Check a designated range without making anything (POST /api/range/check): { dim, x0, z0, x1, z1, y0?, y1? } -> the normalised range, the dimension's limits, warnings, and the same spot in the twin dimension. */
+    checkRange(spec) {
+        need(spec && typeof spec === 'object', 'range missing');
+        const D = this._dimSpec(spec);
+        let range; try { range = dimensions.designate({ ...spec, dim: D.dim }, { learned: D.limits }); } catch (e) { throw new Problem(e.message); }
+        const P = dimensions.profile(D.dim, D.limits), centre = dimensions.centre(range);
+        const twinDim = D.dim === 'overworld' ? 'nether' : D.dim === 'nether' ? 'overworld' : null;
+        return { range, limits: { minY: P.minY, maxY: P.maxY, known: P.known, learned: !!P.learned, voidBelow: P.voidBelow }, centre, twin: twinDim ? dimensions.convert(centre, D.dim, twinDim) : null };
+    }
+
+    /** The dimensions the console knows of: the three vanilla ones, every dimension a bot is in, every dimension a tagged gate stands in. */
+    dimensionsList() {
+        const seen = new Map(), add = (n, from) => { const c = dimensions.canon(n); if (!c) return; const e = seen.get(c) || { name: c, bots: 0, sites: 0 }; e[from]++; seen.set(c, e); };
+        for (const n of ['overworld', 'nether', 'end']) seen.set(n, { name: n, bots: 0, sites: 0 });
+        for (const rec of this.bots.values()) if (rec.state === 'online' && !rec.removed && rec.bot && rec.bot.game && rec.bot.game.dimension) add(rec.bot.game.dimension, 'bots');
+        for (const s of this.sites.list()) if (s.dim) add(s.dim, 'sites');
+        return { dimensions: [...seen.values()].map((e) => { const P = dimensions.profile(e.name, this._limits(e.name)); return { ...e, known: P.known, minY: P.minY, maxY: P.maxY, voidBelow: P.voidBelow, scale: P.scale }; }) };
+    }
+
     _guardOverlap(job, force) {
-        const box = this._jobBox(job);
-        for (const o of this.jobs.values()) if (o !== job && ACTIVE.has(o.state) && overlap(box, this._jobBox(o))) need(force, `overlaps job ${o.id} (${o.name}); pass force to allow`, 409);
+        const box = this._jobBox(job), dimOf = (j) => j.spec.dim || 'overworld';
+        for (const o of this.jobs.values()) if (o !== job && ACTIVE.has(o.state) && dimOf(o) === dimOf(job) && overlap(box, this._jobBox(o))) need(force, `overlaps job ${o.id} (${o.name}); pass force to allow`, 409);
         return box;
     }
 
     /** Open-pit job. spec: { name?, box: {x0,z0,x1,z1,top,bottom}, depot?: {kind,x,y,z}, bots?: [...], start?, force? } */
     createPit(spec) {
         need(spec && typeof spec === 'object', 'spec missing');
-        const box = normalizeBox(spec.box);
+        const D = this._dimSpec(spec), box = normalizeBox(spec.box, D.dim, D.limits);
         // One lane (an X-Z range dug down to the bottom) per bot: the bots named, or else every idle bot that is online now; `lanes` overrides.
         const idle = [...this.bots.values()].filter((r) => !r.removed && r.state !== 'offline' && !(r.job && this.jobs.has(r.job) && ACTIVE.has(this.jobs.get(r.job).state))).length;
         const lanes = spec.lanes !== undefined ? spec.lanes : (Array.isArray(spec.bots) && spec.bots.length) || idle || 1;
@@ -40,7 +70,7 @@ class JobsPart {
         let impl;
         try { impl = pit.createPitJob(box, PIT_LEDGER, { lanes, method, road }); } catch (e) { throw new Problem(e.message); }
         const depot = spec.depot ? this._depot(spec.depot) : null;
-        const job = this._newJob('pit', spec.name || `pit ${box.x1 - box.x0 + 1}x${box.z1 - box.z0 + 1}x${box.top - box.bottom + 1}`, { box, depot, lanes, method, road }, impl);
+        const job = this._newJob('pit', spec.name || `pit ${box.x1 - box.x0 + 1}x${box.z1 - box.z0 + 1}x${box.top - box.bottom + 1}`, { box, depot, lanes, method, road, dim: D.dim, ...(D.limits ? { limits: D.limits } : {}) }, impl);
         job.policy = this._pitPolicy(depot);
         this._guardOverlap(job, spec.force);
         return this._register(job, spec);
@@ -71,10 +101,11 @@ class JobsPart {
         need(typeof spec.structure === 'string' && STRUCT_NAME.test(spec.structure), 'structure name');
         const o = spec.origin || {};
         const origin = { x: int(o.x, 'origin.x'), y: int(o.y, 'origin.y'), z: int(o.z, 'origin.z') };
-        need(origin.y >= MIN_Y && origin.y <= MAX_Y, `origin.y must be between ${MIN_Y} and ${MAX_Y}`);
+        const D = this._dimSpec(spec), P = dimensions.profile(D.dim, D.limits);
+        need(origin.y >= P.minY && origin.y <= P.maxY, `origin.y must be between ${P.minY} and ${P.maxY} in ${P.name}`);
         let b = await this.getStructure(spec.structure);
         if (spec.ops && spec.ops.length) b = await this._ops(b, spec.ops);
-        return this._buildFrom(b, origin, spec, spec.structure, {});
+        return this._buildFrom(b, origin, spec, spec.structure, { dim: D.dim, ...(D.limits ? { limits: D.limits } : {}) });
     }
 
     /**
@@ -83,16 +114,17 @@ class JobsPart {
      */
     async createLayout(spec) {
         need(spec && typeof spec === 'object', 'spec missing');
-        let L; try { L = require('../jobs/layout').layout(spec); } catch (e) { throw new Problem(e.message); }
+        const D = this._dimSpec(spec);
+        let L; try { L = require('../jobs/layout').layout({ ...spec, dim: D.dim, limits: D.limits }); } catch (e) { throw new Problem(e.message); }
         need(!this.known || this.known(L.block), `the bots cannot place ${L.block} (it is not in their block table)`);
         const b = bp.fromCells(L.cells);
         const detail = { kind: L.kind, block: L.block, height: L.height, x0: spec.x0, z0: spec.z0, x1: spec.x1, z1: spec.z1, y: spec.y };
-        return this._buildFrom(b, L.origin, { ...spec, name: spec.name || `${L.kind} ${L.block}` }, null, { layout: detail }, { describe: L.describe });
+        return this._buildFrom(b, L.origin, { ...spec, name: spec.name || `${L.kind} ${L.block}` }, null, { layout: detail, dim: D.dim, ...(D.limits ? { limits: D.limits } : {}) }, { describe: L.describe });
     }
 
     /** What a layout would be, without making a job (the Place page's preview): a sentence, the count, the boxes for the map; or {ok: false, why} with the reason in words. */
     previewLayout(spec) {
-        let L; try { L = require('../jobs/layout').layout(spec); } catch (e) { return { ok: false, why: e.message }; }
+        let L; try { const D = this._dimSpec(spec); L = require('../jobs/layout').layout({ ...spec, dim: D.dim, limits: D.limits }); } catch (e) { return { ok: false, why: e.message }; }
         const item = build.itemFor(L.block), known = !this.known || this.known(L.block);
         return { ok: true, describe: L.describe, count: L.count, stacks: Math.ceil(L.count / 64), origin: L.origin, size: L.size, boxes: L.boxes, kind: L.kind, along: L.along, block: L.block, item, known, why: known ? null : `the bots cannot place ${L.block} (it is not in their block table)` };
     }
@@ -131,7 +163,7 @@ class JobsPart {
     async _rebuild(j) {
         const base = { id: j.id, kind: j.kind, name: j.name, spec: j.spec, created: j.created };
         let impl;
-        if (j.kind === 'pit') impl = pit.createPitJob(normalizeBox(j.spec.box), PIT_LEDGER, { lanes: j.spec.lanes || 0, method: j.spec.method || 'rows', road: j.spec.road === undefined ? true : !!j.spec.road });
+        if (j.kind === 'pit') impl = pit.createPitJob(normalizeBox(j.spec.box, j.spec.dim || 'overworld', j.spec.limits || null), PIT_LEDGER, { lanes: j.spec.lanes || 0, method: j.spec.method || 'rows', road: j.spec.road === undefined ? true : !!j.spec.road });
         else {
             const b = await bp.read(fs.readFileSync(path.join(this.o.dataDir, 'jobs', path.basename(j.spec.file))));
             impl = build.createBuildJob(bp.cells(b), j.spec.origin, { leaseMs: 45000, maxAttempts: 6 }, { known: this.known });

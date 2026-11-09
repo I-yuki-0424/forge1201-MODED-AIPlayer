@@ -18,6 +18,7 @@
 // Nothing here talks to the game: `janitor.maintain`, `script.js` and the service (service/links.js) read it.
 const janitor = require('./janitor');
 const ender = require('../world/enderstorage');
+const dimensions = require('../world/dimensions');
 
 const PURPOSES = Object.freeze({
     tools: 'supplies tools: bots take usable tools from it, nothing is stored there',
@@ -91,7 +92,7 @@ class Sites {
         if (!s || typeof s !== 'object') throw new Error('site missing');
         if (typeof s.name !== 'string' || !NAME.test(s.name)) throw new Error('site name: a-z 0-9 _ - (max 24)');
         const purpose = purposeOf(s, !loose, s.name, this.migrated);
-        let dim; if (s.dim !== undefined && s.dim !== null && s.dim !== '') { dim = String(s.dim).replace(/^minecraft:/, '').replace('the_', ''); if (!DIMS.includes(dim)) throw new Error(`dim: one of ${DIMS.join(', ')}`); }
+        let dim; if (s.dim !== undefined && s.dim !== null && s.dim !== '') { dim = dimensions.canon(s.dim); if (!dim) throw new Error('dim: overworld, nether, end, or a dimension id such as twilightforest:twilight_forest'); }
         const twin = s.twin === undefined || s.twin === null || s.twin === '' ? undefined : String(s.twin);
         if (twin !== undefined) {
             if (!NAME.test(twin)) throw new Error('twin: the name of the gate on the other side');

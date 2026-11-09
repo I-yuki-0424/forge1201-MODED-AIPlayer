@@ -4,12 +4,26 @@
 const { runWorker } = require('../bot/worker');
 const scriptLib = require('../bot/script');
 const { need, ITEM_ID } = require('./common');
+const dimensions = require('../world/dimensions');
 
 class WorkersPart {
     _resume(rec) {
         if (rec.removed || rec.state !== 'online' || !rec.job) return;
         const job = this.jobs.get(rec.job);
         if (job && job.state === 'running') this._startWorker(job, rec);
+    }
+
+    /**
+     * Into the dimension of a job: through a tagged gate that leads there, else the server puts the bot at the job's site (the pit's middle at its top level; a build's origin).
+     * Failing is not final: the supervisor (_watchResume) starts the worker again later with a back-off.
+     */
+    async _enterDim(rec, cancel, job, dim) {
+        const s = job.spec, at = job.kind === 'pit'
+            ? { x: Math.floor((s.box.x0 + s.box.x1) / 2), z: Math.floor((s.box.z0 + s.box.z1) / 2), y: s.box.top + 1 }
+            : { x: s.origin.x, z: s.origin.z, y: s.origin.y };
+        const r = await this._journey(rec, cancel, { ...at, dim, viaServer: !!this.o.rcon });
+        this.note(r.ok ? 'info' : 'warn', `${rec.name} -> ${dim} for job ${job.id}: ${r.ok ? 'ok' : r.reason}`, { job: job.id });
+        return r;
     }
 
     async _startWorker(job, rec) {
@@ -20,6 +34,12 @@ class WorkersPart {
         try {
             if (this.settings.autoKit && this.o.rcon) await this.kitBot(rec.name, { quiet: true }).catch(() => {});
             if (cancel.cancelled || job.state !== 'running' || rec.state !== 'online') { if (rec.worker && rec.worker.cancel === cancel) rec.worker = null; return; }
+            // A job in another dimension (spec.dim): the bot goes there first, BEFORE its environment is made (the world model must be the new dimension's).
+            const want = job.spec.dim, now = rec.bot.game ? (dimensions.canon(rec.bot.game.dimension) || String(rec.bot.game.dimension)) : null;
+            if (want && now && want !== now) {
+                const to = await this._enterDim(rec, cancel, job, want);
+                if (!to.ok) { if (rec.worker && rec.worker.cancel === cancel) rec.worker = null; this.note('warn', `bot ${rec.name}: could not get into ${want} for job ${job.id} (${to.reason}${to.detail && to.detail.why ? ': ' + to.detail.why : ''})`); this._dirty(); return; }
+            }
             env = this.envFactory(rec.bot, cancel, { worker: true });
             if (env && job.kind === 'pit') env.within = job.spec.box;          // a pillar with nothing to stack takes a block from the undug part of the pit (moves.js harvestBlock)
             if (env && env.configure) env.configure({ retireWorn: !!this.settings.retireWorn, defend: this.settings.defend !== false, planNodes: this.o.planNodes || 6000 });

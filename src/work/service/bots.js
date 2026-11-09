@@ -2,6 +2,7 @@
 // The roster: bots that connect, reconnect, and what the page shows about each.
 // A part of WorkService (index.js copies these methods onto it).
 const { need, BOT_NAME } = require('./common');
+const dimensions = require('../world/dimensions');
 
 class BotsPart {
     addBot(name, { job = null } = {}) {
@@ -59,8 +60,11 @@ class BotsPart {
         if (!this.o.rcon) return;
         const now = Date.now();
         for (const rec of this.bots.values()) {
-            const dim = rec.bot && rec.state === 'online' && rec.bot.game ? String(rec.bot.game.dimension || '').replace('minecraft:', '') : '';
+            const dim = rec.bot && rec.state === 'online' && rec.bot.game ? (dimensions.canon(rec.bot.game.dimension) || String(rec.bot.game.dimension || '')) : '';
             if (!dim || dim === 'overworld' || rec.crossing || now - (rec.dimTry || 0) < 15000) continue;      // `crossing`: a journey through a portal is on purpose
+            // On purpose too: the dimension of its active job, and the one the operator sent it to (journey / teleport with a dimension set `inDim`).
+            const job = rec.job && this.jobs.get(rec.job);
+            if (rec.inDim === dim || (job && ['running', 'paused', 'ready'].includes(job.state) && (job.spec.dim || 'overworld') === dim)) continue;
             rec.dimTry = now;
             let depot = null;
             for (const j of this.jobs.values()) { const d = j.spec && j.spec.depot; if (d && Number.isInteger(d.x) && Number.isInteger(d.y) && Number.isInteger(d.z)) { depot = d; if (['running', 'paused'].includes(j.state)) break; } }
