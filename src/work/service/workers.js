@@ -35,7 +35,9 @@ class WorkersPart {
         this._dirty();
         runWorker(job.impl, rec.name, env, {
             cancel, policy: job.policy, pollMs: 1000, backoff: this.o.backoff,
-            handlers: this.settings.scripts ? { missing_tool: this.scripts.get('replace-tool') } : null,
+            // What a bot does before it waits for the operator: a missing tool is made (the class the block needs: a sword for a cobweb, a pickaxe for stone), a missing item is fetched
+            // from the containers (Ender Storage first). A function picks the script from the failed command.
+            handlers: this.settings.scripts ? { missing_tool: (r) => this._toolScript(rec, r && r.detail && r.detail.block), missing_item: (r) => scriptLib.fetchScript(r && r.detail) } : null,
             scriptEnv: () => ({ sites: this.sites, policy: job.policy, box: job.spec.box, need: rec.missingTool }),
             onEvent: (ev, d) => {
                 if (ev === 'unit' && d.ok) { rec.fixes = 0; rec.cool = 0; rec.autoTries = 0; this._clearGlow(rec); }
@@ -46,6 +48,7 @@ class WorkersPart {
                 }
                 if (ev === 'defend' && d.fought) this.note('info', `${rec.name} defended itself: ${d.killed}/${d.fought} killed`, { job: job.id });
                 if (ev === 'audit') this.note(d.gaveUp ? 'warn' : 'info', `${d.id} range check: ${d.reopened} unit(s) sent back, ${d.gaveUp} given up on`, { job: job.id, first: d.first });
+                if (ev === 'sweep') this.note(d.unknown || d.travelled ? 'info' : 'debug', `${d.id} final sweep of ${d.region} (round ${d.round}): ${d.checked} units read, ${d.reopened} sent back${d.gaveUp ? `, ${d.gaveUp} given up on` : ''}${d.unknown ? `, ${d.unknown} cells not loaded${d.travelled ? ` (walk: ${d.travelled})` : ''}` : ''}`, { job: job.id, first: d.first });
                 if (ev === 'temp_cleaned') this.note('info', `${d.id} removed ${d.n} temporary block(s)`, { job: job.id });
                 if (ev === 'recover') this.note('debug', `${d.id} fix level ${d.streak + 1} after ${d.reason}`, { job: job.id });
                 if (ev === 'unit') {                                                    // a record of what happened, for the job's detail view (why does it stop?)
@@ -76,6 +79,18 @@ class WorkersPart {
         this._dirty();
     }
 
+    /**
+     * The script that makes the tool `block` needs (owner 2026-11-09: "waiting for a sword or shears (to break cobweb)" came back all day, the only script made pickaxes): replace-tool
+     * (pickaxe), replace-sword, replace-axe or replace-shovel by the registry's harvest tools. A block nothing the bot can make breaks (shears only): none, the bot waits. No
+     * registry data: the pickaxe script, as before.
+     */
+    _toolScript(rec, block) {
+        const reg = rec && rec.bot && rec.bot.registry;
+        const cls = scriptLib.craftClassFor(reg, block);
+        if (!cls && scriptLib.toolClassesOf(reg, block).length) return null;
+        return this.scripts.get(scriptLib.toolScriptName(cls || 'pickaxe')) || this.scripts.get('replace-tool') || null;
+    }
+
     _toolClass(rec, block) {
         const reg = rec.bot && rec.bot.registry, b = reg && reg.blocksByName[block];
         if (!b || !b.harvestTools) return null;
@@ -101,7 +116,9 @@ class WorkersPart {
             // iron or stone made from what it carries), so a chest that was filled or a mined ingot gets it going without a click.
             else if (rec.waitFor.tool && !rec.script && !rec.worker && this.settings.scripts && Date.now() - (rec.replaceAt || 0) > Math.min(300000, 15000 * 2 ** Math.min(rec.replaceFails || 0, 5))) {      // 15 s, 30 s, ... up to 5 min while nothing works (an empty chest)
                 rec.replaceAt = Date.now();
-                this.runScript(rec.name, 'replace-tool').then((r) => { rec.replaceFails = r.ok ? 0 : (rec.replaceFails || 0) + 1; this.note(r.ok ? 'info' : 'warn', `${rec.name} replace-tool while waiting: ${r.ended}${r.log && r.log.length ? ` (${r.log.slice(-12).join('; ')})` : ''}`); }, (e) => this.note('debug', `${rec.name} replace-tool: ${e.message}`));
+                const sc = this._toolScript(rec, rec.waitFor.tool);
+                if (!sc) continue;                                                     // nothing the bot can make breaks this block: it waits for a tool from the operator
+                this.runScript(rec.name, sc.name).then((r) => { rec.replaceFails = r.ok ? 0 : (rec.replaceFails || 0) + 1; this.note(r.ok ? 'info' : 'warn', `${rec.name} ${sc.name} while waiting: ${r.ended}${r.log && r.log.length ? ` (${r.log.slice(-12).join('; ')})` : ''}`); }, (e) => this.note('debug', `${rec.name} replace-tool: ${e.message}`));
             }
         }
     }
@@ -193,9 +210,37 @@ class WorkersPart {
             const rec = [...job.bots].map((n) => this.bots.get(n)).find((r) => r && r.state === 'online');
             if (rec) { try { job.diff = job.impl.diff(require('../../skills/world').fromBot(rec.bot)).length; } catch (_) { /* world not readable */ } }
         }
+        const crew = [...job.bots];
         for (const n of job.bots) { const rec = this.bots.get(n); if (rec && rec.job === job.id) rec.job = null; }
         job.bots.clear();
         this.note('info', `job ${job.id} finished: ${JSON.stringify(L.progress())}${job.diff !== null ? ` diff ${job.diff}` : ''}`);
+        this._endDump(job, crew).catch((e) => this.note('warn', `job ${job.id} end-of-job dump failed: ${String(e.message).slice(0, 120)}`));
+    }
+
+    /**
+     * The dump at the end of a job (owner 2026-11-09; setting `endDump`, on by default): every bot of the crew puts what it carries, except tools and containers, into the Ender chest
+     * of the colours in `endDumpEnder` (white / white / white) and what does not fit into the chest the upkeep would use (bot/enddump.js). Only a FINISHED pit or build triggers it,
+     * never a command like Move; a cancelled job does not. Three bots at a time (the chest has one door). The bot is held (rec.worker) so that nothing else starts on it meanwhile.
+     */
+    async _endDump(job, names) {
+        if (this.settings.endDump === false) return;
+        const { endDump } = require('../bot/enddump'), janitor = require('../bot/janitor');
+        const todo = names.map((n) => this.bots.get(n)).filter((r) => r && !r.removed && r.state === 'online' && r.bot && !r.worker && !r.script && !r.job);
+        const one = async (rec) => {
+            const cancel = { cancelled: false };
+            rec.worker = { cancel, job: job.id, since: Date.now(), dump: true }; this._dirty();
+            try {
+                const env = this.envFactory(rec.bot, cancel, { worker: true });
+                if (env && env.configure) env.configure({ retireWorn: !!this.settings.retireWorn, defend: this.settings.defend !== false, planNodes: this.o.planNodes || 6000 });
+                const policy = job.policy || janitor.pitPolicy({ sites: () => this.sites });
+                const r = await endDump(env, { sites: this.sites, policy, freq: this.settings.endDumpEnder, box: job.kind === 'pit' ? job.spec.box : null });
+                const n = r.dumped.reduce((a, d) => a + d.count, 0);
+                this.note(r.ok ? 'info' : 'warn', `${rec.name} end-of-job dump (${job.id}): ${n} items in ${r.dumped.length} deposits${r.left.length ? `, ${r.left.length} stacks stay in the pack (${r.reason}${r.detail && r.detail.why ? `: ${r.detail.why}` : ''})` : ''}`, { job: job.id, left: r.left.slice(0, 6) });
+                if (env && env.dispose) env.dispose();
+            } finally { if (rec.worker && rec.worker.cancel === cancel) rec.worker = null; this._dirty(); }
+        };
+        const queue = todo.slice();
+        await Promise.all([0, 1, 2].map(async () => { for (let rec = queue.shift(); rec; rec = queue.shift()) { try { await one(rec); } catch (e) { this.note('warn', `${rec.name} end-of-job dump failed: ${String(e.message).slice(0, 120)}`); } } }));
     }
 }
 

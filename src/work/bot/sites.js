@@ -38,6 +38,11 @@ const canon = (t) => (ALIASES[t] || t);
 const PRIORITY = ['furnace', 'portal', 'tools', 'free', 'ore', 'food', 'blocks', 'trash', 'any', 'other'];
 const DIMS = Object.freeze(['overworld', 'nether', 'end']);
 const STORES = new Set(['ore', 'trash', 'food', 'blocks', 'any']);         // purposes the upkeep puts items into
+// Containers that hold items for the bots (owner 2026-11-09): a chest, barrel or Ender Storage block STANDS somewhere, so it is used only within REACH_BLOCKS (10 chunks) of the bot,
+// in the bot's dimension; farther away it counts as unusable. Portals, machines and `other` blocks are not containers of this kind and are never filtered.
+const REACH_BLOCKS = 160;
+const CONTAINER_PURPOSES = new Set(['tools', 'ore', 'trash', 'food', 'blocks', 'any', 'free']);
+const flat = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 const MAX_HOPS = 4;                                      // a link to a link to a link ...; deeper is refused like ELOOP
 const NAME = /^[a-z0-9][a-z0-9_-]{0,23}$/;
 const COORD = 30_000_000;
@@ -79,7 +84,7 @@ function purposeOf(s, strict, name, migrated) {
 
 /** The registry: name -> {name, x, y, z, purpose, tags: [purpose], label?, via?, ender?}. */
 class Sites {
-    constructor(list = []) { this.map = new Map(); this.migrated = []; for (const s of list) { try { this.add(s, { loose: true }); } catch (_) { /* a bad stored entry is dropped, not fatal */ } } this._dropDangling(); }
+    constructor(list = []) { this.map = new Map(); this.migrated = []; this.reach = REACH_BLOCKS; for (const s of list) { try { this.add(s, { loose: true }); } catch (_) { /* a bad stored entry is dropped, not fatal */ } } this._dropDangling(); }
 
     /** `loose`: do not require that the `via` target is already there (a stored list is read in any order). */
     add(s, { loose = false } = {}) {
@@ -145,32 +150,58 @@ class Sites {
         return { x: s.x, y: s.y, z: s.z, via: [...walked, s.name] };
     }
 
-    /** The nearest site with purpose `tag` (to `from` {x,z}, or the first by name); old names (junk, storage, machine) work too. */
-    find(tag, from = null) {
-        const c = this.list().filter((s) => s.purpose === canon(tag));
-        const best = from ? c.sort((a, b) => Math.hypot(a.x - from.x, a.z - from.z) - Math.hypot(b.x - from.x, b.z - from.z))[0] : c[0];
-        if (!best) return null;
-        let end = null; try { end = this.through(best.x, best.y, best.z); } catch (_) { /* a broken link: the site itself */ }
-        return end ? { ...best, x: end.x, y: end.y, z: end.z, linked: best.name } : best;     // a link answers with the container it points to
+    /** A site with its link followed: the container at the end (a broken link: the site itself). */
+    _end(best) { let end = null; try { end = this.through(best.x, best.y, best.z); } catch (_) { /* a broken link: the site itself */ } return end ? { ...best, x: end.x, y: end.y, z: end.z, linked: best.name } : best; }
+
+    /**
+     * Can a bot at `from` {x, z, dim?} use this site? Containers only within `reach` blocks (10 chunks, owner 2026-11-09) and, when both dimensions are known, in the bot's own.
+     * Without `from` nothing is judged (a listing, an operator command). Sites that are no container (portal, furnace, other) are always usable.
+     */
+    reachable(s, from) {
+        if (!from || !CONTAINER_PURPOSES.has(s.purpose)) return true;
+        if (from.dim && s.dim && s.dim !== from.dim) return false;
+        return flat(this._end(s), from) <= this.reach;
     }
 
-    /** A tagged block by its NAME, else the nearest one with that purpose (scripts say "nugget-chest" or "tools"); links resolved like `find`. */
+    /** The nearest site with purpose `tag` (to `from` {x,z}, or the first by name); old names (junk, storage, machine) work too. Containers out of reach of `from` are skipped. */
+    find(tag, from = null) {
+        const c = this.list().filter((s) => s.purpose === canon(tag) && this.reachable(s, from));
+        const best = from ? c.sort((a, b) => flat(a, from) - flat(b, from))[0] : c[0];
+        return best ? this._end(best) : null;     // a link answers with the container it points to
+    }
+
+    /** A tagged block by its NAME, else the nearest one with that purpose (scripts say "nugget-chest" or "tools"); links resolved like `find`; a container out of reach is none. */
     pick(nameOrTag, from = null) {
         const s = this.map.get(nameOrTag);
         if (!s) return this.find(nameOrTag, from);
-        let end = null; try { end = this.through(s.x, s.y, s.z); } catch (_) { /* a broken link: the block itself */ }
-        return end ? { ...s, x: end.x, y: end.y, z: end.z, linked: s.name } : s;
+        return this.reachable(s, from) ? this._end(s) : null;
     }
 
-    /** Every site with `tag`, nearest first (links resolved like `find`): a script that cannot use the nearest chest tries the next. */
+    /** Every site with `tag`, nearest first (links resolved like `find`): a script that cannot use the nearest chest tries the next. Out of reach: left out. */
     findAll(tag, from = null) {
-        const c = this.list().filter((x) => x.purpose === canon(tag));
-        if (from) c.sort((a, b) => Math.hypot(a.x - from.x, a.z - from.z) - Math.hypot(b.x - from.x, b.z - from.z));
-        return c.map((best) => { let end = null; try { end = this.through(best.x, best.y, best.z); } catch (_) { /* broken link: the site itself */ } return end ? { ...best, x: end.x, y: end.y, z: end.z, linked: best.name } : best; });
+        const c = this.list().filter((x) => x.purpose === canon(tag) && this.reachable(x, from));
+        if (from) c.sort((a, b) => flat(a, from) - flat(b, from));
+        return c.map((best) => this._end(best));
+    }
+
+    /**
+     * Where to LOOK for something a bot lacks (owner 2026-11-09): every container within reach, Ender Storage first (its contents belong to its colours and are the same
+     * everywhere), then the ones tagged `prefer`, then the rest, each group nearest first. A tools chest is a source like any other.
+     */
+    sources(from = null, prefer = null) {
+        const want = prefer ? canon(prefer) : null, rank = (s) => (s.ender ? 0 : 2) + (want && s.purpose === want ? 0 : 1);
+        return this.list().filter((s) => CONTAINER_PURPOSES.has(s.purpose) && (!['trash', 'food'].includes(s.purpose) || s.purpose === want) && this.reachable(s, from))      // rubbish and food chests hold nothing a missing tool or material is made of
+            .sort((a, b) => rank(a) - rank(b) || (from ? flat(a, from) - flat(b, from) : 0)).map((s) => this._end(s));
     }
 
     /** The site tagged for exactly the class of `item` (ore, junk, food ...), not a fallback: null when the operator made none for it. */
     classSite(item, policy = {}) { return this.find(classify(item, policy)); }
+
+    /** Every place `item` may be put away, best first: the one `placeFor` names, then every other container that takes items within reach, nearest first (a full chest is followed by the next). */
+    storesFor(item, from = null, policy = {}) {
+        const rest = this.list().filter((s) => STORES.has(s.purpose) && this.reachable(s, from)).sort((a, b) => (from ? flat(a, from) - flat(b, from) : 0)).map((s) => this._end(s));
+        return [this.placeFor(item, from, policy), ...rest].filter((s, k, a) => s && a.findIndex((t) => t && t.x === s.x && t.y === s.y && t.z === s.z) === k);
+    }
 
     /**
      * Where to put `item` away: the site of its class, else an `any` chest, else any site that takes items at all (ore, trash, food, blocks, any). Null when there is none.
@@ -179,8 +210,8 @@ class Sites {
     placeFor(item, from = null, policy = {}) {
         const tag = classify(item, policy);
         return this.find(tag === 'tools' ? 'any' : tag, from) || this.find('any', from)
-            || this.list().filter((s) => STORES.has(s.purpose)).sort((a, b) => (from ? Math.hypot(a.x - from.x, a.z - from.z) - Math.hypot(b.x - from.x, b.z - from.z) : 0))[0] || null;
+            || this.list().filter((s) => STORES.has(s.purpose) && this.reachable(s, from)).sort((a, b) => (from ? flat(a, from) - flat(b, from) : 0))[0] || null;
     }
 }
 
-module.exports = { Sites, TAGS, PURPOSES, ALIASES, DIMS, canon, classify, NAME, MAX_HOPS };
+module.exports = { Sites, REACH_BLOCKS, CONTAINER_PURPOSES, TAGS, PURPOSES, ALIASES, DIMS, canon, classify, NAME, MAX_HOPS };

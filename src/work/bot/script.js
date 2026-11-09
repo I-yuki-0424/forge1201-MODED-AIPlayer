@@ -20,6 +20,7 @@
 // script is stored, not discovered at run time. Nothing in a script can run code.
 const { COMMANDS, validateArgs } = require('../../skills');
 const janitor = require('./janitor');
+const { approach } = require('./reach');
 
 const MAX_STEPS = 200, MAX_DEPTH = 8;
 const WORK_MOVES = new Set(['pillar', 'take_usable']);
@@ -28,7 +29,6 @@ const TIERS = ['netherite', 'diamond', 'iron', 'stone', 'golden', 'wooden'];
 const CLASSES = new Set(['pickaxe', 'axe', 'shovel', 'sword', 'hoe']);
 const STEP_KEYS = new Set(['go_back', 'cmd', 'args', 'at', 'table', 'furnace', 'optional', 'gather', 'make_planks', 'if', 'then', 'else', 'take', 'take_tool', 'put_away', 'station', 'release_station', 'leave_pit', 'return', 'log']);
 const COND_KEYS = new Set(['has', 'tool', 'usable', 'harvests', 'can_craft', 'site', 'free_slots', 'in_pit', 'planks', 'logs', 'all', 'any', 'not']);
-const REACH_DY = 12;                          // a tagged chest more than this many levels above or below the bot is not walked to (the planner would search for a minute and fail)
 const ITEM = /^([a-z0-9_.-]{1,32}:)?[a-z0-9_/]{1,64}$/;
 
 class ScriptError extends Error {}
@@ -115,14 +115,16 @@ function holds(c, env) {
  * running off the end without a `return` (a script that does what it says and stops).
  */
 async function runScript(script, env, { cancel = { cancelled: false }, maxSteps = MAX_STEPS * 4 } = {}) {
-    const st = { steps: 0, log: [], table: null };
+    const st = { steps: 0, log: [], table: null, miss: new Set() };      // miss: "item@x,y,z" of containers this run found without the item
     const note = (m) => { if (st.log.length < 60) st.log.push(String(m).slice(0, 160)); };
     const result = (ended, extra = {}) => ({ ok: ended === 'ok' || ended === 'end', ended, steps: st.steps, log: st.log, ...extra });
     const site = (tag) => (env.sites ? (env.sites.pick ? env.sites.pick(tag, env.pos ? env.pos() : null) : env.sites.find(tag, env.pos ? env.pos() : null)) : null);
+    const sourcesOf = (prefer) => (env.sites ? (env.sites.sources ? env.sites.sources(env.pos ? env.pos() : null, prefer) : [env.sites.pick(prefer, env.pos ? env.pos() : null)].filter(Boolean)) : []);
+    const reachText = () => `${Math.round(((env.sites && env.sites.reach) || 160) / 16)} chunks`;
     const command = async (name, args, { table = false, furnace = false, at = null, atSite = null } = {}) => {
         let a = { ...(args || {}) };
         if (atSite) a = { ...a, x: atSite.x, y: atSite.y, z: atSite.z };
-        else if (at) { const s = site(at); if (!s) return { ok: false, reason: 'invalid_target', detail: { why: `no site tagged ${at}` } }; a = { ...a, x: s.x, y: s.y, z: s.z }; }
+        else if (at) { const s = site(at); if (!s) return { ok: false, reason: 'invalid_target', detail: { why: `no site tagged ${at} within ${reachText()}` } }; a = { ...a, x: s.x, y: s.y, z: s.z }; }
         if (table) { if (!st.table) return { ok: false, reason: 'no_station', detail: { why: 'no crafting table placed (use station first)' } }; a = { ...a, ...st.table }; }
         if (furnace) { if (!st.furnace) return { ok: false, reason: 'no_station', detail: { why: 'no furnace placed (use station first)' } }; a = { ...a, ...st.furnace }; }
         if (WORK_MOVES.has(name)) return env.run ? env.run(name, a) : { ok: false, reason: 'invalid_args', detail: { why: 'no work moves here' } };
@@ -139,34 +141,50 @@ async function runScript(script, env, { cancel = { cancelled: false }, maxSteps 
             let res = { ok: true };
             if (s.cmd !== undefined) { res = await command(s.cmd, s.args, { table: !!s.table, furnace: !!s.furnace, at: s.at }); note(`${s.cmd} ${res.ok ? 'ok' : res.reason}`); }
             else if (s.take !== undefined) {
-                const t = s.take, target = site(t.from);
-                res = target ? await command('withdraw', { item: t.item, count: t.count || 1 }, { at: t.from }) : { ok: false, reason: 'invalid_target', detail: { why: `no site tagged ${t.from}` } };
-                note(`take ${t.item} from ${t.from}: ${res.ok ? 'ok' : res.reason}`);
+                // Containers come FIRST (owner 2026-11-09): every one within 10 chunks, Ender Storage before chests, the asked purpose before the rest, nearest first; a chest that
+                // is out of the bot's layer is gone to (reach.js). Only when none has it does the script go on to craft or gather.
+                const t = s.take, want = t.count || 1, srcs = sourcesOf(t.from).slice(0, 6), why = [];
+                res = srcs.length ? { ok: false, reason: 'missing_item', detail: { why: `no container has ${t.item}`, tried: why } } : { ok: false, reason: 'invalid_target', detail: { why: `no container within ${reachText()} (tagged ${t.from})` } };
+                for (const chest of srcs) {
+                    const k = `${t.item}@${chest.x},${chest.y},${chest.z}`;
+                    if (st.miss.has(k)) continue;                                         // this run already found the chest without it
+                    const a = await approach(env, chest, { why: `to take ${t.item}` });
+                    if (a) { why.push(`${chest.name}: ${a.reason}`); if (['died', 'disconnected', 'cancelled'].includes(a.reason)) { res = a; break; } continue; }
+                    let r = await command('withdraw', { item: t.item, count: want }, { atSite: chest });
+                    if (!r.ok && r.reason === 'missing_item' && want > 1) r = await command('withdraw', { item: t.item, count: 1 }, { atSite: chest });      // fewer than asked: what there is
+                    if (r.ok) { res = r; note(`took ${t.item} from ${chest.name}`); break; }
+                    if (r.reason === 'missing_item') st.miss.add(k);
+                    why.push(`${chest.name}: ${r.reason}`);
+                    if (['died', 'disconnected', 'cancelled'].includes(r.reason)) { res = r; break; }
+                }
+                note(`take ${t.item} (${t.from}): ${res.ok ? 'ok' : res.reason}`);
             } else if (s.take_tool !== undefined) {
-                // Usable tools of the class from the tools chest (take_usable: not worn out, best tier, most uses left), never a worn one, until the bot holds
-                // `until` of them (default 1). A chest far above or below the bot (a pit bottom, 100 levels down) is not tried: nobody can walk there.
+                // Usable tools of the class from the containers (take_usable: not worn out, best tier, most uses left), never a worn one, until the bot holds `until` of them
+                // (default 1). The tools chests first, then every other container within 10 chunks; a chest in another layer is gone to (reach.js), one that fails is passed over.
                 const { class: cls, from, until = 1 } = s.take_tool, usable = () => (env.usableCount ? env.usableCount(cls) : toolOf(cls, env) ? 1 : 0);
-                const chests = env.sites ? env.sites.findAll(from, env.pos ? env.pos() : null).slice(0, 3) : [];
+                const chests = sourcesOf(from).slice(0, 4);
                 res = { ok: usable() >= until };
-                if (!res.ok && !chests.length) { res = { ok: false, reason: 'invalid_target', detail: { why: `no site tagged ${from}` } }; note(res.detail.why); }
+                if (!res.ok && !chests.length) { res = { ok: false, reason: 'invalid_target', detail: { why: `no container within ${reachText()} (tagged ${from})` } }; note(res.detail.why); }
                 else if (!res.ok) {
-                    // The nearest tagged chest first; one that is far above or below, or is no chest at all (the tag sits on air), is passed over for the next.
                     const why = [];
                     for (const chest of chests) {
                         if (usable() >= until) break;
-                        const dy = env.here ? Math.abs(chest.y - env.here().y) : 0;
-                        if (dy > REACH_DY) { why.push(`${chest.name} is ${dy} levels away`); continue; }
+                        const k = `${cls}@${chest.x},${chest.y},${chest.z}`;
+                        if (st.miss.has(k)) continue;
+                        const a = await approach(env, chest, { why: `to take a ${cls}` });
+                        if (a) { why.push(`${chest.name}: ${a.reason}`); if (['died', 'disconnected', 'cancelled'].includes(a.reason)) { res = a; break; } continue; }
                         for (let n = 0; n < 6 && usable() < until; n++) {
                             const r = await command('take_usable', { class: cls }, { atSite: chest });
                             if (r.ok) { note(`took a ${cls}${r.detail && r.detail.item ? ` (${r.detail.item}, ${r.detail.left} uses left)` : ''} from ${chest.name}`); continue; }
                             if (['died', 'disconnected', 'cancelled'].includes(r.reason)) { res = r; break; }
+                            if (r.reason === 'missing_item') st.miss.add(k);
                             why.push(`${chest.name}: ${r.reason === 'missing_item' ? `no usable ${cls}${r.detail && r.detail.worn ? ` (${r.detail.worn} worn out)` : ''}` : r.reason}`);
                             break;
                         }
                         if (res.reason === 'died' || res.reason === 'disconnected' || res.reason === 'cancelled') break;
                     }
                     if (usable()) res = { ok: true };
-                    else if (!res.reason) { res = { ok: false, reason: 'missing_item', detail: { why: `no usable ${cls} from the ${from} chests: ${why.join('; ') || 'none reachable'}` } }; note(res.detail.why); }
+                    else if (!res.reason) { res = { ok: false, reason: 'missing_item', detail: { why: `no usable ${cls} from the containers: ${why.join('; ') || 'none reachable'}` } }; note(res.detail.why); }
                 }
             } else if (s.gather !== undefined) {
                 res = env.gather ? await env.gather({ target: s.gather.target, count: s.gather.count || 4, radius: s.gather.radius || 24 }) : { ok: false, reason: 'invalid_args', detail: { why: 'no gathering here' } };
@@ -275,87 +293,127 @@ async function runLoop(script, env, { cancel = { cancelled: false }, pauseMs = 2
 
 // ------------------------------------------------------------------------------------------------------------------------ built in
 
-/** The pack holds what a pickaxe is made of: three iron ingots (or three raw iron and fuel to smelt them), or cobblestone for a stone one, and two sticks. */
-const CRAFTABLE_BELOW = { all: [{ has: { item: 'stick', min: 2 } }, { any: [
-    { has: { item: 'iron_ingot', min: 3 } },
-    { all: [{ has: { item: 'raw_iron', min: 3 } }, { any: [{ has: { item: 'coal', min: 1 } }, { has: { item: 'charcoal', min: 1 } }, { planks: 3 }, { logs: 2 }] }] },
-    { all: [{ harvests: 'stone_pickaxe' }, { any: [{ has: { item: 'cobblestone', min: 3 } }, { has: { item: 'cobbled_deepslate', min: 3 } }] }] },
-] }] };
+/**
+ * Tools the work layer makes by rule (owner 2026-11-09: the cobweb stopped bots for want of a sword, and only pickaxes could be made): per class the iron it takes, the sticks, and
+ * the script's name (`replace-tool` stays the pickaxe's). Cobweb wants a sword, snow a shovel; an axe is faster on wood and a hoe is no work tool.
+ */
+const MAKE = Object.freeze({ pickaxe: { n: 3, sticks: 2 }, axe: { n: 3, sticks: 2 }, shovel: { n: 1, sticks: 2 }, sword: { n: 2, sticks: 1 } });
+const MAKEABLE = Object.freeze(['pickaxe', 'sword', 'axe', 'shovel']);              // the order in which a block that several classes break is served
+const toolScriptName = (cls) => (cls === 'pickaxe' ? 'replace-tool' : `replace-${cls}`);
 
-/** The owner's example: no usable tool -> a free one from the tools chest -> else craft one (iron, sticks) -> back to work. */
-const REPLACE_TOOL = {
-    name: 'replace-tool',
-    steps: [
-        { if: { tool: 'pickaxe' }, then: [{ return: 'ok' }] },
-        // 1. the tools chest (only a usable tool; a chest far above or below is skipped)
-        { take_tool: { class: 'pickaxe', from: 'tools' }, optional: true },
-        { if: { tool: 'pickaxe' }, then: [{ return: 'ok' }] },
-        // 1b. the chest is far above (the pit is deep): climb out (lift or pillar) and take what is needed up here; the crafting below also happens up here, on open ground. The bot is not
-        // sent back: the next unit lifts it to its layer (a teleport back onto the spot it left put bots on one-block islands in the open pit).
-        // Not when the pack already makes one (owner 2026-11-09: the bot climbed all the way up with the iron, the sticks and the cobblestone in its pack): that is crafted below.
-        { if: { all: [{ site: 'tools' }, { not: CRAFTABLE_BELOW }] }, then: [
-            { leave_pit: true, optional: true },
-            { take_tool: { class: 'pickaxe', from: 'tools', until: 2 }, optional: true },
-            // While the bot is up here: what it needs to make a pickaxe down there (the chests are out of reach from the pit bottom).
-            { if: { not: { has: { item: 'iron_ingot', min: 3 } } }, then: [
-                { take: { item: 'iron_ingot', count: 3, from: 'ore' }, optional: true },
-                { if: { not: { has: { item: 'iron_ingot', min: 3 } } }, then: [{ take: { item: 'iron_ingot', count: 3, from: 'any' }, optional: true }] },
-            ] },
-            { if: { any: [{ not: { has: { item: 'stick', min: 4 } } }, { all: [{ not: { has: { item: 'crafting_table', min: 1 } } }, { not: { planks: 4 } }] }] }, then: [
-                { take: { item: 'stick', count: 8, from: 'any' }, optional: true },
-                { if: { any: [{ not: { has: { item: 'stick', min: 4 } } }, { not: { planks: 6 } }] }, then: [
-                    { if: { not: { planks: 6 } }, then: [
-                        { if: { not: { logs: 3 } }, then: [{ gather: { target: 'oak_log', count: 4, radius: 24 }, optional: true }] },
-                        { if: { not: { logs: 3 } }, then: [{ gather: { target: 'jungle_log', count: 4, radius: 24 }, optional: true }] },
-                        { if: { not: { logs: 3 } }, then: [{ gather: { target: 'spruce_log', count: 4, radius: 24 }, optional: true }] },
-                        { make_planks: 12, optional: true },      // as many as the logs in the pack give, up to 12 (one log: 4)
+/**
+ * The owner's example for one class: no usable tool -> a free one from the containers -> else craft one (iron, sticks; stone; planks) -> back to work.
+ * The pack holds what the tool is made of when it has the sticks and the iron (or raw iron and fuel, or cobblestone for a stone tool); then nothing is fetched from afar.
+ */
+function replaceScript(cls) {
+    const m = MAKE[cls]; if (!m) throw new ScriptError(`no recipe for ${cls}`);
+    const { n, sticks: sk } = m, has = (item, min) => ({ has: { item, min } }), ok = [{ return: 'ok' }], tool = { tool: cls };
+    const craftable = { all: [has('stick', sk), { any: [
+        has('iron_ingot', n),
+        { all: [has('raw_iron', n), { any: [has('coal', 1), has('charcoal', 1), { planks: 3 }, { logs: 2 }] }] },
+        { all: [{ harvests: `stone_${cls}` }, { any: [has('cobblestone', n), has('cobbled_deepslate', n)] }] },
+    ] }] };
+    const ingots = (then) => ({ if: { not: has('iron_ingot', n) }, then });
+    return {
+        name: toolScriptName(cls),
+        steps: [
+            { if: tool, then: ok },
+            // 1. the containers (only a usable tool; the tools chests first, Ender Storage before chests; one in another layer is gone to)
+            { take_tool: { class: cls, from: 'tools' }, optional: true },
+            { if: tool, then: ok },
+            // 1b. the containers are far above (the pit is deep) and the pack cannot make one: climb out (lift or pillar) and take what is needed up here; the crafting below also happens up
+            // here, on open ground. The bot is not sent back: the next unit lifts it to its layer (a teleport back onto the spot it left put bots on one-block islands in the open pit).
+            // Not when the pack already makes one (owner 2026-11-09: the bot climbed all the way up with the iron, the sticks and the cobblestone in its pack): that is crafted below.
+            { if: { all: [{ site: 'tools' }, { not: craftable }] }, then: [
+                { leave_pit: true, optional: true },
+                { take_tool: { class: cls, from: 'tools', until: cls === 'pickaxe' ? 2 : 1 }, optional: true },
+                // While the bot is up here: what it needs to make a tool down there (the chests are out of reach from the pit bottom).
+                ingots([
+                    { take: { item: 'iron_ingot', count: n, from: 'ore' }, optional: true },
+                    ingots([{ take: { item: 'iron_ingot', count: n, from: 'any' }, optional: true }]),
+                ]),
+                { if: { any: [{ not: has('stick', 4) }, { all: [{ not: has('crafting_table', 1) }, { not: { planks: 4 } }] }] }, then: [
+                    { take: { item: 'stick', count: 8, from: 'any' }, optional: true },
+                    { if: { any: [{ not: has('stick', 4) }, { not: { planks: 6 } }] }, then: [
+                        { if: { not: { planks: 6 } }, then: [
+                            { if: { not: { logs: 3 } }, then: [{ gather: { target: 'oak_log', count: 4, radius: 24 }, optional: true }] },
+                            { if: { not: { logs: 3 } }, then: [{ gather: { target: 'jungle_log', count: 4, radius: 24 }, optional: true }] },
+                            { if: { not: { logs: 3 } }, then: [{ gather: { target: 'spruce_log', count: 4, radius: 24 }, optional: true }] },
+                            { make_planks: 12, optional: true },      // as many as the logs in the pack give, up to 12 (one log: 4)
+                        ] },
+                        { if: { not: has('stick', 4) }, then: [{ cmd: 'craft', args: { item: 'stick', count: 8 }, optional: true }] },
                     ] },
-                    { if: { not: { has: { item: 'stick', min: 4 } } }, then: [{ cmd: 'craft', args: { item: 'stick', count: 8 }, optional: true }] },
                 ] },
             ] },
-        ] },
-        { if: { tool: 'pickaxe' }, then: [{ return: 'ok' }] },
-        // 2. made from what the bot carries or can fetch: sticks (planks <- logs <- a tree nearby), then iron (ingots, or raw iron smelted in a furnace) or stone
-        { if: { not: { has: { item: 'stick', min: 2 } } }, then: [{ take: { item: 'stick', count: 4, from: 'any' }, optional: true }] },
-        { if: { not: { has: { item: 'stick', min: 2 } } }, then: [
-            { if: { not: { planks: 2 } }, then: [
-                // Trees are on the surface: from inside the pit the bot would walk to the wall in front of one and back (live pit 2026-11-07), so it does not look.
-                { if: { all: [{ not: { logs: 1 } }, { not: { in_pit: true } }] }, then: [{ gather: { target: 'oak_log', count: 2, radius: 24 }, optional: true }] },
-                { make_planks: 4, optional: true },
+            { if: tool, then: ok },
+            // 2. made from what the bot carries or can fetch: sticks (planks <- logs <- a tree nearby), then iron (ingots, or raw iron smelted in a furnace) or stone
+            { if: { not: has('stick', sk) }, then: [{ take: { item: 'stick', count: 4, from: 'any' }, optional: true }] },
+            { if: { not: has('stick', sk) }, then: [
+                { if: { not: { planks: 2 } }, then: [
+                    // Trees are on the surface: from inside the pit the bot would walk to the wall in front of one and back (live pit 2026-11-07), so it does not look.
+                    { if: { all: [{ not: { logs: 1 } }, { not: { in_pit: true } }] }, then: [{ gather: { target: 'oak_log', count: 2, radius: 24 }, optional: true }] },
+                    { make_planks: 4, optional: true },
+                ] },
+                { cmd: 'craft', args: { item: 'stick', count: 4 }, optional: true },
             ] },
-            { cmd: 'craft', args: { item: 'stick', count: 4 }, optional: true },
-        ] },
-        { if: { not: { has: { item: 'iron_ingot', min: 3 } } }, then: [
-            { take: { item: 'iron_ingot', count: 3, from: 'ore' }, optional: true },
-            { if: { not: { has: { item: 'iron_ingot', min: 3 } } }, then: [{ take: { item: 'iron_ingot', count: 3, from: 'any' }, optional: true }] },
-            { if: { all: [{ not: { has: { item: 'iron_ingot', min: 3 } } }, { has: { item: 'raw_iron', min: 3 } }] }, then: [
-                { station: 'furnace', optional: true },
-                { cmd: 'smelt', args: { item: 'raw_iron', count: 3 }, furnace: true, optional: true },
+            ingots([
+                { take: { item: 'iron_ingot', count: n, from: 'ore' }, optional: true },
+                ingots([{ take: { item: 'iron_ingot', count: n, from: 'any' }, optional: true }]),
+                { if: { all: [{ not: has('iron_ingot', n) }, has('raw_iron', n)] }, then: [
+                    { station: 'furnace', optional: true },
+                    { cmd: 'smelt', args: { item: 'raw_iron', count: n }, furnace: true, optional: true },
+                ] },
+            ]),
+            { if: { all: [has('iron_ingot', n), has('stick', sk)] }, then: [
+                { station: 'crafting_table' },
+                { cmd: 'craft', args: { item: `iron_${cls}`, count: 1 }, table: true },
+                { release_station: true },
+                { if: tool, then: ok },
             ] },
-        ] },
-        { if: { all: [{ has: { item: 'iron_ingot', min: 3 } }, { has: { item: 'stick', min: 2 } }] }, then: [
-            { station: 'crafting_table' },
-            { cmd: 'craft', args: { item: 'iron_pickaxe', count: 1 }, table: true },
-            { release_station: true },
-            { if: { tool: 'pickaxe' }, then: [{ return: 'ok' }] },
-        ] },
-        // 3. no iron: a stone pickaxe from cobblestone mined on the way (it breaks stone and iron ore)
-        { if: { all: [{ harvests: 'stone_pickaxe' }, { any: [{ has: { item: 'cobblestone', min: 3 } }, { has: { item: 'cobbled_deepslate', min: 3 } }] }, { has: { item: 'stick', min: 2 } }] }, then: [
-            { station: 'crafting_table' },
-            { cmd: 'craft', args: { item: 'stone_pickaxe', count: 1 }, table: true },
-            { release_station: true },
-            { if: { tool: 'pickaxe' }, then: [{ return: 'ok' }] },
-        ] },
-        // 4. nothing else: a wooden pickaxe from planks and sticks (it breaks stone and cobblestone, so the bot can mine its way up to a stone pickaxe)
-        { if: { all: [{ harvests: 'wooden_pickaxe' }, { has: { item: 'stick', min: 2 } }, { planks: 3 }] }, then: [
-            { station: 'crafting_table' },
-            { cmd: 'craft', args: { item: 'wooden_pickaxe', count: 1 }, table: true },
-            { release_station: true },
-            { if: { tool: 'pickaxe' }, then: [{ return: 'ok' }] },
-        ] },
-        { return: 'fail' },
-    ],
-};
+            // 3. no iron: a stone tool from cobblestone mined on the way (a pickaxe of it breaks stone and iron ore)
+            { if: { all: [{ harvests: `stone_${cls}` }, { any: [has('cobblestone', n), has('cobbled_deepslate', n)] }, has('stick', sk)] }, then: [
+                { station: 'crafting_table' },
+                { cmd: 'craft', args: { item: `stone_${cls}`, count: 1 }, table: true },
+                { release_station: true },
+                { if: tool, then: ok },
+            ] },
+            // 4. nothing else: a wooden tool from planks and sticks (a pickaxe of it breaks stone and cobblestone, so the bot can mine its way up to a stone one)
+            { if: { all: [{ harvests: `wooden_${cls}` }, has('stick', sk), { planks: n }] }, then: [
+                { station: 'crafting_table' },
+                { cmd: 'craft', args: { item: `wooden_${cls}`, count: 1 }, table: true },
+                { release_station: true },
+                { if: tool, then: ok },
+            ] },
+            { return: 'fail' },
+        ],
+    };
+}
+const REPLACE_TOOL = replaceScript('pickaxe');
+
+/** The tool classes that break `block` (from the registry's harvestTools: item names, last word), e.g. cobweb -> sword, shears. [] when any tool (or none) does. */
+function toolClassesOf(registry, block) {
+    const b = registry && registry.blocksByName && registry.blocksByName[String(block || '').replace(/^minecraft:/, '')];
+    if (!b || !b.harvestTools) return [];
+    return [...new Set(Object.keys(b.harvestTools).map((id) => registry.items[id] && registry.items[id].name).filter(Boolean).map((n) => n.split('_').pop()))];
+}
+/** The class a bot should MAKE to break `block`: the first of pickaxe, sword, axe, shovel among the classes that break it; null when only something the bot cannot make does (shears). */
+const craftClassFor = (registry, block) => { const cs = toolClassesOf(registry, block); return MAKEABLE.find((c) => cs.includes(c)) || null; };
+
+/**
+ * A script that fetches an item the bot ran out of (the water rule's seal blocks, a block to stack with ...) from the containers, before the bot waits for the operator.
+ * `detail` is the failed command's: `item`, or `tried` (the list of acceptable items, first choice first). Null when it names nothing to fetch.
+ */
+function fetchScript(detail) {
+    const names = [];
+    const add = (n) => { if (typeof n === 'string' && ITEM.test(n) && !names.includes(n)) names.push(n); };
+    if (detail) { add(detail.item); if (Array.isArray(detail.tried)) detail.tried.forEach(add); }
+    if (!names.length) return null;
+    const steps = [];
+    for (const n of names.slice(0, 10)) steps.push({ take: { item: n, count: 64, from: 'any' }, optional: true }, { if: { has: n }, then: [{ return: 'ok' }] });
+    steps.push({ return: 'fail' });
+    return validate({ name: 'fetch-item', steps });
+}
+
 /** At the start of a job (and whenever the bot passes the chest): hold three usable pickaxes, so that a worn one is replaced on the spot. */
 const STOCK_TOOLS = {
     name: 'stock-tools',
@@ -366,6 +424,8 @@ const STOCK_TOOLS = {
             { leave_pit: true, optional: true },
             { take_tool: { class: 'pickaxe', from: 'tools', until: 3 }, optional: true },
         ] },
+        // One sword, axe and shovel when a container has them (owner 2026-11-09): a cobweb needs a sword, and the bot makes the others itself when it has to (replace-sword ...).
+        ...['sword', 'axe', 'shovel'].map((c) => ({ if: { not: { tool: c } }, then: [{ take_tool: { class: c, from: 'tools' }, optional: true }] })),
         // Sticks for pickaxes made in the pit (replace-tool): from the storage chest, else planks from a tree nearby (outside the pit only). Twelve sticks make six pickaxes.
         { if: { not: { has: { item: 'stick', min: 8 } } }, then: [
             { take: { item: 'stick', count: 12, from: 'any' }, optional: true },
@@ -385,6 +445,7 @@ const STOCK_TOOLS = {
 };
 /** A full inventory: put everything away by the sites (ore, junk, storage), then carry on. */
 const MAKE_ROOM = { name: 'make-room', steps: [{ put_away: true }, { return: 'ok' }] };
-const BUILT_IN = new Map([[REPLACE_TOOL.name, validate(REPLACE_TOOL)], [MAKE_ROOM.name, validate(MAKE_ROOM)], [STOCK_TOOLS.name, validate(STOCK_TOOLS)]]);
+const BUILT_IN = new Map([[REPLACE_TOOL.name, validate(REPLACE_TOOL)], [MAKE_ROOM.name, validate(MAKE_ROOM)], [STOCK_TOOLS.name, validate(STOCK_TOOLS)],
+    ...MAKEABLE.filter((c) => c !== 'pickaxe').map((c) => { const sc = replaceScript(c); return [sc.name, validate(sc)]; })]);
 
-module.exports = { validate, runScript, runLoop, holds, placeStation, ScriptError, BUILT_IN, REPLACE_TOOL, STOCK_TOOLS, MAKE_ROOM, MAX_STEPS, TIERS, CLASSES };
+module.exports = { validate, runScript, runLoop, holds, placeStation, ScriptError, BUILT_IN, REPLACE_TOOL, STOCK_TOOLS, MAKE_ROOM, MAX_STEPS, TIERS, CLASSES, replaceScript, toolScriptName, toolClassesOf, craftClassFor, fetchScript, MAKE, MAKEABLE };

@@ -28,7 +28,10 @@ escalation.js  request to the DPOD router (not wired into any job)
 | moves only the work layer uses (climb, pillar) / leaving a pit | `bot/moves.js` / `bot/exit.js` |
 | water rules / defence / problem log and glow | `bot/water.js` / `bot/guard.js` / `bot/problems.js` |
 | what a bot keeps, throws away, puts in which chest | `bot/janitor.js`, `bot/discard.js` |
-| scripts (recovery when a tool is missing) | `bot/script.js` |
+| scripts (recovery when a tool or item is missing; one tool script per class: replace-tool/-sword/-axe/-shovel) | `bot/script.js` |
+| which containers a bot may use (10 chunks, Ender first) / getting it to a chest in another layer | `bot/sites.js` (`reachable`, `sources`) / `bot/reach.js` |
+| the dump at the end of a finished job | `bot/enddump.js`, `_endDump` in `service/workers.js` |
+| the final sweep of a pit (every chunk from the top, leftovers sent back) | `jobs/pit_sweep.js` |
 | tagged blocks, purposes, labels, links, portals | `bot/sites.js` (rules), `service/library.js` + `service/links.js` (service) |
 | Ender Storage (colours, what is inside) | `world/enderstorage.js`, `service/ender.js`; opening the chest: `transport/forge_windows.js` |
 | what a bot never breaks / what it picked up again | `skills/fixtures.js` (rule), `bot/janitor.js` (the shulker depot) |

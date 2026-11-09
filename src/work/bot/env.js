@@ -178,7 +178,7 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         have,
         inv: () => janitor.inventoryOf(bot),
         here: feet,
-        pos: () => ({ x: bot.entity.position.x, z: bot.entity.position.z }),
+        pos: () => ({ x: bot.entity.position.x, z: bot.entity.position.z, dim: envObj.dimension() }),      // dim: sites in another dimension are not usable containers (sites.js reachable)
     };
     return envObj;
 }

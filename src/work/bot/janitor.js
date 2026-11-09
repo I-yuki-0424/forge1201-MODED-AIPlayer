@@ -184,6 +184,8 @@ async function maintain(env, policy) {
                 placed = spot; box = spot;
             }
             try {
+                // A chest in another layer or out of a move_to's sight: bring the bot there first (the live pit's Ender chests stood on its floor and every deposit failed `unreachable`).
+                if (box.kind !== 'shulker') { const a = await require('./reach').approach(env, box, { why: 'to deposit', strict: false }); if (a) return { ok: false, reason: a.reason, detail: a.detail, done }; }          // not reachable now: nothing is thrown away for that, the next upkeep tries again
                 for (const o of g.ops) {
                     const r = await env.exec('deposit', { item: o.item, count: Math.min(o.count, 2304), x: box.x, y: box.y, z: box.z });
                     if (!r.ok && ['invalid_target', 'no_station'].includes(r.reason) && box.kind !== 'shulker') { bad.add(key); await giveUp(g, r.reason); break; }
@@ -244,4 +246,4 @@ function attachSpots(w, f, radius = 2) {
     return out.sort((a, b) => a.d - b.d);
 }
 
-module.exports = { plan, restock, maintain, pitPolicy, inventoryOf, shulkerSpot, freeSpots, attachSpots, valueOf, stackOf, sitesOf, hasSites, VALUES, TOOL, FOOD };
+module.exports = { plan, restock, maintain, pitPolicy, inventoryOf, shulkerSpot, freeSpots, attachSpots, valueOf, stackOf, sitesOf, hasSites, VALUES, TOOL, FOOD, CONTAINER };

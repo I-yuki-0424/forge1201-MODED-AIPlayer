@@ -23,9 +23,11 @@ async function runWorker(job, id, env, { cancel = { cancelled: false }, policy =
     const backoff = backoffOpt || backoffMs;
     const tries = {};
     // A recovery script (work/script.js) for what the bot lacks, run before it gives up and waits for the operator.
-    const recover = async (reason) => {
-        const sc = handlers && handlers[reason];
-        if (!sc || (tries[reason] = (tries[reason] || 0) + 1) > HANDLER_TRIES) return false;
+    // A handler is a script, or a function of the failed result that picks one (missing_tool: the class of tool the block needs; missing_item: the item that ran out).
+    const recover = async (reason, failed) => {
+        let sc = handlers && handlers[reason];
+        if (typeof sc === 'function') { try { sc = sc(failed); } catch (_) { sc = null; } }
+        if (!sc || (tries[`${reason}:${sc.name}`] = (tries[`${reason}:${sc.name}`] || 0) + 1) > HANDLER_TRIES) return false;
         const senv = Object.assign(Object.create(env), scriptEnv ? scriptEnv() : {});
         senv.leavePit = (box) => require('./exit').leavePit(senv, box);
         let out; try { out = await require('./script').runScript(sc, senv, { cancel }); } catch (e) { out = { ok: false, ended: 'error', reason: String(e.message).slice(0, 80), steps: 0, log: [] }; }
@@ -33,7 +35,7 @@ async function runWorker(job, id, env, { cancel = { cancelled: false }, policy =
         return out.ok;
     };
     const L = job.ledger, now = env.now || Date.now;
-    let units = 0, failed = 0, idle = 0, streak = 0, sinceAudit = AUDIT_EVERY, finalAudits = 0;
+    let units = 0, failed = 0, idle = 0, streak = 0, sinceAudit = AUDIT_EVERY, finalAudits = 0, sweepWaits = 0;
     // Is the assigned range still what it should be? Finished units with a leftover or a stray block go back to pending (pit.audit).
     const audit = (full) => {
         if (!job.audit) return 0;
@@ -52,8 +54,17 @@ async function runWorker(job, id, env, { cancel = { cancelled: false }, policy =
             if (sinceAudit >= AUDIT_EVERY) { sinceAudit = 0; audit(false); }
             const claim = L.claim(id, env.pos(), now(), { batch });
             if (!claim) {
-                // Before the job is called finished, look at the whole range once more (a few rounds at most): what is wrong goes back to work.
-                if (L.finished() && finalAudits < 3 && ++finalAudits && audit(true)) continue;
+                // Before the job is called finished, look at the whole range once more: what is wrong goes back to work. A pit does it chunk by chunk (job.sweep: the bot walks to
+                // the chunk, reads it from the top layer down); the others look at what their bot can see (a few rounds at most).
+                if (L.finished() && job.sweep) {
+                    const sw = await job.sweep(env, now());
+                    if (sw.region) {                                                             // the next chunk, or the units that were sent back
+                        onEvent('sweep', { id, ...sw });
+                        if (sw.reopened || sw.gaveUp) onEvent('audit', { id, checked: sw.checked, reopened: sw.reopened, gaveUp: sw.gaveUp, first: sw.first });       // the same event the periodic check sends: the log, the problem list and the glow listen to it
+                        continue;
+                    }
+                    if (sw.busy && ++sweepWaits < 900) { await sleep(pollMs); continue; }       // another bot is looking at a chunk: it may send units back, be there for them
+                } else if (L.finished() && finalAudits < 3 && ++finalAudits && audit(true)) continue;
                 if (L.finished()) { if (job.cleanup) await job.cleanup(env); return { ended: 'finished', units, failed }; }
                 // The next layer waits for units other bots are still running; if nobody is running anything, nothing will change.
                 if (L.progress().leased === 0 && ++idle > 20) { L.leave(id, now()); return { ended: 'stalled', units, failed }; }
@@ -93,7 +104,7 @@ async function runWorker(job, id, env, { cancel = { cancelled: false }, policy =
                     if (d.ended === 'died' || d.ended === 'disconnected') { L.leave(id, now()); return { ended: d.ended, units, failed }; }
                     if (d.fought) break;
                 }
-                if (BOT_NEEDS.has(r.reason) && await recover(r.reason)) break;       // solved by a script (a tool from the tools chest, one crafted): claim again
+                if (BOT_NEEDS.has(r.reason) && await recover(r.reason, r)) break;       // solved by a script (a tool from the tools chest, one crafted): claim again
                 if (BOT_NEEDS.has(r.reason)) { L.leave(id, now()); return { ended: 'unhealthy', units, failed, last: r.reason }; }   // it needs a tool or an item: the service waits for it
                 streak++;
                 if (streak >= MAX_BAD_STREAK) { L.leave(id, now()); return { ended: 'unhealthy', units, failed, last: r.reason }; }

@@ -4,6 +4,7 @@
 // command repeated, plus `place` for the water rule. Nothing here touches the game directly: `exec(name, args)` runs a
 // command of the action layer, `w` is its world model (kindAt/nameAt), so the whole job is testable without a server.
 const { Ledger } = require('./crew');
+const { makeSweeper } = require('./pit_sweep');
 const janitor = require('../bot/janitor');
 
 const CHUNK = 16;
@@ -361,17 +362,19 @@ async function sweepDrops(env, S) {
 
 /**
  * Cells of a finished unit that are not open: leftover blocks, blocks placed by mistake (a water-control block at a height that was
- * dug already), water that ran in. Unloaded cells are not judged. Pure; `w` is only read.
+ * dug already), water that ran in. Unloaded cells are not judged, but counted (`unknown`: the sweep walks to the chunk and looks again). Pure; `w` is only read.
  */
-function wrongCells(plan, region, u, w) {
-    const out = [];
+function cellState(plan, region, u, w) {
+    const wrong = []; let unknown = 0;
     for (const c of unitCells(plan, region, u)) {
         const k = w.kindAt(c.x, c.y, c.z);
-        if (k === 'unknown' || PASSABLE.has(k) || UNBREAKABLE.test((w.nameAt && w.nameAt(c.x, c.y, c.z)) || '') || aerialTree(w, c)) continue;
-        out.push(c);
+        if (k === 'unknown') { unknown++; continue; }
+        if (PASSABLE.has(k) || UNBREAKABLE.test((w.nameAt && w.nameAt(c.x, c.y, c.z)) || '') || aerialTree(w, c)) continue;
+        wrong.push(c);
     }
-    return out;
+    return { wrong, unknown };
 }
+const wrongCells = (plan, region, u, w) => cellState(plan, region, u, w).wrong;
 
 const AUDIT_BUDGET = 48, AUDIT_REOPEN_MAX = 3;
 /**
@@ -404,7 +407,9 @@ function audit(plan, ledger, w, now, state, { budget = AUDIT_BUDGET, full = fals
 function createPitJob(box, ledgerOpts = {}, { lanes = 0, method = 'rows', tile = TILE, road = true } = {}) {
     const plan = planPit(box, { lanes, method, tile, road }), ledger = new Ledger(ledgerOpts), byId = new Map(), auditState = { cursor: new Map(), counts: new Map() };
     for (const r of plan.regions) { ledger.addRegion(r); byId.set(r.id, r); }
-    return { kind: 'pit', ledger, plan, runUnit: (regionId, unit, env) => runUnit(plan, byId.get(regionId), unit, env), audit: (env, now, opts) => audit(plan, ledger, env.w, now, auditState, opts), rescue: (env, why) => require('../bot/water').rescue(env, plan.box, { why }) };
+    // sweep: the check at the end (pit_sweep.js): every chunk is walked to, read from the top layer down, and what still holds a block goes back to work.
+    const sweep = makeSweeper({ plan, ledger, state: auditState, cellState });
+    return { kind: 'pit', ledger, plan, runUnit: (regionId, unit, env) => runUnit(plan, byId.get(regionId), unit, env), audit: (env, now, opts) => audit(plan, ledger, env.w, now, auditState, opts), sweep, rescue: (env, why) => require('../bot/water').rescue(env, plan.box, { why }) };
 }
 
-module.exports = { standsOnFloater, aerialTree, planPit, laneBoxes, planRoad, stationsOf, lineCells, unitCells, sealPlan, orderFill, isFluid, exposed, runUnit, wrongCells, audit, createPitJob, SEAL_ITEMS, CHUNK, TILE, SWEEP_R };
+module.exports = { standsOnFloater, aerialTree, planPit, laneBoxes, planRoad, stationsOf, lineCells, unitCells, sealPlan, orderFill, isFluid, exposed, runUnit, wrongCells, cellState, audit, createPitJob, SEAL_ITEMS, CHUNK, TILE, SWEEP_R };
