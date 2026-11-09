@@ -19,7 +19,7 @@ def main(argv=None):
     t = sub.add_parser("train")
     t.add_argument("--expert", required=True); t.add_argument("--root", required=True); t.add_argument("--base", required=True); t.add_argument("--shards", required=True)
     t.add_argument("--out", required=True); t.add_argument("--budget", type=int, default=300_000); t.add_argument("--seed", type=int, default=0)
-    t.add_argument("--lr", type=float, default=5e-4); t.add_argument("--ent", type=float, default=0.01); t.add_argument("--min-steps", type=int, default=30_000)
+    t.add_argument("--lr", type=float, default=5e-4); t.add_argument("--ent", type=float, default=0.01); t.add_argument("--min-steps", type=int, default=30_000); t.add_argument("--stop-rate", type=float, default=0.97)
     e = sub.add_parser("eval")
     e.add_argument("--expert", required=True); e.add_argument("--root", required=True); e.add_argument("--base", required=True); e.add_argument("--shards", required=True)
     e.add_argument("--policy", required=True, help="random | solver | net:<checkpoint.npz>"); e.add_argument("--episodes", type=int, default=200)
@@ -30,6 +30,7 @@ def main(argv=None):
     c.add_argument("--root", required=True); c.add_argument("--base", required=True); c.add_argument("--shards", required=True)
     c.add_argument("--router", required=True, help="rules | xgb:<model> | lgb:<model>"); c.add_argument("--experts", required=True, help="net:<runs dir> | solver")
     c.add_argument("--episodes", type=int, default=60); c.add_argument("--trace", type=int, default=0, help="print the expert switches of the first N episodes"); c.add_argument("--scenario", default="chain"); c.add_argument("--out"); c.add_argument("--timeout", type=int, default=1500)
+    c.add_argument("--greedy-stall", action="store_true", help="control: the first chain's behaviour, a stalled expert is called again with the greedy action")
     a = ap.parse_args(argv)
     if a.cmd == "router":
         return _router(a)
@@ -44,7 +45,7 @@ def main(argv=None):
     vec = _vec(a)
     if a.cmd == "train":
         from . import train
-        res = train.train(vec, expert, a.out, budget=a.budget, seed=a.seed, lr=a.lr, ent=a.ent, min_steps=a.min_steps, done_file=f"{a.root}/{a.base}.done")
+        res = train.train(vec, expert, a.out, budget=a.budget, seed=a.seed, lr=a.lr, ent=a.ent, min_steps=a.min_steps, stop_rate=a.stop_rate, done_file=f"{a.root}/{a.base}.done")
         print(json.dumps(res))
         return 0
     from . import evaluate, solvers
@@ -59,9 +60,9 @@ def main(argv=None):
     if a.policy == "random":
         pol = solvers.Random(a.seed)
     elif a.policy == "solver":
-        pol = solvers.Solver(a.expert, feat, a.seed)
+        pol = solvers.Solver(a.expert, feat, a.seed, rel=catalog.relevance(expert))
     elif a.policy.startswith("net:"):
-        pol = NetPolicy(a.policy[4:], feat)
+        pol = NetPolicy(a.policy[4:], feat, catalog.relevance(expert))
     else:
         print("unknown policy", file=sys.stderr); return 2
     s = evaluate.run(vec, pol.decide, a.episodes, a.timeout)
@@ -112,7 +113,7 @@ def _chain(a):
             print("no hello", file=sys.stderr); return 1
     feat = Featurizer(vec.vocab(), cat["items"])
     if a.router == "rules":
-        route = rules.Rules(cat).next
+        route = rules.Rules(cat).route
     else:
         kind, path = a.router.split(":", 1)
         gb = R.GBRouter.load(path, cat)
@@ -122,7 +123,7 @@ def _chain(a):
         src = "net"
         for e in cat["experts"]:
             experts[e["id"]], _ = policy.load(f"{a.experts[4:]}/{e['id']}/final.npz")
-    ch = C.Chain(feat, cat, route, experts, cat["chain"]["goal"], 1, src)
+    ch = C.Chain(feat, cat, route, experts, cat["chain"]["goal"], 1, src, sample_on_stall=not a.greedy_stall)
     reached = {e["id"]: 0 for e in cat["experts"]}
     traced = [0]
     def on_ep(ob):
@@ -132,7 +133,7 @@ def _chain(a):
             traced[0] += 1
             print(json.dumps({"episode_end": ob.outcome, "commands": ob.step, "trace": ch.trace.get(ob.key, [])[:40]}))
     s = evaluate.run(vec, ch.decide, a.episodes, a.timeout, on_episode=on_ep)
-    s.update(router=a.router.split(":")[0], experts=src, scenario=a.scenario, expert_goal_reached=reached, router_calls=ch.calls)
+    s.update(router=a.router.split(":")[0], experts=src, scenario=a.scenario, expert_goal_reached=reached, router_calls=ch.calls, unstick_calls=ch.unstick_calls, greedy_stall=a.greedy_stall)
     print(json.dumps(s))
     if a.out:
         with open(a.out, "a") as f:
@@ -143,16 +144,17 @@ def _chain(a):
 
 class NetPolicy:
     """Greedy policy of a trained expert (checkpoint of moe.policy.save)."""
-    def __init__(self, path, feat):
+    def __init__(self, path, feat, rel=()):
         from . import policy
         self.params, self.meta = policy.load(path)
         self.feat = feat
+        self.rel = rel
 
     def decide(self, obs_list):
         import numpy as np
         from . import policy
-        ctx = np.stack([self.feat.ctx(o.raw) for o in obs_list])
-        cc = [self.feat.cands(o.raw) for o in obs_list]
+        ctx = np.stack([self.feat.ctx(o.raw, self.rel) for o in obs_list])
+        cc = [self.feat.cands(o.raw, self.rel) for o in obs_list]
         cand, mask = policy.trim(np.stack([c[0] for c in cc]), np.stack([c[1] for c in cc]))
         a, _ = policy.act_greedy(self.params, ctx, cand, mask)
         return [int(x) for x in a]

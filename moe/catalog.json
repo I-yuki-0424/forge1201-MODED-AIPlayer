@@ -1,22 +1,656 @@
 {
- "v": 1,
- "doc": "The expert catalogue (docs/proposed/MOE-v1.md). One small model per item of the iron-tier chain. `makes` = the item it produces (a key of `goal.have`); `needs` = what the expert must already hold (its prerequisites; the router calls other experts until they are met); `goal` = what ends an episode in success (items held, `#log`/`#planks` = any species, or a progress entry reached); `start` = the standardised start distribution the expert is trained on (kit ranges drawn at the start of every episode, junk the expert must ignore, ores placed around the start); `max_steps` = commands per episode. Wood comes in several species, so a kit lists them as separate ranges. Every craft belongs to the expert of its result (planks, stick, crafting_table, ...), so no expert calls a crafting expert (owner 2026-11-08); `equivalent` lists items that satisfy a need of another item (a stone pickaxe is a wooden pickaxe for mining); movement and escape experts are not in v1.",
- "items": ["oak_log", "birch_log", "spruce_log", "oak_planks", "birch_planks", "spruce_planks", "stick", "crafting_table", "wooden_pickaxe", "stone_pickaxe", "iron_pickaxe", "cobblestone", "furnace", "coal", "charcoal", "raw_iron", "iron_ingot", "dirt", "gravel", "sand", "apple", "oak_sapling", "andesite", "diorite", "flint", "wooden_sword", "stone_sword", "torch", "iron_ore", "coal_ore"],
- "junk": {"dirt": [0, 24], "gravel": [0, 8], "apple": [0, 3], "oak_sapling": [0, 3]},
- "equivalent": {"wooden_pickaxe": ["wooden_pickaxe", "stone_pickaxe", "iron_pickaxe"], "stone_pickaxe": ["stone_pickaxe", "iron_pickaxe"], "coal": ["coal", "charcoal"]},
- "experts": [
-  {"id": "log", "doc": "Fell trees: four logs of any species.", "makes": "#log", "needs": {}, "goal": {"have": {"#log": 4}}, "max_steps": 70, "hostiles": 0.3, "start": {"kit": {}, "place": []}},
-  {"id": "planks", "doc": "Logs into planks (any species).", "makes": "#planks", "needs": {"#log": 1}, "goal": {"have": {"#planks": 4}}, "max_steps": 20, "hostiles": 0.3, "start": {"kit": {"oak_log": [1, 3], "birch_log": [0, 2], "spruce_log": [0, 2]}, "place": []}},
-  {"id": "stick", "doc": "Planks into sticks.", "makes": "stick", "needs": {"#planks": 2}, "goal": {"have": {"stick": 4}}, "max_steps": 20, "hostiles": 0.3, "start": {"kit": {"oak_planks": [2, 6], "birch_planks": [0, 3], "spruce_planks": [0, 3]}, "place": []}},
-  {"id": "crafting_table", "doc": "Planks into a crafting table.", "makes": "crafting_table", "needs": {"#planks": 4}, "goal": {"have": {"crafting_table": 1}}, "max_steps": 20, "hostiles": 0.3, "start": {"kit": {"oak_planks": [4, 8], "birch_planks": [0, 2], "spruce_planks": [0, 2]}, "place": []}},
-  {"id": "wooden_pickaxe", "doc": "Put the table down, craft the pickaxe.", "makes": "wooden_pickaxe", "needs": {"crafting_table": 1, "#planks": 3, "stick": 2}, "goal": {"have": {"wooden_pickaxe": 1}}, "max_steps": 30, "hostiles": 0.3, "start": {"kit": {"crafting_table": [1, 1], "oak_planks": [3, 6], "birch_planks": [0, 2], "stick": [2, 4]}, "place": []}},
-  {"id": "cobblestone", "doc": "Dig stone: eight cobblestone.", "makes": "cobblestone", "needs": {"wooden_pickaxe": 1}, "goal": {"have": {"cobblestone": 8}}, "max_steps": 90, "hostiles": 0.3, "start": {"kit": {"wooden_pickaxe": [1, 1], "oak_planks": [0, 6]}, "place": []}},
-  {"id": "stone_pickaxe", "doc": "Table, then the stone pickaxe.", "makes": "stone_pickaxe", "needs": {"crafting_table": 1, "cobblestone": 3, "stick": 2}, "goal": {"have": {"stone_pickaxe": 1}}, "max_steps": 30, "hostiles": 0.3, "start": {"kit": {"crafting_table": [1, 1], "cobblestone": [3, 20], "stick": [2, 6], "wooden_pickaxe": [0, 1]}, "place": []}},
-  {"id": "furnace", "doc": "Craft a furnace (the table is put down for it).", "makes": "furnace", "needs": {"crafting_table": 1, "cobblestone": 8}, "goal": {"have": {"furnace": 1}}, "max_steps": 30, "hostiles": 0.3, "start": {"kit": {"crafting_table": [1, 1], "cobblestone": [8, 30], "stone_pickaxe": [0, 1]}, "place": []}},
-  {"id": "coal", "doc": "Find coal ore and mine two.", "makes": "coal", "needs": {"wooden_pickaxe": 1}, "goal": {"have": {"coal": 2}}, "max_steps": 120, "hostiles": 0.3, "start": {"kit": {"wooden_pickaxe": [1, 1], "stone_pickaxe": [0, 1], "cobblestone": [0, 16]}, "place": [{"id": "coal", "block": "coal_ore", "size": [2, 5], "mode": "surface", "dist": [3, 16]}]}, "approach": ["coal_ore"]},
-  {"id": "raw_iron", "doc": "Find iron ore and mine three.", "makes": "raw_iron", "needs": {"stone_pickaxe": 1}, "goal": {"have": {"raw_iron": 3}}, "max_steps": 150, "hostiles": 0.3, "start": {"kit": {"stone_pickaxe": [1, 1], "cobblestone": [0, 24], "coal": [0, 4]}, "place": [{"id": "iron", "block": "iron_ore", "size": [3, 5], "mode": "surface", "dist": [2, 16]}]}, "approach": ["iron_ore"]},
-  {"id": "iron_ingot", "doc": "Put the furnace down, fuel it, smelt three ingots.", "makes": "iron_ingot", "needs": {"raw_iron": 3, "coal": 2, "furnace": 1}, "goal": {"have": {"iron_ingot": 3}}, "max_steps": 60, "hostiles": 0.3, "start": {"kit": {"raw_iron": [3, 5], "coal": [2, 8], "furnace": [1, 1], "cobblestone": [0, 16], "stone_pickaxe": [0, 1]}, "place": []}},
-  {"id": "iron_pickaxe", "doc": "Put the table down, craft the iron pickaxe.", "makes": "iron_pickaxe", "needs": {"iron_ingot": 3, "stick": 2, "crafting_table": 1}, "goal": {"have": {"iron_pickaxe": 1}}, "max_steps": 30, "hostiles": 0.3, "start": {"kit": {"iron_ingot": [3, 6], "stick": [2, 6], "crafting_table": [1, 1], "cobblestone": [0, 16], "stone_pickaxe": [0, 1]}, "place": []}}
+ "v": 2,
+ "doc": "The expert catalogue (docs/proposed/MOE-v1.md). One small model per item of the iron-tier chain. `makes` = the item it produces (a key of `goal.have`); `needs` = what the expert must already hold (its prerequisites; the router calls other experts until they are met); `goal` = what ends an episode in success (items held, `#log`/`#planks` = any species, or a progress entry reached); `start` = the standardised start distribution the expert is trained on (kit ranges drawn at the start of every episode, junk the expert must ignore, ores placed around the start); `max_steps` = commands per episode. Wood comes in several species, so a kit lists them as separate ranges. Every craft belongs to the expert of its result (planks, stick, crafting_table, ...), so no expert calls a crafting expert (owner 2026-11-08); `equivalent` lists items that satisfy a need of another item (a stone pickaxe is a wooden pickaxe for mining); movement and escape experts are not in v1. v2 (docs/proposed/MOE-v2.md): `targets` = the scan groups (log, coal, iron, way, sky) the router shows the expert; `kind: skill` = a movement expert (`move`: walk to the nearest relevant target; `unstick`: dig or climb out to the surface) that the router calls at any time and that makes no item (`goal.reach` = blocks from the target at success); `variants` = further scenario files of one expert.",
+ "items": [
+  "oak_log",
+  "birch_log",
+  "spruce_log",
+  "oak_planks",
+  "birch_planks",
+  "spruce_planks",
+  "stick",
+  "crafting_table",
+  "wooden_pickaxe",
+  "stone_pickaxe",
+  "iron_pickaxe",
+  "cobblestone",
+  "furnace",
+  "coal",
+  "charcoal",
+  "raw_iron",
+  "iron_ingot",
+  "dirt",
+  "gravel",
+  "sand",
+  "apple",
+  "oak_sapling",
+  "andesite",
+  "diorite",
+  "flint",
+  "wooden_sword",
+  "stone_sword",
+  "torch",
+  "iron_ore",
+  "coal_ore"
  ],
- "chain": {"goal": "iron_pickaxe", "max_steps": 900, "doc": "The whole chain from a plain start (no kit, default mobs, nothing placed): the router calls the experts in turn."}
+ "junk": {
+  "dirt": [
+   0,
+   24
+  ],
+  "gravel": [
+   0,
+   8
+  ],
+  "apple": [
+   0,
+   3
+  ],
+  "oak_sapling": [
+   0,
+   3
+  ]
+ },
+ "equivalent": {
+  "wooden_pickaxe": [
+   "wooden_pickaxe",
+   "stone_pickaxe",
+   "iron_pickaxe"
+  ],
+  "stone_pickaxe": [
+   "stone_pickaxe",
+   "iron_pickaxe"
+  ],
+  "coal": [
+   "coal",
+   "charcoal"
+  ]
+ },
+ "experts": [
+  {
+   "id": "log",
+   "doc": "Fell trees: four logs of any species.",
+   "makes": "#log",
+   "needs": {},
+   "goal": {
+    "have": {
+     "#log": 4
+    }
+   },
+   "max_steps": 70,
+   "hostiles": 0.3,
+   "start": {
+    "kit": {},
+    "place": []
+   },
+   "targets": [
+    "log"
+   ]
+  },
+  {
+   "id": "planks",
+   "doc": "Logs into planks (any species).",
+   "makes": "#planks",
+   "needs": {
+    "#log": 1
+   },
+   "goal": {
+    "have": {
+     "#planks": 4
+    }
+   },
+   "max_steps": 20,
+   "hostiles": 0.3,
+   "start": {
+    "kit": {
+     "oak_log": [
+      1,
+      3
+     ],
+     "birch_log": [
+      0,
+      2
+     ],
+     "spruce_log": [
+      0,
+      2
+     ]
+    },
+    "place": []
+   }
+  },
+  {
+   "id": "stick",
+   "doc": "Planks into sticks.",
+   "makes": "stick",
+   "needs": {
+    "#planks": 2
+   },
+   "goal": {
+    "have": {
+     "stick": 4
+    }
+   },
+   "max_steps": 20,
+   "hostiles": 0.3,
+   "start": {
+    "kit": {
+     "oak_planks": [
+      2,
+      6
+     ],
+     "birch_planks": [
+      0,
+      3
+     ],
+     "spruce_planks": [
+      0,
+      3
+     ]
+    },
+    "place": []
+   }
+  },
+  {
+   "id": "crafting_table",
+   "doc": "Planks into a crafting table.",
+   "makes": "crafting_table",
+   "needs": {
+    "#planks": 4
+   },
+   "goal": {
+    "have": {
+     "crafting_table": 1
+    }
+   },
+   "max_steps": 20,
+   "hostiles": 0.3,
+   "start": {
+    "kit": {
+     "oak_planks": [
+      4,
+      8
+     ],
+     "birch_planks": [
+      0,
+      2
+     ],
+     "spruce_planks": [
+      0,
+      2
+     ]
+    },
+    "place": []
+   }
+  },
+  {
+   "id": "wooden_pickaxe",
+   "doc": "Put the table down, craft the pickaxe.",
+   "makes": "wooden_pickaxe",
+   "needs": {
+    "crafting_table": 1,
+    "#planks": 3,
+    "stick": 2
+   },
+   "goal": {
+    "have": {
+     "wooden_pickaxe": 1
+    }
+   },
+   "max_steps": 30,
+   "hostiles": 0.3,
+   "start": {
+    "kit": {
+     "crafting_table": [
+      1,
+      1
+     ],
+     "oak_planks": [
+      3,
+      6
+     ],
+     "birch_planks": [
+      0,
+      2
+     ],
+     "stick": [
+      2,
+      4
+     ]
+    },
+    "place": []
+   }
+  },
+  {
+   "id": "cobblestone",
+   "doc": "Dig stone: eight cobblestone.",
+   "makes": "cobblestone",
+   "needs": {
+    "wooden_pickaxe": 1
+   },
+   "goal": {
+    "have": {
+     "cobblestone": 8
+    }
+   },
+   "max_steps": 90,
+   "hostiles": 0.3,
+   "start": {
+    "kit": {
+     "wooden_pickaxe": [
+      1,
+      1
+     ],
+     "oak_planks": [
+      0,
+      6
+     ]
+    },
+    "place": []
+   }
+  },
+  {
+   "id": "stone_pickaxe",
+   "doc": "Table, then the stone pickaxe.",
+   "makes": "stone_pickaxe",
+   "needs": {
+    "crafting_table": 1,
+    "cobblestone": 3,
+    "stick": 2
+   },
+   "goal": {
+    "have": {
+     "stone_pickaxe": 1
+    }
+   },
+   "max_steps": 30,
+   "hostiles": 0.3,
+   "start": {
+    "kit": {
+     "crafting_table": [
+      1,
+      1
+     ],
+     "cobblestone": [
+      3,
+      20
+     ],
+     "stick": [
+      2,
+      6
+     ],
+     "wooden_pickaxe": [
+      0,
+      1
+     ]
+    },
+    "place": []
+   }
+  },
+  {
+   "id": "furnace",
+   "doc": "Craft a furnace (the table is put down for it).",
+   "makes": "furnace",
+   "needs": {
+    "crafting_table": 1,
+    "cobblestone": 8
+   },
+   "goal": {
+    "have": {
+     "furnace": 1
+    }
+   },
+   "max_steps": 30,
+   "hostiles": 0.3,
+   "start": {
+    "kit": {
+     "crafting_table": [
+      1,
+      1
+     ],
+     "cobblestone": [
+      8,
+      30
+     ],
+     "stone_pickaxe": [
+      0,
+      1
+     ]
+    },
+    "place": []
+   }
+  },
+  {
+   "id": "coal",
+   "doc": "Find coal ore and mine two.",
+   "makes": "coal",
+   "needs": {
+    "wooden_pickaxe": 1
+   },
+   "goal": {
+    "have": {
+     "coal": 2
+    }
+   },
+   "max_steps": 150,
+   "hostiles": 0.3,
+   "start": {
+    "kit": {
+     "wooden_pickaxe": [
+      1,
+      1
+     ],
+     "stone_pickaxe": [
+      0,
+      1
+     ],
+     "cobblestone": [
+      0,
+      16
+     ]
+    },
+    "place": [
+     {
+      "id": "coal",
+      "block": "coal_ore",
+      "size": [
+       2,
+       5
+      ],
+      "mode": "surface",
+      "dist": [
+       3,
+       48
+      ]
+     }
+    ]
+   },
+   "approach": [
+    "coal_ore"
+   ],
+   "targets": [
+    "coal"
+   ]
+  },
+  {
+   "id": "raw_iron",
+   "doc": "Find iron ore and mine three.",
+   "makes": "raw_iron",
+   "needs": {
+    "stone_pickaxe": 1
+   },
+   "goal": {
+    "have": {
+     "raw_iron": 3
+    }
+   },
+   "max_steps": 200,
+   "hostiles": 0.3,
+   "start": {
+    "kit": {
+     "stone_pickaxe": [
+      1,
+      1
+     ],
+     "cobblestone": [
+      0,
+      24
+     ],
+     "coal": [
+      0,
+      4
+     ]
+    },
+    "place": [
+     {
+      "id": "iron",
+      "block": "iron_ore",
+      "size": [
+       3,
+       5
+      ],
+      "mode": "surface",
+      "dist": [
+       2,
+       48
+      ]
+     }
+    ]
+   },
+   "approach": [
+    "iron_ore"
+   ],
+   "targets": [
+    "iron"
+   ]
+  },
+  {
+   "id": "iron_ingot",
+   "doc": "Put the furnace down, fuel it, smelt three ingots.",
+   "makes": "iron_ingot",
+   "needs": {
+    "raw_iron": 3,
+    "coal": 2,
+    "furnace": 1
+   },
+   "goal": {
+    "have": {
+     "iron_ingot": 3
+    }
+   },
+   "max_steps": 60,
+   "hostiles": 0.3,
+   "start": {
+    "kit": {
+     "raw_iron": [
+      3,
+      5
+     ],
+     "coal": [
+      2,
+      8
+     ],
+     "furnace": [
+      1,
+      1
+     ],
+     "cobblestone": [
+      0,
+      16
+     ],
+     "stone_pickaxe": [
+      0,
+      1
+     ]
+    },
+    "place": []
+   }
+  },
+  {
+   "id": "iron_pickaxe",
+   "doc": "Put the table down, craft the iron pickaxe.",
+   "makes": "iron_pickaxe",
+   "needs": {
+    "iron_ingot": 3,
+    "stick": 2,
+    "crafting_table": 1
+   },
+   "goal": {
+    "have": {
+     "iron_pickaxe": 1
+    }
+   },
+   "max_steps": 30,
+   "hostiles": 0.3,
+   "start": {
+    "kit": {
+     "iron_ingot": [
+      3,
+      6
+     ],
+     "stick": [
+      2,
+      6
+     ],
+     "crafting_table": [
+      1,
+      1
+     ],
+     "cobblestone": [
+      0,
+      16
+     ],
+     "stone_pickaxe": [
+      0,
+      1
+     ]
+    },
+    "place": []
+   }
+  },
+  {
+   "id": "move",
+   "doc": "Walk to the nearest relevant target (a waypoint, an ore, a tree), up to 4 chunks away, round ponds and hills; dig only if the way is closed. Trained on three scenario files: open ground (6-64 blocks), the longest-detour of 12 candidates, and a waypoint 4-12 blocks inside the rock (the way is dug).",
+   "kind": "skill",
+   "makes": null,
+   "needs": {},
+   "goal": {
+    "reach": 3
+   },
+   "max_steps": 200,
+   "hostiles": 0.5,
+   "targets": [
+    "way"
+   ],
+   "start": {
+    "kit": {
+     "wooden_pickaxe": [
+      0,
+      1
+     ],
+     "stone_pickaxe": [
+      0,
+      1
+     ]
+    },
+    "place": [],
+    "waypoint": {
+     "dist": [
+      6,
+      64
+     ],
+     "detour": 1
+    },
+    "variants": {
+     "detour": {
+      "kit": {
+       "wooden_pickaxe": [
+        0,
+        1
+       ],
+       "stone_pickaxe": [
+        0,
+        1
+       ]
+      },
+      "place": [],
+      "waypoint": {
+       "dist": [
+        12,
+        64
+       ],
+       "detour": 12
+      }
+     },
+     "dig": {
+      "kit": {
+       "wooden_pickaxe": [
+        1,
+        1
+       ],
+       "stone_pickaxe": [
+        0,
+        1
+       ]
+      },
+      "place": [],
+      "waypoint": {
+       "dist": [
+        6,
+        40
+       ],
+       "depth": [
+        4,
+        12
+       ]
+      }
+     }
+    }
+   }
+  },
+  {
+   "id": "unstick",
+   "doc": "Out of a shaft or a closed pocket under the ground: dig and climb to the surface.",
+   "kind": "skill",
+   "makes": null,
+   "needs": {
+    "wooden_pickaxe": 1
+   },
+   "goal": {
+    "reach": 2.5
+   },
+   "max_steps": 150,
+   "hostiles": 0.3,
+   "targets": [
+    "sky"
+   ],
+   "start": {
+    "kit": {
+     "wooden_pickaxe": [
+      1,
+      1
+     ],
+     "stone_pickaxe": [
+      0,
+      1
+     ]
+    },
+    "place": [],
+    "trap": {
+     "depth": [
+      3,
+      12
+     ],
+     "kind": "shaft"
+    },
+    "variants": {
+     "pocket": {
+      "kit": {
+       "wooden_pickaxe": [
+        1,
+        1
+       ],
+       "stone_pickaxe": [
+        0,
+        1
+       ]
+      },
+      "place": [],
+      "trap": {
+       "depth": [
+        3,
+        12
+       ],
+       "kind": "pocket"
+      }
+     }
+    }
+   }
+  }
+ ],
+ "chain": {
+  "goal": "iron_pickaxe",
+  "max_steps": 900,
+  "doc": "The whole chain from a plain start (no kit, default mobs, nothing placed): the router calls the experts in turn."
+ }
 }

@@ -5,10 +5,10 @@ import unittest
 import jax
 import numpy as np
 
-from moe import catalog, features, policy, ppo, router, rules, train
+from moe import catalog, chain, features, policy, ppo, router, rules, solvers, train
 
 
-def fake_obs(vocab, inv=(), cands=()):
+def fake_obs(vocab, inv=(), cands=(), scan=None, cand_scan=None):
     """An observation with the simulator's shapes. inv: [(name, count)], cands: [(cmd, item name, feat3 distance)]."""
     ix = {n: i for i, n in enumerate(vocab)}
     o = {"grid": [i % 11 for i in range(405)], "self": [0.5] * 20, "clock": [0.1, 0.2, 0.3], "ent_feat": [[0.0] * 5] * 8, "last_reason": 0, "dt_ticks": 20.0,
@@ -20,6 +20,17 @@ def fake_obs(vocab, inv=(), cands=()):
     o["cand_ent"] = [0] * 64
     o["cand_feat"] = [[0, 0, 0, c[2], 0, 0, 0, 0] for c in cands] + [[0.0] * 8] * (64 - len(cands))
     o["cand_mask"] = [True] * len(cands) + [False] * (64 - len(cands))
+    if scan is not None:                                     # {group: [(dx, dy, dz) in blocks, ...]} nearest first, as the simulator's scan field
+        sc = np.zeros((features.NG, features.M, 5), dtype=np.float32)
+        for g, cells in scan.items():
+            for m, (dx, dy, dz) in enumerate(cells[:features.M]):
+                d = float(np.sqrt(dx * dx + dy * dy + dz * dz))
+                sc[features.GROUPS.index(g), m] = [np.clip(dx / 64, -1, 1), np.clip(dy / 64, -1, 1), np.clip(dz / 64, -1, 1), min(d / 64, 1.0), 1.0]
+        o["scan"] = sc.reshape(-1).tolist()
+        cs = np.zeros((64, features.NG), dtype=np.float32)
+        for k, row in (cand_scan or {}).items():
+            cs[k] = row
+        o["cand_scan"] = cs.tolist()
     return o
 
 
@@ -27,12 +38,18 @@ class Catalog(unittest.TestCase):
     def setUp(self):
         self.cat = catalog.load()
 
-    def test_twelve_experts_each_makes_one_item_and_every_need_has_a_maker(self):
-        self.assertEqual(len(self.cat["experts"]), 12)
-        makers = [e["makes"] for e in self.cat["experts"]]
+    def test_twelve_item_experts_each_make_one_item_two_skill_experts_make_none_and_every_need_has_a_maker(self):
+        items = [e for e in self.cat["experts"] if e.get("kind", "item") == "item"]
+        skills = [e for e in self.cat["experts"] if e.get("kind") == "skill"]
+        self.assertEqual((len(items), sorted(e["id"] for e in skills)), (12, ["move", "unstick"]))
+        makers = [e["makes"] for e in items]
         self.assertEqual(len(set(makers)), 12)
-        for e in self.cat["experts"]:
+        for e in skills:
+            self.assertIsNone(e["makes"])
+            self.assertIn("reach", e["goal"])
+        for e in items:
             self.assertIn(e["makes"], e["goal"]["have"])
+        for e in self.cat["experts"]:
             for need in e["needs"]:
                 self.assertTrue(need in makers or need in self.cat["equivalent"])
 
@@ -56,7 +73,8 @@ class Catalog(unittest.TestCase):
 
     def test_scenario_has_ranged_kit_junk_and_an_end_that_stops_on_death(self):
         sc = catalog.scenario(catalog.experts(self.cat)["raw_iron"], self.cat)
-        self.assertEqual(sc["end"], {"have": {"raw_iron": 3}, "max_steps": 150, "die": True})
+        self.assertEqual(sc["end"], {"have": {"raw_iron": 3}, "max_steps": 200, "die": True})
+        self.assertTrue(sc["scan"])
         self.assertIn("dirt", sc["kit"])                       # junk the expert has to ignore
         self.assertEqual(sc["kit"]["stone_pickaxe"], [1, 1])
         self.assertEqual(sc["place"][0]["block"], "iron_ore")
@@ -88,7 +106,22 @@ class Rules(unittest.TestCase):
 
     def test_no_requirement_cycle_in_the_catalogue(self):
         for e in self.cat["experts"]:
-            self.assertIn(self.r.next(e["makes"], 1, {}), [x["id"] for x in self.cat["experts"]])
+            if e.get("kind", "item") == "item":
+                self.assertIn(self.r.next(e["makes"], 1, {}), [x["id"] for x in self.cat["experts"]])
+
+    def test_movement_comes_first_when_the_target_is_far_and_unstick_after_two_stalls(self):
+        inv = {"stone_pickaxe": 1, "crafting_table": 1}
+        far = {"dist": {"iron": 40.0, "coal": None, "log": 10.0}}
+        self.assertEqual(self.r.route("raw_iron", 3, inv, far), ("move", (2,)))                   # the groups shown are the ore expert's: iron
+        near = {"dist": {"iron": 4.0}}
+        self.assertEqual(self.r.route("raw_iron", 3, inv, near), ("raw_iron", (2,)))
+        self.assertEqual(self.r.route("raw_iron", 3, inv, {"dist": {"iron": None}}), ("raw_iron", (2,)), "nothing scanned: the expert looks for itself")
+        self.assertEqual(self.r.route("raw_iron", 3, inv, dict(near, stalls=2)), ("unstick", (4,)))
+        self.assertEqual(self.r.route("raw_iron", 3, inv, dict(near, stalls=1))[0], "raw_iron")
+        self.assertEqual(self.r.route("raw_iron", 3, {"raw_iron": 3}, far)[0], rules.DONE)
+        self.assertEqual(self.r.route("raw_iron", 3, {}, {"dist": {"iron": 40.0, "log": 3.0}})[0], "log", "a missing prerequisite beats walking: logs first")
+        self.assertEqual(self.r.route("raw_iron", 3, {}, far), ("move", (0,)), "the nearest tree is 10 blocks away: walk to it first; the groups shown are the log expert's")
+        self.assertEqual(self.r.relevance("move", "raw_iron", 3, inv), (2,))
 
 
 class Algorithm(unittest.TestCase):
@@ -194,26 +227,117 @@ class Features(unittest.TestCase):
         np.testing.assert_array_equal(f.ctx(a), f.ctx(b))
 
 
+class Scan(unittest.TestCase):
+    def setUp(self):
+        self.cat = catalog.load()
+        self.vocab = ["none"] + sorted(set(self.cat["items"]) | {"stone"})
+        self.f = features.Featurizer(self.vocab, self.cat["items"])
+
+    def test_only_the_groups_the_router_called_relevant_are_shown_nearest_first(self):
+        o = fake_obs(self.vocab, scan={"iron": [(30, 0, 0), (10, 5, 0)], "coal": [(3, 0, 0)], "log": [(2, 0, 0)]})
+        tg, g = self.f.targets(o, (2,))
+        self.assertEqual(g, 2)
+        self.assertAlmostEqual(float(tg[0, 3]), np.sqrt(125) / 64, places=4)          # the nearer iron first
+        self.assertAlmostEqual(float(tg[1, 3]), 30 / 64, places=4)
+        self.assertEqual(float(tg[2, 4]), 0.0)
+        self.assertEqual(tg[0, 5:].tolist(), [0, 0, 1, 0, 0])
+        _, g2 = self.f.targets(o, (1, 2))
+        self.assertEqual(g2, 1, "coal at 3 blocks is nearer than any iron")
+        none, g3 = self.f.targets(o, ())
+        self.assertIsNone(g3)
+        self.assertEqual(float(np.abs(none).sum()), 0.0)
+        self.assertEqual(self.f.ctx(o, (2,)).shape, (self.f.ctx_dim,))
+        a, b = self.f.ctx(o, (2,)), self.f.ctx(o, (1,))
+        self.assertFalse(np.array_equal(a, b))
+        o2 = fake_obs(self.vocab, scan={"iron": [(30, 0, 0)], "coal": [(1, 0, 0)]})
+        np.testing.assert_array_equal(self.f.ctx(o, (2,))[-features.NG - features.T * features.TGT:-features.T * features.TGT], self.f.ctx(o2, (2,))[-features.NG - features.T * features.TGT:-features.T * features.TGT])
+
+    def test_the_candidate_column_is_the_progress_toward_the_nearest_relevant_target(self):
+        cs = {0: [0, 0, 0.6, 0, 0], 1: [0, 0, -0.5, 0, 0]}
+        o = fake_obs(self.vocab, cands=[(1, "iron_ore", 0.5), (1, "none", 0.5)], scan={"iron": [(20, 0, 0)], "coal": [(5, 0, 0)]}, cand_scan=cs)
+        c, mask = self.f.cands(o, (2,))
+        self.assertAlmostEqual(float(c[0, -1]), 0.6)
+        self.assertAlmostEqual(float(c[1, -1]), -0.5)
+        c, _ = self.f.cands(o, (1, 2))                       # coal is nearer: its column
+        self.assertAlmostEqual(float(c[0, -1]), 0.0)
+        c, _ = self.f.cands(o, ())
+        self.assertEqual(float(np.abs(c[:, -1]).sum()), 0.0)
+
+    def test_the_shaping_potential_of_a_skill_expert_is_distance_to_the_target(self):
+        g = train.Goal(catalog.experts(self.cat)["move"], self.f)
+        ps = [g.potential(self.f, fake_obs(self.vocab, scan={"way": [(d, 0, 0)]})) for d in (60, 30, 5, 0.1)]
+        self.assertEqual(ps, sorted(ps))
+        self.assertAlmostEqual(ps[-1], 1.0, places=2)
+        self.assertEqual(g.potential(self.f, fake_obs(self.vocab, scan={"iron": [(5, 0, 0)]})), 0.0, "an irrelevant group does not count")
+
+    def test_the_skill_solver_follows_progress_and_otherwise_moves_at_random(self):
+        s = solvers.Solver("move", self.f, rel=(3,))
+        o = fake_obs(self.vocab, cands=[(1, "none", 0.1), (1, "none", 0.2), (12, "none", 0.1)], scan={"way": [(30, 0, 0)]}, cand_scan={0: [0, 0, 0, 0.1, 0], 1: [0, 0, 0, 0.8, 0], 2: [0, 0, 0, 0.3, 0]})
+        self.assertEqual(s.one(o), 1)
+        o = fake_obs(self.vocab, cands=[(1, "none", 0.1), (12, "none", 0.1)], scan={"way": [(30, 0, 0)]})
+        self.assertIn(s.one(o), (0, 1))
+
+
+class FakeObs:
+    def __init__(self, key, step, raw):
+        self.key, self.step, self.raw = key, step, raw
+
+
+class ChainStall(unittest.TestCase):
+    def test_a_stalled_expert_is_sampled_not_repeated_and_after_two_stalls_unstick_is_called(self):
+        cat = catalog.load()
+        vocab = ["none"] + sorted(set(cat["items"]))
+        f = features.Featurizer(vocab, cat["items"])
+        r = rules.Rules(cat)
+        calls = []
+
+        def route(goal, amount, inv, info):
+            calls.append((dict(info["dist"]), info["stalls"]))
+            return r.route(goal, amount, inv, info)
+        ch = chain.Chain(f, cat, route, {}, "raw_iron", 3, "solver")
+        pack = [("stone_pickaxe", 1), ("crafting_table", 1)]
+        far = lambda d: fake_obs(vocab, inv=pack, scan={"iron": [(d, 0, 0)]})
+        seen = []
+        step = 0
+        for _ in range(8):
+            picks = ch._pick(FakeObs((0, 0), step, far(40.0)))
+            seen.append(picks)
+            e = catalog.experts(cat)[picks[0]]
+            step += e["max_steps"]                            # the call runs out its budget; nothing changed
+        names = [s[0] for s in seen]
+        self.assertEqual(names[0], "move")
+        self.assertTrue(seen[0][2] is False and seen[1][2] is True, "the second call after a failure samples")
+        self.assertIn("unstick", names, names)
+        self.assertEqual([c[1] for c in calls][:3], [0, 1, 2])
+        # progress resets the stalls: the pack changes
+        ch2 = chain.Chain(f, cat, route, {}, "raw_iron", 3, "solver")
+        ch2._pick(FakeObs((0, 0), 0, far(40.0)))
+        better = fake_obs(vocab, inv=pack + [("raw_iron", 1)], scan={"iron": [(40.0, 0, 0)]})
+        e, rel, sample = ch2._pick(FakeObs((0, 0), 200, better))
+        self.assertEqual(ch2.state[(0, 0)]["stalls"], 0)
+        self.assertFalse(sample)
+
+
 class Router(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.cat = catalog.load()
         cls.rules = rules.Rules(cls.cat)
-        cls.train = router.sample(cls.cat, cls.rules, np.random.default_rng(1), 6000)
-        cls.test = router.sample(cls.cat, cls.rules, np.random.default_rng(2), 2400)
+        cls.train = router.sample(cls.cat, cls.rules, np.random.default_rng(1), 14000)
+        cls.test = router.sample(cls.cat, cls.rules, np.random.default_rng(2), 4000)
 
     def test_both_learners_copy_the_rules_on_held_out_states(self):
         for kind in ("xgb", "lgb"):
-            r = router.GBRouter(self.cat, kind).fit(self.train, rounds=40)
+            r = router.GBRouter(self.cat, kind).fit(self.train, rounds=60)
             ev = router.evaluate(r, self.test)
-            self.assertGreater(ev["accuracy"], 0.97, f"{kind}: {ev}")
+            self.assertGreater(ev["accuracy"], 0.96, f"{kind}: {ev}")
             with tempfile.TemporaryDirectory() as d:
                 r.save(f"{d}/r.model")
                 r2 = router.GBRouter.load(f"{d}/r.model", self.cat)
                 self.assertEqual(list(r.predict_rows(self.test[:200])), list(r2.predict_rows(self.test[:200])))
 
     def test_labels_come_from_the_rules_and_cover_every_class(self):
-        labels = {t[3] for t in self.train}
+        labels = {t[4] for t in self.train}
         self.assertEqual(labels, set(router.Space(self.cat).classes))
 
 

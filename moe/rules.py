@@ -7,13 +7,15 @@ would succeed here" (that would need counterfactual branching of the environment
 from . import catalog
 
 DONE = "done"
+NEAR = 6.0               # blocks: an expert whose target is farther than this away is not started; the movement expert walks first (MOE-v2)
+STALLS = 2               # calls of one expert without a change of pack or a step toward its target: the stuck-escape expert is called
 
 
 class Rules:
     def __init__(self, cat):
         self.cat = cat
         self.by_id = catalog.experts(cat)
-        self.maker = {e["makes"]: e["id"] for e in cat["experts"]}
+        self.maker = {e["makes"]: e["id"] for e in cat["experts"] if e.get("kind", "item") == "item"}
         self.equiv = cat["equivalent"]
 
     def held(self, inv, item):
@@ -41,3 +43,29 @@ class Rules:
             out.append(e)
             for k, v in self.by_id[e]["goal"].get("have", {}).items():
                 inv[k] = inv.get(k, 0) + v
+
+    def route(self, item, amount, inv, info=None):
+        """(expert id or DONE, scan groups shown to it). Rule hardcoding: the movement and stuck-escape experts are exceptions to the prerequisite order, called at any
+        time (owner notes 2026-11-08). `info` = {"dist": {group: blocks to the nearest cell of the group within 4 chunks, or None}, "stalls": n}."""
+        e = self.next(item, amount, inv)
+        if e == DONE:
+            return DONE, ()
+        info = info or {}
+        if info.get("stalls", 0) >= STALLS and "unstick" in self.by_id:
+            return "unstick", catalog.relevance(self.by_id["unstick"])
+        ex = self.by_id[e]
+        rel = catalog.relevance(ex)
+        ds = [info.get("dist", {}).get(g) for g in ex.get("targets", [])]
+        ds = [d for d in ds if d is not None]
+        if ds and min(ds) > NEAR and "move" in self.by_id:
+            return "move", rel
+        return e, rel
+
+    def relevance(self, expert_id, item, amount, inv):
+        """The groups to show `expert_id` when a learned router has chosen it: those of the item expert it serves (move), the sky (unstick), or its own."""
+        if expert_id in (DONE, None):
+            return ()
+        if expert_id == "move":
+            e = self.next(item, amount, inv)
+            return catalog.relevance(self.by_id[e]) if e != DONE else ()
+        return catalog.relevance(self.by_id[expert_id])

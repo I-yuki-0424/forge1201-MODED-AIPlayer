@@ -28,6 +28,8 @@ class Goal:
     def __init__(self, expert, feat=None):
         self.have = dict(expert["goal"].get("have", {}))
         self.max_steps = expert["max_steps"]
+        self.rel = catalog.relevance(expert)           # scan groups the router shows this expert (MOE-v2)
+        self.skill = expert.get("kind", "item") == "skill"
         self.approach_ids = None
         if feat is not None and expert.get("approach"):
             names = set(expert["approach"])
@@ -35,10 +37,14 @@ class Goal:
 
     def potential(self, feat, o):
         p = 0.0
+        if self.rel and o.get("scan") is not None:
+            tg, g = feat.targets(o, self.rel)
+            if g is not None:                                   # nearest relevant target within 4 chunks, hidden or not: 1 at the target, 0 at 64 blocks
+                p += (1.0 if self.skill else 0.4) * (1.0 - float(tg[0, 3]))
         if self.have:
             counts = feat.counts(o, list(self.have))
             p += 0.5 * sum(min(c / t, 1.0) for c, t in zip(counts, self.have.values())) / len(self.have)
-        if self.approach_ids is not None and len(self.approach_ids):
+        if self.approach_ids is not None and len(self.approach_ids) and o.get("scan") is None:
             vi, vd = np.asarray(o["view_item"]), np.asarray(o["view_dist"], dtype=np.float32)
             hit = np.isin(vi, self.approach_ids)
             if hit.any():
@@ -67,6 +73,7 @@ def train(vec, expert, out_dir, budget=300_000, seed=0, rollout=4096, epochs=3, 
           stop_rate=0.97, stop_window=200, min_steps=30_000, log=print, done_file=None):
     cat = catalog.load()
     goal = None
+    rel = catalog.relevance(expert)
     out = pathlib.Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
@@ -84,7 +91,7 @@ def train(vec, expert, out_dir, budget=300_000, seed=0, rollout=4096, epochs=3, 
     opt_state = opt.init(params)
     rng = np.random.default_rng(seed)
     meta = {"expert": expert["id"], "hidden": hidden, "core": cat["items"], "ctx_dim": feat.ctx_dim, "cand_dim": feat.cand_dim, "seed": seed,
-            "params": policy.n_params(params), "lr": lr, "ent": ent, "gamma": GAMMA, "step_cost": STEP_COST}
+            "rel": list(rel), "params": policy.n_params(params), "lr": lr, "ent": ent, "gamma": GAMMA, "step_cost": STEP_COST}
     log(f"[{expert['id']}] {meta['params']} parameters, ctx {feat.ctx_dim}, cand {feat.cand_dim}")
     envs, trajs = {}, {}
     steps = updates = episodes = 0
@@ -102,8 +109,8 @@ def train(vec, expert, out_dir, budget=300_000, seed=0, rollout=4096, epochs=3, 
         live = [ob for ob in obs if not ob.terminated]
         v_live, a_live, lp_live = [], [], []
         if live:
-            ctx = np.stack([feat.ctx(ob.raw) for ob in live])
-            cc = [feat.cands(ob.raw) for ob in live]
+            ctx = np.stack([feat.ctx(ob.raw, rel) for ob in live])
+            cc = [feat.cands(ob.raw, rel) for ob in live]
             cand_full, mask_full = np.stack([c[0] for c in cc]), np.stack([c[1] for c in cc])
             cand, mask = policy.trim(cand_full, mask_full)             # the network sees only as many candidates as the longest list; the buffer keeps all 64
             key, k1 = jax.random.split(key)

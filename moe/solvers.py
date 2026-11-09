@@ -20,6 +20,8 @@ RULES = {
     "raw_iron": [("mine", r"iron_ore$"), ("move_to", r"iron_ore$")],
     "iron_ingot": [("smelt", r"^raw_iron$"), ("place", r"^furnace$")],
     "iron_pickaxe": [("craft", r"^iron_pickaxe$"), ("place", r"^crafting_table$")],
+    # the skill experts (MOE-v2) have no item rules: they follow the progress column toward the nearest relevant target, see Solver.skill
+    "move": [], "unstick": [],
 }
 _COND = re.compile(r"^(#?[a-z_]+)(>=|<)(\d+)$")
 
@@ -40,12 +42,28 @@ class Random:
 
 
 class Solver:
-    def __init__(self, expert, feat, seed=0):
+    def __init__(self, expert, feat, seed=0, rel=(), expert_def=None, **kw):
         self.rules = [(r[0], re.compile(r[1]), r[2] if len(r) > 2 else None) for r in RULES[expert]]
         self.feat = feat
         self.rng = random.Random(seed)
+        self.rel = tuple(rel)
+        self.skill = expert in ("move", "unstick")
+
+    def skill_pick(self, o):
+        """Positive control of a movement expert: the move or tunnel with the most progress toward the nearest relevant target; nothing helps -> a random move or tunnel."""
+        cands, mask = self.feat.cands(o, self.rel)
+        prog = cands[:, -1]
+        ok = [i for i in range(64) if mask[i] and o["cand_cmd"][i] in (1, 12)]          # move_to, tunnel
+        if ok:
+            best = max(ok, key=lambda i: prog[i])
+            if prog[best] > 0.02:
+                return best
+            return self.rng.choice(ok)
+        return 0
 
     def one(self, o):
+        if self.skill:
+            return self.skill_pick(o)
         inv = self.feat.named_inventory(o)
         offered = [(i, CMDS[o["cand_cmd"][i]], self.feat.names[o["cand_item"][i]], o["cand_feat"][i][3]) for i in range(64) if o["cand_mask"][i] and o["cand_cmd"][i] > 0]
         for cmd, rx, cond in self.rules:

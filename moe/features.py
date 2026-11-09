@@ -14,6 +14,12 @@ N_CMD = 13
 N_CAT = 11
 N_REASON = 17
 GRID_LAYERS = 5
+# docs/proposed/MOE-v2.md: the simulator's target scan (tools/sim/src/scan.rs). Groups in the order of the observation's `scan` field.
+GROUPS = ("log", "coal", "iron", "way", "sky")
+NG = len(GROUPS)
+M = 3                       # nearest cells per group in the observation
+T = 4                       # targets an expert sees: the nearest of the groups the router called relevant
+TGT = 5 + NG                # per target: dx, dy, dz, dist, present + the group's one-hot
 
 
 class Featurizer:
@@ -33,8 +39,8 @@ class Featurizer:
         idx[0] = self.other                    # "none"
         self.core_of = idx
         self.names = list(vocab_items)
-        self.ctx_dim = 20 + 3 + (self.n_core + 1) + 2 + GRID_LAYERS * N_CAT + N_CAT * 2 + (self.n_core + 1) * 2 + 40 + N_REASON + 1
-        self.cand_dim = N_CMD + (self.n_core + 1) + 1 + 8 + 1
+        self.ctx_dim = 20 + 3 + (self.n_core + 1) + 2 + GRID_LAYERS * N_CAT + N_CAT * 2 + (self.n_core + 1) * 2 + 40 + N_REASON + 1 + NG + T * TGT
+        self.cand_dim = N_CMD + (self.n_core + 1) + 1 + 8 + 1 + 1
 
     def inventory(self, o):
         """{item id: count} of the pack (the observation stores count / 64)."""
@@ -56,7 +62,26 @@ class Featurizer:
                 out["#planks"] = out.get("#planks", 0) + n
         return out
 
-    def ctx(self, o):
+    @staticmethod
+    def targets(o, rel):
+        """The T nearest scanned cells of the groups in `rel` (indices into GROUPS) as rows [dx, dy, dz, dist, present, group one-hot], nearest first, and the group of the nearest.
+        Only what the router called relevant is shown: the expert cannot see (or be distracted by) the other groups."""
+        out = np.zeros((T, TGT), dtype=np.float32)
+        sc = o.get("scan")
+        if not rel or sc is None:
+            return out, None
+        sc = np.asarray(sc, dtype=np.float32).reshape(NG, M, 5)
+        rows = sorted(((sc[g, m, 3], g, m) for g in rel for m in range(M) if sc[g, m, 4] > 0), key=lambda r: r[0])[:T]
+        for i, (_, g, m) in enumerate(rows):
+            out[i, :5] = sc[g, m]
+            out[i, 5 + g] = 1.0
+        return out, (rows[0][1] if rows else None)
+
+    def ctx(self, o, rel=()):
+        tg, _ = self.targets(o, rel)
+        relv = np.zeros(NG, dtype=np.float32)
+        for g in rel:
+            relv[g] = 1.0
         inv = np.zeros(self.n_core + 1, dtype=np.float32)
         logs = planks = 0
         for i, n in self.inventory(o).items():
@@ -88,10 +113,10 @@ class Featurizer:
         reason[min(int(o["last_reason"]), N_REASON - 1)] = 1.0
         dt = np.array([min(float(o["dt_ticks"]) / 100.0, 5.0)], dtype=np.float32)
         return np.concatenate([np.asarray(o["self"], dtype=np.float32), np.asarray(o["clock"], dtype=np.float32), inv, tot, hist.reshape(-1),
-                               cat_cnt, cat_min, item_cnt, item_min, ent, reason, dt]).astype(np.float32)
+                               cat_cnt, cat_min, item_cnt, item_min, ent, reason, dt, relv, tg.reshape(-1)]).astype(np.float32)
 
-    def cands(self, o):
-        """(cand [K, cand_dim], mask [K]) of an observation."""
+    def cands(self, o, rel=()):
+        """(cand [K, cand_dim], mask [K]) of an observation. The last column is the progress of each command toward the nearest relevant target (blocks / 16, signed)."""
         cmd = np.asarray(o["cand_cmd"], dtype=np.int64)
         item = np.asarray(o["cand_item"], dtype=np.int64)
         mask = np.asarray(o["cand_mask"], dtype=bool) & (cmd > 0)
@@ -103,6 +128,11 @@ class Featurizer:
         out[:, base + 1:base + 9] = np.asarray(o["cand_feat"], dtype=np.float32)
         have = self.inventory(o)
         out[:, base + 9] = [min(have.get(int(i), 0) / 64.0, 1.0) if i else 0.0 for i in item]
+        cs = o.get("cand_scan")
+        if cs is not None and rel:
+            _, g = self.targets(o, rel)
+            if g is not None:
+                out[:, base + 10] = np.asarray(cs, dtype=np.float32)[:, g]
         out[~mask] = 0.0
         return out, mask
 

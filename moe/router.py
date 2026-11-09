@@ -12,21 +12,32 @@ from . import catalog
 from .rules import DONE, Rules
 
 
+SCAN = ("log", "coal", "iron")        # groups whose distance is a router input (what lies within 4 chunks, hidden or not)
+NONE = 65.0
+
+
 class Space:
-    """Feature layout: counts of the catalogue items + #log + #planks, one-hot goal (over the experts' items), goal amount."""
+    """Feature layout: counts of the catalogue items + #log + #planks, one-hot goal (over the experts' items), goal amount, blocks to the nearest log / coal / iron
+    (65 = none within 4 chunks), calls of the last expert without progress (`stalls`)."""
     def __init__(self, cat):
         self.cat = cat
         self.items = list(cat["items"]) + ["#log", "#planks"]
-        self.goals = [e["makes"] for e in cat["experts"]]
+        self.goals = [e["makes"] for e in cat["experts"] if e.get("kind", "item") == "item"]
         self.classes = [e["id"] for e in cat["experts"]] + [DONE]
-        self.dim = len(self.items) + len(self.goals) + 1
+        self.dim = len(self.items) + len(self.goals) + 1 + len(SCAN) + 1
 
-    def vector(self, inv, goal, amount):
+    def vector(self, inv, goal, amount, info=None):
         x = np.zeros(self.dim, dtype=np.float32)
         for i, n in enumerate(self.items):
             x[i] = min(inv.get(n, 0), 64)
         x[len(self.items) + self.goals.index(goal)] = 1.0
-        x[-1] = amount
+        o = len(self.items) + len(self.goals)
+        x[o] = amount
+        info = info or {}
+        for i, g in enumerate(SCAN):
+            d = info.get("dist", {}).get(g)
+            x[o + 1 + i] = NONE if d is None else min(d, 64.0)
+        x[-1] = info.get("stalls", 0)
         return x
 
 
@@ -39,7 +50,7 @@ def _with_groups(inv):
 
 def sample(cat, rules, rng, n):
     """n (inventory, goal, amount, label) tuples from four kinds of states."""
-    ex = cat["experts"]
+    ex = [e for e in cat["experts"] if e.get("kind", "item") == "item"]
     goals = [(e["makes"], max(e["goal"]["have"][e["makes"]], 1)) for e in ex]
     out = []
     for i in range(n):
@@ -71,7 +82,8 @@ def sample(cat, rules, rng, n):
         else:
             g, a = goals[int(rng.integers(len(goals)))]
             a = max(a + int(rng.integers(0, 2)) * a, 1)
-        out.append((inv, g, a, rules.next(g, a, inv)))
+        info = {"dist": {s: (None if rng.random() < 0.2 else float(np.exp(rng.uniform(0, np.log(64))))) for s in SCAN}, "stalls": int(rng.choice([0, 0, 0, 0, 1, 2, 3]))}
+        out.append((inv, g, a, info, rules.route(g, a, inv, info)[0]))
     return out
 
 
@@ -84,7 +96,7 @@ class GBRouter:
         self.booster = None
 
     def matrix(self, rows):
-        return np.stack([self.space.vector(i, g, a) for i, g, a, _ in rows]), np.array([self.space.classes.index(r[3]) for r in rows])
+        return np.stack([self.space.vector(i, g, a, f) for i, g, a, f, _ in rows]), np.array([self.space.classes.index(r[4]) for r in rows])
 
     def fit(self, rows, rounds=80, threads=2):         # LightGBM's multiclass objective diverges at learning rate 0.3 (train accuracy 0.34), 0.1 is stable
         x, y = self.matrix(rows)
@@ -111,10 +123,12 @@ class GBRouter:
         x, _ = self.matrix(rows)
         return np.argmax(self.proba(x), axis=1)
 
-    def route(self, goal, amount, inv):
-        """Expert id (or DONE) for a pack; `inv` is a named inventory with #log / #planks sums."""
-        p = self.proba(self.space.vector(inv, goal, amount)[None, :])
-        return self.space.classes[int(np.argmax(p[0]))]
+    def route(self, goal, amount, inv, info=None):
+        """(expert id or DONE, scan groups shown to it) for a pack and what lies around; `inv` is a named inventory with #log / #planks sums.
+        The id is the model's; which groups the expert sees is the catalogue's mapping of that id (the router judges what is related by choosing the expert)."""
+        p = self.proba(self.space.vector(inv, goal, amount, info)[None, :])
+        e = self.space.classes[int(np.argmax(p[0]))]
+        return e, self.rules.relevance(e, goal, amount, inv)
 
     def save(self, path):
         if self.kind == "xgb":
@@ -140,11 +154,11 @@ class GBRouter:
 def evaluate(router, rows):
     """Accuracy on held-out rows (all, and per kind of row), mean single-call latency in microseconds, and the model file size is the caller's."""
     pred = router.predict_rows(rows)
-    truth = np.array([router.space.classes.index(r[3]) for r in rows])
+    truth = np.array([router.space.classes.index(r[4]) for r in rows])
     ok = pred == truth
     by_kind = {f"kind{k}": float(ok[k::4].mean()) for k in range(4)}
     t0 = time.perf_counter()
-    for inv, g, a, _ in rows[:300]:
-        router.route(g, a, inv)
+    for inv, g, a, f, _ in rows[:300]:
+        router.route(g, a, inv, f)
     us = (time.perf_counter() - t0) / 300 * 1e6
     return {"accuracy": float(ok.mean()), "n": len(rows), **by_kind, "latency_us": round(us, 1)}
