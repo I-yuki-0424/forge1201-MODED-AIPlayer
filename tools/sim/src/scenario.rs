@@ -15,11 +15,12 @@ struct Place { id: String, block: u16, size: (u32, u32), buried: bool, depth: (i
 /// When an episode ends before the days run out (per-goal training of one expert, docs/proposed/MOE-v1.md): all of `have` held and the progress
 /// `entry` reached = "success"; a death with `die` = "died"; `max_steps` commands or `max_ticks` game ticks = "timeout".
 #[derive(Debug)]
-pub struct End { have: Vec<(String, u32)>, entry: Option<String>, max_steps: u32, max_ticks: i64, die: bool }
+pub struct End { have: Vec<(String, u32)>, entry: Option<String>, max_steps: u32, max_ticks: i64, die: bool, reach: Option<f64> }
 #[derive(Debug)]
 pub struct Scenario {
     pub id: String, kit: Vec<(String, (u32, u32))>, kit_on_death: bool, hostiles: f64, craft_slots: Option<usize>, place: Vec<Place>,
     pub score: Option<HashSet<String>>, pub pre_done: PreDone, pub weights: Vec<(String, f64)>, end: Option<End>,
+    scan: bool, waypoint: Option<((f64, f64), (f64, f64), u32, Option<(i32, i32)>)>, trap: Option<((i32, i32), bool)>,
 }
 
 /// Names in `end.have` that stand for a family of items (wood comes in many species): `#log` = every *_log, `#planks` = every *_planks.
@@ -45,7 +46,7 @@ impl Scenario {
         Scenario::parse(&j, d, entries)
     }
     pub fn parse(j: &J, d: &Data, entries: &[String]) -> Result<Scenario, String> {
-        keys(j, &["v", "id", "doc", "kit", "on_death", "hostiles", "craft_slots", "place", "reward", "end"], "the scenario")?;
+        keys(j, &["v", "id", "doc", "kit", "on_death", "hostiles", "craft_slots", "place", "reward", "end", "scan", "waypoint", "trap"], "the scenario")?;
         let id = j.get("id").s().to_string();
         if id.is_empty() || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') { return Err("scenario: `id` is required ([A-Za-z0-9_-])".into()); }
         let mut kit = vec![];
@@ -73,6 +74,27 @@ impl Scenario {
             let bearing = range(p.get("bearing"), (-180.0, 180.0), "bearing")?;
             place.push(Place { id: p.get("id").s().to_string(), block, size: (size.0 as u32, size.1 as u32), buried, depth: (depth.0 as i32, depth.1 as i32), dist, bearing });
         }
+        // MOE-v2: `scan` = the observation carries the target scan (scan.rs); `waypoint` = a cell the bot has to reach, `dist` blocks away on foot (a movement
+        // expert's task); `trap` = the bot starts `depth` blocks under the surface in a shaft or a closed pocket and the waypoint is the cell it started from.
+        let scan = j.get("scan").b();
+        let waypoint = if j.get("waypoint").is_null() { None } else {
+            keys(j.get("waypoint"), &["dist", "bearing", "detour", "depth"], "waypoint")?;
+            let dist = range(j.get("waypoint").get("dist"), (8.0, 32.0), "waypoint dist")?;
+            if dist.0 < 3.0 { return Err("scenario: waypoint dist must be >= 3".into()); }
+            // `detour` N: the waypoint is the one of N candidates whose walk is the longest compared with the straight line (ponds, cliffs and hills in the way)
+            let detour = if j.get("waypoint").get("detour").is_null() { 1 } else { j.get("waypoint").get("detour").i().max(1) as u32 };
+            // `depth` [lo, hi]: the waypoint lies that far under the walkable cell, inside the rock: the way there is dug
+            let depth = if j.get("waypoint").get("depth").is_null() { None } else { let r = range(j.get("waypoint").get("depth"), (3.0, 8.0), "waypoint depth")?; if r.0 < 2.0 { return Err("scenario: waypoint depth must be >= 2".into()); } Some((r.0 as i32, r.1 as i32)) };
+            Some((dist, range(j.get("waypoint").get("bearing"), (-180.0, 180.0), "waypoint bearing")?, detour, depth))
+        };
+        let trap = if j.get("trap").is_null() { None } else {
+            keys(j.get("trap"), &["depth", "kind"], "trap")?;
+            let depth = range(j.get("trap").get("depth"), (3.0, 8.0), "trap depth")?;
+            if depth.0 < 3.0 || depth.1 > 40.0 { return Err("scenario: trap depth must be within 3..40".into()); }
+            let pocket = match j.get("trap").get("kind").s() { "" | "shaft" => false, "pocket" => true, o => return Err(format!("scenario: trap kind `{}` (shaft|pocket)", o)) };
+            Some(((depth.0 as i32, depth.1 as i32), pocket))
+        };
+        if waypoint.is_some() && trap.is_some() { return Err("scenario: `waypoint` and `trap` cannot be combined (the trap sets the waypoint)".into()); }
         let r = j.get("reward");
         if !r.is_null() { keys(r, &["score", "pre_done", "weights"], "reward")?; }
         let known = |l: &[String]| -> Result<(), String> { for x in l { if !entries.contains(x) { return Err(format!("scenario: unknown progress entry `{}`", x)); } } Ok(()) };
@@ -86,7 +108,7 @@ impl Scenario {
         }
         let e = j.get("end");
         let end = if e.is_null() { None } else {
-            keys(e, &["have", "entry", "max_steps", "max_ticks", "die"], "end")?;
+            keys(e, &["have", "entry", "max_steps", "max_ticks", "die", "reach"], "end")?;
             let mut have = vec![];
             for (k, v) in e.get("have").obj() {
                 if d.item(k) == 0 && !GROUPS.contains(&k.as_str()) { return Err(format!("scenario: unknown item `{}` in end.have", k)); }
@@ -94,18 +116,21 @@ impl Scenario {
                 have.push((k.clone(), v.i() as u32));
             }
             let entry = if e.get("entry").is_null() { None } else { let x = e.get("entry").s().to_string(); if !entries.contains(&x) { return Err(format!("scenario: unknown progress entry `{}` in end.entry", x)); } Some(x) };
-            if have.is_empty() && entry.is_none() { return Err("scenario: `end` needs `have` or `entry` (what counts as success)".into()); }
+            let reach = if e.get("reach").is_null() { None } else { Some(e.get("reach").f()) };
+            if reach.is_some() && waypoint.is_none() && trap.is_none() { return Err("scenario: end.reach needs a `waypoint` or a `trap`".into()); }
+            if have.is_empty() && entry.is_none() && reach.is_none() { return Err("scenario: `end` needs `have`, `entry` or `reach` (what counts as success)".into()); }
             let (max_steps, max_ticks) = (e.get("max_steps").i().max(0) as u32, e.get("max_ticks").i().max(0));
             if max_steps == 0 && max_ticks == 0 { return Err("scenario: `end` needs max_steps or max_ticks (an episode that cannot fail would never end)".into()); }
-            Some(End { have, entry, max_steps, max_ticks, die: e.get("die").b() })
+            Some(End { have, entry, max_steps, max_ticks, die: e.get("die").b(), reach })
         };
-        Ok(Scenario { id, kit, kit_on_death, hostiles, craft_slots, place, score, pre_done, weights, end })
+        Ok(Scenario { id, kit, kit_on_death, hostiles, craft_slots, place, score, pre_done, weights, end, scan, waypoint, trap })
     }
 
     /// How the episode ends now, if it does: "success", "died", "timeout" or "" (goes on). `steps` = commands run this episode, `reached` = progress entries reached.
     pub fn ended(&self, s: &Sim, reached: &HashSet<String>, steps: u32, died: bool) -> &'static str {
         let e = match &self.end { Some(e) => e, None => return "" };
-        if e.have.iter().all(|(n, c)| held_n(s, n) >= *c) && e.entry.as_ref().map_or(true, |x| reached.contains(x)) { return "success"; }
+        let there = e.reach.map_or(true, |r| s.way.map_or(false, |w| { let d = |a: i32, b: i32| ((a - b) as f64).powi(2); (d(w[0], s.pos[0]) + d(w[1], s.pos[1]) + d(w[2], s.pos[2])).sqrt() <= r }));
+        if e.have.iter().all(|(n, c)| held_n(s, n) >= *c) && e.entry.as_ref().map_or(true, |x| reached.contains(x)) && there { return "success"; }
         if died && e.die { return "died"; }
         if (e.max_steps > 0 && steps >= e.max_steps) || (e.max_ticks > 0 && s.tick >= e.max_ticks) { return "timeout"; }
         ""
@@ -136,18 +161,53 @@ impl Scenario {
         }
     }
     /// After a death: the scenario's kit again if it says so (the world edits stay as they are).
-    pub fn respawned(&self, s: &mut Sim) { s.hostile_scale = self.hostiles; s.craft_slots = self.craft_slots; if self.kit_on_death { self.give_kit(s, None); } }
+    pub fn respawned(&self, s: &mut Sim) { s.hostile_scale = self.hostiles; s.craft_slots = self.craft_slots; s.scan_on = self.scan; if self.kit_on_death { self.give_kit(s, None); } }
 
     /// Set the episode up on `s` (standing at its start): kit, mob level, a random heading, the placements. Err = this start cannot
     /// host the scenario (nothing reachable at that distance); the caller tries another site. Returns the record for events.jsonl.
     pub fn start(&self, s: &mut Sim, rng: &mut Rng) -> Result<J, String> {
-        s.hostile_scale = self.hostiles; s.craft_slots = self.craft_slots;
+        s.hostile_scale = self.hostiles; s.craft_slots = self.craft_slots; s.scan_on = self.scan; s.way = None;
         s.yaw = rng.f() * std::f64::consts::TAU;
         self.give_kit(s, Some(rng));
         let st = s.pos;
-        let far = self.place.iter().map(|p| p.dist.1).fold(0.0, f64::max);
-        let walk: HashSet<[i32; 3]> = s.flood_n(80_000, far.ceil() as i32 + 6).nodes.into_iter().collect();
+        let far = self.place.iter().map(|p| p.dist.1).chain(self.waypoint.iter().map(|w| w.0 .1)).fold(0.0, f64::max);
+        let fl = s.flood_n(80_000, far.ceil() as i32 + 6);
+        let cost = fl.dist;
+        let walk: HashSet<[i32; 3]> = fl.nodes.into_iter().collect();
         let mut rec = vec![];
+        if let Some((dist, bearing, detour, depth)) = self.waypoint {
+            let mut best: Option<([i32; 3], f64)> = None;
+            let (mut found, mut tries) = (0, 0);
+            while found < detour && tries < 400 {
+                tries += 1;
+                let d = dist.0 + rng.f() * (dist.1 - dist.0);
+                let a = s.yaw + (bearing.0 + rng.f() * (bearing.1 - bearing.0)).to_radians();
+                let (x, z) = (st[0] + (-a.sin() * d).round() as i32, st[2] + (-a.cos() * d).round() as i32);
+                let y = match s.find_stand(x, z, st[1]) { Some(y) => y, None => continue };
+                if !walk.contains(&[x, y, z]) || s.name(x, y - 1, z).contains("water") || s.name(x, y - 1, z).contains("lava") { continue; }
+                let cell = match depth { None => [x, y, z], Some(dr) => { let c = [x, y - rng_in(rng, dr), z]; if s.kind(c[0], c[1], c[2]) != Kind::Solid || s.name(c[0], c[1], c[2]) == "bedrock" { continue; } c } };
+                found += 1;
+                let ratio = *cost.get(&[x, y, z]).unwrap_or(&0.0) as f64 / d.max(1.0);
+                if best.map_or(true, |b| ratio > b.1) { best = Some((cell, ratio)); }
+            }
+            s.way = Some(best.ok_or_else(|| format!("no walkable waypoint at distance {:?}", dist))?.0);
+        }
+        if let Some(((dlo, dhi), pocket)) = self.trap {
+            let depth = rng_in(rng, (dlo, dhi));
+            let stone = s.d.bid("stone");
+            let air = s.d.air;
+            let (x, z, bottom) = (st[0], st[2], st[1] - depth);
+            let solid = |s: &Sim, x: i32, y: i32, z: i32| s.kind(x, y, z) == Kind::Solid && s.name(x, y, z) != "bedrock";
+            let cells: Vec<i32> = if pocket { vec![bottom, bottom + 1] } else { (bottom..st[1]).collect() };
+            for &cy in &cells {
+                s.set(x, cy, z, air);
+                for (dx, dz) in [(1, 0), (-1, 0), (0, 1), (0, -1)] { if !solid(s, x + dx, cy, z + dz) { s.set(x + dx, cy, z + dz, stone); } }
+            }
+            if !solid(s, x, bottom - 1, z) { s.set(x, bottom - 1, z, stone); }
+            if pocket && !solid(s, x, bottom + 2, z) { s.set(x, bottom + 2, z, stone); }
+            s.way = Some(st);
+            s.pos = [x, bottom, z]; s.invalidate();
+        }
         for p in &self.place {
             let cells = (0..80).find_map(|_| self.try_place(s, rng, &walk, p)).ok_or_else(|| format!("no room for `{}` at distance {:?}", p.id, p.dist))?;
             for c in &cells { s.set(c[0], c[1], c[2], p.block); }
@@ -450,5 +510,122 @@ mod tests {
         assert_eq!(p, vec!["craft_iron_pickaxe", "eat_food"]);
         let st = sc.stages(&json::parse(r#"{"days":{"survival":1,"death":1,"progress":1,"invalid":1}}"#).unwrap());
         assert_eq!(st.dump(), r#"{"days":{"survival":0,"death":0,"progress":1,"invalid":0}}"#);
+    }
+
+    // ---- docs/proposed/MOE-v2.md: target scan, waypoint, trap ----
+    fn d3(a: [i32; 3], b: [i32; 3]) -> f64 { (((a[0] - b[0]) as f64).powi(2) + ((a[1] - b[1]) as f64).powi(2) + ((a[2] - b[2]) as f64).powi(2)).sqrt() }
+
+    #[test]
+    fn the_scan_finds_ore_far_beyond_the_view_and_offers_a_move_toward_it() {
+        let d = Rc::new(Data::load());
+        let sc = scn(r#"{"id":"a","kit":{"stone_pickaxe":1},"scan":true,"hostiles":0,"place":[{"id":"i","block":"iron_ore","size":3,"dist":[30,50]}]}"#, &d).unwrap();
+        let mut s = flat_sized(11);
+        sc.start(&mut s, &mut Rng(5)).unwrap();
+        let (v, first) = crate::scan::scan(&s);
+        assert_eq!(v.len(), 5 * crate::scan::M * 5);
+        let t = first[2].expect("iron is in the scan");
+        let dd = d3(s.pos, t);
+        assert!((29.0..=52.0).contains(&dd), "nearest iron at {}", dd);
+        assert!(first[1].is_none() && first[0].is_none(), "no coal, no log in a flat stone world");
+        assert_eq!(first[4].map(|x| x[1]), Some(s.pos[1]), "sky = the standing height of the surface");
+        let c = crate::obs::candidates(&mut s);
+        let far: Vec<_> = c.iter().filter(|c| c.feat[7] == 1.0 && matches!(c.args, crate::obs::Args::Move(_))).collect();
+        assert!(far.iter().any(|c| c.item == s.d.item("iron_ore")), "a scan move toward the iron");
+        let q = match far.iter().find(|c| c.item == s.d.item("iron_ore")).unwrap().args { crate::obs::Args::Move(q) => q, _ => unreachable!() };
+        assert!(d3(q, t) < dd - 5.0, "the move gets closer: {} -> {}", dd, d3(q, t));
+        let o = crate::obs::observe(&mut s, &c, &[0.0; 4], (0, 0), [0.0; 3]);
+        assert_eq!(o.get("scan").arr().len(), 75);
+        assert_eq!(o.get("cand_scan").arr().len(), crate::obs::K);
+        let ci = c.iter().position(|x| x.feat[7] == 1.0 && x.item == s.d.item("iron_ore")).unwrap();
+        assert!(o.get("cand_scan").arr()[ci].arr()[2].f() > 0.0, "positive progress toward the iron");
+    }
+
+    #[test]
+    fn without_the_scan_key_nothing_changes() {
+        let d = Rc::new(Data::load());
+        let sc = scn(r#"{"id":"a","kit":{"stone_pickaxe":1},"hostiles":0,"place":[{"id":"i","block":"iron_ore","size":3,"dist":[30,50]}]}"#, &d).unwrap();
+        let mut s = flat_sized(11);
+        sc.start(&mut s, &mut Rng(5)).unwrap();
+        let c = crate::obs::candidates(&mut s);
+        assert!(c.iter().all(|c| c.feat[7] == 0.0));
+        let o = crate::obs::observe(&mut s, &c, &[0.0; 4], (0, 0), [0.0; 3]);
+        assert!(o.get("scan").is_null() && o.get("cand_scan").is_null());
+    }
+
+    #[test]
+    fn a_waypoint_is_reachable_on_foot_and_reaching_it_ends_the_episode() {
+        let d = Rc::new(Data::load());
+        let sc = scn(r#"{"id":"w","scan":true,"hostiles":0,"waypoint":{"dist":[20,40]},"end":{"reach":3,"max_steps":60}}"#, &d).unwrap();
+        for seed in 1..6u64 {
+            let mut s = flat_sized(11);
+            sc.start(&mut s, &mut Rng(seed)).unwrap();
+            let w = s.way.expect("waypoint");
+            let dd = d3(s.pos, w);
+            assert!((19.0..=41.0).contains(&dd), "distance {}", dd);
+            assert_eq!(sc.ended(&s, &HashSet::new(), 1, false), "");
+            s.pos = [w[0] + 2, w[1], w[2]];
+            assert_eq!(sc.ended(&s, &HashSet::new(), 1, false), "success");
+            assert_eq!(sc.ended(&s, &HashSet::new(), 60, false), "success", "success wins over the step limit");
+        }
+        assert!(scn(r#"{"id":"w","end":{"reach":3,"max_steps":9}}"#, &d).unwrap_err().contains("waypoint"));
+        assert!(scn(r#"{"id":"w","waypoint":{},"trap":{}}"#, &d).is_err());
+    }
+
+    #[test]
+    fn a_buried_waypoint_lies_in_the_rock_under_a_walkable_cell() {
+        let d = Rc::new(Data::load());
+        let sc = scn(r#"{"id":"w","scan":true,"hostiles":0,"waypoint":{"dist":[6,20],"depth":[4,6]},"end":{"reach":3,"max_steps":60}}"#, &d).unwrap();
+        for seed in 1..6u64 {
+            let mut s = flat_sized(9);
+            sc.start(&mut s, &mut Rng(seed)).unwrap();
+            let w = s.way.unwrap();
+            assert!((s.pos[1] - w[1]) >= 4 && (s.pos[1] - w[1]) <= 6, "depth {} below {}", s.pos[1] - w[1], s.pos[1]);
+            assert_eq!(s.kind(w[0], w[1], w[2]), crate::data::Kind::Solid);
+            assert_eq!(crate::scan::scan(&s).1[3], Some(w));
+        }
+        assert!(scn(r#"{"id":"w","waypoint":{"depth":1}}"#, &d).is_err());
+    }
+
+    #[test]
+    fn a_trap_buries_the_bot_and_the_way_out_is_the_cell_it_started_from() {
+        let d = Rc::new(Data::load());
+        for kind in ["shaft", "pocket"] {
+            let sc = scn(&format!(r#"{{"id":"t","kit":{{"stone_pickaxe":1}},"scan":true,"hostiles":0,"trap":{{"depth":[5,5],"kind":"{}"}},"end":{{"reach":2.5,"max_steps":80}}}}"#, kind), &d).unwrap();
+            let mut s = flat_sized(9);
+            let top = s.pos;
+            sc.start(&mut s, &mut Rng(2)).unwrap();
+            assert_eq!(s.pos, [top[0], top[1] - 5, top[2]], "{}", kind);
+            assert_eq!(s.way, Some(top));
+            assert!(s.reach().nodes.len() <= 2, "{}: walked out? {} cells", kind, s.reach().nodes.len());
+            let sky = crate::scan::scan(&s).1[4];
+            let sk = sky.expect("sky");
+            assert!(sk[1] == top[1] && (sk[0] - top[0]).abs() <= 2 && (sk[2] - top[2]).abs() <= 2, "{}: the sky target is the surface beside/above: {:?} vs {:?}", kind, sk, top);
+            assert_eq!(sc.ended(&s, &HashSet::new(), 1, false), "");
+            s.pos = top;
+            assert_eq!(sc.ended(&s, &HashSet::new(), 1, false), "success");
+        }
+    }
+
+    #[test]
+    fn the_index_finds_natural_blocks_and_forgets_the_mined_ones() {
+        let d = Rc::new(Data::load());
+        let (stone, air, ore) = (d.bid("stone"), d.air, d.bid("coal_ore"));
+        let mut s = flat_sized(9);
+        // one coal block in the tile itself (not an edit): the index must carry it
+        let w = 9;
+        let mut chunks: Vec<Option<crate::tile::Chunk>> = (0..w * w).map(|_| Some(crate::tile::Chunk { secs: (0..crate::tile::SECS).map(|i| crate::tile::Section::Uniform(if i < 8 { stone } else { air })).collect() })).collect();
+        let c = chunks[0].as_mut().unwrap();
+        let mut raw = vec![stone; 4096]; raw[(3 << 8) | (4 << 4) | 5] = ore;        // y = -64 + 3*16... section 3 covers y -16..-1: local y 3 => -13
+        c.secs[3] = crate::tile::Section::Raw(raw);
+        s.tile = Rc::new(crate::tile::Tile { name: "natural-coal".into(), site: s.tile.site, cx0: 0, cz0: 0, w, h: w, chunks });
+        let p = [5, -64 + 48 + 3, 4];
+        assert_eq!(s.name(p[0], p[1], p[2]), "coal_ore");
+        s.pos = [10, 64, 10]; s.scan_on = true;
+        assert_eq!(crate::scan::scan(&s).1[1], Some(p));
+        s.set(p[0], p[1], p[2], air);
+        assert_eq!(crate::scan::scan(&s).1[1], None, "a mined block is gone from the scan");
+        s.pos = [10 + 16 * 6, 64, 10];
+        s.set(p[0], p[1], p[2], ore);
+        assert_eq!(crate::scan::scan(&s).1[1], None, "beyond 4 chunks nothing is reported");
     }
 }

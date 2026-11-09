@@ -1,4 +1,4 @@
-mod anvil; mod data; mod export; mod inflate; mod json; mod mobs; mod nbt; mod obs; mod run; mod scenario; mod sim; mod tile;
+mod anvil; mod data; mod export; mod inflate; mod json; mod mobs; mod nbt; mod obs; mod run; mod scan; mod scenario; mod sim; mod tile;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();

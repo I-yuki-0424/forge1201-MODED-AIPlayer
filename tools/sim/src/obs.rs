@@ -95,6 +95,24 @@ pub fn candidates(s: &mut Sim) -> Vec<Cand> {
         }
         add(&mut parts, "move_to", approach);
     }
+    // scan moves (docs/proposed/MOE-v2.md): toward the nearest scanned target of each group, wherever it is within 4 chunks: the reachable cell nearest to it, if that
+    // is closer than here. A straight-line hill climb, not a path: it ends in cliffs and ponds, which is what the movement expert has to learn to get round.
+    if s.scan_on {
+        let (_, first) = crate::scan::scan(s);
+        let mut far = vec![];
+        for (g, t) in first.iter().enumerate() {
+            let t = match t { Some(t) => *t, None => continue };
+            let here = ((t[0] - fx) as f64).powi(2) + ((t[1] - fy) as f64).powi(2) + ((t[2] - fz) as f64).powi(2);
+            let mut best: Option<([i32; 3], f64)> = None;
+            for n in &nodes { let d = ((t[0] - n[0]) as f64).powi(2) + ((t[1] - n[1]) as f64).powi(2) + ((t[2] - n[2]) as f64).powi(2); if best.map_or(true, |b| d < b.1) { best = Some((*n, d)); } }
+            if let Some((q, d)) = best {
+                if d + 1.0 > here { continue; }
+                let mut f = feat(s, Some([q[0] as f64 + 0.5, q[1] as f64, q[2] as f64 + 0.5]), 0); f[7] = 1.0;
+                far.push(Cand { cmd: cmd_ix("move_to"), args: Args::Move(q), item: if crate::scan::REP[g].is_empty() { 0 } else { s.d.item(crate::scan::REP[g]) }, ent: 0, feat: f });
+            }
+        }
+        add(&mut parts, "move_to", far);
+    }
 
     // mine
     let mut found: Vec<(String, i32, [i32; 3], i32)> = vec![];
@@ -282,11 +300,25 @@ pub fn observe(s: &mut Sim, cands: &[Cand], progress: &[f64], last: (usize, i64)
     let pad = |v: Vec<f64>| -> J { let mut v = v; v.resize(K, 0.0); J::nums(&v) };
     let mut feats: Vec<J> = cands.iter().map(|c| J::nums(&c.feat)).collect();
     feats.resize(K, J::nums(&[0.0; 8]));
-    J::o(vec![
+    let mut extra: Vec<(&str, J)> = vec![];
+    if s.scan_on {
+        let (sc, first) = crate::scan::scan(s);
+        let from = s.pos;
+        let rows: Vec<J> = (0..K).map(|i| match cands.get(i).map(|c| &c.args) {
+            Some(Args::Move(q)) => J::nums(&crate::scan::progress(&first, from, *q)),
+            Some(Args::Tunnel(d, dy)) => { let (_, to, _) = Sim::tunnel_cells(from, d, *dy); J::nums(&crate::scan::progress(&first, from, to)) }
+            _ => J::nums(&vec![0.0; crate::scan::GROUPS.len()]),
+        }).collect();
+        extra.push(("scan", J::nums(&sc)));
+        extra.push(("cand_scan", J::Arr(rows)));
+    }
+    let mut fields = vec![
         ("grid", J::nums(&grid)), ("self", J::nums(&selfv)), ("inv_item", J::nums(&inv_item)), ("inv_count", J::nums(&inv_count)), ("ent_type", J::Arr(et)), ("ent_feat", J::Arr(ef)),
         ("progress", J::nums(&progress.iter().map(|x| r4(*x)).collect::<Vec<_>>())), ("view_cat", J::nums(&vc)), ("view_item", J::nums(&vi)), ("view_dist", J::nums(&vd)), ("killed", J::nums(&kills)),
         ("clock", J::nums(&[r4(clock[0].max(0.0).min(1.0)), r4(clock[1]), r4(clock[2])])),
         ("cand_cmd", pad(cands.iter().map(|c| c.cmd as f64).collect())), ("cand_item", pad(cands.iter().map(|c| c.item as f64).collect())), ("cand_ent", pad(cands.iter().map(|c| c.ent as f64).collect())),
         ("cand_feat", J::Arr(feats)), ("cand_mask", J::Arr((0..K).map(|i| J::Bool(i < cands.len())).collect())), ("last_reason", J::n(last.0 as f64)), ("dt_ticks", J::n(last.1 as f64)),
-    ])
+    ];
+    fields.extend(extra);
+    J::o(fields)
 }
