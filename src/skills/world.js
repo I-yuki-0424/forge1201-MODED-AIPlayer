@@ -54,6 +54,9 @@ function shapesOf(block) {
     }
     if (/torch$/.test(n)) return [[0.375, 0, 0.375, 0.625, 0.625, 0.625]];
     if (/fence_gate$/.test(n)) return [[0, 0, 0.375, 1, 1, 0.625], [0.375, 0, 0, 0.625, 1, 1]];
+    // A cobweb has no collision box but a full-cube outline, as in the game: without it nothing can be aimed at it and every unit on a cobweb ended `unreachable: reach block`, sword or not
+    // (live pit 2026-11-09: cobwebs in the mineshafts at y 39-43, 26,000 such records). Only this one block: the grass-like blocks stay transparent on purpose.
+    if (n === 'cobweb') return [[0, 0, 0, 1, 1, 1]];
     return [];
 }
 

@@ -73,7 +73,9 @@ function dropOf(bot, block) {
     return id === null || id === undefined ? null : bot.registry.items[id]?.name || null;
 }
 
-const BLIND_REACH = 5.0;      // the server refuses digs beyond 6 blocks from the eye; stay well inside
+/** Blocks whose drop is worth nothing here and that a bare hand breaks anyway: never an ore (a hand would destroy the drop). Closed list. */
+const HAND_OK = new Set(['cobweb']);
+const BLIND_REACH = 5.0;     // the server refuses digs beyond 6 blocks from the eye; stay well inside
 
 /** The face of the block at `c` that looks toward `eye` (protocol numbering). */
 function faceToward(eye, c) {
@@ -97,7 +99,9 @@ async function mine(ctx, { x, y, z, collect = true, blind = false, hand = false 
     if (fixture && !fixtures.isOwn(bot, cell) && fixture(b0.name, x, y, z)) throw new SkillError('protected', { block: b0.name, target: cell });
     // `hand` (work layer only, never in the action schema): break the block with whatever is in the hand when no tool fits. Slow, no drop that needs the tool,
     // but it takes away a block the bot placed itself (the pillar).
-    const tool = bestTool(bot, b0) || (hand ? (bestTool(bot, b0, { ignoreWear: true }) || { name: null }) : null);        // a worn-out tool still breaks a block of its own pillar in a moment; bare hands take 7 s per stone
+    // A worn-out tool still breaks a block of its own pillar in a moment; bare hands take 7 s per stone. A cobweb is broken by hand too (20 s, no string): only a sword or shears make it
+    // drop, and a bot that waited for one stood still for good when no container held a sword and no iron was at hand (live pit 2026-11-09, 5 cobwebs left, 978 missing_tool records).
+    const tool = bestTool(bot, b0) || (hand || HAND_OK.has(b0.name) ? (bestTool(bot, b0, { ignoreWear: true }) || { name: null }) : null);
     if (!tool) {
         const any = skillOpts.get(bot).retireWorn && bestTool(bot, b0, { ignoreWear: true });
         throw new SkillError('missing_tool', { block: b0.name, ...(any && any.name ? { worn: any.name } : {}) });
