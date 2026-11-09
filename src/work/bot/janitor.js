@@ -135,7 +135,7 @@ function inventoryOf(bot) {
  * `env`: exec(name, args), inv() -> {items, slotsFree}, here() -> feet cell {x,y,z}, w (world model).
  */
 async function maintain(env, policy) {
-    const { items, slotsFree, worn } = env.inv(), ops = plan(items, slotsFree, policy, worn || []), done = [];
+    const { items, slotsFree, worn } = env.inv(), ops = plan(items, slotsFree, policy, worn || []), done = []; let skipped = null;
     if (!ops.length) return { ok: true, done };
     // A kept tool goes into the chest that takes things (never the tools chest: nobody wants a nearly broken pickaxe handed out); with no chest it stays in the pack.
     for (const o of ops.filter((x) => x.op === 'stash')) {
@@ -189,6 +189,8 @@ async function maintain(env, policy) {
                 for (const o of g.ops) {
                     const r = await env.exec('deposit', { item: o.item, count: Math.min(o.count, 2304), x: box.x, y: box.y, z: box.z });
                     if (!r.ok && ['invalid_target', 'no_station'].includes(r.reason) && box.kind !== 'shulker') { bad.add(key); await giveUp(g, r.reason); break; }
+                    // What is wrong with ONE item (a name the action layer refuses, a stack that is gone) is no reason to leave the rest of the pack unstored: the next item is tried.
+                    if (!r.ok && ['invalid_args', 'missing_item'].includes(r.reason)) { (skipped = skipped || []).push({ item: o.item, reason: r.reason, detail: r.detail }); continue; }
                     if (!r.ok) return { ok: false, reason: r.reason, detail: r.detail, done };
                     done.push(o);
                 }
@@ -203,7 +205,8 @@ async function maintain(env, policy) {
             }
         }
     }
-    return { ok: true, done };
+    if (skipped && !done.length) return { ok: false, reason: skipped[0].reason, detail: { ...(skipped[0].detail || {}), item: skipped[0].item, skipped: skipped.length }, done };
+    return { ok: true, done, ...(skipped ? { skipped } : {}) };
 }
 
 /** A cell beside the feet with air above and a solid cell below it, for the shulker box. */

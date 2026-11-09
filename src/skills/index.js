@@ -37,8 +37,9 @@ const COMMANDS = {
     toss: { fn: toss, args: { item: 'name', count: 'count' }, ticks: 400 },
     craft: { fn: craft, args: { item: 'name', count: 'count?', ...XYZ_OPT }, allOrNone: ['x', 'y', 'z'], ticks: 1200 },
     smelt: { fn: smelt, args: { item: 'name', count: 'count?', ...XYZ_OPT }, allOrNone: ['x', 'y', 'z'], ticks: (a) => 1200 + 200 * (a.count || 1) },
-    deposit: { fn: deposit, args: { item: 'name', count: 'count', ...XYZ }, ticks: 800 },
-    withdraw: { fn: withdraw, args: { item: 'name', count: 'count', ...XYZ }, ticks: 800 },
+    // namespaced ids allowed (`create:limestone`): with the plain `name` type the pit's upkeep could not store any pack that held a mod item, and one such item stopped the whole deposit run (live pit 2026-11-09: the white Ender chest stayed empty)
+    deposit: { fn: deposit, args: { item: 'item', count: 'count', ...XYZ }, ticks: 800 },
+    withdraw: { fn: withdraw, args: { item: 'item', count: 'count', ...XYZ }, ticks: 800 },
 };
 
 /** Throws SkillError('invalid_args') unless `args` matches the command's schema exactly. */

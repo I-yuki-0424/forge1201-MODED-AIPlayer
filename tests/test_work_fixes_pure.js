@@ -68,7 +68,7 @@ const WHITE = { left: 'white', middle: 'white', right: 'white' };
         assert.strictEqual((await approach(bare, far)).reason, 'unreachable');
         assert.strictEqual(await approach(bare, far, { strict: false }), null);
         assert.strictEqual((await approach({ ...env, lift: async () => ({ ok: false, reason: 'unreachable' }) }, far)).reason, 'unreachable');
-        assert.strictEqual((await approach({ ...env, travel: async () => ({ ok: false, reason: 'stuck' }) }, { x: 120, y: 64, z: 0 })).reason, 'stuck');
+        assert.strictEqual((await approach({ ...env, lift: undefined, travel: async () => ({ ok: false, reason: 'stuck' }) }, { x: 120, y: 64, z: 0 })).reason, 'stuck');
     });
 
     await test('script take: the containers are asked in priority order (Ender first), each only once per run, the bot is brought to a chest in another layer, then the script goes on', async () => {
@@ -231,6 +231,28 @@ const WHITE = { left: 'white', middle: 'white', right: 'white' };
         const near = new Sites([{ name: 'e', x: 5, y: 64, z: 5, purpose: 'any', ender: WHITE }]);
         const dead = await endDump({ ...env, exec: async () => ({ ok: false, reason: 'died' }) }, { sites: near, freq: WHITE });
         assert.strictEqual(dead.ok, false); assert.strictEqual(dead.reason, 'died');
+    });
+
+    await test('mod items can be deposited and withdrawn (create:limestone was refused as "not a valid name" and stopped the whole upkeep); one bad item does not stop the others', async () => {
+        const { validateArgs } = require('../src/skills');
+        validateArgs('deposit', { item: 'create:limestone', count: 5, x: 1, y: 2, z: 3 }); validateArgs('withdraw', { item: 'create:zinc_ingot', count: 1, x: 1, y: 2, z: 3 });
+        assert.throws(() => validateArgs('deposit', { item: 'Create:Limestone', count: 5, x: 1, y: 2, z: 3 }), /valid/);
+        const janitor = require('../src/work/bot/janitor');
+        const sites = new Sites([{ name: 'any', x: 3, y: 64, z: 3, purpose: 'any' }]), calls = [];
+        const env = { inv: () => ({ items: [{ name: 'create:limestone', count: 64 }, { name: 'raw_iron', count: 30 }, { name: 'diamond', count: 2 }], slotsFree: 0 }), pos: () => ({ x: 0, z: 0 }), here: () => ({ x: 0, y: 64, z: 0 }), have: () => 0,
+            exec: async (name, a) => { calls.push(a.item); return a.item === 'create:limestone' ? { ok: false, reason: 'invalid_args', detail: { why: 'not a valid name' } } : { ok: true }; } };
+        const r = await janitor.maintain(env, janitor.pitPolicy({ sites: () => sites }));
+        assert.ok(r.ok, JSON.stringify(r)); assert.deepStrictEqual(calls.sort(), ['create:limestone', 'diamond', 'raw_iron']); assert.strictEqual(r.skipped.length, 1);
+        const only = await janitor.maintain({ ...env, inv: () => ({ items: [{ name: 'create:limestone', count: 64 }], slotsFree: 0 }) }, janitor.pitPolicy({ sites: () => sites }));
+        assert.strictEqual(only.ok, false); assert.strictEqual(only.reason, 'invalid_args');
+    });
+
+    await test('approach: a walk that fails far from the chest is followed by the server lift (a deep pit has no surface to walk on); a walk that died is not', async () => {
+        const calls = [];
+        const env = { here: () => ({ x: 0, y: 40, z: 0 }), travel: async () => ({ ok: false, reason: 'unreachable' }), lift: async () => { calls.push('lift'); return { ok: true }; } };
+        assert.strictEqual(await approach(env, { x: 60, y: 40, z: 0 }), null); assert.deepStrictEqual(calls, ['lift']);
+        const r = await approach({ ...env, travel: async () => ({ ok: false, reason: 'died' }) }, { x: 60, y: 40, z: 0 }); assert.strictEqual(r.reason, 'died'); assert.deepStrictEqual(calls, ['lift']);
+        assert.strictEqual((await approach({ ...env, lift: undefined }, { x: 60, y: 40, z: 0 })).reason, 'unreachable');
     });
 
     // ------------------------------------------------------------------------------------------------ service

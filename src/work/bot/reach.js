@@ -14,15 +14,21 @@ async function approach(env, chest, { why = 'to a container', strict = true } = 
     if (!env || typeof env.here !== 'function') return null;
     const h = env.here(), d = Math.hypot(chest.x - h.x, chest.z - h.z);
     if (Math.abs(chest.y - h.y) <= REACH_DY && d <= FAR) return null;
+    // Far across: a walk in legs first. Inside a deep pit the legs often fail (no surface to walk on): then the server puts the bot next to the container, as it does for another layer
+    // (the chest is inside the loaded area when it is within 4 chunks; farther, the lift finds no standable cell and says so).
+    let walked = true;
     if (d > FAR && env.travel) {
         const t = await env.travel({ x: chest.x, z: chest.z }, { near: 24 });
-        if (!t.ok) return { ok: false, reason: t.reason || 'unreachable', detail: { ...(t.detail || {}), why: `the walk to the container failed (${t.reason})`, stage: 'approach' } };
+        if (!t.ok) {
+            if (['died', 'disconnected', 'cancelled'].includes(t.reason) || !env.lift) return { ok: false, reason: t.reason || 'unreachable', detail: { ...(t.detail || {}), why: `the walk to the container failed (${t.reason})`, stage: 'approach' } };
+            walked = false;
+        }
     }
     const dy = Math.abs(chest.y - env.here().y);
-    if (dy > REACH_DY) {
+    if (dy > REACH_DY || !walked) {
         if (!env.lift) return strict ? { ok: false, reason: 'unreachable', detail: { why: `the container is ${dy} levels away and there is no way to change layer`, stage: 'approach' } } : null;      // strict: skip a chest that cannot be reached; else let the command try on foot
         const l = await env.lift({ x: chest.x, y: chest.y, z: chest.z }, { radius: 4, down: 1, up: 2, purpose: 'job', why });
-        if (!l.ok) return { ok: false, reason: l.reason || 'unreachable', detail: { ...(l.detail || {}), why: `could not get to the container ${dy} levels away (${l.reason})`, stage: 'approach' } };
+        if (!l.ok) return { ok: false, reason: l.reason || 'unreachable', detail: { ...(l.detail || {}), why: `could not get to the container (${dy} levels away; ${l.reason})`, stage: 'approach' } };
     }
     return null;
 }
