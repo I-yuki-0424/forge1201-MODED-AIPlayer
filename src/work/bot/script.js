@@ -199,7 +199,7 @@ async function runScript(script, env, { cancel = { cancelled: false }, maxSteps 
                 res = log ? await env.exec('craft', { item: log.replace(/_(log|stem|hyphae)$/, '_planks'), count: Math.max(4, Math.min(s.make_planks, 4 * (env.have ? env.have(log) : 4))) }) : { ok: false, reason: 'missing_item', detail: { why: 'no log to make planks from' } };
                 note(`planks from ${log || 'nothing'}: ${res.ok ? 'ok' : res.reason}`);
             } else if (s.put_away) {
-                res = env.policy ? await janitor.maintain(env, { ...env.policy, freeTarget: 36, sites: env.sites || env.policy.sites }) : { ok: true };
+                res = env.policy ? await janitor.maintain(env, { ...env.policy, freeTarget: 36, freeLow: 36, sites: env.sites || env.policy.sites }) : { ok: true };
             } else if (s.station) {
                 res = await placeStation(env, st, s.station);
                 note(`${s.station.replace('_', ' ')} ${res.ok ? 'placed' : res.reason}`);

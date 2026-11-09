@@ -35,7 +35,8 @@ const slotsOf = (name, count, policy) => Math.ceil(count / stackOf(name, policy)
 /** Default policy for a pit crew; every field can be overridden per job. */
 function pitPolicy(over = {}) {
     return {
-        freeTarget: 6,                     // keep at least this many empty slots while working
+        freeLow: 6,                        // an upkeep starts when fewer slots than this are empty ...
+        freeTarget: 18,                    // ... and then makes room down to this many: one trip for ~12 stacks, not one trip per stack (the trigger and the target were both 6: every bot made a trip, a lift and a place in line, per unit)
         neverToss: 60,                     // items valued at or above this are never thrown away, only stored
         keep: {                            // item -> {min, max}: min is protected and restocked, the rest above max is surplus
             cobblestone: { min: 16, max: 64 }, dirt: { min: 0, max: 32 }, cobbled_deepslate: { min: 0, max: 64 },
@@ -85,7 +86,7 @@ function plan(items, slotsFree, policy = pitPolicy(), worn = []) {
             if (ops.length > o) { free += before - after; stacks.set(n, k.max); }
         }
     }
-    if (free >= policy.freeTarget) return ops;
+    if (free >= (policy.freeLow ?? policy.freeTarget)) return ops;
     // 2. Not enough room: lowest value first, whole stacks beyond the protected minimum.
     const cand = [...stacks.entries()].filter(([n]) => !protectedItem(n)).map(([n, have]) => ({ n, have, v: valueOf(n, policy), min: keepOf(n)?.min || 0 }))
         .filter((c) => c.have > c.min).sort((a, b) => a.v - b.v || b.have - a.have);
@@ -193,7 +194,7 @@ async function maintain(env, policy) {
                         // What is wrong with ONE item (a name the action layer refuses, a stack that is gone) is no reason to leave the rest of the pack unstored: the next item is tried.
                         if (!r.ok && ['invalid_args', 'missing_item'].includes(r.reason)) { (skipped = skipped || []).push({ item: o.item, reason: r.reason, detail: r.detail }); continue; }
                         if (!r.ok) return { ok: false, reason: r.reason, detail: r.detail };
-                        done.push(o);
+                        done.push({ ...o, to: box.kind === 'shulker' ? 'carried' : `${box.x},${box.y},${box.z}` });
                     }
                     return null;
                 };

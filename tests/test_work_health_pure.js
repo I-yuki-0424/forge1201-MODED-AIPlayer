@@ -10,6 +10,7 @@ const { runWorker } = require('../src/work/bot/worker');
 const { Ledger } = require('../src/work/jobs/crew');
 const script = require('../src/work/bot/script');
 const { Sites } = require('../src/work/bot/sites');
+const janitor = require('../src/work/bot/janitor');
 
 setTimeout(() => { console.error('test watchdog: still running after 20 s'); process.exit(2); }, 20000).unref();
 function test(name, fn) { console.log(`--- test: ${name} ---`); return Promise.resolve(fn()).then(() => console.log('[OK]')); }
@@ -28,7 +29,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'health-'));
         assert.strictEqual(row.done, 2); assert.strictEqual(row.quick, 50, 'units found already done are counted apart'); assert.strictEqual(row.perMin, 2); assert.strictEqual(row.failed, 2); assert.strictEqual(row.cancelled, 3);
         assert.deepStrictEqual(row.cancel, { drowning: 2, unknown: 1 }, 'a cancel without a cause says unknown, not nothing');
         assert.deepStrictEqual(row.botSec, { ok: 20, fail: 7, cancel: 31 }, 'the cancelled units cost more than the finished ones: that is what the row exists to show');
-        assert.deepStrictEqual(row.deposit, { visits: 2, kinds: 4, items: 128, failed: 1 }); assert.ok(/deposits 2 ok \(128 items, 4 kinds\), 1 failed/.test(text), text);
+        assert.deepStrictEqual(row.deposit, { visits: 2, kinds: 4, items: 128, failed: 1, to: {} }); assert.ok(/deposits 2 ok \(128 items, 4 kinds\), 1 failed/.test(text), text);
         assert.deepStrictEqual(row.needs, { 'missing_tool:cobweb': 1 });
         assert.deepStrictEqual(row.phases, { dig: 1, deposit: 1 }); assert.strictEqual(row.working, 2); assert.strictEqual(row.waiting, 1); assert.strictEqual(row.floor, 1);
         assert.deepStrictEqual(row.queues, [{ key: 'box:1,-59,2', n: 2 }]); assert.strictEqual(warn, null);
@@ -84,6 +85,17 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'health-'));
         t = 5000; await script.runScript(sc, bot()); assert.strictEqual(visits.length, 2, 'asked again after the time limit');
         const solo = []; const env = { ...bot(), stockMiss: null, run: async (n, a) => { solo.push(1); return { ok: false, reason: 'missing_item' }; } };
         await script.runScript(sc, env); await script.runScript(sc, env); assert.strictEqual(solo.length, 2, 'without the shared memory (tests, one-off commands) nothing changes');
+    });
+
+    await test('upkeep: starts below 6 free slots and then makes room down to 18 (one trip for many stacks); at 6 or more free nothing is done; an explicit freeTarget alone still means both', () => {
+        const stacks = (n) => Array.from({ length: n }, (_, i) => ({ name: `create:stone${i}`, count: 64 }));
+        const slots = (ops) => ops.reduce((a, o) => a + Math.ceil(o.count / 64), 0);
+        const pol = janitor.pitPolicy({ depot: { kind: 'chest', x: 0, y: 0, z: 0 } });
+        const low = janitor.plan(stacks(31), 5, pol);                                           // 5 free: below the trigger
+        assert.ok(slots(low.filter((o) => o.op === 'deposit')) >= 13, `free 5 -> at least 18 free: ${slots(low)} slots moved`);
+        assert.deepStrictEqual(janitor.plan(stacks(30), 6, pol), [], 'six free: no trip');
+        const old = janitor.plan(stacks(31), 5, { ...pol, freeLow: undefined, freeTarget: 6 });
+        assert.strictEqual(slots(old.filter((o) => o.op === 'deposit')), 1, 'the old behaviour: one slot per trip');
     });
 
     fs.rmSync(tmp, { recursive: true, force: true });

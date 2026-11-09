@@ -11,10 +11,10 @@ class Health {
         Object.assign(this, { file, maxBytes, stallMin, now });
         this.zero = 0; this._reset(); this.writes = 0;
     }
-    _reset() { this.since = this.now(); this.done = 0; this.quick = 0; this.dep = { visits: 0, kinds: 0, items: 0, failed: 0 }; this.fail = {}; this.cancel = {}; this.ms = { ok: 0, fail: 0, cancel: 0 }; this.needs = {}; }
+    _reset() { this.since = this.now(); this.done = 0; this.quick = 0; this.dep = { visits: 0, kinds: 0, items: 0, failed: 0, to: {} }; this.fail = {}; this.cancel = {}; this.ms = { ok: 0, fail: 0, cancel: 0 }; this.needs = {}; }
 
     /** A deposit visit: { kinds, items } moved (janitor_done) or a janitor failure (`failed`). */
-    deposit(d) { if (d.failed) this.dep.failed++; else { this.dep.visits++; this.dep.kinds += d.kinds | 0; this.dep.items += d.items | 0; } }
+    deposit(d) { if (d.failed) this.dep.failed++; else { this.dep.visits++; this.dep.kinds += d.kinds | 0; this.dep.items += d.items | 0; for (const t of d.to || []) this.dep.to[t] = (this.dep.to[t] || 0) + 1; } }
 
     /** One unit result as the worker reports it: { ok, reason, ms, detail }. */
     unit(d) {
@@ -45,7 +45,7 @@ class Health {
         let warn = null;
         if (this.done === 0 && this.quick === 0 && working > 0) { this.zero++; if (this.zero === this.stallMin || (this.zero > this.stallMin && this.zero % 10 === 0)) warn = `no unit finished for ${this.zero} min with ${working} bots working`; } else this.zero = 0;
         const top = (o, n = 3) => Object.entries(o).sort((a, b) => b[1] - a[1]).slice(0, n).map(([k, v]) => `${k} ${v}`).join(', ');
-        const text = `health ${sec}s: ${this.done} units (${row.perMin}/min)${this.quick ? ` + ${this.quick} already done` : ''}, failed ${failN}${failN ? ` (${top(this.fail)})` : ''}, cancelled ${cancelN}${cancelN ? ` (${top(this.cancel)})` : ''}; bot time ok ${row.botSec.ok}s fail ${row.botSec.fail}s cancel ${row.botSec.cancel}s; ${working}/${bots.length} working${waiting ? `, ${waiting} waiting` : ''} [${top(phases, 6)}]${this.dep.visits || this.dep.failed ? `; deposits ${this.dep.visits} ok (${this.dep.items} items, ${this.dep.kinds} kinds), ${this.dep.failed} failed` : ''}${row.queues.length ? `; lines ${row.queues.map((q) => `${q.key.replace(/^box:/, '')}=${q.n}`).join(' ')}` : ''}${Object.keys(this.needs).length ? `; needs ${top(this.needs)}` : ''}`;
+        const text = `health ${sec}s: ${this.done} units (${row.perMin}/min)${this.quick ? ` + ${this.quick} already done` : ''}, failed ${failN}${failN ? ` (${top(this.fail)})` : ''}, cancelled ${cancelN}${cancelN ? ` (${top(this.cancel)})` : ''}; bot time ok ${row.botSec.ok}s fail ${row.botSec.fail}s cancel ${row.botSec.cancel}s; ${working}/${bots.length} working${waiting ? `, ${waiting} waiting` : ''} [${top(phases, 6)}]${this.dep.visits || this.dep.failed ? `; deposits ${this.dep.visits} ok (${this.dep.items} items, ${this.dep.kinds} kinds), ${this.dep.failed} failed${Object.keys(this.dep.to).length ? ` to ${top(this.dep.to)}` : ''}` : ''}${row.queues.length ? `; lines ${row.queues.map((q) => `${q.key.replace(/^box:/, '')}=${q.n}`).join(' ')}` : ''}${Object.keys(this.needs).length ? `; needs ${top(this.needs)}` : ''}`;
         this._write(row);
         this._reset();
         return { row, text, warn };
