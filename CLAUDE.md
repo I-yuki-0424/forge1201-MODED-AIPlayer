@@ -64,12 +64,20 @@ scripts/world/registry-dump.sh                         # after any lock change: 
 (cd docker/world-server && docker compose --profile bench run --rm -T --entrypoint node bench scripts/skills/bench_lv2.js --run-id l1 --seed 1101 --bots 10 --follow <player>)   # LV2: natural terrain (after --pregen 1)
 ```
 
-Experts and router (docs/proposed/MOE-v1.md; `moe/`, Python, runs in the `moe-py:1` image with the `moe-venv` volume, no network; files in `/mnt/data/forgeaip/moe`):
+Experts and router (docs/proposed/MOE-v1.md and MOE-v2.md, diagram docs/diagrams/moe-v2-architecture.svg; `moe/`, Python, runs in the `moe-py:1` image with the `moe-venv` volume, no network; v1 files in `/mnt/data/forgeaip/moe`, v2 in `/mnt/data/forgeaip/moe2` (`MOE_ROOT`)):
 
 ```bash
 scripts/moe/test.sh                          # 16 unit tests
 scripts/moe/train-all.sh [--par 3]           # train + evaluate the 12 experts on simulator shards (held-out worlds vps-s3/s4), controls: baseline.sh
 scripts/moe/router.sh ; scripts/moe/chain.sh chain-placed xgb net 60   # XGBoost/LightGBM router; router + experts as one policy
+```
+
+MoE v2 on the owner's PC (only with the owner's permission, schedule hold; WSL2, no docker, runs at nice 10; docs/proposed/MOE-v2.md):
+
+```bash
+scripts/moe/pc.sh probe | install | status | peek TAG | report TAG | pull TAG | stop [NAME]   # install = simulator binary + moe package + scenarios -> ~/moe in WSL
+scripts/moe/pc.sh run NAME train --tag TAG [--experts a,b] [--par 8] [--only-scenario S]     # train + held-out eval + controls per expert (scripts/moe/pc/jobs.py)
+scripts/moe/pc.sh run NAME assemble --into TAG --sources p1,p2 ; run NAME router --tag TAG ; run NAME chain --tag TAG --scenario chain-placed --router rules|xgb --experts net|solver [--greedy-stall]
 ```
 
 Pure bots (docs/proposed/WORKERS-v1.md; `src/work/`, map in src/work/README.md, not part of the RL action space): live pit check on a disposable server. The owner's play world
