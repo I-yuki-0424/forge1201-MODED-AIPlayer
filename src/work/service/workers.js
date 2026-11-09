@@ -21,6 +21,7 @@ class WorkersPart {
             if (this.settings.autoKit && this.o.rcon) await this.kitBot(rec.name, { quiet: true }).catch(() => {});
             if (cancel.cancelled || job.state !== 'running' || rec.state !== 'online') { if (rec.worker && rec.worker.cancel === cancel) rec.worker = null; return; }
             env = this.envFactory(rec.bot, cancel, { worker: true });
+            if (env && job.kind === 'pit') env.within = job.spec.box;          // a pillar with nothing to stack takes a block from the undug part of the pit (moves.js harvestBlock)
             if (env && env.configure) env.configure({ retireWorn: !!this.settings.retireWorn, defend: this.settings.defend !== false, planNodes: this.o.planNodes || 6000 });
             // Three usable pickaxes in the pack before the work starts (stock-tools: from the tools chest, when one is in reach): a worn one is replaced on the spot.
             if (this.settings.scripts && this.sites.find('tools') && this.scripts.get('stock-tools')) {
@@ -49,6 +50,7 @@ class WorkersPart {
                 if (ev === 'defend' && d.fought) this.note('info', `${rec.name} defended itself: ${d.killed}/${d.fought} killed`, { job: job.id });
                 if (ev === 'audit') this.note(d.gaveUp ? 'warn' : 'info', `${d.id} range check: ${d.reopened} unit(s) sent back, ${d.gaveUp} given up on`, { job: job.id, first: d.first });
                 if (ev === 'sweep') this.note(d.unknown || d.travelled ? 'info' : 'debug', `${d.id} final sweep of ${d.region} (round ${d.round}): ${d.checked} units read, ${d.reopened} sent back${d.gaveUp ? `, ${d.gaveUp} given up on` : ''}${d.unknown ? `, ${d.unknown} cells not loaded${d.travelled ? ` (walk: ${d.travelled})` : ''}` : ''}`, { job: job.id, first: d.first });
+                if (ev === 'sent_back') this.note(d.ok ? 'info' : 'debug', `${d.id} put back on its feet (${d.why}): ${d.ok ? 'ok' : d.reason || 'refused'}`, { job: job.id });
                 if (ev === 'temp_cleaned') this.note('info', `${d.id} removed ${d.n} temporary block(s)`, { job: job.id });
                 if (ev === 'recover') this.note('debug', `${d.id} fix level ${d.streak + 1} after ${d.reason}`, { job: job.id });
                 if (ev === 'unit') {                                                    // a record of what happened, for the job's detail view (why does it stop?)

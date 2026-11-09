@@ -158,6 +158,24 @@ async function ready(world, from, items) {
         } finally { b3.stop(); }
     });
 
+    await test('pillar: no block to stack inside a pit box: one is taken from the undug part beside the bot (owner 2026-11-09); outside the box, or without the box, it is still missing_item', async () => {
+        const mkw = () => { const w = scene(new Map()); for (const y of [1, 2, 3, 4]) w.set(1, y, 0, registry.blocksByName.stone.defaultState); return w; };
+        const box = { x0: -4, x1: 4, z0: -4, z1: 4, top: 10, bottom: -5 };
+        const b1 = await ready(mkw(), new Vec3(0.5, 1, 0.5), ['stone_pickaxe']);          // a pickaxe and nothing to stack
+        try {
+            const r = await runMove(b1, 'pillar', { levels: 2, within: box });
+            assert.strictEqual(r.ok, true, `${r.reason} ${JSON.stringify(r.detail)} refused ${JSON.stringify(b1.refused)}`);
+            assert.ok(b1.dug.some((d) => d.x === 1 && d.z === 0), `a block beside the bot was dug: ${JSON.stringify(b1.dug)}`); assert.strictEqual(Math.floor(b1.entity.position.y), 3);
+        } finally { b1.stop(); }
+        const b2 = await ready(mkw(), new Vec3(0.5, 1, 0.5), ['stone_pickaxe']);
+        try { const r = await runMove(b2, 'pillar', { levels: 2 }); assert.strictEqual(r.reason, 'missing_item', 'without the box nothing is dug for blocks'); assert.deepStrictEqual(b2.dug, []); } finally { b2.stop(); }
+        const b3 = await ready(mkw(), new Vec3(0.5, 1, 0.5), ['stone_pickaxe']);
+        try { const r = await runMove(b3, 'pillar', { levels: 2, within: { ...box, x0: -4, x1: 0 } }); assert.strictEqual(r.reason, 'missing_item', 'the block beside it lies outside the box'); assert.deepStrictEqual(b3.dug, []); assert.ok(r.detail.harvest && r.detail.harvest.tried === 0); } finally { b3.stop(); }
+        const wf = mkw(); wf.set(1, 0, 0, registry.blocksByName.water.defaultState); for (const y of [1, 2, 3, 4]) wf.set(2, y, 0, registry.blocksByName.water.defaultState);        // water behind the only candidate: not dug
+        const b4 = await ready(wf, new Vec3(0.5, 1, 0.5), ['stone_pickaxe']);
+        try { const r = await runMove(b4, 'pillar', { levels: 1, within: box }); assert.strictEqual(r.reason, 'missing_item'); assert.deepStrictEqual(b4.dug, [], 'a block next to water is left alone'); } finally { b4.stop(); }
+    });
+
     await test('mine: blind digs the block behind another within reach and refuses one out of reach; collect:false leaves the drop', async () => {
         const w = scene(new Map());
         w.set(0, 1, 0, cobble); w.set(0, 2, 0, cobble);         // two stacked blocks; the bot stands beside, looking at the upper one

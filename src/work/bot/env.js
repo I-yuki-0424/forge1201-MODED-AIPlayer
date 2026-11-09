@@ -7,7 +7,7 @@ const janitor = require('./janitor');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** The environment of a real Mineflayer bot on the action layer. */
-function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null, others = null, guard: withGuard = false, defend = true, moved = null, teleport = () => 'near' } = {}) {
+function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null, others = null, guard: withGuard = false, defend = true, moved = null, teleport = () => 'near', gates = null } = {}) {
     const { execute } = require('../../skills');
     const { fromBot } = require('../../skills/world');
     const { feetCell } = require('../../skills/motion');
@@ -76,6 +76,38 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
     const have = (item) => bot.inventory.items().reduce((n, i) => n + (i.name === item ? i.count : 0), 0);
     const disc = require('./discard');
     const feet = () => feetCell(bot.entity.position);
+    // A line for every container (queue.js; owner 2026-11-09: a crowd at one chest, one bot that cannot finish holds all the others). A bot takes its turn before it walks to the
+    // chest (approach: `reserve`) or, failing that, before the command that uses it; the front place runs out after a minute (the command is cancelled), a bot that fails there is
+    // sent a few blocks away, and the next one is served. Without `gates` (tests, one-off commands) nothing changes.
+    const held = new Map();                                      // "box:x,y,z" -> the ticket `reserve` took, used by the next command on that container
+    const boxKey = (c) => `box:${c.x},${c.y},${c.z}`;
+    const isCell = (a) => !!a && Number.isInteger(a.x) && Number.isInteger(a.y) && Number.isInteger(a.z);
+    const SENT_AWAY = new Set(['timeout', 'stuck', 'unreachable', 'not_confirmed', 'not_visible']);
+    const lineFail = (e, key) => ({ ok: false, reason: e && e.reason === 'cancelled' ? 'cancelled' : 'timeout', detail: { stage: 'queue', key, why: String((e && e.message) || e).slice(0, 120) } });
+    const enter = async (cell, base, o = {}) => { try { return { t: await gates.enter(boxKey(cell), bot.username, { cancel: base, ...o }) }; } catch (e) { return { fail: lineFail(e, boxKey(cell)) }; } };
+    /** A few blocks away from a cell (not into the way of the next bot): the standable cell 5 to 9 blocks off that is nearest to where the bot stands. */
+    const sendAway = async (cell) => {
+        const f = feet(), c = [];
+        for (let dx = -9; dx <= 9; dx++) for (let dz = -9; dz <= 9; dz++) {
+            const d = Math.hypot(dx, dz); if (d < 5 || d > 9) continue;
+            for (const dy of [0, 1, -1]) { const x = cell.x + dx, y = f.y + dy, z = cell.z + dz; if (w.kindAt(x, y, z) === 'air' && w.kindAt(x, y + 1, z) === 'air' && w.kindAt(x, y - 1, z) === 'solid') { c.push({ x, y, z, d: Math.hypot(x - f.x, z - f.z) + Math.abs(y - f.y) }); break; } }
+        }
+        c.sort((a, b) => a.d - b.d);
+        for (const t of c.slice(0, 2)) { const m = await Promise.race([execute(bot, 'move_to', { x: t.x, y: t.y, z: t.z }, { cancel, maxTicks: 240 }), sleep(9000).then(() => ({ ok: false }))]); if (m.ok) return { ok: true, to: t }; }
+        return { ok: false, reason: 'unreachable' };
+    };
+    const queued = async (cell, base, call) => {
+        if (!gates || !isCell(cell)) return call(base);
+        const k = boxKey(cell); let t = held.get(k); held.delete(k);
+        if (!t || t.left || t.evicted) { const e = await enter(cell, base); if (e.fail) return e.fail; t = e.t; }
+        const c = { get cancelled() { return base.cancelled || t.evicted; } };
+        let r;
+        try { r = await call(c); } finally { t.leave(); }
+        if (t.evicted && !r.ok && !base.cancelled) r = { ...r, ok: false, reason: 'timeout', detail: { ...(r.detail || {}), stage: 'queue', why: 'held the line longer than its time limit: next bot' } };
+        if (!r.ok && (t.evicted || SENT_AWAY.has(r.reason)) && !base.cancelled) { try { await sendAway(cell); } catch (_) { /* leaving the spot is a courtesy */ } }
+        return r;
+    };
+    const CHEST_OPS = new Set(['deposit', 'withdraw']), CHEST_MOVES = new Set(['take_usable', 'stash_worn']);
     const envObj = {
         w, now: Date.now, recover, temp: new Map(),
         stations: bot.__stations || (bot.__stations = {}),           // crafting table / furnace the bot placed and has not taken back: reused by the next script run (script.js)
@@ -88,7 +120,29 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         inWater: () => !!bot.entity.isInWater || require('./water').inWater(w, feetCell(bot.entity.position)),
         items: (near, r) => dropsNear(bot, near, r),
         configure: (o) => { if (o && typeof o.defend === 'boolean') defendOn = o.defend; return require('../../skills/options').configure(bot, o); },
-        run: (name, args) => require('./moves').runMove(bot, name, args, { cancel }),
+        // `within`: the box of the pit job the bot works in (set by the service): a pillar with nothing to stack takes a block from the undug part of it (moves.js harvestBlock).
+        within: null,
+        run: (name, args) => (CHEST_MOVES.has(name)
+            ? queued(args, cancel, (c) => require('./moves').runMove(bot, name, args, { cancel: c }))
+            : require('./moves').runMove(bot, name, name === 'pillar' && envObj.within && !args.within ? { ...args, within: envObj.within } : args, { cancel })),
+        // Take a turn at a container before walking to it (reach.js approach); null = go on, else the failure. `release` gives the turn back when the walk failed.
+        reserve: async (cell) => {
+            if (!gates || !isCell(cell) || held.has(boxKey(cell))) return null;
+            const e = await enter(cell, cancel, { holdMs: Math.round(gates.o.holdMs * 1.5) }); if (e.fail) return e.fail;
+            held.set(boxKey(cell), e.t);
+            const tm = setTimeout(() => { if (held.get(boxKey(cell)) === e.t) { held.delete(boxKey(cell)); e.t.leave(); } }, 45000); if (tm.unref) tm.unref();       // never used: do not hold the line
+            return null;
+        },
+        release: (cell) => { if (!isCell(cell)) return; const t = held.get(boxKey(cell)); if (t) { held.delete(boxKey(cell)); t.leave(); } },
+        sendAway,
+        // The last place that worked, or where it stands: the server puts the bot back on its feet instead of leaving it stopped where it cannot go on (owner 2026-11-09: they are moved
+        // by the server when stuck anyway; "teleport back instead of staying stopped for good"). A 'job' move: always allowed, whatever the recovery setting says.
+        goBack: async (why = 'sent back') => {
+            if (!rcon) return { ok: false, reason: 'refused', detail: { why: 'no RCON' } };
+            const here = feet();
+            if (good && (Math.abs(here.x - good.x) + Math.abs(here.z - good.z) + Math.abs(here.y - good.y)) > 2) return envObj.back(good, { purpose: 'job', why });
+            return envObj.lift(here, { radius: 8, up: 2, down: 2, purpose: 'job', why });
+        },
         climb: (t) => require('./moves').climbTo(envObj, t),
         dimension: () => String((bot.game && bot.game.dimension) || 'overworld').replace('minecraft:', '').replace('the_', ''),
         // Face a cell and press forward until `until()` is true or `ms` is up (a portal is entered by walking into it); `ahead`: keep the heading the bot has.
@@ -171,10 +225,10 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         crowded: () => !!others && others().some((o) => Math.hypot(o.x - bot.entity.position.x, o.z - bot.entity.position.z) < 0.9),
         pause: (ticks) => sleep(ticks * 50),                       // let the thing in the way (another bot, an item) move on
         unitCancel,
-        exec: (name, args) => execute(bot, name, args, { cancel: unitCancel }),
+        exec: (name, args) => (CHEST_OPS.has(name) ? queued(args, unitCancel, (c) => execute(bot, name, args, { cancel: c })) : execute(bot, name, args, { cancel: unitCancel })),
         // For the water rescue: stopped by the operator only. `drowning()` is what sends the worker to the rescue, so the rescue's own commands must not be cancelled by it
         // (live 2026-11-09: every swim and fill came back `cancelled` at once, the worker claimed the next unit, which was cancelled at once too: 99,639 failures in a loop that never yielded and froze all 20 bots).
-        execFree: (name, args) => execute(bot, name, args, { cancel }),
+        execFree: (name, args) => (CHEST_OPS.has(name) ? queued(args, cancel, (c) => execute(bot, name, args, { cancel: c })) : execute(bot, name, args, { cancel })),
         have,
         inv: () => janitor.inventoryOf(bot),
         here: feet,

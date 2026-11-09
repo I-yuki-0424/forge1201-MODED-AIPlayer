@@ -45,6 +45,8 @@ async function runWorker(job, id, env, { cancel = { cancelled: false }, policy =
             return a.reopened.length;
         } catch (e) { onEvent('audit_failed', { id, reason: String(e.message).slice(0, 80) }); return 0; }
     };
+    // A bot that cannot go on is put back on its feet before it rests or waits (env.goBack: the last place that worked), not left where it stopped.
+    const bringBack = async (why) => { if (!env.goBack) return; try { const r = await env.goBack(why); onEvent('sent_back', { id, ok: !!r.ok, reason: r.reason, why }); } catch (_) { /* resting where it stands is the old behaviour */ } };
     L.join(id);
     const hb = setInterval(() => L.heartbeat(id, now()), Math.max(1000, L.leaseMs / 3));
     // Wait in slices so that a cancel is seen within a second.
@@ -105,9 +107,9 @@ async function runWorker(job, id, env, { cancel = { cancelled: false }, policy =
                     if (d.fought) break;
                 }
                 if (BOT_NEEDS.has(r.reason) && await recover(r.reason, r)) break;       // solved by a script (a tool from the tools chest, one crafted): claim again
-                if (BOT_NEEDS.has(r.reason)) { L.leave(id, now()); return { ended: 'unhealthy', units, failed, last: r.reason }; }   // it needs a tool or an item: the service waits for it
+                if (BOT_NEEDS.has(r.reason)) { L.leave(id, now()); await bringBack(`waiting for ${r.reason === 'missing_tool' ? 'a tool' : 'an item'}`); return { ended: 'unhealthy', units, failed, last: r.reason }; }   // it needs a tool or an item: the service waits for it
                 streak++;
-                if (streak >= MAX_BAD_STREAK) { L.leave(id, now()); return { ended: 'unhealthy', units, failed, last: r.reason }; }
+                if (streak >= MAX_BAD_STREAK) { L.leave(id, now()); await bringBack(`${streak} failures in a row (${r.reason})`); return { ended: 'unhealthy', units, failed, last: r.reason }; }
                 // Basic fixes before the next try: the ladder (wait / jump / sidestep / back to where it last worked) and a pause of a few seconds.
                 onEvent('recover', { id, streak, reason: r.reason });
                 if (job.rescue) { try { const rr = await job.rescue(env, r.reason); if (rr.filled || rr.surfaced) onEvent('rescue', { id, ok: rr.ok, reason: rr.reason, filled: rr.filled, surfaced: rr.surfaced }); } catch (_) { /* a failed rescue is not a failed unit */ } }

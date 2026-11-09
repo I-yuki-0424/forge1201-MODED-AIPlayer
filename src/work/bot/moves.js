@@ -5,7 +5,7 @@
 const { run, SkillError } = require('../../skills/runner');
 const { feetCell } = require('../../skills/motion');
 const { holdItem, count } = require('../../skills/commands/item');
-const { mine } = require('../../skills/commands/block');
+const { mine, dropOf } = require('../../skills/commands/block');
 const { openAt, station, openBox, CONTAINERS, inPlayer } = require('../../skills/commands/gui');
 const options = require('../../skills/options');
 
@@ -23,7 +23,7 @@ const PLACE_ABOVE = 1.002;        // feet this far above the old feet cell's flo
  * side. The first block placed sits on the ground the bot started on, which is never broken. Cost: one block per level (the broken
  * block drops into the shaft), taken from `items` in order (default TEMP_ITEMS).
  */
-async function pillar(ctx, { levels, items = TEMP_ITEMS }) {
+async function pillar(ctx, { levels, items = TEMP_ITEMS, within = null }) {
     const bot = ctx.bot, w = ctx.world;
     if (!Number.isInteger(levels) || levels < 1 || levels > 320) throw new SkillError('invalid_args', { why: 'levels 1..320' });
     const start = feetCell(bot.entity.position);
@@ -43,8 +43,12 @@ async function pillar(ctx, { levels, items = TEMP_ITEMS }) {
         // Without a pickaxe only blocks that break by hand can be taken away again: dirt first (owner 2026-11-07), else the usual low-value blocks.
         const handOnly = !bot.inventory.items().some((i) => i.name.endsWith('_pickaxe') && !options.isWorn(bot, i));          // no usable pickaxe: blocks that break fast by hand first
         const order = handOnly ? [...HAND_ITEMS, ...items.filter((n) => !HAND_ITEMS.includes(n))] : items;
-        const item = order.find((n) => bot.registry.blocksByName[n] && count(bot, n) >= 1);
-        if (!item) throw new SkillError('missing_item', { item: items[0], why: 'no low-value block to stack', tried: items, done: placed });
+        let item = order.find((n) => bot.registry.blocksByName[n] && count(bot, n) >= 1);
+        // Nothing to stack (owner 2026-11-09: "no blocks to climb with" ended the climb in a pit): inside the pit's own box the bot takes a block from the part that is not dug
+        // yet, beside it or over its head. It is dug later anyway, and the block is what the pillar needs.
+        let harvest = null;
+        if (!item && within) { harvest = await harvestBlock(ctx, f, within, items); item = order.find((n) => bot.registry.blocksByName[n] && count(bot, n) >= 1); }
+        if (!item) throw new SkillError('missing_item', { item: items[0], why: 'no low-value block to stack', tried: items, done: placed, ...(harvest ? { harvest } : {}) });
         await holdItem(ctx, item);
         const look = { yaw: bot.entity.yaw, pitch: -Math.PI / 2 };
         ctx.phase('pillar_jump', { level: i + 1, of: levels });
@@ -66,6 +70,33 @@ async function pillar(ctx, { levels, items = TEMP_ITEMS }) {
     }
     const top = feetCell(bot.entity.position);
     return { from: start, top, last: prev, levels: placed };
+}
+
+/**
+ * Dig one stackable block out of the undug part of a pit box next to the bot (`within` = the box {x0,x1,z0,z1,top,bottom}): the four sides at feet and head level, then the cell over
+ * the head. Only a block whose drop is one of `items` (stone gives cobblestone, dirt gives dirt: never sand or gravel, they fall), only inside the box, never beside a fluid.
+ * Up to six tries; returns {tried, got} (got: the item name now in the pack, or null). Pure of the walk: the bot stays where it is.
+ */
+async function harvestBlock(ctx, f, within, items) {
+    const bot = ctx.bot, w = ctx.world, out = { tried: 0, got: null };
+    const inside = (c) => c.x >= within.x0 && c.x <= within.x1 && c.z >= within.z0 && c.z <= within.z1 && c.y <= within.top && c.y >= within.bottom;
+    const wet = (c) => [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].some(([dx, dy, dz]) => ['water', 'liquid', 'danger'].includes(w.kindAt(c.x + dx, c.y + dy, c.z + dz)));
+    const cand = [];
+    for (const dy of [1, 0]) for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) cand.push({ x: f.x + dx, y: f.y + dy, z: f.z + dz });
+    cand.push({ x: f.x, y: f.y + 2, z: f.z });
+    for (const c of cand) {
+        if (out.tried >= 6) break;
+        if (!inside(c) || w.kindAt(c.x, c.y, c.z) !== 'solid' || wet(c)) continue;
+        const b = w.blockAt(c.x, c.y, c.z), drop = b && dropOf(bot, b);
+        if (!drop || !items.includes(drop)) continue;
+        out.tried++;
+        ctx.phase('pillar_harvest', { cell: c, block: b.name });
+        const r = await mine(ctx, { ...c, collect: true }).then(() => null, (e) => e);
+        if (r && !(r instanceof SkillError)) throw r;
+        const got = items.find((n) => bot.registry.blocksByName[n] && count(bot, n) >= 1);
+        if (got) { out.got = got; break; }
+    }
+    return out;
 }
 
 /**
@@ -213,4 +244,4 @@ function runMove(bot, name, args = {}, opts = {}) {
     return run(bot, m.fn, args, { ...opts, maxTicks: opts.maxTicks || m.ticks(args) });
 }
 
-module.exports = { pillar, finishPillar, climbTo, cleanTemp, runMove, takeUsable, stashWorn, pickUsable, wornOut, MOVES, TEMP_ITEMS };
+module.exports = { pillar, harvestBlock, finishPillar, climbTo, cleanTemp, runMove, takeUsable, stashWorn, pickUsable, wornOut, MOVES, TEMP_ITEMS };

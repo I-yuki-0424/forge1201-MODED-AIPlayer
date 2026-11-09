@@ -10,7 +10,18 @@ const FAR = 40;                // farther than this across: a walk in legs first
  * `strict` (default): without a way to change layer a chest far above or below is a failure (a script passes over it); otherwise the command is left to try the walk.
  * `env`: here(), travel(to, opts) (long walks), lift(cell, opts) (the server puts the bot on a standable cell near the container: a layer change that cannot be walked).
  */
-async function approach(env, chest, { why = 'to a container', strict = true } = {}) {
+async function approach(env, chest, opt = {}) {
+    // Take a turn first (queue.js): one bot at a time walks to a container, the others wait where they are; a turn that does not come in time is a failure like an unreachable chest.
+    if (env && env.reserve) {
+        const q = await env.reserve(chest);
+        if (q) return { ...q, detail: { ...(q.detail || {}), why: `waiting in line for the container: ${(q.detail && q.detail.why) || q.reason}` } };
+    }
+    const r = await walkTo(env, chest, opt);
+    if (r && env && env.release) env.release(chest);
+    return r;
+}
+
+async function walkTo(env, chest, { why = 'to a container', strict = true } = {}) {
     if (!env || typeof env.here !== 'function') return null;
     const h = env.here(), d = Math.hypot(chest.x - h.x, chest.z - h.z);
     if (Math.abs(chest.y - h.y) <= REACH_DY && d <= FAR) return null;

@@ -6,6 +6,7 @@ const gatherer = require('../jobs/gather');
 const { catalog } = require('../operator/catalog');
 const skills = require('../../skills');
 const { Problem, need, int } = require('./common');
+const { byName } = require('../bot/queue');
 
 class CommandsPart {
     catalog() { return catalog(); }
@@ -29,6 +30,7 @@ class CommandsPart {
         if (bots === 'all') names = [...this.bots.values()].filter((r) => !r.removed && r.state === 'online').map((r) => r.name);
         else { need(Array.isArray(bots) && bots.length && bots.length <= this.o.maxBots, 'bots: a list of names or "all"'); names = bots.map(String); }
         need(names.length, 'no bot is online', 409);
+        names = [...new Set(names)].sort(byName);                // a crowd lines up in name order (Work2 before Work10): the order in which the commands start is the order in a line
         if (spec.rcon) need(this.o.rcon, 'this command needs RCON', 503);
         const link = this._link(command, args);                 // a machine's coordinates -> its container (links.js); refused verbs throw
         args = link.args;
@@ -79,6 +81,23 @@ class CommandsPart {
         } finally { rec.crossing = false; }
     }
 
+    /**
+     * set_spawn {x?, y?, z?}: touch a bed so that the bot respawns there. Bots sent together stand in a line at the bed, one at a time in name order, each with a time limit
+     * (bot/queue.js, bot/bed.js); `rec.cmd.progress` shows the place in line. The respawn point is read back from the server when RCON is there.
+     */
+    async _setSpawn(rec, cancel, args, id) {
+        const env = this.envFactory(rec.bot, cancel), skills_ = skills;
+        const at = Number.isInteger(args.x) ? { x: args.x, y: args.y, z: args.z } : null;
+        const r = await require('../bot/bed').setSpawn({
+            env, bot: rec.bot, gates: this.gates, who: rec.name, at, cancel, waitMs: 15 * 60000,          // 20 bots at one bed: the last may wait a quarter of an hour
+             rcon: this.o.rcon ? (c) => this.rcon(c) : null,
+            walk: (cell, c) => skills_.execute(rec.bot, 'move_to', cell, { cancel: c }),
+            progress: (p) => { if (rec.cmd && rec.cmd.id === id) { rec.cmd.progress = p; this._dirty(); } },
+        });
+        if (env && env.dispose) env.dispose();
+        return r;
+    }
+
     _checkArgs(spec, args) {
         if (spec.meta) {
             if (spec.name === 'say') { need(typeof args.text === 'string' && args.text.trim().length && args.text.length <= 100, 'text: 1-100 characters'); need(!args.text.trim().startsWith('/'), 'text must not start with /'); }
@@ -97,6 +116,11 @@ class CommandsPart {
                 if (args.y !== undefined) int(args.y, 'y');
                 if (args.dim !== undefined) need(['overworld', 'nether', 'end'].includes(args.dim), 'dim: overworld, nether or end');
                 if (args.viaNether !== undefined) need(typeof args.viaNether === 'boolean', 'viaNether: true or false');
+            }
+            if (spec.name === 'set_spawn') {
+                const xyz = ['x', 'y', 'z'].filter((k) => args[k] !== undefined);
+                need(xyz.length === 0 || xyz.length === 3, 'give all of x, y, z (the bed), or none (the nearest bed)');
+                for (const k of xyz) int(args[k], k);
             }
             if (spec.name === 'come' && args.player !== undefined) need(inventory.NAME.test(String(args.player)), 'player name');
             return;
@@ -125,6 +149,7 @@ class CommandsPart {
                 return /^Teleported/i.test(r.trim()) ? { ok: true } : { ok: false, reason: 'refused', detail: { server: r.trim().slice(0, 120) } };
             }
             if (command === 'journey') return this._journey(rec, cancel, args);
+            if (command === 'set_spawn') return this._setSpawn(rec, cancel, args, id);
             if (command === 'gather') {
                 return gatherer.gather(bot, { target: String(args.target), count: args.count || 16, radius: args.radius || 32 }, {
                     cancel, execute: (b, n, a, o) => skills.execute(b, n, a, o),
@@ -196,6 +221,7 @@ class CommandsPart {
         const cancel = { cancelled: false }; rec.script = { cancel, name: 'leave-pit' };
         try {
             const env = this.envFactory(rec.bot, cancel); if (env && env.configure) env.configure({ retireWorn: !!this.settings.retireWorn });
+            if (env) env.within = job.spec.box;
             const r = await require('../bot/exit').leavePit(env, job.spec.box);
             this.note(r.ok ? 'info' : 'warn', `${name} leave pit: ${r.ok ? r.how : r.reason}${r.levels ? ` (${r.levels} levels)` : ''}`, { job: job.id });
             return r;
