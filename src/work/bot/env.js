@@ -20,10 +20,15 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
      * the same failure in the same place again gets a different one (escape.js: step back, a pause, a server lift ...), not the same fix over and over.
      */
     const escapes = new Map();
-    async function recover(level, failure) {
+    // Where the recovery time goes (owner 2026-11-10: "it often feels extremely slow, a lot of retries and timeouts before it finally moves"): the fix in progress is told to the worker as a
+    // stretch inside `recover` (env.sub), so that the health row says how long each kind took (fix:jump, fix:wait, fix:lift, fix:back ...). Measured in the live pit before this: recover
+    // took 20-40 % of all bot time (229-514 s of 1200 per minute), the trained experts only about 4 %; the rest was walks back to the last good place, which ran to the command's 60 s limit.
+    const fixSub = (n) => { if (envObj && envObj.sub) envObj.sub(n); };
+    async function recover(level, failure) { try { return await recoverFix(level, failure); } finally { fixSub(null); } }
+    async function recoverFix(level, failure) {
         if (cancel && cancel.cancelled) return;
         const esc = require('./escape'), f = feetCell(bot.entity.position);
-        const { fix, h } = esc.pick(escapes, level, failure, f);
+        const { fix, h } = esc.pick(escapes, level, failure, f); fixSub(`fix:${fix}`);
         const stepTo = async (dx, dz, ms) => { await bot.look(Math.atan2(-dx, -dz), 0, true); await hold('forward', ms); };
         const roomAt = (dx, dz) => { const k = (y) => w.kindAt(f.x + dx, f.y + y, f.z + dz); return k(0) === 'air' && k(1) === 'air' && k(-1) === 'solid'; };   // free feet and head cell, solid floor
         const sidestep = async (ms) => {
@@ -45,11 +50,11 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
             // Far (three levels or more, or 24 blocks): not on foot. From the surface the planner walked 30 levels down into the pit and a bot fell 86 blocks (live pit 2026-11-07).
             if (dist > 2 && expertsOn() && dist <= EXPERT_RETURN && (!rcon || Math.abs(here.y - good.y) >= 3 || Math.hypot(here.x - good.x, here.z - good.z) > 24)) {
                 // far or on another level: the planner walked into pits from here (live pit 2026-11-07), a server move looks like teleporting: the expert goes back, digging if it must
-                const e = await envObj.expertMove(good, { why: `back to the last good place after ${(failure && failure.reason) || 'a failed move'}`, escape: Math.abs(here.y - good.y) >= 3, maxMs: 45000 });
+                const e = await envObj.expertMove(good, { why: `back to the last good place after ${(failure && failure.reason) || 'a failed move'}`, escape: Math.abs(here.y - good.y) >= 3, maxMs: 25000 });
                 if (e.ok) return;
             }
             if (dist > 2 && rcon && (Math.abs(here.y - good.y) >= 3 || Math.hypot(here.x - good.x, here.z - good.z) > 24)) await envObj.back(good, { purpose: 'recover', why: `back to the last good place after ${(failure && failure.reason) || 'a failed move'}` });
-            else if (dist > 2) await execute(bot, 'move_to', { x: good.x, y: good.y, z: good.z }, { cancel });
+            else if (dist > 2) { fixSub('fix:walk_back'); await execute(bot, 'move_to', { x: good.x, y: good.y, z: good.z }, { cancel, maxTicks: BACK_TICKS }); }       // a walk back that has not arrived in 15 s is not going to: the next fix is another one
         }
     }
     const { items: dropsNear } = require('./drops');
@@ -138,13 +143,20 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
     // How far the experts are asked to go (measured in the live pit, 2026-11-09, 20 bots: 72 uses in 25 minutes; the 12 that were sent 50-140 blocks or 30-60 levels timed out after a minute
     // each and the server moved the bot anyway, while the short ones took 6-15 s): a recovery goes on foot when the place is within 24 blocks (|dx|+|dy|+|dz|), a lift within 16.
     const EXPERT_RETURN = 24, EXPERT_LIFT = 16;
+    // The experts are a way out, not a way to spend a minute: a recovery gives them 25 s (was 45 / 30: the failures took 42 s on average, the successes 1-23 s), and a bot whose expert failed twice in
+    // five minutes goes without one for three minutes (the same place, the same failure, the same minute lost again).
+    const EXPERT_FAILS = [], expertBlocked = () => Date.now() < expertOffUntil; let expertOffUntil = 0;
+    const BACK_TICKS = 300;
     const useExpert = async (name, target, o = {}) => {
         if (!expertsOn()) return { ok: false, reason: 'refused', detail: { why: 'the experts are off (setting experts)' } };
+        if (expertBlocked()) return { ok: false, reason: 'refused', detail: { why: 'this bot\'s expert failed twice a moment ago: the other fixes first', blockedFor: Math.round((expertOffUntil - Date.now()) / 1000) } };
         const t0 = Date.now(), from = feetCell(bot.entity.position);
         let r;
         try { r = await require('../../experts').drive(bot, name, target, { exec: (n, a) => execute(bot, n, a, { cancel: unitCancel }), cancel: unitCancel, maxMs: o.maxMs || 90000, maxSteps: o.maxSteps }); }
         catch (e) { r = { ok: false, reason: 'internal', steps: 0, detail: { message: String((e && e.message) || e).slice(0, 120) } }; }
         const out = { ok: !!r.ok, reason: r.ok ? undefined : r.reason, detail: { expert: name, steps: r.steps, from, to: feetCell(bot.entity.position), target, remaining: r.dist !== undefined ? Math.round(r.dist * 10) / 10 : undefined, ms: Date.now() - t0, why: o.why } };
+        if (!out.ok && ['timeout', 'stuck'].includes(out.reason)) { const t = Date.now(); EXPERT_FAILS.push(t); while (EXPERT_FAILS.length && t - EXPERT_FAILS[0] > 300000) EXPERT_FAILS.shift(); if (EXPERT_FAILS.length >= 2) { expertOffUntil = t + 180000; EXPERT_FAILS.length = 0; } }
+        else if (out.ok && out.detail.steps) EXPERT_FAILS.length = 0;
         if (expertLog) { try { expertLog({ expert: name, ok: out.ok, reason: out.reason, steps: r.steps, from, to: out.detail.to, target, ms: out.detail.ms, why: o.why || '' }); } catch (_) { /* reporting must not break the move */ } }
         return out;
     };
@@ -266,7 +278,7 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
             // and climbing; the server moves the bot only when that fails (and not at all with setting teleport = off).
             if (purpose === 'recover' && expertsOn()) {
                 const c0 = pickCell(S, { radius, down, up }), f0 = feetCell(bot.entity.position);
-                if (c0 && Math.abs(c0.x - f0.x) + Math.abs(c0.y - f0.y) + Math.abs(c0.z - f0.z) <= EXPERT_LIFT) { const e = await envObj.expertMove({ x: c0.x, y: c0.y, z: c0.z }, { escape: true, why: `escape after ${why || 'a failed move'}`, maxMs: 30000 }); if (e.ok) return { ok: true, to: { x: c0.x, y: c0.y, z: c0.z }, how: 'expert' }; }
+                if (c0 && Math.abs(c0.x - f0.x) + Math.abs(c0.y - f0.y) + Math.abs(c0.z - f0.z) <= EXPERT_LIFT) { const e = await envObj.expertMove({ x: c0.x, y: c0.y, z: c0.z }, { escape: true, why: `escape after ${why || 'a failed move'}`, maxMs: 20000 }); if (e.ok) return { ok: true, to: { x: c0.x, y: c0.y, z: c0.z }, how: 'expert' }; }
             }
             if (!rcon) return { ok: false, reason: 'refused', detail: { why: 'no RCON' } };
             const mode = teleport();
@@ -337,7 +349,8 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         unitCancel,
         /** Why the last unit was stopped (operator, attacked, drowning, reflex), then forgotten; null when nothing stopped it. */
         takeCancelCause: () => { const c = stopCause || (bot.__preempt ? 'reflex' : null); stopCause = null; return c; },
-        exec: (name, args) => (CHEST_OPS.has(name) ? queued(args, unitCancel, (c) => execute(bot, name, args, { cancel: c })) : execute(bot, name, args, { cancel: unitCancel })),
+        // `o.maxTicks`: a shorter budget than the command's own (a walk to a station that has not arrived in 30 s is not going to; the worker's ladder takes over).
+        exec: (name, args, o = {}) => (CHEST_OPS.has(name) ? queued(args, unitCancel, (c) => execute(bot, name, args, { cancel: c })) : execute(bot, name, args, { cancel: unitCancel, ...(Number.isInteger(o.maxTicks) ? { maxTicks: o.maxTicks } : {}) })),
         // For the water rescue: stopped by the operator only. `drowning()` is what sends the worker to the rescue, so the rescue's own commands must not be cancelled by it
         // (live 2026-11-09: every swim and fill came back `cancelled` at once, the worker claimed the next unit, which was cancelled at once too: 99,639 failures in a loop that never yielded and froze all 20 bots).
         execFree: (name, args) => (CHEST_OPS.has(name) ? queued(args, cancel, (c) => execute(bot, name, args, { cancel: c })) : execute(bot, name, args, { cancel })),

@@ -54,6 +54,20 @@ const POLICY = { wooden: 'use_up', stone: 'use_up', iron: 'use_up', golden: 'use
         assert.throws(() => svc.setSettings({ toolPolicy: { copper: 'keep' } }), /unknown tier/); assert.throws(() => svc.setSettings({ toolPolicy: { iron: 'sell' } }), /use_up or keep/);
         clearTimeout(svc._saveTimer); fs.rmSync(d, { recursive: true });
     });
+    await test('experts (owner 2026-11-10, slow recoveries): two failures within five minutes switch a bot\'s experts off for three minutes; a success with steps resets the count; the other fixes are named in the health row', async () => {
+        const { botEnv } = require('../src/work/bot/env'), { EventEmitter } = require('events'), experts = require('../src/experts'), orig = experts.drive;
+        const bot = new EventEmitter(); Object.assign(bot, { username: 'Bot', registry: { blocksByName: {}, itemsByName: {} }, entity: { position: { x: 0.5, y: 1, z: 0.5, floored: () => ({ x: 0, y: 1, z: 0 }) }, onGround: true },
+            blockAt: () => ({ name: 'stone', boundingBox: 'block', shapes: [[0, 0, 0, 1, 1, 1]] }), inventory: { items: () => [] }, setControlState() {} });
+        let calls = 0, answer = { ok: false, reason: 'timeout', steps: 5 }; experts.drive = async () => { calls++; return answer; };
+        try {
+            const env = botEnv(bot, { experts: () => true }), t = { x: 3, y: 1, z: 3 };
+            assert.strictEqual((await env.expertMove(t)).reason, 'timeout'); assert.strictEqual((await env.expertMove(t)).reason, 'timeout');
+            const refused = await env.expertMove(t); assert.strictEqual(refused.reason, 'refused'); assert.ok(refused.detail.blockedFor > 170, JSON.stringify(refused.detail)); assert.strictEqual(calls, 2, 'the third was not even tried');
+            const env2 = botEnv(bot, { experts: () => true }); calls = 0;
+            assert.strictEqual((await env2.expertMove(t)).reason, 'timeout'); answer = { ok: true, steps: 3 }; assert.ok((await env2.expertMove(t)).ok); answer = { ok: false, reason: 'timeout', steps: 5 };
+            assert.strictEqual((await env2.expertMove(t)).reason, 'timeout'); assert.strictEqual((await env2.expertMove(t)).reason, 'timeout', 'a success in between reset the count: this was the second failure in a row, and it was still tried');
+        } finally { experts.drive = orig; }
+    });
     await test('server moves (the "teleporting" bots): a recovery move is limited by the setting and every move is reported; a job move is not limited', async () => {
         const { botEnv } = require('../src/work/bot/env'), { EventEmitter } = require('events');
         const solid = (x, y, z) => y <= 0;                                                                   // open flat ground

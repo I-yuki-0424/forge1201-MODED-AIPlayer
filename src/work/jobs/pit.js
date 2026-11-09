@@ -11,6 +11,7 @@ const abyss = require('../bot/abyss');
 const CHUNK = 16;
 const TILE = 5;                      // a standing place covers a tile of this many cells per side: the farthest cell is 2.83 blocks away, well inside the 4.2 reach
 const SWEEP_R = 3.9;                 // horizontal reach of a standing place: with the eyes 1.1 above the cell, 3.9 is 4.05 in 3D (reach 4.5, aim margin 0.3)
+const STATION_TICKS = 600;           // a walk to a station gets 30 s (the command's own limit is 60 s): from there the lift, the pillar and the corridor are the way on
 const MAX_CELLS = 4_000_000;         // a job this large is a mistake in the arguments, not a request
 const PASSABLE = new Set(['air', 'climb']);
 // Natural tree blocks. One that hangs high above the ground below it cannot be reached on foot: the planner expands 20,000 cells and gives up
@@ -357,7 +358,7 @@ async function goToStation(S, handle, env, open, r) {
         // A walk to the station comes after the lift, never before: from the surface the planner walked 30 levels down the pit wall (vines, drops) and bots died of the fall
         // (live pit 2026-11-07, after a restart brought the bots up to the surface first).
         if (open(S) && floor) {
-            const m = await env.exec('move_to', S);
+            const m = await env.exec('move_to', S, { maxTicks: STATION_TICKS });
             if (m.ok) return null;
         }
         // The station is three or more levels above the bot and there is no way up on foot (a shaft, a cave under a layer that is still closed): rise by pillar,
