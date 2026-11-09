@@ -236,6 +236,7 @@ async function stashWorn(ctx, { item, damage, x, y, z }) {
 const mineHand = (ctx, a) => mine(ctx, { x: a.x, y: a.y, z: a.z, collect: false, hand: true });
 
 const MOVES = { mine_hand: { fn: mineHand, ticks: () => 400 }, pillar: { fn: pillar, ticks: (a) => 200 + 260 * (a.levels || 1) }, take_usable: { fn: takeUsable, ticks: () => 800 }, stash_worn: { fn: stashWorn, ticks: () => 800 } };
+Object.assign(MOVES, require('./bridge').MOVES);          // bridge, sneak_walk: work over an abyss (bridge.js; no circular import: it does not need this file)
 
 /** Run one of the work layer's own movements on `bot` (same result shape as skills.execute). */
 function runMove(bot, name, args = {}, opts = {}) {

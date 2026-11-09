@@ -6,6 +6,7 @@
 const { Ledger } = require('./crew');
 const { makeSweeper } = require('./pit_sweep');
 const janitor = require('../bot/janitor');
+const abyss = require('../bot/abyss');
 
 const CHUNK = 16;
 const TILE = 5;                      // a standing place covers a tile of this many cells per side: the farthest cell is 2.83 blocks away, well inside the 4.2 reach
@@ -277,6 +278,9 @@ async function runUnit(plan, region, u, env) {
         if (res) return res;
         // The middle cell is open: step down into it, so that the whole tile is within an arm's length (a failed step only costs reach).
         if (sweep && env.here && cells.station && c.x === cells.station.x && c.z === cells.station.z && open(c)) {
+            // Never step into a hole with nothing under it (the bottom layer of an End island, a gap: owner 2026-11-09). The tile is dug from where the bot stands; work that cannot be
+            // reached from there is the business of `bridge` (bot/bridge.js), not of a step into the void.
+            if (abyss.over(env.w, c, env.profile ? env.profile().minY : -64)) { r.abyss = (r.abyss || 0) + 1; continue; }
             const h = env.here(); if (h.x !== c.x || h.y !== c.y || h.z !== c.z) { await env.exec('move_to', c); r.stepped = (r.stepped || 0) + 1; }
         }
     }

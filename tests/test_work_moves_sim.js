@@ -217,6 +217,50 @@ async function ready(world, from, items) {
         } finally { bot.stop(); }
     });
 
+    // The abyss bridge (src/work/bot/bridge.js, owner 2026-11-09), on the same physics: sneak so the body cannot leave the block, the side face of the block under the feet, onto the new block.
+    // The platform is x <= 0; east of it (x 1..20, y -10..0) is a void, so a bot that steps off falls and the move ends with `stuck` (the move checks the level it walks on).
+    const voidEast = () => { const w = scene(new Map()); fill(w, [1, 20], [-10, 0], [-6, 6], S.air); return w; };
+    await test('bridge: four cells over a void, sneaking, one block each, the body never leaves the level; sneak_walk takes it back', async () => {
+        const w = voidEast();
+        const bot = await ready(w, new Vec3(0.5, 1, 0.5), ['cobblestone']);
+        try {
+            const cells = [1, 2, 3, 4].map((x) => ({ x, z: 0 }));
+            const r = await runMove(bot, 'bridge', { y: 1, cells });
+            assert.strictEqual(r.ok, true, `${r.reason} ${JSON.stringify(r.detail)} refused ${JSON.stringify(bot.refused)}`);
+            assert.deepStrictEqual(bot.refused, []);
+            assert.deepStrictEqual(r.detail.placed, cells.map((c) => ({ x: c.x, y: 0, z: 0 })));
+            for (const c of cells) assert.strictEqual(w.getBlock(new Vec3(c.x, 0, 0)).name, 'cobblestone');
+            assert.strictEqual(Math.floor(bot.entity.position.x), 4); assert.ok(bot.entity.position.y > 0.9, `y ${bot.entity.position.y}`);
+            assert.deepStrictEqual(bot.dug, [], 'nothing was broken: a bridge is not place-and-break');
+            const back = await runMove(bot, 'sneak_walk', { y: 1, cells: [3, 2, 1, 0].map((x) => ({ x, z: 0 })) });
+            assert.strictEqual(back.ok, true, `${back.reason} ${JSON.stringify(back.detail)}`);
+            assert.strictEqual(Math.floor(bot.entity.position.x), 0); assert.ok(bot.entity.position.y > 0.9);
+        } finally { bot.stop(); }
+    });
+
+    await test('bridge: a corner (east, then south), and a cell that already has a floor costs no block', async () => {
+        const w = voidEast(); w.set(2, 0, 0, cobble);                           // the second cell has a floor already
+        const bot = await ready(w, new Vec3(0.5, 1, 0.5), ['cobblestone']);
+        try {
+            const r = await runMove(bot, 'bridge', { y: 1, cells: [{ x: 1, z: 0 }, { x: 2, z: 0 }, { x: 2, z: 1 }, { x: 2, z: 2 }] });
+            assert.strictEqual(r.ok, true, `${r.reason} ${JSON.stringify(r.detail)} refused ${JSON.stringify(bot.refused)}`);
+            assert.deepStrictEqual(r.detail.placed, [{ x: 1, y: 0, z: 0 }, { x: 2, y: 0, z: 1 }, { x: 2, y: 0, z: 2 }]);
+            assert.strictEqual(Math.floor(bot.entity.position.z), 2);
+        } finally { bot.stop(); }
+    });
+
+    await test('bridge: no block to bridge with is a named failure, with the cell it stood on left behind', async () => {
+        const w = voidEast();
+        const bot = await ready(w, new Vec3(0.5, 1, 0.5), []);
+        try {
+            const r = await runMove(bot, 'bridge', { y: 1, cells: [{ x: 1, z: 0 }, { x: 2, z: 0 }] });
+            assert.strictEqual(r.ok, false); assert.strictEqual(r.reason, 'missing_item'); assert.strictEqual(r.detail.done, 0);
+            assert.ok(bot.entity.position.y > 0.9, 'it did not fall');
+            const bad = await runMove(bot, 'bridge', { y: 1, cells: [{ x: 3, z: 3 }] });          // not one step from where it stands
+            assert.strictEqual(bad.reason, 'invalid_args');
+        } finally { bot.stop(); }
+    });
+
     console.log('\nwork moves: all tests passed');
     process.exit(0);
 })().catch((e) => { console.error(e); process.exit(1); });
