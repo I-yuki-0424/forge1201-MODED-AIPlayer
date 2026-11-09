@@ -124,7 +124,7 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         visits.set(k, t);
         try { return await fn(); } finally { visits.delete(k); t.leave(); }
     };
-    const CHEST_OPS = new Set(['deposit', 'withdraw']), CHEST_MOVES = new Set(['take_usable', 'stash_worn']);
+    const CHEST_OPS = new Set(['deposit', 'withdraw']), CHEST_MOVES = new Set(['take_usable', 'stash_worn', 'deposit_many']);
     const envObj = {
         w, now: Date.now, recover, temp: new Map(), stockMiss,
         stations: bot.__stations || (bot.__stations = {}),           // crafting table / furnace the bot placed and has not taken back: reused by the next script run (script.js)

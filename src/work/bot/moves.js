@@ -6,7 +6,7 @@ const { run, SkillError } = require('../../skills/runner');
 const { feetCell } = require('../../skills/motion');
 const { holdItem, count } = require('../../skills/commands/item');
 const { mine, dropOf } = require('../../skills/commands/block');
-const { openAt, station, openBox, CONTAINERS, inPlayer } = require('../../skills/commands/gui');
+const { openAt, station, openBox, CONTAINERS, inPlayer, inContainer } = require('../../skills/commands/gui');
 const options = require('../../skills/options');
 
 /** Low-value blocks a bot may stack: tagged temporary blocks first, then what a pit produces anyway. Never sand or gravel (they fall). */
@@ -214,6 +214,40 @@ async function takeUsable(ctx, { class: cls, x, y, z }) {
 }
 
 /**
+ * deposit_many {items: [{item, count}], x, y, z}: put several kinds of items into the container at x y z through ONE open window (the plain `deposit` opens and closes it per kind:
+ * about 1.5 s each, so a visit with ten kinds held the one door of the chest for 15 s and 11-15 bots stood in its line, live 2026-11-09). Per kind the same call and the same check as
+ * `deposit`; a kind that cannot be put in is reported and the next one is tried. A full chest ends the run. Returns { done: [{item, moved}], failed: [{item, reason, detail?}] }.
+ */
+async function depositMany(ctx, { items, x, y, z }) {
+    const bot = ctx.bot;
+    if (!Array.isArray(items) || !items.length || items.length > 60) throw new SkillError('invalid_args', { why: 'items: 1 to 60 of {item, count}' });
+    for (const o of items) if (!o || !/^[a-z0-9_]+(:[a-z0-9_]+)?$/.test(o.item) || !Number.isInteger(o.count) || o.count < 1 || o.count > 2304) throw new SkillError('invalid_args', { why: 'each item: {item: name, count: 1..2304}' });
+    const win = await openAt(ctx, station(ctx, CONTAINERS, { x, y, z }, 'container'), (b) => openBox(bot, b));
+    const done = [], failed = [];
+    try {
+        for (const o of items) {
+            const it = bot.registry.itemsByName[o.item];
+            if (!it) { failed.push({ item: o.item, reason: 'invalid_args' }); continue; }
+            const have = inPlayer(win, it.id), n = Math.min(o.count, have);
+            if (n < 1) { failed.push({ item: o.item, reason: 'missing_item' }); continue; }
+            const c0 = inContainer(win, it.id);
+            ctx.phase('deposit', { item: o.item, count: n });
+            try {
+                await ctx.during(win.deposit(it.id, null, n), 60);
+                await ctx.until(() => inContainer(win, it.id) >= c0 + n, 20);
+                done.push({ item: o.item, moved: n });
+            } catch (e) {
+                if (!(e instanceof SkillError) && !/destination full/.test(String(e && e.message))) throw e;
+                const full = /destination full/.test(String(e.message));
+                failed.push({ item: o.item, reason: full ? 'container_full' : e.reason || 'error' });
+                if (full || ['died', 'disconnected', 'cancelled'].includes(e.reason)) { if (!full) throw e; break; }
+            }
+        }
+    } finally { bot.closeWindow(win); }
+    return { done, failed };
+}
+
+/**
  * stash_worn {item, damage, x, y, z}: put ONE exact stack (the item with exactly this much wear) into the container at x y z (owner 2026-11-09: a diamond tool that is
  * stopped before it breaks is kept, not thrown away). `deposit` takes the first stack of a name, which may be the good one, so the slot is picked here and shift-clicked.
  */
@@ -235,7 +269,7 @@ async function stashWorn(ctx, { item, damage, x, y, z }) {
 /** mine_hand {x, y, z}: break one block with a worn tool or bare hands (the way out of a pit when no usable pickaxe is left), no drop collected. */
 const mineHand = (ctx, a) => mine(ctx, { x: a.x, y: a.y, z: a.z, collect: false, hand: true });
 
-const MOVES = { mine_hand: { fn: mineHand, ticks: () => 400 }, pillar: { fn: pillar, ticks: (a) => 200 + 260 * (a.levels || 1) }, take_usable: { fn: takeUsable, ticks: () => 800 }, stash_worn: { fn: stashWorn, ticks: () => 800 } };
+const MOVES = { mine_hand: { fn: mineHand, ticks: () => 400 }, pillar: { fn: pillar, ticks: (a) => 200 + 260 * (a.levels || 1) }, take_usable: { fn: takeUsable, ticks: () => 800 }, deposit_many: { fn: depositMany, ticks: (a) => 400 + 120 * ((a.items && a.items.length) || 1) }, stash_worn: { fn: stashWorn, ticks: () => 800 } };
 Object.assign(MOVES, require('./bridge').MOVES);          // bridge, sneak_walk: work over an abyss (bridge.js; no circular import: it does not need this file)
 
 /** Run one of the work layer's own movements on `bot` (same result shape as skills.execute). */
@@ -245,4 +279,4 @@ function runMove(bot, name, args = {}, opts = {}) {
     return run(bot, m.fn, args, { ...opts, maxTicks: opts.maxTicks || m.ticks(args) });
 }
 
-module.exports = { pillar, harvestBlock, finishPillar, climbTo, cleanTemp, runMove, takeUsable, stashWorn, pickUsable, wornOut, MOVES, TEMP_ITEMS };
+module.exports = { pillar, harvestBlock, finishPillar, climbTo, cleanTemp, runMove, takeUsable, depositMany, stashWorn, pickUsable, wornOut, MOVES, TEMP_ITEMS };

@@ -190,6 +190,22 @@ async function maintain(env, policy) {
                 // A chest in another layer or out of a move_to's sight: bring the bot there first (the live pit's Ender chests stood on its floor and every deposit failed `unreachable`).
                 if (box.kind !== 'shulker') { const a = await require('./reach').approach(env, box, { why: 'to deposit', strict: false }); if (a) return { ok: false, reason: a.reason, detail: a.detail, done }; }          // not reachable now: nothing is thrown away for that, the next upkeep tries again
                 const run = async () => {
+                    // One window for the whole group (moves.js deposit_many) when the environment has the work layer's moves; else one command per item kind.
+                    if (env.run && box.kind !== 'shulker') {
+                        const r = await env.run('deposit_many', { items: g.ops.map((o) => ({ item: o.item, count: Math.min(o.count, 2304) })), x: box.x, y: box.y, z: box.z });
+                        if (!r.ok) {
+                            if (['invalid_target', 'no_station'].includes(r.reason)) { bad.add(key); await giveUp(g, r.reason); return null; }
+                            if (r.reason === 'not_confirmed') env.depositBackoff = Date.now() + 90000;
+                            return { ok: false, reason: r.reason, detail: r.detail };
+                        }
+                        const res = r.detail || r.result || r, moved = new Set((res.done || []).map((d) => d.item));
+                        for (const o of g.ops) if (moved.has(o.item)) done.push({ ...o, to: `${box.x},${box.y},${box.z}` });
+                        for (const f of res.failed || []) {
+                            if (['invalid_args', 'missing_item'].includes(f.reason)) (skipped = skipped || []).push({ item: f.item, reason: f.reason });
+                            else { if (f.reason === 'not_confirmed') env.depositBackoff = Date.now() + 90000; if (!done.length) return { ok: false, reason: f.reason, detail: { item: f.item } }; }
+                        }
+                        return null;
+                    }
                     for (const o of g.ops) {
                         const r = await env.exec('deposit', { item: o.item, count: Math.min(o.count, 2304), x: box.x, y: box.y, z: box.z });
                         if (!r.ok && ['invalid_target', 'no_station'].includes(r.reason) && box.kind !== 'shulker') { bad.add(key); await giveUp(g, r.reason); return null; }

@@ -107,6 +107,24 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'health-'));
         env.depositBackoff = Date.now() - 1; await janitor.maintain(env, pol); assert.ok(calls.length > n1, 'after the pause it tries again');
     });
 
+    await test('a deposit visit is ONE deposit_many command with every kind (one window), results mapped back: moved kinds are done, a refused name or an empty stack is skipped, a full chest stops it', async () => {
+        const calls = []; const stacks = ['aa', 'bb', 'cc', 'dd'].map((n) => ({ name: `create:${n}`, count: 64 }));
+        const mk = (detail) => ({ inv: () => ({ items: [...stacks, ...Array.from({ length: 27 }, (_, i) => ({ name: `create:f${i}`, count: 64 }))], slotsFree: 5 }), pos: () => ({ x: 0, z: 0 }), here: () => ({ x: 0, y: 1, z: 0 }), w: { kindAt: () => 'air' },
+            run: async (name, a) => { calls.push([name, a]); return { ok: true, detail: typeof detail === 'function' ? detail(a) : detail }; },
+            exec: async () => { throw new Error('the per-item command must not be used'); } });
+        const pol = janitor.pitPolicy({ depot: { kind: 'chest', x: 1, y: 1, z: 1 } });
+        const e1 = mk((a) => ({ done: a.items.map((i) => ({ item: i.item, moved: i.count })), failed: [] }));
+        const r1 = await janitor.maintain(e1, pol); assert.strictEqual(r1.ok, true); assert.strictEqual(calls.length, 1, 'one command, one window'); assert.strictEqual(calls[0][0], 'deposit_many');
+        assert.ok(calls[0][1].items.length >= 13 && calls[0][1].items.every((i) => /^create:/.test(i.item) && i.count >= 1) && calls[0][1].x === 1, JSON.stringify(calls[0][1]).slice(0, 200));
+        assert.strictEqual(r1.done.length, calls[0][1].items.length); assert.ok(r1.done.every((d) => d.to === '1,1,1'));
+        const e2 = mk((a) => ({ done: a.items.slice(2).map((i) => ({ item: i.item, moved: i.count })), failed: [{ item: a.items[0].item, reason: 'invalid_args' }, { item: a.items[1].item, reason: 'missing_item' }] }));
+        const r2 = await janitor.maintain(e2, pol); assert.strictEqual(r2.ok, true); assert.strictEqual(r2.skipped.length, 2); assert.strictEqual(r2.done.length, calls[1][1].items.length - 2);
+        const e3 = mk(() => ({ done: [], failed: [{ item: 'create:aa', reason: 'not_confirmed' }] }));
+        const r3 = await janitor.maintain(e3, pol); assert.strictEqual(r3.ok, false); assert.strictEqual(r3.reason, 'not_confirmed'); assert.ok(e3.depositBackoff > Date.now());
+        const e4 = { ...mk(null), run: async () => ({ ok: false, reason: 'invalid_target', detail: { why: 'no container' } }) };
+        const r4 = await janitor.maintain(e4, { ...pol, neverToss: 0 }); assert.ok(e4.badBoxes.has('1,1,1'), 'a depot that is no container is remembered');
+    });
+
     fs.rmSync(tmp, { recursive: true, force: true });
     console.log('all health tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });
