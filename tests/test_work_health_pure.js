@@ -98,6 +98,15 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'health-'));
         assert.strictEqual(slots(old.filter((o) => o.op === 'deposit')), 1, 'the old behaviour: one slot per trip');
     });
 
+    await test('a deposit the server refused (not_confirmed) is not tried again at the next unit for 90 s; tossing goes on', async () => {
+        const calls = []; const env = { inv: () => ({ items: Array.from({ length: 31 }, (_, i) => ({ name: `create:stone${i}`, count: 64 })), slotsFree: 5 }), pos: () => ({ x: 0, z: 0 }), here: () => ({ x: 0, y: 1, z: 0 }), w: { kindAt: () => 'air' },
+            exec: async (n, a) => { calls.push(n); return { ok: false, reason: 'not_confirmed', detail: { why: 'the server did not take the items' } }; } };
+        const pol = janitor.pitPolicy({ depot: { kind: 'chest', x: 1, y: 1, z: 1 } });
+        const first = await janitor.maintain(env, pol); assert.strictEqual(first.ok, false); assert.strictEqual(first.reason, 'not_confirmed'); const n1 = calls.length; assert.ok(n1 >= 1);
+        const second = await janitor.maintain(env, pol); assert.strictEqual(second.ok, true); assert.strictEqual(second.backoff, true); assert.strictEqual(calls.length, n1, 'no second trip');
+        env.depositBackoff = Date.now() - 1; await janitor.maintain(env, pol); assert.ok(calls.length > n1, 'after the pause it tries again');
+    });
+
     fs.rmSync(tmp, { recursive: true, force: true });
     console.log('all health tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

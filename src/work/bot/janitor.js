@@ -155,6 +155,8 @@ async function maintain(env, policy) {
         done.push(o);
     }
     const dep = ops.filter((x) => x.op === 'deposit');
+    // A deposit the server refused is not repeated at every unit (each try is a lift, a place in line and a chest window): a pause, then again.
+    if (dep.length && env.depositBackoff && Date.now() < env.depositBackoff) return { ok: true, done, backoff: true };
     if (dep.length) {
         // Each item goes to the site of its class (ore, junk, ...) when the operator has tagged sites, else to the job's depot.
         const sites = sitesOf(policy), groups = new Map(), from = env.pos ? env.pos() : null;
@@ -193,7 +195,7 @@ async function maintain(env, policy) {
                         if (!r.ok && ['invalid_target', 'no_station'].includes(r.reason) && box.kind !== 'shulker') { bad.add(key); await giveUp(g, r.reason); return null; }
                         // What is wrong with ONE item (a name the action layer refuses, a stack that is gone) is no reason to leave the rest of the pack unstored: the next item is tried.
                         if (!r.ok && ['invalid_args', 'missing_item'].includes(r.reason)) { (skipped = skipped || []).push({ item: o.item, reason: r.reason, detail: r.detail }); continue; }
-                        if (!r.ok) return { ok: false, reason: r.reason, detail: r.detail };
+                        if (!r.ok) { if (r.reason === 'not_confirmed') env.depositBackoff = Date.now() + 90000; return { ok: false, reason: r.reason, detail: r.detail }; }
                         done.push({ ...o, to: box.kind === 'shulker' ? 'carried' : `${box.x},${box.y},${box.z}` });
                     }
                     return null;
