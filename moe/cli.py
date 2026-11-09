@@ -19,13 +19,13 @@ def main(argv=None):
     t = sub.add_parser("train")
     t.add_argument("--expert", required=True); t.add_argument("--root", required=True); t.add_argument("--base", required=True); t.add_argument("--shards", required=True)
     t.add_argument("--out", required=True); t.add_argument("--budget", type=int, default=300_000); t.add_argument("--seed", type=int, default=0)
-    t.add_argument("--lr", type=float, default=5e-4); t.add_argument("--ent", type=float, default=0.01); t.add_argument("--min-steps", type=int, default=30_000); t.add_argument("--stop-rate", type=float, default=0.97)
+    t.add_argument("--lr", type=float, default=5e-4); t.add_argument("--ent", type=float, default=0.01); t.add_argument("--min-steps", type=int, default=30_000); t.add_argument("--stop-rate", type=float, default=0.97); t.add_argument("--stop-window", type=int, default=200)
     e = sub.add_parser("eval")
     e.add_argument("--expert", required=True); e.add_argument("--root", required=True); e.add_argument("--base", required=True); e.add_argument("--shards", required=True)
     e.add_argument("--policy", required=True, help="random | solver | net:<checkpoint.npz>"); e.add_argument("--episodes", type=int, default=200)
     e.add_argument("--seed", type=int, default=0); e.add_argument("--out"); e.add_argument("--timeout", type=int, default=900)
     r = sub.add_parser("router")
-    r.add_argument("--out", required=True); r.add_argument("--n-train", type=int, default=30000); r.add_argument("--n-test", type=int, default=8000); r.add_argument("--seed", type=int, default=0)
+    r.add_argument("--out", required=True); r.add_argument("--n-train", type=int, default=60000); r.add_argument("--n-test", type=int, default=8000); r.add_argument("--seed", type=int, default=0)
     c = sub.add_parser("chain")
     c.add_argument("--root", required=True); c.add_argument("--base", required=True); c.add_argument("--shards", required=True)
     c.add_argument("--router", required=True, help="rules | xgb:<model> | lgb:<model>"); c.add_argument("--experts", required=True, help="net:<runs dir> | solver")
@@ -45,7 +45,7 @@ def main(argv=None):
     vec = _vec(a)
     if a.cmd == "train":
         from . import train
-        res = train.train(vec, expert, a.out, budget=a.budget, seed=a.seed, lr=a.lr, ent=a.ent, min_steps=a.min_steps, stop_rate=a.stop_rate, done_file=f"{a.root}/{a.base}.done")
+        res = train.train(vec, expert, a.out, budget=a.budget, seed=a.seed, lr=a.lr, ent=a.ent, min_steps=a.min_steps, stop_rate=a.stop_rate, stop_window=a.stop_window, done_file=f"{a.root}/{a.base}.done")
         print(json.dumps(res))
         return 0
     from . import evaluate, solvers

@@ -330,18 +330,25 @@ class Router(unittest.TestCase):
     def setUpClass(cls):
         cls.cat = catalog.load()
         cls.rules = rules.Rules(cls.cat)
-        cls.train = router.sample(cls.cat, cls.rules, np.random.default_rng(1), 14000)
+        cls.train = router.sample(cls.cat, cls.rules, np.random.default_rng(1), 30000)
         cls.test = router.sample(cls.cat, cls.rules, np.random.default_rng(2), 4000)
 
     def test_both_learners_copy_the_rules_on_held_out_states(self):
         for kind in ("xgb", "lgb"):
-            r = router.GBRouter(self.cat, kind).fit(self.train, rounds=60)
+            r = router.GBRouter(self.cat, kind).fit(self.train, rounds=120)
             ev = router.evaluate(r, self.test)
             self.assertGreater(ev["accuracy"], 0.96, f"{kind}: {ev}")
             with tempfile.TemporaryDirectory() as d:
                 r.save(f"{d}/r.model")
                 r2 = router.GBRouter.load(f"{d}/r.model", self.cat)
                 self.assertEqual(list(r.predict_rows(self.test[:200])), list(r2.predict_rows(self.test[:200])))
+
+    def test_a_pack_full_of_digging_leftovers_is_routed_like_the_rules_do(self):
+        # found 2026-11-09: the first v2 router sent a chain with 89-261 cobblestone to `move` for hundreds of steps (counts it never saw)
+        r = router.GBRouter(self.cat, "xgb").fit(self.train, rounds=120)
+        inv = router._with_groups({"stone_pickaxe": 1, "wooden_pickaxe": 1, "crafting_table": 1, "raw_iron": 3, "coal": 2, "cobblestone": 261, "andesite": 90})
+        for info in ({"dist": {"coal": 3.0, "iron": 2.0, "log": 30.0}, "stalls": 0}, {"dist": {"coal": None, "iron": None, "log": 12.0}, "stalls": 0}):
+            self.assertEqual(r.route("iron_pickaxe", 1, inv, info)[0], self.rules.route("iron_pickaxe", 1, inv, info)[0], info)
 
     def test_labels_come_from_the_rules_and_cover_every_class(self):
         labels = {t[4] for t in self.train}

@@ -48,13 +48,53 @@ def _with_groups(inv):
     return inv
 
 
+TOOLS = {"crafting_table", "wooden_pickaxe", "stone_pickaxe", "furnace", "iron_pickaxe"}
+
+
+def trajectory_state(cat, rules, rng):
+    """One state from a simulated run of the chain: experts play in the order the rules give, each adds its goal items and uses up its materials (tools stay), the
+    pack collects digging leftovers, the scan distances are random. These are the states a real chain visits, which the four sampled kinds only partly cover."""
+    ex = {e["id"]: e for e in cat["experts"] if e.get("kind", "item") == "item"}
+    goal = "iron_pickaxe" if rng.random() < 0.7 else list(ex.values())[int(rng.integers(len(ex)))]["makes"]
+    inv, steps = {}, int(rng.integers(0, 40))
+    for _ in range(steps + 1):
+        info = {"dist": {s: (None if rng.random() < 0.2 else float(np.exp(rng.uniform(0, np.log(64))))) for s in SCAN}, "stalls": 0}
+        e = rules.next(goal, 1, _with_groups(inv))
+        if e == DONE:
+            break
+        e = ex[e]
+        if rng.random() < 0.35:                                 # an expert that ends early or late: part of its goal
+            gain = {k: max(int(v * rng.uniform(0.5, 1.5)), 1) for k, v in e["goal"]["have"].items()}
+        else:
+            gain = dict(e["goal"]["have"])
+        for need, c in e["needs"].items():
+            if need not in TOOLS and not need.startswith("#") and need != e["makes"]:
+                inv[need] = max(inv.get(need, 0) - c, 0)
+            elif need.startswith("#"):
+                key = "oak_log" if need == "#log" else "oak_planks"
+                inv[key] = max(inv.get(key, 0) - c, 0)
+        for k, v in gain.items():
+            k = {"#log": "oak_log", "#planks": "oak_planks"}.get(k, k)
+            inv[k] = inv.get(k, 0) + v
+        for it in ("cobblestone", "dirt", "gravel", "andesite"):
+            if rng.random() < 0.2:
+                inv[it] = inv.get(it, 0) + int(rng.integers(1, 120))
+        inv = {k: v for k, v in inv.items() if v > 0}
+    inv = _with_groups(inv)
+    info = {"dist": {s: (None if rng.random() < 0.2 else float(np.exp(rng.uniform(0, np.log(64))))) for s in SCAN}, "stalls": int(rng.choice([0, 0, 0, 0, 1, 2]))}
+    return inv, goal, 1, info, rules.route(goal, 1, inv, info)[0]
+
+
 def sample(cat, rules, rng, n):
-    """n (inventory, goal, amount, label) tuples from four kinds of states."""
+    """n (inventory, goal, amount, info, label) tuples from five kinds of states (the fifth: states of a simulated chain run)."""
     ex = [e for e in cat["experts"] if e.get("kind", "item") == "item"]
     goals = [(e["makes"], max(e["goal"]["have"][e["makes"]], 1)) for e in ex]
     out = []
     for i in range(n):
-        kind = i % 4
+        kind = i % 5
+        if kind == 4:
+            out.append(trajectory_state(cat, rules, rng))
+            continue
         e = ex[int(rng.integers(len(ex)))]
         if kind == 0:                                           # sparse random packs
             inv = {}
@@ -73,6 +113,10 @@ def sample(cat, rules, rng, n):
             if kind == 3:                                       # plus junk and a few other items
                 for it in rng.choice(cat["items"], size=3):
                     inv.setdefault(str(it), int(rng.integers(0, 5)))
+        if rng.random() < 0.5:                                  # what digging leaves in a pack (a chain run held 76-261 cobblestone): counts far beyond any kit, or the trees extrapolate blindly
+            for it in ("cobblestone", "dirt", "gravel", "andesite", "diorite", "sand"):
+                if it in cat["items"] and rng.random() < 0.5:
+                    inv[it] = max(inv.get(it, 0), int(np.exp(rng.uniform(0, np.log(400)))))
         inv = _with_groups({k: v for k, v in inv.items() if v > 0})
         roll = rng.random()
         if roll < 0.4:
@@ -98,12 +142,12 @@ class GBRouter:
     def matrix(self, rows):
         return np.stack([self.space.vector(i, g, a, f) for i, g, a, f, _ in rows]), np.array([self.space.classes.index(r[4]) for r in rows])
 
-    def fit(self, rows, rounds=80, threads=2):         # LightGBM's multiclass objective diverges at learning rate 0.3 (train accuracy 0.34), 0.1 is stable
+    def fit(self, rows, rounds=150, threads=2):         # LightGBM's multiclass objective diverges at learning rate 0.3 (train accuracy 0.34), 0.1 is stable
         x, y = self.matrix(rows)
         k = len(self.space.classes)
         if self.kind == "xgb":
             import xgboost as xgb
-            self.booster = xgb.train({"objective": "multi:softprob", "num_class": k, "max_depth": 6, "eta": 0.2, "tree_method": "hist", "nthread": threads,
+            self.booster = xgb.train({"objective": "multi:softprob", "num_class": k, "max_depth": 8, "eta": 0.2, "tree_method": "hist", "nthread": threads,
                                       "verbosity": 0}, xgb.DMatrix(x, label=y), rounds)
         elif self.kind == "lgb":
             import lightgbm as lgb
@@ -156,7 +200,7 @@ def evaluate(router, rows):
     pred = router.predict_rows(rows)
     truth = np.array([router.space.classes.index(r[4]) for r in rows])
     ok = pred == truth
-    by_kind = {f"kind{k}": float(ok[k::4].mean()) for k in range(4)}
+    by_kind = {f"kind{k}": float(ok[k::5].mean()) for k in range(5)}
     t0 = time.perf_counter()
     for inv, g, a, f, _ in rows[:300]:
         router.route(g, a, inv, f)

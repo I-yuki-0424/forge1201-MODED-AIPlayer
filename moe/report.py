@@ -80,9 +80,9 @@ def router_table(runs):
     if not p.exists():
         return "(no router run)"
     r = json.loads(p.read_text())
-    lines = ["| Router | Held-out accuracy | sparse / kit / threshold / threshold+junk | Latency per call | Model size | Fit time |", "| :-- | --: | :-- | --: | --: | --: |"]
+    lines = ["| Router | Held-out accuracy | sparse / kit / threshold / threshold+junk / chain states | Latency per call | Model size | Fit time |", "| :-- | --: | :-- | --: | --: | --: |"]
     for k, v in r.items():
-        lines.append(f"| {k} | {v['accuracy']:.4f} (n={v['n']}) | {v['kind0']:.3f} / {v['kind1']:.3f} / {v['kind2']:.3f} / {v['kind3']:.3f} | {v['latency_us']:.0f} us | {v['model_bytes'] / 1e6:.2f} MB | {v['fit_seconds']} s |")
+        lines.append(f"| {k} | {v['accuracy']:.4f} (n={v['n']}) | {v['kind0']:.3f} / {v['kind1']:.3f} / {v['kind2']:.3f} / {v['kind3']:.3f} / {v.get('kind4', float('nan')):.3f} | {v['latency_us']:.0f} us | {v['model_bytes'] / 1e6:.2f} MB | {v['fit_seconds']} s |")
     return "\n".join(lines)
 
 

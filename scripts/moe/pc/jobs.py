@@ -73,6 +73,8 @@ def shards_down(procs):
 
 def cli(args, log, timeout=None):
     r = subprocess.run([PY, "-m", "moe.cli", *args], env=ENV, stdout=subprocess.PIPE, stderr=open(log, "ab"), preexec_fn=nice, timeout=timeout, cwd=str(MOE / "code"))
+    with open(log, "ab") as f:                      # keep the whole stdout (chain traces) next to the stderr
+        f.write(r.stdout)
     return r.stdout.decode().strip().splitlines()[-1] if r.stdout.strip() else ""
 
 
@@ -105,7 +107,7 @@ def pipeline(a, e):
     procs = shards_up(base, scn, ["vps-s0", "vps-s1", "vps-s2"], a.shards, 2, 1000 + 100 * a.seed, log)
     try:
         res = cli(["train", "--expert", eid, "--root", str(X), "--base", base, "--shards", ",".join(str(i) for i in range(a.shards)), "--out", str(out), "--budget", str(steps),
-                   "--seed", str(a.seed), "--stop-rate", str(STOP.get(eid, 0.97))], log)
+                   "--seed", str(a.seed), "--stop-rate", str(0.995 if a.hard else STOP.get(eid, 0.97)), "--stop-window", str(500 if a.hard else 200)], log)
     finally:
         shards_down(procs)
     (out / "train_result.json").write_text(res + "\n")
@@ -127,7 +129,7 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     t = sub.add_parser("train"); t.add_argument("--tag", required=True); t.add_argument("--experts", default="all"); t.add_argument("--par", type=int, default=8)
     t.add_argument("--seed", type=int, default=0); t.add_argument("--controls", type=int, default=1); t.add_argument("--steps", type=int, default=0); t.add_argument("--shards", type=int, default=3)
-    t.add_argument("--episodes", type=int, default=200); t.add_argument("--only-scenario", default="", help="train and evaluate on this one scenario file only (an ablation)")
+    t.add_argument("--episodes", type=int, default=200); t.add_argument("--hard", action="store_true", help="stop only at 0.995 over 500 episodes (the owner's bar for movement)"); t.add_argument("--only-scenario", default="", help="train and evaluate on this one scenario file only (an ablation)")
     r = sub.add_parser("router"); r.add_argument("--tag", required=True)
     c = sub.add_parser("chain"); c.add_argument("--tag", required=True); c.add_argument("--scenario", required=True); c.add_argument("--router", default="rules"); c.add_argument("--experts", default="net")
     c.add_argument("--episodes", type=int, default=60); c.add_argument("--greedy-stall", action="store_true"); c.add_argument("--seed", type=int, default=0); c.add_argument("--out", default="chain.jsonl")
@@ -138,7 +140,7 @@ def main():
     a = ap.parse_args()
     cat = catalog()
     ex = {e["id"]: e for e in cat["experts"]}
-    runs = MOE / "runs" / a.tag
+    runs = MOE / "runs" / getattr(a, "tag", getattr(a, "into", ""))
     runs.mkdir(parents=True, exist_ok=True)
     if a.cmd == "train":
         names = list(ex) if a.experts == "all" else a.experts.split(",")
@@ -167,7 +169,7 @@ def main():
         print(evaluate(a.tag, ex[a.expert], a.scenario, a.policy, a.episodes, a.seed, runs / "eval.log", runs / f"eval-{a.expert}.jsonl", tuple(a.worlds.split(","))))
         return
     if a.cmd == "chain":
-        base = f"{a.tag}-ch-{a.scenario}-{a.router}-{a.experts}"
+        base = f"{a.tag}-ch-{a.scenario}-{a.router}-{a.experts}" + ("-greedy" if a.greedy_stall else "") + f"-{a.seed}"
         procs = shards_up(base, [a.scenario], ["vps-s3", "vps-s4"], 2, 2, 7000 + a.seed, runs / "chain.log")
         try:
             rt = "rules" if a.router == "rules" else f"{a.router}:{runs / 'router' / ('router.' + a.router)}"
