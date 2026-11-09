@@ -80,12 +80,14 @@ class WorkService extends EventEmitter {
         this._sampler = setInterval(() => this._sampleBots(), 2000); this._sampler.unref?.();
     }
 
-    /** How many bots may be at the container `key` ("box:x,y,z") at once; 1 for anything else (a bed) and for a tools chest. */
+    /** How many bots may be at the container `key` ("box:x,y,z") at once; 1 for anything else (a bed), 2 at a tools or free chest, `chestSlots` (3) at the others. */
     _slotsFor(key) {
         const m = /^box:(-?\d+),(-?\d+),(-?\d+)$/.exec(key);
         if (!m) return 1;
         const site = this.sites && this.sites.at(+m[1], +m[2], +m[3]);
-        if (site && (site.purpose === 'tools' || site.purpose === 'free')) return 1;
+        // A tools chest serves two at a time (every bot takes its pickaxes from it at the start: 18 of 20 waited 3-4 min after each restart with one place); tools are separate stacks, a bot that
+        // finds its stack gone asks again.
+        if (site && (site.purpose === 'tools' || site.purpose === 'free')) return 2;
         const n = this.settings && Number.isInteger(this.settings.chestSlots) ? this.settings.chestSlots : 3;
         return Math.max(1, Math.min(6, n));
     }

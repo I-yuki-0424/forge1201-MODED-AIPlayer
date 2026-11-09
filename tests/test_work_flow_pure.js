@@ -137,6 +137,15 @@ function fakeWorld(ground = 0, init = {}) {
         for (const x of b) { const tk = await x; tk.leave(); }
     });
 
+    await test('service: how many bots a container takes at once (a chest 3, the tools chest 2, a bed 1; the setting chestSlots changes the chests, closed 1..6)', () => {
+        const fs = require('fs'), os = require('os'), path = require('path'), { WorkService } = require('../src/work/service');
+        const svc = new WorkService({ dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'slots-')), factory: () => ({}), restore: false });
+        svc.sites.add({ name: 'store', x: 1, y: 2, z: 3, purpose: 'any' }); svc.sites.add({ name: 'tools', x: 4, y: 5, z: 6, purpose: 'tools' });
+        assert.deepStrictEqual([svc._slotsFor('box:1,2,3'), svc._slotsFor('box:4,5,6'), svc._slotsFor('box:9,9,9'), svc._slotsFor('bed:1,2,3')], [3, 2, 3, 1]);
+        svc.setSettings({ chestSlots: 5 }); assert.strictEqual(svc._slotsFor('box:1,2,3'), 5);
+        for (const bad of [0, 7, 1.5, '3']) assert.throws(() => svc.setSettings({ chestSlots: bad }), /chestSlots/);
+    });
+
     await test('health: bot time is added up per activity (a unit by phase, a line / lift / chest inside it), standing still is measured, parked units are counted', () => {
         let t = 1000; const h = new Health({ now: () => t });
         h.act('W1', 'unit'); h.phase('W1', 'plan'); t += 3000; h.phase('W1', 'walk'); t += 2000; h.sub('W1', 'line'); t += 7000; h.sub('W1', null); t += 1000; h.act('W1', 'backoff'); t += 4000;

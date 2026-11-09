@@ -47,6 +47,10 @@ escalation.js  request to the DPOD router (not wired into any job)
 | the roster, reconnecting, bot views | `service/bots.js`, `service/views.js` |
 | creating, starting, pausing jobs | `service/jobs.js` |
 | the worker loop's reaction to failures (retire, cool down, restock) | `service/workers.js` |
+| failure memory (same failure twice parks a unit, a failed unit on hold) / bots stranded far from the job | `failureSig`, `Ledger.fail` in `jobs/crew.js` / `env.rejoin` in `bot/env.js`, `goToStation` in `jobs/pit.js` |
+| where the bot time goes (activity per bot, standing still, health row) / what the page shows a bot doing | `service/health.js` (`act`, `sub`, `phase`, `sample`), `bot/worker.js` (`act`), `_actView` in `service/index.js` / `botActivity` in `public/work/widgets.js` |
+| how many bots use one chest at once | `Gate` slots in `bot/queue.js`, `_slotsFor` in `service/index.js`, setting `chestSlots` |
+| picking bots by number (from..to) | `botsInRange`, `_withRange` in `service/jobs.js`, `botRangePicker` in `public/work/widgets.js`, Jobs page |
 | one-off commands from the page | `service/commands.js` (forms: `operator/catalog.js`) |
 | anything that needs RCON (kit, players, terrain) | `service/operator.js` |
 | what is drawn in the game | `display/overlay.js` (what and when), `display/shapes.js` (lines), `service/display.js` (the data) |
