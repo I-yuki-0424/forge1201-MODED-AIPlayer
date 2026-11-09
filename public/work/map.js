@@ -183,6 +183,7 @@ class MapView {
         }
         const dot = (p, color, label, r = 5) => { const [sx, sz] = this.toScreen(p.x, p.z); ctx.fillStyle = color; ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(sx, sz, r, 0, 7); ctx.fill(); ctx.stroke(); ctx.fillStyle = '#fff'; ctx.save(); ctx.shadowColor = '#000'; ctx.shadowBlur = 3; ctx.fillText(label, sx + 8, sz + 4); ctx.restore(); };
         if (L.players) for (const p of (this.o.players && this.o.players()) || []) if (p.pos && !p.bot) dot(p.pos, '#73bf69', p.name, 6);
+        for (const m of this.marks || []) dot({ x: m.x, z: m.z }, '#5ad17a', m.label, 6);                 // start / end of a wall (the Place page)
         if (S && L.bots) for (const b of S.bots) if (b.pos) dot(b.pos, b.working || (b.cmd && b.cmd.status === 'running') ? '#5794f2' : '#8ab8ff', b.name);
         if (this.hover && this.o.select && !this.selecting) { const c = (v) => Math.floor(v / 16) * 16, hx = this.snap ? c(this.hover[0]) : this.hover[0], hz = this.snap ? c(this.hover[1]) : this.hover[1]; const [ax, az] = this.toScreen(hx, hz), s = (this.snap ? 16 : 1) * view.scale; ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 1; ctx.strokeRect(ax, az, s, s); }
         if (!(Tiles.index.get(this.dim) || []).length) { ctx.fillStyle = ink; ctx.font = '13px system-ui'; ctx.fillText(Tiles.error ? `No map data: ${Tiles.error}` : 'No map data yet (the server writes chunks to disk when it saves; press Refresh)', 16, cv.height - 16); }

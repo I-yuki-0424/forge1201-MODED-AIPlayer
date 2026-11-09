@@ -74,13 +74,37 @@ class JobsPart {
         need(origin.y >= MIN_Y && origin.y <= MAX_Y, `origin.y must be between ${MIN_Y} and ${MAX_Y}`);
         let b = await this.getStructure(spec.structure);
         if (spec.ops && spec.ops.length) b = await this._ops(b, spec.ops);
+        return this._buildFrom(b, origin, spec, spec.structure, {});
+    }
+
+    /**
+     * Simple placement (jobs/layout.js): one block type as a floor, a wall or the walls of a room. spec: { kind, block, x0, z0, x1, z1, y, height?, name?, bots?, start?, force? }.
+     * Becomes an ordinary build job (the cells are a blueprint), so bots, materials, scaffolding and repair work as for a structure.
+     */
+    async createLayout(spec) {
+        need(spec && typeof spec === 'object', 'spec missing');
+        let L; try { L = require('../jobs/layout').layout(spec); } catch (e) { throw new Problem(e.message); }
+        need(!this.known || this.known(L.block), `the bots cannot place ${L.block} (it is not in their block table)`);
+        const b = bp.fromCells(L.cells);
+        const detail = { kind: L.kind, block: L.block, height: L.height, x0: spec.x0, z0: spec.z0, x1: spec.x1, z1: spec.z1, y: spec.y };
+        return this._buildFrom(b, L.origin, { ...spec, name: spec.name || `${L.kind} ${L.block}` }, null, { layout: detail }, { describe: L.describe });
+    }
+
+    /** What a layout would be, without making a job (the Place page's preview): a sentence, the count, the boxes for the map; or {ok: false, why} with the reason in words. */
+    previewLayout(spec) {
+        let L; try { L = require('../jobs/layout').layout(spec); } catch (e) { return { ok: false, why: e.message }; }
+        const item = build.itemFor(L.block), known = !this.known || this.known(L.block);
+        return { ok: true, describe: L.describe, count: L.count, stacks: Math.ceil(L.count / 64), origin: L.origin, size: L.size, boxes: L.boxes, kind: L.kind, along: L.along, block: L.block, item, known, why: known ? null : `the bots cannot place ${L.block} (it is not in their block table)` };
+    }
+
+    async _buildFrom(b, origin, spec, structure, extra, summaryExtra = {}) {
         const id = this._id('j');
         const file = path.join(this.o.dataDir, 'jobs', `${id}.nbt`);
         fs.writeFileSync(file, bp.write(b));                                            // an immutable copy: editing the library later changes nothing
         let impl;
         try { impl = build.createBuildJob(bp.cells(b), origin, { leaseMs: 45000 }, { known: this.known }); } catch (e) { fs.rmSync(file, { force: true }); throw new Problem(e.message); }
-        const job = this._newJob('build', spec.name || `build ${spec.structure}`, { structure: spec.structure, origin, file: path.basename(file) }, impl, id);
-        job.summary = { size: b.size, count: impl.plan.count, unsupported: impl.plan.unsupported, materials: this._materials(impl.plan) };
+        const job = this._newJob('build', spec.name || `build ${structure}`, { structure, origin, file: path.basename(file), ...extra }, impl, id);
+        job.summary = { size: b.size, count: impl.plan.count, unsupported: impl.plan.unsupported, materials: this._materials(impl.plan), ...summaryExtra };
         try { this._guardOverlap(job, spec.force); } catch (e) { fs.rmSync(file, { force: true }); throw e; }
         return this._register(job, spec);
     }

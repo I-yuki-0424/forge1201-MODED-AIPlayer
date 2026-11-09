@@ -40,7 +40,7 @@ $('#loginForm').addEventListener('submit', async (e) => {
 });
 $('#logout').addEventListener('click', async () => { try { await api('POST', '/api/logout', {}); } catch (_) { /* gone */ } session.csrf = null; showLogin(); });
 
-const NAV = [['overview', 'Overview', 'grid'], ['map', 'Map', 'map'], ['bots', 'Bots', 'bot'], ['pits', 'Pits', 'layers'], ['structures', 'Structures', 'box'], ['jobs', 'Jobs', 'list'], ['inventory', 'Inventory', 'pack'], ['tags', 'Tags', 'tag'], ['auto', 'Automation', 'target'], ['log', 'Log', 'log']];
+const NAV = [['overview', 'Overview', 'grid'], ['map', 'Map', 'map'], ['bots', 'Bots', 'bot'], ['pits', 'Pits', 'layers'], ['place', 'Place', 'box'], ['structures', 'Structures', 'box'], ['jobs', 'Jobs', 'list'], ['inventory', 'Inventory', 'pack'], ['tags', 'Tags', 'tag'], ['auto', 'Automation', 'target'], ['log', 'Log', 'log']];
 function show(name) {
     currentPage = name; history.replaceState(null, '', `#${name}`);
     for (const [k, p] of Object.entries(pages)) p.el.classList.toggle('hidden', k !== name);
@@ -74,7 +74,7 @@ function buildPages() {
     $('#nav').replaceChildren(...NAV.map(([k, t, ic]) => h('button', { 'data-page': k, onclick: () => show(k) }, icon(ic, 18), h('span', { text: t }))));
     const host = $('#page');
     const add = (name, p) => { pages[name] = p; p.el.classList.add('page', 'hidden'); host.append(p.el); };
-    add('overview', overviewPage()); add('map', mapPage()); add('bots', botsPage()); add('pits', pitsPage()); add('structures', structuresPage()); add('jobs', jobsPage()); add('inventory', inventoryPage()); add('tags', tagsPage()); add('auto', automationPage()); add('log', logPage());
+    add('overview', overviewPage()); add('map', mapPage()); add('bots', botsPage()); add('pits', pitsPage()); add('place', placePage()); add('structures', structuresPage()); add('jobs', jobsPage()); add('inventory', inventoryPage()); add('tags', tagsPage()); add('auto', automationPage()); add('log', logPage());
 }
 
 boot();
