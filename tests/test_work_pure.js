@@ -332,7 +332,10 @@ function fakeWorld(ground = 0, init = {}) {
         const withDepot = janitor.plan([{ name: 'diamond', count: 64 }, { name: 'raw_iron', count: 640 }, { name: 'gravel', count: 128 }], 0, janitor.pitPolicy({ depot: { kind: 'chest', x: 0, y: 64, z: 0 } }));
         assert.ok(withDepot.every((o) => o.op === 'deposit') && withDepot[0].item === 'gravel');
         assert.ok(withDepot.some((o) => o.item === 'raw_iron'), 'with a depot the iron is stored when room is needed');
-        assert.deepStrictEqual(janitor.restock([{ name: 'cobblestone', count: 3 }], janitor.pitPolicy({ depot: { kind: 'chest', x: 0, y: 0, z: 0 } })), [{ item: 'cobblestone', count: 13 }]);
+        assert.deepStrictEqual(janitor.restock([{ name: 'cobblestone', count: 3 }], janitor.pitPolicy({ depot: { kind: 'chest', x: 0, y: 0, z: 0 } })), [{ item: 'cobblestone', count: 13 }, { item: 'cobbled_deepslate', count: 16 }]);
+        // the seal reserve: when the upkeep makes room it leaves 16 of each of the two kinds a pit yields (a chest tagged `any` is never fetched from again)
+        const room = janitor.plan([{ name: 'cobbled_deepslate', count: 40 }], 0, pol).filter((o) => o.item === 'cobbled_deepslate').map((o) => o.count);
+        assert.deepStrictEqual(room, [24], 'make_room stores 24 of 40, the reserve of 16 stays');
         assert.deepStrictEqual(janitor.plan([{ name: 'gravel', count: 64 }], 30, pol), [], 'plenty of room: nothing to do');
     });
 

@@ -249,7 +249,10 @@ async function runUnit(plan, region, u, env) {
         for (let tries = 0; !m.ok && !open(c) && tries < (m.reason === 'unreachable' ? 1 : 6) && RETRY.has(m.reason); tries++) { if (env.recover) await env.recover(Math.min(tries + 2, 4), m); await (env.pause ? env.pause(10 + 10 * tries) : null); m = await env.exec('mine', mineArgs(c)); }
         // The bot stands on the block (the `mine` command never stands above its target; on a one-block pillar there is no other cell): dig it from where it stands, blind. It drops one
         // block onto the pillar below (the floor check above guarantees there is one within three cells). Live pit 2026-11-07: bots walked between the rim and such pillars for an hour.
-        if (!m.ok && !open(c) && m.reason === 'unreachable' && env.here) { const h = env.here(); if (h.x === c.x && h.z === c.z && h.y === c.y + 1) { r.blind = (r.blind || 0) + 1; m = await env.exec('mine', { ...mineArgs(c), blind: true }); } }
+        // The same when the block is anywhere within the server's reach (about 5 blocks from the eye; the server checks the distance, not the line of sight): a cell in a one-wide shaft
+        // whose neighbours are not dug (parked units above it) has no standing place with a view of it, but the pick reaches. 76 of 148 failures in 5 min were `reach block`
+        // at a distance of 0.5 to 3 blocks (live pit 2026-11-09).
+        if (!m.ok && !open(c) && m.reason === 'unreachable' && env.here) { const h = env.here(), d = Math.hypot(h.x - c.x, h.y + 1.62 - (c.y + 0.5), h.z - c.z); if (d <= 4.6) { r.blind = (r.blind || 0) + 1; m = await env.exec('mine', { ...mineArgs(c), blind: true }); } }
         // Nothing to walk on from where the bot stands (a one-block pillar over a void: the search expands a single node) and the block is out of reach: the server puts
         // the bot on a standable cell next to the block (env.lift), once per cell. Live pit 2026-11-07: two bots stood on leftover pillars and failed 'unreachable' for good.
         if (!m.ok && !open(c) && m.reason === 'unreachable' && env.lift && !liftedFor.has(`${c.x},${c.y},${c.z}`)) {

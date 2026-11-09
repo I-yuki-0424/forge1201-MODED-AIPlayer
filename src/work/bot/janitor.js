@@ -40,7 +40,7 @@ function pitPolicy(over = {}) {
         freeTarget: 18,                    // ... and then makes room down to this many: one trip for ~12 stacks, not one trip per stack (the trigger and the target were both 6: every bot made a trip, a lift and a place in line, per unit)
         neverToss: 60,                     // items valued at or above this are never thrown away, only stored
         keep: {                            // item -> {min, max}: min is protected and restocked, the rest above max is surplus
-            cobblestone: { min: 16, max: 64 }, dirt: { min: 0, max: 32 }, cobbled_deepslate: { min: 0, max: 64 },
+            cobblestone: { min: 16, max: 64 }, dirt: { min: 0, max: 32 }, cobbled_deepslate: { min: 16, max: 64 },       // the water rule needs 16 blocks of ONE kind at hand: a chest tagged `any` is insert-only, so what a bot deposited is never fetched back (below y 0 a pit yields only cobbled_deepslate: with min 0 the upkeep deposited all of it and the next seal failed `missing_item`)
         },
         storeMin: 0,                       // with a depot or sites: items worth less than this are thrown away instead of stored (never one valued >= neverToss)
         discardWorn: true,                 // a worn-out tool is used up: thrown away (a bool, or a function so that the setting applies to running jobs)
