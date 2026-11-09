@@ -30,7 +30,7 @@ const answers = {
     'POST /api/inventory': { kind: 'player', size: 36, slots: [{ slot: 0, id: 'minecraft:iron_pickaxe', count: 1, damage: 200, max: 250, left: 50, label: null, enchanted: false }, { slot: 1, id: 'minecraft:cobblestone', count: 64, damage: null }] },
 };
 w.fetch = async (url, o = {}) => {
-    const m = (o.method || 'GET').toUpperCase(), u = String(url).split('?')[0]; sent.push([m, u, o.body ? JSON.parse(o.body) : null]);
+    const m = (o.method || 'GET').toUpperCase(), u = String(url).split('?')[0]; sent.push([m, u, o.body ? JSON.parse(o.body) : null, String(url)]);
     let body = answers[`${m} ${u}`];
     if (body === undefined && m === 'POST' && u === '/api/scripts') body = { name: 'mine', steps: [] };
     if (body === undefined && m === 'POST') body = { ok: true, ended: 'ok', steps: 1, log: ['x'], how: 'pillar' };
@@ -41,7 +41,7 @@ w.fetch = async (url, o = {}) => {
 const errors = []; w.addEventListener('error', (e) => errors.push(e.message));
 // classic scripts in one context, as a browser runs them (top-level const/function are shared between the files)
 const vm = require('vm'), ctx = dom.getInternalVMContext();
-for (const f of ['blockcolor.js', 'ui.js', 'kiosk.js', 'map.js', 'widgets.js', 'cmd.js', 'inv.js', 'page_overview.js', 'page_map.js', 'page_bots.js', 'page_pits.js', 'page_structures.js', 'page_jobs.js', 'page_inventory.js', 'page_tags.js', 'page_auto.js', 'page_log.js', 'work.js']) new vm.Script(fs.readFileSync(path.join(dir, f), 'utf8'), { filename: f }).runInContext(ctx);
+for (const f of ['blockcolor.js', 'ui.js', 'kiosk.js', 'map.js', 'widgets.js', 'cmd.js', 'inv.js', 'page_overview.js', 'page_map.js', 'page_bots.js', 'page_pits.js', 'page_place.js', 'page_structures.js', 'page_jobs.js', 'page_inventory.js', 'page_tags.js', 'page_auto.js', 'page_log.js', 'work.js']) new vm.Script(fs.readFileSync(path.join(dir, f), 'utf8'), { filename: f }).runInContext(ctx);
 const tick = (ms = 60) => new Promise((r) => setTimeout(r, ms));
 const click = (el) => el.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
 (async () => {
@@ -52,10 +52,11 @@ const click = (el) => el.dispatchEvent(new w.MouseEvent('click', { bubbles: true
     click(w.document.querySelector('#nav button[data-page="auto"]')); await tick(300);
     const page = w.document.querySelector('#page .page:not(.hidden)');
     const boxes = [...page.querySelectorAll('.setting input')];
-    ok(boxes.length === 12 && boxes[0].checked && boxes[1].checked && boxes[2].checked && !boxes[3].checked, 'seven settings (retireWorn, discardWorn, scripts on, auto-kit off) and four display switches');
+    ok(boxes.length === 16 && boxes[0].checked && boxes[1].checked && boxes[2].checked && !boxes[3].checked, `the settings (retireWorn, discardWorn, scripts on, auto-kit off) and four display switches: ${boxes.length}`);
+    ok(page.textContent.includes('Try stuck units again by itself'), 'the setting for the automatic retry of stuck units is on the page');
     boxes[0].checked = false; boxes[0].dispatchEvent(new w.Event('change', { bubbles: true })); await tick();
     ok(sent.some((s) => s[1] === '/api/settings' && s[2] && s[2].retireWorn === false), 'switching retireWorn off posts the setting');
-    const dsp = boxes.slice(8); dsp[1].checked = false; dsp[1].dispatchEvent(new w.Event('change', { bubbles: true })); await tick();
+    const dsp = boxes.slice(boxes.length - 4); dsp[1].checked = false; dsp[1].dispatchEvent(new w.Event('change', { bubbles: true })); await tick();
     ok(sent.some((s) => s[1] === '/api/settings' && s[2] && s[2].display && s[2].display.paths === false), 'a display layer is switched through the settings route');
     // ---- The game's web view has no confirm() and no native select lists: the page asks in its own box and draws its own lists
     { let confirmCalled = false; w.confirm = () => { confirmCalled = true; return false; };
@@ -76,11 +77,12 @@ const click = (el) => el.dispatchEvent(new w.MouseEvent('click', { bubbles: true
       w.document.body.classList.remove('kiosk'); }
     // ---- Map tiles: a region the server saved again keeps its old picture while the new one loads (it was drawn black: the chunk of a working bot flickered)
     { const T = w.eval('Tiles'), fake = { fake: 'canvas' };
-      T.tiles.set('overworld/9/9', { canvas: fake, mtime: 1 });
-      const got = T.get('overworld', 9, 9, 2);
-      ok(got && got.canvas === fake && T.tiles.get('overworld/9/9').canvas === fake, 'a tile whose file changed is still drawn from the old picture');
-      ok(T.get('overworld', 9, 9, 2).canvas === fake && T.waiting.filter((j) => j.key === 'overworld/9/9').length <= 1, 'and asked for only once while loading');
-      T.tiles.delete('overworld/9/9'); T.waiting.length = 0; }
+      T.tiles.set('overworld/s/9/9', { canvas: fake, mtime: 1 });                          // key: dimension / layer ('s' = surface) / region
+      const got = T.get('overworld', null, 9, 9, 2);
+      ok(got && got.canvas === fake && T.tiles.get('overworld/s/9/9').canvas === fake, 'a tile whose file changed is still drawn from the old picture');
+      ok(T.get('overworld', null, 9, 9, 2).canvas === fake && T.waiting.filter((j) => j.key === 'overworld/s/9/9').length <= 1, 'and asked for only once while loading');
+      T.tiles.delete('overworld/s/9/9'); T.waiting.length = 0;
+      T.tiles.set('nether/70/0/0', { canvas: fake, mtime: 1 }); ok(T.get('nether', 70, 0, 0, 1).canvas === fake && !T.tiles.has('nether/s/0/0'), 'a layer view of the Nether is a tile of its own (not the surface one)'); T.tiles.delete('nether/70/0/0'); }
     // ---- Tags page (tagged blocks, links)
     click(w.document.querySelector('#nav button[data-page="tags"]')); await tick(300);
     const tp = w.document.querySelector('#page .page:not(.hidden)');
@@ -118,6 +120,42 @@ const click = (el) => el.dispatchEvent(new w.MouseEvent('click', { bubbles: true
     const sel = [...pits.querySelectorAll('select')].find((s) => [...s.options].some((o) => o.value === 'sweep'));
     ok(sel && sel.value === 'sweep', 'the pit form offers the method, sweep by default');
     ok(pits.textContent.includes('keep a haul road'), 'and the haul road switch');
+    // ---- Pits form (2026-11-10): the dimension is a pulldown, the Nether looks down from a layer, the selection has a Select / Pan switch, Clear and Bigger
+    {
+      const dsel = [...pits.querySelectorAll('select')].find((q) => [...q.options].some((o) => o.value === 'nether') && [...q.options].some((o) => o.value === '__other'));
+      ok(dsel && dsel.value === 'overworld' && [...dsel.options].map((o) => o.value).join() === 'overworld,nether,end,__other', 'the dimension is a pulldown: overworld, nether, end, other');
+      const idInput = pits.querySelector('input[aria-label="dimension id"]'); ok(idInput && idInput.classList.contains('hidden'), 'the id field of a mod dimension is hidden until "other" is chosen');
+      const layerIn = pits.querySelector('input[aria-label="view from y"]'); ok(layerIn && layerIn.value === '', 'the view starts at the surface (blank)');
+      const reqs = sent.length; dsel.value = 'nether'; dsel.dispatchEvent(new w.Event('change', { bubbles: true })); await tick(200);
+      ok(sent.slice(reqs).some((x) => /\/api\/map\/regions\?dim=nether/.test(x[3])), 'choosing the Nether asks for the regions of the Nether');
+      ok(layerIn.value === '70', 'and the map looks down from y 70 (the Nether has a bedrock roof)');
+      dsel.value = '__other'; dsel.dispatchEvent(new w.Event('change', { bubbles: true })); ok(!idInput.classList.contains('hidden'), '"other" shows the id field');
+      idInput.value = 'twilightforest:twilight_forest'; idInput.dispatchEvent(new w.Event('change', { bubbles: true })); await tick(100);
+      ok(sent.some((x) => /dim=twilightforest%3Atwilight_forest/.test(x[3])), 'and the id is sent URL-encoded');
+      dsel.value = 'overworld'; dsel.dispatchEvent(new w.Event('change', { bubbles: true })); await tick(100); ok(layerIn.value === '', 'back in the overworld the view is the surface again');
+      const mode = [...pits.querySelectorAll('button')].find((b) => b.textContent === 'Select'); ok(!!mode, 'a Select / Pan switch is there');
+      click(mode); ok(mode.textContent === 'Pan', 'it switches to Pan'); click(mode); ok(mode.textContent === 'Select', 'and back');
+      ok([...pits.querySelectorAll('button')].some((b) => b.textContent === 'Clear') && [...pits.querySelectorAll('button')].some((b) => b.textContent === 'Bigger'), 'Clear and Bigger are there');
+      const x0 = pits.querySelector('input[aria-label="x0"]'), x1 = pits.querySelector('input[aria-label="x1"]'); x0.value = '10'; x1.value = '40'; x0.dispatchEvent(new w.Event('input', { bubbles: true }));
+      click([...pits.querySelectorAll('button')].find((b) => b.textContent === 'Clear')); await tick(100); ok(x0.value === '' && x1.value === '', 'Clear empties the selection and the numbers that follow it');
+    }
+    // ---- The selection on a map: drag a box, drag an edge to resize it (the other sides stay), Pan mode moves the map instead, Clear forgets it
+    {
+      const cv = w.document.createElement('canvas'); cv.width = 800; cv.height = 600; cv.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 600 }); cv.setPointerCapture = () => {};
+      let got; const MV = w.eval('MapView'), mv = new MV(cv, { select: true, onSelect: (b) => { got = b; } }); mv.view = { cx: 0, cz: 0, scale: 2 }; mv.snapMode = true;
+      const ev = (type, x, y, o = {}) => cv.dispatchEvent(new w.MouseEvent(type, { clientX: x, clientY: y, button: 0, bubbles: true, ...o }));
+      ev('pointerdown', 400, 300); ev('pointermove', 494, 394); ev('pointerup', 494, 394);
+      ok(got && got.x0 === 0 && got.x1 === 47 && got.z0 === 0 && got.z1 === 47, `a drag selects whole chunks: ${JSON.stringify(got)}`);
+      ev('pointerdown', 496, 340); ev('pointermove', 528, 340); ev('pointerup', 528, 340);
+      ok(got.x0 === 0 && got.x1 === 79 && got.z0 === 0 && got.z1 === 47, `dragging the right edge moves only that edge: ${JSON.stringify(got)}`);
+      ev('pointerdown', 400, 300); ev('pointermove', 380, 280); ev('pointerup', 380, 280);
+      ok(got.x0 === -16 && got.z0 === -16 && got.x1 === 79 && got.z1 === 47, `dragging a corner moves both its edges: ${JSON.stringify(got)}`);
+      mv.setMode('pan'); const c0 = mv.view.cx; ev('pointerdown', 300, 300); ev('pointermove', 340, 300); ev('pointerup', 340, 300);
+      ok(mv.view.cx < c0 && got.x0 === -16, 'in Pan mode a drag moves the map and leaves the selection alone'); mv.setMode('select');
+      mv.setBox({ x0: 5, x1: 20, z0: 5, z1: 20 }); ev('pointerdown', 100, 100); ev('pointermove', 140, 140); ev('pointerup', 140, 140);
+      ok(mv.fixed === null && got.x0 !== 5, 'a new drag after typed numbers replaces the typed box (it used to stay drawn)');
+      mv.clearSel(); ok(got === null && !mv.sel, 'Clear forgets the selection');
+    }
     // ---- Bots: tools with durability, leave pit
     click(w.document.querySelector('#nav button[data-page="bots"]')); await tick(200);
     const botsPage = w.document.querySelector('#page .page:not(.hidden)');
