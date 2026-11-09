@@ -5,7 +5,7 @@ const { Problem, need } = require('./common');
 
 class WorldPart {
     mapIndex(dim = 'overworld') { need(this.maps.available, 'no world folder is mounted (WORK_WORLD)', 503); try { return { dim, regions: this.maps.index(dim) }; } catch (e) { throw new Problem(e.message, e.status || 400); } }
-    async mapRegion(dim, rx, rz) { need(this.maps.available, 'no world folder is mounted (WORK_WORLD)', 503); try { return await this.maps.region(dim, rx, rz); } catch (e) { throw new Problem(e.message, e.status || 500); } }
+    async mapRegion(dim, rx, rz, top = null) { need(this.maps.available, 'no world folder is mounted (WORK_WORLD)', 503); try { return await this.maps.region(dim, rx, rz, top); } catch (e) { throw new Problem(e.message, e.status || 500); } }
     /** Ask the server to write its chunks to disk, then forget the cached regions: the map follows what the server has saved. */
     async mapRefresh() { need(this.o.rcon, 'refreshing the map needs RCON (save-all)', 503); await this.rcon('save-all flush'); this.maps.invalidate(); return { ok: true }; }
 

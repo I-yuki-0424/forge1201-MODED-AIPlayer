@@ -100,6 +100,12 @@ function fakeServer() {
         const at = (x, z) => r.names[r.idx[z * 512 + x] - 1];
         assert.strictEqual(at(0, 0), 'minecraft:water'); assert.strictEqual(at(7, 3), 'minecraft:water'); assert.strictEqual(at(8, 0), 'minecraft:stone'); assert.strictEqual(r.idx[20 * 512 + 20], 0, 'other chunks stay unknown');
         assert.strictEqual(r.h[0], (5 + 64) >> 1);
+        // slice mode (the Nether's bedrock roof hides everything from above): look down from a layer, air is skipped, fluids count
+        const sl = (top) => readRegion(f, top), sat = (rr, x, z) => rr.names[rr.idx[z * 512 + x] - 1];
+        assert.strictEqual(sat(sl(15), 0, 0), 'minecraft:water'); assert.strictEqual(sat(sl(15), 8, 0), 'minecraft:stone', 'air above y 5 is skipped');
+        assert.strictEqual(sat(sl(3), 0, 0), 'minecraft:stone', 'from y 3 the water at y 5 is above the view'); assert.strictEqual(sl(3).h[0], (3 + 64) >> 1);
+        assert.strictEqual(sl(15).chunks, 1); assert.strictEqual(sl(15).idx[20 * 512 + 20], 0);
+        assert.strictEqual(sl(-30).idx[0], 0, 'a layer below the chunk shows nothing');
         const good = fs.readFileSync(f); fs.writeFileSync(f, Buffer.alloc(100)); assert.strictEqual(readRegion(f).chunks, 0);               // a truncated file is not an error
         fs.writeFileSync(f, good);
     });

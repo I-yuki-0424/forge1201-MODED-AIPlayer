@@ -50,22 +50,23 @@ class MapStore {
     }
 
     /** One decoded region: { rx, rz, mtime, names, idx (Buffer), h (Buffer), chunks }. Concurrent calls are run one after another. */
-    async region(dim, rx, rz) {
+    async region(dim, rx, rz, top = null) {
+        if (top !== null && (!Number.isInteger(top) || top < -64 || top > 320)) throw Object.assign(new Error('top must be a whole number from -64 to 320'), { status: 400 });
         if (!Number.isInteger(rx) || !Number.isInteger(rz) || Math.abs(rx) > 1e6 || Math.abs(rz) > 1e6) throw Object.assign(new Error('bad region'), { status: 400 });
         const file = path.join(this._dir(dim), `r.${rx}.${rz}.mca`);
         let st; try { st = fs.statSync(file); } catch (_) { return { rx, rz, mtime: 0, names: [], idx: null, h: null, chunks: 0 }; }
-        const key = `${dim}/${rx}/${rz}`, hit = this.cache.get(key);
+        const key = `${dim}/${rx}/${rz}/${top === null ? 's' : top}`, hit = this.cache.get(key);
         if (hit && hit.mtime === st.mtimeMs && hit.size === st.size) { this.cache.delete(key); this.cache.set(key, hit); return hit.data; }
         const run = this.queue.then(async () => {
             const id = ++this.seq;
-            const r = await new Promise((resolve, reject) => { this.pending.set(id, { resolve, reject }); this._worker().postMessage({ id, file }); });
+            const r = await new Promise((resolve, reject) => { this.pending.set(id, { resolve, reject }); this._worker().postMessage({ id, file, top }); });
             let data = { rx, rz, mtime: Math.floor(st.mtimeMs), names: r.names, idx: Buffer.from(r.idx.buffer), h: Buffer.from(r.h.buffer), chunks: r.chunks };
             // A read that catches the server in the middle of saving the file loses chunks (a half-written sector does not inflate): they show as black squares. A world
             // never loses chunks, so a decode with fewer than the last good one is read once more, and if it is still short and the file was written a moment ago the
             // last complete picture is kept (with the new mtime, so that it is looked at again after the next change).
             const prev = this.good.get(key);
             if (prev && data.chunks < prev.chunks) {
-                const again = await new Promise((resolve, reject) => { const id2 = ++this.seq; this.pending.set(id2, { resolve, reject }); setTimeout(() => this._worker().postMessage({ id: id2, file }), 400); });
+                const again = await new Promise((resolve, reject) => { const id2 = ++this.seq; this.pending.set(id2, { resolve, reject }); setTimeout(() => this._worker().postMessage({ id: id2, file, top }), 400); });
                 if (again.chunks >= data.chunks) data = { ...data, names: again.names, idx: Buffer.from(again.idx.buffer), h: Buffer.from(again.h.buffer), chunks: again.chunks };
                 if (data.chunks < prev.chunks && Date.now() - st.mtimeMs < 10000) data = { ...prev, mtime: Math.floor(st.mtimeMs) };
             }

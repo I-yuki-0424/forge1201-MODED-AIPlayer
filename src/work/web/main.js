@@ -26,13 +26,13 @@ async function main() {
         rcon: env.RCON_PASSWORD ? { host: env.RCON_HOST || env.MC_HOST || 'localhost', port: Number(env.RCON_PORT) || 25575, password: env.RCON_PASSWORD } : null,
     });
     const tokenFile = env.WORK_TOKEN_FILE || path.join(dataDir, 'console.token');
-    const token = loadToken(tokenFile);
+    const token = env.WORK_REQUIRE_TOKEN === '1' ? loadToken(tokenFile) : null;       // no token by default: the network (tailnet) or Cloudflare Access decides
     await service.restore();
     const access = env.CF_ACCESS_TEAM && env.CF_ACCESS_AUD ? new Access({ team: env.CF_ACCESS_TEAM, aud: env.CF_ACCESS_AUD, emails: (env.WORK_ALLOWED_EMAILS || '').split(',').map((s) => s.trim()).filter(Boolean) }) : null;
     if (env.WORK_PUBLIC_HOST && !access) { console.error('WORK_PUBLIC_HOST needs CF_ACCESS_TEAM and CF_ACCESS_AUD: refusing to serve the public name without Access'); process.exit(1); }
     const { server } = createConsole({ service, token, access, publicHost: env.WORK_PUBLIC_HOST || null, allowedHosts: (env.WORK_ALLOWED_HOSTS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean) });
     const bind = env.WORK_BIND || '127.0.0.1', port = Number(env.WORK_PORT) || 3020;
-    server.listen(port, bind, () => console.log(`[console] http://${bind}:${port}  server ${service.o.host}:${service.o.port}  table ${service.known ? table : 'none (vanilla names only)'}  rcon ${service.o.rcon ? 'on' : 'off'}  token file ${tokenFile}`));
+    server.listen(port, bind, () => console.log(`[console] http://${bind}:${port}  server ${service.o.host}:${service.o.port}  table ${service.known ? table : 'none (vanilla names only)'}  rcon ${service.o.rcon ? 'on' : 'off'}  ${token ? `token file ${tokenFile}` : 'no token (network / Access)'}`));
     // A loop that never yields would freeze every bot at once (2026-11-09): a second thread notices, writes where it was and kills the process; the container restarts it.
     const wd = watchdog.start({ dir: dataDir, limitMs: (env.WORK_WATCHDOG_S === undefined ? 25 : Number(env.WORK_WATCHDOG_S)) * 1000 });
     if (wd) { const ok = setTimeout(() => watchdog.forget(dataDir), 10 * 60 * 1000); ok.unref(); }       // ten quiet minutes: the freezes are forgotten

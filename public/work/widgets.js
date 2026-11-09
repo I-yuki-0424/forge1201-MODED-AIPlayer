@@ -28,6 +28,31 @@ function makeMap(canvasHost, o) {                       // canvas that follows t
     mv.fitSize = fitSize;
     return mv;
 }
+/** Dimension pulldown (owner 2026-11-10): the three vanilla ones, and "other" for the id of a mod dimension (a text field appears). `.get()` is the dimension; `onchange(dim)` fires on a change. */
+function dimPicker(onchange) {
+    const sel = h('select', { class: 'sel', 'aria-label': 'dimension' }, [...['overworld', 'nether', 'end'].map((d) => h('option', { value: d, text: d })), h('option', { value: '__other', text: 'other (mod dimension id)...' })]);
+    const other = h('input', { class: 'wide hidden', maxlength: 70, placeholder: 'twilightforest:twilight_forest', autocomplete: 'off', 'aria-label': 'dimension id' });
+    const get = () => (sel.value === '__other' ? other.value.trim() || 'overworld' : sel.value), fire = () => { if (onchange) onchange(get()); };
+    sel.addEventListener('change', () => { other.classList.toggle('hidden', sel.value !== '__other'); if (sel.value === '__other') other.focus(); fire(); });
+    other.addEventListener('change', fire);
+    return { el: h('span', { class: 'row tight' }, sel, other), get, set(v) { const known = ['overworld', 'nether', 'end'].includes(v); sel.value = known ? v : '__other'; other.classList.toggle('hidden', known); if (!known) other.value = v; } };
+}
+/** "View from y": the layer a map looks down from (blank = the surface; the Nether starts at 70 because its roof is bedrock). `.set(y)` follows the map's own choice. */
+function sliceControl(getMap) {
+    const inp = h('input', { type: 'number', class: 'num', placeholder: 'surface', min: -64, max: 320, 'aria-label': 'view from y', title: 'The map looks down from this layer and shows the first block it meets (blank = the surface). In the Nether the surface is the bedrock roof, so it starts at y 70.' });
+    inp.addEventListener('input', () => { const mv = getMap(); if (mv) mv.setSlice(inp.value === '' ? null : Number(inp.value)); });
+    return { el: h('span', { class: 'row tight' }, h('span', { class: 'field-label', text: 'view from y' }), inp), set(y) { inp.value = y === null || y === undefined ? '' : y; } };
+}
+/** Buttons that make a selecting map easier to use: Select / Pan, Clear, Bigger. */
+function selectTools(getMap, host) {
+    const mode = h('button', { class: 'btn small', title: 'Select: drag draws the area (drag an edge or corner of it to resize). Pan: drag moves the map (right-drag or Ctrl-drag does that in either mode)' }, 'Select');
+    const set = (m) => { const mv = getMap(); if (mv) mv.setMode(m); mode.textContent = m === 'select' ? 'Select' : 'Pan'; mode.classList.toggle('primary', m === 'pan'); mode.dataset.mode = m; };
+    mode.dataset.mode = 'select'; mode.addEventListener('click', () => set(mode.dataset.mode === 'select' ? 'pan' : 'select'));
+    const clear = h('button', { class: 'btn small', title: 'forget the selected area (Esc)', onclick: () => { const mv = getMap(); if (mv) mv.clearSel(); } }, 'Clear');
+    const big = h('button', { class: 'btn small', title: 'make the map taller' }, 'Bigger');
+    big.addEventListener('click', () => { const on = host.classList.toggle('big'); big.textContent = on ? 'Smaller' : 'Bigger'; const mv = getMap(); if (mv) setTimeout(() => mv.fitSize(), 50); });
+    return [mode, clear, big];
+}
 function jobRow(j, { compact = false } = {}) {
     const p = j.progress, pct = p.total ? Math.round(100 * p.done / p.total) : 0;
     return h('div', { class: 'jobrow' }, h('div', { class: 'row tight' }, stateDot(j.state), h('strong', { text: `${j.id} ${j.name}` }), h('span', { class: 'muted small', text: `${j.kind}${j.spec && j.spec.method ? ' ' + j.spec.method : ''} · ${j.bots.length} bots${j.lanes ? ` · ${j.lanes} lanes` : ''}${j.spec && j.spec.method && j.spec.road === false ? ' · no road' : ''}` }), h('span', { class: 'grow' }), h('span', { class: 'mono small', text: `${pct}%` })),

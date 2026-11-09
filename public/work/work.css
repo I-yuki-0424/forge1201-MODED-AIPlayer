@@ -125,3 +125,6 @@ body.kiosk { font-size:16px; }
 body.kiosk #side { width:54px; } body.kiosk .brand-text, body.kiosk #nav span, body.kiosk .side-foot, body.kiosk .chips-bar { display:none; } body.kiosk #nav button { justify-content:center; padding:12px 8px; }
 body.kiosk #page { padding:10px; } body.kiosk .grid-12 > * { grid-column:span 12; }
 body.kiosk .btn, body.kiosk .tab { min-height:40px; } body.kiosk input:not([type=checkbox]):not([type=range]), body.kiosk select { min-height:38px; font-size:16px; } body.kiosk input[type=checkbox] { width:20px; height:20px; }
+
+/* a map the operator made bigger (the Bigger button next to a selecting map) */
+.map-host.big .map-canvas, body.kiosk .tall-map.big .map-canvas { height:clamp(480px, 82vh, 1100px) !important; min-height:0 !important; }

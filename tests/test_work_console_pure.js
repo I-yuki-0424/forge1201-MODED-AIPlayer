@@ -173,6 +173,29 @@ function test(name, fn) { console.log(`--- test: ${name} ---`); return Promise.r
         assert.strictEqual((await call2('POST', '/api/logout', A)).status, 200);
         assert.strictEqual((await call2('GET', '/api/state', A)).status, 401);
     });
+
+    // No token (the default since 2026-11-10): loopback / tailnet get a session from GET /api/session; anything that came through a proxy needs Access.
+    const c3 = createConsole({ service }); const s3 = c3.server; await new Promise((r) => s3.listen(0, '127.0.0.1', r)); const p3 = s3.address().port;
+    const call3 = (m, u, o = {}) => new Promise((resolve, reject) => {
+        const data = o.body !== undefined ? JSON.stringify(o.body) : null;
+        const h = { Host: `127.0.0.1:${p3}`, ...(data !== null ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } : {}), ...(o.headers || {}) };
+        if (o.cookie) h.Cookie = o.cookie; if (o.csrf) h['X-CSRF'] = o.csrf;
+        const req = http.request({ host: '127.0.0.1', port: p3, path: u, method: m, headers: h }, (res) => { const ch = []; res.on('data', (c) => ch.push(c)); res.on('end', () => { let j = null; try { j = JSON.parse(Buffer.concat(ch).toString()); } catch (_) { /* html */ } resolve({ status: res.statusCode, json: j, headers: res.headers }); }); });
+        req.on('error', reject); if (data !== null) req.write(data); req.end();
+    });
+    await test('no token: the network is the key, a proxied request is refused without Access', async () => {
+        assert.strictEqual((await call3('GET', '/api/state')).status, 401, 'no session yet');
+        assert.strictEqual((await call3('POST', '/api/login', { body: { token: 'x' } })).status, 401, 'no login route without a token');
+        const ses = await call3('GET', '/api/session'); assert.strictEqual(ses.status, 200); assert.strictEqual(ses.json.via, 'network');
+        const ck = ses.headers['set-cookie'][0].split(';')[0]; assert.match(ses.headers['set-cookie'][0], /HttpOnly; SameSite=Strict/);
+        assert.strictEqual((await call3('GET', '/api/state', { cookie: ck })).status, 200);
+        assert.strictEqual((await call3('POST', '/api/bots', { body: { name: 'Hack2' }, cookie: ck })).status, 403, 'writes still need the CSRF header');
+        for (const hd of [{ 'cf-ray': 'abc' }, { 'cf-connecting-ip': '1.2.3.4' }, { 'x-forwarded-for': '1.2.3.4' }, { 'cf-access-jwt-assertion': 'a.b.c' }]) {
+            assert.strictEqual((await call3('GET', '/api/session', { headers: hd })).status, 403, JSON.stringify(hd));
+            assert.strictEqual((await call3('GET', '/', { headers: hd })).status, 403);
+        }
+    });
+    s3.close();
     s2.close(); server.close(); await service.stop();
     console.log('ALL OK'); process.exit(0);
 })().catch((e) => { console.error(e); process.exit(1); });

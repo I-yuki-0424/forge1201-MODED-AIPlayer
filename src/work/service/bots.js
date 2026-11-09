@@ -117,7 +117,7 @@ class BotsPart {
         const items = b && b.inventory && rec.state === 'online' ? b.inventory.items() : [];
         const count = (re) => items.reduce((n, i) => n + (re.test(i.name) ? i.count : 0), 0);
         return {
-            name: rec.name, state: rec.state, job: rec.job, working: !!rec.worker, retired: rec.retired, error: rec.error,
+            name: rec.name, state: rec.state, dim: e && b.game && b.game.dimension ? (dimensions.canon(b.game.dimension) || String(b.game.dimension)) : null, job: rec.job, working: !!rec.worker, retired: rec.retired, error: rec.error,
             cmd: rec.cmd ? { id: rec.cmd.id, name: rec.cmd.name, status: rec.cmd.status, since: rec.cmd.started, result: rec.cmd.result || null, progress: rec.cmd.progress || null } : null,
             pos: e ? { x: Math.round(e.position.x * 10) / 10, y: Math.round(e.position.y * 10) / 10, z: Math.round(e.position.z * 10) / 10 } : null,
             health: b && rec.state === 'online' ? b.health ?? null : null, food: b && rec.state === 'online' ? b.food ?? null : null,
