@@ -36,6 +36,7 @@ const slotsOf = (name, count, policy) => Math.ceil(count / stackOf(name, policy)
 function pitPolicy(over = {}) {
     return {
         freeLow: 6,                        // an upkeep starts when fewer slots than this are empty ...
+        surplusTrip: 3,                    // a surplus of this many slots makes a trip of its own (smaller ones wait for the next trip)
         freeTarget: 18,                    // ... and then makes room down to this many: one trip for ~12 stacks, not one trip per stack (the trigger and the target were both 6: every bot made a trip, a lift and a place in line, per unit)
         neverToss: 60,                     // items valued at or above this are never thrown away, only stored
         keep: {                            // item -> {min, max}: min is protected and restocked, the rest above max is surplus
@@ -85,6 +86,12 @@ function plan(items, slotsFree, policy = pitPolicy(), worn = []) {
             const o = ops.length; dispose(n, extra, 'surplus');
             if (ops.length > o) { free += before - after; stacks.set(n, k.max); }
         }
+    }
+    // A surplus that only keeps a stack from growing (cobblestone above 64) is no reason for a trip of its own: it goes along with the next trip for room, or alone once it is worth
+    // `surplusTrip` slots. Thrown-away surplus costs no trip and stays. (Live: 13 visits a minute, one kind each, all of them cobblestone over 64.)
+    if (slotsFree >= (policy.freeLow ?? policy.freeTarget)) {
+        const surplus = ops.filter((o) => o.op === 'deposit' && o.why === 'surplus'), slots = surplus.reduce((a, o) => a + slotsOf(o.item, o.count, policy), 0);
+        if (slots < (policy.surplusTrip ?? 1)) return ops.filter((o) => !surplus.includes(o));
     }
     if (free >= (policy.freeLow ?? policy.freeTarget)) return ops;
     // 2. Not enough room: lowest value first, whole stacks beyond the protected minimum.

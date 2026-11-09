@@ -125,6 +125,17 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'health-'));
         const r4 = await janitor.maintain(e4, { ...pol, neverToss: 0 }); assert.ok(e4.badBoxes.has('1,1,1'), 'a depot that is no container is remembered');
     });
 
+    await test('a small surplus (cobblestone above 64) makes no trip of its own; it goes along with a trip for room, or alone from three slots up; a thrown-away surplus stays', () => {
+        const pol = janitor.pitPolicy({ depot: { kind: 'chest', x: 0, y: 0, z: 0 } });
+        const few = [{ name: 'cobblestone', count: 100 }, { name: 'dirt', count: 10 }];
+        assert.deepStrictEqual(janitor.plan(few, 20, pol), [], '36 extra cobblestone and free room: nothing to do');
+        const big = janitor.plan([{ name: 'cobblestone', count: 64 + 3 * 64 }], 20, pol); assert.ok(big.some((o) => o.item === 'cobblestone' && o.why === 'surplus'), 'three slots of surplus: a trip');
+        const room = janitor.plan([{ name: 'cobblestone', count: 100 }, ...Array.from({ length: 30 }, (_, i) => ({ name: `create:s${i}`, count: 64 }))], 2, pol);
+        assert.ok(room.some((o) => o.why === 'surplus' && o.item === 'cobblestone') && room.some((o) => o.why === 'make_room'), 'with a trip for room the surplus goes too');
+        const tossed = janitor.plan([{ name: 'dirt', count: 80 }], 20, { ...janitor.pitPolicy(), depot: null });
+        assert.ok(tossed.every((o) => o.op === 'toss') && tossed.length >= 1, 'no depot: surplus is thrown away, trip-free, and kept');
+    });
+
     fs.rmSync(tmp, { recursive: true, force: true });
     console.log('all health tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });
