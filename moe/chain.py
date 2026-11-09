@@ -27,7 +27,7 @@ def dist_info(o):
 
 
 class Chain:
-    def __init__(self, feat, cat, route, experts, goal="iron_pickaxe", amount=1, source="net", sample_on_stall=True, seed=0):
+    def __init__(self, feat, cat, route, experts, goal="iron_pickaxe", amount=1, source="net", sample_on_stall=True, seed=0, shadow=None):
         """route(goal, amount, named inventory, info) -> (expert id | DONE, groups);  experts: {id: params} for source 'net'."""
         self.feat, self.cat, self.route, self.goal, self.amount, self.source = feat, cat, route, goal, amount, source
         self.by_id = {e["id"]: e for e in cat["experts"]}
@@ -39,6 +39,9 @@ class Chain:
         self.trace = {}          # env key -> [(step, expert id, pack summary, stalls)] : every switch, for diagnosis
         self.calls = 0
         self.unstick_calls = 0
+        self.shadow = shadow             # route function of the rules: labels every state the chain visits (disagreements are counted, the states can be dumped for DAgger)
+        self.disagree = {}
+        self.visited = []
         self.steps = {}          # env key -> [(step, expert, sampled, command, item)] of the last 400 commands (--trace-steps)
         self.record = False
         self.key = __import__("jax").random.PRNGKey(seed) if source == "net" else None
@@ -95,6 +98,12 @@ class Chain:
             self.calls += 1
             info = {"dist": dist_info(ob.raw), "stalls": st["stalls"]}
             nxt, rel = self.route(self.goal, self.amount, inv, info)
+            if self.shadow is not None:
+                lab = self.shadow(self.goal, self.amount, inv, info)[0]
+                if lab != nxt:
+                    self.disagree[f"{nxt} <- rules {lab}"] = self.disagree.get(f"{nxt} <- rules {lab}", 0) + 1
+                if len(self.visited) < 20000:
+                    self.visited.append({"inv": {k: v for k, v in inv.items() if v}, "goal": self.goal, "amount": self.amount, "info": info, "label": lab})
             st["e"], st["since"], st["rel"] = (None, ob.step, ()) if nxt == DONE else (nxt, ob.step, tuple(rel))
             st["sig"] = self._progress_sig(ob.raw, inv, st["rel"]) if nxt != DONE else None
             if nxt == "unstick":

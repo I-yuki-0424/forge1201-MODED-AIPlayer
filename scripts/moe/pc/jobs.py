@@ -130,10 +130,10 @@ def main():
     t = sub.add_parser("train"); t.add_argument("--tag", required=True); t.add_argument("--experts", default="all"); t.add_argument("--par", type=int, default=8)
     t.add_argument("--seed", type=int, default=0); t.add_argument("--controls", type=int, default=1); t.add_argument("--steps", type=int, default=0); t.add_argument("--shards", type=int, default=3)
     t.add_argument("--episodes", type=int, default=200); t.add_argument("--hard", action="store_true", help="stop only at 0.995 over 500 episodes (the owner's bar for movement)"); t.add_argument("--only-scenario", default="", help="train and evaluate on this one scenario file only (an ablation)")
-    r = sub.add_parser("router"); r.add_argument("--tag", required=True)
+    r = sub.add_parser("router"); r.add_argument("--tag", required=True); r.add_argument("--extra", default="")
     c = sub.add_parser("chain"); c.add_argument("--tag", required=True); c.add_argument("--scenario", required=True); c.add_argument("--router", default="rules"); c.add_argument("--experts", default="net")
     c.add_argument("--episodes", type=int, default=60); c.add_argument("--greedy-stall", action="store_true"); c.add_argument("--seed", type=int, default=0); c.add_argument("--out", default="chain.jsonl")
-    c.add_argument("--trace", type=int, default=0); c.add_argument("--trace-fail", action="store_true"); c.add_argument("--trace-steps", action="store_true")
+    c.add_argument("--trace", type=int, default=0); c.add_argument("--trace-fail", action="store_true"); c.add_argument("--trace-steps", action="store_true"); c.add_argument("--dump-states", default="")
     m = sub.add_parser("assemble"); m.add_argument("--into", required=True); m.add_argument("--sources", required=True, help="comma list of tags, later ones override earlier ones")
     v = sub.add_parser("eval"); v.add_argument("--tag", required=True); v.add_argument("--expert", required=True); v.add_argument("--scenario", required=True); v.add_argument("--policy", default="net")
     v.add_argument("--episodes", type=int, default=200); v.add_argument("--seed", type=int, default=0); v.add_argument("--worlds", default="vps-s3,vps-s4")
@@ -163,7 +163,7 @@ def main():
                     print(f"{d.name} <- {src}")
         return
     if a.cmd == "router":
-        print(cli(["router", "--out", str(runs / "router")], runs / "router.log"))
+        print(cli(["router", "--out", str(runs / "router")] + (["--extra", ",".join(str(runs / x) for x in a.extra.split(","))] if a.extra else []), runs / "router.log"))
         return
     if a.cmd == "eval":
         print(evaluate(a.tag, ex[a.expert], a.scenario, a.policy, a.episodes, a.seed, runs / "eval.log", runs / f"eval-{a.expert}.jsonl", tuple(a.worlds.split(","))))
@@ -175,7 +175,7 @@ def main():
             rt = "rules" if a.router == "rules" else f"{a.router}:{runs / 'router' / ('router.' + a.router)}"
             ek = "solver" if a.experts == "solver" else f"net:{runs}"
             args = ["chain", "--root", str(X), "--base", base, "--shards", "0,1", "--router", rt, "--experts", ek, "--episodes", str(a.episodes), "--scenario", a.scenario,
-                    "--out", str(runs / a.out), "--timeout", "3000"] + (["--greedy-stall"] if a.greedy_stall else []) + (["--trace", str(a.trace)] if a.trace else []) + (["--trace-fail"] if a.trace_fail else []) + (["--trace-steps"] if a.trace_steps else [])
+                    "--out", str(runs / a.out), "--timeout", "3000"] + (["--greedy-stall"] if a.greedy_stall else []) + (["--trace", str(a.trace)] if a.trace else []) + (["--trace-fail"] if a.trace_fail else []) + (["--trace-steps"] if a.trace_steps else []) + (["--dump-states", str(runs / a.dump_states)] if a.dump_states else [])
             print(cli(args, runs / "chain.log", timeout=7200))
         finally:
             shards_down(procs)

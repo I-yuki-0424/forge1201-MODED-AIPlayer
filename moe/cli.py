@@ -25,12 +25,12 @@ def main(argv=None):
     e.add_argument("--policy", required=True, help="random | solver | net:<checkpoint.npz>"); e.add_argument("--episodes", type=int, default=200)
     e.add_argument("--seed", type=int, default=0); e.add_argument("--out"); e.add_argument("--timeout", type=int, default=900)
     r = sub.add_parser("router")
-    r.add_argument("--out", required=True); r.add_argument("--n-train", type=int, default=60000); r.add_argument("--n-test", type=int, default=8000); r.add_argument("--seed", type=int, default=0)
+    r.add_argument("--out", required=True); r.add_argument("--extra", default="", help="comma list of --dump-states files added to the training rows (DAgger)"); r.add_argument("--n-train", type=int, default=60000); r.add_argument("--n-test", type=int, default=8000); r.add_argument("--seed", type=int, default=0)
     c = sub.add_parser("chain")
     c.add_argument("--root", required=True); c.add_argument("--base", required=True); c.add_argument("--shards", required=True)
     c.add_argument("--router", required=True, help="rules | xgb:<model> | lgb:<model>"); c.add_argument("--experts", required=True, help="net:<runs dir> | solver")
     c.add_argument("--episodes", type=int, default=60); c.add_argument("--trace", type=int, default=0, help="print the expert switches of the first N episodes"); c.add_argument("--scenario", default="chain"); c.add_argument("--out"); c.add_argument("--timeout", type=int, default=1500)
-    c.add_argument("--trace-steps", action="store_true", help="with --trace: also the expert and command of each of the last 400 steps"); c.add_argument("--trace-fail", action="store_true", help="trace only the episodes that did not succeed"); c.add_argument("--greedy-stall", action="store_true", help="control: the first chain's behaviour, a stalled expert is called again with the greedy action")
+    c.add_argument("--dump-states", default="", help="write every state the router saw, labelled by the rules (DAgger data for the router)"); c.add_argument("--trace-steps", action="store_true", help="with --trace: also the expert and command of each of the last 400 steps"); c.add_argument("--trace-fail", action="store_true", help="trace only the episodes that did not succeed"); c.add_argument("--greedy-stall", action="store_true", help="control: the first chain's behaviour, a stalled expert is called again with the greedy action")
     a = ap.parse_args(argv)
     if a.cmd == "router":
         return _router(a)
@@ -82,6 +82,12 @@ def _router(a):
     cat = catalog.load()
     rl = rules.Rules(cat)
     train = R.sample(cat, rl, np.random.default_rng(a.seed + 1), a.n_train)
+    for fn in [x for x in a.extra.split(",") if x]:
+        n0 = len(train)
+        for l in open(fn):
+            d = json.loads(l)
+            train.append((d["inv"], d["goal"], d["amount"], d["info"], d["label"]))
+        print(json.dumps({"extra": fn, "rows": len(train) - n0}))
     test = R.sample(cat, rl, np.random.default_rng(a.seed + 2), a.n_test)
     os.makedirs(a.out, exist_ok=True)
     res = {}
@@ -127,7 +133,8 @@ def _chain(a):
         src = "net"
         for e in cat["experts"]:
             experts[e["id"]], _ = policy.load(f"{a.experts[4:]}/{e['id']}/final.npz")
-    ch = C.Chain(feat, cat, route, experts, cat["chain"]["goal"], 1, src, sample_on_stall=not a.greedy_stall)
+    shadow = None if a.router == "rules" else rules.Rules(cat).route
+    ch = C.Chain(feat, cat, route, experts, cat["chain"]["goal"], 1, src, sample_on_stall=not a.greedy_stall, shadow=shadow)
     ch.record = bool(a.trace_steps)
     reached = {e["id"]: 0 for e in cat["experts"]}
     traced = [0]
@@ -141,11 +148,15 @@ def _chain(a):
                 row["steps"] = ch.steps.get(ob.key, [])
             print(json.dumps(row))
     s = evaluate.run(vec, ch.decide, a.episodes, a.timeout, on_episode=on_ep)
-    s.update(router=a.router.split(":")[0], experts=src, scenario=a.scenario, expert_goal_reached=reached, router_calls=ch.calls, unstick_calls=ch.unstick_calls, greedy_stall=a.greedy_stall)
+    s.update(router=a.router.split(":")[0], experts=src, scenario=a.scenario, expert_goal_reached=reached, router_calls=ch.calls, router_disagreements=dict(sorted(ch.disagree.items(), key=lambda kv: -kv[1])[:12]), unstick_calls=ch.unstick_calls, greedy_stall=a.greedy_stall)
     print(json.dumps(s))
     if a.out:
         with open(a.out, "a") as f:
             f.write(json.dumps(s) + "\n")
+    if a.dump_states:
+        with open(a.dump_states, "w") as f:
+            for row in ch.visited:
+                f.write(json.dumps(row) + "\n")
     pathlib.Path(f"{a.root}/{a.base}.done").write_text("chain")
     return 0
 
