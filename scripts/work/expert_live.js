@@ -53,7 +53,7 @@ async function main() {
         const r = fn ? await fn() : await experts.drive(bot, expert, target, { exec: env.exec, maxMs, onStep: arg('--trace') ? (s) => console.log('   step', JSON.stringify(s)) : undefined });
         await sleep(600);
         const p = await pos(), d = dist(p, target), sec = Math.round((Date.now() - t0) / 1000);
-        check(name, d <= reach, { expert, steps: r.steps, ok: r.ok, reason: r.reason, serverDist: Math.round(d * 10) / 10, serverPos: [p.x, p.y, p.z].map((v) => Math.round(v * 10) / 10), sampled: r.sampled, seconds: sec });
+        check(name, d <= reach, { expert, steps: r.steps, ok: r.ok, reason: r.reason, serverDist: Math.round(d * 10) / 10, serverPos: [p.x, p.y, p.z].map((v) => Math.round(v * 10) / 10), sampled: r.sampled, thinkMs: r.thinkMs, thinkMaxMs: r.thinkMaxMs, seconds: sec });
         return { r, d, sec };
     };
     const surf = (x, z) => ({ x, y: TOP + 1, z });
