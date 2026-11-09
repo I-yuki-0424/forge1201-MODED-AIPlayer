@@ -128,14 +128,14 @@ function diffBuild(plan, w) {
 
 /**
  * Run one unit. `env`: exec, w, have, here. Idempotent: a cell that already holds its block is skipped, one that holds
- * something else is dug out first. Temporary scaffold blocks are recorded in env.temp (kept while the bot works on the same
+ * something else is dug out first. Temporary scaffold blocks are recorded in env.scaffold (kept while the bot works on the same
  * layer) and removed by cleanup().
  */
 async function runUnit(plan, regionId, u, env) {
     const cells = unitCells(plan, regionId, u.unit), r = { placed: 0, skipped: 0, scaffold: 0 };
-    env.temp = env.temp || { layer: null, cells: [] };
-    if (env.temp.layer !== null && env.temp.layer !== u.layer) await cleanup(env);
-    env.temp.layer = u.layer;
+    env.scaffold = env.scaffold || { layer: null, cells: [] };
+    if (env.scaffold.layer !== null && env.scaffold.layer !== u.layer) await cleanup(env);
+    env.scaffold.layer = u.layer;
     const fail = (res, cell, stage) => ({ ok: false, reason: res.reason, detail: { ...(res.detail || {}), cell, stage, ...r } });
     const anyItem = () => SEAL_ITEMS.find((n) => env.have(n) >= 2);
     for (const c of cells) {
@@ -150,13 +150,13 @@ async function runUnit(plan, regionId, u, env) {
         // A scaffold helps when the cell cannot be reached or seen, and also when the walk to the placement face ends in the open
         // (a roof cell inside the walls: live run, reason 'stuck', goal 'reach placement face'). Other 'stuck' reasons are the bot's body.
         if (!p.ok && (p.reason === 'unreachable' || p.reason === 'not_visible' || (p.reason === 'stuck' && p.detail && p.detail.goal === 'reach placement face'))) {
-            const sc = scaffoldFor(plan, env.w, c, plan.origin.y, { reuse: new Set(env.temp.cells.map((q) => `${q.x},${q.y},${q.z}`)) }), mat = anyItem();
+            const sc = scaffoldFor(plan, env.w, c, plan.origin.y, { reuse: new Set(env.scaffold.cells.map((q) => `${q.x},${q.y},${q.z}`)) }), mat = anyItem();
             if (sc && sc.cells.length && mat) {
                 for (const s of sc.cells) {
                     if (env.w.nameAt(s.x, s.y, s.z) === mat) continue;
-                    const q = await env.exec('place', { x: s.x, y: s.y, z: s.z, item: mat });
+                    const q = await env.exec('place', { x: s.x, y: s.y, z: s.z, item: mat, temp: 'scaffold' });
                     if (!q.ok) return fail(q, s, 'scaffold');
-                    env.temp.cells.push(s); r.scaffold++;
+                    env.scaffold.cells.push(s); r.scaffold++;
                 }
                 const mv = await env.exec('move_to', sc.top);
                 if (!mv.ok) return fail(mv, sc.top, 'climb');
@@ -171,7 +171,7 @@ async function runUnit(plan, regionId, u, env) {
 
 /** Remove the temporary blocks, highest first, so the bot always has something to stand on. */
 async function cleanup(env) {
-    const t = env.temp; if (!t || !t.cells.length) { if (t) t.layer = null; return { ok: true, removed: 0 }; }
+    const t = env.scaffold; if (!t || !t.cells.length) { if (t) t.layer = null; return { ok: true, removed: 0 }; }
     const cells = t.cells.sort((a, b) => b.y - a.y || b.x - a.x); let removed = 0;
     for (const c of cells) {
         if (!env.w.nameAt(c.x, c.y, c.z) || /^(air|cave_air)$/.test(env.w.nameAt(c.x, c.y, c.z))) continue;

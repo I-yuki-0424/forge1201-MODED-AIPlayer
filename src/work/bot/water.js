@@ -97,7 +97,7 @@ async function rescue(env, box, { why = null, maxFill = 48 } = {}) {
             for (const c of plan.fill) {
                 item = SEAL_ITEMS.find((n) => env.have(n) >= 1);
                 if (!item) return { ...out, ok: false, reason: 'missing_item', detail: { why: 'no block to stop the water with', tried: SEAL_ITEMS } };
-                const p = await exec('place', { x: c.x, y: c.y, z: c.z, item, fluid: true });
+                const p = await exec('place', { x: c.x, y: c.y, z: c.z, item, fluid: true, temp: 'rescue' });
                 if (!p.ok) { if (p.reason === 'died' || p.reason === 'disconnected' || p.reason === 'cancelled') return { ...out, ok: false, reason: p.reason, detail: p.detail }; continue; }
                 out.filled++;
             }

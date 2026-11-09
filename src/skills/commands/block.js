@@ -142,6 +142,7 @@ async function mine(ctx, { x, y, z, collect = true, blind = false, hand = false 
     }
     await ctx.tick({});
     fixtures.unmark(bot, cell);                                     // an own box that was picked up again is no longer remembered
+    if (bot.__temps) bot.__temps.remove(fixtures.dimOf(bot), cell);   // a block of the shared list of placed blocks that is broken (by anyone) is one set: both are gone
     // Success is the break the server confirmed. The drop is collected when it can be: many drops are random (leaves,
     // gravel, grass) or fall out of reach (a log felled from a tree top), and the server counts the block as mined either
     // way (run train3, Train6: every leaf/log on a tree top ended not_confirmed while the statistic rose).
@@ -167,13 +168,16 @@ function supports(w, cell) {
 const overlaps = (pos, c) => pos.x + 0.3 > c.x && pos.x - 0.3 < c.x + 1 && pos.z + 0.3 > c.z && pos.z - 0.3 < c.z + 1 && pos.y + 1.8 > c.y && pos.y < c.y + 1;
 
 /** place {x, y, z, item, fluid?}: place the block item into that cell, against any solid neighbour. `fluid` allows a cell of water or lava. */
-async function place(ctx, { x, y, z, item, fluid = false }) {
+async function place(ctx, { x, y, z, item, fluid = false, temp = null }) {
     const bot = ctx.bot, w = ctx.world, cell = { x, y, z };
     if (!bot.registry.blocksByName[item]) throw new SkillError('invalid_args', { item, why: 'not a placeable block item' });
     const cur = w.blockAt(x, y, z);
     if (!cur) throw new SkillError('unreachable', { why: 'target chunk not loaded' });
     if (!REPLACEABLE.test(cur.name) && !(fluid && FLUID.test(cur.name))) throw new SkillError('invalid_target', { why: `cell holds ${cur.name}`, target: cell });
     if (count(bot, item) < 1) throw new SkillError('missing_item', { item });
+    // Never on top of a chest, Ender chest or shulker box: it could not be opened any more (owner 2026-11-10). A water seal (`fluid`) is the one exception, a fluid must be stopped;
+    // it is registered as temporary (`temp`) and taken away again when nothing flows any more (work/bot/temps.js).
+    if (!fluid && fixtures.coversContainer(w, cell)) throw new SkillError('protected', { why: 'a block there would cover a container', block: item, target: cell });
     const refs = supports(w, cell);
     if (!refs.length) throw new SkillError('invalid_target', { why: 'no solid neighbour to place against', target: cell });
     const free = (c) => !(c.x === x && c.z === z && (c.y === y || c.y + 1 === y));
@@ -205,7 +209,7 @@ async function place(ctx, { x, y, z, item, fluid = false }) {
         const look = { yaw: bot.entity.yaw, pitch: bot.entity.pitch, sneak };
         await ctx.tick({ ...look, use: true });
         await ctx.tick(look);
-        try { await ctx.until(placed, 10, 'not_confirmed', look); fixtures.markPlaced(bot, item, cell); return { against: r.cell, face: hit.face }; } catch (e) { if (e.reason !== 'not_confirmed') throw e; }
+        try { await ctx.until(placed, 10, 'not_confirmed', look); fixtures.markPlaced(bot, item, cell); if (temp && bot.__temps) bot.__temps.add({ dim: fixtures.dimOf(bot), x, y, z, item, kind: temp, by: bot.username }); return { against: r.cell, face: hit.face }; } catch (e) { if (e.reason !== 'not_confirmed') throw e; }
         if (++tried >= 3) break;
     }
     throw new SkillError(tried ? 'not_confirmed' : 'not_visible', { target: cell, tried });

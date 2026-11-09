@@ -27,6 +27,7 @@ class BotsPart {
         bot.__noVines = true;                  // the planner does not climb vines (see skills/world.js)
         // Owner rule (2026-11-09): a box or tagged block the bots did not place is never broken. The Set of own boxes is shared and kept across restarts.
         bot.__placed = this.placed;
+        bot.__temps = this.temps;                 // the shared list of placed blocks (water seals, pillars ...): registered when placed, forgotten when broken, cleaned up (bot/temps.js)
         // Reflexes (fall: water bucket or a block under the feet; lava): one watcher per bot, whatever it is doing (work/bot/reflex.js).
         try {
             bot.__reflex = require('../bot/reflex').attach(bot, { world: require('../../skills/world').fromBot(bot), enabled: () => this.settings.reflex !== false, onEvent: (n, d) => this._reflexEvent(rec, n, d) });

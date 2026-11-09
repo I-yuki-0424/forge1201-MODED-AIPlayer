@@ -162,7 +162,9 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
     };
     const CHEST_OPS = new Set(['deposit', 'withdraw']), CHEST_MOVES = new Set(['take_usable', 'stash_worn', 'deposit_many']);
     const envObj = {
-        w, now: Date.now, recover, temp: new Map(), stockMiss, act: null, sub: null,
+        w, bot, now: Date.now, cancelled: () => !!cancel.cancelled, recover, stockMiss, act: null, sub: null,
+        temps: bot.__temps || null,                                   // the registry of blocks the bots placed, shared by every bot (temps.js)
+        temp: bot.__temps ? bot.__temps.view(bot) : new Map(),        // this bot's view of it: what it placed or what stands within 10 blocks and is cleaned by whoever passes
         stations: bot.__stations || (bot.__stations = {}),           // crafting table / furnace the bot placed and has not taken back: reused by the next script run (script.js)
         discard: disc.makeClear({ rcon, name: bot.username, count: have }),
         dumpSpot: avoid ? () => disc.dumpSpot(w, feet(), { avoid: avoid(), others: others ? others() : [] }) : null,

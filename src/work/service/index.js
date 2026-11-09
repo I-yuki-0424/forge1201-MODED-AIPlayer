@@ -9,6 +9,7 @@ const { EventEmitter } = require('events');
 const { MapStore } = require('../world/maps');
 const { Sites } = require('../bot/sites');
 const { Gates } = require('../bot/queue');
+const { Temps } = require('../bot/temps');
 const scriptLib = require('../bot/script');
 const { Problems } = require('../bot/problems');
 const { Health } = require('./health');
@@ -49,6 +50,7 @@ class WorkService extends EventEmitter {
         this.stockMiss = new scriptLib.Misses({ ttlMs: this.o.stockMissMs || 120000 });         // containers found without an item, for every bot (script.js)
         // A chest takes `chestSlots` bots at a time (default 3), the tools chest and beds one: bots take tools one after another, and sleeping is one at a time.
         this.gates = new Gates({ holdMs: 60000, waitMs: 180000, slotsFor: (key) => this._slotsFor(key) });                  // the lines at beds and containers (bot/queue.js)
+        this.temps = new Temps();         // the blocks the bots placed and that are not part of a build (seals, pillars ...), shared by every bot and kept across restarts (bot/temps.js)
         this.bots = new Map();            // name -> record
         this.jobs = new Map();            // id -> job
         this.log = [];
@@ -137,7 +139,7 @@ class WorkService extends EventEmitter {
     save() {
         const f = path.join(this.o.dataDir, 'state.json');
         const data = {
-            settings: this.settings, seq: this.seq, sites: this.sites.list(), placed: [...this.placed].slice(-300),
+            settings: this.settings, seq: this.seq, sites: this.sites.list(), placed: [...this.placed].slice(-300), temps: this.temps.toJSON(),
             bots: [...this.bots.values()].filter((b) => !b.removed).map((b) => ({ name: b.name, job: b.job })),
             jobs: [...this.jobs.values()].map((j) => ({ id: j.id, kind: j.kind, name: j.name, spec: j.spec, state: j.state, created: j.created, bots: [...j.bots] })),
         };
@@ -149,6 +151,7 @@ class WorkService extends EventEmitter {
         this.settings = { ...this.settings, ...(d.settings || {}) }; this.seq = d.seq || 0;
         this._mapSaveTimer();
         this.sites = new Sites(d.sites || []);
+        this.temps.load(d.temps);
         for (const k of Array.isArray(d.placed) ? d.placed : []) if (/^-?\d+,-?\d+,-?\d+$/.test(k)) this.placed.add(k);
         const fz = watchdog.lastFreeze(this.o.dataDir), looping = !!(fz && fz.n >= 3 && Date.now() - fz.at < 3600000);
         const resume = this.settings.resumeJobs !== false && !looping;

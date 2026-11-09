@@ -32,7 +32,7 @@ class ViewsPart {
     status() {
         return {
             now: Date.now(), uptime: Date.now() - this.started, server: { host: this.o.host, port: this.o.port }, settings: this.settings,
-            rcon: !!this.o.rcon, kit: this.o.kit, maxBots: this.o.maxBots, map: this.maps.available, problems: this.problems.list.length,
+            rcon: !!this.o.rcon, temps: this.temps.counts(), kit: this.o.kit, maxBots: this.o.maxBots, map: this.maps.available, problems: this.problems.list.length,
             bots: [...this.bots.values()].filter((b) => !b.removed).map((b) => this._botView(b)),
             jobs: [...this.jobs.values()].map((j) => this._jobView(j)),
             log: this.log.filter((e) => e.level !== 'debug').slice(-60),

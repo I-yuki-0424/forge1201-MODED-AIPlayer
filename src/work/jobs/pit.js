@@ -206,12 +206,12 @@ async function runUnit(plan, region, u, env) {
     // A placement the bot cannot reach a face for (unreachable) or that ends in a swim it cannot get out of (stuck): the same walk is not tried again. The server puts the bot on a standable
     // cell beside the fluid cell, once per cell, and the placement is tried from there (a different approach); if that fails too, the failure goes up and the unit is parked.
     const placeAt = async (f, item) => {
-        let p = await env.exec('place', { x: f.x, y: f.y, z: f.z, item, fluid: true });
+        let p = await env.exec('place', { x: f.x, y: f.y, z: f.z, item, fluid: true, temp: 'seal' });
         const key = `p${f.x},${f.y},${f.z}`;
         if (!p.ok && (p.reason === 'unreachable' || p.reason === 'stuck') && env.lift && !liftedFor.has(key)) {
             liftedFor.add(key);
             const l = await env.lift(f, { radius: 4, up: 2, down: 1, skipSame: true });
-            if (l.ok) { r.lifted = (r.lifted || 0) + 1; p = await env.exec('place', { x: f.x, y: f.y, z: f.z, item, fluid: true }); }
+            if (l.ok) { r.lifted = (r.lifted || 0) + 1; p = await env.exec('place', { x: f.x, y: f.y, z: f.z, item, fluid: true, temp: 'seal' }); }
         }
         return p;
     };
@@ -450,7 +450,7 @@ function createPitJob(box, ledgerOpts = {}, { lanes = 0, method = 'rows', tile =
     for (const r of plan.regions) { ledger.addRegion(r); byId.set(r.id, r); }
     // sweep: the check at the end (pit_sweep.js): every chunk is walked to, read from the top layer down, and what still holds a block goes back to work.
     const sweep = makeSweeper({ plan, ledger, state: auditState, cellState });
-    return { kind: 'pit', ledger, plan, runUnit: (regionId, unit, env) => runUnit(plan, byId.get(regionId), unit, env), audit: (env, now, opts) => audit(plan, ledger, env.w, now, auditState, opts), sweep, rescue: (env, why) => require('../bot/water').rescue(env, plan.box, { why }) };
+    return { kind: 'pit', ledger, plan, cleanup: (env) => (ledger.finished() ? require('../bot/temps').cleanTemps(env, { box: plan.box, max: 60, maxMs: 120000 }) : null), runUnit: (regionId, unit, env) => runUnit(plan, byId.get(regionId), unit, env), audit: (env, now, opts) => audit(plan, ledger, env.w, now, auditState, opts), sweep, rescue: (env, why) => require('../bot/water').rescue(env, plan.box, { why }) };
 }
 
 module.exports = { standsOnFloater, aerialTree, planPit, laneBoxes, planRoad, stationsOf, lineCells, unitCells, sealPlan, orderFill, isFluid, exposed, runUnit, wrongCells, cellState, audit, createPitJob, SEAL_ITEMS, CHUNK, TILE, SWEEP_R };

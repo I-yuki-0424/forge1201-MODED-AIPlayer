@@ -84,7 +84,7 @@ function attach(bot, { world, enabled = () => true, onEvent = () => {} } = {}) {
                             const ref = bot.blockAt(bot.entity.position.floored().offset(dx, c.y - f.y, dz));
                             if (!ref) continue;
                             const ok = await Promise.race([bot.placeBlock(ref, { x: -dx, y: 0, z: -dz }).then(() => true, () => false), sleep(250).then(() => false)]);
-                            if (ok) { placed++; onEvent('reflex_placed', c); }
+                            if (ok) { placed++; if (bot.__temps) bot.__temps.add({ dim: require('../../skills/fixtures').dimOf(bot), x: c.x, y: c.y, z: c.z, item: mat && mat.name, kind: 'reflex', by: bot.username }); onEvent('reflex_placed', c); }
                             break;
                         }
                     }

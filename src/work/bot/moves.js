@@ -8,6 +8,7 @@ const { holdItem, count } = require('../../skills/commands/item');
 const { mine, dropOf } = require('../../skills/commands/block');
 const { openAt, station, openBox, CONTAINERS, inPlayer, inContainer } = require('../../skills/commands/gui');
 const options = require('../../skills/options');
+const fixtures = require('../../skills/fixtures');
 
 /** Low-value blocks a bot may stack: tagged temporary blocks first, then what a pit produces anyway. Never sand or gravel (they fall). */
 const TEMP_ITEMS = ['cobblestone', 'cobbled_deepslate', 'dirt', 'netherrack', 'stone', 'andesite', 'diorite', 'granite', 'tuff', 'deepslate'];
@@ -32,6 +33,8 @@ async function pillar(ctx, { levels, items = TEMP_ITEMS, within = null }) {
     for (let i = 0; i < levels; i++) {
         const f = feetCell(bot.entity.position);
         if (w.kindAt(f.x, f.y - 1, f.z) !== 'solid') throw new SkillError('invalid_target', { why: 'nothing solid under the feet', at: f, done: placed });
+        // The first block of a pillar goes on top of the block under the feet: never of a chest, Ender chest or shulker box (it could not be opened any more).
+        if (fixtures.coversContainer(w, f)) throw new SkillError('invalid_target', { why: 'standing on a container: a pillar here would cover it', at: f, done: placed });
         // A block overhead is broken first (owner 2026-11-07): the cell above the head, then the head cell if it is closed too.
         for (const dy of [2, 1]) {
             const c = { x: f.x, y: f.y + dy, z: f.z };
@@ -60,6 +63,7 @@ async function pillar(ctx, { levels, items = TEMP_ITEMS, within = null }) {
         await ctx.until(got, 12, 'not_confirmed', look);
         await ctx.until(() => bot.entity.onGround && feetCell(bot.entity.position).y === f.y + 1, 30, 'stuck', look);
         placed++;
+        if (bot.__temps) bot.__temps.add({ dim: fixtures.dimOf(bot), x: cell.x, y: cell.y, z: cell.z, item, kind: 'pillar', by: bot.username });       // the shared list of placed blocks (temps.js)
         // The block placed the round before is now two below the feet.
         if (prev) {
             ctx.phase('pillar_unstack', { cell: prev });

@@ -216,6 +216,7 @@ async function maintain(env, policy) {
             }
             try {
                 // A chest in another layer or out of a move_to's sight: bring the bot there first (the live pit's Ender chests stood on its floor and every deposit failed `unreachable`).
+                if (box.kind !== 'shulker' && env.temps) { try { await require('./temps').uncover(env, box); } catch (_) { /* a failed uncover is not a failed deposit */ } }       // a block of ours on top of the chest: away
                 if (box.kind !== 'shulker') { const a = await require('./reach').approach(env, box, { why: 'to deposit', strict: false }); if (a) return { ok: false, reason: a.reason, detail: a.detail, done }; }          // not reachable now: nothing is thrown away for that, the next upkeep tries again
                 const run = async () => {
                     // One window for the whole group (moves.js deposit_many) when the environment has the work layer's moves; else one command per item kind.

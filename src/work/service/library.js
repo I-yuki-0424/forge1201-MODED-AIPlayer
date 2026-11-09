@@ -21,7 +21,8 @@ class LibraryPart {
     /** Must this block stay? A box or a tagged block that no bot placed from its pack is the owner's (skills/fixtures.js); the bots use what is inside, never break it. */
     isFixture(name, x, y, z) {
         if (this.placed.has(`${x},${y},${z}`)) return false;
-        return require('../../skills/fixtures').isBox(name) || !!this.sites.at(x, y, z);
+        const fx = require('../../skills/fixtures');
+        return fx.isBox(name) || fx.isBed(name) || !!this.sites.at(x, y, z);          // a bed is one too: it may be the respawn point (owner 2026-11-10)
     }
     addSite(s) {
         // A container purpose on a cell that a bot sees as air is a typo in the coordinates (owner 2026-11-09: the tools chest was tagged one chest over and "did not respond").
