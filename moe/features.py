@@ -40,7 +40,7 @@ class Featurizer:
         self.core_of = idx
         self.names = list(vocab_items)
         self.ctx_dim = 20 + 3 + (self.n_core + 1) + 2 + GRID_LAYERS * N_CAT + N_CAT * 2 + (self.n_core + 1) * 2 + 40 + N_REASON + 1 + NG + T * TGT
-        self.cand_dim = N_CMD + (self.n_core + 1) + 1 + 8 + 1 + 1
+        self.cand_dim = N_CMD + (self.n_core + 1) + 1 + 8 + 1 + 1 + 1
 
     def inventory(self, o):
         """{item id: count} of the pack (the observation stores count / 64)."""
@@ -118,7 +118,7 @@ class Featurizer:
                                cat_cnt, cat_min, item_cnt, item_min, ent, reason, dt, relv, tg.reshape(-1)]).astype(np.float32)
 
     def cands(self, o, rel=(), anon=False):
-        """(cand [K, cand_dim], mask [K]) of an observation. The last column is the progress of each command toward the nearest relevant target (blocks / 16, signed)."""
+        """(cand [K, cand_dim], mask [K]) of an observation. The last column is the progress of each command toward the nearest relevant target (blocks / 16, signed, the last column); the one before it is `seen` (0 never ... 1 four times or more)."""
         cmd = np.asarray(o["cand_cmd"], dtype=np.int64)
         item = np.asarray(o["cand_item"], dtype=np.int64)
         mask = np.asarray(o["cand_mask"], dtype=bool) & (cmd > 0)
@@ -134,7 +134,10 @@ class Featurizer:
         if cs is not None and rel:
             _, g = self.targets(o, rel)
             if g is not None:
-                out[:, base + 10] = np.asarray(cs, dtype=np.float32)[:, g]
+                out[:, base + 11] = np.asarray(cs, dtype=np.float32)[:, g]
+        sn = o.get("cand_seen")                                  # the memory a stateless policy lacks: the bot stood near this destination in its last 24 commands
+        if sn is not None:
+            out[:, base + 10] = np.asarray(sn, dtype=np.float32)
         out[~mask] = 0.0
         return out, mask
 

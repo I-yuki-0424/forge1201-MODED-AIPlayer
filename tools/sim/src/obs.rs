@@ -311,6 +311,13 @@ pub fn observe(s: &mut Sim, cands: &[Cand], progress: &[f64], last: (usize, i64)
             Some(Args::Tunnel(d, dy)) => { let (_, to, _) = Sim::tunnel_cells(from, d, *dy); J::nums(&crate::scan::progress(&first, from, to)) }
             _ => J::nums(&vec![0.0; crate::scan::GROUPS.len()]),
         }).collect();
+        // `seen`: how often the bot stood within 1.5 blocks of a command's destination during its last 24 commands (0 never, 1 four times or more): a policy
+        // without memory repeats itself in a cliff or a pond; this is the smallest memory that lets it tell "here again"
+        let seen: Vec<f64> = (0..K).map(|i| {
+            let q = match cands.get(i).map(|c| &c.args) { Some(Args::Move(q)) => Some(*q), Some(Args::Tunnel(d, dy)) => Some(Sim::tunnel_cells(from, d, *dy).1), _ => None };
+            match q { Some(q) => { let n = s.recent.iter().filter(|p| ((p[0] - q[0]) as f64).powi(2) + ((p[1] - q[1]) as f64).powi(2) + ((p[2] - q[2]) as f64).powi(2) <= 2.25).count(); (n as f64 / 4.0).min(1.0) } None => 0.0 }
+        }).collect();
+        extra.push(("cand_seen", J::nums(&seen)));
         extra.push(("scan", J::nums(&sc)));
         extra.push(("cand_scan", J::Arr(rows)));
     }

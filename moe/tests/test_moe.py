@@ -8,7 +8,7 @@ import numpy as np
 from moe import catalog, chain, features, policy, ppo, router, rules, solvers, train
 
 
-def fake_obs(vocab, inv=(), cands=(), scan=None, cand_scan=None):
+def fake_obs(vocab, inv=(), cands=(), scan=None, cand_scan=None, seen=None):
     """An observation with the simulator's shapes. inv: [(name, count)], cands: [(cmd, item name, feat3 distance)]."""
     ix = {n: i for i, n in enumerate(vocab)}
     o = {"grid": [i % 11 for i in range(405)], "self": [0.5] * 20, "clock": [0.1, 0.2, 0.3], "ent_feat": [[0.0] * 5] * 8, "last_reason": 0, "dt_ticks": 20.0,
@@ -20,6 +20,8 @@ def fake_obs(vocab, inv=(), cands=(), scan=None, cand_scan=None):
     o["cand_ent"] = [0] * 64
     o["cand_feat"] = [[0, 0, 0, c[2], 0, 0, 0, 0] for c in cands] + [[0.0] * 8] * (64 - len(cands))
     o["cand_mask"] = [True] * len(cands) + [False] * (64 - len(cands))
+    if seen is not None:
+        o["cand_seen"] = [seen.get(k, 0.0) for k in range(64)]
     if scan is not None:                                     # {group: [(dx, dy, dz) in blocks, ...]} nearest first, as the simulator's scan field
         sc = np.zeros((features.NG, features.M, 5), dtype=np.float32)
         for g, cells in scan.items():
@@ -269,6 +271,14 @@ class Scan(unittest.TestCase):
         self.assertAlmostEqual(float(c[0, -1]), 0.0)
         c, _ = self.f.cands(o, ())
         self.assertEqual(float(np.abs(c[:, -1]).sum()), 0.0)
+
+    def test_the_seen_column_tells_a_candidate_the_bot_stood_there_recently(self):
+        o = fake_obs(self.vocab, cands=[(1, "none", 0.1), (1, "none", 0.2)], scan={"way": [(20, 0, 0)]}, cand_scan={0: [0, 0, 0, 0.5, 0], 1: [0, 0, 0, 0.5, 0]}, seen={0: 1.0, 1: 0.25})
+        c, _ = self.f.cands(o, (3,), True)
+        self.assertEqual((float(c[0, -2]), float(c[1, -2])), (1.0, 0.25))
+        self.assertEqual(float(c[0, -1]), 0.5, "progress stays the last column")
+        c2, _ = self.f.cands(fake_obs(self.vocab, cands=[(1, "none", 0.1)]), (3,), True)
+        self.assertEqual(float(c2[0, -2]), 0.0, "an observation without the field (older simulator) reads as never seen")
 
     def test_the_shaping_potential_of_a_skill_expert_is_distance_to_the_target(self):
         g = train.Goal(catalog.experts(self.cat)["move"], self.f)

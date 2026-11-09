@@ -176,7 +176,7 @@ impl Scenario {
     /// Set the episode up on `s` (standing at its start): kit, mob level, a random heading, the placements. Err = this start cannot
     /// host the scenario (nothing reachable at that distance); the caller tries another site. Returns the record for events.jsonl.
     pub fn start(&self, s: &mut Sim, rng: &mut Rng) -> Result<J, String> {
-        s.hostile_scale = self.hostiles; s.craft_slots = self.craft_slots; s.scan_on = self.scan; s.way = None;
+        s.hostile_scale = self.hostiles; s.craft_slots = self.craft_slots; s.scan_on = self.scan; s.way = None; s.recent.clear();
         s.yaw = rng.f() * std::f64::consts::TAU;
         self.give_kit(s, Some(rng));
         let st = s.pos;
@@ -550,6 +550,10 @@ mod tests {
         let o = crate::obs::observe(&mut s, &c, &[0.0; 4], (0, 0), [0.0; 3]);
         assert_eq!(o.get("scan").arr().len(), 75);
         assert_eq!(o.get("cand_scan").arr().len(), crate::obs::K);
+        assert_eq!(o.get("cand_seen").arr().len(), crate::obs::K);
+        s.recent = vec![[q[0], q[1], q[2]]; 2];
+        let o2 = crate::obs::observe(&mut s, &c, &[0.0; 4], (0, 0), [0.0; 3]);
+        assert!(o2.get("cand_seen").arr().iter().any(|x| x.f() >= 0.5), "a destination the bot stood on twice is marked as seen");
         let ci = c.iter().position(|x| x.feat[7] == 1.0 && x.item == s.d.item("iron_ore")).unwrap();
         assert!(o.get("cand_scan").arr()[ci].arr()[2].f() > 0.0, "positive progress toward the iron");
     }

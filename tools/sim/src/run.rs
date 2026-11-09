@@ -129,6 +129,7 @@ fn new_episode(c: &Cfg, b: &mut Bot, cache: &mut HashMap<usize, Rc<Tile>>, avoid
 
 fn exec(s: &mut Sim, c: &Cand) -> Out {
     s.track = s.pos; s.ph.clear();
+    s.recent.push(s.pos); if s.recent.len() > 24 { s.recent.remove(0); }          // where the bot stood before each of its last 24 commands (the `seen` column of the candidates)
     match &c.args {
         Args::Wait => s.do_wait(40), Args::Move(t) => s.do_move(*t), Args::Mine(t) => s.do_mine(*t), Args::Tunnel(d, dy) => s.do_tunnel(d, *dy), Args::Attack(id) => s.do_attack(*id),
         Args::Craft(n, t) => s.do_craft(n, *t), Args::Smelt(n, t) => s.do_smelt(n, *t), Args::Place(t, n) => s.do_place(*t, n), Args::Activate(t) => s.do_sleep(*t), Args::Eat(n) => s.do_eat(n),
