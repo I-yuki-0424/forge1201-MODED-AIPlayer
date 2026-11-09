@@ -94,7 +94,7 @@ function placePage() {
             h('div', { class: 'row tight' }, kindBtns), explain,
             h('div', { class: 'grid-form' }, field('x from', f.x0), field('x to', f.x1), field('z from', f.z0), field('z to', f.z1), field('level y', f.y), field('height', f.height)),
             h('div', { class: 'row' }, h('button', { class: 'btn small', onclick: onGround }, 'On the ground'), h('button', { class: 'btn small', onclick: replaceTop }, 'Replace the top layer')),
-            field('Dimension', dimIn, 'the heights allowed are those of the dimension; the bots are taken there before they start'), dimList, field('Block', block, 'any block the bots can place; mod blocks by their full name'), blocks, info, sideBox, field('Name', name), h('div', { class: 'field' }, h('span', { class: 'field-label', text: 'Bots (none ticked: every idle bot)' }), chips),
+            field('Dimension', dimIn, 'the heights allowed are those of the dimension; the bots are taken there before they start'), dimList, field('Block', block, 'any block the bots can place; mod blocks by their full name'), blocks, info, sideBox, field('Name', name), h('div', { class: 'field' }, h('span', { class: 'field-label', text: 'Bots (none ticked: every idle bot)' }), chips, botRangePicker(chips)),
             h('div', { class: 'row' }, h('button', { class: 'btn', onclick: create(false) }, 'Create (paused)'), h('button', { class: 'btn primary', onclick: create(true) }, icon('play', 13), ' Create and start'))])));
     setKind('wall');
     return {

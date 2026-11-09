@@ -61,7 +61,7 @@ function structuresPage() {
         h('div', { class: 'row' }, field('origin x', bx), field('y', by), field('z', bz), btn('Pick on map', async () => { const p = await pickPoint('Pick the origin (minimum corner)', getS, getPlayers); if (!p) return; bx.value = p.x; bz.value = p.z; try { const g = await api('GET', `/api/surface?x=${p.x}&z=${p.z}`); if (g.y !== null) by.value = g.y + 1; } catch (_) { /* y by hand */ } }), btn('= operator', act(async () => { const p = (await api('GET', '/api/players')).find((q) => !q.bot && q.pos); if (!p) throw new Error('no operator position'); bx.value = p.pos.x; by.value = p.pos.y; bz.value = p.pos.z; }, null, () => {}))),
         h('div', { class: 'row' }, field('rotate', brot), h('label', { class: 'check' }, bmirror, 'mirror x'), field('name', bname)),
         h('p', { class: 'muted small', text: 'The origin is the minimum corner (lowest x, y, z) at ground level: layer 0 is placed at y. y is the first free block above the ground.' }),
-        h('div', { class: 'field' }, h('span', { class: 'field-label', text: 'Bots (none ticked: every idle bot)' }), bchips),
+        h('div', { class: 'field' }, h('span', { class: 'field-label', text: 'Bots (none ticked: every idle bot)' }), bchips, botRangePicker(bchips)),
         h('div', { class: 'row' }, h('button', { class: 'btn', onclick: buildCreate(false) }, 'Create (paused)'), h('button', { class: 'btn primary', onclick: buildCreate(true) }, icon('play', 13), ' Create and start'))]));
     const el = h('div', { class: 'grid-12' },
         h('div', { class: 'span-4' }, panel('Library', [listBox, h('div', { class: 'row' }, h('label', { class: 'btn small' }, 'Upload .nbt', upload), h('label', { class: 'check' }, over, 'overwrite')),

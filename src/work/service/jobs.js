@@ -13,6 +13,27 @@ const { Problem, need, int, normalizeBox, overlap, STRUCT_NAME, MIN_Y, MAX_Y, AC
 class JobsPart {
     _id(prefix) { return `${prefix}${++this.seq}`; }
 
+    /**
+     * The bots numbered `from` to `to` (owner 2026-11-09: "from number X to number Y, working in parallel"): Work3 is number 3, the name's trailing digits. Either order; every bot of the
+     * roster in that range, in number order. Refused when the numbers are not whole or no bot has one of them.
+     */
+    botsInRange(from, to) {
+        need(Number.isInteger(from) && Number.isInteger(to), 'from and to must be whole numbers (Work3 is number 3)', 400);
+        const lo = Math.min(from, to), hi = Math.max(from, to);
+        const names = [...this.bots.values()].filter((r) => !r.removed).map((r) => ({ name: r.name, n: /(\d+)$/.exec(r.name) })).filter((x) => x.n && +x.n[1] >= lo && +x.n[1] <= hi)
+            .sort((a, b) => +a.n[1] - +b.n[1] || a.name.localeCompare(b.name)).map((x) => x.name);
+        need(names.length, `no bot is numbered ${lo}..${hi}`, 404);
+        return names;
+    }
+    /** `spec.bots` plus `spec.range` {from, to} as one list of names. */
+    _withRange(spec) {
+        if (!spec || typeof spec !== 'object' || !spec.range) return spec;
+        need(typeof spec.range === 'object', 'range: {from, to}');
+        const names = [...new Set([...(Array.isArray(spec.bots) ? spec.bots.map(String) : []), ...this.botsInRange(spec.range.from, spec.range.to)])];
+        return { ...spec, bots: names, range: undefined };
+    }
+    unassignMany(id, names) { for (const n of names) this.unassign(id, n); return this._jobView(this._job(id)); }
+
     _jobBox(job) {
         if (job.kind === 'pit') { const b = job.spec.box; return { x0: b.x0, x1: b.x1, z0: b.z0, z1: b.z1, y0: b.bottom, y1: b.top }; }
         if (job._box) return job._box;
@@ -58,6 +79,7 @@ class JobsPart {
     /** Open-pit job. spec: { name?, box: {x0,z0,x1,z1,top,bottom}, depot?: {kind,x,y,z}, bots?: [...], start?, force? } */
     createPit(spec) {
         need(spec && typeof spec === 'object', 'spec missing');
+        spec = this._withRange(spec);
         const D = this._dimSpec(spec), box = normalizeBox(spec.box, D.dim, D.limits);
         // One lane (an X-Z range dug down to the bottom) per bot: the bots named, or else every idle bot that is online now; `lanes` overrides.
         const idle = [...this.bots.values()].filter((r) => !r.removed && r.state !== 'offline' && !(r.job && this.jobs.has(r.job) && ACTIVE.has(this.jobs.get(r.job).state))).length;
@@ -98,6 +120,7 @@ class JobsPart {
     /** Build job. spec: { name?, structure, origin: {x,y,z}, ops?: [...], bots?, start?, force? } */
     async createBuild(spec) {
         need(spec && typeof spec === 'object', 'spec missing');
+        spec = this._withRange(spec);
         need(typeof spec.structure === 'string' && STRUCT_NAME.test(spec.structure), 'structure name');
         const o = spec.origin || {};
         const origin = { x: int(o.x, 'origin.x'), y: int(o.y, 'origin.y'), z: int(o.z, 'origin.z') };
@@ -114,6 +137,7 @@ class JobsPart {
      */
     async createLayout(spec) {
         need(spec && typeof spec === 'object', 'spec missing');
+        spec = this._withRange(spec);
         const D = this._dimSpec(spec);
         let L; try { L = require('../jobs/layout').layout({ ...spec, dim: D.dim, limits: D.limits }); } catch (e) { throw new Problem(e.message); }
         need(!this.known || this.known(L.block), `the bots cannot place ${L.block} (it is not in their block table)`);

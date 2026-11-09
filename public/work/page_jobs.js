@@ -1,11 +1,13 @@
 'use strict';
 // Jobs page.
 function jobsPage() {
-    const box = h('div'); let open = null, detail = null;
+    const box = h('div'); let open = null, detail = null; const jobRange = {};
     async function loadDetail() { if (!open) return; try { detail = await api('GET', `/api/jobs/${open}`); } catch (_) { detail = null; } }
     setInterval(async () => { if (session.csrf && open && currentPage === 'jobs') { await loadDetail(); render(); } }, 4000);
     function render() {
-        if (!S) return; box.replaceChildren();
+        if (!S) return;
+        if (document.activeElement && box.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;      // typing in a bot-number box: do not redraw under the cursor
+        box.replaceChildren();
         if (!S.jobs.length) box.append(panel('Jobs', h('p', { class: 'muted', text: 'No jobs. Select an area in Pits or build a structure.' })));
         for (const j of [...S.jobs].reverse()) {
             const p = j.progress, row = h('div', { class: 'row' });
@@ -13,6 +15,12 @@ function jobsPage() {
             if (j.state === 'running') row.append(h('button', { class: 'btn small', onclick: act(() => api('POST', `/api/jobs/${j.id}/pause`, {}), 'paused') }, icon('pause', 12), ' Pause'));
             if (ACTIVE.includes(j.state)) {
                 row.append(h('button', { class: 'btn small', onclick: act(() => api('POST', `/api/jobs/${j.id}/assign`, { bots: S.bots.filter((b) => b.state === 'online' && !b.job).map((b) => b.name) }), 'assigned') }, 'Add idle bots'));
+                // By number: "bots 5 to 8 work on this job" (the bots must be free), or leave this job ("bots 5 to 8 stop"): several jobs side by side, each on its own bots.
+                const rf = h('input', { type: 'number', class: 'num', min: 0, placeholder: 'from', 'aria-label': 'first bot number', value: jobRange[j.id] ? jobRange[j.id][0] : '', oninput: () => { jobRange[j.id] = [rf.value, rt.value]; } }), rt = h('input', { type: 'number', class: 'num', min: 0, placeholder: 'to', 'aria-label': 'last bot number', value: jobRange[j.id] ? jobRange[j.id][1] : '', oninput: () => { jobRange[j.id] = [rf.value, rt.value]; } });
+                const rng = () => { const a = num(rf.value), b = num(rt.value); if (Number.isNaN(a) || Number.isNaN(b)) throw new Error('give both numbers: from and to'); jobRange[j.id] = [rf.value, rt.value]; return { from: a, to: b }; };
+                row.append(h('span', { class: 'row tight' }, h('span', { class: 'muted small', text: 'bots no.' }), rf, h('span', { class: 'muted', text: '–' }), rt,
+                    h('button', { class: 'btn small', title: 'these bots work on this job (they must have no other job)', onclick: act(() => api('POST', `/api/jobs/${j.id}/assign`, { range: rng() }), 'assigned') }, 'Assign'),
+                    h('button', { class: 'btn small ghost', title: 'these bots leave this job', onclick: act(() => api('POST', `/api/jobs/${j.id}/unassign`, { range: rng() }), 'removed') }, 'Remove')));
                 row.append(h('button', { class: 'btn small danger', onclick: act(async () => { if (!(await ask(`Cancel ${j.id}? Progress in the world stays.`))) throw new Error('cancelled'); return api('POST', `/api/jobs/${j.id}/cancel`, {}); }, 'cancelled') }, 'Cancel'));
             }
             if (p.stuck) row.append(h('button', { class: 'btn small', onclick: act(() => api('POST', `/api/jobs/${j.id}/repair`, {}), (r) => `${r.requeued} units queued again`) }, `Retry ${p.stuck} stuck`));

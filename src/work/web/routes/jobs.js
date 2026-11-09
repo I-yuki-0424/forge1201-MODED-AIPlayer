@@ -22,8 +22,10 @@ module.exports = (service) => async (req, url, m, p) => {
             if (act === 'repair') return service.repairJob(id);
             const b = await json(req);
             if (act === 'supply') return service.supply(id, b.bot ? String(b.bot) : null);
-            if (act === 'assign') { if (!Array.isArray(b.bots)) throw new Problem('bots must be a list'); return service.assign(id, b.bots.map(String)); }
-            if (act === 'unassign') return service.unassign(id, String(b.bot));
+            // A list of names, or a range by number ({range: {from, to}}: Work3 is number 3), or both.
+            const named = () => [...(Array.isArray(b.bots) ? b.bots.map(String) : []), ...(b.range ? service.botsInRange(b.range.from, b.range.to) : [])];
+            if (act === 'assign') { const names = named(); if (!names.length) throw new Problem('bots must be a list, or a range {from, to}'); return service.assign(id, [...new Set(names)]); }
+            if (act === 'unassign') { if (b.range) return service.unassignMany(id, service.botsInRange(b.range.from, b.range.to)); return service.unassign(id, String(b.bot)); }
         }
     }
 };
