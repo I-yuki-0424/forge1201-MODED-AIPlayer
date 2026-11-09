@@ -39,6 +39,10 @@ escalation.js  request to the DPOD router (not wired into any job)
 | dimensions: names, limits, designated ranges, 1:8 conversion / jobs and commands in another dimension / the server jump | `world/dimensions.js` / `_dimSpec`, `checkRange`, `_enterDim` (`service/jobs.js`, `service/workers.js`), `_serverJump` in `service/commands.js` |
 | work over an abyss (bridge, sneak walk back) / what is under a cell | `bot/bridge.js` (`workOver`, moves `bridge`, `sneak_walk`) / `bot/abyss.js` |
 | breaking bedrock (frame, WIP) / villager trades (WIP) | `bot/bedrock.js` (setting `bedrockExploit`) / `bot/trade.js` (commands `trades`, `trade`) |
+| the layer gate (a layer is read before the layer below opens) / the check itself | `needCheck`, `checkDone`, `requeueUnit` in `jobs/crew.js` / `checkLayer` in `jobs/pit.js`, hook in `bot/worker.js` |
+| the shared list of placed blocks (water seals, pillars ...): registered, forgotten when broken, cleaned up / beds and blocks over chests | `bot/temps.js` (+ `place {temp}` and `mine` in `skills/commands/block.js`) / `skills/fixtures.js` (`isBed`, `coversContainer`) |
+| automatic retry of stuck units (setting `autoRepair`) | `_maybeFinish`, `_watchRepair` in `service/workers.js` |
+| the map's layer view (Nether) and its controls | `sliceColumns` in `world/mca.js`, `public/work/map.js`, `dimPicker` / `sliceControl` / `selectTools` in `public/work/widgets.js` |
 | the trained movement / stuck-escape experts (when they run, the setting, the commands) | `useExpert`, `expertMove`, `expertEscape` and the `return` / `lift` / `travel` hooks in `bot/env.js`; the experts themselves in `src/experts/` ([EXPERTS-v1](../../docs/implemented/EXPERTS-v1.md)) |
 | reflexes (fall, lava) / how a stuck bot gets out | `bot/reflex.js` / `bot/escape.js`, `recover` and `lift` in `bot/env.js` |
 | routines (a script repeated until Stop), tool durability policy | `runLoop` in `bot/script.js` + `service/library.js`; `skills/options.js` (`toolPolicy`), `bot/moves.js` (`stash_worn`) |

@@ -222,6 +222,11 @@ async function takeUsable(ctx, { class: cls, x, y, z }) {
  * about 1.5 s each, so a visit with ten kinds held the one door of the chest for 15 s and 11-15 bots stood in its line, live 2026-11-09). Per kind the same call and the same check as
  * `deposit`; a kind that cannot be put in is reported and the next one is tried. A full chest is reported per kind (`container_full`, with what did go in) and the run goes on. Returns { done: [{item, moved}], failed: [{item, reason, detail?}] }.
  */
+/** Does the container have room for `it` (an empty slot, or a stack of the same item that is not full)? A full chest does not throw: the transfer just does not happen. */
+function roomFor(win, it) {
+    const cont = win.slots.slice(0, win.inventoryStart), max = it.stackSize || 64;
+    return cont.some((s) => !s || (s.type === it.id && s.count < max));
+}
 async function depositMany(ctx, { items, x, y, z }) {
     const bot = ctx.bot;
     if (!Array.isArray(items) || !items.length || items.length > 60) throw new SkillError('invalid_args', { why: 'items: 1 to 60 of {item, count}' });
@@ -235,6 +240,7 @@ async function depositMany(ctx, { items, x, y, z }) {
             const have = inPlayer(win, it.id), n = Math.min(o.count, have);
             if (n < 1) { failed.push({ item: o.item, reason: 'missing_item' }); continue; }
             const c0 = inContainer(win, it.id);
+            if (!roomFor(win, it)) { failed.push({ item: o.item, reason: 'container_full' }); continue; }          // nothing fits: no attempt (a full chest answers with silence, and the wait for it ends as `not_confirmed`)
             ctx.phase('deposit', { item: o.item, count: n });
             try {
                 await ctx.during(win.deposit(it.id, null, n), 60);
@@ -242,7 +248,7 @@ async function depositMany(ctx, { items, x, y, z }) {
                 done.push({ item: o.item, moved: n });
             } catch (e) {
                 if (!(e instanceof SkillError) && !/destination full/.test(String(e && e.message))) throw e;
-                const full = /destination full/.test(String(e.message));
+                const full = /destination full/.test(String(e.message)) || (e.reason === 'not_confirmed' && inContainer(win, it.id) < c0 + n && !roomFor(win, it));         // it filled up on the way: part went in
                 // What went in before the container filled up counts, and a full container does not end the run: the next kind may still merge into a partly filled stack of its own.
                 const part = inContainer(win, it.id) - c0; if (part > 0) done.push({ item: o.item, moved: part, partial: true });
                 failed.push({ item: o.item, reason: full ? 'container_full' : e.reason || 'error', ...(part > 0 ? { moved: part } : {}) });

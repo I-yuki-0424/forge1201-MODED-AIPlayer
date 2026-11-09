@@ -90,8 +90,8 @@ scripts/world/test-up.sh latest ; (cd docker/world-server && docker compose --pr
 /mnt/data/forgeaip-play/console-up.sh | console-down.sh             # the work console (web UI for pure bots: bots, pits, structure editor, builds), 127.0.0.1:3020, tailnet 3021
 ```
 
-The work console (`src/work/web/`, `src/work/service/`, `public/work/`, docs/implemented/WORK-CONSOLE-v1.md; file map `src/work/README.md`) is token-authenticated (`console-data/console.token`),
-reaches RCON, and is NOT the old WebUI: keep its auth, CSRF, Host/Origin checks and closed validation when changing it. Bots there use the
+The work console (`src/work/web/`, `src/work/service/`, `public/work/`, docs/implemented/WORK-CONSOLE-v1.md; file map `src/work/README.md`) has no access token since 2026-11-10 (the network, i.e. loopback and the tailnet, or Cloudflare Access decides; a request with proxy headers and no valid Access assertion is refused; `WORK_REQUIRE_TOKEN=1` brings the token back),
+reaches RCON, and is NOT the old WebUI: keep its session, CSRF, Host/Origin checks, the proxy-header refusal and closed validation when changing it. Bots there use the
 play world's own table (`BOT_MOD_TABLE`). `aux_console/` (mod `aipconsole`: F12 web view of the console, Tag Tool item; build command in its README) is
 installed on the play server and the owner's PC; `aux_mod/` is an older, unused project.
 

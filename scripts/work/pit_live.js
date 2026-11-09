@@ -21,10 +21,10 @@ const { runWorker } = require('../../src/work/bot/worker');
 const { botEnv } = require('../../src/work/bot/env');
 
 function args(argv) {
-    const o = { runId: null, bots: 4, w: 32, d: 16, depth: 3, kill: 0, root: '/exchange', timeoutMin: 25, baseX: 2000, baseZ: 2000, floorY: 150, method: 'sweep', road: 0, leave: 0, worn: 0 };
-    const num = new Set(['bots', 'w', 'd', 'depth', 'kill', 'timeoutMin', 'baseX', 'baseZ', 'floorY', 'road', 'leave', 'worn']);
+    const o = { runId: null, bots: 4, w: 32, d: 16, depth: 3, kill: 0, root: '/exchange', timeoutMin: 25, baseX: 2000, baseZ: 2000, floorY: 150, method: 'sweep', road: 0, leave: 0, worn: 0, gate: 1 };
+    const num = new Set(['bots', 'w', 'd', 'depth', 'kill', 'timeoutMin', 'baseX', 'baseZ', 'floorY', 'road', 'leave', 'worn', 'gate']);
     const key = { '--run-id': 'runId', '--bots': 'bots', '--w': 'w', '--d': 'd', '--depth': 'depth', '--kill': 'kill', '--root': 'root', '--timeout-min': 'timeoutMin', '--base-x': 'baseX', '--base-z': 'baseZ',
-        '--method': 'method', '--road': 'road', '--leave': 'leave', '--worn': 'worn' };       // method sweep|rows; road 0|1; leave 1: bot 1 leaves the finished pit by pillar; worn N: N nearly broken pickaxes first
+        '--method': 'method', '--road': 'road', '--leave': 'leave', '--worn': 'worn', '--gate': 'gate' };       // method sweep|rows; road 0|1; leave 1: bot 1 leaves the finished pit by pillar; worn N: N nearly broken pickaxes first
     for (let i = 0; i < argv.length; i += 2) { const k = key[argv[i]]; if (!k || argv[i + 1] === undefined) throw new Error(`bad argument ${argv[i]}`); o[k] = num.has(k) ? Number(argv[i + 1]) : argv[i + 1]; }
     if (!o.runId) throw new Error('--run-id is required');
     if (o.baseX % 16 || o.baseZ % 16) throw new Error('--base-x/--base-z must be multiples of 16 (chunk aligned)');
@@ -70,7 +70,7 @@ async function main() {
     await sleep(3000);
 
     // ---- the job
-    const job = createPitJob(box, { leaseMs: 45000, maxAttempts: 6, maxLead: 1 }, { lanes: o.bots, method: o.method, road: !!o.road });
+    const job = createPitJob(box, { leaseMs: 45000, maxAttempts: 6, maxLead: 1, gate: !!o.gate }, { lanes: o.bots, method: o.method, road: !!o.road });
     const mkEnv = (bot, cancel) => { const e = botEnv(bot, { cancel }); e.configure({ retireWorn: true }); return e; };
     const t0 = Date.now(), cancel = { cancelled: false }, events = [];
     const deadline = setTimeout(() => { console.error('[pit] timeout'); cancel.cancelled = true; }, o.timeoutMin * 60000);
