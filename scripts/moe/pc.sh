@@ -109,12 +109,18 @@ du -sh /mnt/c/forgeaip/dl/moe-pull
 EOS
   wsl_run "$f"; rm -f "$f"
   mkdir -p "$MOE_ROOT/pc-runs/${sub%/*}" && scp -q -r -o BatchMode=yes -o IdentitiesOnly=yes -i "$KEY" "$HOST:C:/forgeaip/dl/moe-pull/*" "$MOE_ROOT/pc-runs/${sub%/*}/" && echo "pulled to $MOE_ROOT/pc-runs/${sub%/*}";;
-stop)
+stop)   # stop NAME: that job and the shards/trainers of runs whose base starts with NAME- ; no name: everything
   name=${1:-}
-  f=$(tmp); cat > "$f" <<EOS
-for p in ~/moe/logs/${name:-*}.pid; do [ -f "\$p" ] && kill "\$(cat "\$p")" 2>/dev/null; done
-sleep 2; pkill -f forgeaip-sim-moe2 2>/dev/null; pkill -f 'moe.cli' 2>/dev/null; pkill -f 'jobs.py' 2>/dev/null; echo stopped
+  [[ -z $name || $name =~ ^[a-z0-9_-]+$ ]] || { echo "bad name" >&2; exit 2; }
+  f=$(tmp); if [ -n "$name" ]; then cat > "$f" <<EOS
+[ -f ~/moe/logs/$name.pid ] && kill "\$(cat ~/moe/logs/$name.pid)" 2>/dev/null
+sleep 1; pkill -f -- "--base $name-" 2>/dev/null; echo "stopped $name"
 EOS
+  else cat > "$f" <<'EOS'
+for p in ~/moe/logs/*.pid; do [ -f "$p" ] && kill "$(cat "$p")" 2>/dev/null; done
+sleep 2; pkill -f forgeaip-sim-moe2 2>/dev/null; pkill -f 'moe.cli' 2>/dev/null; pkill -f 'jobs.py' 2>/dev/null; echo "stopped all"
+EOS
+  fi
   wsl_run "$f"; rm -f "$f";;
 *) echo "usage: pc.sh probe|install|run|status|pull|stop" >&2; exit 2;;
 esac

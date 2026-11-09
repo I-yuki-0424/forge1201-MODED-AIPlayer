@@ -102,36 +102,11 @@ def scenario(e, cat, variant=None):
     sc = {"v": 1, "id": e["id"] + (f"-{variant}" if variant else ""), "doc": f"{e['id']}: {e['doc']}", "kit": kit, "hostiles": e["hostiles"],
           "place": json.loads(json.dumps(start["place"])), "end": end}
     if cat.get("v") == 2:
-        sc["scan"] = True                                    # v2 experts always get the scan observation; which groups they see is the router's call
+        sc["scan"] = start.get("scan", True)                 # v2 experts get the scan observation (which groups they see is the router's call); `scan: false` = the v1 observation (ablation)
         for k in ("waypoint", "trap", "require"):
             if k in start:
                 sc[k] = start[k]
     return sc
-
-
-def scenario(e, cat, variant=None):
-    """The scenario (schema v1 of tools/sim/src/scenario.rs) of expert `e`: its kit ranges, the junk it must ignore, the placed ores, its end condition."""
-    start = dict(e["start"])
-    if variant:
-        start.update(start.get("variants", {})[variant])
-    kit = {n: list(r) for n, r in cat["junk"].items() if r[1] >= 1}
-    kit.update({n: list(r) for n, r in start["kit"].items()})
-    end = dict(e["goal"], max_steps=e["max_steps"], die=True)
-    if "reach" in end:
-        end = {"reach": end["reach"], "max_steps": e["max_steps"], "die": True}
-    sc = {"v": 1, "id": e["id"] + (f"-{variant}" if variant else ""), "doc": f"{e['id']}: {e['doc']}", "kit": kit, "hostiles": e["hostiles"],
-          "place": json.loads(json.dumps(start["place"])), "end": end}
-    if cat.get("v") == 2:
-        sc["scan"] = True                                    # v2 experts always get the scan observation; which groups they see is the router's call
-        for k in ("waypoint", "trap"):
-            if k in start:
-                sc[k] = start[k]
-    return sc
-
-
-def variants(e):
-    """Scenario ids an expert is trained on: its own, plus the `variants` of its start (a trap is a shaft or a pocket: one scenario file each)."""
-    return [e["id"]] + [f"{e['id']}-{v}" for v in e["start"].get("variants", {})]
 
 
 def chain_scenarios(cat):

@@ -40,8 +40,10 @@ def catalog():
     return C.load()
 
 
-def scenarios_of(e):
-    return [e["id"]] + [f"{e['id']}-{v}" for v in e["start"].get("variants", {})]
+def scenarios_of(e, only=None):
+    """Scenario files an expert trains on: its own and its variants, except the `ablate-*` ones (controls run only on request: --only-scenario)."""
+    names = [e["id"]] + [f"{e['id']}-{v}" for v in e["start"].get("variants", {}) if not v.startswith("ablate")]
+    return [only] if only else names
 
 
 def shards_up(base, scn_list, worlds, count, bots, seed, log):
@@ -98,7 +100,7 @@ def pipeline(a, e):
     log = out / "pipeline.log"
     t0 = time.time()
     steps = a.steps or BUDGET.get(eid, 300_000)
-    scn = scenarios_of(e)
+    scn = scenarios_of(e, a.only_scenario or None)
     base = f"{tag}-tr-{eid}"
     procs = shards_up(base, scn, ["vps-s0", "vps-s1", "vps-s2"], a.shards, 2, 1000 + 100 * a.seed, log)
     try:
@@ -125,11 +127,12 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     t = sub.add_parser("train"); t.add_argument("--tag", required=True); t.add_argument("--experts", default="all"); t.add_argument("--par", type=int, default=8)
     t.add_argument("--seed", type=int, default=0); t.add_argument("--controls", type=int, default=1); t.add_argument("--steps", type=int, default=0); t.add_argument("--shards", type=int, default=3)
-    t.add_argument("--episodes", type=int, default=200)
+    t.add_argument("--episodes", type=int, default=200); t.add_argument("--only-scenario", default="", help="train and evaluate on this one scenario file only (an ablation)")
     r = sub.add_parser("router"); r.add_argument("--tag", required=True)
     c = sub.add_parser("chain"); c.add_argument("--tag", required=True); c.add_argument("--scenario", required=True); c.add_argument("--router", default="rules"); c.add_argument("--experts", default="net")
     c.add_argument("--episodes", type=int, default=60); c.add_argument("--greedy-stall", action="store_true"); c.add_argument("--seed", type=int, default=0); c.add_argument("--out", default="chain.jsonl")
     c.add_argument("--trace", type=int, default=0)
+    m = sub.add_parser("assemble"); m.add_argument("--into", required=True); m.add_argument("--sources", required=True, help="comma list of tags, later ones override earlier ones")
     v = sub.add_parser("eval"); v.add_argument("--tag", required=True); v.add_argument("--expert", required=True); v.add_argument("--scenario", required=True); v.add_argument("--policy", default="net")
     v.add_argument("--episodes", type=int, default=200); v.add_argument("--seed", type=int, default=0); v.add_argument("--worlds", default="vps-s3,vps-s4")
     a = ap.parse_args()
@@ -144,6 +147,18 @@ def main():
         with cf.ThreadPoolExecutor(a.par) as pool:
             for fut in cf.as_completed([pool.submit(pipeline, a, ex[n]) for n in names]):
                 fut.result()
+        return
+    if a.cmd == "assemble":
+        import shutil
+        dst = MOE / "runs" / a.into
+        for src in a.sources.split(","):
+            for d in sorted((MOE / "runs" / src).iterdir()):
+                if (d / "final.npz").exists():
+                    (dst / d.name).mkdir(parents=True, exist_ok=True)
+                    for f in ("final.npz", "train_result.json", "eval.jsonl", "controls.jsonl"):
+                        if (d / f).exists():
+                            shutil.copy2(d / f, dst / d.name / f)
+                    print(f"{d.name} <- {src}")
         return
     if a.cmd == "router":
         print(cli(["router", "--out", str(runs / "router")], runs / "router.log"))

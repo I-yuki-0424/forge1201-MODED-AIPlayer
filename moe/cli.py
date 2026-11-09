@@ -87,7 +87,11 @@ def _router(a):
     res = {}
     for kind in ("xgb", "lgb"):
         t0 = __import__("time").time()
-        r = R.GBRouter(cat, kind).fit(train)
+        try:
+            r = R.GBRouter(cat, kind).fit(train)
+        except (ImportError, OSError) as e:             # the PC's WSL has no libgomp for LightGBM and no root to install it
+            print(json.dumps({kind: f"skipped: {type(e).__name__}: {str(e)[:80]}"}))
+            continue
         fit_s = __import__("time").time() - t0
         path = f"{a.out}/router.{kind}"
         r.save(path)

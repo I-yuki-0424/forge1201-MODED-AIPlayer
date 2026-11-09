@@ -419,6 +419,38 @@
       "require": [
        "coal"
       ]
+     },
+     "ablate-noscan": {
+      "kit": {
+       "wooden_pickaxe": [
+        1,
+        1
+       ],
+       "stone_pickaxe": [
+        0,
+        1
+       ],
+       "cobblestone": [
+        0,
+        16
+       ]
+      },
+      "place": [
+       {
+        "id": "coal",
+        "block": "coal_ore",
+        "size": [
+         2,
+         5
+        ],
+        "mode": "surface",
+        "dist": [
+         3,
+         48
+        ]
+       }
+      ],
+      "scan": false
      }
     }
    },
@@ -528,6 +560,38 @@
       "require": [
        "iron"
       ]
+     },
+     "ablate-noscan": {
+      "kit": {
+       "stone_pickaxe": [
+        1,
+        1
+       ],
+       "cobblestone": [
+        0,
+        24
+       ],
+       "coal": [
+        0,
+        4
+       ]
+      },
+      "place": [
+       {
+        "id": "iron",
+        "block": "iron_ore",
+        "size": [
+         3,
+         5
+        ],
+        "mode": "surface",
+        "dist": [
+         2,
+         48
+        ]
+       }
+      ],
+      "scan": false
      }
     }
    },
