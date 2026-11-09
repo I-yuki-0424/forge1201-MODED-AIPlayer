@@ -25,7 +25,7 @@ knowledge-DB (`update_memory` in place, never duplicated); neither existed when 
 There is **no Node.js on the VPS**. Run Node through the rootless docker (as `coder`, plain `docker`):
 
 ```bash
-# All tests (the 35 files listed in package.json; must pass before smoke_status is recorded green). Node 20 or 22.11; NOT 22.23.4 (docs/LESSONS.md L2).
+# All tests (the 36 files listed in package.json; must pass before smoke_status is recorded green). Node 20 or 22.11; NOT 22.23.4 (docs/LESSONS.md L2).
 # (MASTER_GUIDANCE still says "7 files": the file list in package.json is the truth.)
 docker run --rm --network none -v "$PWD":/w -w /w node:20-slim npm test
 # One file

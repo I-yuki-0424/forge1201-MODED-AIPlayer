@@ -52,7 +52,7 @@ The bot itself needs no GPU. A local 20B-class model needs about 16 GB RAM and 8
 
 ## Tests
 
-`npm test` runs the 35 files listed in `package.json` (mock Forge server, handshake, registry, action-layer simulation, RL environment,
+`npm test` runs the 36 files listed in `package.json` (mock Forge server, handshake, registry, action-layer simulation, RL environment,
 work layer). None needs a Minecraft server. One file: `node tests/test_skills_pure.js`. Live checks that do need a real Forge server
 (`scripts/skills/bench.js`, `scripts/work/*_live.js`, `scripts/rl/verify_game_side.py`) are described in the specs above.
 On the VPS there is no Node on the host; use `docker run --rm --network none -v "$PWD":/w -w /w node:20-slim npm test` (see [`CLAUDE.md`](CLAUDE.md)).
