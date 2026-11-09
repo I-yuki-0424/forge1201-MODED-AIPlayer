@@ -27,7 +27,7 @@
   <!-- 2 router -->
   <rect class="box c" x="350" y="86" width="400" height="140"/>
   <text class="tag" x="366" y="106">every expert switch, ~0.1 ms</text>
-  <text class="h" x="366" y="128">Router: rules, or XGBoost / LightGBM that copy them</text>
+  <text class="h" x="366" y="128">Router: rules, or XGBoost that copies them (DAgger)</text>
   <text class="mut" x="366" y="150">in:  pack counts · goal · nearest log / coal / iron (blocks, 4 chunks)</text>
   <text class="mut" x="366" y="168">       · stalls (calls without progress)</text>
   <text class="mut" x="366" y="190">out: expert id  +  the scan groups that matter for it</text>
@@ -62,8 +62,8 @@
   <text class="mut" x="706" y="352">tree), 6-64 blocks, detours, dig if buried</text>
   <text class="mut" x="706" y="376">unstick: out of a shaft or sealed pocket,</text>
   <text class="mut" x="706" y="394">tunnel and climb to the surface</text>
-  <text class="mut" x="706" y="422">largest budget, highest accuracy bar</text>
-  <text class="mut" x="706" y="440">(0.99 / 0.985 over 200 episodes)</text>
+  <text class="mut" x="706" y="422">move / mine / tunnel only; highest bar</text>
+  <text class="mut" x="706" y="440">(0.995 over 500 episodes in the hard runs)</text>
 
   <path class="ln" d="M550 226 V248 H180 V268"/>
   <path class="ln" d="M550 226 V268 H510 V268" />
@@ -71,18 +71,19 @@
   <text class="mut" x="560" y="246">picks one expert; the others stay silent</text>
 
   <!-- observation -->
-  <rect class="box a" x="30" y="512" width="480" height="150"/>
+  <rect class="box a" x="30" y="512" width="480" height="162"/>
   <text class="tag" x="46" y="532">observation, same for every expert</text>
   <text class="h" x="46" y="554">pack · 9×9×5 grid · 128 view rays · mobs · last result</text>
   <text class="h" x="46" y="578">64 candidate commands (move_to, mine, tunnel, craft, …)</text>
   <text class="mut" x="46" y="602">+ target scan: log · coal · iron · waypoint · sky, 3 nearest cells each, within 4 chunks</text>
   <text class="mut" x="46" y="620">+ scan moves: "walk toward the nearest iron" even when it is out of sight</text>
-  <text class="mut" x="46" y="644">privileged: the real bot has all blocks of its loaded chunks, so the same scan can be made there</text>
+  <text class="mut" x="46" y="644">+ seen: stood near this destination in the last 24 commands (memory against loops)</text>
+  <text class="mut" x="46" y="660">privileged scan: the real bot has all blocks of its loaded chunks, so it can be made there too</text>
 
   <path class="ln dash" d="M270 512 V470 H180 V464"/>
   <path class="ln dash" d="M270 512 V480 H510 V464"/>
   <path class="ln dash" d="M270 512 V490 H840 V464"/>
-  <text class="mut" x="300" y="484">only the groups the router named reach the expert</text>
+  <text class="mut" x="300" y="484">only groups the router named; walk/mine candidates of other ores and trees are masked</text>
 
   <!-- action layer -->
   <rect class="box c" x="570" y="512" width="420" height="150"/>

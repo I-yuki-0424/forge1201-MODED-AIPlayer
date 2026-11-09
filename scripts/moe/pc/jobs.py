@@ -133,7 +133,7 @@ def main():
     r = sub.add_parser("router"); r.add_argument("--tag", required=True); r.add_argument("--extra", default="")
     c = sub.add_parser("chain"); c.add_argument("--tag", required=True); c.add_argument("--scenario", required=True); c.add_argument("--router", default="rules"); c.add_argument("--experts", default="net")
     c.add_argument("--episodes", type=int, default=60); c.add_argument("--greedy-stall", action="store_true"); c.add_argument("--seed", type=int, default=0); c.add_argument("--out", default="chain.jsonl")
-    c.add_argument("--trace", type=int, default=0); c.add_argument("--trace-fail", action="store_true"); c.add_argument("--trace-steps", action="store_true"); c.add_argument("--dump-states", default="")
+    c.add_argument("--worlds", default="vps-s3,vps-s4"); c.add_argument("--trace", type=int, default=0); c.add_argument("--trace-fail", action="store_true"); c.add_argument("--trace-steps", action="store_true"); c.add_argument("--dump-states", default="")
     m = sub.add_parser("assemble"); m.add_argument("--into", required=True); m.add_argument("--sources", required=True, help="comma list of tags, later ones override earlier ones")
     v = sub.add_parser("eval"); v.add_argument("--tag", required=True); v.add_argument("--expert", required=True); v.add_argument("--scenario", required=True); v.add_argument("--policy", default="net")
     v.add_argument("--episodes", type=int, default=200); v.add_argument("--seed", type=int, default=0); v.add_argument("--worlds", default="vps-s3,vps-s4")
@@ -170,11 +170,11 @@ def main():
         return
     if a.cmd == "chain":
         base = f"{a.tag}-ch-{a.scenario}-{a.router}-{a.experts}" + ("-greedy" if a.greedy_stall else "") + f"-{a.seed}"
-        procs = shards_up(base, [a.scenario], ["vps-s3", "vps-s4"], 2, 2, 7000 + a.seed, runs / "chain.log")
+        procs = shards_up(base, [a.scenario], a.worlds.split(","), 3 if "," in a.worlds and len(a.worlds.split(",")) > 2 else 2, 2, 7000 + a.seed, runs / "chain.log")
         try:
             rt = "rules" if a.router == "rules" else f"{a.router}:{runs / 'router' / ('router.' + a.router)}"
             ek = "solver" if a.experts == "solver" else f"net:{runs}"
-            args = ["chain", "--root", str(X), "--base", base, "--shards", "0,1", "--router", rt, "--experts", ek, "--episodes", str(a.episodes), "--scenario", a.scenario,
+            args = ["chain", "--root", str(X), "--base", base, "--shards", ",".join(str(i) for i in range(3 if len(a.worlds.split(",")) > 2 else 2)), "--router", rt, "--experts", ek, "--episodes", str(a.episodes), "--scenario", a.scenario,
                     "--out", str(runs / a.out), "--timeout", "3000"] + (["--greedy-stall"] if a.greedy_stall else []) + (["--trace", str(a.trace)] if a.trace else []) + (["--trace-fail"] if a.trace_fail else []) + (["--trace-steps"] if a.trace_steps else []) + (["--dump-states", str(runs / a.dump_states)] if a.dump_states else [])
             print(cli(args, runs / "chain.log", timeout=7200))
         finally:
