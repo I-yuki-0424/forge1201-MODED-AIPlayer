@@ -104,7 +104,7 @@ def train(vec, expert, out_dir, budget=300_000, seed=0, rollout=4096, epochs=3, 
     while steps < budget:
         obs = vec.poll()
         if not obs:
-            time.sleep(0.0003)
+            time.sleep(0.0015)
             continue
         live = [ob for ob in obs if not ob.terminated]
         v_live, a_live, lp_live = [], [], []

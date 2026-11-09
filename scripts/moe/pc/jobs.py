@@ -24,7 +24,7 @@ BIN = SIM / "forgeaip-sim-moe2"
 X = MOE / "x"
 SCN = MOE / "scenarios"
 PY = sys.executable
-ENV = dict(os.environ, PYTHONPATH=str(MOE / "code"), JAX_PLATFORMS="cpu", PYTHONDONTWRITEBYTECODE="1", XLA_FLAGS="--xla_cpu_multi_thread_eigen=false intra_op_parallelism_threads=1")
+ENV = dict(os.environ, PYTHONPATH=str(MOE / "code"), JAX_PLATFORMS="cpu", PYTHONDONTWRITEBYTECODE="1", OMP_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1", MKL_NUM_THREADS="1", NUMEXPR_NUM_THREADS="1", XLA_FLAGS="--xla_cpu_multi_thread_eigen=false intra_op_parallelism_threads=1")
 # steps budget and stop rate per expert (item experts: the v1 budget; the ore and movement experts, which the owner wants most accurate: more, and a higher bar)
 BUDGET = {"coal": 600_000, "raw_iron": 800_000, "move": 1_500_000, "unstick": 1_200_000}
 STOP = {"coal": 0.985, "raw_iron": 0.985, "move": 0.99, "unstick": 0.985}

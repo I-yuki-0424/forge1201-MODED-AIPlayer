@@ -1,0 +1,126 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 800" role="img" aria-labelledby="t d" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">
+  <title id="t">MoE v2 architecture</title>
+  <desc id="d">Instruction to goal, router, experts with the target scan, action layer, and the stall reflex.</desc>
+  <style>
+    :root { --bg:#ffffff; --ink:#1b2430; --mut:#5b6877; --line:#8794a3; --a:#e8f1fb; --as:#2d6cb5; --b:#eaf6ee; --bs:#2f8a55; --c:#fff3e0; --cs:#c27a12; --d:#fbeaea; --ds:#b33a3a; --e:#f1ecfa; --es:#6a4bb0; }
+    @media (prefers-color-scheme: dark) { :root { --bg:#10151c; --ink:#e6ebf1; --mut:#9aa7b6; --line:#6f7d8d; --a:#16283d; --as:#6aa6e8; --b:#14301f; --bs:#58c086; --c:#38280f; --cs:#e7a64a; --d:#3a1818; --ds:#ea7b7b; --e:#241d38; --es:#a98ae8; } }
+    .bg { fill: var(--bg); } text { fill: var(--ink); font-size: 14px; } .mut { fill: var(--mut); font-size: 12.5px; } .h { font-weight: 650; font-size: 15px; } .t { font-weight: 700; font-size: 17px; }
+    .box { stroke-width: 1.6; rx: 10; } .a { fill: var(--a); stroke: var(--as); } .b { fill: var(--b); stroke: var(--bs); } .c { fill: var(--c); stroke: var(--cs); } .d { fill: var(--d); stroke: var(--ds); } .e { fill: var(--e); stroke: var(--es); }
+    .ln { stroke: var(--line); stroke-width: 1.8; fill: none; marker-end: url(#ar); } .dash { stroke-dasharray: 6 5; } .lp { stroke: var(--ds); marker-end: url(#ard); }
+    .tag { font-size: 11.5px; fill: var(--mut); letter-spacing: .04em; text-transform: uppercase; }
+  </style>
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#8794a3"/></marker>
+    <marker id="ard" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#b33a3a"/></marker>
+  </defs>
+  <rect class="bg" width="1180" height="800"/>
+  <text class="t" x="30" y="36">MoE v2: who decides what</text>
+  <text class="mut" x="30" y="57">Rules and trees decide the order; small policies (about 40 k parameters each) decide the keystrokes. Privileged scan data goes only to the expert the router names.</text>
+
+  <!-- 1 instruction -->
+  <rect class="box a" x="30" y="86" width="250" height="86"/>
+  <text class="tag" x="46" y="106">once per instruction</text>
+  <text class="h" x="46" y="128">LLM</text>
+  <text class="mut" x="46" y="148">text → goal (item, amount)</text>
+  <text class="mut" x="46" y="164">no game state in, no actions out</text>
+
+  <!-- 2 router -->
+  <rect class="box c" x="350" y="86" width="400" height="140"/>
+  <text class="tag" x="366" y="106">every expert switch, ~0.1 ms</text>
+  <text class="h" x="366" y="128">Router: rules, or XGBoost / LightGBM that copy them</text>
+  <text class="mut" x="366" y="150">in:  pack counts · goal · nearest log / coal / iron (blocks, 4 chunks)</text>
+  <text class="mut" x="366" y="168">       · stalls (calls without progress)</text>
+  <text class="mut" x="366" y="190">out: expert id  +  the scan groups that matter for it</text>
+  <text class="mut" x="366" y="208">target farther than 6 blocks → move first · 2 stalls → unstick</text>
+  <path class="ln" d="M280 129 H350"/>
+
+  <!-- 3 experts -->
+  <rect class="box b" x="30" y="268" width="300" height="196"/>
+  <text class="tag" x="46" y="288">item experts (12)</text>
+  <text class="h" x="46" y="310">log · planks · stick · table · pickaxes</text>
+  <text class="h" x="46" y="330">cobblestone · furnace · ingot</text>
+  <text class="mut" x="46" y="354">each starts from "prerequisites held"</text>
+  <text class="mut" x="46" y="372">every craft belongs to the expert of its result;</text>
+  <text class="mut" x="46" y="390">no expert calls a crafting expert</text>
+  <text class="mut" x="46" y="418">scripted solver = positive control</text>
+  <text class="mut" x="46" y="436">uniform random = negative control</text>
+
+  <rect class="box e" x="360" y="268" width="300" height="196"/>
+  <text class="tag" x="376" y="288">ore experts (scan-fed)</text>
+  <text class="h" x="376" y="310">coal · raw_iron</text>
+  <text class="mut" x="376" y="334">see the 4 nearest cells of the groups the</text>
+  <text class="mut" x="376" y="352">router called relevant, hidden or not,</text>
+  <text class="mut" x="376" y="370">and, per command, the progress it makes</text>
+  <text class="mut" x="376" y="388">toward the nearest one</text>
+  <text class="mut" x="376" y="416">start: ore 2-48 blocks away, on the surface</text>
+  <text class="mut" x="376" y="434">needs: a pickaxe of the right tier</text>
+
+  <rect class="box d" x="690" y="268" width="300" height="196"/>
+  <text class="tag" x="706" y="288">skill experts, callable at any time</text>
+  <text class="h" x="706" y="310">move · unstick</text>
+  <text class="mut" x="706" y="334">move: walk to the shown target (waypoint, ore,</text>
+  <text class="mut" x="706" y="352">tree), 6-64 blocks, detours, dig if buried</text>
+  <text class="mut" x="706" y="376">unstick: out of a shaft or sealed pocket,</text>
+  <text class="mut" x="706" y="394">tunnel and climb to the surface</text>
+  <text class="mut" x="706" y="422">largest budget, highest accuracy bar</text>
+  <text class="mut" x="706" y="440">(0.99 / 0.985 over 200 episodes)</text>
+
+  <path class="ln" d="M550 226 V248 H180 V268"/>
+  <path class="ln" d="M550 226 V268 H510 V268" />
+  <path class="ln" d="M550 226 V248 H840 V268"/>
+  <text class="mut" x="560" y="246">picks one expert; the others stay silent</text>
+
+  <!-- observation -->
+  <rect class="box a" x="30" y="512" width="480" height="150"/>
+  <text class="tag" x="46" y="532">observation, same for every expert</text>
+  <text class="h" x="46" y="554">pack · 9×9×5 grid · 128 view rays · mobs · last result</text>
+  <text class="h" x="46" y="578">64 candidate commands (move_to, mine, tunnel, craft, …)</text>
+  <text class="mut" x="46" y="602">+ target scan: log · coal · iron · waypoint · sky, 3 nearest cells each, within 4 chunks</text>
+  <text class="mut" x="46" y="620">+ scan moves: "walk toward the nearest iron" even when it is out of sight</text>
+  <text class="mut" x="46" y="644">privileged: the real bot has all blocks of its loaded chunks, so the same scan can be made there</text>
+
+  <path class="ln dash" d="M270 512 V470 H180 V464"/>
+  <path class="ln dash" d="M270 512 V480 H510 V464"/>
+  <path class="ln dash" d="M270 512 V490 H840 V464"/>
+  <text class="mut" x="300" y="484">only the groups the router named reach the expert</text>
+
+  <!-- action layer -->
+  <rect class="box c" x="570" y="512" width="420" height="150"/>
+  <text class="tag" x="586" y="532">executes, success = what the server sends back</text>
+  <text class="h" x="586" y="554">Action layer (src/skills) / Rust simulator</text>
+  <text class="mut" x="586" y="578">14 commands built from player inputs only</text>
+  <text class="mut" x="586" y="596">the simulator is more lenient than the real server:</text>
+  <text class="mut" x="586" y="614">numbers are simulator numbers until run on Forge</text>
+  <path class="ln" d="M840 464 V512"/>
+  <path class="ln" d="M570 590 H510"/>
+
+  <!-- reflex -->
+  <rect class="box d" x="1020" y="86" width="140" height="576"/>
+  <text class="tag" x="1034" y="106">reflex</text>
+  <text class="h" x="1034" y="130">stall</text>
+  <text class="mut" x="1034" y="152">same pack,</text>
+  <text class="mut" x="1034" y="170">no step toward</text>
+  <text class="mut" x="1034" y="188">the target after</text>
+  <text class="mut" x="1034" y="206">a whole call</text>
+  <text class="h" x="1034" y="248">1 stall</text>
+  <text class="mut" x="1034" y="270">next call samples</text>
+  <text class="mut" x="1034" y="288">from the policy,</text>
+  <text class="mut" x="1034" y="306">not greedy</text>
+  <text class="h" x="1034" y="348">2 stalls</text>
+  <text class="mut" x="1034" y="370">unstick is called</text>
+  <text class="mut" x="1034" y="388">by the router</text>
+  <text class="mut" x="1034" y="430">v1 repeated the</text>
+  <text class="mut" x="1034" y="448">identical failure</text>
+  <text class="mut" x="1034" y="466">6 × 150 steps</text>
+  <path class="ln lp" d="M990 600 H1005 V150 H1020"/>
+  <path class="ln lp" d="M1020 130 V120 H750"/>
+
+  <!-- legend -->
+  <rect x="30" y="700" width="14" height="14" class="box a"/><text class="mut" x="52" y="712">observation / LLM</text>
+  <rect x="190" y="700" width="14" height="14" class="box c"/><text class="mut" x="212" y="712">router / executor</text>
+  <rect x="340" y="700" width="14" height="14" class="box b"/><text class="mut" x="362" y="712">item experts</text>
+  <rect x="470" y="700" width="14" height="14" class="box e"/><text class="mut" x="492" y="712">ore experts</text>
+  <rect x="590" y="700" width="14" height="14" class="box d"/><text class="mut" x="612" y="712">skills and reflex</text>
+  <text class="mut" x="30" y="750">Code: moe/ (catalog.json, rules.py, router.py, chain.py, features.py, train.py) · tools/sim/src/scan.rs · docs/proposed/MOE-v2.md</text>
+  <text class="mut" x="30" y="770">Dashed = what an expert may see. Solid = control flow. Red = the stall reflex.</text>
+</svg>

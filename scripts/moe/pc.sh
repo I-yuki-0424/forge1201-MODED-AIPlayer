@@ -67,7 +67,7 @@ run)
   for a in "$@"; do [[ $a =~ ^[A-Za-z0-9_.,:=/+-]+$ ]] || { echo "bad argument $a" >&2; exit 2; }; done
   f=$(tmp); cat > "$f" <<EOS
 cd ~/moe
-nohup env PYTHONPATH=\$HOME/moe/code JAX_PLATFORMS=cpu XLA_FLAGS="--xla_cpu_multi_thread_eigen=false intra_op_parallelism_threads=1" setsid \$HOME/gpuvenv/bin/python jobs.py $* > logs/$name.log 2>&1 < /dev/null &
+nohup env PYTHONPATH=\$HOME/moe/code JAX_PLATFORMS=cpu OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 XLA_FLAGS="--xla_cpu_multi_thread_eigen=false intra_op_parallelism_threads=1" setsid \$HOME/gpuvenv/bin/python jobs.py $* > logs/$name.log 2>&1 < /dev/null &
 echo \$! > logs/$name.pid
 echo "started $name pid \$(cat logs/$name.pid)"
 EOS
@@ -78,6 +78,21 @@ echo "load $(cut -d' ' -f1-3 /proc/loadavg)  $(date '+%F %T')"
 for p in ~/moe/logs/*.pid; do [ -f "$p" ] || continue; n=$(basename "$p" .pid); if kill -0 "$(cat "$p")" 2>/dev/null; then s=RUNNING; else s=ended; fi; echo "== $n [$s] $(tail -n 3 ~/moe/logs/$n.log | cut -c1-220)"; done
 echo "sim shards: $(pgrep -fc forgeaip-sim-moe2)   trainers: $(pgrep -fc 'moe.cli')"
 nvidia-smi --query-gpu=utilization.gpu,memory.used --format=csv,noheader 2>&1 | head -1
+EOS
+  wsl_run "$f"; rm -f "$f";;
+peek)   # load, cpu split, the last update of every training of TAG (default: the newest)
+  tag=${1:-}
+  f=$(tmp); cat > "$f" <<EOS
+cut -d' ' -f1-3 /proc/loadavg
+echo "cpu: sim \$(ps -eo pcpu,args | awk '/forgeaip-sim-moe2/ && !/awk/{s+=\$1} END{print s+0}')  python \$(ps -eo pcpu,args | awk '/moe.cli/ && !/awk/{s+=\$1} END{print s+0}')"
+cd ~/moe/runs; t=${tag:-\$(ls -t | head -1)}
+for d in \$t/*/; do e=\$(basename \$d); [ -f \$d/train_log.jsonl ] || continue
+  tail -n1 \$d/train_log.jsonl | python3 -c "
+import sys, json
+for l in sys.stdin:
+    d = json.loads(l); print('%-16s steps %8d  success_recent %s  sps %s' % ('\$e', d['steps'], d['success_recent'], d['sps']))"
+  [ -f \$d/final.npz ] && echo "                 final: \$(cat \$d/train_result.json 2>/dev/null | cut -c1-150)"; done
+tail -n 20 ~/moe/logs/*.log | grep -a "held-out" | cut -c1-260
 EOS
   wsl_run "$f"; rm -f "$f";;
 pull)

@@ -222,7 +222,7 @@ pub fn run(argv: &[String]) -> Result<(), String> {
                 }
             }
             if last_act.elapsed() > Duration::from_secs(600) { return Err("no act within 600 s".into()); }
-            std::thread::sleep(Duration::from_micros(300));
+            std::thread::sleep(Duration::from_micros(1500));
             continue;
         }
         for m in msgs {

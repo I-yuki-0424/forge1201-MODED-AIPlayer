@@ -23,7 +23,7 @@ def run(vec, decide, episodes, timeout_s=600, on_episode=None):
     while n_done < episodes and time.time() - t0 < timeout_s:
         obs = vec.poll()
         if not obs:
-            time.sleep(0.0003)
+            time.sleep(0.0015)
             continue
         live = []
         for ob in obs:

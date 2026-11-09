@@ -32,26 +32,46 @@ def fmt(s):
     return f"{s['rate']:.2f} [{lo:.2f}, {hi:.2f}]"
 
 
+def _by(path, *keys):
+    """Rows of a jsonl file keyed by the given fields (the last row of a key wins)."""
+    p = pathlib.Path(path)
+    out = {}
+    if p.exists():
+        for l in p.read_text().splitlines():
+            if l.strip():
+                r = json.loads(l)
+                out[tuple(r.get(k) for k in keys)] = r
+    return out
+
+
+def _fails(s):
+    if not s:
+        return "-"
+    o = s.get("outcomes", {})
+    return f"died {o.get('died', 0)}, timeout {o.get('timeout', 0)}"
+
+
 def experts_table(runs):
+    """One row per expert and scenario file (v2 experts train on several: a trap is a shaft or a pocket, movement has open ground, detours and digging)."""
     cat = catalog.load()
-    lines = ["| Expert | Parameters | Steps to criterion | Train time | Held-out: learned | scripted solver | uniform random | Commands (learned / solver) |",
-             "| :-- | --: | --: | --: | :-- | :-- | :-- | :-- |"]
+    lines = ["| Expert | Scenario | Steps to criterion | Train time | Held-out: learned | scripted solver | uniform random | Commands (learned / solver) | Learned failures |",
+             "| :-- | :-- | --: | --: | :-- | :-- | :-- | :-- | :-- |"]
     for e in cat["experts"]:
         d = pathlib.Path(runs) / e["id"]
         fin = _last(d / "train_result.json") or {}
-        ctl = _rows(d / "controls.jsonl", "policy")
-        ev = _last(d / "eval.jsonl")
-        meta = {}
-        try:
-            import numpy as np
-            z = np.load(d / "final.npz", allow_pickle=False)
-            meta = json.loads(bytes(z["__meta__"]).decode())
-        except Exception:
-            pass
+        ev = _by(d / "eval.jsonl", "scenario")
+        ctl = _by(d / "controls.jsonl", "scenario", "policy")
+        old_ctl = _rows(d / "controls.jsonl", "policy")
+        old_ev = _last(d / "eval.jsonl")
         steps = fin.get("solved_at") or fin.get("steps")
         crit = "" if fin.get("solved_at") else " (budget, not solved)"
-        lines.append(f"| `{e['id']}` | {meta.get('params', '-')} | {steps if steps is not None else '-'}{crit} | {fin.get('seconds', '-')} s | {fmt(ev)} | {fmt(ctl.get('solver'))} | {fmt(ctl.get('random'))} | "
-                     f"{(ev or {}).get('mean_commands', 0):.1f} / {(ctl.get('solver') or {}).get('mean_commands', 0):.1f} |")
+        scns = sorted({k[0] for k in ev} | {k[0] for k in ctl}, key=lambda x: (x is not None, x)) or [None]
+        for n, scn in enumerate(scns):
+            r = ev.get((scn,)) or (old_ev if scn is None else None)
+            sol = ctl.get((scn, "solver")) or (old_ctl.get("solver") if scn is None else None)
+            rnd = ctl.get((scn, "random")) or (old_ctl.get("random") if scn is None else None)
+            lines.append(f"| `{e['id']}` | {scn or e['id']} | {(str(steps) + crit) if n == 0 and steps is not None else ('-' if n else '-')} | {str(fin.get('seconds', '-')) + ' s' if n == 0 else ''} | {fmt(r)} | {fmt(sol)} | {fmt(rnd)} | "
+                         f"{(r or {}).get('mean_commands', 0):.1f} / {(sol or {}).get('mean_commands', 0):.1f} | {_fails(r)} |")
     return "\n".join(lines)
 
 
@@ -70,11 +90,12 @@ def chain_table(runs):
     p = pathlib.Path(runs) / "chain.jsonl"
     if not p.exists():
         return "(no chain run)"
-    lines = ["| Scenario | Router | Experts | Episodes | Goal reached | Mean commands | Experts' goals reached (episodes) |", "| :-- | :-- | :-- | --: | :-- | --: | :-- |"]
+    lines = ["| Scenario | Router | Experts | Stall handling | Episodes | Goal reached | Mean commands | unstick calls | Outcomes | Experts' goals reached (episodes) |", "| :-- | :-- | :-- | :-- | --: | :-- | --: | --: | :-- | :-- |"]
     for l in p.read_text().splitlines():
         s = json.loads(l)
         reach = ", ".join(f"{k} {v}" for k, v in s["expert_goal_reached"].items() if v)
-        lines.append(f"| {s['scenario']} | {s['router']} | {s['experts']} | {s['episodes']} | {fmt(s)} | {s['mean_commands']:.0f} | {reach} |")
+        stall = "-" if "greedy_stall" not in s else ("greedy (v1)" if s["greedy_stall"] else "sample, then unstick")
+        lines.append(f"| {s['scenario']} | {s['router']} | {s['experts']} | {stall} | {s['episodes']} | {fmt(s)} | {s['mean_commands']:.0f} | {s.get('unstick_calls', '-')} | {_fails(s)} | {reach} |")
     return "\n".join(lines)
 
 

@@ -98,7 +98,9 @@ pub fn candidates(s: &mut Sim) -> Vec<Cand> {
     // scan moves (docs/proposed/MOE-v2.md): toward the nearest scanned target of each group, wherever it is within 4 chunks: the reachable cell nearest to it, if that
     // is closer than here. A straight-line hill climb, not a path: it ends in cliffs and ponds, which is what the movement expert has to learn to get round.
     if s.scan_on {
-        let (_, first) = crate::scan::scan(s);
+        let res = crate::scan::scan(s);
+        let first = res.1.clone();
+        s.scan_res = Some(res);
         let mut far = vec![];
         for (g, t) in first.iter().enumerate() {
             let t = match t { Some(t) => *t, None => continue };
@@ -302,7 +304,7 @@ pub fn observe(s: &mut Sim, cands: &[Cand], progress: &[f64], last: (usize, i64)
     feats.resize(K, J::nums(&[0.0; 8]));
     let mut extra: Vec<(&str, J)> = vec![];
     if s.scan_on {
-        let (sc, first) = crate::scan::scan(s);
+        let (sc, first) = s.scan_res.take().unwrap_or_else(|| crate::scan::scan(s));
         let from = s.pos;
         let rows: Vec<J> = (0..K).map(|i| match cands.get(i).map(|c| &c.args) {
             Some(Args::Move(q)) => J::nums(&crate::scan::progress(&first, from, *q)),

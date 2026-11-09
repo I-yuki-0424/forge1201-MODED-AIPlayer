@@ -25,13 +25,13 @@ pub fn group_of(name: &str) -> Option<usize> {
     else { None }
 }
 
-pub struct Idx { pos: Vec<Vec<[i32; 3]>> }
+pub struct Idx { pos: Vec<HashMap<(i32, i32), Vec<[i32; 3]>>> }
 thread_local! { static CACHE: RefCell<HashMap<String, Rc<Idx>>> = RefCell::new(HashMap::new()); }
 
 fn build(s: &Sim, t: &Tile) -> Idx {
     let tab: Vec<i8> = (0..s.d.blocks.len()).map(|i| group_of(&s.d.blocks[i].name).map_or(-1, |g| g as i8)).collect();
     let g = |b: u16| tab.get(b as usize).copied().unwrap_or(-1);
-    let mut pos = vec![vec![]; NATURAL];
+    let mut pos: Vec<HashMap<(i32, i32), Vec<[i32; 3]>>> = vec![HashMap::new(); NATURAL];
     for (ci, c) in t.chunks.iter().enumerate() {
         let c = match c { Some(c) => c, None => continue };
         let (cx, cz) = (t.cx0 + ci as i32 % t.w, t.cz0 + ci as i32 / t.w);
@@ -45,7 +45,7 @@ fn build(s: &Sim, t: &Tile) -> Idx {
             for i in 0..4096usize {
                 let b = sec.get(i);
                 let k = g(b);
-                if k >= 0 { pos[k as usize].push([cx * 16 + (i & 15) as i32, MINY + si as i32 * 16 + (i >> 8) as i32, cz * 16 + ((i >> 4) & 15) as i32]); }
+                if k >= 0 { pos[k as usize].entry((cx, cz)).or_default().push([cx * 16 + (i & 15) as i32, MINY + si as i32 * 16 + (i >> 8) as i32, cz * 16 + ((i >> 4) & 15) as i32]); }
             }
         }
     }
@@ -65,12 +65,28 @@ fn idx(s: &Sim) -> Option<Rc<Idx>> {
 #[inline] fn chunk_apart(a: [i32; 3], b: [i32; 3]) -> i32 { (a[0].div_euclid(16) - b[0].div_euclid(16)).abs().max((a[2].div_euclid(16) - b[2].div_euclid(16)).abs()) }
 fn d3(a: [i32; 3], b: [i32; 3]) -> f64 { (((a[0] - b[0]) as f64).powi(2) + ((a[1] - b[1]) as f64).powi(2) + ((a[2] - b[2]) as f64).powi(2)).sqrt() }
 
+thread_local! { static TOPS: RefCell<(String, HashMap<(i32, i32), i32>)> = RefCell::new((String::new(), HashMap::new())); }
+fn solid_ish(s: &Sim, x: i32, y: i32, z: i32) -> Option<bool> { s.blk(x, y, z).map(|b| !matches!(s.d.block(b).kind, crate::data::Kind::Air | crate::data::Kind::Passable)) }
+/// The top non-air cell of the tile's own blocks in column (x, z), cached per tile (the column walk is 380 lookups; edits are looked at on top of it).
+fn natural_top(s: &Sim, x: i32, z: i32) -> Option<i32> {
+    TOPS.with(|c| {
+        let mut c = c.borrow_mut();
+        if c.0 != s.tile.name { c.0 = s.tile.name.clone(); c.1.clear(); }
+        if let Some(&y) = c.1.get(&(x, z)) { return Some(y); }
+        for y in (MINY..MINY + 380).rev() {
+            let b = s.tile.get(x, y, z)?;
+            if !matches!(s.d.block(b).kind, crate::data::Kind::Air | crate::data::Kind::Passable) { c.1.insert((x, z), y); return Some(y); }
+        }
+        None
+    })
+}
 /// The standing cell on top of column (x, z): the first non-air cell from the sky down (leaves count as ground; the bot cannot walk through them).
 pub fn surface(s: &Sim, x: i32, z: i32) -> Option<[i32; 3]> {
-    for y in (MINY..MINY + 380).rev() {
-        match s.blk(x, y, z) { None => return None, Some(b) => { let k = s.d.block(b).kind; if !matches!(k, crate::data::Kind::Air | crate::data::Kind::Passable) { return Some([x, y + 1, z]); } } }
-    }
-    None
+    let nat = natural_top(s, x, z)?;
+    let mut y = nat + 24;                                                  // placed blocks may stand above the natural top
+    while y > nat && !solid_ish(s, x, y, z)? { y -= 1; }
+    while y > MINY && !solid_ish(s, x, y, z)? { y -= 1; }                  // a carved top (a shaft) is air: on down to the next solid cell
+    Some([x, y + 1, z])
 }
 
 /// The M nearest cells of group `g` within CHUNKS chunks of the bot, nearest first.
@@ -90,12 +106,24 @@ pub fn nearest(s: &Sim, g: usize, ix: &Option<Rc<Idx>>) -> Vec<[i32; 3]> {
         }
         _ => {
             let want = |p: [i32; 3]| -> bool { s.blk(p[0], p[1], p[2]).map_or(false, |b| group_of(&s.d.block(b).name) == Some(g)) };
+            // the cheap distance test first: the block lookups run only for cells that would enter the M nearest
             let mut push = |p: [i32; 3], v: &mut Vec<(f64, [i32; 3])>| {
                 let d = d3(me, p);
                 if v.len() < M || d < v[v.len() - 1].0 { v.push((d, p)); v.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)); v.truncate(M); }
             };
-            if let Some(ix) = ix { for &p in &ix.pos[g] { if chunk_apart(me, p) <= CHUNKS && !s.edits.contains_key(&(p[0], p[1], p[2])) && want(p) { push(p, &mut v); } } }
-            for (k, _) in s.edits.iter() { let p = [k.0, k.1, k.2]; if chunk_apart(me, p) <= CHUNKS && want(p) { push(p, &mut v); } }
+            let worse = |p: [i32; 3], v: &Vec<(f64, [i32; 3])>| v.len() >= M && d3(me, p) >= v[v.len() - 1].0;
+            // rings of chunks outward from the bot's own; stop once the M found are nearer than anything a farther ring can hold
+            if let Some(ix) = ix {
+                let (mx, mz) = (me[0].div_euclid(16), me[2].div_euclid(16));
+                for r in 0..=CHUNKS {
+                    if v.len() >= M && v[M - 1].0 <= ((r - 1).max(0) * 16) as f64 { break; }
+                    for cz in mz - r..=mz + r { for cx in mx - r..=mx + r {
+                        if (cx - mx).abs().max((cz - mz).abs()) != r { continue; }
+                        if let Some(b) = ix.pos[g].get(&(cx, cz)) { for &p in b { if !worse(p, &v) && !s.edits.contains_key(&(p[0], p[1], p[2])) && want(p) { push(p, &mut v); } } }
+                    } }
+                }
+            }
+            for (k, _) in s.edits.iter() { let p = [k.0, k.1, k.2]; if chunk_apart(me, p) <= CHUNKS && !worse(p, &v) && want(p) { push(p, &mut v); } }
         }
     }
     v.into_iter().map(|x| x.1).collect()
