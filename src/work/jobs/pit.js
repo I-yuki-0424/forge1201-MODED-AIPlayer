@@ -3,7 +3,7 @@
 // region is dug layer by layer from the top, one ROW (a line of cells along x) per unit; every unit is the existing `mine`
 // command repeated, plus `place` for the water rule. Nothing here touches the game directly: `exec(name, args)` runs a
 // command of the action layer, `w` is its world model (kindAt/nameAt), so the whole job is testable without a server.
-const { Ledger } = require('./crew');
+const { Ledger, DONE, STUCK } = require('./crew');
 const { makeSweeper } = require('./pit_sweep');
 const janitor = require('../bot/janitor');
 const abyss = require('../bot/abyss');
@@ -199,6 +199,7 @@ async function runUnit(plan, region, u, env) {
     const mineArgs = (c) => (sweep ? { x: c.x, y: c.y, z: c.z, collect: false } : c);
     const fail = (res, cell, stage) => ({ ok: false, reason: res.reason, detail: { ...(res.detail || {}), cell, block: env.w.nameAt ? env.w.nameAt(cell.x, cell.y, cell.z) : undefined, stage, ...r } });
     const open = (c) => PASSABLE.has(env.w.kindAt(c.x, c.y, c.z));
+    const leave = (c) => { if (plan.accepted) plan.accepted.add(`${c.x},${c.y},${c.z}`); };          // a block left on purpose (a fixture, a floating block): the layer check does not send the unit back for it
     // Fill what sealPlan lists. `before`: only fluid that can be seen now (a pocket sealed inside stone cannot be clicked, and it
     // cannot flow until the cell next to it opens: live run p4, a water cell in the wall next to the last stone); after the dig
     // the opened cell is the window onto it, so everything is filled then, the pocket first and the opened cell last.
@@ -241,7 +242,7 @@ async function runUnit(plan, region, u, env) {
         if (open(c)) { r.skipped++; return null; }
         // The block the bot stands on, with nothing solid within three cells under it: breaking it drops the bot into the open pit (86 blocks, dead; live pit 2026-11-07, a lone
         // cobblestone pillar at layer 30 killed a bot four times). Left in place: nothing can be done about it from the side, and a floating block hurts nobody.
-        if (standsOnFloater(env, c)) { r.skipped++; r.floating = (r.floating || 0) + 1; return null; }
+        if (standsOnFloater(env, c)) { r.skipped++; r.floating = (r.floating || 0) + 1; leave(c); return null; }
         // Success is what the world shows: a `mine` that ended in the drop pickup (target_lost: the item was picked up by another
         // bot or despawned) has still opened the cell. Transient reasons (another bot in the crosshair, a slipped aim) get retries.
         let m = await env.exec('mine', mineArgs(c));
@@ -262,7 +263,7 @@ async function runUnit(plan, region, u, env) {
             const l = await env.lift(c, { skipSame: true });
             if (l.ok) { r.lifted = (r.lifted || 0) + 1; m = await env.exec('mine', mineArgs(c)); }
         }
-        if (!m.ok && m.reason === 'protected') { r.skipped++; r.protected = (r.protected || 0) + 1; return null; }       // the owner's chest or a tagged block inside the box: left standing (src/skills/fixtures.js)
+        if (!m.ok && m.reason === 'protected') { r.skipped++; r.protected = (r.protected || 0) + 1; leave(c); return null; }       // the owner's chest or a tagged block inside the box: left standing (src/skills/fixtures.js)
         if (!m.ok && !open(c)) return fail(m, c, 'mine');
         r.mined++;
         // Water that was behind the block is now flowing in. Fill its source, then the cell; if the cell was plugged, dig it again.
@@ -411,11 +412,36 @@ function cellState(plan, region, u, w) {
         const k = w.kindAt(c.x, c.y, c.z);
         if (k === 'unknown') { unknown++; continue; }
         if (PASSABLE.has(k) || UNBREAKABLE.test((w.nameAt && w.nameAt(c.x, c.y, c.z)) || '') || aerialTree(w, c)) continue;
+        if (plan.accepted && plan.accepted.has(`${c.x},${c.y},${c.z}`)) continue;                      // left on purpose: a fixture, a block the bot stood on
         wrong.push(c);
     }
     return { wrong, unknown };
 }
 const wrongCells = (plan, region, u, w) => cellState(plan, region, u, w).wrong;
+
+/**
+ * The layer gate (crew.js): before the layer below is opened, every cell of this layer is read from the world. A unit that still holds a block (done, or parked after a failure) goes back
+ * to work, held a few seconds so that it is not tried again at once by the bot that just failed; a unit that has been sent back `LAYER_ROUNDS` times is accepted as it is (reported as
+ * `leftover`: the end-of-job sweep and the automatic retry still look at it). Cells the bot cannot see (the chunk is not loaded even after a walk toward it) do not hold the layer.
+ * @returns { region, layer, checked, reopened, leftover, unknown, first? }
+ */
+const LAYER_ROUNDS = 3, LAYER_HOLD_MS = 4000;
+async function checkLayer(plan, ledger, byId, state, env, ck, now) {
+    const region = byId.get(ck.region), reg = ledger.regions.get(ck.region), w = env.w, m = region.meta, res = { region: ck.region, layer: ck.layer, y: m.top - ck.layer, checked: 0, reopened: 0, leftover: 0, unknown: 0 };
+    const cx = (m.x0 + m.x1) >> 1, cz = (m.z0 + m.z1) >> 1;
+    if (w.kindAt(cx, res.y, cz) === 'unknown' && env.travel) { const t = await env.travel({ x: cx, z: cz }, { near: 20 }); res.travelled = t.ok ? t.legs : t.reason; }
+    for (let i = 0; i < reg.rows; i++) {
+        const u = ck.layer * reg.rows + i, st = reg.state[u];
+        if (st !== DONE && st !== STUCK) continue;
+        res.checked++;
+        const c = cellState(plan, region, u, w); res.unknown += c.unknown;
+        if (!c.wrong.length) continue;
+        const key = `${ck.region}:${u}`, n = state.layer.get(key) || 0;
+        if (n >= LAYER_ROUNDS) { res.leftover++; res.first = res.first || { unit: u, cells: c.wrong.slice(0, 4), leftover: true }; continue; }
+        if (ledger.requeueUnit(ck.region, u, now, { holdMs: LAYER_HOLD_MS * (n + 1) })) { state.layer.set(key, n + 1); res.reopened++; res.first = res.first || { unit: u, cells: c.wrong.slice(0, 4), round: n + 1 }; }
+    }
+    return res;
+}
 
 const AUDIT_BUDGET = 48, AUDIT_REOPEN_MAX = 3;
 /**
@@ -446,11 +472,13 @@ function audit(plan, ledger, w, now, state, { budget = AUDIT_BUDGET, full = fals
 
 /** A pit as a crew job: { ledger, plan, runUnit(regionId, unit, env) }. */
 function createPitJob(box, ledgerOpts = {}, { lanes = 0, method = 'rows', tile = TILE, road = true } = {}) {
-    const plan = planPit(box, { lanes, method, tile, road }), ledger = new Ledger(ledgerOpts), byId = new Map(), auditState = { cursor: new Map(), counts: new Map() };
+    const plan = planPit(box, { lanes, method, tile, road }); plan.accepted = new Set();
+    const ledger = new Ledger(ledgerOpts), byId = new Map(), auditState = { cursor: new Map(), counts: new Map() };
     for (const r of plan.regions) { ledger.addRegion(r); byId.set(r.id, r); }
     // sweep: the check at the end (pit_sweep.js): every chunk is walked to, read from the top layer down, and what still holds a block goes back to work.
     const sweep = makeSweeper({ plan, ledger, state: auditState, cellState });
-    return { kind: 'pit', ledger, plan, cleanup: (env) => (ledger.finished() ? require('../bot/temps').cleanTemps(env, { box: plan.box, max: 60, maxMs: 120000 }) : null), runUnit: (regionId, unit, env) => runUnit(plan, byId.get(regionId), unit, env), audit: (env, now, opts) => audit(plan, ledger, env.w, now, auditState, opts), sweep, rescue: (env, why) => require('../bot/water').rescue(env, plan.box, { why }) };
+    auditState.layer = new Map();
+    return { kind: 'pit', ledger, plan, checkLayer: (env, ck, now) => checkLayer(plan, ledger, byId, auditState, env, ck, now), cleanup: (env) => (ledger.finished() ? require('../bot/temps').cleanTemps(env, { box: plan.box, max: 60, maxMs: 120000 }) : null), runUnit: (regionId, unit, env) => runUnit(plan, byId.get(regionId), unit, env), audit: (env, now, opts) => audit(plan, ledger, env.w, now, auditState, opts), sweep, rescue: (env, why) => require('../bot/water').rescue(env, plan.box, { why }) };
 }
 
-module.exports = { standsOnFloater, aerialTree, planPit, laneBoxes, planRoad, stationsOf, lineCells, unitCells, sealPlan, orderFill, isFluid, exposed, runUnit, wrongCells, cellState, audit, createPitJob, SEAL_ITEMS, CHUNK, TILE, SWEEP_R };
+module.exports = { checkLayer, LAYER_ROUNDS, standsOnFloater, aerialTree, planPit, laneBoxes, planRoad, stationsOf, lineCells, unitCells, sealPlan, orderFill, isFluid, exposed, runUnit, wrongCells, cellState, audit, createPitJob, SEAL_ITEMS, CHUNK, TILE, SWEEP_R };

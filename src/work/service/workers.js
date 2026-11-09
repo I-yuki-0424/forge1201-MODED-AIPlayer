@@ -76,6 +76,7 @@ class WorkersPart {
                 }
                 if (ev === 'defend' && d.fought) this.note('info', `${rec.name} defended itself: ${d.killed}/${d.fought} killed`, { job: job.id });
                 if (ev === 'audit') this.note(d.gaveUp ? 'warn' : 'info', `${d.id} range check: ${d.reopened} unit(s) sent back, ${d.gaveUp} given up on`, { job: job.id, first: d.first });
+                if (ev === 'layer_check' && (d.reopened || d.leftover || d.error)) this.note(d.error ? 'warn' : 'info', `${d.id} layer ${d.layer} (y ${d.y}) of ${d.region} checked before the next one is opened: ${d.checked} units read, ${d.reopened} sent back to work (blocks left in them), ${d.leftover} given up on${d.unknown ? `, ${d.unknown} cells not loaded` : ''}${d.error ? `, check failed: ${d.error}` : ''}`, { job: job.id, first: d.first });
                 if (ev === 'sweep') this.note(d.unknown || d.travelled ? 'info' : 'debug', `${d.id} final sweep of ${d.region} (round ${d.round}): ${d.checked} units read, ${d.reopened} sent back${d.gaveUp ? `, ${d.gaveUp} given up on` : ''}${d.unknown ? `, ${d.unknown} cells not loaded${d.travelled ? ` (walk: ${d.travelled})` : ''}` : ''}`, { job: job.id, first: d.first });
                 if (ev === 'sent_back') this.note(d.ok ? 'info' : 'debug', `${d.id} put back on its feet (${d.why}): ${d.ok ? 'ok' : d.reason || 'refused'}`, { job: job.id });
                 if (ev === 'temp_cleaned') this.note('info', `${d.id} removed ${d.n} temporary block(s)`, { job: job.id });

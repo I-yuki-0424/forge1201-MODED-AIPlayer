@@ -61,6 +61,17 @@ async function runWorker(job, id, env, { cancel = { cancelled: false }, policy =
             act('claim');
             const claim = L.claim(id, env.pos(), now(), { batch });
             if (!claim) {
+                // The layer gate: the layer above is settled but not read yet: one bot reads every cell of it, what still holds a block goes back to work before the layer below is opened.
+                if (L.gate && job.checkLayer) {
+                    const ck = L.needCheck(id, now());
+                    if (ck) {
+                        act('check');
+                        let res; try { res = await job.checkLayer(env, ck, now()); } catch (e) { res = { region: ck.region, layer: ck.layer, reopened: 0, error: String(e && e.message || e).slice(0, 80) }; }
+                        L.checkDone(id, ck.region, ck.layer, now(), !res.reopened);
+                        onEvent('layer_check', { id, ...res });
+                        continue;
+                    }
+                }
                 // Before the job is called finished, look at the whole range once more: what is wrong goes back to work. A pit does it chunk by chunk (job.sweep: the bot walks to
                 // the chunk, reads it from the top layer down); the others look at what their bot can see (a few rounds at most).
                 if (L.finished() && job.sweep) {
@@ -75,7 +86,7 @@ async function runWorker(job, id, env, { cancel = { cancelled: false }, policy =
                 } else if (L.finished() && finalAudits < 3 && ++finalAudits && audit(true)) continue;
                 if (L.finished()) { if (job.cleanup) await job.cleanup(env); return { ended: 'finished', units, failed }; }
                 // The next layer waits for units other bots are still running; if nobody is running anything, nothing will change.
-                if (L.progress().leased === 0 && ++idle > 20) { L.leave(id, now()); return { ended: 'stalled', units, failed }; }
+                if (L.progress().leased === 0 && !L.checkBusy(now()) && ++idle > 20) { L.leave(id, now()); return { ended: 'stalled', units, failed }; }
                 act('idle');                                    // nothing claimable: the next layer waits for other bots' units, or the units left are on hold after a failure
                 await sleep(pollMs);
                 continue;

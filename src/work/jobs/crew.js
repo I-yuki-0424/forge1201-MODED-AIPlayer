@@ -9,6 +9,9 @@
 //      building bottom-up (the caller orders layers accordingly; the ledger only knows "layer k before k+1").
 //   4. A bot with no work of its own helps: it takes units from the TAIL of the busiest region while the owner works from
 //      the head, so the two meet in the middle without talking to each other.
+// The layer gate (owner 2026-11-10: "fix the leftovers properly before going down a level, or they are out of reach and much harder to deal with"): with `gate` a layer is open to the
+// layer below only when its units are settled AND `checkLayer` (pit.js: every cell of the layer is read from the world) found nothing left in it. What is left goes back to work
+// (`requeueUnit`, a done or a parked unit alike, a few rounds at most, then it is accepted and reported); the bots of the range wait for that, one of them does the reading (`needCheck`).
 // A unit that fails for its own reasons (not the bot's death) is retried by ANOTHER bot, up to maxAttempts, then `stuck`
 // (reported, never retried forever; the layer below does not wait for it).
 // Failure memory (owner 2026-11-09: "retrying many times toward the same place that already failed is pointless"): a unit that fails twice IN THE SAME WAY (same reason, stage, cell
@@ -37,7 +40,8 @@ class Ledger {
      * @param maxAttempts failures (other than the bot's own death) before a unit is `stuck`
      * @param crowd       score penalty per other bot already in a region (huge = help only when nothing unowned is left)
      */
-    constructor({ leaseMs = 60000, maxAttempts = 3, crowd = 1e6, maxLead = Infinity, lanes = false, sameLimit = Infinity, holdMs = 0 } = {}) {
+    constructor({ leaseMs = 60000, maxAttempts = 3, crowd = 1e6, maxLead = Infinity, lanes = false, sameLimit = Infinity, holdMs = 0, gate = false } = {}) {
+        this.gate = gate;             // a layer opens the next only after its check (needCheck / checkDone); off for builds
         this.sameLimit = sameLimit;   // identical failures in a row (same reason, stage, cell, words) before a unit is parked as stuck
         this.holdMs = holdMs;         // a unit that failed is not claimable for this long (x2 per identical failure in a row); the bot takes its other units meanwhile
         this.lanes = lanes;           // pit jobs: one range per bot; a bot keeps to its range until it is dug to the bottom, and retries its own failed units itself
@@ -59,7 +63,7 @@ class Ledger {
             id, anchor, layers, rows, deps, meta, n,
             state: new Uint8Array(n), attempts: new Uint8Array(n), owner: new Int32Array(n).fill(-1),
             until: new Float64Array(n), avoid: new Int32Array(n).fill(-1), hold: new Float64Array(n), sig: new Array(n).fill(null), same: new Uint8Array(n),
-            settled: new Int32Array(layers), front: 0, doneN: 0, stuckN: 0, leasedN: 0, lessees: new Map(),
+            settled: new Int32Array(layers), checked: new Uint8Array(layers), checking: null, front: 0, doneN: 0, stuckN: 0, leasedN: 0, lessees: new Map(),
         });
     }
 
@@ -92,7 +96,52 @@ class Ledger {
     _settle(r, u) {
         const l = (u / r.rows) | 0;
         r.settled[l]++;
-        while (r.front < r.layers && r.settled[r.front] === r.rows) r.front++;
+        this._advance(r);
+    }
+    /** The lowest layer that is not open to the next one yet: not settled, or (gate) not checked. */
+    _advance(r) { while (r.front < r.layers && r.settled[r.front] === r.rows && (!this.gate || r.checked[r.front])) r.front++; }
+
+    /**
+     * Gate: a region whose front layer is fully settled but not checked yet, for `botId` to read (null when there is none or another bot is reading it; a reading that takes longer than
+     * two minutes is given to the next bot). The bot's own region first. Returns { region, layer, meta } and marks it as being read.
+     */
+    needCheck(botId, now) {
+        if (!this.gate) return null;
+        const b = this.bot(botId), homeId = b.home !== null ? b.home : b.last;
+        const open = [...this.regions.values()].filter((r) => r.front < r.layers && r.settled[r.front] === r.rows && !r.checked[r.front] && (!r.checking || r.checking.until <= now) && this.ready(r));
+        if (!open.length) return null;
+        const r = open.find((x) => x.id === homeId) || open[0];
+        r.checking = { bot: botId, layer: r.front, until: now + 120000 };
+        this._ev({ t: now, ev: 'check', bot: botId, region: r.id, layer: r.front });
+        return { region: r.id, layer: r.front, meta: r.meta };
+    }
+    /** Is a layer being read right now, or is a unit of a front layer only waiting for its hold to end (the others must not call the job stalled)? */
+    checkBusy(now) {
+        for (const r of this.regions.values()) {
+            if (r.checking && r.checking.until > now) return true;
+            if (r.front < r.layers) { const base = r.front * r.rows; for (let i = 0; i < r.rows; i++) if (r.state[base + i] === PENDING && r.hold[base + i] > now) return true; }
+        }
+        return false;
+    }
+    /** The reading is over. `clear`: nothing was left, the layer opens the next one. Otherwise the units that hold a block are pending again (requeueUnit) and the layer is read again once they are settled. */
+    checkDone(botId, regionId, layer, now, clear) {
+        const r = this.regions.get(regionId);
+        if (!r || !r.checking || r.checking.bot !== botId || r.checking.layer !== layer) return false;
+        r.checking = null;
+        if (clear) { r.checked[layer] = 1; this._advance(r); }
+        this._ev({ t: now, ev: 'checked', bot: botId, region: regionId, layer, clear: !!clear });
+        return true;
+    }
+    /** One unit back to pending for another try, whatever it was (done, or parked); `holdMs`: not claimable for that long. False when it is pending or leased already. */
+    requeueUnit(regionId, u, now, { holdMs = 0 } = {}) {
+        const r = this.regions.get(regionId); if (!r) return false;
+        const was = r.state[u], l = (u / r.rows) | 0;
+        if (was === DONE) { r.doneN--; } else if (was === STUCK) { r.stuckN--; this.stuck = this.stuck.filter((s) => !(s.region === regionId && s.unit === u)); } else return false;
+        r.state[u] = PENDING; r.attempts[u] = 0; r.avoid[u] = -1; r.owner[u] = -1; r.hold[u] = now + holdMs; r.sig[u] = null; r.same[u] = 0;
+        r.settled[l]--; r.checked[l] = 0;
+        if (l < r.front) r.front = l;
+        this._ev({ t: now, ev: 'requeue_unit', region: regionId, unit: u });
+        return true;
     }
 
     /** Expired leases go back to pending. */
@@ -215,6 +264,7 @@ class Ledger {
     leave(botId, now) {
         const b = this.bots.get(botId); if (!b) return;
         for (const key of [...b.leases]) { const [rid, u] = key.split('\u0000'); this._release(this.regions.get(rid), +u, now); }
+        for (const r of this.regions.values()) if (r.checking && r.checking.bot === botId) r.checking = null;          // a bot that leaves while it reads a layer: the next one reads it
         b.alive = false; b.last = null;
     }
 
@@ -225,7 +275,7 @@ class Ledger {
         for (const s of this.stuck.splice(0)) {
             if (!retriable(s)) { keep.push(s); continue; }
             const r = this.regions.get(s.region);
-            r.state[s.unit] = PENDING; r.attempts[s.unit] = 0; r.avoid[s.unit] = -1; r.hold[s.unit] = 0; r.sig[s.unit] = null; r.same[s.unit] = 0; r.stuckN--; r.settled[s.layer]--;
+            r.state[s.unit] = PENDING; r.attempts[s.unit] = 0; r.avoid[s.unit] = -1; r.hold[s.unit] = 0; r.sig[s.unit] = null; r.same[s.unit] = 0; r.stuckN--; r.settled[s.layer]--; r.checked[s.layer] = 0;
             if (s.layer < r.front) r.front = s.layer;
             n++;
         }
@@ -244,7 +294,7 @@ class Ledger {
         if (!r || r.state[u] !== DONE) return false;
         r.state[u] = PENDING; r.attempts[u] = 0; r.avoid[u] = -1; r.owner[u] = -1; r.hold[u] = 0; r.sig[u] = null; r.same[u] = 0; r.doneN--;
         const l = (u / r.rows) | 0;
-        r.settled[l]--;
+        r.settled[l]--; r.checked[l] = 0;
         if (l < r.front) r.front = l;
         this._ev({ t: now, ev: 'reopen', region: regionId, unit: u });
         return true;
