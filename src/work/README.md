@@ -38,6 +38,9 @@ escalation.js  request to the DPOD router (not wired into any job)
 | long walks, portals, routes across dimensions | `bot/travel.js`, `bot/portal.js`, `bot/route.js`, command `journey` in `service/commands.js` |
 | reflexes (fall, lava) / how a stuck bot gets out | `bot/reflex.js` / `bot/escape.js`, `recover` and `lift` in `bot/env.js` |
 | routines (a script repeated until Stop), tool durability policy | `runLoop` in `bot/script.js` + `service/library.js`; `skills/options.js` (`toolPolicy`), `bot/moves.js` (`stash_worn`) |
+| lines at beds and containers (FIFO, time limit, sent away) / the bed command | `bot/queue.js` (`Gates`) + `queued` / `reserve` in `bot/env.js` / `bot/bed.js`, `_setSpawn` in `service/commands.js` |
+| a floor, a wall or room walls of one block (the Place page) | `jobs/layout.js` (cells), `createLayout` / `previewLayout` in `service/jobs.js`, `public/work/page_place.js` |
+| a pillar with no blocks (digs one from the undug pit) / a bot put back on its feet when it gives up | `harvestBlock` in `bot/moves.js`, `env.within` / `env.goBack` in `bot/env.js`, `bringBack` in `bot/worker.js` |
 | the roster, reconnecting, bot views | `service/bots.js`, `service/views.js` |
 | creating, starting, pausing jobs | `service/jobs.js` |
 | the worker loop's reaction to failures (retire, cool down, restock) | `service/workers.js` |
