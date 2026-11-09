@@ -30,7 +30,7 @@ def main(argv=None):
     c.add_argument("--root", required=True); c.add_argument("--base", required=True); c.add_argument("--shards", required=True)
     c.add_argument("--router", required=True, help="rules | xgb:<model> | lgb:<model>"); c.add_argument("--experts", required=True, help="net:<runs dir> | solver")
     c.add_argument("--episodes", type=int, default=60); c.add_argument("--trace", type=int, default=0, help="print the expert switches of the first N episodes"); c.add_argument("--scenario", default="chain"); c.add_argument("--out"); c.add_argument("--timeout", type=int, default=1500)
-    c.add_argument("--trace-fail", action="store_true", help="trace only the episodes that did not succeed"); c.add_argument("--greedy-stall", action="store_true", help="control: the first chain's behaviour, a stalled expert is called again with the greedy action")
+    c.add_argument("--trace-steps", action="store_true", help="with --trace: also the expert and command of each of the last 400 steps"); c.add_argument("--trace-fail", action="store_true", help="trace only the episodes that did not succeed"); c.add_argument("--greedy-stall", action="store_true", help="control: the first chain's behaviour, a stalled expert is called again with the greedy action")
     a = ap.parse_args(argv)
     if a.cmd == "router":
         return _router(a)
@@ -62,7 +62,7 @@ def main(argv=None):
     elif a.policy == "solver":
         pol = solvers.Solver(a.expert, feat, a.seed, rel=catalog.relevance(expert))
     elif a.policy.startswith("net:"):
-        pol = NetPolicy(a.policy[4:], feat, catalog.relevance(expert), expert.get("kind", "item") == "skill")
+        pol = NetPolicy(a.policy[4:], feat, catalog.relevance(expert), expert.get("kind", "item") == "skill", catalog.action_ids(expert))
     else:
         print("unknown policy", file=sys.stderr); return 2
     s = evaluate.run(vec, pol.decide, a.episodes, a.timeout)
@@ -128,6 +128,7 @@ def _chain(a):
         for e in cat["experts"]:
             experts[e["id"]], _ = policy.load(f"{a.experts[4:]}/{e['id']}/final.npz")
     ch = C.Chain(feat, cat, route, experts, cat["chain"]["goal"], 1, src, sample_on_stall=not a.greedy_stall)
+    ch.record = bool(a.trace_steps)
     reached = {e["id"]: 0 for e in cat["experts"]}
     traced = [0]
     def on_ep(ob):
@@ -135,7 +136,10 @@ def _chain(a):
             reached[eid] += 1
         if traced[0] < a.trace and (not a.trace_fail or ob.outcome != "success"):
             traced[0] += 1
-            print(json.dumps({"episode_end": ob.outcome, "commands": ob.step, "trace": ch.trace.get(ob.key, [])[:40]}))
+            row = {"episode_end": ob.outcome, "commands": ob.step, "trace": ch.trace.get(ob.key, [])[:40]}
+            if a.trace_steps:
+                row["steps"] = ch.steps.get(ob.key, [])
+            print(json.dumps(row))
     s = evaluate.run(vec, ch.decide, a.episodes, a.timeout, on_episode=on_ep)
     s.update(router=a.router.split(":")[0], experts=src, scenario=a.scenario, expert_goal_reached=reached, router_calls=ch.calls, unstick_calls=ch.unstick_calls, greedy_stall=a.greedy_stall)
     print(json.dumps(s))
@@ -148,18 +152,19 @@ def _chain(a):
 
 class NetPolicy:
     """Greedy policy of a trained expert (checkpoint of moe.policy.save)."""
-    def __init__(self, path, feat, rel=(), anon=False):
+    def __init__(self, path, feat, rel=(), anon=False, actions=None):
         from . import policy
         self.params, self.meta = policy.load(path)
         self.feat = feat
         self.rel = rel
         self.anon = anon
+        self.actions = actions
 
     def decide(self, obs_list):
         import numpy as np
         from . import policy
         ctx = np.stack([self.feat.ctx(o.raw, self.rel, self.anon) for o in obs_list])
-        cc = [self.feat.cands(o.raw, self.rel, self.anon) for o in obs_list]
+        cc = [self.feat.cands(o.raw, self.rel, self.anon, self.actions) for o in obs_list]
         cand, mask = policy.trim(np.stack([c[0] for c in cc]), np.stack([c[1] for c in cc]))
         a, _ = policy.act_greedy(self.params, ctx, cand, mask)
         return [int(x) for x in a]

@@ -11,6 +11,7 @@ import pathlib
 HERE = pathlib.Path(__file__).resolve().parent
 CATALOG = HERE / "catalog.json"
 GROUPS = ("#log", "#planks")
+CMDS = ("pad", "move_to", "mine", "attack", "pickup", "craft", "smelt", "place", "activate", "equip", "eat", "wait", "tunnel")      # the simulator's command order (tools/sim/src/obs.rs)
 SCAN_GROUPS = ("log", "coal", "iron", "way", "sky")        # the simulator's target scan (tools/sim/src/scan.rs), docs/proposed/MOE-v2.md
 
 
@@ -33,6 +34,11 @@ def relevance(e):
     return tuple(SCAN_GROUPS.index(g) for g in e.get("targets", []))
 
 
+def action_ids(e):
+    """Command indices the expert may use (catalogue `actions`), or None for all of them."""
+    return tuple(CMDS.index(a) for a in e["actions"]) if e.get("actions") else None
+
+
 def check(cat):
     """Unknown keys, a goal that nothing pays, a need that is neither an item nor a group: errors, so a typo cannot train another expert."""
     if cat.get("v") not in (1, 2):
@@ -40,7 +46,7 @@ def check(cat):
     items = set(cat["items"])
     seen = set()
     for e in cat["experts"]:
-        extra = set(e) - {"id", "doc", "makes", "needs", "goal", "max_steps", "hostiles", "start", "approach", "targets", "kind"}
+        extra = set(e) - {"id", "doc", "makes", "needs", "goal", "max_steps", "hostiles", "start", "approach", "targets", "kind", "actions"}
         if extra:
             raise CatalogError(f"{e.get('id')}: unknown keys {sorted(extra)}")
         if e["id"] in seen or not e["id"].replace("_", "").isalnum():
@@ -50,6 +56,9 @@ def check(cat):
         skill = e.get("kind", "item") == "skill"
         if e.get("kind", "item") not in ("item", "skill"):
             raise CatalogError(f"{e['id']}: kind is item or skill")
+        for c in e.get("actions", []):
+            if c not in CMDS or c == "pad":
+                raise CatalogError(f"{e['id']}: unknown command {c} in actions")
         for g in e.get("targets", []):
             if g not in SCAN_GROUPS:
                 raise CatalogError(f"{e['id']}: unknown target group {g}")

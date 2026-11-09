@@ -74,6 +74,7 @@ def train(vec, expert, out_dir, budget=300_000, seed=0, rollout=4096, epochs=3, 
     cat = catalog.load()
     goal = None
     rel = catalog.relevance(expert)
+    acts = catalog.action_ids(expert)
     out = pathlib.Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
@@ -110,7 +111,7 @@ def train(vec, expert, out_dir, budget=300_000, seed=0, rollout=4096, epochs=3, 
         v_live, a_live, lp_live = [], [], []
         if live:
             ctx = np.stack([feat.ctx(ob.raw, rel, goal.skill) for ob in live])
-            cc = [feat.cands(ob.raw, rel, goal.skill) for ob in live]
+            cc = [feat.cands(ob.raw, rel, goal.skill, acts) for ob in live]
             cand_full, mask_full = np.stack([c[0] for c in cc]), np.stack([c[1] for c in cc])
             cand, mask = policy.trim(cand_full, mask_full)             # the network sees only as many candidates as the longest list; the buffer keeps all 64
             key, k1 = jax.random.split(key)

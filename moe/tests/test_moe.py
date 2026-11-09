@@ -210,7 +210,7 @@ class Features(unittest.TestCase):
         f = features.Featurizer(vocab, cat["items"])
         o = fake_obs(vocab, inv=[("oak_log", 3), ("spruce_log", 2), ("birch_planks", 5), ("stick", 1)], cands=[(2, "oak_log", 0.3), (2, "stone", 0.1), (5, "stick", 0.0), (11, "none", 0.0)])
         ctx = f.ctx(o)
-        cand, mask = f.cands(o)
+        cand, mask = f.cands(o, (0,))                          # the router named the log group, so mining the log is on offer
         self.assertEqual(ctx.shape, (f.ctx_dim,))
         self.assertEqual(cand.shape, (64, f.cand_dim))
         self.assertEqual(int(mask.sum()), 4)
@@ -271,6 +271,19 @@ class Scan(unittest.TestCase):
         self.assertAlmostEqual(float(c[0, -1]), 0.0)
         c, _ = self.f.cands(o, ())
         self.assertEqual(float(np.abs(c[:, -1]).sum()), 0.0)
+
+    def test_candidates_of_other_groups_and_other_commands_are_masked(self):
+        # v2 chain traces: the log expert mined coal ore, the movement expert placed and mined a furnace for hundreds of steps
+        cands = [(2, "coal_ore", 0.1), (2, "iron_ore", 0.1), (2, "oak_log", 0.1), (2, "stone", 0.1), (7, "furnace", 0.1), (1, "iron_ore", 0.2), (11, "none", 0.0)]
+        o = fake_obs(self.vocab, cands=cands, scan={"iron": [(20, 0, 0)]})
+        _, m = self.f.cands(o, (2,))                                   # the router named iron
+        self.assertEqual(m[:7].tolist(), [False, True, False, True, True, True, True])
+        _, m = self.f.cands(o, (2,), actions=catalog.action_ids(catalog.experts(self.cat)["move"]))
+        self.assertEqual(m[:7].tolist(), [False, True, False, True, False, True, True], "no place for the movement expert; wait is always left")
+        _, m = self.f.cands(o, ())                                      # an expert with no relevant group: no ore and no log at all
+        self.assertEqual(m[:7].tolist(), [False, False, False, True, True, False, True])
+        _, m = self.f.cands(o, (0, 1, 2))
+        self.assertEqual(m[:7].tolist(), [True, True, True, True, True, True, True])
 
     def test_the_seen_column_tells_a_candidate_the_bot_stood_there_recently(self):
         o = fake_obs(self.vocab, cands=[(1, "none", 0.1), (1, "none", 0.2)], scan={"way": [(20, 0, 0)]}, cand_scan={0: [0, 0, 0, 0.5, 0], 1: [0, 0, 0, 0.5, 0]}, seen={0: 1.0, 1: 0.25})

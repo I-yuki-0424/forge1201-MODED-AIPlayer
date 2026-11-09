@@ -8,6 +8,7 @@ of the first chain repeated the identical failure up to six times, 6 x 150 = the
 """
 import numpy as np
 
+from . import catalog
 from . import features as F
 from . import policy, solvers
 from .rules import DONE
@@ -38,6 +39,8 @@ class Chain:
         self.trace = {}          # env key -> [(step, expert id, pack summary, stalls)] : every switch, for diagnosis
         self.calls = 0
         self.unstick_calls = 0
+        self.steps = {}          # env key -> [(step, expert, sampled, command, item)] of the last 400 commands (--trace-steps)
+        self.record = False
         self.key = __import__("jax").random.PRNGKey(seed) if source == "net" else None
         self.rng = np.random.default_rng(seed)
 
@@ -113,7 +116,7 @@ class Chain:
             else:
                 sk = self.by_id[eid].get("kind", "item") == "skill"
                 ctx = np.stack([self.feat.ctx(o.raw, rel, sk) for o in sub])
-                cc = [self.feat.cands(o.raw, rel, sk) for o in sub]
+                cc = [self.feat.cands(o.raw, rel, sk, catalog.action_ids(self.by_id[eid])) for o in sub]
                 cand, mask = policy.trim(np.stack([c[0] for c in cc]), np.stack([c[1] for c in cc]))
                 if sample:
                     import jax
@@ -124,4 +127,11 @@ class Chain:
                 acts = [int(x) for x in a]
             for i, a in zip(idx, acts):
                 out[i] = a
+                if self.record:
+                    o = obs_list[i]
+                    l = self.steps.setdefault(o.key, [])
+                    if o.step == 0:
+                        l.clear()
+                    l.append((o.step, eid, bool(sample), int(o.raw["cand_cmd"][a]), self.feat.names[int(o.raw["cand_item"][a])]))
+                    del l[:-400]
         return out

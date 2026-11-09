@@ -11,6 +11,7 @@ import numpy as np
 
 K = 64
 N_CMD = 13
+from .catalog import CMDS                               # the simulator's command order (tools/sim/src/obs.rs)
 N_CAT = 11
 N_REASON = 17
 GRID_LAYERS = 5
@@ -37,6 +38,15 @@ class Featurizer:
             self.is_log[i] = n.endswith("_log") or n.endswith("_stem")
             self.is_planks[i] = n.endswith("_planks")
         idx[0] = self.other                    # "none"
+        # which scan group (log, coal, iron) an item belongs to: a candidate that mines or walks to such a block is a distraction unless the router called its group relevant
+        self.group_of = np.full(len(vocab_items), -1, dtype=np.int32)
+        for i, n in enumerate(vocab_items):
+            if n.endswith("_log") or n.endswith("_stem"):
+                self.group_of[i] = 0
+            elif n in ("coal_ore", "deepslate_coal_ore"):
+                self.group_of[i] = 1
+            elif n in ("iron_ore", "deepslate_iron_ore"):
+                self.group_of[i] = 2
         self.core_of = idx
         self.names = list(vocab_items)
         self.ctx_dim = 20 + 3 + (self.n_core + 1) + 2 + GRID_LAYERS * N_CAT + N_CAT * 2 + (self.n_core + 1) * 2 + 40 + N_REASON + 1 + NG + T * TGT
@@ -117,11 +127,17 @@ class Featurizer:
         return np.concatenate([np.asarray(o["self"], dtype=np.float32), np.asarray(o["clock"], dtype=np.float32), inv, tot, hist.reshape(-1),
                                cat_cnt, cat_min, item_cnt, item_min, ent, reason, dt, relv, tg.reshape(-1)]).astype(np.float32)
 
-    def cands(self, o, rel=(), anon=False):
+    def cands(self, o, rel=(), anon=False, actions=None):
         """(cand [K, cand_dim], mask [K]) of an observation. The last column is the progress of each command toward the nearest relevant target (blocks / 16, signed, the last column); the one before it is `seen` (0 never ... 1 four times or more)."""
         cmd = np.asarray(o["cand_cmd"], dtype=np.int64)
         item = np.asarray(o["cand_item"], dtype=np.int64)
         mask = np.asarray(o["cand_mask"], dtype=bool) & (cmd > 0)
+        if actions is not None:                                   # the expert's own action space (catalogue `actions`); `wait` is always left so a list is never empty
+            mask &= np.isin(cmd, list(actions) + [CMDS.index("wait")])
+        # distraction filter: walking to or mining a log / coal / iron block of a group the router did not call relevant (v2 chain traces: the log expert mined coal ore,
+        # the movement expert placed and mined a furnace for hundreds of steps)
+        grp = self.group_of[item]
+        mask &= ~(np.isin(cmd, (1, 2)) & (grp >= 0) & ~np.isin(grp, [g for g in rel if g < 3]))
         out = np.zeros((K, self.cand_dim), dtype=np.float32)
         out[np.arange(K), np.clip(cmd, 0, N_CMD - 1)] = 1.0
         out[np.arange(K), N_CMD + self.core_of[item]] = 1.0
