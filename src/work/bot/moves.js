@@ -216,7 +216,7 @@ async function takeUsable(ctx, { class: cls, x, y, z }) {
 /**
  * deposit_many {items: [{item, count}], x, y, z}: put several kinds of items into the container at x y z through ONE open window (the plain `deposit` opens and closes it per kind:
  * about 1.5 s each, so a visit with ten kinds held the one door of the chest for 15 s and 11-15 bots stood in its line, live 2026-11-09). Per kind the same call and the same check as
- * `deposit`; a kind that cannot be put in is reported and the next one is tried. A full chest ends the run. Returns { done: [{item, moved}], failed: [{item, reason, detail?}] }.
+ * `deposit`; a kind that cannot be put in is reported and the next one is tried. A full chest is reported per kind (`container_full`, with what did go in) and the run goes on. Returns { done: [{item, moved}], failed: [{item, reason, detail?}] }.
  */
 async function depositMany(ctx, { items, x, y, z }) {
     const bot = ctx.bot;
@@ -239,8 +239,10 @@ async function depositMany(ctx, { items, x, y, z }) {
             } catch (e) {
                 if (!(e instanceof SkillError) && !/destination full/.test(String(e && e.message))) throw e;
                 const full = /destination full/.test(String(e.message));
-                failed.push({ item: o.item, reason: full ? 'container_full' : e.reason || 'error' });
-                if (full || ['died', 'disconnected', 'cancelled'].includes(e.reason)) { if (!full) throw e; break; }
+                // What went in before the container filled up counts, and a full container does not end the run: the next kind may still merge into a partly filled stack of its own.
+                const part = inContainer(win, it.id) - c0; if (part > 0) done.push({ item: o.item, moved: part, partial: true });
+                failed.push({ item: o.item, reason: full ? 'container_full' : e.reason || 'error', ...(part > 0 ? { moved: part } : {}) });
+                if (!full && ['died', 'disconnected', 'cancelled'].includes(e.reason)) throw e;
             }
         }
     } finally { bot.closeWindow(win); }

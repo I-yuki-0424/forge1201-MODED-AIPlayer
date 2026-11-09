@@ -94,7 +94,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'health-'));
         const low = janitor.plan(stacks(31), 5, pol);                                           // 5 free: below the trigger
         assert.ok(slots(low.filter((o) => o.op === 'deposit')) >= 13, `free 5 -> at least 18 free: ${slots(low)} slots moved`);
         assert.deepStrictEqual(janitor.plan(stacks(30), 6, pol), [], 'six free: no trip');
-        const old = janitor.plan(stacks(31), 5, { ...pol, freeLow: undefined, freeTarget: 6 });
+        const old = janitor.plan(stacks(31), 5, { ...pol, freeLow: undefined, freeTarget: 6, dumpAll: false });
         assert.strictEqual(slots(old.filter((o) => o.op === 'deposit')), 1, 'the old behaviour: one slot per trip');
     });
 

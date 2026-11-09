@@ -42,6 +42,7 @@ function pitPolicy(over = {}) {
         keep: {                            // item -> {min, max}: min is protected and restocked, the rest above max is surplus
             cobblestone: { min: 16, max: 64 }, dirt: { min: 0, max: 32 }, cobbled_deepslate: { min: 16, max: 64 },       // the water rule needs 16 blocks of ONE kind at hand: a chest tagged `any` is insert-only, so what a bot deposited is never fetched back (below y 0 a pit yields only cobbled_deepslate: with min 0 the upkeep deposited all of it and the next seal failed `missing_item`)
         },
+        dumpAll: true,                     // a trip to a container takes everything that may be stored (above the protected minimum), not just enough for `freeTarget` (owner 2026-11-10: "it stores one stack and comes back right away")
         storeMin: 0,                       // with a depot or sites: items worth less than this are thrown away instead of stored (never one valued >= neverToss)
         discardWorn: true,                 // a worn-out tool is used up: thrown away (a bool, or a function so that the setting applies to running jobs)
         food: 8,                           // food items wanted (any FOOD) when a depot exists
@@ -54,7 +55,18 @@ function pitPolicy(over = {}) {
  * Operations that bring the inventory to `freeTarget` free slots and trim surplus. `items`: [{name, count}] (main inventory +
  * hotbar, not armour/off hand); `slotsFree`: number of empty slots. Returns [{op: 'toss'|'deposit', item, count, why}].
  */
-function plan(items, slotsFree, policy = pitPolicy(), worn = []) {
+function plan(items, slotsFree, policy = pitPolicy(), worn = []) { return mergeOps(planRaw(items, slotsFree, policy, worn)); }
+/** One entry per item for deposits and plain tosses (a surplus and a make-room step can both name the same kind). */
+function mergeOps(ops) {
+    const out = [], at = new Map();
+    for (const o of ops) {
+        if (!['deposit', 'toss'].includes(o.op) || o.damage !== undefined) { out.push(o); continue; }
+        const k = `${o.op}|${o.item}`, i = at.get(k);
+        if (i === undefined) { at.set(k, out.length); out.push({ ...o }); } else out[i].count += o.count;
+    }
+    return out;
+}
+function planRaw(items, slotsFree, policy, worn) {
     const ops = [], keepOf = (n) => policy.keep[n] || null;
     // 0. Worn-out tools are used up: each such stack goes, whatever the room (exact stack: `damage`, so that a good tool of the same name stays).
     // A tier whose policy is `keep` (diamond, netherite: stopped before they break) is stashed in a chest instead, whatever the discard switch says.
@@ -93,12 +105,14 @@ function plan(items, slotsFree, policy = pitPolicy(), worn = []) {
         const surplus = ops.filter((o) => o.op === 'deposit' && o.why === 'surplus'), slots = surplus.reduce((a, o) => a + slotsOf(o.item, o.count, policy), 0);
         if (slots < (policy.surplusTrip ?? 1)) return ops.filter((o) => !surplus.includes(o));
     }
-    if (free >= (policy.freeLow ?? policy.freeTarget)) return ops;
-    // 2. Not enough room: lowest value first, whole stacks beyond the protected minimum.
+    const dumpAll = policy.dumpAll !== false && (!!policy.depot || hasSites(policy));         // the trip is made anyway (the walk and the line cost more than the transfer): fill the container
+    const trip = dumpAll && ops.some((o) => o.op === 'deposit');                                 // a trip for surplus alone takes everything else that may be stored along with it
+    if (free >= (policy.freeLow ?? policy.freeTarget) && !trip) return ops;
+    // 2. Not enough room (or a trip is made anyway): lowest value first, whole stacks beyond the protected minimum.
     const cand = [...stacks.entries()].filter(([n]) => !protectedItem(n)).map(([n, have]) => ({ n, have, v: valueOf(n, policy), min: keepOf(n)?.min || 0 }))
         .filter((c) => c.have > c.min).sort((a, b) => a.v - b.v || b.have - a.have);
     for (const c of cand) {
-        if (free >= policy.freeTarget) break;
+        if (free >= policy.freeTarget && !dumpAll) break;
         if (!policy.depot && !hasSites(policy) && c.v >= policy.neverToss) continue;
         const take = c.have - c.min, gain = slotsOf(c.n, c.have, policy) - slotsOf(c.n, c.min, policy);
         const o = ops.length; dispose(c.n, take, 'make_room');
@@ -167,10 +181,13 @@ async function maintain(env, policy) {
     if (dep.length) {
         // Each item goes to the site of its class (ore, junk, ...) when the operator has tagged sites, else to the job's depot.
         const sites = sitesOf(policy), groups = new Map(), from = env.pos ? env.pos() : null;
+        const fullBoxes = env.fullBoxes || (env.fullBoxes = new Map()), isFull = (s) => (fullBoxes.get(`${s.x},${s.y},${s.z}`) || 0) > Date.now();
         for (const o of dep) {
-            const site = sites ? sites.placeFor(o.item, from, policy) : null;
+            // A container that answered "full" a moment ago is passed over for the next one that takes items (a full chest sent the bot back every upkeep).
+            const site = sites ? (sites.storesFor(o.item, from, policy).find((s) => !isFull(s)) || null) : null;
             const box = site ? { kind: 'chest', x: site.x, y: site.y, z: site.z } : policy.depot;
             if (!box) return { ok: false, reason: 'invalid_target', detail: { why: `no site or depot for ${o.item}` }, done };
+            if (box.kind !== 'shulker' && isFull(box)) continue;                         // every container it may use answered "full" a moment ago: nothing is walked to for that, the next trip tries again
             const k = box.kind === 'shulker' ? 'shulker' : `${box.x},${box.y},${box.z}`;
             if (!groups.has(k)) groups.set(k, { box, ops: [] });
             groups.get(k).ops.push(o);
@@ -182,7 +199,11 @@ async function maintain(env, policy) {
             for (const o of g.ops) if (valueOf(o.item, policy) < policy.neverToss) { const r = await require('./discard').dispose(env, o.item, o.count); if (r.ok) done.push({ ...o, op: 'toss', why: 'bad_depot' }); }
             return why;
         };
-        for (const g of groups.values()) {
+        // Up to three rounds: what a full container could not take goes to the next container that takes items, in the same trip.
+        let round = [...groups.values()];
+        for (let pass = 0; round.length && pass < 3; pass++) {
+        const nextRound = new Map();
+        for (const g of round) {
             const key = g.box.kind === 'shulker' ? 'shulker' : `${g.box.x},${g.box.y},${g.box.z}`;
             if (bad.has(key)) { await giveUp(g, 'bad'); continue; }
             let box = g.box, placed = null;
@@ -208,6 +229,7 @@ async function maintain(env, policy) {
                         const res = r.detail || r.result || r, moved = new Set((res.done || []).map((d) => d.item));
                         for (const o of g.ops) if (moved.has(o.item)) done.push({ ...o, to: `${box.x},${box.y},${box.z}` });
                         for (const f of res.failed || []) {
+                            if (f.reason === 'container_full') { fullBoxes.set(key, Date.now() + 120000); g.full = (g.full || []).concat(g.ops.filter((o) => o.item === f.item)); continue; }
                             if (['invalid_args', 'missing_item'].includes(f.reason)) (skipped = skipped || []).push({ item: f.item, reason: f.reason });
                             else { if (f.reason === 'not_confirmed') env.depositBackoff = Date.now() + 90000; if (!done.length) return { ok: false, reason: f.reason, detail: { item: f.item } }; }
                         }
@@ -235,6 +257,15 @@ async function maintain(env, policy) {
                     if (!r.ok) (env.left || (env.left = [])).push({ ...placed, reason: r.reason });
                 }
             }
+            for (const o of g.full || []) {                                                   // the container was full for this kind: the next one that takes items
+                const site = sites ? sites.storesFor(o.item, from, policy).find((x) => !isFull(x)) : null;
+                if (!site) continue;
+                const k = `${site.x},${site.y},${site.z}`;
+                if (!nextRound.has(k)) nextRound.set(k, { box: { kind: 'chest', x: site.x, y: site.y, z: site.z }, ops: [] });
+                nextRound.get(k).ops.push(o);
+            }
+        }
+        round = [...nextRound.values()];
         }
     }
     if (skipped && !done.length) return { ok: false, reason: skipped[0].reason, detail: { ...(skipped[0].detail || {}), item: skipped[0].item, skipped: skipped.length }, done };
