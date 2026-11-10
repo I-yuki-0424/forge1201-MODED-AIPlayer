@@ -5,17 +5,24 @@ const { Health } = require('../src/work/service/health');
 
 setTimeout(() => { console.error('test watchdog: still running after 20 s'); process.exit(2); }, 20000).unref();
 function test(name, fn) { console.log(`--- test: ${name} ---`); return Promise.resolve(fn()).then(() => console.log('[OK]')); }
+const mk = (o) => new Force({ now: () => 0, ...o });
 const v = (o) => ({ working: true, act: 'unit', sub: null, stillMs: 0, high: true, now: 0, ...o });
 
 (async () => {
     await test('a high bot that has not moved for 30 s and finished nothing falls; before that, nothing', () => {
-        const f = new Force();
+        const f = mk();
         assert.strictEqual(f.decide('a', v({ now: 100000, stillMs: 29000 })), null);
         const d = f.decide('a', v({ now: 100000, stillMs: 31000 }));
         assert.strictEqual(d.action, 'fall'); assert.strictEqual(d.cause, 'still');
     });
+    await test('a bot seen for the first time has 30 s to show that it works (a restart must not push every bot)', () => {
+        let t = 1000000; const f = new Force({ now: () => t });
+        assert.strictEqual(f.decide('a', v({ now: t, stillMs: 40000 })), null);
+        assert.strictEqual(f.decide('a', v({ now: t + 20000, stillMs: 60000 })), null);
+        assert.strictEqual(f.decide('a', v({ now: t + 31000, stillMs: 70000 })).action, 'fall');
+    });
     await test('not for a bot that works, waits in a line, idles, has nothing to fall from, or finished a unit in the last 30 s', () => {
-        const f = new Force();
+        const f = mk();
         assert.strictEqual(f.decide('a', v({ now: 100000, stillMs: 60000, working: false })), null);
         for (const act of ['idle', 'line', 'chest', 'bed']) assert.strictEqual(f.decide('a', v({ now: 100000, stillMs: 60000, act })), null, act);
         assert.strictEqual(f.decide('a', v({ now: 100000, stillMs: 60000, act: 'unit', sub: 'line' })), null);
@@ -25,7 +32,7 @@ const v = (o) => ({ working: true, act: 'unit', sub: null, stillMs: 0, high: tru
         assert.strictEqual(f.decide('a', v({ now: 125000, stillMs: 60000 })).action, 'fall');
     });
     await test('after a fall the bot is left alone for 30 s; if it still has not moved it is killed (still_after_fall); one fall per bot per run', () => {
-        const f = new Force();
+        const f = mk();
         assert.strictEqual(f.decide('a', v({ now: 100000, stillMs: 31000 })).action, 'fall');
         f.did('a', 'fall', 100000);
         assert.strictEqual(f.decide('a', v({ now: 110000, stillMs: 40000 })), null);
@@ -34,11 +41,11 @@ const v = (o) => ({ working: true, act: 'unit', sub: null, stillMs: 0, high: tru
         f.did('a', 'kill', 131000);
         assert.strictEqual(f.decide('a', v({ now: 200000, stillMs: 61000 })), null, 'killed: the clock starts again after the next unit');
         f.unit('a', true, null, 201000);   // it works again
-        const g = new Force(); g.did('b', 'fall', 1000); g.unit('b', true, null, 5000);
+        const g = mk(); g.did('b', 'fall', 1000); g.unit('b', true, null, 5000);
         assert.strictEqual(g.decide('b', v({ now: 200000, stillMs: 40000 })).action, 'fall', 'a finished unit clears the second stage and 120 s have passed');
     });
     await test('errors: 60 s of failed units without one success kills; a success, a cancel, a need or a death does not count / resets', () => {
-        const f = new Force();
+        const f = mk();
         f.unit('a', false, 'unreachable', 1000); f.unit('a', false, 'cancelled', 20000); f.unit('a', false, 'missing_item', 25000); f.unit('a', false, 'wrong_dimension', 26000);
         assert.strictEqual(f.decide('a', v({ now: 50000, high: false })), null, '49 s');
         const d = f.decide('a', v({ now: 61000, high: false }));
@@ -52,8 +59,8 @@ const v = (o) => ({ working: true, act: 'unit', sub: null, stillMs: 0, high: tru
         f.did('a', 'kill', 260000);
         assert.strictEqual(f.decide('a', v({ now: 261000, high: false })), null, 'the clock restarts at the next failure');
         // a bot cooling down (no worker, retired) counts as working for the caller; waiting activity does not shield errors
-        assert.strictEqual(new Force({ errorMs: 5000 }).decide('x', v({ now: 9000, act: 'idle' })), null);
-        const g = new Force({ errorMs: 5000 }); g.unit('x', false, 'stuck', 1000);
+        assert.strictEqual(mk({ errorMs: 5000 }).decide('x', v({ now: 9000, act: 'idle' })), null);
+        const g = mk({ errorMs: 5000 }); g.unit('x', false, 'stuck', 1000);
         assert.strictEqual(g.decide('x', v({ now: 10000, act: 'line' })).action, 'kill');
     });
     await test('isHigh: free air under the block the bot stands on (or under it when nothing is), at least 2; unknown chunks = no', () => {

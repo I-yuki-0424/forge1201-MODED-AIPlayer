@@ -11,8 +11,8 @@ const NEEDS = new Set(['missing_item', 'missing_tool']);                        
 const NOT_ERRORS = new Set(['cancelled', 'wrong_dimension']);                         // stopped from outside (an attack, a reflex, a dimension), not the unit's or the bot's fault
 
 class Force {
-    constructor({ stillMs = STILL_MS, errorMs = ERROR_MS, repeatMs = REPEAT_MS } = {}) { Object.assign(this, { stillMs, errorMs, repeatMs }); this.bots = new Map(); }
-    _s(name) { let s = this.bots.get(name); if (!s) { s = { errSince: 0, lastOk: 0, fallAt: 0, lastForce: 0, errReason: null }; this.bots.set(name, s); } return s; }
+    constructor({ stillMs = STILL_MS, errorMs = ERROR_MS, repeatMs = REPEAT_MS, now = Date.now } = {}) { Object.assign(this, { stillMs, errorMs, repeatMs, now }); this.bots = new Map(); }
+    _s(name) { let s = this.bots.get(name); if (!s) { s = { born: this.now(), errSince: 0, lastOk: 0, fallAt: 0, lastForce: 0, errReason: null }; this.bots.set(name, s); } return s; }
 
     /** A unit result of `name` (the worker's event): the error clock starts at the first failure after a success and stops at the next success. */
     unit(name, ok, reason, now) {
@@ -34,7 +34,7 @@ class Force {
         const errFor = s.errSince ? now - s.errSince : 0;
         if (errFor >= this.errorMs) return { action: 'kill', cause: `errors:${s.errReason}`, stillMs: v.stillMs || 0, errorMs: errFor };
         const waiting = WAITING.has(v.act) || WAITING.has(v.sub);
-        const still = v.stillMs || 0, idleSinceOk = now - s.lastOk;
+        const still = v.stillMs || 0, idleSinceOk = now - Math.max(s.lastOk, s.born);      // a bot first seen now (the console just started, the bot just respawned) has 30 s to show that it works
         if (waiting || still < this.stillMs || idleSinceOk < this.stillMs) return null;
         if (s.fallAt && now - s.fallAt >= this.stillMs) return { action: 'kill', cause: 'still_after_fall', stillMs: still, errorMs: errFor };
         if (v.high && !s.fallAt && !(s.lastForce && now - s.lastForce < this.repeatMs)) return { action: 'fall', cause: 'still', stillMs: still, errorMs: errFor };
