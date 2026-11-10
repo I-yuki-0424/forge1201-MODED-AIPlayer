@@ -64,6 +64,20 @@ scripts/world/registry-dump.sh                         # after any lock change: 
 (cd docker/world-server && docker compose --profile bench run --rm -T --entrypoint node bench scripts/skills/bench_lv2.js --run-id l1 --seed 1101 --bots 10 --follow <player>)   # LV2: natural terrain (after --pregen 1)
 ```
 
+Learned walk and pit expert (docs/implemented/MOVE-v3.md, docs/implemented/PIT-EXPERT-v1.md; `rl3/`, Python/JAX, trained on the owner's PC GPU, polite: nice 10, GPU cap 35 %, pause file `C:\forgeaip\rl3\PAUSE`):
+
+```bash
+scripts/rl3-py.sh -m unittest rl3.tests.test_sim                  # simulator rules on the VPS CPU (moe-py image, no network)
+scripts/rl3/pc.sh install ; scripts/rl3/pc.sh run NAME train --out /out/NAME --envs 1024 --updates 500 [--noise 2.0 --init /out/OLD/best.npz]   # movement policy
+scripts/rl3/pc.sh run NAME pit-train --out /out/NAME --envs 1024 --updates 500 ; scripts/rl3/pc.sh status | tail NAME | pull NAME | stop NAME
+scripts/rl3-py.sh -m rl3.cli export --params /out/NAME/best.npz --out /out/NAME/move3.json   # then copy to models/experts/move3.json (pit: pit-export -> models/experts/pit.json)
+scripts/rl3-py.sh -m rl3.cli golden | pit-golden | scenarios --out /out/scn_a.json           # contract files of the JS ports (tests/golden_*.json) and the live worlds
+scripts/work/live-demo.sh move3_live.js MODE=move3|legacy N=4 [PERTURB=1 TEMP=0.4] LIVE_OUT=/out/x.json   # live harness on the demo server, ONE client at a time (parallel runs overload it)
+scripts/work/live-demo.sh pit_live.js --run-id pe1 --method expert|sweep --bots 2 --w 32 --d 16 --depth 4 --root /out --base-x 4000 --base-z 4000
+```
+
+Never stop test containers by image or ancestor filter (the production console shares the node image): name them (`live-demo.sh` does) and `docker kill <name>`.
+
 Experts and router (docs/proposed/MOE-v1.md and MOE-v2.md, diagram docs/diagrams/moe-v2-architecture.svg; `moe/`, Python, runs in the `moe-py:1` image with the `moe-venv` volume, no network; v1 files in `/mnt/data/forgeaip/moe`, v2 in `/mnt/data/forgeaip/moe2` (`MOE_ROOT`)):
 
 ```bash
@@ -112,9 +126,11 @@ Copy `.env` values (file is git-ignored; never print or commit it):
 
 ```
 index.js            entry: AgentManager + WebUI (the debug WebSocket :3001 is started by each legacy bot_actuator child)
+rl3/                RL-MOVE-v3 and pit expert trainer (JAX): simulator, PPO, export; runs on the PC GPU (docs/implemented/MOVE-v3.md, PIT-EXPERT-v1.md)
 moe/                experts (one small PPO policy per item), rule planner, XGBoost/LightGBM router, chain; tools/sim is its environment (docs/proposed/MOE-v1.md)
 src/work/           pure bots, ~13 role folders (jobs, bot, service, web, operator, world, display): map and "where do I change X" in src/work/README.md; calls execute() only
 src/skills/         the action layer: 14 commands built only from player inputs (body, planner, runner, commands/*), intents.js + llm_prompt.js for the LLM
+src/experts/move3/ + src/experts/pit/   the learned cell-level walk (env.travel, setting move3) and the pit's station scoring network (pit method expert, setting pitExpert); models in models/experts/
 src/skills_bot.js   the bot child process on the action layer (default; BOT_RUNTIME=legacy forks bot_actuator.js); src/vault_client.js reads LLM credentials
 src/rl/             RL environment (env, controls, observation, goal, DPOD file-API runner); src/transport/ = login/FML3 factory shared with the actuator, mod_registry.js = exact mod blocks/items
 modpack/            the mod set: lock (sha512), pack.py (server sync, .mrpack), install-client.ps1, the bot's block/item table

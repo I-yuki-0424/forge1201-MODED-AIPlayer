@@ -1,5 +1,7 @@
 # RL-MOVE-v3: one learned movement policy for the pure bots, trained on the PC's GPU (2026-11-11)
 
+**Built the same day: see [MOVE-v3](../implemented/MOVE-v3.md) (what was built and measured) and [PIT-EXPERT-v1](../implemented/PIT-EXPERT-v1.md).** This file stays as the design and its reasons; where the build differs (19 actions, a 2,964-number observation, a mask from the rules, JAX scenario worlds of 40 x 32 x 40, a walk that refuses far targets and falls back to the old chain) MOVE-v3 says so.
+
 One policy that walks, bridges, climbs, descends and digs a bot to a target cell, replacing the chain waypoint router -> path calculator -> escape heuristics -> expert fallback.
 
 ## Why (owner, 2026-11-11, and the logs behind it)
