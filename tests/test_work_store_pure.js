@@ -15,7 +15,7 @@ const items = (o) => Object.entries(o).map(([name, count]) => ({ name, count }))
         const ops = janitor.plan(items(have), 3, janitor.pitPolicy({ sites: () => sites }));
         const kinds = ops.filter((o) => o.op === 'deposit').map((o) => o.item).sort();
         assert.deepStrictEqual(kinds, ['coal', 'cobblestone', 'diamond', 'dirt', 'gravel', 'raw_iron'], 'everything of value goes in, tools and food stay');
-        assert.strictEqual(ops.find((o) => o.item === 'cobblestone').count, 640 - 16, 'the 16 cobblestone the water rule needs stay');
+        assert.strictEqual(ops.find((o) => o.item === 'cobblestone').count, 640 - 64, 'one stack (64) of climbing blocks stays: it covers the 16 cobblestone the water rule needs (owner 2026-11-10)');
         const lazy = janitor.plan(items(have), 3, janitor.pitPolicy({ sites: () => sites, dumpAll: false }));
         assert.ok(lazy.filter((o) => o.op === 'deposit').length < kinds.length, 'the old behaviour (stop at freeTarget) is still there with dumpAll off');
         assert.deepStrictEqual(janitor.plan(items({ cobblestone: 30, bread: 4 }), 30, janitor.pitPolicy({ sites: () => sites })), [], 'no trip when there is room');

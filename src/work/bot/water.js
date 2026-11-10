@@ -7,7 +7,7 @@
 //      the open cells of the pit. Water whose source is INSIDE the mining area: fill it too, upstream of the face (same level or higher,
 //      inside the box), so that it cannot run again; it would be dug out anyway. Fills go against something solid, below first.
 // Pure given `env` ({w, here(), exec(name, args), have(item)}), tested without a server (tests/test_work_miner_pure.js).
-const { orderFill, isFluid, SEAL_ITEMS } = require('../jobs/pit');
+const { orderFill, isFluid, SEAL_ITEMS, sealItem } = require('../jobs/pit');
 
 const D6 = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
 const wet = (w, x, y, z) => { const k = w.kindAt(x, y, z); return k === 'water' || k === 'liquid'; };
@@ -95,7 +95,7 @@ async function rescue(env, box, { why = null, maxFill = 48 } = {}) {
             if (!plan.fill.length) break;
             let item = null;
             for (const c of plan.fill) {
-                item = SEAL_ITEMS.find((n) => env.have(n) >= 1);
+                item = sealItem(env);
                 if (!item) return { ...out, ok: false, reason: 'missing_item', detail: { why: 'no block to stop the water with', tried: SEAL_ITEMS } };
                 const p = await exec('place', { x: c.x, y: c.y, z: c.z, item, fluid: true, temp: 'rescue' });
                 if (!p.ok) { if (p.reason === 'died' || p.reason === 'disconnected' || p.reason === 'cancelled') return { ...out, ok: false, reason: p.reason, detail: p.detail }; continue; }

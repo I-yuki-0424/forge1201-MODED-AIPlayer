@@ -89,6 +89,10 @@ function planRaw(items, slotsFree, policy, worn) {
             else out('deposit', item, count, why);
         } else if (v < policy.neverToss) out('toss', item, count, why);
     };
+    // The stack kept for climbing (owner 2026-11-10, point 4: "so that blocks for climbing are not lost, keep one stack of temporary blocks even when storing"): 64 blocks of
+    // placeable, non-falling, low-value kinds (tempblocks.js) are never stored or thrown away, whatever `dumpAll` and the make-room pass would do.
+    const held = require('./tempblocks').reserve(stacks, policy.tempReserve === undefined ? require('./tempblocks').RESERVE : policy.tempReserve, null, (n) => valueOf(n, policy));
+    const minOf = (n) => Math.max(keepOf(n)?.min || 0, held.get(n) || 0);
     let free = slotsFree;
     // 1. Surplus over a keep.max, always (cheap, keeps the stacks from growing back).
     for (const [n, have] of stacks) {
@@ -109,7 +113,7 @@ function planRaw(items, slotsFree, policy, worn) {
     const trip = dumpAll && ops.some((o) => o.op === 'deposit');                                 // a trip for surplus alone takes everything else that may be stored along with it
     if (free >= (policy.freeLow ?? policy.freeTarget) && !trip) return ops;
     // 2. Not enough room (or a trip is made anyway): lowest value first, whole stacks beyond the protected minimum.
-    const cand = [...stacks.entries()].filter(([n]) => !protectedItem(n)).map(([n, have]) => ({ n, have, v: valueOf(n, policy), min: keepOf(n)?.min || 0 }))
+    const cand = [...stacks.entries()].filter(([n]) => !protectedItem(n)).map(([n, have]) => ({ n, have, v: valueOf(n, policy), min: minOf(n) }))
         .filter((c) => c.have > c.min).sort((a, b) => a.v - b.v || b.have - a.have);
     for (const c of cand) {
         if (free >= policy.freeTarget && !dumpAll) break;

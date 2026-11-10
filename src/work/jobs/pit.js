@@ -35,6 +35,8 @@ function aerialTree(w, c) {
 const UNBREAKABLE = /^(bedrock|barrier|end_portal_frame|end_portal|nether_portal|command_block|structure_block|jigsaw)$/;
 // What the bot fills fluids with, in order of preference: cheap, common in a pit, does not fall (no sand or gravel).
 const SEAL_ITEMS = ['cobblestone', 'cobbled_deepslate', 'dirt', 'netherrack', 'stone', 'andesite', 'diorite', 'granite', 'tuff', 'deepslate'];
+/** The block to seal with: the usual ones first, else any placeable, non-falling, low-value block in the pack (env.tempItem; owner 2026-11-10), `n` of it at least. */
+const sealItem = (env, n = 1) => SEAL_ITEMS.find((x) => env.have(x) >= n) || (env.tempItem ? env.tempItem(n) : null);
 
 /**
  * Box {x0, z0, x1, z1, top, bottom} (inclusive columns; `top` = y of the first block layer to dig, `bottom` = y of the last).
@@ -227,9 +229,9 @@ async function runUnit(plan, region, u, env) {
         const hidden = before ? sp.unsupported.filter((f) => exposed(env.w, f, c)) : sp.unsupported;
         if (hidden.length) return { ok: false, reason: 'invalid_target', detail: { why: 'fluid with nothing to seal it against', cells: hidden.slice(0, 4) } };
         for (const f of list) {
-            let item = SEAL_ITEMS.find((n) => env.have(n) >= 1);
+            let item = sealItem(env);
             // Nothing to seal with and nowhere to fetch it (`any` is insert-only): a block from the undug part of the pit beside the bot, as the pillar takes one (moves.js harvest).
-            if (!item && env.run && env.within) { const hv = await env.run('harvest', { items: SEAL_ITEMS }); if (hv.ok && hv.detail && hv.detail.got) { r.harvested = (r.harvested || 0) + 1; item = SEAL_ITEMS.find((n) => env.have(n) >= 1); } }
+            if (!item && env.run && env.within) { const hv = await env.run('harvest', { items: SEAL_ITEMS }); if (hv.ok && hv.detail && hv.detail.got) { r.harvested = (r.harvested || 0) + 1; item = sealItem(env); } }
             if (!item) return { ok: false, reason: 'missing_item', detail: { why: 'no block to seal water with', tried: SEAL_ITEMS } };
             const p = await placeAt(f, item);
             if (!p.ok) return p;
@@ -520,4 +522,4 @@ function createPitJob(box, ledgerOpts = {}, { lanes = 0, method = 'rows', tile =
     return { kind: 'pit', ledger, plan, checkLayer: (env, ck, now) => checkLayer(plan, ledger, byId, auditState, env, ck, now), cleanup: (env) => (ledger.finished() ? require('../bot/temps').cleanTemps(env, { box: plan.box, max: 60, maxMs: 120000 }) : null), runUnit: (regionId, unit, env) => runUnit(plan, byId.get(regionId), unit, env), audit: (env, now, opts) => audit(plan, ledger, env.w, now, auditState, opts), sweep, rescue: (env, why) => require('../bot/water').rescue(env, plan.box, { why }) };
 }
 
-module.exports = { MAX_UNITS, goToStation, checkLayer, LAYER_ROUNDS, standsOnFloater, aerialTree, planPit, laneBoxes, planRoad, stationsOf, lineCells, unitCells, sealPlan, orderFill, isFluid, exposed, runUnit, wrongCells, cellState, audit, createPitJob, SEAL_ITEMS, CHUNK, TILE, SWEEP_R };
+module.exports = { sealItem, MAX_UNITS, goToStation, checkLayer, LAYER_ROUNDS, standsOnFloater, aerialTree, planPit, laneBoxes, planRoad, stationsOf, lineCells, unitCells, sealPlan, orderFill, isFluid, exposed, runUnit, wrongCells, cellState, audit, createPitJob, SEAL_ITEMS, CHUNK, TILE, SWEEP_R };

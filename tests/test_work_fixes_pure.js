@@ -249,11 +249,11 @@ const WHITE = { left: 'white', middle: 'white', right: 'white' };
         assert.throws(() => validateArgs('deposit', { item: 'Create:Limestone', count: 5, x: 1, y: 2, z: 3 }), /valid/);
         const janitor = require('../src/work/bot/janitor');
         const sites = new Sites([{ name: 'any', x: 3, y: 64, z: 3, purpose: 'any' }]), calls = [];
-        const env = { inv: () => ({ items: [{ name: 'create:limestone', count: 64 }, { name: 'raw_iron', count: 30 }, { name: 'diamond', count: 2 }], slotsFree: 0 }), pos: () => ({ x: 0, z: 0 }), here: () => ({ x: 0, y: 64, z: 0 }), have: () => 0,
-            exec: async (name, a) => { calls.push(a.item); return a.item === 'create:limestone' ? { ok: false, reason: 'invalid_args', detail: { why: 'not a valid name' } } : { ok: true }; } };
+        const env = { inv: () => ({ items: [{ name: 'create:brass_ingot', count: 64 }, { name: 'raw_iron', count: 30 }, { name: 'diamond', count: 2 }], slotsFree: 0 }), pos: () => ({ x: 0, z: 0 }), here: () => ({ x: 0, y: 64, z: 0 }), have: () => 0,
+            exec: async (name, a) => { calls.push(a.item); return a.item === 'create:brass_ingot' ? { ok: false, reason: 'invalid_args', detail: { why: 'not a valid name' } } : { ok: true }; } };
         const r = await janitor.maintain(env, janitor.pitPolicy({ sites: () => sites }));
-        assert.ok(r.ok, JSON.stringify(r)); assert.deepStrictEqual(calls.sort(), ['create:limestone', 'diamond', 'raw_iron']); assert.strictEqual(r.skipped.length, 1);
-        const only = await janitor.maintain({ ...env, inv: () => ({ items: [{ name: 'create:limestone', count: 64 }], slotsFree: 0 }) }, janitor.pitPolicy({ sites: () => sites }));
+        assert.ok(r.ok, JSON.stringify(r)); assert.deepStrictEqual(calls.sort(), ['create:brass_ingot', 'diamond', 'raw_iron']); assert.strictEqual(r.skipped.length, 1);
+        const only = await janitor.maintain({ ...env, inv: () => ({ items: [{ name: 'create:brass_ingot', count: 64 }], slotsFree: 0 }) }, janitor.pitPolicy({ sites: () => sites }));
         assert.strictEqual(only.ok, false); assert.strictEqual(only.reason, 'invalid_args');
     });
 

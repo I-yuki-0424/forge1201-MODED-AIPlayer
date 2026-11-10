@@ -9,13 +9,16 @@ const { mine, dropOf } = require('../../skills/commands/block');
 const { openAt, station, openBox, CONTAINERS, inPlayer, inContainer } = require('../../skills/commands/gui');
 const options = require('../../skills/options');
 const fixtures = require('../../skills/fixtures');
+const tempblocks = require('./tempblocks');
 
-/** Low-value blocks a bot may stack: tagged temporary blocks first, then what a pit produces anyway. Never sand or gravel (they fall). */
-const TEMP_ITEMS = ['cobblestone', 'cobbled_deepslate', 'dirt', 'netherrack', 'stone', 'andesite', 'diorite', 'granite', 'tuff', 'deepslate'];
+/** The preferred low-value blocks (what a pit produces anyway). Since 2026-11-10 ANY block that can be placed, does not fall and is of low value qualifies (tempblocks.js); this list is only its first choice. */
+const TEMP_ITEMS = tempblocks.BASE;
+const heldOf = (bot) => bot.inventory.items().map((i) => ({ name: i.name, count: i.count }));
 
 const HAND_ITEMS = ['dirt', 'coarse_dirt', 'grass_block'];          // blocks a bot breaks without a tool (and they do not fall)
 const PLACE_ABOVE = 1.002;        // feet this far above the old feet cell's floor: the placed block no longer touches the body (jump: 0.42, 0.75, 1.0013 ...)
 
+const valueOf = () => require('./janitor').valueOf;
 /**
  * pillar {levels, items?}: rise `levels` blocks straight up on a column of low-value blocks, leaving nothing behind (owner 2026-11-06):
  * look down, jump, place a block under the feet at the top of the jump, land on it; then break the block TWO below the feet (the one
@@ -24,7 +27,7 @@ const PLACE_ABOVE = 1.002;        // feet this far above the old feet cell's flo
  * side. The first block placed sits on the ground the bot started on, which is never broken. Cost: one block per level (the broken
  * block drops into the shaft), taken from `items` in order (default TEMP_ITEMS).
  */
-async function pillar(ctx, { levels, items = TEMP_ITEMS, within = null }) {
+async function pillar(ctx, { levels, items = null, within = null }) {
     const bot = ctx.bot, w = ctx.world;
     if (!Number.isInteger(levels) || levels < 1 || levels > 320) throw new SkillError('invalid_args', { why: 'levels 1..320' });
     const start = feetCell(bot.entity.position);
@@ -44,14 +47,15 @@ async function pillar(ctx, { levels, items = TEMP_ITEMS, within = null }) {
             if (r || w.kindAt(c.x, c.y, c.z) !== 'air') throw new SkillError('invalid_target', { why: 'no head room above for the jump', at: c, done: placed, cause: r && r.reason });
         }
         // Without a pickaxe only blocks that break by hand can be taken away again: dirt first (owner 2026-11-07), else the usual low-value blocks.
+        // Any placeable, non-falling, low-value block in the pack counts (owner 2026-11-10: cobblestone alone ran out), the usual ones first.
         const handOnly = !bot.inventory.items().some((i) => i.name.endsWith('_pickaxe') && !options.isWorn(bot, i));          // no usable pickaxe: blocks that break fast by hand first
-        const order = handOnly ? [...HAND_ITEMS, ...items.filter((n) => !HAND_ITEMS.includes(n))] : items;
-        let item = order.find((n) => bot.registry.blocksByName[n] && count(bot, n) >= 1);
+        const pick = () => (items ? [...(handOnly ? HAND_ITEMS : []), ...items].find((n) => bot.registry.blocksByName[n] && count(bot, n) >= 1) : tempblocks.choose(heldOf(bot), bot.registry, { hand: handOnly, valueOf: valueOf() })) || null;
+        let item = pick();
         // Nothing to stack (owner 2026-11-09: "no blocks to climb with" ended the climb in a pit): inside the pit's own box the bot takes a block from the part that is not dug
         // yet, beside it or over its head. It is dug later anyway, and the block is what the pillar needs.
         let harvest = null;
-        if (!item && within) { harvest = await harvestBlock(ctx, f, within, items); item = order.find((n) => bot.registry.blocksByName[n] && count(bot, n) >= 1); }
-        if (!item) throw new SkillError('missing_item', { item: items[0], why: 'no low-value block to stack', tried: items, done: placed, ...(harvest ? { harvest } : {}) });
+        if (!item && within) { harvest = await harvestBlock(ctx, f, within, items); item = pick(); }
+        if (!item) throw new SkillError('missing_item', { item: (items || TEMP_ITEMS)[0], why: 'no low-value block to stack', tried: items || 'any placeable low-value block', done: placed, ...(harvest ? { harvest } : {}) });
         await holdItem(ctx, item);
         const look = { yaw: bot.entity.yaw, pitch: -Math.PI / 2 };
         ctx.phase('pillar_jump', { level: i + 1, of: levels });
@@ -83,6 +87,8 @@ async function pillar(ctx, { levels, items = TEMP_ITEMS, within = null }) {
  */
 async function harvestBlock(ctx, f, within, items) {
     const bot = ctx.bot, w = ctx.world, out = { tried: 0, got: null };
+    const wanted = (n) => (Array.isArray(items) && items.length ? items.includes(n) : false) || tempblocks.isTemp(n, bot.registry, valueOf());      // the caller's list, or any temporary block (tempblocks.js)
+    const have = () => (Array.isArray(items) && items.find((n) => bot.registry.blocksByName[n] && count(bot, n) >= 1)) || tempblocks.choose(heldOf(bot), bot.registry, { valueOf: valueOf() });
     const inside = (c) => c.x >= within.x0 && c.x <= within.x1 && c.z >= within.z0 && c.z <= within.z1 && c.y <= within.top && c.y >= within.bottom;
     const wet = (c) => [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].some(([dx, dy, dz]) => ['water', 'liquid', 'danger'].includes(w.kindAt(c.x + dx, c.y + dy, c.z + dz)));
     const cand = [];
@@ -92,12 +98,12 @@ async function harvestBlock(ctx, f, within, items) {
         if (out.tried >= 6) break;
         if (!inside(c) || w.kindAt(c.x, c.y, c.z) !== 'solid' || wet(c)) continue;
         const b = w.blockAt(c.x, c.y, c.z), drop = b && dropOf(bot, b);
-        if (!drop || !items.includes(drop)) continue;
+        if (!drop || !wanted(drop)) continue;
         out.tried++;
         ctx.phase('pillar_harvest', { cell: c, block: b.name });
         const r = await mine(ctx, { ...c, collect: true }).then(() => null, (e) => e);
         if (r && !(r instanceof SkillError)) throw r;
-        const got = items.find((n) => bot.registry.blocksByName[n] && count(bot, n) >= 1);
+        const got = have();
         if (got) { out.got = got; break; }
     }
     return out;

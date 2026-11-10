@@ -12,6 +12,7 @@ const { feetCell, aimAtBlock } = require('../../skills/motion');
 const { holdItem, count } = require('../../skills/commands/item');
 const { FACES } = require('../../skills/geometry');
 const abyss = require('./abyss');
+const tempblocks = require('./tempblocks');
 
 // Cheap blocks that do not fall (never sand or gravel: they would drop into the abyss) and are common where an abyss is: End stone, blackstone, netherrack.
 const BRIDGE_ITEMS = ['cobblestone', 'cobbled_deepslate', 'netherrack', 'end_stone', 'blackstone', 'dirt', 'stone', 'andesite', 'diorite', 'granite', 'tuff', 'deepslate', 'basalt'];
@@ -28,7 +29,7 @@ async function extend(ctx, y, F, N, items, placed) {
     const yaw = yawOf(dx, dz), walk = { forward: true, sneak: true, yaw, pitch: 0 };
     const floor = { x: N.x, y: y - 1, z: N.z }, support = { x: F.x, y: y - 1, z: F.z };
     if (w.kindAt(floor.x, floor.y, floor.z) === 'air') {
-        const item = BRIDGE_ITEMS.find((n) => bot.registry.blocksByName[n] && count(bot, n) >= 1);
+        const item = BRIDGE_ITEMS.find((n) => bot.registry.blocksByName[n] && count(bot, n) >= 1) || tempblocks.choose(bot.inventory.items().map((i) => ({ name: i.name, count: i.count })), bot.registry, { valueOf: require('./janitor').valueOf });
         if (!item) throw new SkillError('missing_item', { item: BRIDGE_ITEMS[0], why: 'no block to bridge with (cobblestone, netherrack, end stone ...)', tried: BRIDGE_ITEMS, done: placed.length });
         if (w.kindAt(support.x, support.y, support.z) !== 'solid') throw new SkillError('invalid_target', { why: 'nothing solid under the feet to place against', cell: support, done: placed.length });
         await holdItem(ctx, item);

@@ -6,7 +6,7 @@
 // Block properties (stairs/slab/log orientation) are NOT reproduced: `place` puts a block down the way a click does.
 // Mod blocks are placed by their namespaced name; whether a bot can place one is the registry's question (the console asks it).
 const { Ledger } = require('./crew');
-const { SEAL_ITEMS } = require('./pit');
+const { SEAL_ITEMS, sealItem } = require('./pit');
 
 const TILE = 16;
 const SKIP = /^(air|cave_air|void_air|structure_void|jigsaw|structure_block|barrier)$/;
@@ -137,7 +137,7 @@ async function runUnit(plan, regionId, u, env) {
     if (env.scaffold.layer !== null && env.scaffold.layer !== u.layer) await cleanup(env);
     env.scaffold.layer = u.layer;
     const fail = (res, cell, stage) => ({ ok: false, reason: res.reason, detail: { ...(res.detail || {}), cell, stage, ...r } });
-    const anyItem = () => SEAL_ITEMS.find((n) => env.have(n) >= 2);
+    const anyItem = () => sealItem(env, 2);
     for (const c of cells) {
         const item = itemFor(c.block), cur = env.w.nameAt(c.x, c.y, c.z);
         if (cur === c.block) { r.skipped++; continue; }

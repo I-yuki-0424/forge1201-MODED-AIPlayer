@@ -380,6 +380,8 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         // (live 2026-11-09: every swim and fill came back `cancelled` at once, the worker claimed the next unit, which was cancelled at once too: 99,639 failures in a loop that never yielded and froze all 20 bots).
         execFree: (name, args) => (CHEST_OPS.has(name) ? queued(args, cancel, (c) => execute(bot, name, args, { cancel: c })) : execute(bot, name, args, { cancel })),
         have,
+        // A block to seal, stack or bridge with: any placeable, non-falling, low-value kind in the pack (tempblocks.js), `min` of it at least; null when there is none.
+        tempItem: (min = 1, o = {}) => require('./tempblocks').choose(bot.inventory.items().map((i) => ({ name: i.name, count: i.count })), bot.registry, { min, valueOf: janitor.valueOf, ...o }),
         inv: () => janitor.inventoryOf(bot),
         here: feet,
         pos: () => ({ x: bot.entity.position.x, z: bot.entity.position.z, dim: envObj.dimension() }),      // dim: sites in another dimension are not usable containers (sites.js reachable)

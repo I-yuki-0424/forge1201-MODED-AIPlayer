@@ -29,10 +29,13 @@ class Health {
         const l = this.last.get(bot); this.last.set(bot, { x: pos.x, y: pos.y, z: pos.z });
         if (l && Math.abs(l.x - pos.x) < 0.25 && Math.abs(l.y - pos.y) < 0.25 && Math.abs(l.z - pos.z) < 0.25) { const k = this._key(c); this.still[k] = (this.still[k] || 0) + ms; }
     }
-    _reset() { this.time = this.time || {}; this.time = {}; this.still = {}; this.since = this.now(); this.done = 0; this.quick = 0; this.dep = { visits: 0, kinds: 0, items: 0, failed: 0, to: {} }; this.fail = {}; this.cancel = {}; this.ms = { ok: 0, fail: 0, cancel: 0 }; this.needs = {}; this.parked = 0; this.parkedBy = {}; }
+    _reset() { this.time = this.time || {}; this.time = {}; this.still = {}; this.since = this.now(); this.done = 0; this.quick = 0; this.dep = { visits: 0, kinds: 0, items: 0, failed: 0, to: {} }; this.fail = {}; this.cancel = {}; this.ms = { ok: 0, fail: 0, cancel: 0 }; this.needs = {}; this.parked = 0; this.parkedBy = {}; this.forced = {}; }
 
     /** A deposit visit: { kinds, items } moved (janitor_done) or a janitor failure (`failed`). */
     deposit(d) { if (d.failed) this.dep.failed++; else { this.dep.visits++; this.dep.kinds += d.kinds | 0; this.dep.items += d.items | 0; for (const t of d.to || []) this.dep.to[t] = (this.dep.to[t] || 0) + 1; } }
+
+    /** A bot was pushed (service/force.js): `kind` fall or kill, `cause` still / errors / still_after_fall. Counted in the window and in the row (`forced`). */
+    force(kind, cause) { const k = `${kind}:${cause}`; this.forced[k] = (this.forced[k] || 0) + 1; }
 
     /** A unit was parked as stuck (the same failure twice, or too many tries): counted by reason. */
     park(d) { this.parked++; const k = `${d.reason}${d.detail && d.detail.stage ? ':' + d.detail.stage : ''}`; this.parkedBy[k] = (this.parkedBy[k] || 0) + 1; }
@@ -63,13 +66,13 @@ class Health {
             fail: this.fail, cancel: this.cancel, needs: this.needs, botSec: { ok: Math.round(this.ms.ok / 1000), fail: Math.round(this.ms.fail / 1000), cancel: Math.round(this.ms.cancel / 1000) },
             deposit: this.dep, bots: bots.length, working, waiting, phases, floor: bots.filter((b) => b.onFloor).length,
             queues: (snap.lines || []).map((l) => ({ key: l.key, n: l.line.length })), lagMs: snap.lagMs || 0,
-            time: sec2(this.time), still: sec2(this.still), parked: this.parked, parkedBy: this.parkedBy, route: snap.route || undefined,
+            time: sec2(this.time), still: sec2(this.still), parked: this.parked, parkedBy: this.parkedBy, forced: Object.keys(this.forced).length ? this.forced : undefined, route: snap.route || undefined,
         };
         // A window in which nobody finished a unit although bots were working: counted, and after `stallMin` of them said once per run of them.
         let warn = null;
         if (this.done === 0 && this.quick === 0 && working > 0) { this.zero++; if (this.zero === this.stallMin || (this.zero > this.stallMin && this.zero % 10 === 0)) warn = `no unit finished for ${this.zero} min with ${working} bots working`; } else this.zero = 0;
         const top = (o, n = 3) => Object.entries(o).sort((a, b) => b[1] - a[1]).slice(0, n).map(([k, v]) => `${k} ${v}`).join(', ');
-        const text = `health ${sec}s: ${this.done} units (${row.perMin}/min)${this.quick ? ` + ${this.quick} already done` : ''}, failed ${failN}${failN ? ` (${top(this.fail)})` : ''}, cancelled ${cancelN}${cancelN ? ` (${top(this.cancel)})` : ''}; bot time ok ${row.botSec.ok}s fail ${row.botSec.fail}s cancel ${row.botSec.cancel}s; ${working}/${bots.length} working${waiting ? `, ${waiting} waiting` : ''} [${top(phases, 6)}]${this.dep.visits || this.dep.failed ? `; deposits ${this.dep.visits} ok (${this.dep.items} items, ${this.dep.kinds} kinds), ${this.dep.failed} failed${Object.keys(this.dep.to).length ? ` to ${top(this.dep.to)}` : ''}` : ''}${row.queues.length ? `; lines ${row.queues.map((q) => `${q.key.replace(/^box:/, '')}=${q.n}`).join(' ')}` : ''}${Object.keys(this.needs).length ? `; needs ${top(this.needs)}` : ''}${this.parked ? `; parked ${this.parked} (${top(this.parkedBy, 2)})` : ''}; time ${top(row.time, 8)}; still ${top(row.still, 6)}`;
+        const text = `health ${sec}s: ${this.done} units (${row.perMin}/min)${this.quick ? ` + ${this.quick} already done` : ''}, failed ${failN}${failN ? ` (${top(this.fail)})` : ''}, cancelled ${cancelN}${cancelN ? ` (${top(this.cancel)})` : ''}; bot time ok ${row.botSec.ok}s fail ${row.botSec.fail}s cancel ${row.botSec.cancel}s; ${working}/${bots.length} working${waiting ? `, ${waiting} waiting` : ''} [${top(phases, 6)}]${this.dep.visits || this.dep.failed ? `; deposits ${this.dep.visits} ok (${this.dep.items} items, ${this.dep.kinds} kinds), ${this.dep.failed} failed${Object.keys(this.dep.to).length ? ` to ${top(this.dep.to)}` : ''}` : ''}${row.queues.length ? `; lines ${row.queues.map((q) => `${q.key.replace(/^box:/, '')}=${q.n}`).join(' ')}` : ''}${Object.keys(this.needs).length ? `; needs ${top(this.needs)}` : ''}${this.parked ? `; parked ${this.parked} (${top(this.parkedBy, 2)})` : ''}${Object.keys(this.forced).length ? `; FORCED ${top(this.forced, 4)}` : ''}; time ${top(row.time, 8)}; still ${top(row.still, 6)}`;
         this._write(row);
         this._reset();
         return { row, text, warn };

@@ -104,7 +104,7 @@ const tool = (name, max, used) => ({ name, maxDurability: max, durabilityUsed: u
         const kinds = (policy) => Object.fromEntries(janitor.plan(items, 0, policy).map((o) => [o.item, o.op]));
         assert.ok(Object.values(kinds(janitor.pitPolicy({ depot }))).every((o) => o === 'deposit'), 'rank 0: everything that makes room is stored')
         const k10 = kinds(janitor.pitPolicy({ depot, storeMin: 10 }));
-        assert.strictEqual(k10.dirt, 'toss'); assert.strictEqual(k10.sand, 'toss'); assert.strictEqual(k10.cobblestone, 'toss');
+        assert.strictEqual(k10.dirt, 'toss'); assert.strictEqual(k10.sand, 'toss'); assert.strictEqual(k10.cobblestone, undefined, 'the one stack of climbing blocks stays in the pack, neither stored nor thrown away (owner 2026-11-10)');
         const k40 = kinds(janitor.pitPolicy({ depot, storeMin: 40 }));
         assert.ok(k40.coal === undefined || k40.coal === 'deposit', 'coal (40) is stored at rank 40'); assert.ok(!Object.values(k40).includes('toss') || k40.dirt === 'toss');
         const k100 = janitor.plan([{ name: 'raw_iron', count: 64 }, { name: 'dirt', count: 64 }], 0, janitor.pitPolicy({ depot, storeMin: 100, keep: {} }));

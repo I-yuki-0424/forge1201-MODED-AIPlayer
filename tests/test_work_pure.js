@@ -333,9 +333,11 @@ function fakeWorld(ground = 0, init = {}) {
         assert.ok(withDepot.every((o) => o.op === 'deposit') && withDepot[0].item === 'gravel');
         assert.ok(withDepot.some((o) => o.item === 'raw_iron'), 'with a depot the iron is stored when room is needed');
         assert.deepStrictEqual(janitor.restock([{ name: 'cobblestone', count: 3 }], janitor.pitPolicy({ depot: { kind: 'chest', x: 0, y: 0, z: 0 } })), [{ item: 'cobblestone', count: 13 }, { item: 'cobbled_deepslate', count: 16 }]);
-        // the seal reserve: when the upkeep makes room it leaves 16 of each of the two kinds a pit yields (a chest tagged `any` is never fetched from again)
-        const room = janitor.plan([{ name: 'cobbled_deepslate', count: 40 }], 0, pol).filter((o) => o.item === 'cobbled_deepslate').map((o) => o.count);
-        assert.deepStrictEqual(room, [24], 'make_room stores 24 of 40, the reserve of 16 stays');
+        // the seal reserve: when the upkeep makes room it leaves 16 of each of the two kinds a pit yields (a chest tagged `any` is never fetched from again) ...
+        const room = janitor.plan([{ name: 'cobbled_deepslate', count: 100 }, { name: 'coal', count: 10 }], 0, pol).filter((o) => o.item === 'cobbled_deepslate').map((o) => o.count);
+        assert.deepStrictEqual(room, [36], 'surplus over 64 is stored, the stack of climbing blocks (64) stays');
+        // ... and (owner 2026-11-10) one stack of climbing blocks is never stored: less than a stack stays whole
+        assert.deepStrictEqual(janitor.plan([{ name: 'cobbled_deepslate', count: 40 }], 0, pol).filter((o) => o.item === 'cobbled_deepslate'), [], 'less than a stack of climbing blocks is kept');
         assert.deepStrictEqual(janitor.plan([{ name: 'gravel', count: 64 }], 30, pol), [], 'plenty of room: nothing to do');
     });
 

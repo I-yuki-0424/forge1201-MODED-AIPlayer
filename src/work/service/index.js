@@ -13,6 +13,7 @@ const { Temps } = require('../bot/temps');
 const scriptLib = require('../bot/script');
 const { Problems } = require('../bot/problems');
 const { Health } = require('./health');
+const { Force } = require('../bot/force');
 const watchdog = require('./watchdog');
 const { need, BOT_NAME, STRUCT_NAME, DEFAULT_KIT, Problem, normalizeBox } = require('./common');
 
@@ -54,9 +55,10 @@ class WorkService extends EventEmitter {
         this.bots = new Map();            // name -> record
         this.jobs = new Map();            // id -> job
         this.log = [];
-        this.settings = { autoKit: false, retireWorn: true, scripts: true, resumeJobs: true, defend: true, glow: true, directPickup: true, discardWorn: true, reflex: true, autoRepair: true, endDump: true, bedrockExploit: false, endDumpEnder: { left: 'white', middle: 'white', right: 'white' }, teleport: 'off', reachChunks: 50, experts: true, router: true, toolPolicy: { wooden: 'use_up', stone: 'use_up', iron: 'use_up', golden: 'use_up', diamond: 'keep', netherite: 'keep' }, display: { on: true, paths: true, lanes: true, tags: true } };      // retireWorn: a nearly broken tool counts as no tool; scripts: recovery scripts (missing tool) on
+        this.settings = { autoKit: false, retireWorn: true, scripts: true, resumeJobs: true, defend: true, glow: true, directPickup: true, discardWorn: true, reflex: true, forceFall: true, forceKill: true, autoRepair: true, endDump: true, bedrockExploit: false, endDumpEnder: { left: 'white', middle: 'white', right: 'white' }, teleport: 'off', reachChunks: 50, experts: true, router: true, toolPolicy: { wooden: 'use_up', stone: 'use_up', iron: 'use_up', golden: 'use_up', diamond: 'keep', netherite: 'keep' }, display: { on: true, paths: true, lanes: true, tags: true } };      // retireWorn: a nearly broken tool counts as no tool; scripts: recovery scripts (missing tool) on
         this.problems = new Problems({ file: path.join(this.o.dataDir, 'problems.jsonl') });   // problem bots: where, facing, standing on what (problems.js)
         this.health = new Health({ file: this.o.dataDir ? path.join(this.o.dataDir, 'health.jsonl') : null });   // where the time goes, once a minute (health.js)
+        this.force = new Force();                                                  // pushes a bot that does nothing: a fall after 30 s still, a kill after 60 s of errors (bot/force.js, service/force.js)
         this.sites = new Sites();                                                  // tagged chests by coordinates (sites.js)
         this.placed = new Set();                                                   // "x,y,z" of boxes (chest, shulker box, ender chest) a bot placed from its pack: only these may be broken (skills/fixtures.js)
         this.scripts = new Map(scriptLib.BUILT_IN);                                // built in + the operator's own (dataDir/scripts/*.json)
@@ -104,6 +106,7 @@ class WorkService extends EventEmitter {
             if (!l || Math.abs(l.x - p.x) >= 0.25 || Math.abs(l.y - p.y) >= 0.25 || Math.abs(l.z - p.z) >= 0.25) { rec.stillSince = now; rec.lastPos = { x: p.x, y: p.y, z: p.z }; }
             this.health.sample(rec.name, p);
         }
+        try { this._watchForce(); } catch (e) { this.note('debug', `force watch failed: ${e.message}`); }
     }
 
     /** What a bot is doing in words, for the page: the activity (and its stretch inside it), the action layer's phase only while it is fresh, and how long it has not moved. */
@@ -181,7 +184,7 @@ class WorkService extends EventEmitter {
 }
 
 // The service is one class in several files, one per concern (each part is a class whose methods are copied here).
-for (const file of ['bots', 'jobs', 'workers', 'structures', 'operator', 'commands', 'inventories', 'world', 'diagnostics', 'library', 'ender', 'links', 'display', 'views']) {
+for (const file of ['bots', 'jobs', 'workers', 'structures', 'operator', 'commands', 'inventories', 'world', 'diagnostics', 'library', 'ender', 'links', 'display', 'views', 'force']) {
     const Part = Object.values(require(`./${file}`))[0];
     for (const name of Object.getOwnPropertyNames(Part.prototype)) if (name !== 'constructor') Object.defineProperty(WorkService.prototype, name, Object.getOwnPropertyDescriptor(Part.prototype, name));
 }

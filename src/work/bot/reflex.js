@@ -68,7 +68,8 @@ function attach(bot, { world, enabled = () => true, onEvent = () => {} } = {}) {
             }
         } else {
             // No bucket: a block into the cell under the feet, against the wall beside it (the one the bot just left). Tried each tick while the drop lasts.
-            const mat = BLOCKS.map((n) => item(new RegExp(`^${n}$`))).find(Boolean);
+            const tb = require('./tempblocks').choose(bot.inventory.items().map((i) => ({ name: i.name, count: i.count })), bot.registry, { valueOf: require('./janitor').valueOf }),
+                mat = (tb && bot.inventory.items().find((i) => i.name === tb)) || BLOCKS.map((n) => item(new RegExp(`^${n}$`))).find(Boolean);
             const t0 = Date.now();
             if (mat) {
                 try { await bot.equip(mat, 'hand'); } catch (_) { /* hold what is held */ }
@@ -118,6 +119,7 @@ function attach(bot, { world, enabled = () => true, onEvent = () => {} } = {}) {
     const inLava = () => { const f = feet(); return bot.blockAt && (bot.blockAt(bot.entity.position.floored()) || {}).name === 'lava'; };
     const tick = () => {
         if (st.active || !enabled() || !bot.entity || !bot.entity.position) return;
+        if (bot.__noReflexUntil && Date.now() < bot.__noReflexUntil) return;                       // a forced fall (service/force.js): the bot is meant to drop
         const e = bot.entity;
         if (!e.onGround && e.velocity && e.velocity.y < -0.55 && !e.isInWater) {
             const f = feet(), d = dropBelow(kind, f.x, f.y, f.z);

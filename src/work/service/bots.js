@@ -42,7 +42,7 @@ class BotsPart {
         const mine = () => rec.bot === bot && !rec.removed;
         bot.once('spawn', () => { if (!mine()) return; rec.state = 'online'; rec.attempts = 0; rec.since = Date.now(); this.note('info', `bot ${rec.name} online`); this._tagDirect(rec); this._dirty(); this._resume(rec); });
         bot.on('spawn', () => { if (mine() && rec.state === 'online') setTimeout(() => this._resume(rec), 2500); });        // respawn after death
-        bot.on('death', () => { if (mine()) this.note('warn', `bot ${rec.name} died`); });
+        bot.on('death', () => { if (mine()) { this.note('warn', `bot ${rec.name} died`); this.force.reset(rec.name); } });
         bot.on('error', (e) => { if (mine()) rec.error = String((e && e.message) || e).slice(0, 200); });
         bot.on('kicked', (r) => { if (mine()) { rec.error = `kicked: ${JSON.stringify(r).slice(0, 160)}`; this.note('warn', `bot ${rec.name} ${rec.error}`); } });
         bot.on('end', (why) => {
