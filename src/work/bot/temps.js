@@ -9,14 +9,24 @@
 const fixtures = require('../../skills/fixtures');
 
 const MAX = 4000, MAX_AGE_MS = 3 * 24 * 3600 * 1000;
-const KINDS = new Set(['seal', 'pillar', 'scaffold', 'reflex', 'rescue']);
-const CLEAN_NEAR = new Set(['pillar', 'scaffold', 'reflex']);                      // taken away by whoever passes
+const KINDS = new Set(['seal', 'pillar', 'scaffold', 'reflex', 'rescue', 'bridge']);
+const CLEAN_NEAR = new Set(['pillar', 'scaffold', 'reflex', 'bridge']);            // movement blocks: taken away by the bot that placed them, as soon as it has passed; by another only when the placer is gone (orphans)
+const ORPHAN_MS = 20000, ORPHAN_CLEAR = 3;                                         // an orphan is taken after this long, and never while another bot is within this many blocks
 const HOLDS_BACK = new Set(['seal', 'rescue']);                                    // blocks that stop water: taken away only when no fluid lies beside or above them, and only by the pit's own cleanup (a first version let every bot that passed remove the water rescue's fills: 369 listed, the pit flooded again, rescue time went from 27-108 to 273-404 bot-s a minute)
 const dimOf = fixtures.dimOf;
 const keyOf = (dim, x, y, z) => `${dim}|${x},${y},${z}`;
 
 class Temps {
-    constructor(now = Date.now) { this.map = new Map(); this.now = now; }
+    constructor(now = Date.now) { this.map = new Map(); this.now = now; this.alive = null; this.others = null; }
+    /** The service tells the registry who is playing (`alive(name)`) and where everybody stands (`others()` -> [{name, x, y, z}]), so that a bot never takes away a block another bot may be using (owner 2026-11-10: scaffolds destroyed under their placers, fall deaths). */
+    attach({ alive = null, others = null } = {}) { this.alive = alive; this.others = others; return this; }
+    /** May `bot` take the block `r` away? Its own: yes. Another bot's: only when that bot is gone (offline or dead), the block is older than ORPHAN_MS and no bot stands within ORPHAN_CLEAR blocks of it. */
+    mayClean(bot, r) {
+        if (r.by === bot.username || !r.by) return true;
+        if (!this.alive || this.alive(r.by) || this.now() - r.at < ORPHAN_MS) return false;
+        const list = this.others ? this.others() : null; if (!list) return false;
+        return !list.some((o) => o.name !== bot.username && Math.hypot(o.x - r.x - 0.5, o.z - r.z - 0.5) <= ORPHAN_CLEAR && o.y >= r.y - ORPHAN_CLEAR && o.y <= r.y + ORPHAN_CLEAR + 1);
+    }
     get size() { return this.map.size; }
     /** Register a placed block: { dim, x, y, z, item, kind, by, job? }. A cell is listed once (the newest placement wins). */
     add(e) {
@@ -48,7 +58,7 @@ class Temps {
      * is cleaned by whoever passes within 10 blocks of it (a bot that was stopped half way left its pillar for the next one). Seals and the water rescue's fills are not in it.
      */
     view(bot) {
-        const self = this, mine = (r) => r.dim === dimOf(bot) && CLEAN_NEAR.has(r.kind) && (r.by === bot.username || near(bot, r, 10));
+        const self = this, mine = (r) => r.dim === dimOf(bot) && CLEAN_NEAR.has(r.kind) && (r.by === bot.username || (near(bot, r, 10) && self.mayClean(bot, r)));
         const list = () => self.list(mine);
         return {
             get size() { return list().length; },
@@ -88,6 +98,7 @@ async function cleanTemps(env, o = {}) {
         const kind = env.w.kindAt(r.x, r.y, r.z);
         if (kind === 'unknown') continue;                                                      // not in view: the next bot that passes
         if (kind !== 'solid') { temps.remove(dim, r); out.forgotten++; continue; }              // gone already (or replaced by water): nothing to break
+        if (!HOLDS_BACK.has(r.kind) && (!temps.mayClean || !temps.mayClean(env.bot, r))) continue;                           // another bot's block, its placer still playing or somebody near it: not ours to break
         if (env.w.nameAt && r.item && !String(env.w.nameAt(r.x, r.y, r.z) || '').endsWith(String(r.item).replace(/^minecraft:/, ''))) { temps.remove(dim, r); out.forgotten++; continue; }       // another block now: not ours any more
         const f = env.here();
         if (f.x === r.x && f.z === r.z && f.y === r.y + 1) continue;                            // standing on it

@@ -19,6 +19,7 @@
 // tries; and a failed unit is not claimable for a few seconds (`holdMs`), so the bot works on the other units of its range first instead of hammering the one that just failed.
 
 const PENDING = 0, LEASED = 1, DONE = 2, STUCK = 3;
+const KEEP_MS = 180000;      // a bot that left (died, disconnected) still keeps its post this long: it comes back to it; after that another bot may take the post over
 const BOT_FAULT = new Set(['died', 'disconnected', 'cancelled', 'wrong_dimension']);   // not the unit's fault: no attempt is counted
 // A failure that says something about where the bot IS, not about the unit: a bot that respawned far away sees "chunk not loaded".
 // Likewise what the bot lacks: another bot with a pickaxe or blocks can run the unit (live run p3: three iron pickaxes wore out at
@@ -63,19 +64,34 @@ class Ledger {
             id, anchor, layers, rows, deps, meta, n,
             state: new Uint8Array(n), attempts: new Uint8Array(n), owner: new Int32Array(n).fill(-1),
             until: new Float64Array(n), avoid: new Int32Array(n).fill(-1), hold: new Float64Array(n), sig: new Array(n).fill(null), same: new Uint8Array(n),
-            settled: new Int32Array(layers), checked: new Uint8Array(layers), checking: null, front: 0, doneN: 0, stuckN: 0, leasedN: 0, lessees: new Map(),
+            settled: new Int32Array(layers), checked: new Uint8Array(layers), checking: null, front: 0, doneN: 0, stuckN: 0, leasedN: 0, lessees: new Map(), keeper: -1,
         });
     }
 
     bot(id) {
         let b = this.bots.get(id);
-        if (!b) { this.bots.set(id, b = { id, idx: this.bots.size, last: null, home: null, leases: new Set(), done: 0, failed: 0, faults: 0, alive: true }); this.byIdx.push(b); }
+        if (!b) { this.bots.set(id, b = { id, idx: this.bots.size, last: null, home: null, leases: new Set(), done: 0, failed: 0, faults: 0, alive: true, leftAt: 0 }); this.byIdx.push(b); }
         b.alive = true;
         return b;
     }
     join(id) { this.bot(id); }
 
     complete(r) { return r.front >= r.layers; }
+    /** Is the bot with index `idx` still here (working, or gone for less than KEEP_MS)? Its post is then not another bot's to take. */
+    _present(idx, now) { const b = this._botByIdx(idx); return !!b && (b.alive || now - b.leftAt < KEEP_MS); }
+    /** Who guards which post: { bot: region } for every bot that has one (kept across a restart by the service). */
+    homes() { const o = {}; for (const b of this.bots.values()) if (b.home !== null && this.regions.has(b.home)) o[b.id] = b.home; return o; }
+    /** Give the bots back their posts after a restart (a post that is finished or unknown is skipped; a post already kept by a bot that is here stays with it). */
+    adopt(map, now = Date.now()) {
+        let n = 0;
+        for (const [id, rid] of Object.entries(map || {})) {
+            const r = this.regions.get(rid); if (!r || this.complete(r)) continue;
+            const b = this.bot(id);
+            if (r.keeper >= 0 && r.keeper !== b.idx && this._present(r.keeper, now)) continue;
+            b.home = rid; r.keeper = b.idx; n++;
+        }
+        return n;
+    }
     ready(r) { return r.deps.every((d) => { const x = this.regions.get(d); return !x || this.complete(x); }); }
     finished() { for (const r of this.regions.values()) if (!this.complete(r)) return false; return true; }
 
@@ -184,9 +200,15 @@ class Ledger {
         if (this.maxLead !== Infinity) for (const r of this.regions.values()) if (r.front < r.layers && r.front < minFront) minFront = r.front;
         // Helping (owner 2026-11-06, tightened 2026-11-07): a bot works its HOME region (the first one it was given). Only a bot whose home region is complete (dug to the bottom) helps.
         // Help ONLY when the own range is dug to the bottom: until then the bot takes units of its own range or waits for them (lanes in step), and never walks off to another lane's depth.
+        const postDone = !!homeR && this.complete(homeR);
+        // Guard your post (owner 2026-11-10: "the mining location is vague, everyone mines as they please"): a range that another bot keeps (and that is still here) is not taken by a bot that has no
+        // post yet or whose own is not finished; only when nothing else is left to take (the end of a job) does a bot without a post help there (second pass).
+        for (const pass of [0, 1]) {
+        if (best) break;
         for (const r of this.regions.values()) {
             if (stayHome && r !== homeR) continue;
             if (r.front >= r.layers || !this.ready(r)) continue;
+            if (pass === 0 && r.keeper >= 0 && r.keeper !== b.idx && this._present(r.keeper, now) && !postDone) continue;
             if (this.maxLead !== Infinity && r.front - minFront > this.maxLead) continue;
             const base = r.front * r.rows;
             let any = false, pending = 0;
@@ -195,14 +217,14 @@ class Ledger {
             const others = r.lessees.size - (r.lessees.has(b.idx) ? 1 : 0);
             const d = Math.hypot(r.anchor.x - pos.x, r.anchor.z - pos.z);
             const home = (b.home === r.id || (b.home === null && b.last === r.id)) ? -1e12 : 0;
-            // Among regions to help: the one furthest behind first (it holds the others back through maxLead), then the one with most work left.
-            const behind = home ? 0 : -((r.layers - r.front) * 1e3 + pending);
-            const score = home + others * this.crowd + behind + d * 1e-3;
+            // The nearest post first (a bot used to take the range with the most work left, wherever it was: 100-150 blocks of void to walk, "no leg", deaths), the one with more work left second.
+            const score = home + others * this.crowd + d - pending * 1e-6;
             if (!best || score < best.score) best = { r, score, others };
+        }
         }
         if (!best) return null;
         const { r } = best, base = r.front * r.rows, units = [];
-        const helper = best.others > 0 && !r.lessees.has(b.idx);
+        const helper = r.keeper >= 0 ? r.keeper !== b.idx : best.others > 0 && !r.lessees.has(b.idx);
         const order = [...Array(r.rows).keys()]; if (helper) order.reverse();       // helpers start at the tail
         for (const i of order) {
             if (units.length >= batch) break;
@@ -215,7 +237,7 @@ class Ledger {
         }
         this.leased.add(r.id);
         b.last = r.id;
-        if (b.home === null && !helper) b.home = r.id;
+        if (b.home === null && !helper) { b.home = r.id; r.keeper = b.idx; }
         this._ev({ t: now, ev: 'claim', bot: botId, region: r.id, units: units.map((x) => x.unit), helper });
         return { region: r.id, meta: r.meta, units, role: helper ? 'helper' : 'owner' };
     }
@@ -265,7 +287,7 @@ class Ledger {
         const b = this.bots.get(botId); if (!b) return;
         for (const key of [...b.leases]) { const [rid, u] = key.split('\u0000'); this._release(this.regions.get(rid), +u, now); }
         for (const r of this.regions.values()) if (r.checking && r.checking.bot === botId) r.checking = null;          // a bot that leaves while it reads a layer: the next one reads it
-        b.alive = false; b.last = null;
+        b.alive = false; b.last = null; b.leftAt = now;
     }
 
     /** Give every stuck unit another round of attempts (a repair pass after the job has finished). `retriable(s)` leaves out the ones a retry cannot help (they stay stuck). Returns how many. */

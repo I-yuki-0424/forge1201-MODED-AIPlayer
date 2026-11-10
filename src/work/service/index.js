@@ -51,7 +51,11 @@ class WorkService extends EventEmitter {
         this.stockMiss = new scriptLib.Misses({ ttlMs: this.o.stockMissMs || 120000 });         // containers found without an item, for every bot (script.js)
         // A chest takes `chestSlots` bots at a time (default 3), the tools chest and beds one: bots take tools one after another, and sleeping is one at a time.
         this.gates = new Gates({ holdMs: 60000, waitMs: 180000, slotsFor: (key) => this._slotsFor(key) });                  // the lines at beds and containers (bot/queue.js)
-        this.temps = new Temps();         // the blocks the bots placed and that are not part of a build (seals, pillars ...), shared by every bot and kept across restarts (bot/temps.js)
+        this.temps = new Temps().attach({
+            alive: (name) => { const r = this.bots.get(name); return !!(r && !r.removed && r.state === 'online' && r.bot && r.bot.entity && r.bot.health > 0); },
+            others: () => [...this.bots.values()].filter((r) => !r.removed && r.state === 'online' && r.bot && r.bot.entity).map((r) => ({ name: r.name, x: r.bot.entity.position.x, y: r.bot.entity.position.y, z: r.bot.entity.position.z })),
+        });
+        // ^ the blocks the bots placed that are not part of a build (seals, pillars, bridges ...), shared by every bot and kept across restarts (bot/temps.js); a bot takes away only its own
         this.bots = new Map();            // name -> record
         this.jobs = new Map();            // id -> job
         this.log = [];
@@ -144,7 +148,7 @@ class WorkService extends EventEmitter {
         const data = {
             settings: this.settings, seq: this.seq, sites: this.sites.list(), placed: [...this.placed].slice(-300), temps: this.temps.toJSON(),
             bots: [...this.bots.values()].filter((b) => !b.removed).map((b) => ({ name: b.name, job: b.job })),
-            jobs: [...this.jobs.values()].map((j) => ({ id: j.id, kind: j.kind, name: j.name, spec: j.spec, state: j.state, created: j.created, bots: [...j.bots] })),
+            jobs: [...this.jobs.values()].map((j) => ({ id: j.id, kind: j.kind, name: j.name, spec: j.spec, state: j.state, created: j.created, bots: [...j.bots], homes: j.impl && j.impl.ledger && j.impl.ledger.homes ? j.impl.ledger.homes() : undefined })),
         };
         fs.writeFileSync(f + '.tmp', JSON.stringify(data)); fs.renameSync(f + '.tmp', f);
     }
@@ -162,6 +166,7 @@ class WorkService extends EventEmitter {
         for (const j of d.jobs || []) {
             try {
                 const job = await this._rebuild(j);
+                if (j.homes && job.impl && job.impl.ledger && job.impl.ledger.adopt) job.impl.ledger.adopt(Object.fromEntries(Object.entries(j.homes).filter(([n, r]) => BOT_NAME.test(n) && typeof r === 'string')));      // every bot back at its own post after a restart
                 // A job that was running when the process ended comes back running (owner 2026-11-09: "it should resume by itself"); the world is the truth, units run again are no-ops.
                 // Not after repeated freezes (watchdog.js): then it comes back paused so that a job that freezes the process cannot do it again every minute.
                 job.state = ['finished', 'cancelled'].includes(j.state) ? j.state : (j.state === 'running' && resume ? 'running' : 'paused');

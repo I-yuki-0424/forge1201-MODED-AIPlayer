@@ -172,13 +172,17 @@ function approachCells(w, t, here) {
 /** Take away temporary blocks that are still standing (a climb that was cut short): not the one the bot stands on. Returns how many are gone. */
 async function cleanTemp(env) {
     if (!env.temp || !env.temp.size) return 0;
-    let n = 0;
-    const f = env.here();
+    let n = 0, tried = 0;
+    const f = env.here(), fails = env.tempFails || (env.tempFails = new Map());
     for (const [k, c] of [...env.temp]) {
         if (env.w.kindAt(c.x, c.y, c.z) !== 'solid') { env.temp.delete(k); continue; }
         if (c.x === f.x && c.z === f.z && c.y === f.y - 1) continue;                       // standing on it
+        // Only what is within a few steps (owner 2026-11-10: temporary blocks and the work were tangled in a loop of walking to far blocks), six blocks a call, three tries a block:
+        // the placer takes its blocks away as it passes them (pillar, bridge); this is only for what a cut-short climb left beside it.
+        if (Math.hypot(c.x - f.x, c.z - f.z) > 6 || Math.abs(c.y - f.y) > 6 || tried >= 6 || (fails.get(k) || 0) >= 3) continue;
+        tried++;
         const m = await env.exec('mine', { ...c, collect: false });
-        if (m.ok || env.w.kindAt(c.x, c.y, c.z) !== 'solid') { env.temp.delete(k); n++; }
+        if (m.ok || env.w.kindAt(c.x, c.y, c.z) !== 'solid') { env.temp.delete(k); fails.delete(k); n++; } else fails.set(k, (fails.get(k) || 0) + 1);
     }
     return n;
 }

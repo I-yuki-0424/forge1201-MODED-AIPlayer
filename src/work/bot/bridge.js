@@ -46,12 +46,13 @@ async function extend(ctx, y, F, N, items, placed) {
         await ctx.tick(look);
         await ctx.until(() => w.blockAt(floor.x, floor.y, floor.z)?.name === item, 12, 'not_confirmed', look);
         placed.push(floor);
+        if (bot.__temps) bot.__temps.add({ dim: require('../../skills/fixtures').dimOf(bot), x: floor.x, y: floor.y, z: floor.z, item, kind: 'bridge', by: bot.username });          // the shared list (temps.js): a bridge block is a movement block
     }
     await ctx.until(() => { fellIf(ctx, y, placed.length); const f = feetCell(bot.entity.position); return f.x === N.x && f.z === N.z && f.y === y && bot.entity.onGround; }, 40, 'stuck', walk);
 }
 
 /** bridge {y, cells, items?}: see the top of the file. Returns { placed: [cells], at: the feet cell }. */
-async function bridge(ctx, { y, cells }) {
+async function bridge(ctx, { y, cells, keep = false }) {
     const bot = ctx.bot;
     if (!Number.isInteger(y) || !Array.isArray(cells) || !cells.length || cells.length > 64) throw new SkillError('invalid_args', { why: 'y and 1..64 cells {x, z}' });
     if (!bot.entity.onGround) await ctx.until(() => bot.entity.onGround, 40, 'stuck');
@@ -60,18 +61,39 @@ async function bridge(ctx, { y, cells }) {
         const F = feetCell(bot.entity.position);
         if (F.y !== y) throw new SkillError('invalid_target', { why: `the bot stands at y ${F.y}, the bridge is at y ${y}`, at: F });
         await extend(ctx, y, F, N, BRIDGE_ITEMS, placed);
+        // Passed = not needed (owner 2026-11-10: "once a placed block has been passed, destroy it immediately"): the block the bot stood on one step ago, if the bot laid it, is taken away from
+        // here, as the pillar takes the one two below. A bridge that must be walked back (`keep`: workOver) stays until the way back has been walked.
+        if (!keep) {
+            const old = { x: F.x, y: y - 1, z: F.z }, T = bot.__temps, dim = require('../../skills/fixtures').dimOf(bot), rec = T && T.get(dim, old);
+            if (rec && rec.kind === 'bridge' && rec.by === bot.username) {
+                ctx.phase('bridge_unlay', { cell: old });
+                const r = await require('../../skills/commands/block').mine(ctx, { ...old, collect: false, blind: true }).then(() => null, (e) => e);
+                if (r && !(r instanceof SkillError && ['invalid_target', 'missing_tool', 'unreachable'].includes(r.reason))) throw r;
+            }
+        }
     }
     return { placed, at: feetCell(bot.entity.position) };
 }
 
 /** sneak_walk {y, cells}: along the cells, sneaking, one at a time (each at most 40 ticks). */
-async function sneakWalk(ctx, { y, cells }) {
+async function sneakWalk(ctx, { y, cells, unlay = false }) {
     const bot = ctx.bot;
+    let prev = feetCell(bot.entity.position);
     if (!Number.isInteger(y) || !Array.isArray(cells) || !cells.length || cells.length > 128) throw new SkillError('invalid_args', { why: 'y and 1..128 cells {x, z}' });
     for (const N of cells) {
         const frame = () => { const p = bot.entity.position; return { forward: true, sneak: true, pitch: 0, yaw: yawOf(N.x + 0.5 - p.x, N.z + 0.5 - p.z) }; };
         ctx.phase('sneak_walk', { to: N });
         await ctx.until(() => { fellIf(ctx, y, 0); const f = feetCell(bot.entity.position), p = bot.entity.position; return f.x === N.x && f.z === N.z && Math.hypot(p.x - (N.x + 0.5), p.z - (N.z + 0.5)) < 0.35; }, 40, 'stuck', frame);
+        // Walking back over a kept bridge (unlay): the block just left is taken away, one step behind the bot, so that nothing of the bridge is left once it is home.
+        if (unlay && bot.__temps) {
+            const old = { x: prev.x, y: y - 1, z: prev.z }, T = bot.__temps, dim = require('../../skills/fixtures').dimOf(bot), rec = T.get(dim, old);
+            if (rec && rec.kind === 'bridge' && rec.by === bot.username && (old.x !== N.x || old.z !== N.z)) {
+                ctx.phase('bridge_unlay', { cell: old });
+                const r = await require('../../skills/commands/block').mine(ctx, { ...old, collect: false, blind: true }).then(() => null, (e) => e);
+                if (r && !(r instanceof SkillError && ['invalid_target', 'missing_tool', 'unreachable'].includes(r.reason))) throw r;
+            }
+        }
+        prev = N;
     }
     return { at: feetCell(bot.entity.position) };
 }
@@ -101,7 +123,7 @@ async function workOver(env, work, opt = {}) {
         const route = [from, ...plan.path], h0 = env.here(), i = route.findIndex((c) => c.x === h0.x && c.z === h0.z);
         if (i === 0) { info.returned = true; return; }
         if (i > 0) {
-            const r = await env.run('sneak_walk', { y: from.y, cells: route.slice(0, i).reverse().map((c) => ({ x: c.x, z: c.z })) });
+            const r = await env.run('sneak_walk', { y: from.y, cells: route.slice(0, i).reverse().map((c) => ({ x: c.x, z: c.z })), unlay: true });
             const h = env.here(); info.returned = !!r.ok && h.x === from.x && h.z === from.z;
         }
         if (!info.returned && env.goBack) { const g = await env.goBack('back from a bridge'); info.returned = !!g.ok; info.goBack = true; }
@@ -109,7 +131,7 @@ async function workOver(env, work, opt = {}) {
     let result;
     for (const seg of plan.segments) {
         if (env.cancel && env.cancel.cancelled) { result = { ok: false, reason: 'cancelled', detail: {} }; break; }
-        const r = await env.run('bridge', { y: from.y, cells: seg.cells.map((c) => ({ x: c.x, z: c.z })) });
+        const r = await env.run('bridge', { y: from.y, cells: seg.cells.map((c) => ({ x: c.x, z: c.z })), keep: true });          // kept: the bot walks back over it, and takes it away then
         if (r.detail && r.detail.placed) info.placed.push(...r.detail.placed);
         if (!r.ok) { result = { ok: false, reason: r.reason, detail: { ...(r.detail || {}), stage: 'bridge' } }; break; }
     }

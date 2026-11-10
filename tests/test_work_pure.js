@@ -107,7 +107,7 @@ function fakeWorld(ground = 0, init = {}) {
             assert.ok(p.finished, `unfinished: ${JSON.stringify(p)}`); assert.strictEqual(p.done, p.total); assert.strictEqual(p.stuck, 0);
         }
         console.log(`    helpers: ${withHelp.wall.toFixed(0)} s, no helpers: ${noHelp.wall.toFixed(0)} s (units 9600, 85 bots survive); ${withHelp.claims} claims in ${withHelp.ms.toFixed(0)} ms`);
-        assert.ok(withHelp.wall <= noHelp.wall + 1e-9, 'helping never makes it slower');
+        assert.ok(withHelp.wall <= noHelp.wall * 1.01, 'helping never makes it noticeably slower (the nearest post first, 2026-11-10, costs a fraction of a percent here)');
         assert.ok(withHelp.ms / withHelp.claims < 2, 'a claim costs well under 2 ms with 100 regions');
     });
 

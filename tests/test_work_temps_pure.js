@@ -35,10 +35,16 @@ const botOf = (name, x, z, dim = 'minecraft:overworld') => ({ username: name, ga
     });
 
     await test('env.temp view: what this bot placed or what stands within 10 blocks, Map-like; seals are not in it', () => {
-        const T = new Temps(), a = botOf('A', 0, 0), view = T.view(a);
+        let t0 = 1000; const T = new Temps(() => t0).attach({ alive: (n) => n !== 'B', others: () => [] }), a = botOf('A', 0, 0), view = T.view(a);
         view.set('5,60,5', { x: 5, y: 60, z: 5 }); T.add({ dim: 'overworld', x: 100, y: 60, z: 100, kind: 'pillar', by: 'B' }); T.add({ dim: 'overworld', x: 3, y: 64, z: 2, kind: 'reflex', by: 'B' }); T.add({ dim: 'overworld', x: 2, y: 64, z: 2, kind: 'seal', by: 'B' }); T.add({ dim: 'overworld', x: 4, y: 64, z: 4, kind: 'rescue', by: 'B' }); T.add({ dim: 'overworld', x: 5, y: 64, z: 4, kind: 'rescue', by: 'A' });
-        assert.strictEqual(view.size, 2, 'its own pillar block and the reflex block beside it; not the far one, not the seal, not a fill of the water rescue (not even its own: they stop water)');
+        assert.strictEqual(view.size, 1, 'its own pillar block only: another bot\'s block beside it is not ours (owner 2026-11-10: scaffolds were destroyed under their placers); not the far one, not the seal, not a fill of the water rescue');
+        t0 += 30000; assert.strictEqual(view.size, 2, 'an orphan (its placer B is gone) older than 20 s and with nobody near it is taken by whoever passes');
         assert.deepStrictEqual([...view].map(([k]) => k).sort(), ['3,64,2', '5,60,5']);
+        const busy = new Temps(() => t0).attach({ alive: () => false, others: () => [{ name: 'Z', x: 3.5, y: 65, z: 2.5 }] }); busy.add({ dim: 'overworld', x: 3, y: 64, z: 2, kind: 'reflex', by: 'B' }); t0 += 30000;
+        assert.strictEqual(busy.view(a).size, 0, 'another bot stands on / beside it: never taken');
+        const alive = new Temps(() => t0).attach({ alive: () => true, others: () => [] }); alive.add({ dim: 'overworld', x: 3, y: 64, z: 2, kind: 'reflex', by: 'B' }); t0 += 30000;
+        assert.strictEqual(alive.view(a).size, 0, 'its placer is still playing: it takes it away itself');
+        t0 -= 0;
         assert.ok(view.has('5,60,5')); assert.ok(view.delete('5,60,5')); assert.strictEqual(view.size, 1); assert.ok(!view.delete('nonsense'));
         const nether = T.view(botOf('A', 0, 0, 'minecraft:the_nether')); assert.strictEqual(nether.size, 0, 'another dimension');
     });
@@ -52,13 +58,14 @@ const botOf = (name, x, z, dim = 'minecraft:overworld') => ({ username: name, ga
 
     await test('cleanTemps: pillar and scaffold blocks go, a seal or a rescue fill that holds water stays, gone blocks are forgotten, a claimed block is left to its bot, another block is not ours', async () => {
         const w = world({ '0,64,0': 'cobblestone', '1,64,0': 'dirt', '5,64,5': 'cobblestone', '6,64,5': 'water', '9,64,9': 'cobblestone', '3,64,3': 'stone' });
-        const T = new Temps(), bot = botOf('A', 0, 0), mined = [];
+        let tc = 1000; const T = new Temps(() => tc).attach({ alive: () => false, others: () => [] }), bot = botOf('A', 0, 0), mined = [];
         T.add({ dim: 'overworld', x: 0, y: 64, z: 0, item: 'cobblestone', kind: 'pillar', by: 'B' }); T.add({ dim: 'overworld', x: 1, y: 64, z: 0, item: 'dirt', kind: 'scaffold', by: 'B' });
         T.add({ dim: 'overworld', x: 5, y: 64, z: 5, item: 'cobblestone', kind: 'seal', by: 'B' });                     // water beside it
         T.add({ dim: 'overworld', x: 7, y: 64, z: 7, item: 'cobblestone', kind: 'seal', by: 'B' });                     // already gone
         T.add({ dim: 'overworld', x: 3, y: 64, z: 3, item: 'cobblestone', kind: 'pillar', by: 'B' });                   // the world has stone there now: not ours
         T.add({ dim: 'overworld', x: 9, y: 64, z: 9, item: 'cobblestone', kind: 'seal', by: 'B' }); T.claim('overworld', { x: 9, y: 64, z: 9 }, 'C');       // another bot is on its way
         const env = { bot, temps: T, w, here: () => ({ x: 0, y: 64, z: 1 }), exec: async (n, a) => { mined.push(`${a.x},${a.y},${a.z}`); w.set(a.x, a.y, a.z, null); return { ok: true }; } };
+        tc += 20500;                                                                                                   // B is gone and its blocks are old enough: orphans
         const r = await cleanTemps(env, { radius: 20 });
         assert.deepStrictEqual(mined.sort(), ['0,64,0', '1,64,0'], JSON.stringify(mined));
         assert.deepStrictEqual([r.broken, r.forgotten, r.kept], [2, 2, 1], JSON.stringify(r));
