@@ -261,6 +261,8 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
             }
             const t1 = ms(), run = () => tr.travel({ exec: envObj.exec, here: envObj.here, w, cancel: unitCancel, wrongDim: envObj.wrongDim }, t, o);
             r = await run(); st.record('legacy', r, ms() - t1);
+            // The old legs know no levels: a walk that came within `near` across of a block target is no arrival when the bot is still far above or below it (live check 2026-11-10: it said ok under a tower).
+            if (r.ok && Number.isInteger(t.level) && Math.abs(feetCell(bot.entity.position).y - t.level) > ((o && o.nearY) === undefined ? 8 : o.nearY)) r = { ok: false, reason: 'unreachable', detail: { legs: r.legs, why: 'across within reach but not at the level of the target', level: t.level, at: feetCell(bot.entity.position) } };
             if (r.ok || !expertsOn() || !['unreachable', 'stuck', 'timeout', 'not_visible'].includes(r.reason)) { st.final(r); return r; }
             // No leg of any length could be walked: the movement expert takes the bot toward the target inside the loaded chunks (round what the planner cannot, through what it must dig), then the legs go on.
             const here = feetCell(bot.entity.position), aim = tr.legCandidates(w, here, t)[0];
