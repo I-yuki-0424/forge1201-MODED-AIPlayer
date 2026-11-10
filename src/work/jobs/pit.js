@@ -333,6 +333,7 @@ function lineCells(from, to, y) {
  */
 async function goToStation(S, handle, env, open, r) {
     let rejoins = 0;                     // a bot far from the station (it respawned at the world spawn) is sent back first, at most twice
+    let launches = 0;                    // one search for a better place to bridge from (a platform above the bot's base)
     let edges = 0;                       // walks to the edge of a gap (a base beside the void), at most two
     let bridges = 0;                     // at most three bridges per walk to a station (a gap of void between the End's platform and the island is crossed by a level bridge, bot/bridge.js)
     let lifts = 0;                       // at most two server lifts per walk to a station: a lift that lands in the same cell again changes nothing (live: Work17 lifted 0 blocks every 20 s)
@@ -356,6 +357,11 @@ async function goToStation(S, handle, env, open, r) {
         // A gap of void toward the station (the End: the obsidian platform and the island are 20-40 blocks apart): no walk, lift or pillar crosses it, a level bridge does. Rising by pillar beside the
         // platform only put the bot on a tower over the void, out of reach of the station and of its own temporary blocks (live 2026-11-10).
         const gap = env.bridgeToward && env.gapOn && bridges + edges < 4 && Math.hypot(here.x - S.x, here.z - S.z) > 3 ? env.gapOn(S) : null;
+        if (!gap && env.bridgeToward && env.launchCell && launches < 1 && env.profile && env.profile().voidBelow && Math.hypot(here.x - S.x, here.z - S.z) > 24) {         // blocked at the bot's own level (a base under the platform): the platform is the place to bridge from
+            launches++;
+            const lc = env.launchCell(S);
+            if (lc) { const m = await env.exec('move_to', lc, { maxTicks: STATION_TICKS }); if (m.ok) { r.launched = (r.launched || 0) + 1; continue; } }
+        }
         if (gap && !gap.atEdge && edges < 2) {            // standing on a base beside the void: walk to its edge first
             edges++;
             const m = await env.exec('move_to', { x: gap.edge.x, y: here.y, z: gap.edge.z }, { maxTicks: STATION_TICKS });

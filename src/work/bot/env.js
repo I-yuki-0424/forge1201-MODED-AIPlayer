@@ -228,6 +228,7 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         // The limits of the dimension the bot is in (world/dimensions.js; an unknown one takes what the login packet said), and work over an abyss (bridge.js: a bridge out, the job, the walk back).
         profile: () => dimensions.profile(envObj.dimension(), bot.game ? { minY: bot.game.minY, height: bot.game.height } : null),
         bridgeToward: (S, opt = {}) => require('./bridge').bridgeToward(envObj, S, { minY: envObj.profile().minY, ...opt }),
+        launchCell: (S) => require('./bridge').launchCell(w, envObj.here(), S, envObj.profile().minY),
         gapOn: (S) => require('./bridge').gapOn(w, envObj.here(), S, envObj.profile().minY),
         workOver: (work, opt = {}) => require('./bridge').workOver(envObj, work, { minY: envObj.profile().minY, ...opt }),
         // Face a cell and press forward until `until()` is true or `ms` is up (a portal is entered by walking into it); `ahead`: keep the heading the bot has.

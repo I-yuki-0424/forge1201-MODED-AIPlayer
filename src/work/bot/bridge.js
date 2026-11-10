@@ -168,6 +168,22 @@ function gapOn(w, here, S, minY) {
     return null;
 }
 
+/**
+ * A standable cell near `here` from which a gap toward `S` can be bridged, nearest first (null: none). For a bot whose own level is blocked (it stands on a base two levels under the End's platform:
+ * the platform is its ceiling, live 2026-11-10): the cell on the platform, up to `radius` blocks away and 3 levels up or down. Pure.
+ */
+function launchCell(w, here, S, minY, { radius = 12 } = {}) {
+    let best = null;
+    for (let dx = -radius; dx <= radius; dx++) for (let dz = -radius; dz <= radius; dz++) for (const dy of [0, 1, 2, 3, -1, -2, -3]) {
+        if (!dx && !dz && !dy) continue;
+        const c = { x: here.x + dx, y: here.y + dy, z: here.z + dz }, d = Math.hypot(dx, dz) + Math.abs(dy);
+        if (best && d >= best.d) continue;
+        if (w.kindAt(c.x, c.y, c.z) !== 'air' || w.kindAt(c.x, c.y + 1, c.z) !== 'air' || w.kindAt(c.x, c.y - 1, c.z) !== 'solid') continue;
+        if (gapOn(w, c, S, minY)) best = { ...c, d };
+    }
+    return best ? { x: best.x, y: best.y, z: best.z } : null;
+}
+
 /** Is the bot at the edge of a gap toward `S` (the next step is over nothing at all)? */
 const gapAhead = (w, here, S, minY) => { const g = gapOn(w, here, S, minY); return !!g && g.atEdge; };
 
@@ -188,4 +204,4 @@ async function bridgeToward(env, S, opt = {}) {
     return { ok: true, placed: placed.length, landed: plan.landed, stop: plan.stop, at: env.here() };
 }
 
-module.exports = { bridge, sneakWalk, workOver, planToward, gapOn, gapAhead, bridgeToward, MOVES, BRIDGE_ITEMS };
+module.exports = { bridge, sneakWalk, workOver, planToward, gapOn, launchCell, gapAhead, bridgeToward, MOVES, BRIDGE_ITEMS };

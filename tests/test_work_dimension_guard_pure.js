@@ -3,7 +3,7 @@
 const assert = require('assert');
 const { runWorker } = require('../src/work/bot/worker');
 const { travel } = require('../src/work/bot/travel');
-const { planToward, gapOn, gapAhead, bridgeToward } = require('../src/work/bot/bridge');
+const { planToward, gapOn, launchCell, gapAhead, bridgeToward } = require('../src/work/bot/bridge');
 const { stepOffCell } = require('../src/skills/motion');
 const pit = require('../src/work/jobs/pit');
 
@@ -126,6 +126,16 @@ function endWorld() {
         const r = await pit.goToStation(S, async () => null, env, (c) => w.kindAt(c.x, c.y, c.z) === 'air', {});
         assert.strictEqual(r, null, JSON.stringify(r)); assert.deepStrictEqual(runs.slice(0, 2), ['move 4', 'bridge'], runs.join());
         assert.strictEqual(gapOn(w, { x: 40, y: 56, z: 0 }, { x: 60, z: 0 }, 0), null, 'land all the way: no gap');
+    });
+
+    await test('launchCell: a bot on a base whose own level is walled in is sent to the top of the wall, from which the gap is bridged', async () => {
+        const w = endWorld();
+        for (let x = 5; x <= 12; x++) for (let z = -2; z <= 2; z++) w.set(x, 46, z, 'solid');        // a base east of the platform at y 46 (feet 47)
+        for (let z = -2; z <= 2; z++) { w.set(12, 47, z, 'solid'); w.set(12, 48, z, 'solid'); }       // a wall at its far edge: the line at the base's own level is blocked
+        const base = { x: 9, y: 47, z: 0 }, S = { x: 60, y: 56, z: 0 };
+        assert.strictEqual(gapOn(w, base, S, 0), null, 'blocked at the base level');
+        const c = launchCell(w, base, S, 0); assert.ok(c, 'a launch cell'); assert.strictEqual(c.y, 49, 'on top of the wall'); assert.ok(gapOn(w, c, S, 0));
+        assert.strictEqual(launchCell(w, { x: 100, y: 60, z: 100 }, S, 0), null, 'nothing to launch from far from any edge (radius 12)');
     });
 
     await test('goToStation: the pillar rise is only for a station above the bot\'s own column (not 30 blocks away)', async () => {
