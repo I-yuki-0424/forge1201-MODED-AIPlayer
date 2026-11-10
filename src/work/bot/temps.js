@@ -9,7 +9,7 @@
 const fixtures = require('../../skills/fixtures');
 
 const MAX = 4000, MAX_AGE_MS = 3 * 24 * 3600 * 1000;
-const KINDS = new Set(['seal', 'pillar', 'scaffold', 'reflex', 'rescue', 'bridge']);
+const KINDS = new Set(['seal', 'pillar', 'scaffold', 'reflex', 'rescue', 'bridge', 'road']);          // road: the shared bridge from the End platform to the work (never taken away by a passer; the pit's own cleanup takes it at the end)
 const CLEAN_NEAR = new Set(['pillar', 'scaffold', 'reflex', 'bridge']);            // movement blocks: taken away by the bot that placed them, as soon as it has passed; by another only when the placer is gone (orphans)
 const ORPHAN_MS = 20000, ORPHAN_CLEAR = 3;                                         // an orphan is taken after this long, and never while another bot is within this many blocks
 const HOLDS_BACK = new Set(['seal', 'rescue']);                                    // blocks that stop water: taken away only when no fluid lies beside or above them, and only by the pit's own cleanup (a first version let every bot that passed remove the water rescue's fills: 369 listed, the pit flooded again, rescue time went from 27-108 to 273-404 bot-s a minute)

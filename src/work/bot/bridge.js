@@ -46,24 +46,25 @@ async function extend(ctx, y, F, N, items, placed) {
         await ctx.tick(look);
         await ctx.until(() => w.blockAt(floor.x, floor.y, floor.z)?.name === item, 12, 'not_confirmed', look);
         placed.push(floor);
-        if (bot.__temps) bot.__temps.add({ dim: require('../../skills/fixtures').dimOf(bot), x: floor.x, y: floor.y, z: floor.z, item, kind: 'bridge', by: bot.username });          // the shared list (temps.js): a bridge block is a movement block
+        if (bot.__temps) bot.__temps.add({ dim: require('../../skills/fixtures').dimOf(bot), x: floor.x, y: floor.y, z: floor.z, item, kind: ctx.__road ? 'road' : 'bridge', by: bot.username });          // the shared list (temps.js): a bridge block is a movement block; a road (the shared way from the platform to the work) stays
     }
     await ctx.until(() => { fellIf(ctx, y, placed.length); const f = feetCell(bot.entity.position); return f.x === N.x && f.z === N.z && f.y === y && bot.entity.onGround; }, 40, 'stuck', walk);
 }
 
 /** bridge {y, cells, items?}: see the top of the file. Returns { placed: [cells], at: the feet cell }. */
-async function bridge(ctx, { y, cells, keep = false }) {
+async function bridge(ctx, { y, cells, keep = false, road = false }) {
     const bot = ctx.bot;
     if (!Number.isInteger(y) || !Array.isArray(cells) || !cells.length || cells.length > 64) throw new SkillError('invalid_args', { why: 'y and 1..64 cells {x, z}' });
     if (!bot.entity.onGround) await ctx.until(() => bot.entity.onGround, 40, 'stuck');
     const placed = [];
+    ctx.__road = !!road;
     for (const N of cells) {
         const F = feetCell(bot.entity.position);
         if (F.y !== y) throw new SkillError('invalid_target', { why: `the bot stands at y ${F.y}, the bridge is at y ${y}`, at: F });
         await extend(ctx, y, F, N, BRIDGE_ITEMS, placed);
         // Passed = not needed (owner 2026-11-10: "once a placed block has been passed, destroy it immediately"): the block the bot stood on one step ago, if the bot laid it, is taken away from
         // here, as the pillar takes the one two below. A bridge that must be walked back (`keep`: workOver) stays until the way back has been walked.
-        if (!keep) {
+        if (!keep && !road) {
             const old = { x: F.x, y: y - 1, z: F.z }, T = bot.__temps, dim = require('../../skills/fixtures').dimOf(bot), rec = T && T.get(dim, old);
             if (rec && rec.kind === 'bridge' && rec.by === bot.username) {
                 ctx.phase('bridge_unlay', { cell: old });
@@ -223,7 +224,7 @@ async function bridgeToward(env, S, opt = {}) {
     const placed = [];
     for (const seg of plan.segments) {
         if (env.cancel && env.cancel.cancelled) return { ok: false, reason: 'cancelled', detail: { placed: placed.length } };
-        const r = await env.run('bridge', { y: from.y, cells: seg.cells.map((c) => ({ x: c.x, z: c.z })) });
+        const r = await env.run('bridge', { y: from.y, cells: seg.cells.map((c) => ({ x: c.x, z: c.z })), road: !!opt.road });
         if (r.detail && r.detail.placed) placed.push(...r.detail.placed);
         if (!r.ok) return { ok: false, reason: r.reason, detail: { ...(r.detail || {}), stage: 'bridge', placed: placed.length } };
     }

@@ -149,6 +149,21 @@ async function ready(world, from, items) {
         } finally { bot.stop(); }
     });
 
+    await test('mine: a pit worker cannot break a block outside its pit (the End platform\'s obsidian), but its own temporary block outside it; without the box nothing changes', async () => {
+        const w = scene(new Map());
+        w.set(0, 1, 0, S.stone);
+        const bot = await ready(w, new Vec3(3.5, 1, 0.5), ['stone_pickaxe']);
+        try {
+            bot.__mineBox = { x0: 10, x1: 20, z0: 10, z1: 20, top: 5, bottom: -5 };
+            const r = await execute(bot, 'mine', { x: 0, y: 1, z: 0, collect: false });
+            assert.strictEqual(r.ok, false); assert.strictEqual(r.reason, 'protected'); assert.ok(/outside the work area/.test(JSON.stringify(r.detail)), JSON.stringify(r.detail));
+            bot.username = 'Me'; bot.__temps = { get: () => ({ by: 'Me' }), remove: () => true, has: () => false };
+            const own = await execute(bot, 'mine', { x: 0, y: 1, z: 0, collect: false }); assert.ok(own.ok, JSON.stringify(own));
+            w.set(0, 1, 0, S.stone); bot.__mineBox = null; bot.__temps = null;
+            const free = await execute(bot, 'mine', { x: 0, y: 1, z: 0, collect: false }); assert.ok(free.ok, JSON.stringify(free));
+        } finally { bot.stop(); }
+    });
+
     await test('descend: nothing solid under the feet, a fluid below or no block to go down on are named, not hangs', async () => {
         const w2 = scene(new Map(), { groundTop: -40 }); w2.set(0, 0, 0, S.stone);
         const b2 = await ready(w2, new Vec3(0.5, 1, 0.5), ['stone_pickaxe']);

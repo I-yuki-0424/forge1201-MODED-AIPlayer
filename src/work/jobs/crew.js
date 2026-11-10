@@ -79,6 +79,17 @@ class Ledger {
     complete(r) { return r.front >= r.layers; }
     /** Is the bot with index `idx` still here (working, or gone for less than KEEP_MS)? Its post is then not another bot's to take. */
     _present(idx, now) { const b = this._botByIdx(idx); return !!b && (b.alive || now - b.leftAt < KEEP_MS); }
+    /**
+     * The bot gives its post up (owner 2026-11-11: Work1 and Work7 died at the End entrance again and again on the way to posts 50 blocks across the void): the range is free for the next bot, this one
+     * is offered another (the nearest to where it stands) and not that range again for `ms`. False when it had no post.
+     */
+    forfeit(botId, now, ms = 600000) {
+        const b = this.bots.get(botId); if (!b || b.home === null) return false;
+        const r = this.regions.get(b.home); if (r && r.keeper === b.idx) r.keeper = -1;
+        b.skip = { region: b.home, until: now + ms }; b.home = null; b.last = null;
+        this._ev({ t: now, ev: 'forfeit', bot: botId, region: r && r.id });
+        return true;
+    }
     /** Who guards which post: { bot: region } for every bot that has one (kept across a restart by the service). */
     homes() { const o = {}; for (const b of this.bots.values()) if (b.home !== null && this.regions.has(b.home)) o[b.id] = b.home; return o; }
     /** Give the bots back their posts after a restart (a post that is finished or unknown is skipped; a post already kept by a bot that is here stays with it). */
@@ -208,6 +219,7 @@ class Ledger {
         for (const r of this.regions.values()) {
             if (stayHome && r !== homeR) continue;
             if (r.front >= r.layers || !this.ready(r)) continue;
+            if (b.skip && b.skip.region === r.id && b.skip.until > now) continue;          // a post this bot gave up
             if (pass === 0 && r.keeper >= 0 && r.keeper !== b.idx && this._present(r.keeper, now) && !postDone) continue;
             if (this.maxLead !== Infinity && r.front - minFront > this.maxLead) continue;
             const base = r.front * r.rows;

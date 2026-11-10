@@ -359,9 +359,9 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         // Walk to the nearest standable cell that no other bot stands in or next to (two bots in one cell blocked each other's pillar for ten minutes).
         stepAside: async () => {
             const f = feetCell(bot.entity.position), oth = others ? others() : [];
-            const free = (x, z) => !oth.some((o) => Math.hypot(o.x - (x + 0.5), o.z - (z + 0.5)) < 1.3);
+            const free = (x, z) => !oth.some((o) => Math.hypot(o.x - (x + 0.5), o.z - (z + 0.5)) < 3);          // as far from the others as the search finds (spacing)
             let tried = 0;
-            for (let rad = 1; rad <= 3 && tried < 6; rad++) {
+            for (let rad = 1; rad <= 4 && tried < 8; rad++) {
                 for (let dx = -rad; dx <= rad && tried < 6; dx++) for (let dz = -rad; dz <= rad && tried < 6; dz++) {
                     if (Math.max(Math.abs(dx), Math.abs(dz)) !== rad) continue;
                     for (const dy of [0, 1, -1]) {
@@ -375,7 +375,7 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
             }
             return { ok: false, reason: 'unreachable' };
         },
-        crowded: () => !!others && others().some((o) => Math.hypot(o.x - bot.entity.position.x, o.z - bot.entity.position.z) < 0.9),
+        crowded: () => !!others && others().some((o) => Math.hypot(o.x - bot.entity.position.x, o.z - bot.entity.position.z) < 2.5 && Math.abs(o.y - bot.entity.position.y) < 4),          // two bots close together get in each other's way (a pillar, a block placed into a body): spacing of 2.5 blocks
         pause: (ticks) => sleep(ticks * 50),                       // let the thing in the way (another bot, an item) move on
         unitCancel,
         /** Why the last unit was stopped (operator, attacked, drowning, reflex), then forgotten; null when nothing stopped it. */

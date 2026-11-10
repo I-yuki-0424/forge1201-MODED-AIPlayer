@@ -24,7 +24,9 @@ class BotsPart {
         let bot;
         try { bot = this.factory(rec.name); } catch (e) { rec.error = String(e.message).slice(0, 200); return this._retry(rec); }
         rec.bot = bot;
-        bot.__noVines = true;                  // the planner does not climb vines (see skills/world.js)
+        bot.__noVines = true;
+        // The planner does not plan to stand on another bot's scaffolding (pillar, scaffold, reflex, bridge blocks of a bot that is not this one; the shared road is fine): owner 2026-11-11.
+        bot.__avoidFloor = (x, y, z) => { const t = this.temps.get(require('../../skills/fixtures').dimOf(bot), { x, y, z }); return !!t && !!t.by && t.by !== bot.username && require('../bot/temps').CLEAN_NEAR.has(t.kind); };                  // the planner does not climb vines (see skills/world.js)
         // Owner rule (2026-11-09): a box or tagged block the bots did not place is never broken. The Set of own boxes is shared and kept across restarts.
         bot.__placed = this.placed;
         bot.__temps = this.temps;                 // the shared list of placed blocks (water seals, pillars ...): registered when placed, forgotten when broken, cleaned up (bot/temps.js)

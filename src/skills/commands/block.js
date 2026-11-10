@@ -99,6 +99,12 @@ async function mine(ctx, { x, y, z, collect = true, blind = false, hand = false 
     // Owner rule: a box the bot did not place (and a tagged block) is a fixture. The bot may use what is inside, never break it.
     const fixture = skillOpts.get(bot).fixture;
     if (fixture && !fixtures.isOwn(bot, cell) && fixture(b0.name, x, y, z)) throw new SkillError('protected', { block: b0.name, target: cell });
+    // A pit worker mines inside its pit only (`bot.__mineBox`, set by the work service while the bot works a pit; 2 cells of margin): not the End platform's obsidian at the entrance, not blocks "where it is in nobody's way" (owner 2026-11-11). Its own temporary blocks are the exception.
+    const mb = bot.__mineBox;
+    if (mb && !(x >= mb.x0 - 2 && x <= mb.x1 + 2 && z >= mb.z0 - 2 && z <= mb.z1 + 2 && y <= mb.top + 3 && y >= mb.bottom - 3)) {
+        const t = bot.__temps && bot.__temps.get(fixtures.dimOf(bot), cell);
+        if (!(t && t.by === bot.username)) throw new SkillError('protected', { block: b0.name, target: cell, why: 'outside the work area' });
+    }
     // `hand` (work layer only, never in the action schema): break the block with whatever is in the hand when no tool fits. Slow, no drop that needs the tool,
     // but it takes away a block the bot placed itself (the pillar).
     // A worn-out tool still breaks a block of its own pillar in a moment; bare hands take 7 s per stone. A cobweb is broken by hand too (20 s, no string): only a sword or shears make it

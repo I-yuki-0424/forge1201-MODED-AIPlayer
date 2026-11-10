@@ -115,6 +115,8 @@ function fromBot(bot) {
         w = { blockAt, kindAt: (x, y, z) => { const b = blockAt(x, y, z); return noVines && b && b.name === 'vine' ? 'air' : kindOf(b); }, shapesAt: (x, y, z) => shapesOf(blockAt(x, y, z)),
             nameAt: (x, y, z) => blockAt(x, y, z)?.name ?? null };
     }
+    // `bot.__avoidFloor(x, y, z)`: a floor the planner must not plan to stand on (another bot's scaffolding: owner 2026-11-11, "stop the bot from trying to ride on people's scaffolding"). Looked up at call time.
+    w.avoidFloor = (x, y, z) => !!(bot.__avoidFloor && bot.__avoidFloor(x, y, z));
     bot.__skillWorld = { registry: bot.registry, world: bot.world, w };
     return w;
 }
@@ -156,7 +158,7 @@ const passable = (k) => k === 'air' || k === 'climb';
 
 /** A player fits in the cell (feet and head free) and has solid support below. */
 function standable(w, x, y, z) {
-    return passable(w.kindAt(x, y, z)) && passable(w.kindAt(x, y + 1, z)) && w.kindAt(x, y - 1, z) === 'solid';
+    return passable(w.kindAt(x, y, z)) && passable(w.kindAt(x, y + 1, z)) && w.kindAt(x, y - 1, z) === 'solid' && !(w.avoidFloor && w.avoidFloor(x, y - 1, z));
 }
 
 /** The feet can be held in this water cell with the head at or above the surface while holding jump (surface swimming):

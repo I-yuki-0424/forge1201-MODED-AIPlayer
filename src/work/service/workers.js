@@ -43,7 +43,7 @@ class WorkersPart {
             }
             env = this.envFactory(rec.bot, cancel, { worker: true });
             if (env) env.jobDim = job.spec.dim ? dimensions.canon(job.spec.dim) : null;                 // the worker stops when the bot is anywhere else (env.wrongDim)
-            if (env && job.kind === 'pit') env.within = job.spec.box;          // a pillar with nothing to stack takes a block from the undug part of the pit (moves.js harvestBlock)
+            if (env && job.kind === 'pit') { env.within = job.spec.box; rec.bot.__mineBox = job.spec.box; }          // mining is confined to the pit (skills/commands/block.js)          // a pillar with nothing to stack takes a block from the undug part of the pit (moves.js harvestBlock)
             if (env && env.configure) env.configure({ retireWorn: !!this.settings.retireWorn, defend: this.settings.defend !== false, planNodes: this.o.planNodes || 6000 });
             // Three usable pickaxes in the pack before the work starts (stock-tools: from the tools chest, when one is in reach): a worn one is replaced on the spot.
             if (this.settings.scripts && this.sites.find('tools') && this.scripts.get('stock-tools')) {
@@ -76,6 +76,7 @@ class WorkersPart {
                 if ((ev === 'unit' && !d.ok && !['cancelled', 'wrong_dimension'].includes(d.reason)) || ev === 'janitor_failed' || (ev === 'script' && !d.ok) || (ev === 'audit' && d.gaveUp) || ev === 'audit_failed') {
                     this._problem(rec, ev === 'unit' ? 'unit_failed' : ev, { reason: d.reason || d.ended, stage: d.detail && d.detail.stage, why: ev === 'script' ? (d.log || []).slice(-3).join('; ') : d.detail && (d.detail.why || d.detail.goal), block: d.detail && d.detail.block, item: d.detail && (d.detail.item || (Array.isArray(d.detail.tried) ? d.detail.tried.slice(0, 3).join('|') : undefined)), worn: d.detail && d.detail.worn, cell: d.detail && d.detail.cell, job: job.id, region: d.region, unit: d.unit });
                 }
+                if (ev === 'forfeit') this.note('warn', `${d.id} gave up its post ${d.region}: four units in a row failed on the way to it; it is offered another one near where it stands`, { job: job.id });
                 if (ev === 'wrong_dimension') this.note('warn', `${d.id} is in ${d.have}, the job ${job.id} is in ${job.spec.dim}: the worker stops and the bot goes back through the gate`, { job: job.id });
                 if (ev === 'defend' && d.fought) this.note('info', `${rec.name} defended itself: ${d.killed}/${d.fought} killed`, { job: job.id });
                 if (ev === 'audit') this.note(d.gaveUp ? 'warn' : 'info', `${d.id} range check: ${d.reopened} unit(s) sent back, ${d.gaveUp} given up on`, { job: job.id, first: d.first });
@@ -197,6 +198,7 @@ class WorkersPart {
 
     _workerEnded(job, rec, res, cancel) {
         if (rec.worker && rec.worker.cancel === cancel) rec.worker = null;
+        if (rec.bot && !rec.worker) rec.bot.__mineBox = null;
         this.note('debug', `bot ${rec.name} ended: ${res.ended}`, { job: job.id, res });
         const L = job.impl.ledger;
         if (job.state === 'running' && !cancel.cancelled) {

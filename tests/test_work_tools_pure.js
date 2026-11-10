@@ -150,7 +150,7 @@ const tool = (name, max, used) => ({ name, maxDurability: max, durabilityUsed: u
             run: async (n, a) => { calls.push(`${n}:${a.levels}`); pos = { ...pos, y: pos.y + a.levels }; return { ok: true, detail: { levels: a.levels, last: { x: pos.x, y: pos.y - 1, z: pos.z } } }; } };
         const r = await pit.runUnit(plan, region, { unit: 0 }, env);
         assert.ok(r.ok, JSON.stringify(r)); assert.ok(calls.includes('pillar:6'), calls.join(',')); assert.strictEqual(r.detail.rose, 6);
-        assert.ok([...cells.keys()].every((k) => !k.startsWith('5,12,5')) && env.temp.size === 1, 'the station is dug and the pillar block is on the list to be taken away');
+        assert.ok([...cells.keys()].every((k) => !k.startsWith('5,12,5')) && env.temp.size === 0, 'the station is dug and the pillar block was dealt with at once (taken away or forgotten when gone), not left for the next unit (owner 2026-11-11)');
     });
 
     await test('pit: a station far below the bot (the bot stands on its own pillar) is reached by a lift to a standable cell at the layer, not by walking', async () => {

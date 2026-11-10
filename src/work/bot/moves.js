@@ -36,6 +36,9 @@ async function pillar(ctx, { levels, items = null, within = null }) {
     for (let i = 0; i < levels; i++) {
         const f = feetCell(bot.entity.position);
         if (w.kindAt(f.x, f.y - 1, f.z) !== 'solid') throw new SkillError('invalid_target', { why: 'nothing solid under the feet', at: f, done: placed });
+        // Never ride on another bot's scaffolding (owner 2026-11-11): its owner takes it away, and a bot standing on it falls. The caller steps aside and tries again.
+        const under = bot.__temps && bot.__temps.get(fixtures.dimOf(bot), { x: f.x, y: f.y - 1, z: f.z });
+        if (under && under.by && under.by !== bot.username && under.kind !== 'road' && under.kind !== 'seal' && under.kind !== 'rescue') throw new SkillError('invalid_target', { why: "standing on another bot's block", crowded: true, at: f, done: placed, by: under.by });
         // The first block of a pillar goes on top of the block under the feet: never of a chest, Ender chest or shulker box (it could not be opened any more).
         if (fixtures.coversContainer(w, f)) throw new SkillError('invalid_target', { why: 'standing on a container: a pillar here would cover it', at: f, done: placed });
         // A block overhead is broken first (owner 2026-11-07): the cell above the head, then the head cell if it is closed too.

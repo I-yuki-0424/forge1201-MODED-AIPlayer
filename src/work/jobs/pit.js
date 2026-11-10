@@ -366,6 +366,8 @@ async function goToStation(S, handle, env, open, r) {
     let descents = 0;                    // at most two descents per walk to a station (moves.js `descend`)
     let lifts = 0;                       // at most two server lifts per walk to a station: a lift that lands in the same cell again changes nothing (live: Work17 lifted 0 blocks every 20 s)
     for (let t = 0; t < 10; t++) {
+        // What a rise left behind (the last pillar block) is taken away as soon as the bot has stepped off it, not at the next unit (owner 2026-11-11: "prevent forgetting to destroy scaffolding").
+        if (r.rose && env.temp && env.temp.size) { try { await require('../bot/moves').cleanTemp(env); } catch (_) { /* tried again at the next unit */ } }
         const here = env.here();
         if (here.x === S.x && here.y === S.y && here.z === S.z) return null;
         // In another dimension than the job's (it respawned): the station's coordinates are not this dimension's. No walk, no corridor, nothing is charged to the unit (worker.js ends the worker).
@@ -400,7 +402,7 @@ async function goToStation(S, handle, env, open, r) {
         }
         if (gap && gap.atEdge && bridges < 3) {
             bridges++;
-            const b = await env.bridgeToward(S);
+            const b = await env.bridgeToward(S, { road: true });          // the way from the platform to the work is shared: it stays (a road), the in-layer bridges of `handle` do not
             if (b.ok) { r.bridged = (r.bridged || 0) + b.placed; continue; }
             return { ok: false, reason: b.reason || 'unreachable', detail: { ...(b.detail || {}), botSide: true, stage: 'gap', cell: S, ...r } };
         }
@@ -428,7 +430,7 @@ async function goToStation(S, handle, env, open, r) {
         if (env.run && above >= 3 && Math.hypot(here.x - S.x, here.z - S.z) <= 24) {          // a station above the bot's own column (an undug slab), not one across 24 blocks or more of anything
             if (env.crowded && env.crowded()) { if (env.stepAside) await env.stepAside(); else if (env.recover) await env.recover(3); }
             let p = await env.run('pillar', { levels: S.y - env.here().y });
-            if (!p.ok && p.reason === 'not_confirmed' && (env.stepAside || env.recover)) { if (env.stepAside) await env.stepAside(); else await env.recover(3); p = await env.run('pillar', { levels: Math.max(1, S.y - env.here().y) }); }
+            if (!p.ok && (p.reason === 'not_confirmed' || (p.detail && p.detail.crowded)) && (env.stepAside || env.recover)) { if (env.stepAside) await env.stepAside(); else await env.recover(3); p = await env.run('pillar', { levels: Math.max(1, S.y - env.here().y) }); }
             const last = p.detail && p.detail.last; if (last && env.temp) env.temp.set(`${last.x},${last.y},${last.z}`, last);
             r.rose = (r.rose || 0) + ((p.detail && p.detail.levels) || 0);
             if (!p.ok) return { ok: false, reason: p.reason, detail: { ...(p.detail || {}), cell: S, stage: 'rise', ...r } };
@@ -452,6 +454,8 @@ async function goToStation(S, handle, env, open, r) {
         }
         const next = lineCells(here, S, S.y).find((c) => !open(c) && !UNBREAKABLE.test(env.w.nameAt(c.x, c.y, c.z) || ''));
         if (!next) return null;
+        // A corridor is dug inside the pit only (owner 2026-11-11: a bot mined the obsidian platform at the End entrance, and blocks outside the pit "where it is in nobody's way").
+        const bx = env.within; if (bx && !(next.x >= bx.x0 && next.x <= bx.x1 && next.z >= bx.z0 && next.z <= bx.z1 && next.y <= bx.top && next.y >= bx.bottom)) { r.outside = (r.outside || 0) + 1; return null; }
         const res = await handle(next, true);
         if (res && res !== 'defer') return res;
         r.corridor = (r.corridor || 0) + 1;
