@@ -3,7 +3,7 @@
 const assert = require('assert');
 const { runWorker } = require('../src/work/bot/worker');
 const { travel } = require('../src/work/bot/travel');
-const { planToward, gapOn, launchCell, gapAhead, bridgeToward } = require('../src/work/bot/bridge');
+const { planToward, gapOn, launchCell, launchCells, gapAhead, bridgeToward } = require('../src/work/bot/bridge');
 const { stepOffCell } = require('../src/skills/motion');
 const pit = require('../src/work/jobs/pit');
 
@@ -135,6 +135,7 @@ function endWorld() {
         const base = { x: 9, y: 47, z: 0 }, S = { x: 60, y: 56, z: 0 };
         assert.strictEqual(gapOn(w, base, S, 0), null, 'blocked at the base level');
         const c = launchCell(w, base, S, 0); assert.ok(c, 'a launch cell'); assert.strictEqual(c.y, 49, 'on top of the wall'); assert.ok(gapOn(w, c, S, 0));
+        const many = launchCells(w, base, S, 0, { n: 3 }); assert.ok(many.length >= 2 && many.length <= 3, 'several distinct places, nearest first'); for (let i = 1; i < many.length; i++) assert.ok(Math.hypot(many[i].x - many[0].x, many[i].z - many[0].z) + Math.abs(many[i].y - many[0].y) > 3);
         assert.strictEqual(launchCell(w, { x: 100, y: 60, z: 100 }, S, 0), null, 'nothing to launch from far from any edge (radius 12)');
     });
 

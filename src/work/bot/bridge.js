@@ -172,17 +172,20 @@ function gapOn(w, here, S, minY) {
  * A standable cell near `here` from which a gap toward `S` can be bridged, nearest first (null: none). For a bot whose own level is blocked (it stands on a base two levels under the End's platform:
  * the platform is its ceiling, live 2026-11-10): the cell on the platform, up to `radius` blocks away and 3 levels up or down. Pure.
  */
-function launchCell(w, here, S, minY, { radius = 12 } = {}) {
-    let best = null;
+function launchCells(w, here, S, minY, { radius = 12, n = 4 } = {}) {
+    const found = [];
     for (let dx = -radius; dx <= radius; dx++) for (let dz = -radius; dz <= radius; dz++) for (const dy of [0, 1, 2, 3, -1, -2, -3]) {
         if (!dx && !dz && !dy) continue;
-        const c = { x: here.x + dx, y: here.y + dy, z: here.z + dz }, d = Math.hypot(dx, dz) + Math.abs(dy);
-        if (best && d >= best.d) continue;
+        const c = { x: here.x + dx, y: here.y + dy, z: here.z + dz };
         if (w.kindAt(c.x, c.y, c.z) !== 'air' || w.kindAt(c.x, c.y + 1, c.z) !== 'air' || w.kindAt(c.x, c.y - 1, c.z) !== 'solid') continue;
-        if (gapOn(w, c, S, minY)) best = { ...c, d };
+        if (gapOn(w, c, S, minY)) found.push({ ...c, d: Math.hypot(dx, dz) + Math.abs(dy) });
     }
-    return best ? { x: best.x, y: best.y, z: best.z } : null;
+    found.sort((a, b) => a.d - b.d);
+    const out = [];
+    for (const c of found) { if (out.length >= n) break; if (out.every((o) => Math.hypot(o.x - c.x, o.z - c.z) + Math.abs(o.y - c.y) > 3)) out.push({ x: c.x, y: c.y, z: c.z }); }      // distinct places, not four neighbours of one
+    return out;
 }
+const launchCell = (w, here, S, minY, o) => launchCells(w, here, S, minY, { ...o, n: 1 })[0] || null;
 
 /** Is the bot at the edge of a gap toward `S` (the next step is over nothing at all)? */
 const gapAhead = (w, here, S, minY) => { const g = gapOn(w, here, S, minY); return !!g && g.atEdge; };
@@ -204,4 +207,4 @@ async function bridgeToward(env, S, opt = {}) {
     return { ok: true, placed: placed.length, landed: plan.landed, stop: plan.stop, at: env.here() };
 }
 
-module.exports = { bridge, sneakWalk, workOver, planToward, gapOn, launchCell, gapAhead, bridgeToward, MOVES, BRIDGE_ITEMS };
+module.exports = { bridge, sneakWalk, workOver, planToward, gapOn, launchCell, launchCells, gapAhead, bridgeToward, MOVES, BRIDGE_ITEMS };

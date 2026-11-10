@@ -357,10 +357,12 @@ async function goToStation(S, handle, env, open, r) {
         // A gap of void toward the station (the End: the obsidian platform and the island are 20-40 blocks apart): no walk, lift or pillar crosses it, a level bridge does. Rising by pillar beside the
         // platform only put the bot on a tower over the void, out of reach of the station and of its own temporary blocks (live 2026-11-10).
         const gap = env.bridgeToward && env.gapOn && bridges + edges < 4 && Math.hypot(here.x - S.x, here.z - S.z) > 3 ? env.gapOn(S) : null;
-        if (!gap && env.bridgeToward && env.launchCell && launches < 1 && env.profile && env.profile().voidBelow && Math.hypot(here.x - S.x, here.z - S.z) > 24) {         // blocked at the bot's own level (a base under the platform): the platform is the place to bridge from
+        if (!gap && env.bridgeToward && env.launchCells && launches < 1 && env.profile && env.profile().voidBelow && Math.hypot(here.x - S.x, here.z - S.z) > 24) {         // blocked at the bot's own level (a base under the platform): the platform is the place to bridge from
             launches++;
-            const lc = env.launchCell(S); r.launchTried = lc ? `${lc.x} ${lc.y} ${lc.z}` : 'none';
-            if (lc) { const m = await env.exec('move_to', lc, { maxTicks: STATION_TICKS }); if (m.ok) { r.launched = (r.launched || 0) + 1; continue; } }
+            const lcs = env.launchCells(S); r.launchTried = lcs.length ? lcs.map((c) => `${c.x} ${c.y} ${c.z}`).join(', ') : 'none';
+            let went = false;
+            for (const lc of lcs) { const m = await env.exec('move_to', lc, { maxTicks: STATION_TICKS }); if (m.ok) { went = true; r.launched = (r.launched || 0) + 1; break; } }
+            if (went) continue;
         }
         if (gap && !gap.atEdge && edges < 2) {            // standing on a base beside the void: walk to its edge first
             edges++;
