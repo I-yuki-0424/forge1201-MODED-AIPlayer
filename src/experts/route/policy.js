@@ -7,12 +7,12 @@ const { DK, DC } = require('./features');
 
 const DIN = DK + DC, HIDDEN = 16;
 const NPARAM = DIN + DIN * HIDDEN + HIDDEN + HIDDEN;
-const IX = { prog: 0, rem: 1, lat: 2, dyc: 3, dyt: 4, dyt_gain: 5, reached: 6, cost: 7, in_range: 8, open: 9, water: 10, wall: 11, slope: 12, visits: 13, tabu: 14, back: 15, lateral: 16, diag_or_off: 17 };
+const IX = { prog: 0, rem: 1, lat: 2, dyc: 3, dyt: 4, dyt_gain: 5, reached: 6, cost: 7, in_range: 8, open: 9, water: 10, wall: 11, slope: 12, visits: 13, tabu: 14, back: 15, lateral: 16, diag_or_off: 17, cont: 18, frontier: 19, lat_blocked: 20 };
 
 /** The heuristic as a parameter vector (network part zero). */
 function heuristicVector(hidden = HIDDEN) {
     const v = new Float64Array(DIN + DIN * hidden + hidden + hidden);
-    const lin = { prog: 2, dyt_gain: 1, reached: 4, cost: -1, open: 1, water: -1, wall: -1.5, visits: -1.5, tabu: -8, back: -2, lateral: -0.5, diag_or_off: -0.2 };
+    const lin = { prog: 2, dyt_gain: 2.5, reached: 4, cost: -1, open: 1, water: -1, wall: -1.5, visits: -1.5, tabu: -8, back: -2, lateral: -0.5, diag_or_off: -0.2, cont: 0.6, lat_blocked: 1.2 };
     for (const [k, w] of Object.entries(lin)) v[IX[k]] = w;
     return v;
 }

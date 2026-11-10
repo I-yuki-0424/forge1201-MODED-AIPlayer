@@ -92,7 +92,30 @@ function ahead(w, c, dir) {
 async function reachMap(w, here, { maxNodes = 2500, radius = 32 } = {}) {
     const r = await reachableAsync(w, here, { maxNodes, radius }), m = new Map();       // sliced: 2,500 cells in one go froze the other bots for tens of milliseconds
     for (const [x, y, z, c] of r.cells) m.set(`${x},${y},${z}`, c);
-    return { cost: m, complete: r.cells.length < maxNodes, nodes: r.cells.length, radius };
+    return { cost: m, complete: r.cells.length < maxNodes, nodes: r.cells.length, radius, path: r.path };
 }
 
-module.exports = { stands, chunkStep, exitCandidates, waypointCandidates, waypointCount, ahead, reachMap, chunkOf, ckey, hd, MAX_K, WP_EVERY };
+
+/**
+ * Frontier cells: the cells of the path calculator's own reach that gain most toward the arrival point (3-D when the level is known), at least 4 blocks apart. They are reached by
+ * construction, so they are what lets the policy take a haul road or a ledge that lies inside the reach but not on a chunk border. Rows: [{x, y, z, side: 'reach'}].
+ */
+function frontierCandidates(reach, here, to, ty, k = 8) {
+    const d3 = (c) => Math.hypot(c.x - to.x, c.z - to.z, ty === null ? 0 : c.y - ty), d0 = d3(here), best = [];
+    for (const key of reach.cost.keys()) {
+        const [x, y, z] = key.split(',').map(Number), c = { x, y, z }, g = d0 - d3(c);
+        if (g <= 1) continue;
+        best.push({ ...c, g });
+    }
+    best.sort((a, b) => b.g - a.g || a.x - b.x || a.z - b.z || a.y - b.y);
+    const out = [];
+    for (const c of best) {
+        if (out.length >= k) break;
+        if (out.some((o) => Math.max(Math.abs(o.x - c.x), Math.abs(o.z - c.z)) < 4 && Math.abs(o.y - c.y) <= 2)) continue;
+        const dx = to.x - c.x, dz = to.z - c.z;
+        out.push({ x: c.x, y: c.y, z: c.z, side: 'reach', dir: Math.abs(dx) >= Math.abs(dz) ? [Math.sign(dx), 0] : [0, Math.sign(dz)], diag: 0 });
+    }
+    return out;
+}
+
+module.exports = { frontierCandidates, stands, chunkStep, exitCandidates, waypointCandidates, waypointCount, ahead, reachMap, chunkOf, ckey, hd, MAX_K, WP_EVERY };

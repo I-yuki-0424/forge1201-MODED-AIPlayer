@@ -12,6 +12,7 @@ const P = require('../../src/experts/route/policy');
 
 const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i < 0 ? d : process.argv[i + 1]; };
 const gens = +arg('gens', 150), pop = +arg('pop', 24), nEps = +arg('eps', 28), sigma = +arg('sigma', 0.15), lr = +arg('lr', 0.03), threads = +arg('threads', 3), out = arg('out', '/out');
+const LINEAR = process.argv.includes('--linear');          // evolve only the linear term (30 numbers): the hidden layer stays zero
 const VAL_BASE = 1000000, VAL_N = 70, DECAY = 0.002;
 const ranks = (xs) => { const idx = xs.map((x, i) => [x, i]).sort((a, b) => a[0] - b[0]), r = new Array(xs.length); idx.forEach(([, i], k) => { r[i] = k / (xs.length - 1) - 0.5; }); return r; };
 const gauss = (r) => Math.sqrt(-2 * Math.log(r() + 1e-12)) * Math.cos(2 * Math.PI * r());
@@ -20,7 +21,7 @@ const gauss = (r) => Math.sqrt(-2 * Math.log(r() + 1e-12)) * Math.cos(2 * Math.P
     fs.mkdirSync(out, { recursive: true });
     const ck = path.join(out, 'ckpt.json'), log = (m) => { const l = `${new Date().toISOString()} ${m}`; console.log(l); fs.appendFileSync(path.join(out, 'train.log'), l + '\n'); };
     let theta = P.heuristicVector(), g0 = 0, best = { ret: -Infinity, vec: null, gen: -1, summary: null }, adam = { m: new Float64Array(theta.length), v: new Float64Array(theta.length), t: 0 };
-    const seed0 = rng(12345); for (let i = 0; i < theta.length; i++) if (i >= P.DIN && i < P.DIN + P.DIN * P.HIDDEN) theta[i] = 0.05 * gauss(seed0);        // a little structure in the hidden layer
+    const seed0 = rng(12345); if (!LINEAR) for (let i = 0; i < theta.length; i++) if (i >= P.DIN && i < P.DIN + P.DIN * P.HIDDEN) theta[i] = 0.05 * gauss(seed0);        // a little structure in the hidden layer
     if (process.argv.includes('--resume') && fs.existsSync(ck)) { const c = JSON.parse(fs.readFileSync(ck, 'utf8')); theta = Float64Array.from(c.theta); g0 = c.gen + 1; best = c.best; adam = { m: Float64Array.from(c.adam.m), v: Float64Array.from(c.adam.v), t: c.adam.t }; if (process.argv.includes('--reset-best')) { best = { ret: -Infinity, vec: null, gen: -1, summary: null }; adam = { m: new Float64Array(theta.length), v: new Float64Array(theta.length), t: 0 }; }
         log(`resumed at generation ${g0}${process.argv.includes('--reset-best') ? ' (best and Adam reset: the episode set changed)' : ''}`); }
     const pool = new Pool(threads), vec = (v) => ({ type: 'vec', vec: Array.from(v) });
@@ -29,7 +30,7 @@ const gauss = (r) => Math.sqrt(-2 * Math.log(r() + 1e-12)) * Math.cos(2 * Math.P
     for (let g = g0; g < gens; g++) {
         const r = rng(1000 + g), eps = Array.from({ length: nEps }, (_, i) => episode((g * 104729) % 900000, i)), pairs = pop / 2, noise = [], jobs = [];
         for (let p = 0; p < pairs; p++) {
-            const e = Float64Array.from({ length: theta.length }, () => gauss(r)); noise.push(e);
+            const e = Float64Array.from({ length: theta.length }, (_, i) => { const x = gauss(r); return LINEAR && i >= P.DIN ? 0 : x; }); noise.push(e);
             for (const s of [1, -1]) { const th = theta.map((x, i) => x + s * sigma * e[i]); for (let i = 0; i < eps.length; i += 7) jobs.push({ spec: vec(th), eps: eps.slice(i, i + 7) }); }
         }
         const per = Math.ceil(eps.length / 7), res = await pool.run(jobs), F = [];

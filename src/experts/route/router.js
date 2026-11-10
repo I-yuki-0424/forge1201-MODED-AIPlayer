@@ -10,7 +10,7 @@ const C = require('./candidates');
 const F = require('./features');
 const P = require('./policy');
 
-const NEAR = 3, MAX_DECISIONS = 120, PATIENCE = 8, GAIN = 2, MAX_FAILS_ROW = 4;
+const VIA = 10, NEAR = 3, MAX_DECISIONS = 120, PATIENCE = 8, GAIN = 2, MAX_FAILS_ROW = 4;
 const FATAL = new Set(['died', 'disconnected', 'cancelled']);
 const MODEL_FILE = path.join(__dirname, '..', '..', '..', 'models', 'experts', 'route.json');
 
@@ -39,7 +39,7 @@ function levelOf(w, to, here) {
  */
 async function route(env, to, o = {}) {
     const model = o.model || defaultModel(), near = o.near === undefined ? NEAR : o.near, maxDec = o.maxDecisions || MAX_DECISIONS;
-    const mem = { visits: new Map([[C.ckey(C.chunkOf(env.here().x), C.chunkOf(env.here().z)), 1]]), failed: [], prev: null }, st = { decisions: 0, fails: 0, prepMs: 0, thinkMs: 0, thinkMaxMs: 0, execMs: 0, model: model.name || 'custom', reachNodes: 0 };
+    const mem = { visits: new Map([[C.ckey(C.chunkOf(env.here().x), C.chunkOf(env.here().z)), 1]]), failed: [], prev: null, move: null }, st = { decisions: 0, fails: 0, prepMs: 0, thinkMs: 0, thinkMaxMs: 0, execMs: 0, model: model.name || 'custom', reachNodes: 0 };
     const start = env.here();
     let legs = 0, stalls = 0, failsRow = 0, noGain = 0, best = C.hd(start, to), wp = null, last = null, ty = null;
     const out = (r) => ({ ...r, route: st });
@@ -72,16 +72,27 @@ async function route(env, to, o = {}) {
         if (inDest && !cands.length) cands = C.exitCandidates(env.w, here, to, { back: true, ty });
         if (!cands.length) return fail(last ? last.reason : 'unreachable', { ...(last && last.detail ? last.detail : {}), why: 'no cell to stand on at the border of the chunk toward the target' });
         const reach = await C.reachMap(env.w, here); st.reachNodes += reach.nodes;
+        if (!o.noFrontier && (!inDest || (ty !== null && Math.abs(ty - here.y) > 6))) { const have = new Set(cands.map((q) => `${q.x},${q.y},${q.z}`)); for (const q of C.frontierCandidates(reach, here, to, ty)) if (!have.has(`${q.x},${q.y},${q.z}`)) cands.push(q); }
         const built = F.build({ w: env.w, here, to, ty, cands, reach, mem, legs, stalls, failsLeg: failsRow, wp: inDest });
         st.prepMs += now() - t0;
         const t1 = now(), sc = P.scores(model, built.feat, built.ctx, built.cands.length), pick = P.argmax(sc), dt = now() - t1;
         st.thinkMs += dt; st.thinkMaxMs = Math.max(st.thinkMaxMs, dt); st.decisions++;
         const c = built.cands[pick];
         if (o.onDecision) { try { o.onDecision({ here, to, cand: c, mode: inDest ? 'wp' : 'exit', k: built.cands.length, score: sc[pick] }); } catch (_) { /* a log must not stop a walk */ } }
-        const t2 = now(), r = await env.exec('move_to', { x: c.x, y: c.y, z: c.z }); st.execMs += now() - t2;
+        const t2 = now();
+        let r = await env.exec('move_to', { x: c.x, y: c.y, z: c.z });
+        // The planner's own search reached this cell, but the walk's search (guided by the straight line, 6,000 cells) did not find it: walk the way the reach search found, in stretches of VIA cells.
+        if (!r.ok && !FATAL.has(r.reason) && c.rc !== undefined && reach.path) {
+            const way = reach.path(c.x, c.y, c.z); st.via = (st.via || 0) + 1;
+            if (way && way.length > 2) {
+                r = { ok: true };
+                for (let i = VIA; i < way.length + VIA - 1 && r.ok; i += VIA) { const q = way[Math.min(i, way.length - 1)]; r = await env.exec('move_to', { x: q.x, y: q.y, z: q.z }); if (r.ok && Math.min(i, way.length - 1) === way.length - 1) break; }
+            }
+        }
+        st.execMs += now() - t2;
         if (r.ok) {
             const after = env.here(), key = C.ckey(C.chunkOf(after.x), C.chunkOf(after.z)), fresh = !mem.visits.has(key), da = C.hd(after, to);
-            mem.prev = C.ckey(C.chunkOf(here0.x), C.chunkOf(here0.z)); mem.visits.set(key, (mem.visits.get(key) || 0) + 1); legs++; failsRow = 0;
+            mem.move = { x: after.x - here0.x, z: after.z - here0.z }; mem.prev = C.ckey(C.chunkOf(here0.x), C.chunkOf(here0.z)); mem.visits.set(key, (mem.visits.get(key) || 0) + 1); legs++; failsRow = 0;
             if (inDest) wp.left--;
             // A leg that ends in a chunk never seen is exploration (going round a wall gets no closer for a while); one that ends in a chunk already walked and gains nothing is the back and forth.
             if (fresh || da < best - GAIN) noGain = 0; else if (++noGain >= PATIENCE) return fail('stuck', { why: `${PATIENCE} legs in a row ended in chunks already walked, no closer than ${GAIN} blocks` });

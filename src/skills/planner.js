@@ -156,20 +156,27 @@ function* reachableSteps(w, start, { maxNodes = 1500, radius = 20, slice = 600 }
     const R = radius, side = 2 * R + 1;
     const key = (x, y, z) => ((x - start.x + R) * side + (z - start.z + R)) * 1024 + (y - start.y + 512);
     const inside = (x, y, z) => Math.abs(x - start.x) <= R && Math.abs(z - start.z) <= R && Math.abs(y - start.y) < 512;
-    const done = new Map(), cells = [];
+    const done = new Map(), cells = [], par = new Map();                          // par: cell key -> its parent node (the way the search came), for `path`
     const k0 = nodeKind(w, start.x, start.y, start.z);
     if (k0) {
         const open = new Heap();
-        open.push({ x: start.x, y: start.y, z: start.z, kind: k0, f: 0 });
+        open.push({ x: start.x, y: start.y, z: start.z, kind: k0, f: 0, p: null });
         while (open.size && cells.length < maxNodes) {
             const c = open.pop(), k = key(c.x, c.y, c.z);
             if (done.has(k)) continue;
-            done.set(k, c.f); cells.push([c.x, c.y, c.z, c.f]);
+            done.set(k, c.f); cells.push([c.x, c.y, c.z, c.f]); par.set(k, c.p);
             if (cells.length % slice === 0) yield cells.length;
-            for (const m of neighbours(w, c)) if (inside(m.x, m.y, m.z) && !done.has(key(m.x, m.y, m.z))) { m.f = c.f + m.cost; open.push(m); }
+            for (const m of neighbours(w, c)) if (inside(m.x, m.y, m.z) && !done.has(key(m.x, m.y, m.z))) { m.f = c.f + m.cost; m.p = c; open.push(m); }
         }
     }
-    return { has: (x, y, z) => inside(x, y, z) && done.has(key(x, y, z)), cells };
+    // The cells from the start to (x, y, z) along the search's own way (the shortest by the planner's costs), or null when the cell is not in the reach.
+    const path = (x, y, z) => {
+        if (!inside(x, y, z) || !done.has(key(x, y, z))) return null;
+        const out = []; let n = { x, y, z };
+        for (let g = 0; n && g < 5000; g++) { out.push({ x: n.x, y: n.y, z: n.z }); n = par.get(key(n.x, n.y, n.z)); }
+        return out.reverse();
+    };
+    return { has: (x, y, z) => inside(x, y, z) && done.has(key(x, y, z)), cells, path };
 }
 
 async function reachableAsync(w, start, opts = {}) {
