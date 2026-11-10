@@ -193,8 +193,8 @@ const keepAlive = setInterval(() => {}, 1000);          // the line's own timers
         const { botEnv } = require('../src/work/bot/env'), sentCmd = [];
         const solid = (x, y, z) => y <= 0, b = new EventEmitter();
         Object.assign(b, { username: 'Bot', registry: { blocksByName: {}, itemsByName: {} }, entity: { position: { x: 0.5, y: 1, z: 0.5, floored: () => ({ x: 0, y: 1, z: 0 }) }, onGround: true }, blockAt: (v) => (solid(v.x, v.y, v.z) ? { name: 'stone', boundingBox: 'block', shapes: [[0, 0, 0, 1, 1, 1]] } : { name: 'air', boundingBox: 'empty', shapes: [] }), inventory: { items: () => [] }, setControlState() {} });
-        const e = botEnv(b, { cancel: { cancelled: false }, rcon: async (c) => { sentCmd.push(c); b.entity.position.x = 20.5; b.entity.position.z = 20.5; return 'ok'; }, teleport: () => 'off' });
-        const g = await e.goBack('test'); assert.ok(g.ok || g.reason === 'not_confirmed', JSON.stringify(g)); assert.strictEqual(sentCmd.length, 1, 'allowed although the recovery setting is off (a job move)');
+        const e = botEnv(b, { cancel: { cancelled: false }, rcon: async (c) => { sentCmd.push(c); b.entity.position.x = 20.5; b.entity.position.z = 20.5; return 'ok'; }, teleport: () => 'near' });
+        const g = await e.goBack('test'); assert.ok(g.ok || g.reason === 'not_confirmed', JSON.stringify(g)); assert.strictEqual(sentCmd.length, 1, 'allowed although recovery moves are limited (a job move)');
         const none = await botEnv(b, { cancel: { cancelled: false } }).goBack('x'); assert.strictEqual(none.reason, 'refused');
     });
     await test('env.within: the pit box reaches the pillar by itself (goToStation, leave pit, scripts all call env.run); an explicit box wins; other moves are untouched', async () => {

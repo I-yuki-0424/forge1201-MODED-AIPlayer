@@ -29,7 +29,7 @@ const META = [
     { name: 'expert_escape', group: 'Movement', meta: true, doc: 'Get out of a hole, shaft or sealed pocket with the trained stuck-escape expert (digs and climbs). Without a cell: the open ground around.', args: [{ name: 'x', type: 'int', optional: true }, { name: 'y', type: 'int', optional: true, hint: 'y (feet level)' }, { name: 'z', type: 'int', optional: true }] },
     { name: 'come', group: 'Movement', meta: true, doc: 'Walk to the operator (a player on the server).', args: [{ name: 'player', type: 'player', optional: true }] },
     { name: 'say', group: 'Chat', meta: true, doc: 'Say something in chat (not a command: text starting with / is refused).', args: [{ name: 'text', type: 'text' }] },
-    { name: 'teleport', group: 'Operator', meta: true, rcon: true, doc: 'Teleport the bot (server command): to a player, or to coordinates.', args: [{ name: 'player', type: 'player', optional: true }, { name: 'x', type: 'int', optional: true }, { name: 'y', type: 'int', optional: true }, { name: 'z', type: 'int', optional: true }, { name: 'dim', type: 'dim', optional: true, hint: 'another dimension (with x, y, z): overworld, nether, end or an id' }] },
+    { name: 'teleport', group: 'Operator', meta: true, rcon: true, doc: 'Teleport the bot (server command): to a player, or to coordinates. Refused while "Server moves" on the Automation page is off (the default since 2026-11-10).', args: [{ name: 'player', type: 'player', optional: true }, { name: 'x', type: 'int', optional: true }, { name: 'y', type: 'int', optional: true }, { name: 'z', type: 'int', optional: true }, { name: 'dim', type: 'dim', optional: true, hint: 'another dimension (with x, y, z): overworld, nether, end or an id' }] },
     { name: 'journey', group: 'Movement', meta: true, doc: 'A long walk to x, y, z, in legs (a plain walk fails where the chunks are not loaded). Choose another dimension (the Nether, the End, or any id such as twilightforest:twilight_forest) and the route goes through a tagged portal that leads there; with "by the server" (and y) the server puts the bot there when no gate does. "by the Nether" shortens a long overworld walk when gates are tagged on both sides. The bot stays in the dimension it was sent to. Experimental.', args: [{ name: 'x', type: 'int' }, { name: 'z', type: 'int' }, { name: 'y', type: 'int', optional: true }, { name: 'dim', type: 'dim', optional: true }, { name: 'viaNether', type: 'bool', optional: true, hint: 'by the Nether (long overworld walks)' }, { name: 'viaServer', type: 'bool', optional: true, hint: 'by the server (needs y; no gate needed)' }] },
     { name: 'bridge', group: 'Blocks', meta: true, doc: 'Work over a gap (an abyss: End islands, a lava sea): lay a bridge of temporary blocks from where the bot stands, level, to the cell beside the block at x y z, mine it / place a block there / do nothing, then walk back and stop. The bridge stays. Bot start: a cell with a solid floor. WIP, not run live.', args: [{ name: 'x', type: 'int' }, { name: 'y', type: 'int' }, { name: 'z', type: 'int' }, { name: 'job', type: 'text', optional: true, hint: 'mine (default none), place or none' }, { name: 'item', type: 'item', optional: true, hint: 'block to place (job place)' }] },
     { name: 'trades', group: 'Items', meta: true, doc: 'Walk to a villager (the nearest, or the one picked) and list what it offers: the list goes to the log. WIP.', args: [{ name: 'entity', type: 'entity', optional: true, hint: 'villager (nearest if none)' }] },
@@ -39,10 +39,13 @@ const META = [
     { name: 'stop', group: 'Movement', meta: true, doc: 'Cancel what the bot is doing right now.', args: [] },
 ];
 
+// Operator-only arguments added to an action-layer command (the RL action space is unchanged: the work service takes them off before the command runs).
+const EXTRA = { move_to: [{ name: 'dim', type: 'dim', optional: true, hint: 'another dimension: the bot walks to a tagged gate that leads there, goes through and walks on to x y z (never a server move)' }] };
+
 function catalog() {
     const out = Object.entries(COMMANDS).map(([name, c]) => ({
-        name, group: DOC[name][0], doc: DOC[name][1],
-        args: Object.entries(c.args).map(([a, t]) => ({ name: a, type: t.replace('?', ''), optional: t.endsWith('?'), hint: HINT[a] || a })),
+        name, group: DOC[name][0], doc: DOC[name][1] + (EXTRA[name] ? ' Choose a dimension to go through a tagged gate (portal) that leads there.' : ''),
+        args: [...Object.entries(c.args).map(([a, t]) => ({ name: a, type: t.replace('?', ''), optional: t.endsWith('?'), hint: HINT[a] || a })), ...(EXTRA[name] || [])],
         oneOf: c.oneOf || null, allOrNone: c.allOrNone || null,
     }));
     return [...out, ...META].sort((a, b) => a.group.localeCompare(b.group) || a.name.localeCompare(b.name));

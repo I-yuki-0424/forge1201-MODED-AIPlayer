@@ -60,7 +60,8 @@ function fakeBot(name) {
 
     await test('pit: boxes are normalised and bounded; three bots dig it to the end; bots are released', async () => {
         assert.deepStrictEqual(normalizeBox({ x0: 40, z0: 30, x1: 10, z1: 5, top: 90, bottom: 95 }), { x0: 10, z0: 5, x1: 40, z1: 30, top: 95, bottom: 90 });
-        throwsP(() => svc.createPit({ box: { x0: 0, z0: 0, x1: 300, z1: 5, top: 90, bottom: 80 } }), 400, /per side/);
+        throwsP(() => svc.createPit({ box: { x0: 0, z0: 0, x1: 1600, z1: 5, top: 90, bottom: 80 } }), 400, /100 x 100 chunks/);
+        assert.ok(normalizeBox({ x0: 0, z0: 0, x1: 1599, z1: 1599, top: 90, bottom: 80 }), '100 x 100 chunks (1600 blocks a side) is allowed');
         throwsP(() => svc.createPit({ box: { x0: 0, z0: 0, x1: 5, z1: 5, top: 90, bottom: -100 } }), 400, /y must be/);
         throwsP(() => svc.createPit({ box: { x0: 0.5, z0: 0, x1: 5, z1: 5, top: 90, bottom: 80 } }), 400, /integer/);
         throwsP(() => svc.createPit({ method: 'rows', box: { x0: 0, z0: 0, x1: 3, z1: 3, top: 100, bottom: 60 } }), 400, /haul road/);       // deeper than the edge is long (a road is kept in the rows method)
@@ -298,7 +299,7 @@ function fakeBot(name) {
     await test('a bot found outside the overworld is sent back to the depot of a job, once per 15 s; the overworld is left alone', async () => {
         const sent = [];
         const s = new WorkService({ dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'work-')), factory, envFactory, reconnectMs: 20, rcon: { command: async (c) => { sent.push(c); return 'ok'; } } });
-        s.addBot('Lost'); await until(() => s.status().bots[0].state === 'online');
+        s.addBot('Lost'); await until(() => s.status().bots[0].state === 'online'); s.setSettings({ teleport: 'near' });
         const bot = s.bots.get('Lost').bot;
         s.jobs.set('jx', { id: 'jx', state: 'running', spec: { depot: { kind: 'chest', x: 217, y: 64, z: 417 }, box: { x0: 0, x1: 1, z0: 0, z1: 1, top: 1, bottom: 0 } }, bots: new Set() });
         bot.game = { dimension: 'overworld' }; s._watchDimension(); await sleep(10);
@@ -306,6 +307,7 @@ function fakeBot(name) {
         bot.game = { dimension: 'the_nether' }; s._watchDimension(); await sleep(10);
         assert.deepStrictEqual(sent.filter((c) => /run tp/.test(c)), ['execute in minecraft:overworld run tp Lost 217.5 66 417.5']);
         s._watchDimension(); await sleep(10); assert.strictEqual(sent.filter((c) => /run tp/.test(c)).length, 1, 'one try per 15 s');
+        s.setSettings({ teleport: 'off' }); s.bots.get('Lost').dimTry = 0; sent.length = 0; s._watchDimension(); await sleep(10); assert.deepStrictEqual(sent.filter((c) => /run tp/.test(c)), [], 'server moves off: nobody is sent back by tp');
         s.jobs.delete('jx'); await s.stop();
     });
     console.log('ALL OK');

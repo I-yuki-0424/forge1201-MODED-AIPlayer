@@ -43,7 +43,7 @@ class WorkService extends EventEmitter {
         this.factory = this.o.factory || defaultFactory(this.o);
         // `worker`: the env of a bot that works a job (defence, a place to dump trash away from every job); one-off commands get the plain env.
         this.envFactory = this.o.envFactory || ((bot, cancel, o = {}) => require('../bot/env').botEnv(bot, {
-            cancel, rcon: this.o.rcon ? (c) => this.rcon(c) : null, moved: (m) => this._moved(bot.username, m), teleport: () => this.settings.teleport || 'near', gates: this.gates, stockMiss: this.stockMiss, experts: () => this.settings.experts !== false, expertLog: (m) => this._expertLog(bot.username, m),
+            cancel, rcon: this.o.rcon ? (c) => this.rcon(c) : null, moved: (m) => this._moved(bot.username, m), teleport: () => this.settings.teleport || 'off', gates: this.gates, stockMiss: this.stockMiss, experts: () => this.settings.experts !== false, expertLog: (m) => this._expertLog(bot.username, m),
             ...(o.worker ? { guard: true, defend: this.settings.defend !== false, avoid: () => this._activeBoxes(), others: () => this._botSpots(bot.username) } : {}),
         }));
         this.known = this.o.known || null;
@@ -54,7 +54,7 @@ class WorkService extends EventEmitter {
         this.bots = new Map();            // name -> record
         this.jobs = new Map();            // id -> job
         this.log = [];
-        this.settings = { autoKit: false, retireWorn: true, scripts: true, resumeJobs: true, defend: true, glow: true, directPickup: true, discardWorn: true, reflex: true, autoRepair: true, endDump: true, bedrockExploit: false, endDumpEnder: { left: 'white', middle: 'white', right: 'white' }, teleport: 'near', experts: true, toolPolicy: { wooden: 'use_up', stone: 'use_up', iron: 'use_up', golden: 'use_up', diamond: 'keep', netherite: 'keep' }, display: { on: true, paths: true, lanes: true, tags: true } };      // retireWorn: a nearly broken tool counts as no tool; scripts: recovery scripts (missing tool) on
+        this.settings = { autoKit: false, retireWorn: true, scripts: true, resumeJobs: true, defend: true, glow: true, directPickup: true, discardWorn: true, reflex: true, autoRepair: true, endDump: true, bedrockExploit: false, endDumpEnder: { left: 'white', middle: 'white', right: 'white' }, teleport: 'off', reachChunks: 50, experts: true, toolPolicy: { wooden: 'use_up', stone: 'use_up', iron: 'use_up', golden: 'use_up', diamond: 'keep', netherite: 'keep' }, display: { on: true, paths: true, lanes: true, tags: true } };      // retireWorn: a nearly broken tool counts as no tool; scripts: recovery scripts (missing tool) on
         this.problems = new Problems({ file: path.join(this.o.dataDir, 'problems.jsonl') });   // problem bots: where, facing, standing on what (problems.js)
         this.health = new Health({ file: this.o.dataDir ? path.join(this.o.dataDir, 'health.jsonl') : null });   // where the time goes, once a minute (health.js)
         this.sites = new Sites();                                                  // tagged chests by coordinates (sites.js)
@@ -150,7 +150,7 @@ class WorkService extends EventEmitter {
         let d; try { d = JSON.parse(fs.readFileSync(path.join(this.o.dataDir, 'state.json'), 'utf8')); } catch (_) { return; }
         this.settings = { ...this.settings, ...(d.settings || {}) }; this.seq = d.seq || 0;
         this._mapSaveTimer();
-        this.sites = new Sites(d.sites || []);
+        this.sites = new Sites(d.sites || []); this.sites.setReach(Number.isInteger(this.settings.reachChunks) ? this.settings.reachChunks : 50);
         this.temps.load(d.temps);
         for (const k of Array.isArray(d.placed) ? d.placed : []) if (/^-?\d+,-?\d+,-?\d+$/.test(k)) this.placed.add(k);
         const fz = watchdog.lastFreeze(this.o.dataDir), looping = !!(fz && fz.n >= 3 && Date.now() - fz.at < 3600000);

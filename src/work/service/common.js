@@ -7,7 +7,7 @@ const ITEM_ID = /^([a-z0-9_.-]{1,32}:)?[a-z0-9_/]{1,64}$/;
 const PLAYER_NAME = /^[A-Za-z0-9_]{1,16}$/;
 const COORD = 29_999_000;
 const MIN_Y = -64, MAX_Y = 319;
-const MAX_SIDE = 256, MAX_DEPTH = 256;
+const MAX_CHUNKS = 100, MAX_SIDE = MAX_CHUNKS * 16, MAX_DEPTH = 256;          // a pit is at most 100 x 100 chunks (owner 2026-11-10; it was 256 blocks = 16 chunks); the job's unit budget (jobs/pit.js MAX_UNITS) limits the depth of a very wide one
 const ACTIVE = new Set(['running', 'paused', 'ready']);
 
 // Pits: more attempts per unit than the default (a unit is retried by other bots after waits), and lanes stay within one layer of each other
@@ -28,11 +28,11 @@ function normalizeBox(b, dim = 'overworld', limits = null) {
     const x0 = Math.min(int(b.x0, 'x0'), int(b.x1, 'x1')), x1 = Math.max(b.x0, b.x1);
     const z0 = Math.min(int(b.z0, 'z0'), int(b.z1, 'z1')), z1 = Math.max(b.z0, b.z1);
     const top = Math.max(int(b.top, 'top'), int(b.bottom, 'bottom')), bottom = Math.min(b.top, b.bottom);
-    need(x1 - x0 < MAX_SIDE && z1 - z0 < MAX_SIDE, `a pit is at most ${MAX_SIDE} blocks per side (make several)`);
+    need(x1 - x0 < MAX_SIDE && z1 - z0 < MAX_SIDE, `a pit is at most ${MAX_CHUNKS} x ${MAX_CHUNKS} chunks (${MAX_SIDE} blocks per side; make several)`);
     need(top <= P.maxY && bottom >= P.minY, `y must be between ${P.minY} and ${P.maxY} in ${P.name}`);
     need(top - bottom + 1 <= MAX_DEPTH, `a pit is at most ${MAX_DEPTH} deep`);
     return { x0, z0, x1, z1, top, bottom };
 }
 
 const overlap = (a, b) => a.x0 <= b.x1 && b.x0 <= a.x1 && a.z0 <= b.z1 && b.z0 <= a.z1 && a.y0 <= b.y1 && b.y0 <= a.y1;
-module.exports = { Problem, need, int, normalizeBox, overlap, BOT_NAME, STRUCT_NAME, ITEM_ID, PLAYER_NAME, COORD, MIN_Y, MAX_Y, MAX_SIDE, MAX_DEPTH, ACTIVE, PIT_LEDGER, DEFAULT_KIT };
+module.exports = { Problem, need, int, normalizeBox, overlap, BOT_NAME, STRUCT_NAME, ITEM_ID, PLAYER_NAME, COORD, MIN_Y, MAX_Y, MAX_SIDE, MAX_CHUNKS, MAX_DEPTH, ACTIVE, PIT_LEDGER, DEFAULT_KIT };

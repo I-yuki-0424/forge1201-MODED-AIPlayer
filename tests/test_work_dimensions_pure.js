@@ -52,7 +52,8 @@ const TF = 'twilightforest:twilight_forest';
         throws(() => D.designate({ dim: 'overworld', x0: 0, x1: 1, z0: 0, z1: 1, y0: -65, y1: 0 }), /between -64 and 319/);
         throws(() => D.designate({ dim: TF, x0: 0, x1: 1, z0: 0, z1: 1, y0: -10, y1: 0 }), /safe limits/);
         assert.doesNotThrow(() => D.designate({ dim: TF, x0: 0, x1: 1, z0: 0, z1: 1, y0: -10, y1: 0 }, { learned: { minY: -64, height: 384 } }));
-        throws(() => D.designate({ dim: 'nether', x0: 0, x1: 300, z0: 0, z1: 1 }), /at most 256/);
+        throws(() => D.designate({ dim: 'nether', x0: 0, x1: 1600, z0: 0, z1: 1 }), /at most 1600/);
+        assert.ok(D.designate({ dim: 'overworld', x0: 0, x1: 1599, z0: 0, z1: 1599, y0: -59, y1: 319 }), 'a 100 x 100 chunk range is a range');
         throws(() => D.designate({ dim: 'nether', x0: 0.5, x1: 3, z0: 0, z1: 1 }), /x0 must be an integer/);
         throws(() => D.designate({ dim: 'mars', x0: 0, x1: 1, z0: 0, z1: 1 }), /dim:/);
         throws(() => D.designate(null), /range missing/);
@@ -116,7 +117,7 @@ const TF = 'twilightforest:twilight_forest';
     const envFactory = (bot) => ({
         w: { kindAt: () => 'air', nameAt: () => 'air' }, now: Date.now, pause: () => sleep(1), dispose() {},
         dimension: () => D.canon(bot.game.dimension) || bot.game.dimension, here: () => ({ x: 0, y: 70, z: 0 }),
-        exec: async () => ({ ok: true }), travel: async () => ({ ok: true, legs: 1 }), have: () => 0, inv: () => ({ items: [], slotsFree: 30 }), pos: () => ({ x: 0, z: 0 }),
+        exec: async () => ({ ok: true }), travel: async () => ({ ok: true, legs: 1 }), cross: async (g) => { if (bot.crossTo) bot.game.dimension = bot.crossTo; return { ok: true, from: 'overworld', to: bot.crossTo || 'overworld', gate: g }; }, have: () => 0, inv: () => ({ items: [], slotsFree: 30 }), pos: () => ({ x: 0, z: 0 }),
     });
     // The server: `execute in <dimension> run tp <bot> ...` moves the bot into that dimension.
     const rconCommand = async (c) => {
@@ -181,10 +182,17 @@ const TF = 'twilightforest:twilight_forest';
     await test('journey: a modded dimension is accepted; with no gate it is refused unless the server may do it, then the server puts the bot there at the given y', async () => {
         const send = (command, args) => svc.runCommand({ bots: ['Work1'], command, args });
         const wait = async () => { await until(() => svc.bots.get('Work1').cmd.status !== 'running'); return svc.bots.get('Work1').cmd; };
-        let r = await send('journey', { x: 10, z: 20, y: 70, dim: 'mars' }); assert.strictEqual(r.refused.length, 1); assert.match(r.refused[0].why, /dim:/);
+        assert.strictEqual(svc.settings.teleport, 'off', 'server moves are off by default (owner 2026-11-10)');
+        // Off: no way into a dimension without a gate, however it is asked for.
+        let r = await send('journey', { x: 10, z: 20, y: 70, dim: TF, viaServer: true }); let c0 = await wait();
+        assert.strictEqual(c0.status, 'failed'); assert.match(c0.result.detail, /server moves are off/);
+        assert.deepStrictEqual(given.filter((g) => /^execute/.test(g)), [], 'nothing was sent to the server while server moves are off');
+        r = await send('journey', { x: 10, z: 20, y: 70, dim: TF }); c0 = await wait(); assert.match(c0.result.detail, /server moves are off, so there is no other way/);
+        svc.setSettings({ teleport: 'near' });
+        r = await send('journey', { x: 10, z: 20, y: 70, dim: 'mars' }); assert.strictEqual(r.refused.length, 1); assert.match(r.refused[0].why, /dim:/);
         r = await send('journey', { x: 10, z: 20, y: 999, dim: 'nether' }); assert.match(r.refused[0].why, /outside nether/);
         r = await send('journey', { x: 10, z: 20, y: 70, dim: TF }); assert.strictEqual(r.started.length, 1);
-        let c = await wait(); assert.strictEqual(c.status, 'failed'); assert.match(c.result.detail, /by the server/);
+        let c = await wait(); assert.strictEqual(c.status, 'failed'); assert.match(c.result.detail, /tag the portal block/);
         assert.deepStrictEqual(given.filter((g) => /^execute/.test(g)), [], 'nothing was sent to the server without viaServer');
         r = await send('journey', { x: 10, z: 20, dim: TF, viaServer: true }); c = await wait();
         assert.strictEqual(c.status, 'failed'); assert.match(c.result.detail, /needs y/);
@@ -197,6 +205,10 @@ const TF = 'twilightforest:twilight_forest';
         svc._watchDimension(); await sleep(20); assert.deepStrictEqual(given, [], 'the bot may stay');
         svc.bots.get('Work1').inDim = null; svc._watchDimension(); await sleep(20); assert.ok(given.some((g) => /execute in minecraft:overworld run tp Work1/.test(g)), 'without the operator\'s word it is sent back');
         svc.jobs.delete('jx');
+        // With server moves off the watch sends nobody anywhere (it says so once).
+        svc.setSettings({ teleport: 'off' }); svc.jobs.set('jx', { id: 'jx', state: 'running', spec: { depot: { kind: 'chest', x: 1, y: 64, z: 1 }, box: { x0: 0, x1: 1, z0: 0, z1: 1, top: 1, bottom: 0 } }, bots: new Set() });
+        given.length = 0; svc.bots.get('Work1').inDim = null; svc.bots.get('Work1').dimTry = 0; svc._watchDimension(); await sleep(20); assert.deepStrictEqual(given, [], 'off: not sent back by the server');
+        svc.setSettings({ teleport: 'near' }); svc.jobs.delete('jx');
         // A job in its dimension also keeps the bot there.
         made[0].game.dimension = 'minecraft:the_nether'; svc.bots.get('Work1').dimTry = 0; given.length = 0;
         svc.jobs.set('jn', { id: 'jn', state: 'running', spec: { dim: 'nether', box: { x0: 0, x1: 1, z0: 0, z1: 1, top: 1, bottom: 0 } }, bots: new Set() }); svc.bots.get('Work1').job = 'jn';
@@ -206,7 +218,11 @@ const TF = 'twilightforest:twilight_forest';
 
     await test('teleport: into another dimension with x, y, z only, checked against its limits', async () => {
         const send = (args) => svc.runCommand({ bots: ['Work1'], command: 'teleport', args });
-        let r = await send({ player: 'Seia_Y', dim: 'end' }); assert.match(r.refused[0].why, /dim goes with x, y, z/);
+        svc.setSettings({ teleport: 'off' }); given.length = 0;
+        let r = await send({ x: 100, y: 50, z: 0, dim: 'end' }); assert.strictEqual(r.started.length, 1); await until(() => svc.bots.get('Work1').cmd.status !== 'running');
+        assert.strictEqual(svc.bots.get('Work1').cmd.status, 'failed'); assert.match(svc.bots.get('Work1').cmd.result.detail, /teleportation is off/); assert.deepStrictEqual(given, [], 'off: nothing reaches the server');
+        svc.setSettings({ teleport: 'near' });
+        r = await send({ player: 'Seia_Y', dim: 'end' }); assert.match(r.refused[0].why, /dim goes with x, y, z/);
         r = await send({ x: 1, y: 300, z: 1, dim: 'end' }); assert.match(r.refused[0].why, /outside end/);
         given.length = 0; r = await send({ x: 100, y: 50, z: 0, dim: 'end' }); assert.strictEqual(r.started.length, 1);
         await until(() => svc.bots.get('Work1').cmd.status !== 'running'); assert.strictEqual(svc.bots.get('Work1').cmd.status, 'ok');
@@ -214,12 +230,35 @@ const TF = 'twilightforest:twilight_forest';
         made[0].game.dimension = 'minecraft:overworld';
     });
 
-    await test('a job in another dimension: the bot is taken there first, at the middle of the pit and one above its top level', async () => {
+    await test('a job in another dimension: the bot goes there through a gate only - with none tagged it does not start and nothing is sent to the server (owner 2026-11-10: units were put into the End and fell)', async () => {
         const j = svc.createPit({ box: { x0: 200, x1: 215, z0: 200, z1: 215, top: 110, bottom: 100 }, dim: 'nether', lanes: 1 });
         given.length = 0; made[0].game.dimension = 'minecraft:overworld';
         const r = await svc._enterDim(svc.bots.get('Work1'), { cancelled: false }, svc.jobs.get(j.id), 'nether');
-        assert.ok(r.ok, JSON.stringify(r)); assert.deepStrictEqual(given, ['execute in minecraft:the_nether run tp Work1 207.5 111 207.5']);
+        assert.ok(!r.ok && r.reason === 'invalid_target' && /no tagged portal leads from overworld to nether/.test(r.detail.why), JSON.stringify(r));
+        assert.deepStrictEqual(given.filter((g) => /\btp\b/.test(g)), [], 'no server move, even with server moves allowed');
+        svc.setSettings({ teleport: 'near' }); given.length = 0;
+        const r2 = await svc._enterDim(svc.bots.get('Work1'), { cancelled: false }, svc.jobs.get(j.id), 'nether');
+        assert.ok(!r2.ok && given.filter((g) => /\btp\b/.test(g)).length === 0, 'job entry never uses the server jump, whatever the setting');
         made[0].game.dimension = 'minecraft:overworld';
+    });
+
+    await test('move_to with a dimension (owner 2026-11-10: "Move did not allow a dimension"): through a tagged gate that leads there (an End portal needs no twin), never by the server; no gate = it says which', async () => {
+        const send = (args) => svc.runCommand({ bots: ['Work1'], command: 'move_to', args });
+        const wait = async () => { await until(() => svc.bots.get('Work1').cmd.status !== 'running'); return svc.bots.get('Work1').cmd; };
+        assert.ok(catalog().find((c) => c.name === 'move_to').args.some((a) => a.name === 'dim' && a.optional && a.type === 'dim'), 'the Move form has a dimension field');
+        let r = await send({ x: 100, y: 49, z: 0, dim: 'mars' }); assert.match(r.refused[0].why, /dim:/);
+        r = await send({ x: 100, y: 999, z: 0, dim: 'end' }); assert.match(r.refused[0].why, /outside end/);
+        r = await send({ x: 100, y: 49, z: 0, dim: 'end' }); assert.strictEqual(r.started.length, 1); let c = await wait();
+        assert.strictEqual(c.status, 'failed'); assert.match(c.result.detail, /no tagged portal leads from overworld to end/);
+        svc.addSite({ name: 'endgate', x: 5, y: 64, z: 5, purpose: 'portal', dim: 'overworld', leads: 'end' });
+        made[0].crossTo = 'minecraft:the_end'; given.length = 0;
+        r = await send({ x: 100, y: 49, z: 0, dim: 'end' }); assert.strictEqual(r.started.length, 1); c = await wait();
+        assert.strictEqual(c.status, 'ok', JSON.stringify(c.result)); assert.match(c.result.detail || '', /cross endgate/);
+        assert.deepStrictEqual(given.filter((g) => /\btp\b/.test(g)), [], 'no server move');
+        assert.strictEqual(svc.bots.get('Work1').inDim, 'end', 'the dimension watch lets it stay');
+        // already in the dimension asked for: a plain walk (the dim argument is taken off before the action layer sees it)
+        r = await send({ x: 100, y: 49, z: 0, dim: 'end' }); c = await wait(); assert.strictEqual(c.status, 'ok', JSON.stringify(c.result));
+        made[0].crossTo = null; made[0].game.dimension = 'minecraft:overworld'; svc.bots.get('Work1').inDim = null; svc.sites.remove('endgate');
     });
 
     await svc.stop();

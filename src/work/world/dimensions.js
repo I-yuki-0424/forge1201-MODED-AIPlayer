@@ -55,9 +55,9 @@ const int = (v, what) => { if (!Number.isInteger(v) || Math.abs(v) > COORD) bad(
 /**
  * The range an operator designates in one dimension: a box x0..x1, z0..z1, y0..y1 (y defaults to the dimension's work band). Normalised (min before max) and checked against the
  * dimension's limits. Returns { dim, x0, z0, x1, z1, y0, y1, warnings: [...] } (warnings: it touches a bedrock layer, the dimension's limits are a guess); throws DimensionError.
- * @param opt { learned, maxSide = 256, maxVolume = 4_000_000 }
+ * @param opt { learned, maxSide = 1600 (100 chunks, like a pit), maxVolume = 1_000_000_000 }
  */
-function designate(spec, { learned = null, maxSide = 256, maxVolume = 4_000_000 } = {}) {
+function designate(spec, { learned = null, maxSide = 1600, maxVolume = 1_000_000_000 } = {}) {
     if (!spec || typeof spec !== 'object') bad('range missing');
     const dim = need(spec.dim === undefined ? 'overworld' : spec.dim), P = profile(dim, learned), warnings = [];
     const x0 = Math.min(int(spec.x0, 'x0'), int(spec.x1, 'x1')), x1 = Math.max(spec.x0, spec.x1);

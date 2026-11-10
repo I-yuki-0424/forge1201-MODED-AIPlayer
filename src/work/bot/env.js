@@ -270,7 +270,8 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         // Move the bot (server `tp`, position only) to the nearest cell where it can stand at the layer of a station that is far above or below it and cannot be
         // walked to: in a ragged open pit a floating pillar block cannot be climbed down and a shaft cannot be walked up. A cell needs air for the body and solid below.
         // `purpose`: 'job' (a station in another layer, a way out of the pit, the water rescue) is always allowed; 'recover' (the escape ladder after a failed move) follows the
-        // operator's `teleport` setting: off = never, near = within 16 blocks across and 6 up or down, any = as far as it takes. Every server move is reported to `moved`
+        // operator's `teleport` setting: off = never, near = within 16 blocks across and 6 up or down, any = as far as it takes. With the setting OFF no server move is made at all, for any purpose
+        // (lift, rejoin, goBack, back all refuse; the callers walk, dig or give up). Every server move is reported to `moved`
         // (owner 2026-11-08: "the bot moves as if teleporting"; it was this, and nothing said so).
         lift: (S, o = {}) => around('lift', async () => {
             const { radius = 5, down = 0, up = 2, purpose = 'job', why = '', skipSame = false } = o;
@@ -282,7 +283,7 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
             }
             if (!rcon) return { ok: false, reason: 'refused', detail: { why: 'no RCON' } };
             const mode = teleport();
-            if (purpose === 'recover' && mode === 'off') return { ok: false, reason: 'refused', detail: { why: 'server moves are off for recovery (setting teleport)' } };
+            if (mode === 'off') return { ok: false, reason: 'refused', detail: { why: 'server moves are off (setting teleport)', purpose } };         // off = no tp of any kind, whatever the purpose (owner 2026-11-10: "teleportation is prohibited for the time being")
             const oth = others ? others() : [], cand = [];
             for (let dx = -radius; dx <= radius; dx++) for (let dz = -radius; dz <= radius; dz++) for (let y = S.y - down; y <= S.y + up; y++) {
                 const x = S.x + dx, z = S.z + dz;
@@ -306,6 +307,7 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         // guessed, a cell that is not open (or a chunk that is not loaded) is no destination. Live 2026-11-09: four bots stood at the spawn for 20 minutes, each trying a 180-block corridor.
         rejoin: (S, { why = 'back to the job' } = {}) => around('lift', async () => {
             if (!rcon) return { ok: false, reason: 'refused', detail: { why: 'no RCON' } };
+            if (teleport() === 'off') return { ok: false, reason: 'refused', detail: { why: 'server moves are off (setting teleport)' } };
             const tries = [];
             if (S && Number.isInteger(S.x)) tries.push({ x: S.x, y: S.y + 1, z: S.z, name: 'the station' });
             if (good) tries.push({ x: good.x, y: good.y, z: good.z, name: 'the last good place' });

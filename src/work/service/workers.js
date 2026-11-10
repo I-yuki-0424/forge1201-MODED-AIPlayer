@@ -14,14 +14,15 @@ class WorkersPart {
     }
 
     /**
-     * Into the dimension of a job: through a tagged gate that leads there, else the server puts the bot at the job's site (the pit's middle at its top level; a build's origin).
+     * Into the dimension of a job: through a tagged gate that leads there (walk to it, go in, walk on to the job's site: the pit's middle at its top level; a build's origin).
+     * Never by a server move (owner 2026-11-10: units were put into the End and fell; teleportation is prohibited). No gate = the bot does not start, and the log says which gate is missing.
      * Failing is not final: the supervisor (_watchResume) starts the worker again later with a back-off.
      */
     async _enterDim(rec, cancel, job, dim) {
         const s = job.spec, at = job.kind === 'pit'
             ? { x: Math.floor((s.box.x0 + s.box.x1) / 2), z: Math.floor((s.box.z0 + s.box.z1) / 2), y: s.box.top + 1 }
             : { x: s.origin.x, z: s.origin.z, y: s.origin.y };
-        const r = await this._journey(rec, cancel, { ...at, dim, viaServer: !!this.o.rcon });
+        const r = await this._journey(rec, cancel, { ...at, dim });
         this.note(r.ok ? 'info' : 'warn', `${rec.name} -> ${dim} for job ${job.id}: ${r.ok ? 'ok' : r.reason}`, { job: job.id });
         return r;
     }

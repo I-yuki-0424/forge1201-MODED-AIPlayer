@@ -29,14 +29,16 @@ escalation.js  request to the DPOD router (not wired into any job)
 | water rules / defence / problem log and glow | `bot/water.js` / `bot/guard.js` / `bot/problems.js` |
 | what a bot keeps, throws away, puts in which chest | `bot/janitor.js`, `bot/discard.js` |
 | scripts (recovery when a tool or item is missing; one tool script per class: replace-tool/-sword/-axe/-shovel) | `bot/script.js` |
-| which containers a bot may use (10 chunks, Ender first) / getting it to a chest in another layer | `bot/sites.js` (`reachable`, `sources`) / `bot/reach.js` |
+| which containers a bot may use (the setting `reachChunks`, 50 chunks, Ender first) / getting it to a chest in another layer | `bot/sites.js` (`reachable`, `sources`, `setReach`) / `bot/reach.js` |
 | the dump at the end of a finished job | `bot/enddump.js`, `_endDump` in `service/workers.js` |
 | the final sweep of a pit (every chunk from the top, leftovers sent back) | `jobs/pit_sweep.js` |
 | tagged blocks, purposes, labels, links, portals | `bot/sites.js` (rules), `service/library.js` + `service/links.js` (service) |
 | Ender Storage (colours, what is inside) | `world/enderstorage.js`, `service/ender.js`; opening the chest: `transport/forge_windows.js` |
 | what a bot never breaks / what it picked up again | `skills/fixtures.js` (rule), `bot/janitor.js` (the shulker depot) |
 | long walks, portals, routes across dimensions | `bot/travel.js`, `bot/portal.js`, `bot/route.js`, command `journey` in `service/commands.js` |
-| dimensions: names, limits, designated ranges, 1:8 conversion / jobs and commands in another dimension / the server jump | `world/dimensions.js` / `_dimSpec`, `checkRange`, `_enterDim` (`service/jobs.js`, `service/workers.js`), `_serverJump` in `service/commands.js` |
+| dimensions: names, limits, designated ranges, 1:8 conversion / jobs and commands in another dimension (a gate only; `move_to` with `dim`) / the server jump (off by default) | `world/dimensions.js` / `_dimSpec`, `checkRange`, `_enterDim` (`service/jobs.js`, `service/workers.js`), `_journey`, `_serverJump` in `service/commands.js` |
+| server moves (RCON tp): the setting, who obeys it | setting `teleport` (off = none at all): `lift`, `rejoin` in `bot/env.js`, `_serverJump` / `teleport` in `service/commands.js`, `_watchDimension` in `service/bots.js` |
+| how big a pit may be (100 x 100 chunks, the unit cap) | `MAX_CHUNKS` in `service/common.js`, `MAX_UNITS` in `jobs/pit.js` |
 | work over an abyss (bridge, sneak walk back) / what is under a cell | `bot/bridge.js` (`workOver`, moves `bridge`, `sneak_walk`) / `bot/abyss.js` |
 | breaking bedrock (frame, WIP) / villager trades (WIP) | `bot/bedrock.js` (setting `bedrockExploit`) / `bot/trade.js` (commands `trades`, `trade`) |
 | the layer gate (a layer is read before the layer below opens) / the check itself | `needCheck`, `checkDone`, `requeueUnit` in `jobs/crew.js` / `checkLayer` in `jobs/pit.js`, hook in `bot/worker.js` |

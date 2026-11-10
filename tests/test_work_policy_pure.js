@@ -83,9 +83,10 @@ const POLICY = { wooden: 'use_up', stone: 'use_up', iron: 'use_up', golden: 'use
         o = await run('near', 'recover', 6); assert.ok(o.sent.length === 1 && o.moves.length === 1 && o.moves[0].dist >= 5 && o.moves[0].purpose === 'recover' && o.moves[0].why === 'test', JSON.stringify(o.moves));
         o = await run('off', 'recover', 2); assert.ok(!o.r.ok && /off/.test(o.r.detail.why) && !o.sent.length);
         o = await run('any', 'recover', 40); assert.ok(o.sent.length === 1, 'as far as it takes');
-        o = await run('off', 'job', 40); assert.ok(o.sent.length === 1 && o.moves[0].purpose === 'job', 'a job move (another layer) is never limited');
+        o = await run('near', 'job', 40); assert.ok(o.sent.length === 1 && o.moves[0].purpose === 'job', 'a job move (another layer) is not limited by near / any');
+        o = await run('off', 'job', 40); assert.ok(!o.r.ok && o.r.reason === 'refused' && /off/.test(o.r.detail.why) && !o.sent.length, 'off: not even a job move (owner 2026-11-10)');
         const d = fs.mkdtempSync(path.join(os.tmpdir(), 'tp-')); const svc = new WorkService({ dataDir: d, factory: () => ({}), restore: false });
-        assert.strictEqual(svc.settings.teleport, 'near'); svc.setSettings({ teleport: 'off' }); assert.strictEqual(svc.settings.teleport, 'off'); assert.throws(() => svc.setSettings({ teleport: 'sometimes' }), /off, near or any/);
+        assert.strictEqual(svc.settings.teleport, 'off'); svc.setSettings({ teleport: 'near' }); assert.strictEqual(svc.settings.teleport, 'near'); svc.setSettings({ teleport: 'off' }); assert.throws(() => svc.setSettings({ teleport: 'sometimes' }), /off, near or any/);
         svc.bots.set('B', { name: 'B', state: 'online', bot: { entity: { position: { x: 0, y: 0, z: 0 } } } });
         svc._moved('B', { dist: 31, why: 'escape after stuck', from: { x: 1, y: 2, z: 3 }, to: { x: 4, y: 5, z: 6 } });
         const v = svc.botDetail ? svc.status().bots.find((x) => x.name === 'B') : null; assert.ok(v && v.moved && v.moved.dist === 31 && v.moved.n === 1, JSON.stringify(v && v.moved));

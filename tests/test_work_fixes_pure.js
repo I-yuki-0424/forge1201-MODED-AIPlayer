@@ -34,13 +34,15 @@ const WHITE = { left: 'white', middle: 'white', right: 'white' };
 
     await test('sites: a standing container is usable within 10 chunks only; portals and links to other kinds are never filtered; the radius is a setting of the registry', () => {
         const s = mk();
-        assert.strictEqual(REACH_BLOCKS, 160);
+        assert.strictEqual(REACH_BLOCKS, 800, '50 chunks since 2026-11-10 (it was 10)'); assert.strictEqual(s.reach, 800);
+        assert.strictEqual(s.pick('far', from).name, 'far', 'far (400 blocks) is within 50 chunks');
+        s.setReach(10); assert.strictEqual(s.reach, 160); assert.throws(() => s.setReach(0), /1\.\.200/); assert.throws(() => s.setReach(201), /1\.\.200/); assert.throws(() => s.setReach(2.5), /1\.\.200/);
         assert.strictEqual(s.find('any', from).name, 'near');
         assert.deepStrictEqual(s.findAll('any', from).map((x) => x.name), ['near', 'ender'], 'far (400 blocks) is left out');
         assert.strictEqual(s.pick('far', from), null); assert.strictEqual(s.pick('far').name, 'far', 'no position: nothing is judged');
         assert.strictEqual(s.find('portal', from).name, 'gate', 'a gate 900 blocks away is still a gate');
-        assert.strictEqual(new Sites([{ name: 'f', x: 400, y: 64, z: 0, purpose: 'any' }]).placeFor('diamond', from), null, 'nothing to put it in within reach');
-        s.reach = 500; assert.strictEqual(s.pick('far', from).name, 'far');
+        { const f = new Sites([{ name: 'f', x: 400, y: 64, z: 0, purpose: 'any' }]); f.setReach(10); assert.strictEqual(f.placeFor('diamond', from), null, 'nothing to put it in within reach'); }
+        s.reach = 500; assert.strictEqual(s.pick('far', from).name, 'far'); s.setReach(25); assert.strictEqual(s.pick('far', from).name, 'far', '25 chunks = 400 blocks');
     });
 
     await test('sites: other dimension = unusable; the distance is measured to the container a link points to', () => {
@@ -48,7 +50,7 @@ const WHITE = { left: 'white', middle: 'white', right: 'white' };
         assert.strictEqual(s.find('any', { x: 0, z: 0, dim: 'nether' }), null);
         assert.strictEqual(s.find('any', { x: 0, z: 0, dim: 'overworld' }).name, 'a');
         const l = new Sites([{ name: 'chest', x: 500, y: 0, z: 0, purpose: 'any' }, { name: 'furn', x: 3, y: 0, z: 0, purpose: 'furnace', via: 'chest' }]);
-        assert.strictEqual(l.find('any', from), null, 'the chest is 500 blocks away');
+        l.setReach(10); assert.strictEqual(l.find('any', from), null, 'the chest is 500 blocks away');
     });
 
     await test('sites.sources: Ender Storage first, then the asked purpose, then the rest, nearest first; rubbish and food chests are not sources; a chest tagged any is insert-only', () => {
@@ -88,7 +90,7 @@ const WHITE = { left: 'white', middle: 'white', right: 'white' };
         assert.ok(r.ok, JSON.stringify(r));
         assert.deepStrictEqual(log, ['lift -59', 'withdraw ender 3', 'withdraw ender 1', 'lift 64', 'withdraw tools 3', 'withdraw tools 1', 'withdraw near 3', 'withdraw near 3'], 'Ender first, then the tools chest, then the plain one; the second take opens only the one that has it');
         const none = await script.runScript(script.validate({ name: 'n', steps: [{ take: { item: 'iron_ingot', from: 'ore' } }] }), { ...env, sites: new Sites() });
-        assert.strictEqual(none.reason, 'invalid_target'); assert.ok(/no container within 10 chunks/.test(none.detail.why), none.detail.why);
+        assert.strictEqual(none.reason, 'invalid_target'); assert.ok(/no container within 50 chunks/.test(none.detail.why), none.detail.why);
     });
 
     await test('take_tool: the tools chest and every other container within reach are asked; a chest that cannot be reached is passed over', async () => {
@@ -228,11 +230,11 @@ const WHITE = { left: 'white', middle: 'white', right: 'white' };
         assert.deepStrictEqual(Object.keys(pack).filter((k) => pack[k] > 0).sort(), ['enderstorage:ender_chest', 'iron_pickaxe', 'shulker_box', 'water_bucket']);
     });
 
-    await test('enddump: no usable storage = the pack stays as it is and the reason says why; a chest beyond 10 chunks does not count; a bot that died stops it', async () => {
+    await test('enddump: no usable storage = the pack stays as it is and the reason says why; a chest beyond the reach (50 chunks) does not count; a bot that died stops it', async () => {
         const pack = { diamond: 2 }, env = { inv: () => ({ items: [{ name: 'diamond', count: 2 }], slotsFree: 30 }), have: (n) => pack[n] || 0, pos: () => ({ x: 0, z: 0 }), here: () => ({ x: 0, y: 64, z: 0 }), exec: async () => ({ ok: true }) };
         const far = new Sites([{ name: 'e', x: 900, y: 64, z: 0, purpose: 'free', ender: WHITE }]);
         const r = await endDump(env, { sites: far, freq: WHITE });
-        assert.strictEqual(r.ok, false); assert.strictEqual(r.reason, 'invalid_target'); assert.ok(/no tagged storage within 10 chunks/.test(r.detail.why)); assert.deepStrictEqual(r.left, [{ item: 'diamond', count: 2, reason: 'no_site' }]);
+        assert.strictEqual(r.ok, false); assert.strictEqual(r.reason, 'invalid_target'); assert.ok(/no tagged storage within 50 chunks/.test(r.detail.why)); assert.deepStrictEqual(r.left, [{ item: 'diamond', count: 2, reason: 'no_site' }]);
         assert.deepStrictEqual((await endDump({ ...env, inv: () => ({ items: [{ name: 'iron_axe', count: 1 }], slotsFree: 30 }) }, { sites: far })).dumped, [], 'only tools: nothing to do, and no storage needed');
         const near = new Sites([{ name: 'e', x: 5, y: 64, z: 5, purpose: 'free', ender: WHITE }]);
         const dead = await endDump({ ...env, exec: async () => ({ ok: false, reason: 'died' }) }, { sites: near, freq: WHITE });

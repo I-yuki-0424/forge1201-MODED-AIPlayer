@@ -39,9 +39,10 @@ const canon = (t) => (ALIASES[t] || t);
 const PRIORITY = ['furnace', 'portal', 'tools', 'free', 'ore', 'food', 'blocks', 'trash', 'any', 'other'];
 const DIMS = Object.freeze(['overworld', 'nether', 'end']);
 const STORES = new Set(['ore', 'trash', 'food', 'blocks', 'any']);         // purposes the upkeep puts items into
-// Containers that hold items for the bots (owner 2026-11-09): a chest, barrel or Ender Storage block STANDS somewhere, so it is used only within REACH_BLOCKS (10 chunks) of the bot,
+// Containers that hold items for the bots (owner 2026-11-09): a chest, barrel or Ender Storage block STANDS somewhere, so it is used only within `reach` blocks of the bot (10 chunks at first;
+// a setting since 2026-11-10, `reachChunks`, 50 chunks for now: Sites.setReach), 
 // in the bot's dimension; farther away it counts as unusable. Portals, machines and `other` blocks are not containers of this kind and are never filtered.
-const REACH_BLOCKS = 160;
+const REACH_CHUNKS = 50, REACH_BLOCKS = REACH_CHUNKS * 16;
 const CONTAINER_PURPOSES = new Set(['tools', 'ore', 'trash', 'food', 'blocks', 'any', 'free']);
 const flat = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 const MAX_HOPS = 4;                                      // a link to a link to a link ...; deeper is refused like ELOOP
@@ -87,6 +88,9 @@ function purposeOf(s, strict, name, migrated) {
 class Sites {
     constructor(list = []) { this.map = new Map(); this.migrated = []; this.reach = REACH_BLOCKS; for (const s of list) { try { this.add(s, { loose: true }); } catch (_) { /* a bad stored entry is dropped, not fatal */ } } this._dropDangling(); }
 
+    /** How far a bot looks for a container, in chunks (the setting `reachChunks`; 1..200). */
+    setReach(chunks) { if (!Number.isInteger(chunks) || chunks < 1 || chunks > 200) throw new Error('reach: 1..200 chunks'); this.reach = chunks * 16; }
+
     /** `loose`: do not require that the `via` target is already there (a stored list is read in any order). */
     add(s, { loose = false } = {}) {
         if (!s || typeof s !== 'object') throw new Error('site missing');
@@ -99,7 +103,12 @@ class Sites {
             if (twin === s.name) throw new Error('a gate cannot be its own twin');
             if (purpose !== 'portal') throw new Error('twin belongs to a portal');
         }
+        let leads; if (s.leads !== undefined && s.leads !== null && s.leads !== '') {
+            if (purpose !== 'portal') throw new Error('leads belongs to a portal');
+            leads = dimensions.canon(s.leads); if (!leads) throw new Error('leads: the dimension the portal leads to (overworld, nether, end, or an id such as twilightforest:twilight_forest)');
+        }
         if (purpose === 'portal' && !dim) dim = 'overworld';
+        if (leads !== undefined && leads === (dim || 'overworld')) throw new Error('a portal does not lead to the dimension it stands in: "stands in" is where the block is, "leads to" is where it takes the bot');
         let freq; if (s.ender !== undefined && s.ender !== null) freq = ender.frequency(s.ender);          // throws with a message for the operator
         const label = s.label === undefined || s.label === null || s.label === '' ? undefined : String(s.label).trim();
         if (label !== undefined && !LABEL.test(label)) throw new Error('label: 1-40 characters, no control characters or < > " ` \\');
@@ -117,6 +126,7 @@ class Sites {
         if (freq) site.ender = freq;
         if (dim) site.dim = dim;
         if (twin !== undefined) site.twin = twin;
+        if (leads !== undefined) site.leads = leads;
         const same = this.at(site.x, site.y, site.z);
         if (same && same.name !== site.name) throw new Error(`${site.x} ${site.y} ${site.z} is already tagged as ${same.name}`);
         this.map.set(site.name, site);
@@ -155,7 +165,7 @@ class Sites {
     _end(best) { let end = null; try { end = this.through(best.x, best.y, best.z); } catch (_) { /* a broken link: the site itself */ } return end ? { ...best, x: end.x, y: end.y, z: end.z, linked: best.name } : best; }
 
     /**
-     * Can a bot at `from` {x, z, dim?} use this site? Containers only within `reach` blocks (10 chunks, owner 2026-11-09) and, when both dimensions are known, in the bot's own.
+     * Can a bot at `from` {x, z, dim?} use this site? Containers only within `reach` blocks (the setting reachChunks: 50 chunks, was 10, owner 2026-11-10) and, when both dimensions are known, in the bot's own.
      * Without `from` nothing is judged (a listing, an operator command). Sites that are no container (portal, furnace, other) are always usable.
      */
     reachable(s, from) {
@@ -223,4 +233,4 @@ class Sites {
     }
 }
 
-module.exports = { Sites, REACH_BLOCKS, CONTAINER_PURPOSES, TAGS, PURPOSES, ALIASES, DIMS, canon, classify, NAME, MAX_HOPS };
+module.exports = { REACH_CHUNKS, Sites, REACH_BLOCKS, CONTAINER_PURPOSES, TAGS, PURPOSES, ALIASES, DIMS, canon, classify, NAME, MAX_HOPS };

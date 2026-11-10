@@ -61,7 +61,7 @@ class CommandsPart {
         const to = { dim: args.dim ? dimensions.need(args.dim) : from.dim, x: args.x, y: Number.isInteger(args.y) ? args.y : undefined, z: args.z };
         const steps = route.plan(this.sites, from, to, { viaNether: !!args.viaNether });
         if (!steps && args.viaServer) return this._serverJump(rec, env, to);
-        if (!steps) return { ok: false, reason: 'invalid_target', detail: { why: `no tagged portal leads from ${from.dim} to ${to.dim} (tag the gates: purpose portal, its dimension, its twin on the other side; or tick "by the server" and give y: the server puts the bot there)` } };
+        if (!steps) { const off = this.settings.teleport === 'off'; return { ok: false, reason: 'invalid_target', detail: { why: `no tagged portal leads from ${from.dim} to ${to.dim}${off ? ' (server moves are off, so there is no other way)' : ''}: tag the portal block (purpose portal; "stands in" = the dimension the block is in, "leads to" = ${to.dim}, or its twin on the other side)${off ? '' : '; or tick "by the server" and give y'}` } }; }
         rec.crossing = true;
         const log = [];
         try {
@@ -91,6 +91,7 @@ class CommandsPart {
      */
     async _serverJump(rec, env, to) {
         if (!this.o.rcon) return { ok: false, reason: 'refused', detail: { why: 'a server jump needs RCON' } };
+        if (this.settings.teleport === 'off') return { ok: false, reason: 'refused', detail: { why: 'server moves are off (Automation page, "Server moves"): the bot goes through a tagged gate or not at all' } };
         if (!Number.isInteger(to.y)) return { ok: false, reason: 'invalid_args', detail: { why: 'a server jump needs y (the server cannot know where the floor is in a dimension nobody has loaded)' } };
         try { dimensions.checkPoint(to, rec.bot && rec.bot.game ? { minY: rec.bot.game.minY, height: rec.bot.game.height } : null); } catch (e) { return { ok: false, reason: 'invalid_args', detail: { why: e.message } }; }
         rec.crossing = true;
@@ -209,6 +210,12 @@ class CommandsPart {
             if (spec.name === 'come' && args.player !== undefined) need(inventory.NAME.test(String(args.player)), 'player name');
             return;
         }
+        if (spec.name === 'move_to' && args.dim !== undefined) {
+            need(dimensions.isDim(args.dim), 'dim: overworld, nether, end, or a dimension id such as twilightforest:twilight_forest');
+            const { dim, ...rest } = args; try { skills.validateArgs('move_to', rest); } catch (e) { throw new Problem(`${e.detail && e.detail.why ? e.detail.why : e.reason || e.message}`); }
+            try { dimensions.checkPoint({ dim, x: args.x, y: args.y, z: args.z }); } catch (e) { need(false, e.message); }
+            return;
+        }
         try { skills.validateArgs(spec.name, args); } catch (e) { throw new Problem(`${e.detail && e.detail.why ? e.detail.why : e.reason || e.message}`); }
     }
 
@@ -228,6 +235,7 @@ class CommandsPart {
         (async () => {
             if (command === 'say') { bot.chat(String(args.text)); return { ok: true }; }
             if (command === 'teleport') {
+                if (this.settings.teleport === 'off') return { ok: false, reason: 'refused', detail: { why: 'teleportation is off (Automation page, "Server moves"): walk the bot, or switch it on there first' } };
                 const dest = args.player ? String(args.player) : `${args.x} ${args.y} ${args.z}`, into = args.dim ? `execute in ${dimensions.rconId(args.dim)} run ` : '';
                 const r = String(await this.rcon(`${into}tp ${rec.name} ${dest}`)).replace(/\x1b\[[0-9;]*m/g, '');
                 if (/^Teleported/i.test(r.trim())) { if (args.dim) rec.inDim = dimensions.canon(args.dim); return { ok: true }; }
@@ -257,6 +265,9 @@ class CommandsPart {
             // The operator's move_to climbs when there is no way up on foot (a pillar of temporary blocks, taken away again; moves.js climbTo).
             // The action layer's own move_to, the one the RL policy has, is unchanged.
             if (command === 'move_to') {
+                // Another dimension (operator-only argument `dim`): the same route as `journey`, through a tagged gate that leads there; never a server move.
+                if (args.dim !== undefined && dimensions.canon(args.dim) !== (dimensions.canon(bot.game && bot.game.dimension) || null)) return this._journey(rec, cancel, { x: args.x, y: args.y, z: args.z, dim: args.dim });
+                if (args.dim !== undefined) args = { x: args.x, y: args.y, z: args.z };
                 const env = this.envFactory(bot, cancel);
                 // Far away (beyond the chunks the bot has loaded) the walk is split into legs; the last step is the ordinary move_to / climb (bot/travel.js).
                 const travel = require('../bot/travel');

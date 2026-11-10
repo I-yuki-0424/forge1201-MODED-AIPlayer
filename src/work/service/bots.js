@@ -67,6 +67,7 @@ class BotsPart {
             const job = rec.job && this.jobs.get(rec.job);
             if (rec.inDim === dim || (job && ['running', 'paused', 'ready'].includes(job.state) && (job.spec.dim || 'overworld') === dim)) continue;
             rec.dimTry = now;
+            if (this.settings.teleport === 'off') { if (now - (rec.dimNote || 0) > 600000) { rec.dimNote = now; this.note('warn', `${rec.name} is in ${dim}, not in a job's dimension; server moves are off, so it stays (walk it to a gate: move with a dimension)`); } continue; }
             let depot = null;
             for (const j of this.jobs.values()) { const d = j.spec && j.spec.depot; if (d && Number.isInteger(d.x) && Number.isInteger(d.y) && Number.isInteger(d.z)) { depot = d; if (['running', 'paused'].includes(j.state)) break; } }
             if (!depot) { this.note('warn', `${rec.name} is in ${dim} and no job depot is known to send it back`); continue; }

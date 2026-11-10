@@ -12,7 +12,9 @@ const CHUNK = 16;
 const TILE = 5;                      // a standing place covers a tile of this many cells per side: the farthest cell is 2.83 blocks away, well inside the 4.2 reach
 const SWEEP_R = 3.9;                 // horizontal reach of a standing place: with the eyes 1.1 above the cell, 3.9 is 4.05 in 3D (reach 4.5, aim margin 0.3)
 const STATION_TICKS = 600;           // a walk to a station gets 30 s (the command's own limit is 60 s): from there the lift, the pillar and the corridor are the way on
-const MAX_CELLS = 4_000_000;         // a job this large is a mistake in the arguments, not a request
+// The ledger keeps about 35 bytes per unit (a unit = one standing place of one layer; a row of one layer for method rows). 100 x 100 chunks, 5 x 5 tiles, 60 layers = 9.6 M units = 340 MB;
+// 16 M units = about 560 MB; the cap is what the console container can hold beside everything else (owner 2026-11-10: pits of 100 x 100 chunks).
+const MAX_UNITS = 16_000_000;
 const PASSABLE = new Set(['air', 'climb']);
 // Natural tree blocks. One that hangs high above the ground below it cannot be reached on foot: the planner expands 20,000 cells and gives up
 // (30-85 s per try, six tries per unit, bots end up standing on the canopy) - the live pit of 2026-11-07 with top y 90 over ground at y 64 and a tree.
@@ -43,7 +45,6 @@ function planPit(box, { chunk = CHUNK, lanes = 0, method = 'rows', tile = TILE, 
     for (const k of ['x0', 'z0', 'x1', 'z1', 'top', 'bottom']) if (!Number.isInteger(box[k])) throw new Error(`box.${k} must be an integer`);
     if (x1 < x0 || z1 < z0 || top < bottom) throw new Error('box is empty (x1<x0, z1<z0 or top<bottom)');
     const layers = top - bottom + 1;
-    if ((x1 - x0 + 1) * (z1 - z0 + 1) * layers > MAX_CELLS) throw new Error('box too large for one job');
     const road = withRoad ? planRoad(box, layers) : { keep: new Map(), cells: [] };       // no road: bots leave by pillar (exit.js) and enter from the surface with the digging
     if (!['rows', 'sweep'].includes(method)) throw new Error('method is rows or sweep');
     if (!Number.isInteger(tile) || tile < 1 || tile > 7) throw new Error('tile 1..7');
@@ -63,8 +64,11 @@ function planPit(box, { chunk = CHUNK, lanes = 0, method = 'rows', tile = TILE, 
     }
     // Fewer chunks than bots: cut the box into lanes instead, one X-Z range per bot that it digs down to the bottom, so that bots do
     // not work on the same layer side by side (owner 2026-11-06). With enough chunks the chunks are the lanes.
-    if (lanes > regions.length) { const l = laneBoxes(box, lanes); if (l.length > regions.length) return { box, layers, regions: l.map((r, i) => mk(`l${i}`, r)), road, lanes: l.length, method }; }
-    return { box, layers, regions, road, lanes: regions.length, method };
+    const out = lanes > regions.length ? ((l) => (l.length > regions.length ? { box, layers, regions: l.map((r, i) => mk(`l${i}`, r)), road, lanes: l.length, method } : null))(laneBoxes(box, lanes)) : null;
+    const plan = out || { box, layers, regions, road, lanes: regions.length, method };
+    const units = plan.regions.reduce((n, r) => n + r.layers * r.rows, 0);
+    if (units > MAX_UNITS) throw new Error(`this pit is ${units.toLocaleString('en')} units of work (the ledger holds at most ${MAX_UNITS.toLocaleString('en')}): dig it in two steps (a shallower range first), or make it smaller`);
+    return plan;
 }
 
 /** Cut a box into about `n` rectangles of near-square shape (a grid cx x cz with cx*cz <= n, as close to n as the box allows, none thinner than MIN_LANE). */
@@ -339,7 +343,9 @@ async function goToStation(S, handle, env, open, r) {
         if (far && env.rejoin) {
             if (rejoins >= 2) return { ok: false, reason: 'unreachable', detail: { why: 'still far from the station after being sent back', botSide: true, stage: 'rejoin', cell: S, ...r } };
             rejoins++;
-            const j = await env.rejoin(S);
+            let j = await env.rejoin(S);
+            // Server moves are off (setting teleport): the bot walks to the station's surroundings in legs instead (bot/travel.js), then the usual walk / pillar / corridor takes over.
+            if (!j.ok && j.reason === 'refused' && env.travel) { const t = await env.travel({ x: S.x, z: S.z }, { near: 12 }); j = t.ok ? { ok: true } : { ok: false, reason: t.reason, detail: { ...(t.detail || {}), why: `walking back to the job failed: ${(t.detail && t.detail.why) || t.reason}` } }; }
             if (!j.ok) return { ok: false, reason: j.reason || 'unreachable', detail: { ...(j.detail || {}), botSide: true, stage: 'rejoin', cell: S, ...r } };
             r.rejoined = (r.rejoined || 0) + 1; continue;
         }
@@ -482,4 +488,4 @@ function createPitJob(box, ledgerOpts = {}, { lanes = 0, method = 'rows', tile =
     return { kind: 'pit', ledger, plan, checkLayer: (env, ck, now) => checkLayer(plan, ledger, byId, auditState, env, ck, now), cleanup: (env) => (ledger.finished() ? require('../bot/temps').cleanTemps(env, { box: plan.box, max: 60, maxMs: 120000 }) : null), runUnit: (regionId, unit, env) => runUnit(plan, byId.get(regionId), unit, env), audit: (env, now, opts) => audit(plan, ledger, env.w, now, auditState, opts), sweep, rescue: (env, why) => require('../bot/water').rescue(env, plan.box, { why }) };
 }
 
-module.exports = { checkLayer, LAYER_ROUNDS, standsOnFloater, aerialTree, planPit, laneBoxes, planRoad, stationsOf, lineCells, unitCells, sealPlan, orderFill, isFluid, exposed, runUnit, wrongCells, cellState, audit, createPitJob, SEAL_ITEMS, CHUNK, TILE, SWEEP_R };
+module.exports = { MAX_UNITS, checkLayer, LAYER_ROUNDS, standsOnFloater, aerialTree, planPit, laneBoxes, planRoad, stationsOf, lineCells, unitCells, sealPlan, orderFill, isFluid, exposed, runUnit, wrongCells, cellState, audit, createPitJob, SEAL_ITEMS, CHUNK, TILE, SWEEP_R };

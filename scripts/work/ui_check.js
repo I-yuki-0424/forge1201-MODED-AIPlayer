@@ -53,6 +53,7 @@ const click = (el) => el.dispatchEvent(new w.MouseEvent('click', { bubbles: true
     const page = w.document.querySelector('#page .page:not(.hidden)');
     const boxes = [...page.querySelectorAll('.setting input')];
     ok(boxes.length === 16 && boxes[0].checked && boxes[1].checked && boxes[2].checked && !boxes[3].checked, `the settings (retireWorn, discardWorn, scripts on, auto-kit off) and four display switches: ${boxes.length}`);
+    { const reach = page.querySelector('input[aria-label="chest reach in chunks"]'), tp = page.querySelector('select[aria-label="server moves"]'); ok(reach && Number(reach.value) === 50 && reach.max === '200', 'the chest reach field (chunks, 50 by default)'); ok(tp && tp.value === 'off' && [...tp.options].map((o) => o.value).join() === 'off,near,any', 'server moves: off by default'); }
     ok(page.textContent.includes('Try stuck units again by itself'), 'the setting for the automatic retry of stuck units is on the page');
     boxes[0].checked = false; boxes[0].dispatchEvent(new w.Event('change', { bubbles: true })); await tick();
     ok(sent.some((s) => s[1] === '/api/settings' && s[2] && s[2].retireWorn === false), 'switching retireWorn off posts the setting');

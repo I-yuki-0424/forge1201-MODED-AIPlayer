@@ -163,6 +163,7 @@ function fakeServer() {
             const missing = await svc.runCommand({ bots: ['Nope1'], command: 'stop' }); assert.match(missing.refused[0].why, /no such bot/);
             await svc.runCommand({ bots: ['Bot1'], command: 'say', args: { text: 'hello' } }); await until(() => chats.length === 1); assert.deepStrictEqual(chats[0], ['Bot1', 'hello']);
             const slash = await svc.runCommand({ bots: ['Bot1'], command: 'say', args: { text: '/op me' } }); assert.match(slash.refused[0].why, /must not start/);
+            svc.setSettings({ teleport: 'near' });          // the Teleport command is refused while server moves are off (the default)
             const tp = await svc.runCommand({ bots: ['Bot2'], command: 'teleport', args: { player: 'Seia_Y' } }); assert.deepStrictEqual(tp.started, ['Bot2']);
             await until(() => svc.status().bots.find((b) => b.name === 'Bot2').cmd.status === 'ok');
             const tpBad = await svc.runCommand({ bots: ['Bot2'], command: 'teleport', args: { player: 'a b; op x' } }); assert.strictEqual(tpBad.started.length, 0);
