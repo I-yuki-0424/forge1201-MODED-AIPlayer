@@ -75,7 +75,9 @@ const WHITE = { left: 'white', middle: 'white', right: 'white' };
         const bare = { here: () => ({ x: 0, y: 64, z: 0 }) }, far = { x: 3, y: -59, z: 3 };
         assert.strictEqual((await approach(bare, far)).reason, 'unreachable');
         assert.strictEqual(await approach(bare, far, { strict: false }), null);
-        assert.strictEqual((await approach({ ...env, lift: async () => ({ ok: false, reason: 'unreachable' }) }, far)).reason, 'unreachable');
+        // No server move (teleport off, or no cell): on foot by the router, told the level; if that fails too, the lift's failure stands (TASK:20261110-056).
+        const lv = []; assert.strictEqual(await approach({ ...env, lift: async () => ({ ok: false, reason: 'refused' }), travel: async (t, o) => { lv.push([t.level, o.near]); return { ok: true }; } }, far), null); assert.deepStrictEqual(lv, [[-59, 6]]);
+        assert.strictEqual((await approach({ ...env, lift: async () => ({ ok: false, reason: 'unreachable' }), travel: async () => ({ ok: false, reason: 'stuck' }) }, far)).reason, 'unreachable');
         assert.strictEqual((await approach({ ...env, lift: undefined, travel: async () => ({ ok: false, reason: 'stuck' }) }, { x: 120, y: 64, z: 0 })).reason, 'stuck');
     });
 

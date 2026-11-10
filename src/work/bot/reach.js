@@ -39,6 +39,10 @@ async function walkTo(env, chest, { why = 'to a container', strict = true } = {}
     if (dy > REACH_DY || !walked) {
         if (!env.lift) return strict ? { ok: false, reason: 'unreachable', detail: { why: `the container is ${dy} levels away and there is no way to change layer`, stage: 'approach' } } : null;      // strict: skip a chest that cannot be reached; else let the command try on foot
         const l = await env.lift({ x: chest.x, y: chest.y, z: chest.z }, { radius: 4, down: 1, up: 2, purpose: 'job', why });
+        if (!l.ok && env.travel && !['died', 'disconnected', 'cancelled'].includes(l.reason)) {          // no server move (setting teleport off, or no cell): on foot by the chunk-exit router, the level counts
+            const t = await env.travel({ x: chest.x, z: chest.z, level: chest.y }, { near: 6, nearY: REACH_DY / 2 });
+            if (t.ok) return null;
+        }
         if (!l.ok) return { ok: false, reason: l.reason || 'unreachable', detail: { ...(l.detail || {}), why: `could not get to the container (${dy} levels away; ${l.reason})`, stage: 'approach' } };
     }
     return null;

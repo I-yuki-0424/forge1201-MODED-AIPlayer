@@ -8,7 +8,7 @@ const dimensions = require('../world/dimensions');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** The environment of a real Mineflayer bot on the action layer. */
-function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null, others = null, guard: withGuard = false, defend = true, moved = null, teleport = () => 'near', gates = null, stockMiss = null, experts = null, expertLog = null } = {}) {
+function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null, others = null, guard: withGuard = false, defend = true, moved = null, teleport = () => 'near', gates = null, stockMiss = null, experts = null, expertLog = null, router = null } = {}) {
     const { execute } = require('../../skills');
     const { fromBot } = require('../../skills/world');
     const { feetCell } = require('../../skills/motion');
@@ -245,17 +245,30 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         },
         cross: (gate, o) => require('./portal').cross(envObj, gate, o),
         // A long walk in legs inside the loaded chunks (travel.js): a move_to beyond the view distance fails for want of chunks.
+        // The chunk-exit router comes first (src/experts/route, docs/implemented/ROUTE-v1.md: the policy picks where to leave each chunk, the path calculator walks between the exits, waypoints
+        // in the destination chunk); the old legs and then the movement expert are the fallback when it fails. Setting `router` (default on) turns it off.
         travel: async (t, o) => {
-            const tr = require('./travel'), run = () => tr.travel({ exec: envObj.exec, here: envObj.here, w, cancel: unitCancel, wrongDim: envObj.wrongDim }, t, o);
-            let r = await run();
-            if (r.ok || !expertsOn() || !['unreachable', 'stuck', 'timeout', 'not_visible'].includes(r.reason)) return r;
+            const rt = require('../../experts/route/router'), st = require('../../experts/route/stats'), tr = require('./travel'), ms = () => Date.now();
+            const cancelled = (r) => ['died', 'disconnected', 'cancelled', 'wrong_dimension'].includes(r.reason);
+            let r;
+            if (!!router && router() !== false) {
+                const t0 = ms(); let q;
+                try { q = await rt.route({ exec: envObj.exec, here: envObj.here, w, cancel: unitCancel, wrongDim: envObj.wrongDim }, t, o); }
+                catch (e) { q = { ok: false, reason: 'internal', detail: { message: String((e && e.message) || e).slice(0, 120) } }; }
+                st.record('router', q, ms() - t0);
+                if (q.ok || cancelled(q)) { st.final(q); return q; }
+                r = q;
+            }
+            const t1 = ms(), run = () => tr.travel({ exec: envObj.exec, here: envObj.here, w, cancel: unitCancel, wrongDim: envObj.wrongDim }, t, o);
+            r = await run(); st.record('legacy', r, ms() - t1);
+            if (r.ok || !expertsOn() || !['unreachable', 'stuck', 'timeout', 'not_visible'].includes(r.reason)) { st.final(r); return r; }
             // No leg of any length could be walked: the movement expert takes the bot toward the target inside the loaded chunks (round what the planner cannot, through what it must dig), then the legs go on.
             const here = feetCell(bot.entity.position), aim = tr.legCandidates(w, here, t)[0];
-            if (!aim) return r;
+            if (!aim) { st.final(r); return r; }
             const e = await envObj.expertMove({ x: aim.x, y: aim.y, z: aim.z }, { why: `no way on foot toward ${t.x} ${t.z} (${r.reason})`, maxMs: 60000 });
-            if (!e.ok) return { ...r, detail: { ...(r.detail || {}), expert: e.reason } };
+            if (!e.ok) { r = { ...r, detail: { ...(r.detail || {}), expert: e.reason } }; st.final(r); return r; }
             r = await run();
-            return r.ok ? { ...r, expert: true } : r;
+            r = r.ok ? { ...r, expert: true } : r; st.final(r); return r;
         },
         // Back to a place the bot left (script step go_back): the server moves it (a road-less pit cannot be entered on foot); without RCON it walks.
         back: async (o, opt = {}) => {

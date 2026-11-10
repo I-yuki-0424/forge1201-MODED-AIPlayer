@@ -63,7 +63,7 @@ class Health {
             fail: this.fail, cancel: this.cancel, needs: this.needs, botSec: { ok: Math.round(this.ms.ok / 1000), fail: Math.round(this.ms.fail / 1000), cancel: Math.round(this.ms.cancel / 1000) },
             deposit: this.dep, bots: bots.length, working, waiting, phases, floor: bots.filter((b) => b.onFloor).length,
             queues: (snap.lines || []).map((l) => ({ key: l.key, n: l.line.length })), lagMs: snap.lagMs || 0,
-            time: sec2(this.time), still: sec2(this.still), parked: this.parked, parkedBy: this.parkedBy,
+            time: sec2(this.time), still: sec2(this.still), parked: this.parked, parkedBy: this.parkedBy, route: snap.route || undefined,
         };
         // A window in which nobody finished a unit although bots were working: counted, and after `stallMin` of them said once per run of them.
         let warn = null;

@@ -21,6 +21,7 @@ class WorldPart {
     setSettings(s) {
         if (s && s.display && typeof s.display === 'object') for (const k of ['on', 'paths', 'lanes', 'tags']) if (typeof s.display[k] === 'boolean') this.settings.display = { ...this.settings.display, [k]: s.display[k] };
         if (s && s.experts !== undefined) { need(typeof s.experts === 'boolean', 'experts: true or false (the trained movement and stuck-escape experts)'); this.settings.experts = s.experts; }
+        if (s && s.router !== undefined) { need(typeof s.router === 'boolean', 'router: true or false (the chunk-exit router walks first; false = the old legs)'); this.settings.router = s.router; }
         // teleport: off = the server never moves a bot (no tp of any kind: not a recovery, not a lift, not a jump into a dimension, not the operator's command); near / any limit only the recovery moves.
         if (s && s.teleport !== undefined) { need(['off', 'near', 'any'].includes(s.teleport), 'teleport: off, near or any'); this.settings.teleport = s.teleport; }
         if (s && s.reachChunks !== undefined) { need(Number.isInteger(s.reachChunks) && s.reachChunks >= 1 && s.reachChunks <= 200, 'reachChunks: 1..200 chunks (how far a bot looks for a chest)'); this.settings.reachChunks = s.reachChunks; this.sites.setReach(s.reachChunks); }
