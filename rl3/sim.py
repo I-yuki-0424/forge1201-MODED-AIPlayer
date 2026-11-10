@@ -341,6 +341,7 @@ def step(s, a, shaping=1.0, p_noise=1.0):
     left = jnp.sum((s2.w == OWN).astype(jnp.float32))
     rew = -0.01 - jnp.where(valid, 0.0, 0.05) + shaping * 0.02 * (d_old - d_new)
     rew = rew - 0.2 * ((r.kind == 1) & ok & near_other).astype(jnp.float32) - 0.2 * on_other.astype(jnp.float32)
+    rew = rew - 0.004 * jnp.minimum(s2.visits[s2.pos[0], s2.pos[2]].astype(jnp.float32), 12.0)       # going round the same cells again and again costs a little more each time
     rew = rew + jnp.where(arr, 1.0 - jnp.minimum(0.05 * left, 0.5), 0.0) + jnp.where(dead, -1.0, 0.0)
     s4 = s2._replace(since=since, best=best, visits=jnp.minimum(visits, 100))
     return s4, Out(rew, done, arr, dead, fire)

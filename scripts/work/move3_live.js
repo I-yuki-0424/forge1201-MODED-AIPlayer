@@ -3,7 +3,8 @@
 // the bot is put on the start cell with a pack of cobblestone (and a pickaxe), walks to the target, and is graded by the SERVER's position, not by its own report. Test code.
 //   (cd /mnt/data/forgeaip-play/demo && cp /mnt/data/forgeaip/rl3/scn_a.json out/ && LIVE_SCRIPT=move3_live.js MODE=both ./live.sh)
 // Env: MODE move3 | legacy | both (the old chain: chunk router, legs, experts), SCN (scenario file, default /out/scn_a.json), ONLY (scenario name), N (trials per scenario),
-//      PERTURB=1 (once during the walk: scaffolding collapses or the bot is moved), LIVE_OUT (json result), TRIAL_S (wall limit per trial, default 150), BX/BZ.
+//      PERTURB=1 (once during the walk: scaffolding collapses or the bot is moved), LIVE_OUT (json result), TRIAL_S (wall limit per trial, default 150), BX/BZ (the arena),
+//      TEMP (sampling temperature of the policy, default 0 = greedy), BOTNAME (default Mv3A; runs in parallel need their own bot name and arena), SKIP (scenarios to skip, comma list), FROM (index of the first world to use).
 const fs = require('fs');
 const { Rcon } = require('../../src/rl/rcon');
 const { WorkService } = require('../../src/work/service');
@@ -25,7 +26,7 @@ async function main() {
     const S = new Server(shared, 'x');
     const svc = new WorkService({ dataDir: fs.mkdtempSync('/tmp/move3-live-'), host: process.env.MC_HOST || 'demo', port: Number(process.env.MC_PORT) || 25565, maxBots: 4, reconnectMs: 4000, display: false, rcon: shared });
     svc.settings.autoKit = false; svc.settings.move3 = false;
-    const A = 'Mv3A';
+    const A = process.env.BOTNAME || 'Mv3A';
     svc.addBot(A);
     const until = async (cond, ms, what) => { const t0 = Date.now(); while (!(await cond())) { if (Date.now() - t0 > ms) throw new Error(`timeout: ${what}`); await sleep(250); } };
     await until(() => svc.status().bots.every((b) => b.state === 'online'), 120000, 'bot online'); await sleep(2500);
@@ -39,12 +40,14 @@ async function main() {
     const clearArea = async () => { for (let y = BY - 4; y < BY + NY; y += 16) await fill(BX - 2, y, BZ - 2, BX + NX + 1, Math.min(y + 15, BY + NY - 1), BZ + NZ + 1, 'air'); };
     const build = async (r) => { await clearArea(); for (const [x0, y0, z0, x1, y1, z1, c] of r.boxes) if (BLOCK[c]) await fill(BX + x0, BY + y0, BZ + z0, BX + x1, BY + y1, BZ + z1, BLOCK[c]); };
     const cancel = { cancelled: false };
+    let deaths = 0; bot.on('death', () => { deaths++; });
     const env = svc.envFactory(bot, cancel);
     const world = (p) => ({ x: BX + p[0], y: BY + p[1], z: BZ + p[2] });
     const results = [];
     const only = process.env.ONLY ? process.env.ONLY.split(',') : null, perScn = Number(process.env.N || 99), seen = {};
-    for (const r of scn.rows) {
+    for (const [wi, r] of scn.rows.entries()) {
         if (only && !only.includes(r.scen)) continue;
+        if (process.env.FROM && wi < Number(process.env.FROM)) continue;
         seen[r.scen] = (seen[r.scen] || 0) + 1; if (seen[r.scen] > perScn) continue;
         await build(r);
         for (const mode of MODE === 'both' ? ['move3', 'legacy'] : [MODE]) {
@@ -56,7 +59,7 @@ async function main() {
             env.within = r.dig[1] >= r.dig[0] ? { x0: BX + r.dig[0], x1: BX + r.dig[1], top: BY + r.dig[3], bottom: BY + r.dig[2], z0: BZ + r.dig[4], z1: BZ + r.dig[5] } : null;
             cancel.cancelled = false;
             const to = { x: tg.x, y: tg.y, z: tg.z }, opts = { near: r.near, nearY: r.nearY };
-            let injected = null, died = false, decisions = 0; const buf = [];
+            let injected = null, died = false, decisions = 0; const buf = [], deaths0 = deaths;
             const timer = setTimeout(() => { cancel.cancelled = true; }, TRIAL_S * 1000);
             const t0 = Date.now(), t0perturb = 6 + Math.floor(Math.random() * 24);
             const onDecision = PERTURB ? async (t, info) => {
@@ -71,10 +74,10 @@ async function main() {
             } : null;
             let res;
             try {
-                res = mode === 'move3' ? await walk3(env, to, { ...opts, onDecision, trace: (e) => buf.push(`[trace] ${e.t} ${e.action} ${e.from.x},${e.from.y},${e.from.z} -> ${e.to.x},${e.to.y},${e.to.z} ${e.ok ? 'ok' : 'FAIL ' + e.reason + ' ' + JSON.stringify(e.detail || {}).slice(0, 160)} (${e.ms} ms) [${e.valid}]`) }) : await env.travel(to, opts);
+                res = mode === 'move3' ? await walk3(env, to, { ...opts, onDecision, temperature: Number(process.env.TEMP || 0), trace: (e) => buf.push(`[trace] ${e.t} ${e.action} ${e.from.x},${e.from.y},${e.from.z} -> ${e.to.x},${e.to.y},${e.to.z} ${e.ok ? 'ok' : 'FAIL ' + e.reason + ' ' + JSON.stringify(e.detail || {}).slice(0, 160)} (${e.ms} ms) [${e.valid}]`) }) : await env.travel(to, opts);
             } catch (e) { res = { ok: false, reason: 'exception', detail: { message: String(e && e.message).slice(0, 100) } }; }
             clearTimeout(timer); decisions = res.move3 ? res.move3.decisions : 0;
-            died = !!(bot.health <= 0) || res.reason === 'died';
+            died = deaths > deaths0 || !!(bot.health <= 0) || res.reason === 'died';
             await sleep(500);
             const p = await pos();
             const ok = !!p && Math.hypot(p.x - (tg.x + 0.5), p.z - (tg.z + 0.5)) <= r.near + 1 && Math.abs(Math.floor(p.y) - tg.y) <= r.nearY + 1;
@@ -92,7 +95,8 @@ async function main() {
     for (const mode of ['move3', 'legacy']) {
         const rs = results.filter((x) => x.mode === mode); if (!rs.length) continue;
         const pr = rs.filter((x) => x.injected);
-        console.log(`[live] ${mode}: ${rs.filter((x) => x.ok).length}/${rs.length} arrived${pr.length ? `, after a failure ${pr.filter((x) => x.ok).length}/${pr.length}` : ''}, died ${rs.filter((x) => x.died).length}`);
+        const pf = pr.filter((x) => x.died);                                     // a fall that kills (a bridge over the abyss collapses) is no failure anyone can recover from
+        console.log(`[live] ${mode}: ${rs.filter((x) => x.ok).length}/${rs.length} arrived${pr.length ? `, after a failure ${pr.filter((x) => x.ok).length}/${pr.length} (${pf.length} of them fatal falls; without those ${pr.filter((x) => x.ok).length}/${pr.length - pf.length})` : ''}, died ${rs.filter((x) => x.died).length}`);
     }
     console.log('[live] tally', JSON.stringify(tally));
     if (process.env.LIVE_OUT) fs.writeFileSync(process.env.LIVE_OUT, JSON.stringify({ results, tally, mode: MODE, perturb: PERTURB, wallS: Math.round((Date.now() - t00) / 1000) }, null, 1));

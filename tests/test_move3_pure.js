@@ -84,6 +84,11 @@ const stateOf = (r) => ({ pos: { x: r.pos[0], y: r.pos[1], z: r.pos[2] }, tgt: {
         assert.strictEqual((await walk3({ ...env, cancel: { cancelled: true } }, { x: 6, z: 0, y: 5 }, { model: east })).reason, 'cancelled');
         assert.strictEqual((await walk3({ ...env, wrongDim: () => true }, { x: 6, z: 0, y: 5 }, { model: east })).reason, 'wrong_dimension');
         pos.x = 0; assert.strictEqual((await walk3(env, { x: 6, z: 0 }, { model: east })).ok, true, 'the level of the target column is found');
+        // sampling: with a temperature the choice follows the softmax of the logits over the allowed actions (a strong preference is taken nearly always, never a forbidden action)
+        const P2 = require('../src/experts/move3/policy'), strong = fakeModel({ 1: 9, 2: 0 }), mk = Array.from({ length: SPEC.NA }, (_, a) => a === 1 || a === 2), x0 = new Float32Array(SPEC.OBS_DIM);
+        const picks = Array.from({ length: 300 }, () => P2.act(strong, x0, mk, null, 1).action); assert.ok(picks.every((a) => a === 1 || a === 2)); assert.ok(picks.filter((a) => a === 1).length > 290);
+        const flat2 = fakeModel({ 1: 0, 2: 0 }), p2 = Array.from({ length: 600 }, () => P2.act(flat2, x0, mk, null, 1).action); assert.ok(p2.filter((a) => a === 1).length > 220 && p2.filter((a) => a === 2).length > 220, 'equal logits: both are taken');
+        assert.strictEqual(P2.act(strong, x0, mk, new Set([1]), 1).action, 2, 'a banned action is never sampled'); assert.strictEqual(P2.act(strong, x0, mk, null, 0).action, 1, 'temperature 0 is greedy');
         const dead = { ...env, exec: async () => ({ ok: false, reason: 'unreachable' }) }; pos.x = 0;
         const r3 = await walk3(dead, { x: 6, z: 0, y: 5 }, { model: east }); assert.strictEqual(r3.ok, false); assert.ok(r3.move3.fails >= 8, 'gives up after failures in a row');
         assert.strictEqual((await walk3(env, { x: 6, z: 0, y: 5 }, { model: null, refuse: false })).reason === 'refused' || true, true);

@@ -41,6 +41,21 @@ function supportCell(env, view) {
     return best ? { x: best.x, y: best.y, z: best.z } : here;
 }
 
+/**
+ * A cell to get to when the rules allow nothing but waiting (the bot fell into a lake, or stands where no action is allowed): the nearest standable cell within 8 blocks, a little toward the
+ * target. The action layer's own walk (`move_to`) swims and climbs out; the policy was not trained to swim.
+ */
+function rescueCell(view, here, tgt) {
+    let best = null;
+    for (let dx = -8; dx <= 8; dx++) for (let dz = -8; dz <= 8; dz++) for (let dy = -4; dy <= 3; dy++) {
+        const x = here.x + dx, y = here.y + dy, z = here.z + dz;
+        if (!R.standable(view, x, y, z) || (view.bots || []).some((b) => b.x === x && b.z === z)) continue;
+        const score = Math.hypot(dx, dz) + Math.abs(dy) + 0.15 * Math.hypot(x - tgt.x, z - tgt.z);
+        if (!best || score < best.score) best = { x, y, z, score };
+    }
+    return best;
+}
+
 /** Walk the body to the middle of its own cell (a few hundredths of a block off the middle is enough to hang on the edge of the block under it). Up to ~1 s. */
 async function recenter(env, c) {
     const bot = env.bot; if (!bot || !bot.entity) return;
@@ -76,7 +91,7 @@ async function perform(env, a, r, here) {
 
 /**
  * Walk to `to` {x, z, y?, level?}. Returns {ok: true, decisions, walked, move3} or {ok: false, reason, detail}, `move3`: {decisions, fails, tool, ms}.
- * `o`: near (default 2), nearY (default 1 for a cell, 8 for a `level`), maxDecisions (default spec.HORIZON), model, onDecision(t, info) (a test hook: may change the world),
+ * `o`: near (default 2), nearY (default 1 for a cell, 8 for a `level`), maxDecisions (default spec.HORIZON), model, temperature (0 = greedy), onDecision(t, info) (a test hook: may change the world),
  * refuse (false: do not refuse far targets).
  * `env`: w, here(), exec(name, args, opts), run(name, args), cancel?, wrongDim?, bot?, within?, spots?.
  */
@@ -92,7 +107,10 @@ async function walk3(env, to, o = {}) {
     const maxDec = o.maxDecisions || spec.HORIZON, bot = env.bot || null;
     const st = { pos: start, tgt, near, nearY, pack: packCount(bot), hp: bot && Number.isFinite(bot.health) ? bot.health : spec.MAX_HP, t: 0, since: 0, last: A.WAIT, visits: new Map([[`${start.x},${start.z}`, 1]]) };
     let best = R.dist3(start, tgt), failsRow = 0, planned = 0;
-    const tabu = new Map();                                            // action@cell -> the decision until which it is left out (it just failed there)
+    const temp = o.temperature !== undefined ? o.temperature : (env.move3Temperature || 0);
+    const tabu = new Map();                                            // action@cell -> the decision until which it is left out (it just failed there, or the walk went round in a circle)
+    const loops = new Map();                                           // action@cell -> times chosen
+    let idleN = 0;
     const minY = env.profile ? env.profile().minY : -64;
     while (st.t < maxDec) {
         if (env.cancel && env.cancel.cancelled) return out({ ok: false, reason: 'cancelled' });
@@ -105,7 +123,24 @@ async function walk3(env, to, o = {}) {
         const ban = new Set();
         for (let a = 0; a < spec.NA; a++) { const k = `${a}@${here.x},${here.y},${here.z}`; if (tabu.has(k) && tabu.get(k) > st.t) ban.add(a); }
         const mask = res.map((r) => r.valid);
-        const x = observe(view, st), pick = P.act(model, x, mask, ban);
+        // Nothing but waiting is allowed (in a lake, say): after two such decisions the action layer's walk brings the bot to the nearest cell it can stand on.
+        if (mask.every((m, i) => !m || i === A.WAIT)) idleN++; else idleN = 0;
+        if (idleN >= 2 && env.bot && env.bot.entity && (env.bot.entity.onGround || env.bot.entity.isInWater)) {
+            const q = rescueCell(view, here, tgt);
+            if (q) {
+                info.rescues = (info.rescues || 0) + 1; idleN = 0;
+                const rr = await env.exec('move_to', { x: q.x, y: q.y, z: q.z }, { maxTicks: 300 });
+                st.t++; if (o.trace) { try { o.trace({ t: st.t, action: 'rescue', from: here, to: env.here(), ok: !!rr.ok, reason: rr.reason, detail: rr.detail, valid: 'wait', ms: 0 }); } catch (_) { /* a trace must not stop a walk */ } }
+                if (!rr.ok) { info.fails++; failsRow++; if (FATAL.has(rr.reason)) return out({ ok: false, reason: rr.reason, detail: { ...(rr.detail || {}), action: 'rescue' } }); } else failsRow = 0;
+                continue;
+            }
+        }
+        const x = observe(view, st), pick0 = P.act(model, x, mask, ban, temp);
+        let pick = pick0;
+        if (pick0.action >= 0 && pick0.action !== A.WAIT) {
+            const lk = `${pick0.action}@${here.x},${here.y},${here.z}`, n = (loops.get(lk) || 0) + 1; loops.set(lk, n);
+            if (n >= 3) { tabu.set(lk, st.t + 10); loops.set(lk, 0); ban.add(pick0.action); info.loops = (info.loops || 0) + 1; pick = P.act(model, x, mask, ban, temp); }
+        }
         let a = pick.action;
         if (a < 0) a = pick.action = mask.every((m, i) => !m || ban.has(i)) ? A.WAIT : A.WAIT;          // everything allowed just failed here: wait, the tabu runs out
         planned += Date.now() - t0;
@@ -121,6 +156,8 @@ async function walk3(env, to, o = {}) {
         if (d < best - 0.5) { best = d; st.since = 0; } else st.since++;
         // A reflex (fall, lava: work/bot/reflex.js) takes the body for a moment and stops the command with 'cancelled'; that is not the caller's cancel: wait until the reflex is over, count a failed action.
         if (!r.ok && r.reason === 'cancelled' && !(env.cancel && env.cancel.cancelled) && env.bot && env.bot.__preempt) { for (let i = 0; i < 100 && env.bot.__preempt; i++) await sleep(100); r.reason = 'preempted'; }
+        // The physics did not tick for 3 s (the server or the process stalled for a moment) while the bot is still in the game: not a disconnect, wait for it and go on.
+        if (!r.ok && r.reason === 'disconnected' && r.detail && /physics tick/.test(String(r.detail.why)) && env.bot && env.bot.entity) { for (let i = 0; i < 50 && !(env.bot._client && env.bot._client.ended) && !(Date.now() - t1 > 12000); i++) await sleep(250); if (!(env.bot._client && env.bot._client.ended)) r.reason = 'stalled'; }
         if (!r.ok) {
             info.fails++; failsRow++;
             if (FATAL.has(r.reason)) return out({ ok: false, reason: r.reason, detail: { ...(r.detail || {}), action: spec.ACTIONS[a] } });

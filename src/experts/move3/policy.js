@@ -29,11 +29,19 @@ function logits(m, x) {
     return out;
 }
 
-/** The best allowed action (first on ties), or -1 when none is allowed. `ban`: a Set of actions to leave out as well. */
-function act(m, x, mask, ban = null) {
+/**
+ * The best allowed action (first on ties), or -1 when none is allowed. `ban`: a Set of actions to leave out as well. `temperature` > 0: sample from softmax(logits / temperature) over the
+ * allowed actions instead (a deterministic policy that meets a state it was not trained on goes round in a circle for good; a little randomness gets it out).
+ */
+function act(m, x, mask, ban = null, temperature = 0) {
     const l = logits(m, x); let best = -1;
     for (let a = 0; a < NA; a++) if (mask[a] && !(ban && ban.has(a)) && (best < 0 || l[a] > l[best])) best = a;
-    return { action: best, logits: l };
+    if (best < 0 || !(temperature > 0)) return { action: best, logits: l };
+    const w = new Float64Array(NA); let sum = 0;
+    for (let a = 0; a < NA; a++) if (mask[a] && !(ban && ban.has(a))) { w[a] = Math.exp((l[a] - l[best]) / temperature); sum += w[a]; }
+    let u = Math.random() * sum, pick = best;
+    for (let a = 0; a < NA; a++) { if (w[a] <= 0) continue; u -= w[a]; if (u <= 0) { pick = a; break; } }
+    return { action: pick, logits: l };
 }
 
 let cached;

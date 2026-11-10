@@ -1,4 +1,4 @@
-"""Open-pit expert simulator (docs/proposed/PIT-EXPERT-v1.md): ONE chunk of a pit, a band of two layers plus the leftovers standing above it.
+"""Open-pit expert simulator (docs/implemented/PIT-EXPERT-v1.md): ONE chunk of a pit, a band of two layers plus the leftovers standing above it.
 The policy chooses where to STAND next (a column of the chunk) and how deep to dig from there (1 or 2 layers); everything within reach of the arm is then dug.
 Walking follows the live planner (step up 1, drop up to 3), the reach is the live one (4.05 blocks from the eye, blind digging), time costs are the measured ones.
 Reward = minus the time spent: digging is the same for every plan, so what is learned is moving less, not digging itself into a hole (a bot that cannot walk on is 'stuck': it pays the pillar escape),
@@ -15,7 +15,7 @@ R2 = 4.05 ** 2
 EYE = 1.62
 K = 64                      # candidates offered to the policy (best by dig count and distance)
 ND = 2                      # dig depths offered: 1 layer, 2 layers
-NF = 14
+NF = 17
 NG = 8
 MAX_STATIONS = 40
 INF = 1e6
@@ -111,10 +111,19 @@ def observe(s):
     nw_k = tb['nw'].reshape(-1)[idx].astype(jnp.float32)
     dist_k = dist[x, z]
     fk = f[x, z]
+    # what the walk looks like after the dig: how many columns the bot could still walk to from the station (a bowl it cannot leave has very few), and what is left
+    def after(xk, zk, ddk):
+        mk = dig_mask(m, xk, zk, f[xk, zk], ddk + 1)
+        m2 = jnp.where(mk, jnp.int8(AIR), m)
+        f2, ok2 = standable_cols(m2)
+        d2 = reach(f2, ok2, jnp.stack([xk, zk]))
+        return jnp.sum((d2 < INF / 2) & ok2).astype(jnp.float32), band_left(m2).astype(jnp.float32)
+    reach_after, left_after = jax.vmap(after)(x, z, dd)
     cols = jnp.stack([
         nd_k / 48.0, nw_k / 8.0, jnp.minimum(dist_k, 40.0) / 40.0, (fk - fb) / 3.0, nd_k / maxnd, dd.astype(jnp.float32),
         jnp.minimum(jnp.minimum(x, N - 1 - x), jnp.minimum(z, N - 1 - z)) / 8.0, left / 512.0 * jnp.ones(K), ((x == s.bot[0]) & (z == s.bot[1])).astype(jnp.float32),
-        fk / 6.0, (x - 7.5) / 8.0, (z - 7.5) / 8.0, jnp.where(dd == 1, nd_k - tb['nd'].reshape(-1)[jnp.clip(idx - 1, 0, None)], 0.0) / 24.0, jnp.ones(K)], axis=1)
+        fk / 6.0, (x - 7.5) / 8.0, (z - 7.5) / 8.0, jnp.where(dd == 1, nd_k - tb['nd'].reshape(-1)[jnp.clip(idx - 1, 0, None)], 0.0) / 24.0, jnp.ones(K),
+        reach_after / 256.0, (reach_after < 12.0).astype(jnp.float32), left_after / 512.0], axis=1)
     glob = jnp.stack([left / 512.0, s.t / MAX_STATIONS, jnp.sum(valid) / 512.0, fb / 6.0, (s.bot[0] - 7.5) / 8.0, (s.bot[1] - 7.5) / 8.0, s.last_n / 48.0, jnp.max(nd) / 48.0])
     return cols.astype(jnp.float32), mask, idx, glob.astype(jnp.float32)
 
@@ -192,7 +201,7 @@ def gen(key):
     f, ok = standable_cols(m)
     xs2, zs2 = jnp.meshgrid(jnp.arange(N), jnp.arange(N), indexing='ij')
     edge = (xs2 == 0) | (xs2 == N - 1) | (zs2 == 0) | (zs2 == N - 1)
-    score = jnp.where(edge & ok, f.astype(jnp.float32) + jax.random.uniform(ks[8], (N, N)) * 0.5, -1.0)
+    score = jnp.where(edge & ok & (f <= BAND + 1), f.astype(jnp.float32) + jax.random.uniform(ks[8], (N, N)) * 0.5, -1.0)
     flat = jnp.argmax(score)
     bx, bz = flat // N, flat % N
     return PState(m, jnp.stack([bx, bz]).astype(jnp.int32), jnp.int32(0), ks[10], jnp.float32(0))

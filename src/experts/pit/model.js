@@ -1,5 +1,5 @@
 'use strict';
-// The open-pit expert (docs/proposed/PIT-EXPERT-v1.md), part 1: the cell model of ONE chunk and the features of every possible station. A line-for-line port of rl3/pitsim.py (the simulator the
+// The open-pit expert (docs/implemented/PIT-EXPERT-v1.md), part 1: the cell model of ONE chunk and the features of every possible station. A line-for-line port of rl3/pitsim.py (the simulator the
 // scoring network was trained on); tests/golden_pit.json (python -m rl3.cli pit-golden) is the contract.
 //   m[x][z][y]   N x N x H cells of the chunk: AIR, SOLID, ROCK, WATER; y 0..BAND-1 the band to dig (0 the lower layer), y BAND..H-1 the open space above it (leftovers stand there)
 //   a station is a COLUMN (x, z) and a depth (1 or 2 layers): the bot stands on the column's top block and the arm digs what lies within reach.

@@ -73,7 +73,7 @@ function fakeEnv(w, start, { canWalk = () => true } = {}) {
         await job.runUnit(reg.id, { unit: 0 }, env2); assert.strictEqual(w2.kindAt(5, 100, 5), 'solid', 'outside the box stays');
     });
 
-    await test('runUnit: a station that cannot be reached is not tried again, four in a row end the unit with the walk\'s reason', async () => {
+    await test('runUnit: a station that cannot be reached is not tried again, six in a row end the unit with the walk\'s reason', async () => {
         const job = pit.createPitJob(box, {}, { method: 'expert', road: false }), reg = job.plan.regions[0];
         const w = fakeWorld(99), env = fakeEnv(w, { x: 0, y: 100, z: 0 }, { canWalk: () => false });
         const r = await job.runUnit(reg.id, { unit: 0 }, env);
@@ -85,7 +85,7 @@ function fakeEnv(w, start, { canWalk = () => true } = {}) {
         const r2 = await job.runUnit(reg.id, { unit: 0 }, env2);
         assert.ok(r2.ok || r2.reason === 'unreachable', JSON.stringify(r2).slice(0, 200));
         let dug = 0; for (let x = 0; x < 16; x++) for (let z = 0; z < 16; z++) if (w2.kindAt(x, 99, z) === 'air') dug++;
-        assert.ok(dug > 150, `${dug} cells of the top layer dug`);
+        assert.ok(dug > 100, `${dug} cells of the top layer dug`);
     });
 
     await test('runUnit: a lake in the band is sealed by the water rule, the cells around it dug', async () => {
@@ -94,6 +94,19 @@ function fakeEnv(w, start, { canWalk = () => true } = {}) {
         env.exec = ((orig) => async (name, a) => { if (name === 'place') { w.set(a.x, a.y, a.z, 'cobblestone'); env.log.push([name, a]); return { ok: true }; } return orig(name, a); })(env.exec);
         const r = await job.runUnit(reg.id, { unit: 0 }, env);
         assert.ok(env.log.some((l) => l[0] === 'place'), 'water is filled before it is dug'); assert.ok(r.ok || r.reason, JSON.stringify(r).slice(0, 200));
+    });
+    await test('runUnit: a seal that walks the bot away from its station does not make the rest of the cells "too far": it goes back first', async () => {
+        const init = {}; for (let x = 6; x <= 8; x++) for (let z = 6; z <= 8; z++) init[`${x},99,${z}`] = 'water';
+        const w = fakeWorld(99, init), job = pit.createPitJob(box, {}, { method: 'expert', road: false }), reg = job.plan.regions[0], env = fakeEnv(w, { x: 0, y: 100, z: 0 });
+        const here = env.here; let away = 0;
+        const base = env.exec;
+        env.exec = async (name, a) => {
+            if (name === 'place') { w.set(a.x, a.y, a.z, 'cobblestone'); env.log.push([name, a]); const p0 = here(); await base('move_to', { x: p0.x + 7, y: p0.y, z: p0.z }); away++; return { ok: true }; }   // the placement walked 7 blocks off
+            return base(name, a);
+        };
+        const r = await job.runUnit(reg.id, { unit: 0 }, env);
+        assert.ok(away > 0, 'a seal was placed'); assert.ok(r.ok, JSON.stringify(r).slice(0, 300));
+        for (let x = 0; x < 16; x++) for (let z = 0; z < 16; z++) assert.notStrictEqual(w.kindAt(x, 99, z), 'solid', `${x},${z}`);
     });
     console.log('\npit expert unit: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

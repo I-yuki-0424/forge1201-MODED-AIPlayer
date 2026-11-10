@@ -34,7 +34,7 @@ def make_rollout(n_env, T, gamma, lam):
     mask_b = jax.vmap(S.valid_mask)
 
     @jax.jit
-    def rollout(params, states, bank, key, shaping, p_pert):
+    def rollout(params, states, bank, key, shaping, p_pert, noise):
         def body(carry, _):
             st, k = carry
             k, k1, k2 = jax.random.split(k, 3)
@@ -44,7 +44,7 @@ def make_rollout(n_env, T, gamma, lam):
             ml = masked_logits(logits, mask)
             a = jax.random.categorical(k1, ml)
             logp = jax.nn.log_softmax(ml)[jnp.arange(n_env), a]
-            st2, out, scen, pf = E.step_batch(st, a, bank, k2, shaping, p_pert)
+            st2, out, scen, pf = E.step_batch(st, a, bank, k2, shaping, p_pert, noise)
             rec = dict(patch=patch, vis=vis, vec=vec, mask=mask, a=a, logp=logp, v=v, r=out.reward, d=out.done, arr=out.arrived, dead=out.died, scen=scen, pf=pf)
             return (st2, k), rec
         (st, key), tr = jax.lax.scan(body, (states, key), None, length=T)
@@ -161,7 +161,7 @@ def load_params(path):
     return {k: jnp.asarray(z[k]) for k in z.files}
 
 
-def train(out, n_env=1024, T=128, updates=300, seed=0, lr=3e-4, bank_n=2048, refresh=128, shaped_frac=0.6, p_pert=0.35, eval_every=25, eval_n=700, init=None, log=print):
+def train(out, n_env=1024, T=128, updates=300, seed=0, lr=3e-4, bank_n=2048, refresh=128, shaped_frac=0.6, p_pert=0.35, eval_every=25, eval_n=700, init=None, noise=1.0, log=print):
     os.makedirs(out, exist_ok=True)
     key = jax.random.PRNGKey(seed)
     key, kb, kp, ke, kr = jax.random.split(key, 5)
@@ -186,14 +186,14 @@ def train(out, n_env=1024, T=128, updates=300, seed=0, lr=3e-4, bank_n=2048, ref
             off = ((u // 4) * refresh) % (bank_n - refresh + 1)
             new = make_bank_slice(k3, refresh)
             bank = jax.tree_util.tree_map(lambda b, n_: jax.lax.dynamic_update_slice_in_dim(b, n_, off, 0), bank, new)
-        st, tr, _ = rollout(params, st, bank, k1, shaping, p_pert)
+        st, tr, _ = rollout(params, st, bank, k1, shaping, p_pert, noise)
         ent_c = 0.01 * (1 - u / updates) + 0.002
         params, opt_state, aux = update(params, opt_state, tr, k2, ent_c)
         if u % 5 == 0 or u == updates - 1:
             d = np.asarray(tr['d']); a = np.asarray(tr['arr']); dd = np.asarray(tr['dead'])
             log(f'u {u:4d} t {time.time()-t0:7.0f}s shaping {shaping:.0f} ep_end {d.sum():6d} arrive {a.sum() / max(1, d.sum()):.3f} died {dd.sum() / max(1, d.sum()):.3f} rew/step {float(np.asarray(tr["r"]).mean()):+.4f} loss {[round(float(x), 4) for x in aux]}')
         if (u + 1) % eval_every == 0 or u == updates - 1:
-            r = summarise(evaluate(greedy_policy(params), hold, jax.random.PRNGKey(99), eval_n, 0.0))['all']
+            r = summarise(evaluate(greedy_policy(params), hold, jax.random.PRNGKey(99), eval_n, 0.0, noise))['all']
             log(f'EVAL u {u + 1}: success {r["success"]:.3f} [{r["lo"]:.3f}, {r["hi"]:.3f}] died {r["died"]:.3f}')
             hist.append(dict(u=u + 1, success=r['success']))
             save_params(params, os.path.join(out, 'last.npz'))

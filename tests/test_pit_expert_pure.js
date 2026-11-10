@@ -53,5 +53,14 @@ const grid = (b64) => {
         assert.strictEqual(best, fewest); assert.strictEqual(P.choose(net, { ...o, mask: new Uint8Array(M.K) }), -1);
         assert.throws(() => P.load({ kind: 'pit', nf: 3, ng: 3, k: 3 }), /file is for/);
     });
+    await test('policy: the shipped file (models/experts/pit.json) gives the logits the trainer computed for the same candidates', () => {
+        const net = P.defaultModel(), chk = JSON.parse(fs.readFileSync(path.join(__dirname, 'pit_check.json'), 'utf8'));
+        assert.ok(net, 'the shipped pit policy loads');
+        const rows = golden.rows.filter((r) => r.mask.filter(Boolean).length > 10).slice(0, chk.length);
+        rows.forEach((r, i) => {
+            const sc = P.scores(net, Float32Array.from(r.feats.flat()), Float32Array.from(r.glob));
+            for (let k = 0; k < M.K; k++) if (r.mask[k]) assert.ok(Math.abs(sc[k] - chk[i][k]) < 2e-3, `row ${i} candidate ${k}: js ${sc[k]} trainer ${chk[i][k]}`);
+        });
+    });
     console.log('\npit expert: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

@@ -114,7 +114,7 @@ def main():
     t = sub.add_parser('train'); t.add_argument('--out', default='/out/run'); t.add_argument('--envs', type=int, default=1024); t.add_argument('--T', type=int, default=128)
     t.add_argument('--updates', type=int, default=300); t.add_argument('--seed', type=int, default=0); t.add_argument('--lr', type=float, default=3e-4)
     t.add_argument('--bank', type=int, default=2048); t.add_argument('--eval-n', type=int, default=700); t.add_argument('--init', default=None)
-    t.add_argument('--eval-every', type=int, default=25); t.add_argument('--p-pert', type=float, default=0.35)
+    t.add_argument('--eval-every', type=int, default=25); t.add_argument('--noise', type=float, default=1.0); t.add_argument('--p-pert', type=float, default=0.35)
     x = sub.add_parser('export'); x.add_argument('--params', required=True); x.add_argument('--out', required=True); x.add_argument('--meta', default='{}')
     sc = sub.add_parser('scenarios'); sc.add_argument('--out', required=True); sc.add_argument('--per', type=int, default=6); sc.add_argument('--seed', type=int, default=4242); sc.add_argument('--crowd', type=float, default=0.0)
     pt = sub.add_parser('pit-train'); pt.add_argument('--out', default='/out/pit'); pt.add_argument('--envs', type=int, default=512); pt.add_argument('--updates', type=int, default=300); pt.add_argument('--seed', type=int, default=0)
@@ -123,10 +123,10 @@ def main():
     pg = sub.add_parser('pit-golden'); pg.add_argument('--out', default='tests/golden_pit.json'); pg.add_argument('--n', type=int, default=12)
     g = sub.add_parser('golden'); g.add_argument('--out', default='tests/golden_move3.json'); g.add_argument('--n', type=int, default=21); g.add_argument('--seed', type=int, default=7)
     e = sub.add_parser('eval'); e.add_argument('--params'); e.add_argument('--policy', default='net', choices=['net', 'random', 'scripted']); e.add_argument('--n', type=int, default=1400); e.add_argument('--seed', type=int, default=12345)
-    e.add_argument('--out', default=None)
+    e.add_argument('--out', default=None); e.add_argument('--noise', type=float, default=1.0)
     a = ap.parse_args()
     if a.cmd == 'train':
-        ppo.train(outdir(a.out), n_env=a.envs, T=a.T, updates=a.updates, seed=a.seed, lr=a.lr, bank_n=a.bank, eval_n=a.eval_n, init=a.init, eval_every=a.eval_every, p_pert=a.p_pert,
+        ppo.train(outdir(a.out), n_env=a.envs, T=a.T, updates=a.updates, seed=a.seed, lr=a.lr, bank_n=a.bank, eval_n=a.eval_n, init=(outdir(a.init) if a.init else None), eval_every=a.eval_every, p_pert=a.p_pert, noise=a.noise,
                   log=lambda s: print(s, flush=True))
     elif a.cmd == 'export':
         export(outdir(a.params), outdir(a.out), json.loads(a.meta))
@@ -165,7 +165,7 @@ def main():
             pol = lambda st: jax.random.categorical(jax.random.PRNGKey(1), jnp.where(jax.vmap(S.valid_mask)(st), 0.0, -1e9))
         out = {}
         for name, pp in (('plain', 0.0), ('perturbed', 1.0)):
-            out[name] = ppo.summarise(ppo.evaluate(pol, hold, jax.random.PRNGKey(a.seed + 1), a.n, pp))
+            out[name] = ppo.summarise(ppo.evaluate(pol, hold, jax.random.PRNGKey(a.seed + 1), a.n, pp, a.noise))
         print(json.dumps(out, indent=1))
         if a.out: json.dump(out, open(outdir(a.out), 'w'), indent=1)
 

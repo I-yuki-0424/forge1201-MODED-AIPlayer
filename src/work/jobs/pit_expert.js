@@ -1,5 +1,5 @@
 'use strict';
-// The pit's learned station planner as a unit runner (docs/proposed/PIT-EXPERT-v1.md). A unit of the `expert` method is one BAND (two layers) of a whole chunk. Instead of tiles in a fixed
+// The pit's learned station planner as a unit runner (docs/implemented/PIT-EXPERT-v1.md). A unit of the `expert` method is one BAND (two layers) of a whole chunk. Instead of tiles in a fixed
 // order, the expert (src/experts/pit: a scoring network over every column of the chunk the bot could stand on) chooses WHERE TO STAND next and how deep to dig from there; everything
 // within the arm's reach is then dug, blind (the server checks only the distance), cell by cell with the usual water rule (pit.js `handle`). It also digs the leftovers of earlier units
 // that stand above the band within reach, which is what "mining the blocks that were not dug" means here. The walk to a station is pit.js `goToStation` (lift, bridge, pillar, descend are there).
@@ -8,7 +8,7 @@ const M = require('../../experts/pit/model');
 const P = require('../../experts/pit/policy');
 const { SOLID, ROCK, WATER, AIR, N, H } = M;
 
-const MAX_FAILS_ROW = 4;                      // stations in a row that could not be reached or dug: the unit fails with the first reason
+const MAX_FAILS_ROW = 6;                      // stations in a row that could not be reached or dug: the unit fails with the first reason
 
 /** The chunk as the model sees it: m[x][z][y], y 0 = the lower layer of the band at world level `yb`. Cells the unit must not dig (fixtures, kept road, trees out of reach, bedrock, unloaded) are ROCK. */
 function buildModel(c, ox, oz, yb) {
@@ -73,7 +73,7 @@ async function runExpert(c) {
         if (!g) { const at = env.here(); if (at.x !== S.x || at.y !== S.y || at.z !== S.z) g = { ok: false, reason: 'unreachable', detail: { why: 'could not stand at the station', stage: 'expert_station', cell: S, at, ...r } }; }
         if (g) {                                                        // this place cannot be reached: another one, four in a row end the unit
             first = first || g; stats.fails++;
-            for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) failedCols.add(`${q.x + dx},${q.z + dz}`);          // what cannot be reached is usually a whole corner: not its neighbours either
+            for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++) failedCols.add(`${q.x + dx},${q.z + dz}`);          // what cannot be reached is usually a whole corner: not its neighbours either
             if (g.reason === 'died' || g.reason === 'disconnected' || g.reason === 'cancelled' || g.reason === 'wrong_dimension' || ++failsRow >= MAX_FAILS_ROW) return g;
             continue;
         }
@@ -85,7 +85,12 @@ async function runExpert(c) {
         let dug = 0;
         for (const cell of set) {
             if (open(cell)) continue;
-            const res = await handle(cell, false);
+            // A water seal or a pick-up can walk the bot away from its station (placing needs a face to stand in front of): back to the station before the next cell, or the cell is out of reach
+            // (live 2026-11-11: "too far to dig", 9 blocks). If it cannot get back, this station is over; the next decision starts from where the bot really is.
+            { const at = env.here(); if (at.x !== S.x || at.y !== S.y || at.z !== S.z) { await c.goToStation(S); const back = env.here(); if (back.x !== S.x || back.y !== S.y || back.z !== S.z) { r.movedAway = (r.movedAway || 0) + 1; break; } } }
+            let res = await handle(cell, false);
+            // The seal inside `handle` may itself have walked the bot off (and the mine then fails 'too far'): back to the station, once more.
+            if (res && res !== 'defer') { const at2 = env.here(); if (at2.x !== S.x || at2.y !== S.y || at2.z !== S.z) { await c.goToStation(S); const b2 = env.here(); if (b2.x === S.x && b2.y === S.y && b2.z === S.z) res = await handle(cell, false); } }
             if (res === 'defer') { r.deferred = (r.deferred || 0) + 1; continue; }
             if (res) {
                 if (!CELL_FAILS.has(res.reason) || failures.length >= 1) return failures[0] || res;
