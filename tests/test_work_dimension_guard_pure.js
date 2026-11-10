@@ -3,7 +3,7 @@
 const assert = require('assert');
 const { runWorker } = require('../src/work/bot/worker');
 const { travel } = require('../src/work/bot/travel');
-const { planToward, gapAhead, bridgeToward } = require('../src/work/bot/bridge');
+const { planToward, gapOn, gapAhead, bridgeToward } = require('../src/work/bot/bridge');
 const { stepOffCell } = require('../src/skills/motion');
 const pit = require('../src/work/jobs/pit');
 
@@ -105,13 +105,27 @@ function endWorld() {
         const S = { x: 60, y: 56, z: 0 };
         const env = {
             w, here: () => ({ ...bot }), profile: () => ({ minY: 0 }), cancel: { cancelled: false },
-            bridgeToward: async (to) => { const r = await bridgeToward(env, to); return r; }, gapAhead: (to) => gapAhead(w, bot, to, 0),
+            bridgeToward: async (to) => { const r = await bridgeToward(env, to); return r; }, gapOn: (to) => gapOn(w, bot, to, 0),
             run: async (name, a) => { runs.push(name); if (name === 'pillar') return { ok: false, reason: 'not_confirmed' }; for (const c of a.cells) { w.set(c.x, a.y - 1, c.z, 'solid'); bot.x = c.x; bot.z = c.z; } return { ok: true, detail: { placed: a.cells } }; },
             exec: async (name, a) => { if (name === 'move_to') { bot.x = a.x; bot.y = a.y; bot.z = a.z; return { ok: true }; } return { ok: true }; },
         };
         const r = await pit.goToStation(S, async () => null, env, (c) => w.kindAt(c.x, c.y, c.z) === 'air', {});
         assert.strictEqual(r, null, JSON.stringify(r)); assert.ok(runs.includes('bridge') && !runs.includes('pillar'), runs.join());
         assert.strictEqual(w.kindAt(39, 48, 0), 'solid', 'the bridge lies up to the flank'); assert.strictEqual(bot.x, 60, 'and the walk went on to the station');
+    });
+
+    await test('goToStation: a bot standing inside a base beside the void walks to the edge first, then bridges', async () => {
+        const w = endWorld(), bot = { x: 1, y: 49, z: 0 }, runs = [], S = { x: 60, y: 56, z: 0 };
+        const env = {
+            w, here: () => ({ ...bot }), profile: () => ({ minY: 0 }), cancel: { cancelled: false },
+            bridgeToward: async (to) => bridgeToward(env, to), gapOn: (to) => gapOn(w, bot, to, 0),
+            run: async (name, a) => { runs.push(name); for (const c of a.cells) { w.set(c.x, a.y - 1, c.z, 'solid'); bot.x = c.x; bot.z = c.z; } return { ok: true, detail: { placed: a.cells } }; },
+            exec: async (name, a) => { runs.push(`move ${a.x}`); bot.x = a.x; bot.y = a.y; bot.z = a.z; return { ok: true }; },
+        };
+        const g = gapOn(w, bot, S, 0); assert.deepStrictEqual([g.edge.x, g.atEdge], [4, false]);
+        const r = await pit.goToStation(S, async () => null, env, (c) => w.kindAt(c.x, c.y, c.z) === 'air', {});
+        assert.strictEqual(r, null, JSON.stringify(r)); assert.deepStrictEqual(runs.slice(0, 2), ['move 4', 'bridge'], runs.join());
+        assert.strictEqual(gapOn(w, { x: 40, y: 56, z: 0 }, { x: 60, z: 0 }, 0), null, 'land all the way: no gap');
     });
 
     await test('goToStation: the pillar rise is only for a station above the bot\'s own column (not 30 blocks away)', async () => {

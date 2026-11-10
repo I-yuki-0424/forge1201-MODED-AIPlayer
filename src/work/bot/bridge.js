@@ -150,12 +150,26 @@ function planToward(w, from, to, { maxLen = 40 } = {}) {
     return { ok: true, path, place, segments, length: path.length, landed, stop };
 }
 
-/** Is the first step from `here` toward `S` over nothing at all (the bot stands on solid ground, the next floor is air and there is no floor down to the dimension's bottom)? */
-function gapAhead(w, here, S, minY) {
-    if (w.kindAt(here.x, here.y - 1, here.z) !== 'solid') return false;
-    const n = abyss.line(here, S)[0];
-    return !!n && w.kindAt(n.x, here.y - 1, n.z) === 'air' && abyss.over(w, { x: n.x, y: here.y, z: n.z }, minY);
+/**
+ * The gap on the level line from `here` toward `S` {x, z}: walk the cells x first, then z, while they have solid ground under them and free feet and head. The first cell with NO floor at
+ * all down to `minY` ends it: { edge: the last cell with ground (`here` itself when the bot stands at the edge), atEdge }. Null: no gap on the way (a wall, a fluid, a chunk not loaded, land
+ * all the way, a pit with a floor). The bot may stand anywhere on a base beside the void (live 2026-11-10: the iron-block base east of the End platform); it walks to the edge, then bridges.
+ */
+function gapOn(w, here, S, minY) {
+    if (w.kindAt(here.x, here.y - 1, here.z) !== 'solid') return null;
+    let prev = { x: here.x, z: here.z };
+    for (const p of abyss.line(here, S)) {
+        const floor = w.kindAt(p.x, here.y - 1, p.z), feet = w.kindAt(p.x, here.y, p.z), head = w.kindAt(p.x, here.y + 1, p.z);
+        if (floor === 'unknown' || feet === 'unknown' || head === 'unknown' || !FREE.has(feet) || !FREE.has(head)) return null;
+        if (floor === 'air') return abyss.over(w, { x: p.x, y: here.y, z: p.z }, minY) ? { edge: prev, atEdge: prev.x === here.x && prev.z === here.z } : null;
+        if (floor !== 'solid') return null;
+        prev = p;
+    }
+    return null;
 }
+
+/** Is the bot at the edge of a gap toward `S` (the next step is over nothing at all)? */
+const gapAhead = (w, here, S, minY) => { const g = gapOn(w, here, S, minY); return !!g && g.atEdge; };
 
 /**
  * Cross a gap toward the station `S` {x, z}: a level bridge from where the bot stands (planToward), laid by the `bridge` move. The bridge stays. Returns { ok, placed, landed, at } or the failure of the move.
@@ -174,4 +188,4 @@ async function bridgeToward(env, S, opt = {}) {
     return { ok: true, placed: placed.length, landed: plan.landed, stop: plan.stop, at: env.here() };
 }
 
-module.exports = { bridge, sneakWalk, workOver, planToward, gapAhead, bridgeToward, MOVES, BRIDGE_ITEMS };
+module.exports = { bridge, sneakWalk, workOver, planToward, gapOn, gapAhead, bridgeToward, MOVES, BRIDGE_ITEMS };
