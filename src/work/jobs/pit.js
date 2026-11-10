@@ -270,14 +270,14 @@ async function runUnit(plan, region, u, env) {
             const l = await env.lift(c, { skipSame: true });
             if (l.ok) { r.lifted = (r.lifted || 0) + 1; m = await env.exec('mine', mineArgs(c)); }
         }
-        // A cell over a void that the layer below left (a unit a layer check sent back sits on a ledge, the floor between the bot and it is already dug): no walk, lift or pillar reaches it, a level
-        // bridge does (bot/bridge.js, as for a station). Once per cell. Live 2026-11-10: 383 of 854 problems in 15 min were `mine: reach block` six blocks over a gap, the bots stood still and were killed.
-        if (!m.ok && !open(c) && m.reason === 'unreachable' && env.bridgeToward && env.gapOn && !bridgedFor.has(`${c.x},${c.y},${c.z}`)) {
-            bridgedFor.add(`${c.x},${c.y},${c.z}`);
-            let gap = env.gapOn(c);
-            if (gap && !gap.atEdge && env.here) { const h = env.here(), w = await env.exec('move_to', { x: gap.edge.x, y: h.y, z: gap.edge.z }, { maxTicks: STATION_TICKS }); if (w.ok) gap = env.gapOn(c); }
-            if (gap && gap.atEdge) {
-                const br = await env.bridgeToward(c);
+        // A block out of reach across a gap in the bot's own layer (a ledge or a column that the dig around it left: the floor between the bot and it is dug away, or the bot stands on a lone
+        // column): no walk, lift or pillar gets there, a level bridge does (bot/bridge.js, one block under each next cell, up to the block). Not decided by `gapOn`: that only sees a void down to the
+        // world's floor, and a dug pit has rock far below. Within 14 blocks and two levels, once per cell. Live 2026-11-10: 383 of 854 problems in 15 min were `mine: reach block` 6-9 blocks over such a gap.
+        if (!m.ok && !open(c) && m.reason === 'unreachable' && env.bridgeToward && env.here && !bridgedFor.has(`${c.x},${c.y},${c.z}`)) {
+            const h = env.here(), dist = Math.hypot(h.x - c.x, h.z - c.z), dy = c.y - h.y;
+            if (dist > 3 && dist <= 14 && dy >= -2 && dy <= 2) {
+                bridgedFor.add(`${c.x},${c.y},${c.z}`);
+                const br = await env.bridgeToward({ x: c.x, z: c.z });
                 if (br.ok) { r.bridged = (r.bridged || 0) + br.placed; m = await env.exec('mine', mineArgs(c)); }
             }
         }
