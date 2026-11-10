@@ -26,4 +26,69 @@ tools/route/   the simulator (sim.js), one episode, thread pool, eval.js, train.
 
 ## The policy and its training
 
-RESULTS-PLACEHOLDER
+The score of a candidate is `lin . x + w2 . tanh(W1 x + b1)` over 21 candidate numbers and 9 context numbers. The linear term starts as a hand-written heuristic (reach of the path calculator, progress, level gain, no tabu, no turning back, inertia along a wall, sides and frontier only when the front is blocked), so an untrained policy is the heuristic, never random. It is trained on the simulator by **evolution strategies** (`tools/route/train.js`: antithetic sampling, centred ranks, Adam; no gradient through the environment; 34 generations of 16 members x 24 episodes, about 25 minutes on 3 niced cores, only the linear term evolved: with the 450 hidden weights as well the first run, 44 generations, did not move off the heuristic).
+
+The simulator (`tools/route/sim.js`) is a height-field world with eight kinds of obstacle (open ground, a ridge with one gap, a U-trap, a steep-banked lake, a canyon with one bridge, a cliff with one ramp, a deep pit with a haul road and a far target, the same pit with a chest on the rim 20-80 levels above), the real `planner.js` as path calculator with the work layer's budget (6,000 cells, five re-plans after a partial path, `motion.js`'s walk loop), and the bot's view limit (9 x 9 chunks). Arrival is judged by the simulator, not by the walk's own word. Return = arrival (600) - blocks walked - 25 per failed move - 0.005 per planner cell.
+
+### Held-out test, 240 episodes (30 per kind; seeds used neither for training nor for choosing the policy)
+
+| | arrived | failed `move_to` / call | failed `move_to` / episode | planner cells / episode |
+| :-- | --: | --: | --: | --: |
+| old legs (`travel.js`) | 47.5 % (114/240) | 14.3 % | 0.57 | 8,285 |
+| router, heuristic weights | 73.3 % (176/240) | 11.3 % | 1.09 | 8,306 |
+| router, trained weights (**shipped**) | **74.2 % (178/240)** | 13.5 % | 1.25 | 10,531 |
+
+By kind (30 each), old legs / shipped router: open 30 / 30, ridge 30 / 30, U-trap 30 / 30, lake 7 / 20, canyon 15 / 14, cliff 0 / 19, pit 2 / 21, chest on a rim 0 / 14.
+
+What this says, plainly:
+- **The structure is what wins, not the learning.** Trained against heuristic weights is +0.9 points (2 episodes of 240) with a 95 % interval of about +-5.5 points, and the trained policy has the lower return (97.9 against 110.4) and more failed moves. It was shipped because it is the policy chosen by the validation set (as asked: a rebuilt RL model); deleting `models/experts/route.json` gives the heuristic, which the held-out test cannot tell apart from it. Whether more learning (PPO on the real chunk data, a curriculum of failures from the live log, the hidden layer with more episodes) would add anything is open.
+- **Per walk the failure rate halves (52.5 % -> 25.8 %); per `move_to` it is about equal (14.3 % / 13.5 %), per episode it is higher (0.57 -> 1.25 failed moves).** The router tries exits the old legs never tried; most failed moves are cheap (a move that is unreachable is rejected at once), and a failed exit is followed by another, not by giving up. The canyon (a ravine whose bridge is 15-70 blocks along the edge) is not better than the old legs: the router follows a wall by inertia, but loops between chunks it has walked more often than it finds a bridge outside its view.
+- Not measured in the simulator: the old fallback (the trained `move` expert after a failed leg), because it needs the Rust simulator of [MOE-v2](../proposed/MOE-v2.md); the comparison above is router against the old legs alone.
+
+### Real Forge server (demo, flat world, obstacles built with `/fill`, graded by the server's position of the bot): `scripts/work/route_live.js`
+
+Run with the shipped model (the first run, with the first heuristic version, gave the same outcomes): router 4/4, old legs 3/4. Open ground 200 blocks, a wall 30 high across the way with a gap 60 blocks aside, and a U-trap that opens away from the target: both arrive (router 54 s in 9 decisions, old legs 59 s; the first heuristic version needed 14-16 decisions and 59-62 s). A level 30 above with only a one-wide staircase up its face (a block target, only the level asked): the router climbs it (70 s, one failed move), the old legs fail `stuck` at the foot. n = 4 scenarios, so this is an existence check, not a rate; a lake, a canyon and a pit as deep as the simulator's cannot be built in a flat world (the bottom is 3 blocks down).
+
+### Live on the play console (20 bots, the End pit; deployed 2026-11-10 08:46 UTC, 39 minutes measured; `scripts/work/movement_report.py`)
+
+| | before (3 h) | after (39 min) |
+| :-- | --: | --: |
+| movement failures (walk failed: container, station, rejoin) per 100 unit attempts | 52.4 | 15.3 |
+| movement failures per working bot-hour | 205 | 38 |
+| units finished per minute (bots working on average) | 11.1 (5.4) | 20.1 (11.5) |
+| event-loop lag, mean / max | 356 ms / 6.8 s | 321 ms / 5.5 s (the restart) |
+
+**Read with care:** the deploy is a console restart, which resets stranded bots, so before and after are not the same population (5.4 against 11.5 bots working). A clean A/B needs the setting `router` switched off and on again on the running console; it was not done (the instruction was to deploy once and hold off). What is solid: the `janitor_failed ... could not get to the container (N levels away)` records, 12,000 in the day before, did not occur once after the deploy (`reach.js` now walks to the level when the server may not move the bot). What is not solved: the End pit's `station ... too far from the station` (242 of the 286 movement failures after) is a void between the arrival platform and the island, which no walk crosses (the level bridge, [WORK-CONSOLE-v1](WORK-CONSOLE-v1.md) v19, is the way); the router is asked there once per unit and fails.
+
+The router's own counters (health row `route`): 441 walks, 85 arrived (19 %); 349 fell back to the old legs, which arrived 4 times; 92 walks ended `ok` in all. These walks are the hard ones (the old code did not try a walk at all in most of these places), most of them in the End.
+
+### Computing load
+
+| | simulator (JavaScript, one thread) | live (20 bots, one Node process) |
+| :-- | --: | --: |
+| candidates + features + reach search, per decision | 14 ms (p95 21, max 31) | 25 ms on average wall time (sliced: the loop is given back every 600 cells) |
+| the policy, per decision | 0.03 ms | 0.04 ms (max 0.8) |
+| decisions per walk | 9 | 4.5 |
+| path search of `move_to` (the old cost, unchanged) | 3 ms p50, 47 p95 | |
+
+Over the 39 minutes: 1,988 decisions, 51 s of preparation (2 % of one core), 0.08 s of policy; 4,549 bot-seconds walking (9.7 % of the bots' time, which is the walk itself, not computing). The event loop did not get worse (mean 321 ms against 356 ms, median 66 ms, p95 628 ms). **Not critical.** The reach search is the cost (2,300 cells per decision); it is sliced like `planAsync`, and the policy is negligible.
+
+## Where it is wired
+
+`env.travel` (every long walk: rejoin, station, container, operator `move_to`), `reach.walkTo` (a container in another layer when the server may not move the bot: `level` target), `pit.goToStation` (once, before it gives up). Setting `router` (Automation, default on); `models/experts/route.json` (a missing or mismatched file falls back to the heuristic without a message: `defaultModel`); counters in every health row.
+
+## Not done / open
+
+- The End void (a bridge, not a walk), the canyon case, and the policy gain over the heuristic (above).
+- The simulator is a height field: no caves, no overhangs, no doors, no other bots; the live results above are the check for that.
+- Changing the number of features (`DK`, `DC`) makes `route.json` unreadable; retrain (`tools/route/train.js --linear`) or the heuristic runs.
+
+## Reproduce
+
+```bash
+docker run --rm --network none -v "$PWD":/w -w /w node:20-slim node tools/route/eval.js --n 240 --base 3000000 --threads 3 --model models/experts/route.json
+docker run -d --name route-train --network none --cpus 3 --memory 2g -v "$PWD":/w:ro -v /mnt/data/forgeaip/route:/out -w /w node:20-slim nice -n 19 node tools/route/train.js --out /out --gens 60 --pop 16 --eps 24 --sigma 0.5 --lr 0.08 --linear
+docker run --rm --network none -v "$PWD":/w -w /w node:20-slim node tools/route/bench.js
+(cd /mnt/data/forgeaip-play/demo && LIVE_SCRIPT=route_live.js ./live.sh)
+python3 -I scripts/work/movement_report.py /mnt/data/forgeaip-play/console-data <split-epoch> 3
+```
