@@ -210,7 +210,7 @@ async function runUnit(plan, region, u, env) {
     // Fill what sealPlan lists. `before`: only fluid that can be seen now (a pocket sealed inside stone cannot be clicked, and it
     // cannot flow until the cell next to it opens: live run p4, a water cell in the wall next to the last stone); after the dig
     // the opened cell is the window onto it, so everything is filled then, the pocket first and the opened cell last.
-    const liftedFor = new Set(), bridgedFor = new Set();
+    const liftedFor = new Set(), bridgedFor = new Set(), droppedFor = new Set();
     // A placement the bot cannot reach a face for (unreachable) or that ends in a swim it cannot get out of (stuck): the same walk is not tried again. The server puts the bot on a standable
     // cell beside the fluid cell, once per cell, and the placement is tried from there (a different approach); if that fails too, the failure goes up and the unit is parked.
     const placeAt = async (f, item) => {
@@ -279,6 +279,20 @@ async function runUnit(plan, region, u, env) {
                 bridgedFor.add(`${c.x},${c.y},${c.z}`);
                 const br = await env.bridgeToward({ x: c.x, z: c.z });
                 if (br.ok) { r.bridged = (r.bridged || 0) + br.placed; m = await env.exec('mine', mineArgs(c)); }
+            }
+        }
+        // The block lies 3 to 12 levels straight below the bot and nothing can be walked to it: the bot stands on the last block of a column the dig left (a floating pillar; the normal rule keeps
+        // that block because breaking it drops the bot). Here the drop IS the way down: the block under the feet is broken and the bot falls (at most 12 levels = 9 damage, never with fluid or
+        // lava in the column or with less than 14 health), then the mine is tried again. Deeper than that stays for the forced fall (service/force.js). Once per cell.
+        if (!m.ok && !open(c) && m.reason === 'unreachable' && env.here && !droppedFor.has(`${c.x},${c.y},${c.z}`)) {
+            const h = env.here(), dy = c.y - h.y;
+            if (dy <= -3 && dy >= -12 && Math.hypot(h.x - c.x, h.z - c.z) <= 4 && isSolid(env.w, h.x, h.y - 1, h.z) && (!env.hp || env.hp() >= 14)) {
+                let clear = true; for (let y = h.y - 2; y > c.y; y--) if (!['air', 'climb'].includes(env.w.kindAt(h.x, y, h.z))) { clear = false; break; }          // air all the way down to the target's level
+                if (clear) {
+                    droppedFor.add(`${c.x},${c.y},${c.z}`);
+                    const d = await env.exec('mine', { x: h.x, y: h.y - 1, z: h.z, collect: false, blind: true });
+                    if (d.ok || !isSolid(env.w, h.x, h.y - 1, h.z)) { r.dropped = (r.dropped || 0) + 1; if (env.pause) await env.pause(20); m = await env.exec('mine', mineArgs(c)); }
+                }
             }
         }
         if (!m.ok && m.reason === 'protected') { r.skipped++; r.protected = (r.protected || 0) + 1; leave(c); return null; }       // the owner's chest or a tagged block inside the box: left standing (src/skills/fixtures.js)

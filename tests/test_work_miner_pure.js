@@ -166,6 +166,22 @@ function bot(w, start) {
         }
     });
 
+    await test('rows: a block 3-12 levels straight below a bot on the last block of a column: the block under the feet is broken and the mine tried again; deeper, fluid below, low health or off to the side: not', async () => {
+        const run = async (o, target = -6, below = null) => {
+            const w = world(-40), b = bot(w, { x: 0, y: 1, z: 0 }); w.set(0, 0, 0, 'stone'); w.set(0, target, 0, 'stone');       // the pillar under the feet (y 0) and the block to dig; air in between
+            if (below) w.set(0, below, 0, 'water');
+            const calls = []; const ex = b.exec; let dug = false;
+            b.here = () => ({ x: o.x ?? 0, y: 1, z: 0 }); b.hp = () => o.hp ?? 20;
+            b.exec = async (n, a) => { calls.push(`${n} ${a.x},${a.y},${a.z}${a.blind ? ' blind' : ''}`); if (n === 'mine' && a.x === 0 && a.y === 0 && a.z === 0) { dug = true; w.set(0, 0, 0, 'air'); return { ok: true }; } if (n === 'mine' && !dug) return { ok: false, reason: 'unreachable', detail: { why: 'no path' } }; return ex(n, a); };
+            const j = pit.createPitJob({ x0: 0, z0: 0, x1: 0, z1: 0, top: target, bottom: target }, {}, { method: 'rows', road: false }); j.ledger.join('A');
+            const r = await j.runUnit(j.plan.regions[0].id, { unit: 0, layer: 0, row: 0 }, b);
+            return { r, calls, dropped: calls.includes('mine 0,0,0 blind') };
+        };
+        const yes = await run({}); assert.ok(yes.dropped, yes.calls.join(' | ')); assert.ok(yes.r.ok, JSON.stringify(yes.r));
+        assert.ok(!(await run({ hp: 8 })).dropped, 'low health'); assert.ok(!(await run({ x: 6 })).dropped, 'not under the bot');
+        assert.ok(!(await run({}, -20)).dropped, '21 levels: too deep, the forced fall deals with it'); assert.ok(!(await run({}, -6, -3)).dropped, 'water in the column');
+    });
+
     await test('sweep: workers of a lane job finish it together; a bot with nothing left helps the slow lane at the same height and returns home', async () => {
         const w = world(0), shared = { calls: 0 };
         const job = pit.createPitJob({ x0: 0, z0: 0, x1: 19, z1: 9, top: 0, bottom: -2 }, { leaseMs: 1e9, maxLead: 1 }, { lanes: 2, method: 'sweep' });
