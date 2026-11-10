@@ -146,7 +146,13 @@ function unwind(n) {
  * Every node reachable from `start` within `maxNodes` expansions and `radius` blocks (Dijkstra over the same moves as plan):
  * {has(x, y, z), cells: [[x, y, z, cost], ...]}. What the RL candidate list uses to leave out targets the walker cannot reach.
  */
-function reachable(w, start, { maxNodes = 1500, radius = 20 } = {}) {
+function reachable(w, start, opts = {}) {
+    const it = reachableSteps(w, start, opts);
+    for (;;) { const r = it.next(); if (r.done) return r.value; }
+}
+
+/** The same search as a generator that yields every `slice` expansions (see planAsync): `reachableAsync` lets the other bots run in between. */
+function* reachableSteps(w, start, { maxNodes = 1500, radius = 20, slice = 600 } = {}) {
     const R = radius, side = 2 * R + 1;
     const key = (x, y, z) => ((x - start.x + R) * side + (z - start.z + R)) * 1024 + (y - start.y + 512);
     const inside = (x, y, z) => Math.abs(x - start.x) <= R && Math.abs(z - start.z) <= R && Math.abs(y - start.y) < 512;
@@ -159,10 +165,16 @@ function reachable(w, start, { maxNodes = 1500, radius = 20 } = {}) {
             const c = open.pop(), k = key(c.x, c.y, c.z);
             if (done.has(k)) continue;
             done.set(k, c.f); cells.push([c.x, c.y, c.z, c.f]);
+            if (cells.length % slice === 0) yield cells.length;
             for (const m of neighbours(w, c)) if (inside(m.x, m.y, m.z) && !done.has(key(m.x, m.y, m.z))) { m.f = c.f + m.cost; open.push(m); }
         }
     }
     return { has: (x, y, z) => inside(x, y, z) && done.has(key(x, y, z)), cells };
 }
 
-module.exports = { plan, planAsync, planSteps, neighbours, reachable, nodeKind, MAX_DROP, MAX_DROP_WATER };
+async function reachableAsync(w, start, opts = {}) {
+    const it = reachableSteps(w, start, opts);
+    for (;;) { const r = it.next(); if (r.done) return r.value; await new Promise((res) => setImmediate(res)); }
+}
+
+module.exports = { plan, planAsync, planSteps, neighbours, reachable, reachableAsync, reachableSteps, nodeKind, MAX_DROP, MAX_DROP_WATER };

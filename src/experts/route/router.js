@@ -71,7 +71,7 @@ async function route(env, to, o = {}) {
         if (!inDest && !cands.length) cands = C.exitCandidates(env.w, here, to, { back: true, ty });
         if (inDest && !cands.length) cands = C.exitCandidates(env.w, here, to, { back: true, ty });
         if (!cands.length) return fail(last ? last.reason : 'unreachable', { ...(last && last.detail ? last.detail : {}), why: 'no cell to stand on at the border of the chunk toward the target' });
-        const reach = C.reachMap(env.w, here); st.reachNodes += reach.nodes;
+        const reach = await C.reachMap(env.w, here); st.reachNodes += reach.nodes;
         const built = F.build({ w: env.w, here, to, ty, cands, reach, mem, legs, stalls, failsLeg: failsRow, wp: inDest });
         st.prepMs += now() - t0;
         const t1 = now(), sc = P.scores(model, built.feat, built.ctx, built.cands.length), pick = P.argmax(sc), dt = now() - t1;

@@ -8,12 +8,16 @@ const { travel } = require('../../src/work/bot/travel');
 const MAX_DECISIONS = 60;
 /** spec: {type: 'legacy'} | {type: 'vec', vec: number[]} ; episode: {kind, seed}. */
 async function runEpisode(spec, ep) {
-    const placed = S.place(S.scenario(ep.seed, ep.kind), ep.seed), bot = new S.SimBot(placed), env = bot.env();
+    const sc = S.scenario(ep.seed, ep.kind), placed = S.place(sc, ep.seed), bot = new S.SimBot(placed), env = bot.env();
+    const T = placed.target, to = sc.level ? { x: T.x, z: T.z, level: T.y } : T, near = sc.level ? 6 : 3, nearY = 6;      // a block target (a chest on a rim): only its level is asked, within 6 levels
     const t0 = process.hrtime.bigint();
     let r, info = {};
-    if (spec.type === 'legacy') r = await travel(env, placed.target, { near: 3 });
-    else { const m = P.fromVector(Float64Array.from(spec.vec)); r = await route(env, placed.target, { model: m, near: 3, maxDecisions: MAX_DECISIONS }); info = r.route; }
-    const ms = Number(process.hrtime.bigint() - t0) / 1e6, c = bot.c, rem = Math.hypot(bot.pos.x - placed.target.x, bot.pos.z - placed.target.z);
+    if (spec.type === 'legacy') r = await travel(env, sc.level ? { x: T.x, z: T.z } : T, { near });
+    else { const m = P.fromVector(Float64Array.from(spec.vec)); r = await route(env, to, { model: m, near, nearY, maxDecisions: MAX_DECISIONS }); info = r.route; }
+    const ms = Number(process.hrtime.bigint() - t0) / 1e6, c = bot.c, rem = Math.hypot(bot.pos.x - T.x, bot.pos.z - T.z);
+    // The simulator judges arrival itself (the walk's own word is not enough: the old legs know no levels): within 6 across and 6 levels for a block target, on the cell otherwise.
+    const arrived = sc.level ? rem <= near + 0.5 && Math.abs(bot.pos.y - T.y) <= nearY : rem <= 1;
+    r = { ...r, ok: !!r.ok && arrived, reason: r.ok && !arrived ? 'wrong_level' : r.reason };
     const ret = (r.ok ? 600 : -2 * rem) - c.blocks - 25 * c.fail - 0.005 * c.expanded;
     return { kind: ep.kind, seed: ep.seed, ok: !!r.ok, reason: r.reason || null, ret, blocks: c.blocks, calls: c.calls, fail: c.fail, expanded: c.expanded, plans: c.plans, ms, decisions: info.decisions || 0, prepMs: info.prepMs || 0, thinkMs: info.thinkMs || 0, rem, reasons: c.reasons };
 }

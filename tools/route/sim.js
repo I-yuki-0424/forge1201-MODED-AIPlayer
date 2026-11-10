@@ -14,7 +14,7 @@ function noise(x, z, scale, s) {
     return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
 }
 
-const KINDS = ['open', 'ridge', 'ushape', 'lake', 'canyon', 'cliff', 'pit'];
+const KINDS = ['open', 'ridge', 'ushape', 'lake', 'canyon', 'cliff', 'pit', 'pitnear'];
 
 /** A scenario: {H(u, v) height of the column in the local frame, start, target, kind}. Local frame: the target lies along +u. */
 function scenario(seed, kind) {
@@ -38,7 +38,7 @@ function scenario(seed, kind) {
         const u0 = Math.floor(D * (0.3 + r() * 0.3));
         H = (u, v) => (u >= u0 && Math.abs(v) < 140 ? (v >= gap && v < gap + 6 && u < u0 + 14 ? 64 + Math.max(0, Math.min(14, u - u0 + 1)) : 78) : hills(u, v));
         target = { u: Math.max(D, u0 + 20), v: target.v };
-    } else if (kind === 'pit') {                                                      // start on the floor of a deep pit, the target above ground: the haul road is the only way up
+    } else if (kind === 'pit' || kind === 'pitnear') {                                                      // start on the floor of a deep pit, the target above ground: the haul road is the only way up
         const side = 40 + Math.floor(r() * 50), depth = Math.min(side - 4, 20 + Math.floor(r() * 70)), ex = side;           // pit box [0, side) x [-side/2, side/2); the road runs up the east edge (u = side - 1)
         const z0 = -Math.floor(side / 2), top = 64;
         H = (u, v) => {
@@ -49,10 +49,11 @@ function scenario(seed, kind) {
             return hills(u, v);
         };
         start = { u: 5 + Math.floor(r() * 20), v: z0 + side - 6 - Math.floor(r() * 10) };
-        target = { u: side + 20 + Math.floor(r() * 90), v: Math.round((r() - 0.5) * 60) };
+        target = kind === 'pit' ? { u: side + 20 + Math.floor(r() * 90), v: Math.round((r() - 0.5) * 60) }
+            : { u: Math.floor(r() * (side + 12)) - 4, v: z0 - 6 - Math.floor(r() * 18) };      // pitnear: a chest on the rim a few blocks from the pit, 20-80 levels above the bot: only the level is asked
     }
     void feat;
-    return { kind, H, start, target, seed, sea: kind === 'lake' ? SEA : -999 };
+    return { kind, H, start, target, seed, sea: kind === 'lake' ? SEA : -999, level: kind === 'pitnear' };
 }
 
 /** The world a bot at `bot` {x, z} sees: kindAt over the scenario, `unknown` outside the chunks within VIEW of the bot's chunk. Frame: rotation k (quarter turns), mirror, offset. */

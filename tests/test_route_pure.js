@@ -63,9 +63,9 @@ test('the shipped policy loads and has the layout of the code', () => {
     const m = P.load(JSON.parse(fs.readFileSync(file, 'utf8'))); assert.strictEqual(m.hidden, P.HIDDEN);
 });
 
-test('features: progress, tabu and visits are what the policy is told; the context says the mode', () => {
+test('features: progress, tabu and visits are what the policy is told; the context says the mode', async () => {
     const w = flat(), here = { x: 5, y: 64, z: 5 }, to = { x: 100, y: 64, z: 5 }, cands = C.exitCandidates(w, here, to);
-    const mem = { visits: new Map([['1,0', 2]]), failed: [{ x: 16, y: 64, z: 5 }], prev: null }, reach = C.reachMap(w, here);
+    const mem = { visits: new Map([['1,0', 2]]), failed: [{ x: 16, y: 64, z: 5 }], prev: null }, reach = await C.reachMap(w, here);
     const b = F.build({ w, here, to, ty: 64, cands, reach, mem, legs: 3, stalls: 1, failsLeg: 1, wp: false });
     const k = b.cands.findIndex((q) => q.x === 16 && q.z === 5), j = b.cands.findIndex((q) => q.x === 16 && q.z === 12);
     assert.strictEqual(b.feat[k * F.DK + 14], 1, 'tabu'); assert.strictEqual(b.feat[j * F.DK + 14], 0);

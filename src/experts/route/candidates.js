@@ -4,7 +4,7 @@
 // Pure: the world is the interface of src/skills/world.js (`kindAt`), the path calculator is src/skills/planner.js. The same code builds the candidates in the bots and in the
 // training simulator (tools/route/sim.js), so what the policy saw in training is what it sees live.
 const { standable } = require('../../skills/world');
-const { reachable } = require('../../skills/planner');
+const { reachableAsync } = require('../../skills/planner');
 
 const hd = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 const sgn = (v) => (v > 0 ? 1 : v < 0 ? -1 : 0);
@@ -89,8 +89,8 @@ function ahead(w, c, dir) {
 }
 
 /** The Dijkstra reach of the path calculator around the bot: a Map 'x,y,z' -> cost, and whether the search ran to the end (not cut by its node budget). */
-function reachMap(w, here, { maxNodes = 2500, radius = 32 } = {}) {
-    const r = reachable(w, here, { maxNodes, radius }), m = new Map();
+async function reachMap(w, here, { maxNodes = 2500, radius = 32 } = {}) {
+    const r = await reachableAsync(w, here, { maxNodes, radius }), m = new Map();       // sliced: 2,500 cells in one go froze the other bots for tens of milliseconds
     for (const [x, y, z, c] of r.cells) m.set(`${x},${y},${z}`, c);
     return { cost: m, complete: r.cells.length < maxNodes, nodes: r.cells.length, radius };
 }
