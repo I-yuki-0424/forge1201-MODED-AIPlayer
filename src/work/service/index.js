@@ -182,6 +182,8 @@ class WorkService extends EventEmitter {
     async stop() {
         clearTimeout(this._saveTimer); this._saveTimer = null;
         try { this.save(); } catch (_) { /* best effort */ }
+        // The display's lines are entities in the world: take them away before the RCON link closes (3 s at most).
+        if (this.display) { this.display.stop(); try { await Promise.race([this.display.clear(), new Promise((r) => setTimeout(r, 3000))]); } catch (_) { /* swept at the next start */ } }
         for (const rec of this.bots.values()) { rec.removed = true; clearTimeout(rec.timer); this._stopWorker(rec); try { rec.bot && rec.bot.quit && rec.bot.quit(); } catch (_) { /* gone */ } }
         if (this._rcon) { try { this._rcon.close(); } catch (_) { /* gone */ } }
         clearInterval(this._watch); clearInterval(this._lag); clearInterval(this._sampler); clearInterval(this._mapSave); this.maps.close(); if (this.display) this.display.stop();

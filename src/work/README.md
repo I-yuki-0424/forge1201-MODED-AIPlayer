@@ -11,7 +11,7 @@ jobs/          what a crew does together: the ledger and the job kinds
 bot/           what ONE bot does: loop, environment, recovery, defence, upkeep, scripts, tagged blocks
 operator/      what a person sees and sends: command forms, inventory pages
 world/         the world as data: map from region files, NBT text
-display/       the in-game display (particles)
+display/       the in-game display (lines: block_display entities)
 escalation.js  request to the DPOD router (not wired into any job)
 ```
 

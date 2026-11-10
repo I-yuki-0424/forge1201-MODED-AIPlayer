@@ -66,13 +66,13 @@ function SettingsPanel(getS) {
     } };
 }
 
-/** The in-game display (particles only the operator sees): one switch for all and one per layer. */
+/** The in-game display (lines drawn in the world, in every dimension): one switch for all and one per layer. */
 function DisplayPanel() {
     const rows = [
-        ['on', 'Show in the game', 'Particles drawn in the world for every player on the server who is not a bot (they are tagged aip_see). Nothing is installed on the PC.'],
-        ['paths', 'Walking paths', 'The way each bot is about to walk, in the bot\'s colour, ending in a large mark.'],
-        ['lanes', 'Mining divisions', 'Each pit lane outlined at the rim and at the layer it is digging now, joined by corner posts; build jobs as a box.'],
-        ['tags', 'Tagged blocks', 'A short column over every tagged block, and a dotted line from a machine to the container it is linked to.'],
+        ['on', 'Show in the game', 'Lines drawn in the world (block_display entities), in whatever dimension the player is in, near every player who is not a bot. Everyone in that dimension sees them. Nothing is installed on the PC.'],
+        ['paths', 'Walking paths', 'The way each bot is about to walk: a solid glowing line in the bot\'s colour (seen through blocks), ending in a large cube.'],
+        ['lanes', 'Mining divisions', 'The designated range of each pit lane as a dashed outline at the rim and at the layer it is digging now, joined by dashed corner posts; build jobs as a box.'],
+        ['tags', 'Tagged blocks', 'A short column over every tagged block, and a dashed line from a machine to the container it is linked to.'],
     ];
     const boxes = {};
     const el = h('div', { class: 'stack' }, rows.map(([k, label, hint]) => {

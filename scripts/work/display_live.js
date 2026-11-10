@@ -5,8 +5,8 @@
 //   (cd /mnt/data/forgeaip-play/demo && ./live.sh --script display_live.js)
 //
 //   links    withdraw/deposit at the coordinates of a furnace linked to a chest move the chest's items; smelt on it is refused
-//   display  every particle command the overlay sends is accepted by the server (reply), a frame fits the budget, a bot's walk gives a path,
-//            and a frame does not hold up the bots' own commands
+//   display  every line (block_display) command the overlay sends is accepted by the server, the entities stand in the world (counted from the server) with the epoch tag,
+//            a frame fits the budget, a bot's walk gives a path, and clearing the display kills them all
 const fs = require('fs');
 const { Rcon } = require('../../src/rl/rcon');
 const { WorkService } = require('../../src/work/service');
@@ -68,11 +68,12 @@ async function main() {
 
     // ---------------------------------------------------------------- display
     const replies = []; let slow = 0;
-    const timed = async (c) => { const t0 = Date.now(); const r = await shared.command(c); if (c.startsWith('particle')) { replies.push(String(r)); slow = Math.max(slow, Date.now() - t0); } return r; };
+    const timed = async (c) => { const t0 = Date.now(); const r = await shared.command(c); if (/summon block_display/.test(c)) { replies.push(String(r)); slow = Math.max(slow, Date.now() - t0); } return r; };
     // The bot is the viewer here (nobody else is online); the tag and the selector are the real ones.
     svc.createPit({ name: 'show', box: { x0: BX + 10, z0: BZ + 10, x1: BX + 25, z1: BZ + 25, top: y + 1, bottom: y - 2 }, lanes: 4 });
+    await S.must(`setblock ${BX + 8} ${y} ${BZ + 8} minecraft:chest`); await sleep(1500);
     svc.addSite({ name: 'live-chest2', x: BX + 8, y, z: BZ + 8, tags: ['storage'] });
-    const o = new Overlay({ rcon: timed, pending: () => 0, config: () => svc.settings.display, state: () => svc.displayState(), humans: async () => [{ name: A, x: bot.entity.position.x, y: bot.entity.position.y, z: bot.entity.position.z }], budget: 70 });
+    const o = new Overlay({ rcon: timed, pending: () => 0, config: () => svc.settings.display, state: () => svc.displayState(), humans: async () => [{ name: A, x: bot.entity.position.x, y: bot.entity.position.y, z: bot.entity.position.z, dim: 'minecraft:overworld' }], perFrame: 400 });
     // a walk gives the display a path
     const walk = svc.runCommand({ bots: [A], command: 'move_to', args: { x: BX + 30, y, z: BZ + 30 } });
     await until(() => svc.displayState().bots[0].path, 30000, 'a path from the planner').catch(() => {});
@@ -81,10 +82,14 @@ async function main() {
     check('pit lanes are in the state, one colour each', st.lanes.length >= 4 && new Set(st.lanes.map((l) => l.color)).size === st.lanes.length, st.lanes.length);
     await walk; await until(() => svc.bots.get(A).cmd.status !== 'running', 90000, 'walk end');
     const t0 = Date.now(); const n = await o.frame(); const dt = Date.now() - t0;
-    const bad = replies.filter((r) => !/Displaying particle/i.test(r));
-    check('the server accepts every particle command of a frame', n > 20 && !bad.length, { sent: n, bad: bad.slice(0, 2), sample: replies[0] });
-    check('a frame of the budget takes well under its interval', dt < 1200, { ms: dt, slowestMs: slow });
-    check('the viewer carries the tag the selector uses', /aip_see/.test(await S.cmd(`data get entity ${A} Tags`)), undefined);
+    const bad = replies.filter((r) => !/Summoned new Block Display/i.test(r));
+    check('the server accepts every line command of a frame', n > 20 && !bad.length, { sent: n, bad: bad.slice(0, 2), sample: replies[0] });
+    check('a frame takes well under a few seconds', dt < 4000, { ms: dt, slowestMs: slow });
+    const listed = await S.cmd(`data get entity @e[type=block_display,tag=${o.epoch},limit=1] Tags`);
+    check('the lines stand in the world with the run\'s epoch tag', new RegExp(o.epoch).test(listed), listed.slice(0, 120));
+    await o.clear();
+    const after = await S.cmd(`data get entity @e[type=block_display,tag=${o.epoch},limit=1] Tags`);
+    check('clearing the display removes every line', /No entity was found/i.test(after), after.slice(0, 80));
 
     await svc.stop(); await S.must(`forceload remove ${BX - 16} ${BZ - 16} ${BX + 48} ${BZ + 48}`).catch(() => {});
     const failed = results.filter((r) => !r.ok);

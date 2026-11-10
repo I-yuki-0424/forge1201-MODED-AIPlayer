@@ -293,20 +293,19 @@ GUI, chains through several containers per verb, tags for entities. The Commands
 Live (demo server, real Forge, `scripts/work/display_live.js`): withdraw 8 / deposit 3 / by name 1 through a furnace linked to a chest, graded from the chest's NBT: pass; the
 furnace itself was never filled.
 
-### In-game display (particles, no mod)
+### In-game display (real lines, no mod; v22, 2026-11-11, replaces the particles of v7)
 
-Page Automation, panel "In-game display" (switches for all, paths, mining divisions, tags; default all on). Every 1.5 s the overlay (`display/overlay.js`) draws up to 160
-dust particles with `particle minecraft:dust r g b size x y z 0 0 0 0 1 force @a[tag=aip_see]`: each bot's planned walk (the planner's cells from the `walk` phase,
-only the part ahead of the bot, a large mark on the destination, one colour per bot), each pit lane outlined at the rim and at the layer it is digging now with corner
-posts between them (one colour per lane; a build job as a box), and a short column over every tagged block with a dotted line from a machine to its container. Viewers are
-the players who are not bots and stand in the overworld; the overlay tags them `aip_see` itself (one selector, one command per particle) and draws nothing when nobody
-watches, when a shape is more than 180 blocks from every viewer, or when the RCON queue is more than two commands behind (decoration never delays the bots). Measured on the
-demo server: a frame of 41 particles took 19 ms, the slowest command 2 ms.
-**Why not an auxiliary mod:** a mod that draws real lines needs Java and a build per Forge version and must be installed on every player's PC, and Forge refuses a client
-whose content mods differ; particles show on any client with no install, cover the two things asked for (paths, divisions) and cost 3 small files. The cost is looks:
-dust fades, lines are dotted, thin at distance. If real lines are wanted later the data (`displayState()`) is already what a client mod would draw.
-Not verified: how it looks in a real client (no client here, only the server's replies: every command is accepted). Hook: the action layer's `Ctx.phase` calls `bot.__onPhase`
-when a bot has one set (only the work service sets it; RL bots never do).
+Page Automation, panel "In-game display" (switches for all, paths, mining divisions, tags; default all on). The overlay (`display/overlay.js`, shapes in `display/shapes.js`) draws **real lines**:
+a line piece is one `block_display` entity (a thin box of a bright, fully lit concrete block, stretched and rotated by its `transformation`; Minecraft 1.19.4+, vanilla, no mod, no
+client install), summoned with `execute in <dimension> run summon block_display x.xxx y.yyy z.zzz {...}` (coordinates with a decimal point: whole numbers are moved to the block's centre).
+- **movement** (each bot's planned walk, the planner's cells of the `walk` phase, only what is ahead of the bot): a **solid** line of 0.16 blocks in the bot's colour, collinear steps merged into one piece (a straight 40-block walk is one entity), **glowing** (seen through blocks), ending in a 0.6 cube.
+- **range** (each pit lane's designated box): a **dashed** outline (1.6 blocks on, 0.9 off, 0.12 thick, glowing) at the rim and at the layer it is digging now, joined by dashed corner posts; a build job as a box.
+- **tags**: a column over every tagged block and a dashed line from a machine to its container.
+- **Other dimensions** (the owner's report: nothing showed in the Nether or the End): the old viewer filter was "overworld only" and every command ran in the overworld. Now every player (not a bot) is a viewer in whatever dimension they are in, every bot, lane and tag carries its dimension (`displayState()`: `dim`), and a piece is summoned with `execute in` its own dimension and only near a viewer of that dimension (110 blocks), so it stands in loaded chunks.
+- **Cost and lifetime:** pieces have stable keys (geometry + colour), so only what is new is summoned and only what is gone (or out of range, or its viewer left) is killed: at most 70 commands per frame (1 s), nothing when the RCON queue is behind. Caps: 420 path, 520 range, 120 tag pieces. Every entity carries the run's epoch tag; the first frame in a dimension and every minute kill the entities of other runs (`tag=!epoch`: a crash leaves none that is loaded), switching the display off, nobody watching and a service stop kill this run's.
+- **What changed for the viewer:** an entity has no per-player visibility, so everyone in the dimension sees the lines (the particles were tagged `aip_see` and seen by the operator only). Switch off from the page.
+- **Verified:** `tests/test_work_display_pure.js` (quaternion, dashes, runs, keys, frame contents, other dimension, sweep, budget); against the real demo server the generated commands are accepted (`Summoned new Block Display`) in the overworld and the Nether, the entity's Pos is the given coordinate, and its transformation read back has the expected scale (length of the segment) and rotation. A summon in an unloaded chunk succeeds silently and leaves the entity there (found while testing): that is why pieces are drawn only near a viewer. **Not verified:** how it looks in a real client (no client here).
+Hook: the action layer's `Ctx.phase` calls `bot.__onPhase` when a bot has one set (only the work service sets it; RL bots never do).
 
 ### In-game browser (WebDisplays + MCEF, staged)
 
