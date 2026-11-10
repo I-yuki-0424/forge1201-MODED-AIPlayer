@@ -333,10 +333,13 @@ function lineCells(from, to, y) {
  */
 async function goToStation(S, handle, env, open, r) {
     let rejoins = 0;                     // a bot far from the station (it respawned at the world spawn) is sent back first, at most twice
+    let bridges = 0;                     // at most three bridges per walk to a station (a gap of void between the End's platform and the island is crossed by a level bridge, bot/bridge.js)
     let lifts = 0;                       // at most two server lifts per walk to a station: a lift that lands in the same cell again changes nothing (live: Work17 lifted 0 blocks every 20 s)
     for (let t = 0; t < 10; t++) {
         const here = env.here();
         if (here.x === S.x && here.y === S.y && here.z === S.z) return null;
+        // In another dimension than the job's (it respawned): the station's coordinates are not this dimension's. No walk, no corridor, nothing is charged to the unit (worker.js ends the worker).
+        if (env.wrongDim && env.wrongDim()) return { ok: false, reason: 'wrong_dimension', detail: { why: 'the bot is not in the dimension of the job', botSide: true, stage: 'dimension', cell: S, ...r } };
         // Far away, or the station's chunk is not in the bot's world: no lift, walk or corridor can work from here. The server puts the bot beside the job (env.rejoin); where that is not
         // possible the unit fails at once as the bot's own trouble (never a corridor of 180 blocks toward a station nobody can see).
         const far = Math.hypot(here.x - S.x, here.z - S.z) > 64 || env.w.kindAt(S.x, S.y, S.z) === 'unknown';
@@ -348,6 +351,14 @@ async function goToStation(S, handle, env, open, r) {
             if (!j.ok && j.reason === 'refused' && env.travel) { const t = await env.travel({ x: S.x, z: S.z }, { near: 12 }); j = t.ok ? { ok: true } : { ok: false, reason: t.reason, detail: { ...(t.detail || {}), why: `walking back to the job failed: ${(t.detail && t.detail.why) || t.reason}` } }; }
             if (!j.ok) return { ok: false, reason: j.reason || 'unreachable', detail: { ...(j.detail || {}), botSide: true, stage: 'rejoin', cell: S, ...r } };
             r.rejoined = (r.rejoined || 0) + 1; continue;
+        }
+        // A gap of void toward the station (the End: the obsidian platform and the island are 20-40 blocks apart): no walk, lift or pillar crosses it, a level bridge does. Rising by pillar beside the
+        // platform only put the bot on a tower over the void, out of reach of the station and of its own temporary blocks (live 2026-11-10).
+        if (env.bridgeToward && env.gapAhead && bridges < 3 && Math.hypot(here.x - S.x, here.z - S.z) > 3 && env.gapAhead(S)) {
+            bridges++;
+            const b = await env.bridgeToward(S);
+            if (b.ok) { r.bridged = (r.bridged || 0) + b.placed; continue; }
+            return { ok: false, reason: b.reason || 'unreachable', detail: { ...(b.detail || {}), botSide: true, stage: 'gap', cell: S, ...r } };
         }
         const above = S.y - here.y, floor = [1, 2, 3].some((d) => isSolid(env.w, S.x, S.y - d, S.z));
         // No floor within three cells below an open station, and not far above the bot: nobody can stand there (a tile above the ground); work from where the bot is.
@@ -370,7 +381,7 @@ async function goToStation(S, handle, env, open, r) {
         // The station is three or more levels above the bot and there is no way up on foot (a shaft, a cave under a layer that is still closed): rise by pillar,
         // breaking what is overhead (by hand if no tool fits), and dig the corridor to the station from that layer. Live pit 2026-11-07: four bots stood under an
         // undug slab, 5-26 levels below their units, and failed 'unreachable' for ten minutes. Another bot in the same cell blocks the first block: sidestep, again.
-        if (env.run && above >= 3) {
+        if (env.run && above >= 3 && Math.hypot(here.x - S.x, here.z - S.z) <= 24) {          // a station above the bot's own column (an undug slab), not one across 24 blocks or more of anything
             if (env.crowded && env.crowded()) { if (env.stepAside) await env.stepAside(); else if (env.recover) await env.recover(3); }
             let p = await env.run('pillar', { levels: S.y - env.here().y });
             if (!p.ok && p.reason === 'not_confirmed' && (env.stepAside || env.recover)) { if (env.stepAside) await env.stepAside(); else await env.recover(3); p = await env.run('pillar', { levels: Math.max(1, S.y - env.here().y) }); }
@@ -488,4 +499,4 @@ function createPitJob(box, ledgerOpts = {}, { lanes = 0, method = 'rows', tile =
     return { kind: 'pit', ledger, plan, checkLayer: (env, ck, now) => checkLayer(plan, ledger, byId, auditState, env, ck, now), cleanup: (env) => (ledger.finished() ? require('../bot/temps').cleanTemps(env, { box: plan.box, max: 60, maxMs: 120000 }) : null), runUnit: (regionId, unit, env) => runUnit(plan, byId.get(regionId), unit, env), audit: (env, now, opts) => audit(plan, ledger, env.w, now, auditState, opts), sweep, rescue: (env, why) => require('../bot/water').rescue(env, plan.box, { why }) };
 }
 
-module.exports = { MAX_UNITS, checkLayer, LAYER_ROUNDS, standsOnFloater, aerialTree, planPit, laneBoxes, planRoad, stationsOf, lineCells, unitCells, sealPlan, orderFill, isFluid, exposed, runUnit, wrongCells, cellState, audit, createPitJob, SEAL_ITEMS, CHUNK, TILE, SWEEP_R };
+module.exports = { MAX_UNITS, goToStation, checkLayer, LAYER_ROUNDS, standsOnFloater, aerialTree, planPit, laneBoxes, planRoad, stationsOf, lineCells, unitCells, sealPlan, orderFill, isFluid, exposed, runUnit, wrongCells, cellState, audit, createPitJob, SEAL_ITEMS, CHUNK, TILE, SWEEP_R };

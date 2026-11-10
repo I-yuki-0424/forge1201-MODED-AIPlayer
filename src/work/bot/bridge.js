@@ -15,6 +15,7 @@ const abyss = require('./abyss');
 
 // Cheap blocks that do not fall (never sand or gravel: they would drop into the abyss) and are common where an abyss is: End stone, blackstone, netherrack.
 const BRIDGE_ITEMS = ['cobblestone', 'cobbled_deepslate', 'netherrack', 'end_stone', 'blackstone', 'dirt', 'stone', 'andesite', 'diorite', 'granite', 'tuff', 'deepslate', 'basalt'];
+const FREE = new Set(['air', 'climb']);
 const yawOf = (dx, dz) => Math.atan2(-dx, -dz);
 const FALL = 1.2;                    // lower than the level it walks on by this much = it has stepped off
 
@@ -122,4 +123,55 @@ async function workOver(env, work, opt = {}) {
     return out;
 }
 
-module.exports = { bridge, sneakWalk, workOver, MOVES, BRIDGE_ITEMS };
+/**
+ * The bridge from the safe feet cell `from` toward the column of `to` {x, z}, on `from`'s level, as far as it goes: it ends on the first cell that has solid ground under it (land), or
+ * in front of a wall (the flank of an island: the walk or the dig goes on from there), a cell not loaded, a fluid, or after `maxLen` placed blocks. Pure. Same shape as `abyss.plan`,
+ * plus `landed` (the end has solid ground) and `stop` (why it ended: 'land' | 'wall' | 'not_loaded' | 'hazard' | 'length' | 'target'). Nothing to place = `invalid_target`.
+ * Why: a bot that arrives on the End's obsidian platform has 20-40 blocks of void between it and the island; walking, lifting and rising by pillar all go nowhere (live 2026-11-10).
+ */
+function planToward(w, from, to, { maxLen = 40 } = {}) {
+    if (!from || !to || !Number.isInteger(to.x) || !Number.isInteger(to.z)) return { ok: false, reason: 'invalid_args', detail: { why: 'from and to {x, z} needed' } };
+    if (w.kindAt(from.x, from.y - 1, from.z) !== 'solid') return { ok: false, reason: 'invalid_target', detail: { why: 'the start of a bridge needs a solid floor (a safe cell)', cell: { x: from.x, y: from.y - 1, z: from.z } } };
+    const path = [], place = [], segments = [];
+    let prev = { x: from.x, z: from.z }, stop = 'target', landed = false;
+    for (const p of abyss.line(from, to)) {
+        const floor = w.kindAt(p.x, from.y - 1, p.z), feet = w.kindAt(p.x, from.y, p.z), head = w.kindAt(p.x, from.y + 1, p.z);
+        if (floor === 'unknown' || feet === 'unknown' || head === 'unknown') { stop = 'not_loaded'; break; }
+        if (!FREE.has(feet) || !FREE.has(head)) { stop = 'wall'; break; }
+        if (floor === 'air') { if (place.length >= maxLen) { stop = 'length'; break; } place.push({ x: p.x, y: from.y - 1, z: p.z }); }
+        else if (floor !== 'solid') { stop = 'hazard'; break; }
+        path.push(p);
+        const dir = [p.x - prev.x, p.z - prev.z], last = segments[segments.length - 1];
+        if (last && last.dir[0] === dir[0] && last.dir[1] === dir[1]) last.cells.push(p); else segments.push({ dir, cells: [p] });
+        prev = p;
+        if (floor === 'solid') { stop = 'land'; landed = true; break; }
+    }
+    if (!place.length) return { ok: false, reason: 'invalid_target', detail: { why: `nothing to bridge toward ${to.x} ${to.z} (${stop === 'wall' ? 'a wall' : stop === 'not_loaded' ? 'not loaded' : stop === 'hazard' ? 'a fluid under the way' : 'ground already'})`, stop } };
+    return { ok: true, path, place, segments, length: path.length, landed, stop };
+}
+
+/** Is the first step from `here` toward `S` over nothing at all (the bot stands on solid ground, the next floor is air and there is no floor down to the dimension's bottom)? */
+function gapAhead(w, here, S, minY) {
+    if (w.kindAt(here.x, here.y - 1, here.z) !== 'solid') return false;
+    const n = abyss.line(here, S)[0];
+    return !!n && w.kindAt(n.x, here.y - 1, n.z) === 'air' && abyss.over(w, { x: n.x, y: here.y, z: n.z }, minY);
+}
+
+/**
+ * Cross a gap toward the station `S` {x, z}: a level bridge from where the bot stands (planToward), laid by the `bridge` move. The bridge stays. Returns { ok, placed, landed, at } or the failure of the move.
+ * `env`: here(), w, run(name, args), cancel?. `opt.minY`: the dimension's floor, `opt.maxLen`.
+ */
+async function bridgeToward(env, S, opt = {}) {
+    const from = env.here(), plan = planToward(env.w, from, S, { maxLen: opt.maxLen || 40 });
+    if (!plan.ok) return plan;
+    const placed = [];
+    for (const seg of plan.segments) {
+        if (env.cancel && env.cancel.cancelled) return { ok: false, reason: 'cancelled', detail: { placed: placed.length } };
+        const r = await env.run('bridge', { y: from.y, cells: seg.cells.map((c) => ({ x: c.x, z: c.z })) });
+        if (r.detail && r.detail.placed) placed.push(...r.detail.placed);
+        if (!r.ok) return { ok: false, reason: r.reason, detail: { ...(r.detail || {}), stage: 'bridge', placed: placed.length } };
+    }
+    return { ok: true, placed: placed.length, landed: plan.landed, stop: plan.stop, at: env.here() };
+}
+
+module.exports = { bridge, sneakWalk, workOver, planToward, gapAhead, bridgeToward, MOVES, BRIDGE_ITEMS };

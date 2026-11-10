@@ -119,10 +119,14 @@ function fakeWorld(ground = 0, init = {}) {
         Object.assign(b, { username: 'Bot', registry: { blocksByName: {}, itemsByName: {} }, entity: { position: { x: 270.5, y: 140, z: 458.5, floored: () => ({ x: 270, y: 140, z: 458 }) }, onGround: true }, blockAt: () => null, inventory: { items: () => [] } });
         const rcon = async (c) => { cmds.push(c); const m = /run tp Bot ([\d.-]+) ([\d.-]+) ([\d.-]+)/.exec(c); if (!m || /1753 141/.test(c)) return ''; b.entity.position.x = +m[1]; b.entity.position.y = +m[2]; b.entity.position.z = +m[3]; return `Teleported Bot to ${m[1]}, ${m[2]}, ${m[3]}`; };
         const e = botEnv(b, { cancel: { cancelled: false }, rcon });
-        const bad = await e.rejoin({ x: 1753, y: 140, z: 1801 }); assert.strictEqual(bad.ok, false); assert.strictEqual(bad.detail.botSide, true); assert.ok(/execute if block 1753 141 1801 minecraft:air if block 1753 142 1801 minecraft:air run tp Bot/.test(cmds[0]), cmds[0]);
+        const bad = await e.rejoin({ x: 1753, y: 140, z: 1801 }); assert.strictEqual(bad.ok, false); assert.strictEqual(bad.detail.botSide, true); assert.ok(/execute in minecraft:overworld if block 1753 141 1801 minecraft:air if block 1753 142 1801 minecraft:air run tp Bot/.test(cmds[0]), cmds[0]);        // in the bot's own dimension (the End: execute in minecraft:the_end ...)
         const e2 = botEnv(b, { cancel: { cancelled: false }, rcon: async (c) => { cmds.push(c); const m = /run tp Bot ([\d.-]+) ([\d.-]+) ([\d.-]+)/.exec(c); b.entity.position.x = +m[1]; b.entity.position.y = +m[2]; b.entity.position.z = +m[3]; return 'Teleported'; } });
         const ok = await e2.rejoin({ x: 1753, y: 139, z: 1801 }); assert.deepStrictEqual([ok.ok, ok.to.x, ok.to.y, ok.to.z, ok.at], [true, 1753, 140, 1801, 'the station']);
         assert.strictEqual((await botEnv(b, { cancel: { cancelled: false } }).rejoin({ x: 1, y: 2, z: 3 })).reason, 'refused');
+        // In the End the blocks are looked at in the End (a command without `in` looks at the Overworld and sent bots to a cell that was air there).
+        b.game = { dimension: 'the_end' }; const endCmds = [];
+        await botEnv(b, { cancel: { cancelled: false }, rcon: async (c) => { endCmds.push(c); return ''; } }).rejoin({ x: 81, y: 57, z: 17 });
+        assert.ok(/^execute in minecraft:the_end if block 81 58 17 /.test(endCmds[0]), endCmds[0]);
     });
 
     await test('pit: with nothing to seal water with the bot takes a block from the undug part of the pit (harvest) instead of waiting for a chest that is insert-only', async () => {

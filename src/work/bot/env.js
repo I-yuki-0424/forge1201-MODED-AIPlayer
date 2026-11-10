@@ -221,8 +221,14 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         },
         expertsOn,
         dimension: () => { const d = (bot.game && bot.game.dimension) || 'overworld'; return dimensions.canon(d) || String(d); },
+        // The dimension of the job the bot works (set by the service, null = no rule). A bot that is somewhere else (it died in the End and came back at its bed in the Overworld) must not go on with the
+        // job's coordinates: they are the other dimension's (live 2026-11-10: bots walked 1,500 blocks across the Overworld toward End coordinates). The worker loop, the walks and goToStation ask this.
+        jobDim: null,
+        wrongDim: () => !!envObj.jobDim && !!(bot.game && bot.game.dimension) && envObj.dimension() !== envObj.jobDim,
         // The limits of the dimension the bot is in (world/dimensions.js; an unknown one takes what the login packet said), and work over an abyss (bridge.js: a bridge out, the job, the walk back).
         profile: () => dimensions.profile(envObj.dimension(), bot.game ? { minY: bot.game.minY, height: bot.game.height } : null),
+        bridgeToward: (S, opt = {}) => require('./bridge').bridgeToward(envObj, S, { minY: envObj.profile().minY, ...opt }),
+        gapAhead: (S) => require('./bridge').gapAhead(w, envObj.here(), S, envObj.profile().minY),
         workOver: (work, opt = {}) => require('./bridge').workOver(envObj, work, { minY: envObj.profile().minY, ...opt }),
         // Face a cell and press forward until `until()` is true or `ms` is up (a portal is entered by walking into it); `ahead`: keep the heading the bot has.
         walkInto: async (cell, { until, ms = 8000 } = {}) => {
@@ -239,7 +245,7 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         cross: (gate, o) => require('./portal').cross(envObj, gate, o),
         // A long walk in legs inside the loaded chunks (travel.js): a move_to beyond the view distance fails for want of chunks.
         travel: async (t, o) => {
-            const tr = require('./travel'), run = () => tr.travel({ exec: envObj.exec, here: envObj.here, w, cancel: unitCancel }, t, o);
+            const tr = require('./travel'), run = () => tr.travel({ exec: envObj.exec, here: envObj.here, w, cancel: unitCancel, wrongDim: envObj.wrongDim }, t, o);
             let r = await run();
             if (r.ok || !expertsOn() || !['unreachable', 'stuck', 'timeout', 'not_visible'].includes(r.reason)) return r;
             // No leg of any length could be walked: the movement expert takes the bot toward the target inside the loaded chunks (round what the planner cannot, through what it must dig), then the legs go on.
@@ -314,7 +320,8 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
             const p0 = bot.entity.position, from = { x: Math.round(p0.x), y: Math.round(p0.y), z: Math.round(p0.z) };
             for (const t of tries) {
                 let out = '';
-                try { out = String(await rcon(`execute if block ${t.x} ${t.y} ${t.z} minecraft:air if block ${t.x} ${t.y + 1} ${t.z} minecraft:air run tp ${bot.username} ${t.x + 0.5} ${t.y} ${t.z + 0.5}`)); } catch (e) { return { ok: false, reason: 'refused', detail: { message: String(e.message).slice(0, 80) } }; }
+                // `in <dimension>`: the bot's own (a console command without it looks at the Overworld)
+                try { out = String(await rcon(`execute in ${dimensions.rconId(envObj.dimension())} if block ${t.x} ${t.y} ${t.z} minecraft:air if block ${t.x} ${t.y + 1} ${t.z} minecraft:air run tp ${bot.username} ${t.x + 0.5} ${t.y} ${t.z + 0.5}`)); } catch (e) { return { ok: false, reason: 'refused', detail: { message: String(e.message).slice(0, 80) } }; }
                 if (!/teleported/i.test(out)) continue;
                 for (let i = 0; i < 40; i++) {
                     await sleep(100); const p = bot.entity.position;

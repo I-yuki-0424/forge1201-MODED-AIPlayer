@@ -43,12 +43,21 @@ async function follow(ctx, goal, opts = {}) {
     return end;
 }
 
+/** A neighbouring cell that can be stepped onto at once: feet and head air, solid below, one level down, level or one up. Null when there is none. Pure. */
+function stepOffCell(w, cell) {
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) for (const dy of [0, -1, 1]) {
+        const x = cell.x + dx, y = cell.y + dy, z = cell.z + dz;
+        if (w.kindAt(x, y, z) === 'air' && w.kindAt(x, y + 1, z) === 'air' && w.kindAt(x, y - 1, z) === 'solid') return { x, y, z };
+    }
+    return null;
+}
+
 // A node on the path matches the feet cell; in water the feet bob up and down by a cell, so a swim node matches its column.
 const onNode = (n, c) => same(n, c) || (n.kind === 'swim' && n.x === c.x && n.z === c.z && Math.abs(n.y - c.y) <= 1);
 
 async function walk(ctx, goal, { sprint = true } = {}) {
     const bot = ctx.bot, w = ctx.world;
-    let path = null, idx = 0, replans = 0, best = -Infinity, lastGain = ctx.t, airborne = 0, sunk = 0;
+    let path = null, idx = 0, replans = 0, best = -Infinity, lastGain = ctx.t, airborne = 0, sunk = 0, stepOffs = 0;
     const replan = (why) => {
         if (path && ++replans > MAX_REPLANS) throw new SkillError('stuck', { goal: goal.label, why, replans: replans - 1 });
         path = null;
@@ -90,6 +99,14 @@ async function walk(ctx, goal, { sprint = true } = {}) {
                 // Standing on something the planner does not model (an edge, a partial block): nudge to the cell centre once.
                 const c = centre(cell);
                 if (hdist(pos, c) > 0.15) { await ctx.tick({ forward: true, yaw: Math.atan2(-(c.x - pos.x), -(c.z - pos.z)) }); replans++; if (replans > MAX_REPLANS) throw new SkillError('unreachable', { goal: goal.label, why: 'start cell not standable' }); continue; }
+                // Standing on a block the planner cannot start from (an Ender chest 0.875 high where a bot respawned beside its bed: every move failed "start cell not standable", live 2026-11-10):
+                // one step onto a neighbouring cell that is surely standable (air for feet and head, solid below), then plan again from there. At most three tries per walk.
+                const off = stepOffCell(w, cell);
+                if (off && stepOffs++ < 3) {
+                    const t = centre(off);
+                    try { await ctx.until(() => { const f = feetCell(e.position); return f.x === off.x && f.z === off.z && e.onGround; }, 16, 'stuck', () => ({ forward: true, yaw: Math.atan2(-(t.x - e.position.x), -(t.z - e.position.z)) })); } catch (err) { if (!(err instanceof SkillError)) throw err; }
+                    continue;
+                }
                 throw new SkillError('unreachable', { goal: goal.label, why: 'start cell not standable', cell });
             }
             if (r.partial && r.path.length === 1) throw new SkillError('unreachable', { goal: goal.label, expanded: r.expanded });
@@ -220,4 +237,4 @@ async function aimAtBlock(ctx, cell, { face = null, frame = {} } = {}) {
     throw new SkillError('not_visible', { target: cell, tried: pts.length, seen });
 }
 
-module.exports = { follow, cellGoal, reachGoal, approachUntil, approachBlock, aimAtBlock, clearOfEntities, AIM_REACH, feetCell, centre, hdist, same, eyeOf, clearLine };
+module.exports = { stepOffCell, follow, cellGoal, reachGoal, approachUntil, approachBlock, aimAtBlock, clearOfEntities, AIM_REACH, feetCell, centre, hdist, same, eyeOf, clearLine };

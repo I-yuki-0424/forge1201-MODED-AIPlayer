@@ -51,6 +51,7 @@ async function travel(env, to, { leg = LEG, near = NEAR, maxLegs = MAX_LEGS } = 
     const start = env.here();
     for (; legs < maxLegs; legs++) {
         if (env.cancel && env.cancel.cancelled) return { ok: false, reason: 'cancelled', detail: { legs } };
+        if (env.wrongDim && env.wrongDim()) return { ok: false, reason: 'wrong_dimension', detail: { legs, why: 'the bot is not in the dimension of the target (a respawn): the coordinates are not this dimension\'s' } };
         const here = env.here(), d = hd(here, to);
         if (d <= near) {
             if (Number.isInteger(to.y) && (here.y !== to.y || d > 0.5)) { const r = await env.exec('move_to', { x: to.x, y: to.y, z: to.z }); if (!r.ok) return { ok: false, reason: r.reason, detail: { ...(r.detail || {}), legs, stage: 'last step' } }; }

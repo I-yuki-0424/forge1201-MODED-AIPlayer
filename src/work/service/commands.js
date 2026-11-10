@@ -60,6 +60,7 @@ class CommandsPart {
         const h = env.here(), from = { dim: env.dimension(), x: h.x, y: h.y, z: h.z };
         const to = { dim: args.dim ? dimensions.need(args.dim) : from.dim, x: args.x, y: Number.isInteger(args.y) ? args.y : undefined, z: args.z };
         const steps = route.plan(this.sites, from, to, { viaNether: !!args.viaNether });
+        if (args.gateOnly && steps && steps.length > 1 && steps[steps.length - 1].walk && !steps[steps.length - 1].walk.gate && from.dim !== to.dim) steps.pop();      // the entry into a dimension ends at the exit portal (the caller's own walk follows)
         if (!steps && args.viaServer) return this._serverJump(rec, env, to);
         if (!steps) { const off = this.settings.teleport === 'off'; return { ok: false, reason: 'invalid_target', detail: { why: `no tagged portal leads from ${from.dim} to ${to.dim}${off ? ' (server moves are off, so there is no other way)' : ''}: tag the portal block (purpose portal; "stands in" = the dimension the block is in, "leads to" = ${to.dim}, or its twin on the other side)${off ? '' : '; or tick "by the server" and give y'}` } }; }
         rec.crossing = true;
@@ -71,6 +72,10 @@ class CommandsPart {
                 if (s.walk) {
                     r = await env.travel({ x: s.walk.x, y: s.walk.gate ? undefined : s.walk.y, z: s.walk.z }, s.walk.gate ? { near: 4 } : undefined);
                     if (!r.ok && !s.walk.gate && r.detail && r.detail.stage === 'last step' && env.climb) r = await env.climb({ x: s.walk.x, y: s.walk.y, z: s.walk.z });
+                    if (!r.ok && s.walk.gate && Number.isInteger(s.walk.y)) {        // say it when the gate is on another level (a platform in a pit): a walk is limited to 24 levels a leg, and the bot's own words were "no leg of any length"
+                        const dy = s.walk.y - env.here().y;
+                        if (Math.abs(dy) > 24) r = { ...r, detail: { ...(r.detail || {}), why: `the gate is ${Math.abs(dy)} levels ${dy < 0 ? 'below' : 'above'} the bot and no walk leads there (${r.reason}): a bed beside the gate sets its respawn there, or a way down must be built` } };
+                    }
                     log.push(`walk in ${s.walk.dim}: ${r.ok ? 'ok' : r.reason}`);
                 } else {
                     const gate = this.sites.get(s.cross);

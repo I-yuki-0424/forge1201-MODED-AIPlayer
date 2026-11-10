@@ -57,6 +57,9 @@ async function runWorker(job, id, env, { cancel = { cancelled: false }, policy =
     const wait = async (ms) => { for (let t = 0; t < ms && !cancel.cancelled; t += 500) await sleep(Math.min(500, ms - t)); };
     try {
         while (!cancel.cancelled) {
+            // Not in the dimension of the job (died in the End, back at the bed in the Overworld): the job's coordinates mean nothing here. The worker ends and the service starts it again
+            // through the gate (`_enterDim`); nothing is claimed, walked or failed meanwhile (live 2026-11-10: a unit in the Overworld walked toward End coordinates for minutes).
+            if (env.wrongDim && env.wrongDim()) { L.leave(id, now()); onEvent('wrong_dimension', { id, have: env.dimension && env.dimension() }); return { ended: 'wrong_dimension', units, failed }; }
             if (sinceAudit >= AUDIT_EVERY) { sinceAudit = 0; act('audit'); audit(false); }
             act('claim');
             const claim = L.claim(id, env.pos(), now(), { batch });
@@ -116,6 +119,11 @@ async function runWorker(job, id, env, { cancel = { cancelled: false }, policy =
                 const r = await job.runUnit(claim.region, u, env);
                 onEvent('unit', { id, region: claim.region, unit: u.unit, role: claim.role, ok: r.ok, reason: r.reason, ms: now() - t0, detail: r.reason === 'cancelled' && env.takeCancelCause ? { ...(r.detail || {}), cause: env.takeCancelCause() || 'unknown' } : r.detail });
                 sinceAudit++;
+                if (!r.ok && (r.reason === 'wrong_dimension' || (env.wrongDim && env.wrongDim()))) {           // it left the job's dimension during the unit (or was never in it): nothing is the unit's fault
+                    L.fail(id, claim.region, u.unit, 'wrong_dimension', now());
+                    for (const rest of claim.units) if (rest.unit > u.unit) L.fail(id, claim.region, rest.unit, 'cancelled', now());
+                    L.leave(id, now()); onEvent('wrong_dimension', { id, have: env.dimension && env.dimension() }); return { ended: 'wrong_dimension', units, failed };
+                }
                 if (r.ok) { L.done(id, claim.region, u.unit, now()); units++; streak = 0; for (const k of Object.keys(tries)) tries[k] = 0; if (env.rememberGood) env.rememberGood(); continue; }
                 failed++; sinceAudit = AUDIT_EVERY;                // a failure is the moment to check that the range is what it should be
                 await new Promise((res) => setImmediate(res));      // a failed unit can come back at once (cancelled, invalid ...): timers and sockets (the keep-alives of every bot in this process) get their turn before the next round

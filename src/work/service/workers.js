@@ -22,7 +22,7 @@ class WorkersPart {
         const s = job.spec, at = job.kind === 'pit'
             ? { x: Math.floor((s.box.x0 + s.box.x1) / 2), z: Math.floor((s.box.z0 + s.box.z1) / 2), y: s.box.top + 1 }
             : { x: s.origin.x, z: s.origin.z, y: s.origin.y };
-        const r = await this._journey(rec, cancel, { ...at, dim });
+        const r = await this._journey(rec, cancel, { ...at, dim, gateOnly: true });          // through the gate and no farther: the walk on to the job is the worker's, from the dimension's own surface (the pit's middle at its top level is air over the End's void)
         this.note(r.ok ? 'info' : 'warn', `${rec.name} -> ${dim} for job ${job.id}: ${r.ok ? 'ok' : r.reason}`, { job: job.id });
         return r;
     }
@@ -42,6 +42,7 @@ class WorkersPart {
                 if (!to.ok) { if (rec.worker && rec.worker.cancel === cancel) rec.worker = null; this.note('warn', `bot ${rec.name}: could not get into ${want} for job ${job.id} (${to.reason}${to.detail && to.detail.why ? ': ' + to.detail.why : ''})`); this._dirty(); return; }
             }
             env = this.envFactory(rec.bot, cancel, { worker: true });
+            if (env) env.jobDim = job.spec.dim ? dimensions.canon(job.spec.dim) : null;                 // the worker stops when the bot is anywhere else (env.wrongDim)
             if (env && job.kind === 'pit') env.within = job.spec.box;          // a pillar with nothing to stack takes a block from the undug part of the pit (moves.js harvestBlock)
             if (env && env.configure) env.configure({ retireWorn: !!this.settings.retireWorn, defend: this.settings.defend !== false, planNodes: this.o.planNodes || 6000 });
             // Three usable pickaxes in the pack before the work starts (stock-tools: from the tools chest, when one is in reach): a worn one is replaced on the spot.
@@ -72,9 +73,10 @@ class WorkersPart {
                 if (ev === 'unit' && d.ok) { rec.fixes = 0; rec.cool = 0; rec.autoTries = 0; this._clearGlow(rec); }
                 // A problem is written down where it happens and the bot glows (problems.js): unit failures that are the unit's or the bot's own trouble,
                 // failed repairs, scripts and janitor runs that gave up, a pit range that keeps refilling.
-                if ((ev === 'unit' && !d.ok && !['cancelled'].includes(d.reason)) || ev === 'janitor_failed' || (ev === 'script' && !d.ok) || (ev === 'audit' && d.gaveUp) || ev === 'audit_failed') {
+                if ((ev === 'unit' && !d.ok && !['cancelled', 'wrong_dimension'].includes(d.reason)) || ev === 'janitor_failed' || (ev === 'script' && !d.ok) || (ev === 'audit' && d.gaveUp) || ev === 'audit_failed') {
                     this._problem(rec, ev === 'unit' ? 'unit_failed' : ev, { reason: d.reason || d.ended, stage: d.detail && d.detail.stage, why: ev === 'script' ? (d.log || []).slice(-3).join('; ') : d.detail && (d.detail.why || d.detail.goal), block: d.detail && d.detail.block, item: d.detail && (d.detail.item || (Array.isArray(d.detail.tried) ? d.detail.tried.slice(0, 3).join('|') : undefined)), worn: d.detail && d.detail.worn, cell: d.detail && d.detail.cell, job: job.id, region: d.region, unit: d.unit });
                 }
+                if (ev === 'wrong_dimension') this.note('warn', `${d.id} is in ${d.have}, the job ${job.id} is in ${job.spec.dim}: the worker stops and the bot goes back through the gate`, { job: job.id });
                 if (ev === 'defend' && d.fought) this.note('info', `${rec.name} defended itself: ${d.killed}/${d.fought} killed`, { job: job.id });
                 if (ev === 'audit') this.note(d.gaveUp ? 'warn' : 'info', `${d.id} range check: ${d.reopened} unit(s) sent back, ${d.gaveUp} given up on`, { job: job.id, first: d.first });
                 if (ev === 'layer_check' && (d.reopened || d.leftover || d.error)) this.note(d.error ? 'warn' : 'info', `${d.id} layer ${d.layer} (y ${d.y}) of ${d.region} checked before the next one is opened: ${d.checked} units read, ${d.reopened} sent back to work (blocks left in them), ${d.leftover} given up on${d.unknown ? `, ${d.unknown} cells not loaded` : ''}${d.error ? `, check failed: ${d.error}` : ''}`, { job: job.id, first: d.first });
@@ -198,7 +200,8 @@ class WorkersPart {
         this.note('debug', `bot ${rec.name} ended: ${res.ended}`, { job: job.id, res });
         const L = job.impl.ledger;
         if (job.state === 'running' && !cancel.cancelled) {
-            if (res.ended === 'died') setTimeout(() => this._resume(rec), 4000);           // respawn event restarts it as well; whichever comes first wins
+            if (res.ended === 'wrong_dimension') setTimeout(() => this._resume(rec), 2000);        // _startWorker walks it to the gate of the job's dimension (_enterDim); a failed entry is retried by _watchResume
+            else if (res.ended === 'died') setTimeout(() => this._resume(rec), 4000);           // respawn event restarts it as well; whichever comes first wins
             else if (res.ended === 'unhealthy') {
                 const missing = res.last === 'missing_item' || res.last === 'missing_tool';
                 if (missing && this.settings.autoKit && this.o.rcon && (rec.fixes = (rec.fixes || 0) + 1) <= 5) { this._restock(job, rec, res.last).catch((e) => { rec.retired = `retired: ${res.last} (restock failed: ${String(e.message).slice(0, 80)})`; this._dirty(); }); return; }
