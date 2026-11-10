@@ -21,6 +21,8 @@ class WorldPart {
     setSettings(s) {
         if (s && s.display && typeof s.display === 'object') for (const k of ['on', 'paths', 'lanes', 'tags']) if (typeof s.display[k] === 'boolean') this.settings.display = { ...this.settings.display, [k]: s.display[k] };
         if (s && s.experts !== undefined) { need(typeof s.experts === 'boolean', 'experts: true or false (the trained movement and stuck-escape experts)'); this.settings.experts = s.experts; }
+        if (s && s.pitExpert !== undefined) { need(typeof s.pitExpert === 'boolean', 'pitExpert: true or false (new pits use the learned station planner; false = the tile sweep)'); this.settings.pitExpert = s.pitExpert; }
+        if (s && s.move3 !== undefined) { need(typeof s.move3 === 'boolean', 'move3: true or false (the learned cell-level walk goes first within 48 blocks; false = the chunk router and the old chain)'); this.settings.move3 = s.move3; }
         if (s && s.router !== undefined) { need(typeof s.router === 'boolean', 'router: true or false (the chunk-exit router walks first; false = the old legs)'); this.settings.router = s.router; }
         // teleport: off = the server never moves a bot (no tp of any kind: not a recovery, not a lift, not a jump into a dimension, not the operator's command); near / any limit only the recovery moves.
         if (s && s.teleport !== undefined) { need(['off', 'near', 'any'].includes(s.teleport), 'teleport: off, near or any'); this.settings.teleport = s.teleport; }

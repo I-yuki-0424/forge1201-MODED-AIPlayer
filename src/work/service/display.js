@@ -43,7 +43,7 @@ class DisplayPart {
             if (job.kind === 'pit') {
                 for (const reg of job.impl.ledger.regions.values()) {
                     const m = reg.meta, rows = Math.max(1, reg.rows || 1), layer = Math.min(reg.layers ? reg.layers - 1 : 0, Math.floor(reg.doneN / rows));
-                    lanes.push({ job: job.id, id: reg.id, dim: job.spec.dim || 'overworld', color: k++, box: { x0: m.x0, x1: m.x1, z0: m.z0, z1: m.z1 }, rim: m.top, activeY: Math.max(m.bottom, m.top - layer) });
+                    lanes.push({ job: job.id, id: reg.id, dim: job.spec.dim || 'overworld', color: k++, box: { x0: m.x0, x1: m.x1, z0: m.z0, z1: m.z1 }, rim: m.top, activeY: Math.max(m.bottom, m.top - layer * (m.band || 1)) });
                 }
             } else {
                 const b = this._jobBox(job); if (b && Number.isFinite(b.x0)) lanes.push({ job: job.id, id: 'build', dim: job.spec.dim || 'overworld', color: k++, box: b, rim: b.y1, activeY: b.y0 });

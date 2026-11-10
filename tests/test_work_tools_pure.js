@@ -300,13 +300,13 @@ const tool = (name, max, used) => ({ name, maxDurability: max, durabilityUsed: u
     });
     await svc.stop();
 
-    await test('overlay: the two game rules that keep the particle commands out of the chat are set once, before the first particle', async () => {
+    await test('overlay: the two game rules that keep the command feedback out of the chat are set once, before the first line is drawn', async () => {
         const sent = [];
-        const o = new Overlay({ rcon: async (c) => { sent.push(c); return ''; }, state: () => ({ bots: [], lanes: [], tags: [{ name: 'c', x: 1, y: 64, z: 1, machine: false, end: null }] }), config: () => ({ on: true }), humans: async () => [{ name: 'Seia_Y', x: 0, y: 70, z: 0 }], pending: () => 0 });
+        const o = new Overlay({ rcon: async (c) => { sent.push(c); return ''; }, state: () => ({ bots: [], lanes: [], tags: [{ name: 'c', x: 1, y: 64, z: 1, machine: false, end: null }] }), config: () => ({ on: true }), humans: async () => [{ dim: 'overworld', name: 'Seia_Y', x: 0, y: 70, z: 0 }], pending: () => 0 });
         await o.frame(100000); await o.frame(200000);
         const rules = sent.filter((c) => c.startsWith('gamerule'));
         assert.deepStrictEqual(rules, ['gamerule sendCommandFeedback false', 'gamerule logAdminCommands false']);
-        assert.ok(sent.indexOf(rules[0]) < sent.findIndex((c) => c.startsWith('particle')));
+        assert.ok(sent.indexOf(rules[0]) < sent.findIndex((c) => c.includes('summon block_display')));
         const off = []; const o2 = new Overlay({ rcon: async (c) => { off.push(c); return ''; }, state: () => ({ bots: [], lanes: [], tags: [] }), config: () => ({ on: true }), humans: async () => [{ name: 'X', x: 0, y: 70, z: 0 }], pending: () => 0, quiet: false });
         await o2.frame(100000); assert.ok(!off.some((c) => c.startsWith('gamerule')), 'quiet: false leaves the rules alone');
     });

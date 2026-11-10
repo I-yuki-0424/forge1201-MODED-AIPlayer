@@ -7,6 +7,8 @@ const os = require('os');
 const path = require('path');
 const { EventEmitter } = require('events');
 const { WorkService, normalizeBox } = require('../src/work/service');
+// These tests are about bots, leases and jobs, not about how a pit is cut: they run the tile sweep (the setting pitExpert is on by default since 2026-11-11; tests/test_pit_expert_unit_pure.js covers it).
+class WS extends WorkService { constructor(o) { super(o); this.settings.pitExpert = false; } }
 const bp = require('../src/work/jobs/blueprint');
 const build = require('../src/work/jobs/build');
 
@@ -40,13 +42,13 @@ function fakeBot(name) {
         have: () => 999, inv: () => ({ items: [], slotsFree: 30 }), here: () => ({ x: 0, y: 101, z: 0 }), pos: () => ({ x: bot.entity.position.x, z: bot.entity.position.z }),
     });
     const given = [];
-    const mk = (extra = {}) => new WorkService({ dataDir: dir, factory, envFactory, reconnectMs: 20, rcon: { command: async (c) => { given.push(c); return c.startsWith('list') ? 'There are 2 of a max of 20 players online: Seia_Y, Work1' : c.includes('Pos') ? 'Seia_Y has the following entity data: [12.5d, 70.0d, -30.2d]' : c.includes('Dimension') ? 'has: "minecraft:overworld"' : 'ok'; } }, ...extra });
+    const mk = (extra = {}) => new WS({ dataDir: dir, factory, envFactory, reconnectMs: 20, rcon: { command: async (c) => { given.push(c); return c.startsWith('list') ? 'There are 2 of a max of 20 players online: Seia_Y, Work1' : c.includes('Pos') ? 'Seia_Y has the following entity data: [12.5d, 70.0d, -30.2d]' : c.includes('Dimension') ? 'has: "minecraft:overworld"' : 'ok'; } }, ...extra });
     let svc = mk();
 
     await test('roster: names are validated, duplicates and the limit refused, remove frees the name', async () => {
         for (const bad of ['ab', 'has space', 'x'.repeat(17), 'a;b_c', '', 'a/b/c']) throwsP(() => svc.addBot(bad), 400);
         svc.addBot('Work1'); throwsP(() => svc.addBot('Work1'), 409);
-        const small = new WorkService({ dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'work-')), factory, envFactory, maxBots: 2 });
+        const small = new WS({ dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'work-')), factory, envFactory, maxBots: 2 });
         small.addBot('Aaa'); small.addBot('Bbb'); throwsP(() => small.addBot('Ccc'), 409, /at most 2/);
         await small.stop();
         await until(() => svc.status().bots[0].state === 'online');
@@ -66,7 +68,7 @@ function fakeBot(name) {
         throwsP(() => svc.createPit({ box: { x0: 0.5, z0: 0, x1: 5, z1: 5, top: 90, bottom: 80 } }), 400, /integer/);
         throwsP(() => svc.createPit({ method: 'rows', box: { x0: 0, z0: 0, x1: 3, z1: 3, top: 100, bottom: 60 } }), 400, /haul road/);       // deeper than the edge is long (a road is kept in the rows method)
         throwsP(() => svc.createPit({ method: 'spiral', box: { x0: 0, z0: 0, x1: 3, z1: 3, top: 100, bottom: 99 } }), 400, /method/);
-        { const deep = svc.createPit({ box: { x0: 0, z0: 0, x1: 3, z1: 3, top: 100, bottom: 60 } }); assert.strictEqual(deep.spec ? deep.spec.method : 'sweep', 'sweep', 'sweep is the default and keeps no road'); svc.deleteJob(deep.id); }
+        { const deep = svc.createPit({ box: { x0: 0, z0: 0, x1: 3, z1: 3, top: 100, bottom: 60 } }); assert.strictEqual(deep.spec ? deep.spec.method : 'sweep', 'sweep', 'pitExpert off: the tile sweep keeps no road'); svc.deleteJob(deep.id); svc.setSettings({ pitExpert: true }); const ex = svc.createPit({ box: { x0: 0, z0: 0, x1: 3, z1: 3, top: 100, bottom: 60 } }); assert.deepStrictEqual([ex.spec.method, ex.spec.road], ['expert', false], 'pitExpert on (the default of a real service): the learned station planner'); svc.deleteJob(ex.id); svc.setSettings({ pitExpert: false }); }
         const v = svc.createPit({ name: 'test pit', box: { x0: 0, z0: 0, x1: 20, z1: 9, top: 100, bottom: 98 }, bots: ['Work1', 'Work2', 'Work3'], start: true });
         assert.strictEqual(v.state, 'running');
         throwsP(() => svc.createPit({ box: { x0: 5, z0: 5, x1: 8, z1: 8, top: 100, bottom: 99 } }), 409, /overlaps/);
@@ -158,11 +160,11 @@ function fakeBot(name) {
         assert.ok(r.given.some((g) => g.startsWith('iron_pickaxe')));
         assert.ok(given.every((c) => /^give Work2 minecraft:[a-z_]+ \d+$/.test(c)), given.join('|'));
         await rejects(svc.kitBot('Work2; op Evil'), 404); await rejects(svc.kitBot('Nobody'), 404);
-        const bad = new WorkService({ dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'work-')), factory, envFactory, kit: { 'stone; op Evil': { min: 5, give: 1 } }, rcon: { command: async (c) => { given.push(c); return ''; } } });
+        const bad = new WS({ dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'work-')), factory, envFactory, kit: { 'stone; op Evil': { min: 5, give: 1 } }, rcon: { command: async (c) => { given.push(c); return ''; } } });
         bad.addBot('Kitty'); await until(() => bad.status().bots[0].state === 'online');
         given.length = 0; await rejects(bad.kitBot('Kitty'), 400, /kit item/); assert.deepStrictEqual(given, []);
         await bad.stop();
-        const norcon = new WorkService({ dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'work-')), factory, envFactory });
+        const norcon = new WS({ dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'work-')), factory, envFactory });
         await rejects(norcon.players(), 503); await norcon.stop();
     });
 
@@ -170,7 +172,7 @@ function fakeBot(name) {
         const stock = {}, cmds = [];
         const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'work-'));
         const w2 = makeWorld(100);
-        const s2 = new WorkService({
+        const s2 = new WS({
             dataDir: dir2, factory, reconnectMs: 20,
             envFactory: (bot) => ({
                 w: w2, now: Date.now, pause: () => sleep(1), have: (i) => stock[i] || 0, inv: () => ({ items: [], slotsFree: 30 }), here: () => ({ x: 0, y: 101, z: 0 }), pos: () => ({ x: 0, z: 0 }),
@@ -205,7 +207,7 @@ function fakeBot(name) {
         const dir3 = fs.mkdtempSync(path.join(os.tmpdir(), 'work-')), w3 = makeWorld(100), carried = [];
         const reg = { itemsByName: { iron_pickaxe: { id: 7, name: 'iron_pickaxe' }, wooden_pickaxe: { id: 6, name: 'wooden_pickaxe' } }, items: { 6: { name: 'wooden_pickaxe' }, 7: { name: 'iron_pickaxe' } }, blocksByName: { stone: { harvestTools: { 6: true, 7: true } } } };
         const f3 = (name) => { const b = fakeBot(name); b.registry = reg; b.inventory = { items: () => carried, emptySlotCount: () => 30 }; setTimeout(() => b.emit('spawn'), 5); return b; };
-        const s3 = new WorkService({
+        const s3 = new WS({
             dataDir: dir3, factory: f3, reconnectMs: 20,
             envFactory: () => ({ w: w3, now: Date.now, pause: () => sleep(1), have: () => 99, inv: () => ({ items: [], slotsFree: 30 }), here: () => ({ x: 0, y: 101, z: 0 }), pos: () => ({ x: 0, z: 0 }),
                 exec: async (cmd, a) => { if (cmd === 'mine') { if (!carried.length) return { ok: false, reason: 'missing_tool', detail: { block: 'stone' } }; w3.set(a.x, a.y, a.z, 'air'); } return { ok: true }; } }),
@@ -223,7 +225,7 @@ function fakeBot(name) {
 
     await test('a bot that keeps failing (after fixes and waits) cools down and comes back by itself; lanes are one X-Z range per bot', async () => {
         const dir4 = fs.mkdtempSync(path.join(os.tmpdir(), 'work-')), w4 = makeWorld(100), flag = { heal: false }, fixes = [];
-        const s4 = new WorkService({
+        const s4 = new WS({
             dataDir: dir4, factory, reconnectMs: 20, coolMs: 120, repairMs: 50, backoff: () => 1,
             envFactory: () => ({ w: w4, now: Date.now, pause: () => sleep(1), have: () => 99, inv: () => ({ items: [], slotsFree: 30 }), here: () => ({ x: 0, y: 101, z: 0 }), pos: () => ({ x: 0, z: 0 }),
                 recover: async (lvl) => { fixes.push(lvl); }, rememberGood: () => {},
@@ -259,7 +261,7 @@ function fakeBot(name) {
             b.inventory = { items: () => [pick, fresh], emptySlotCount: () => 20, slots: [null, null, null, null, null, null, null, null, null, pick] }; bots2.push(b); setTimeout(() => b.emit('spawn'), 5); return b; };
         const calls = [];
         const e2 = (bot) => ({ w: w2, now: Date.now, pause: () => sleep(1), exec: async (c, a) => { calls.push([c, a]); return { ok: true }; }, have: () => 5, inv: () => ({ items: [], slotsFree: 30 }), here: () => ({ x: 0, y: 70, z: 0 }), pos: () => ({ x: 0, z: 0 }), configure: (o) => { bot.__cfg = o; } });
-        const s2 = new WorkService({ dataDir: d2, factory: f2, envFactory: e2, reconnectMs: 20 });
+        const s2 = new WS({ dataDir: d2, factory: f2, envFactory: e2, reconnectMs: 20 });
         s2.addBot('Work1'); await until(() => s2.status().bots[0].state === 'online');
         assert.deepStrictEqual([s2.settings.retireWorn, s2.settings.scripts], [true, true], 'worn-tool rule and recovery scripts are on by default');
         s2.setSettings({ retireWorn: false }); assert.strictEqual(bots2[0].__skillOpts.retireWorn, false, 'the switch reaches a bot that is connected');
@@ -277,7 +279,7 @@ function fakeBot(name) {
         s2.putScript({ name: 'hello', steps: [{ log: 'hi' }, { return: 'ok' }] }); assert.ok(s2.listScripts().some((x) => x.name === 'hello' && !x.builtIn) && s2.listScripts().some((x) => x.name === 'replace-tool' && x.builtIn));
         const ran = await s2.runScript('Work1', 'hello'); assert.ok(ran.ok && ran.log.includes('hi'));
         await rejects(s2.runScript('Work1', 'nope'), 404); await rejects(s2.runScript('Nobody', 'hello'), 404);
-        s2.save(); const s3 = new WorkService({ dataDir: d2, factory: f2, envFactory: e2 }); await s3.restore();
+        s2.save(); const s3 = new WS({ dataDir: d2, factory: f2, envFactory: e2 }); await s3.restore();
         assert.deepStrictEqual(s3.listSites().sites.map((x) => x.name), ['tools1'], 'sites persist'); assert.ok(s3.scripts.has('hello'), 'the operator\'s scripts persist'); await s3.stop();
         // Leave pit: needs a pit job and an idle bot
         await rejects(s2.leavePit('Work1'), 409, /no pit job/);
@@ -298,7 +300,7 @@ function fakeBot(name) {
     });
     await test('a bot found outside the overworld is sent back to the depot of a job, once per 15 s; the overworld is left alone', async () => {
         const sent = [];
-        const s = new WorkService({ dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'work-')), factory, envFactory, reconnectMs: 20, rcon: { command: async (c) => { sent.push(c); return 'ok'; } } });
+        const s = new WS({ dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'work-')), factory, envFactory, reconnectMs: 20, rcon: { command: async (c) => { sent.push(c); return 'ok'; } } });
         s.addBot('Lost'); await until(() => s.status().bots[0].state === 'online'); s.setSettings({ teleport: 'near' });
         const bot = s.bots.get('Lost').bot;
         s.jobs.set('jx', { id: 'jx', state: 'running', spec: { depot: { kind: 'chest', x: 217, y: 64, z: 417 }, box: { x0: 0, x1: 1, z0: 0, z1: 1, top: 1, bottom: 0 } }, bots: new Set() });

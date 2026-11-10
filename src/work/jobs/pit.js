@@ -15,6 +15,7 @@ const STATION_TICKS = 600;           // a walk to a station gets 30 s (the comma
 // The ledger keeps about 35 bytes per unit (a unit = one standing place of one layer; a row of one layer for method rows). 100 x 100 chunks, 5 x 5 tiles, 60 layers = 9.6 M units = 340 MB;
 // 16 M units = about 560 MB; the cap is what the console container can hold beside everything else (owner 2026-11-10: pits of 100 x 100 chunks).
 const MAX_UNITS = 16_000_000;
+const EXPERT_BAND = 2;               // layers per unit of the expert method (the arm reaches two layers below the feet from a station)
 const PASSABLE = new Set(['air', 'climb']);
 // Natural tree blocks. One that hangs high above the ground below it cannot be reached on foot: the planner expands 20,000 cells and gives up
 // (30-85 s per try, six tries per unit, bots end up standing on the canopy) - the live pit of 2026-11-07 with top y 90 over ground at y 64 and a tree.
@@ -49,12 +50,14 @@ function planPit(box, { chunk = CHUNK, lanes = 0, method = 'rows', tile = TILE, 
     if (x1 < x0 || z1 < z0 || top < bottom) throw new Error('box is empty (x1<x0, z1<z0 or top<bottom)');
     const layers = top - bottom + 1;
     const road = withRoad ? planRoad(box, layers) : { keep: new Map(), cells: [] };       // no road: bots leave by pillar (exit.js) and enter from the surface with the digging
-    if (!['rows', 'sweep'].includes(method)) throw new Error('method is rows or sweep');
+    if (!['rows', 'sweep', 'expert'].includes(method)) throw new Error('method is rows, sweep or expert');
     if (!Number.isInteger(tile) || tile < 1 || tile > 7) throw new Error('tile 1..7');
     // rows: a unit is one row of a layer, dug cell by cell while walking along it. sweep: a unit is one standing place of a layer
     // ("station"): the bot goes to the middle of a tile, digs everything within reach in one go and only then moves on.
     const mk = (id, r) => {
         const base = { ...r, top, bottom };
+        // expert: a unit is one BAND of two layers of the whole chunk; the learned station planner (pit_expert.js) decides where to stand and what to dig from there. One unit per band: the ledger's layers are bands.
+        if (method === 'expert') return { id, anchor: { x: (r.x0 + r.x1) / 2, z: (r.z0 + r.z1) / 2 }, layers: Math.ceil(layers / EXPERT_BAND), rows: 1, meta: { ...base, method, band: EXPERT_BAND } };
         if (method !== 'sweep') return { id, anchor: { x: (r.x0 + r.x1) / 2, z: (r.z0 + r.z1) / 2 }, layers, rows: r.z1 - r.z0 + 1, meta: base };
         const stations = stationsOf(r, tile);
         return { id, anchor: { x: (r.x0 + r.x1) / 2, z: (r.z0 + r.z1) / 2 }, layers, rows: stations.length, meta: { ...base, method, tile, stations } };
@@ -132,6 +135,14 @@ function stationsOf(r, tile = TILE) {
 /** The cells of one unit (layer, row) in walking order (rows alternate direction), without the road's kept blocks. A sweep unit: the station's tile, the station cell first, then nearest first; `.station` is the cell to stand in. */
 function unitCells(plan, region, u) {
     const { rows, meta } = region, layer = (u / rows) | 0, row = u % rows, y = meta.top - layer;
+    if (meta.method === 'expert') {                                          // a band: the chunk's columns over `band` layers, top layer first
+        const top = meta.top - meta.band * layer, out = [];
+        for (let yy = top; yy > top - meta.band && yy >= meta.bottom; yy--) for (let x = meta.x0; x <= meta.x1; x++) for (let z = meta.z0; z <= meta.z1; z++) {
+            const k = plan.road.keep.get(`${x},${z}`); if (k !== undefined && yy <= k) continue;
+            out.push({ x, y: yy, z });
+        }
+        return out;
+    }
     if (meta.method === 'sweep') {
         const st = meta.stations[row], kept = (x, z) => { const k = plan.road.keep.get(`${x},${z}`); return k !== undefined && y <= k; };
         const cells = [];
@@ -202,9 +213,10 @@ function orderFill(w, cells) {
  * Idempotent: cells that are already open are skipped, so a unit abandoned half way (death, takeover) is simply run again.
  */
 async function runUnit(plan, region, u, env) {
-    const cells = unitCells(plan, region, u.unit), r = { mined: 0, sealed: 0, skipped: 0 }, sweep = region.meta.method === 'sweep';
+    const cells = unitCells(plan, region, u.unit), r = { mined: 0, sealed: 0, skipped: 0 }, expert = region.meta.method === 'expert', sweep = region.meta.method === 'sweep' || expert;
     // A sweep leaves the drops where they fall and picks everything up once at the end (a walk per block would cost more than the digging).
-    const mineArgs = (c) => (sweep ? { x: c.x, y: c.y, z: c.z, collect: false } : c);
+    // The expert method mines BLIND: its stations put every cell within the arm's reach, and the server checks only the distance (no walk to a place with a view, no step into a hole).
+    const mineArgs = (c) => (expert ? { x: c.x, y: c.y, z: c.z, collect: false, blind: true } : sweep ? { x: c.x, y: c.y, z: c.z, collect: false } : c);
     const fail = (res, cell, stage) => ({ ok: false, reason: res.reason, detail: { ...(res.detail || {}), cell, block: env.w.nameAt ? env.w.nameAt(cell.x, cell.y, cell.z) : undefined, stage, ...r } });
     const open = (c) => PASSABLE.has(env.w.kindAt(c.x, c.y, c.z));
     const leave = (c) => { if (plan.accepted) plan.accepted.add(`${c.x},${c.y},${c.z}`); };          // a block left on purpose (a fixture, a floating block): the layer check does not send the unit back for it
@@ -318,6 +330,7 @@ async function runUnit(plan, region, u, env) {
         r.skipped += cells.length; r.idle = true;
         return { ok: true, reason: null, detail: r };
     }
+    if (expert) return require('./pit_expert').runExpert({ plan, region, unit: u.unit, env, r, cells, handle, open, goToStation: (S) => goToStation(S, handle, env, open, r), sweepDrops, UNBREAKABLE, aerialTree, CELL_FAILS, EXPERT_BAND });
     if (sweep && cells.station && env.here) {
         const g = await goToStation(cells.station, handle, env, open, r);
         if (g) return g;

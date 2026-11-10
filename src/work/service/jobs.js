@@ -85,10 +85,10 @@ class JobsPart {
         const idle = [...this.bots.values()].filter((r) => !r.removed && r.state !== 'offline' && !(r.job && this.jobs.has(r.job) && ACTIVE.has(this.jobs.get(r.job).state))).length;
         const lanes = spec.lanes !== undefined ? spec.lanes : (Array.isArray(spec.bots) && spec.bots.length) || idle || 1;
         need(Number.isInteger(lanes) && lanes >= 1 && lanes <= 32, 'lanes: 1..32');
-        // method: 'sweep' (default: stand in the middle of a tile, dig everything in reach, move on in a fan) or 'rows' (the first version, cell by cell).
+        // method: 'expert' (default: the learned station planner picks where to stand, band by band; setting pitExpert false = 'sweep'), 'sweep' (stand in the middle of a tile, dig everything in reach, move on in a fan) or 'rows' (the first version, cell by cell).
         // road: keep the haul road (default: only for rows; a sweep job leaves by pillar, exit.js) -- a road lets a late or respawned bot WALK in.
-        const method = spec.method === undefined ? 'sweep' : spec.method, road = spec.road === undefined ? method !== 'sweep' : !!spec.road;
-        need(['sweep', 'rows'].includes(method), 'method: sweep or rows');
+        const method = spec.method === undefined ? (this.settings.pitExpert === false ? 'sweep' : 'expert') : spec.method, road = spec.road === undefined ? !['sweep', 'expert'].includes(method) : !!spec.road;
+        need(['sweep', 'rows', 'expert'].includes(method), 'method: expert, sweep or rows');
         let impl;
         try { impl = pit.createPitJob(box, PIT_LEDGER, { lanes, method, road }); } catch (e) { throw new Problem(e.message); }
         const depot = spec.depot ? this._depot(spec.depot) : null;

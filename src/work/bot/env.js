@@ -8,7 +8,7 @@ const dimensions = require('../world/dimensions');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** The environment of a real Mineflayer bot on the action layer. */
-function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null, others = null, guard: withGuard = false, defend = true, moved = null, teleport = () => 'near', gates = null, stockMiss = null, experts = null, expertLog = null, router = null } = {}) {
+function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null, others = null, guard: withGuard = false, defend = true, moved = null, teleport = () => 'near', gates = null, stockMiss = null, experts = null, expertLog = null, router = null, move3 = null } = {}) {
     const { execute } = require('../../skills');
     const { fromBot } = require('../../skills/world');
     const { feetCell } = require('../../skills/motion');
@@ -254,6 +254,27 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         // The chunk-exit router comes first (src/experts/route, docs/implemented/ROUTE-v1.md: the policy picks where to leave each chunk, the path calculator walks between the exits, waypoints
         // in the destination chunk); the old legs and then the movement expert are the fallback when it fails. Setting `router` (default on) turns it off.
         travel: async (t, o) => {
+            const rt = require('../../experts/route/router'), st = require('../../experts/route/stats'), tr = require('./travel'), ms = () => Date.now();
+            const cancelled = (r) => ['died', 'disconnected', 'cancelled', 'wrong_dimension'].includes(r.reason);
+            let r, m3failed = false;
+            // The learned cell-level walk first (RL-MOVE-v3, src/experts/move3, setting `move3`): a target within about 48 blocks across and 30 levels, walked one action at a time with bridges,
+            // pillars, descents and digging inside the pit where the old chain has none of them. It refuses a farther target at once; when it fails, the chunk router and the rest of the chain go on.
+            if (!!move3 && move3() !== false) {
+                const m3 = require('../../experts/move3/walk'), m3s = require('../../experts/move3/stats'), t0 = ms();
+                const e3 = Object.create(envObj); e3.cancel = unitCancel; e3.spots = () => (others ? others() : []);
+                let q3;
+                try { q3 = await m3.walk3(e3, t, { near: Math.min(3, (o && o.near) === undefined ? 2 : o.near), nearY: (o && o.nearY) === undefined ? undefined : Math.min(4, o.nearY) }); }
+                catch (e) { q3 = { ok: false, reason: 'internal', detail: { message: String((e && e.message) || e).slice(0, 120) } }; }
+                m3s.record(q3, ms() - t0);
+                if (q3.ok) { require('../../experts/route/stats').final(q3); return q3; }
+                if (cancelled(q3)) { require('../../experts/route/stats').final(q3); return q3; }
+                if (q3.reason !== 'refused') m3failed = true;
+            }
+            const r0 = await envObj._travelChain(t, o);
+            if (m3failed) require('../../experts/move3/stats').fallback(!!r0.ok);
+            return r0;
+        },
+        _travelChain: async (t, o) => {
             const rt = require('../../experts/route/router'), st = require('../../experts/route/stats'), tr = require('./travel'), ms = () => Date.now();
             const cancelled = (r) => ['died', 'disconnected', 'cancelled', 'wrong_dimension'].includes(r.reason);
             let r;

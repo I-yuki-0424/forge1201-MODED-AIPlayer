@@ -44,7 +44,7 @@ class WorkService extends EventEmitter {
         this.factory = this.o.factory || defaultFactory(this.o);
         // `worker`: the env of a bot that works a job (defence, a place to dump trash away from every job); one-off commands get the plain env.
         this.envFactory = this.o.envFactory || ((bot, cancel, o = {}) => require('../bot/env').botEnv(bot, {
-            cancel, rcon: this.o.rcon ? (c) => this.rcon(c) : null, moved: (m) => this._moved(bot.username, m), teleport: () => this.settings.teleport || 'off', gates: this.gates, stockMiss: this.stockMiss, experts: () => this.settings.experts !== false, router: () => this.settings.router !== false, expertLog: (m) => this._expertLog(bot.username, m),
+            cancel, rcon: this.o.rcon ? (c) => this.rcon(c) : null, moved: (m) => this._moved(bot.username, m), teleport: () => this.settings.teleport || 'off', gates: this.gates, stockMiss: this.stockMiss, experts: () => this.settings.experts !== false, router: () => this.settings.router !== false, move3: () => this.settings.move3 !== false, expertLog: (m) => this._expertLog(bot.username, m),
             ...(o.worker ? { guard: true, defend: this.settings.defend !== false, avoid: () => this._activeBoxes(), others: () => this._botSpots(bot.username) } : {}),
         }));
         this.known = this.o.known || null;
@@ -59,7 +59,7 @@ class WorkService extends EventEmitter {
         this.bots = new Map();            // name -> record
         this.jobs = new Map();            // id -> job
         this.log = [];
-        this.settings = { autoKit: false, retireWorn: true, scripts: true, resumeJobs: true, defend: true, glow: true, directPickup: true, discardWorn: true, reflex: true, forceFall: true, forceKill: true, autoRepair: true, endDump: true, bedrockExploit: false, endDumpEnder: { left: 'white', middle: 'white', right: 'white' }, teleport: 'off', reachChunks: 50, experts: true, router: true, toolPolicy: { wooden: 'use_up', stone: 'use_up', iron: 'use_up', golden: 'use_up', diamond: 'keep', netherite: 'keep' }, display: { on: true, paths: true, lanes: true, tags: true } };      // retireWorn: a nearly broken tool counts as no tool; scripts: recovery scripts (missing tool) on
+        this.settings = { autoKit: false, retireWorn: true, scripts: true, resumeJobs: true, defend: true, glow: true, directPickup: true, discardWorn: true, reflex: true, forceFall: true, forceKill: true, autoRepair: true, endDump: true, bedrockExploit: false, endDumpEnder: { left: 'white', middle: 'white', right: 'white' }, teleport: 'off', reachChunks: 50, experts: true, router: true, move3: false, pitExpert: false, toolPolicy: { wooden: 'use_up', stone: 'use_up', iron: 'use_up', golden: 'use_up', diamond: 'keep', netherite: 'keep' }, display: { on: true, paths: true, lanes: true, tags: true } };      // retireWorn: a nearly broken tool counts as no tool; scripts: recovery scripts (missing tool) on
         this.problems = new Problems({ file: path.join(this.o.dataDir, 'problems.jsonl') });   // problem bots: where, facing, standing on what (problems.js)
         this.health = new Health({ file: this.o.dataDir ? path.join(this.o.dataDir, 'health.jsonl') : null });   // where the time goes, once a minute (health.js)
         this.force = new Force();                                                  // pushes a bot that does nothing: a fall after 30 s still, a kill after 60 s of errors (bot/force.js, service/force.js)
@@ -130,7 +130,7 @@ class WorkService extends EventEmitter {
                 phase: r.act ? (r.act.sub ? r.act.sub.name : r.act.name === 'unit' ? `unit:${r.phase && Date.now() - r.phase.at < 15000 ? r.phase.name : 'quiet'}` : r.act.name) : null,
                 onFloor: low !== null && !!(r.bot && r.bot.entity && r.bot.entity.position.y <= low),
             }));
-            const h = this.health.flush({ bots, lines: this.gates.busy(), lagMs: this._lagMax, route: require('../../experts/route/stats').take() }); this._lagMax = 0;
+            const h = this.health.flush({ bots, lines: this.gates.busy(), lagMs: this._lagMax, route: require('../../experts/route/stats').take(), move3: require('../../experts/move3/stats').take() }); this._lagMax = 0;
             if (bots.length || h.row.done || h.row.failed || h.row.cancelled) this.note(h.warn ? 'warn' : 'info', h.text);
             if (h.warn) this.note('warn', `STALL: ${h.warn}; ${h.text}`);
         } catch (e) { this.note('debug', `heartbeat failed: ${e.message}`); }

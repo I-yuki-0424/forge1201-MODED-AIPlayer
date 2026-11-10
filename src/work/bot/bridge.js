@@ -28,7 +28,8 @@ async function extend(ctx, y, F, N, items, placed) {
     if (Math.abs(dx) + Math.abs(dz) !== 1) throw new SkillError('invalid_args', { why: 'bridge cells must follow each other one step along x or z', from: F, to: N });
     const yaw = yawOf(dx, dz), walk = { forward: true, sneak: true, yaw, pitch: 0 };
     const floor = { x: N.x, y: y - 1, z: N.z }, support = { x: F.x, y: y - 1, z: F.z };
-    if (w.kindAt(floor.x, floor.y, floor.z) === 'air') {
+    const floorKind = w.kindAt(floor.x, floor.y, floor.z);
+    if (floorKind === 'air' || floorKind === 'water') {                    // water is replaced by the block like air (a lake is bridged, not swum: found live 2026-11-11, `bridge` over water walked into it)
         const item = BRIDGE_ITEMS.find((n) => bot.registry.blocksByName[n] && count(bot, n) >= 1) || tempblocks.choose(bot.inventory.items().map((i) => ({ name: i.name, count: i.count })), bot.registry, { valueOf: require('./janitor').valueOf });
         if (!item) throw new SkillError('missing_item', { item: BRIDGE_ITEMS[0], why: 'no block to bridge with (cobblestone, netherrack, end stone ...)', tried: BRIDGE_ITEMS, done: placed.length });
         if (w.kindAt(support.x, support.y, support.z) !== 'solid') throw new SkillError('invalid_target', { why: 'nothing solid under the feet to place against', cell: support, done: placed.length });
