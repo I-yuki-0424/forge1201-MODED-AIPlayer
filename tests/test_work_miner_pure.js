@@ -145,6 +145,25 @@ function bot(w, start) {
         assert.ok(r3.ok || r3.reason !== 'unreachable', JSON.stringify(r3));
     });
 
+    await test('sweep: a block out of reach over a gap of void is reached by a level bridge from the edge, once per cell (live 2026-11-10: bots six blocks from a ledge, stood still, were killed)', async () => {
+        const calls = []; const w0 = world(0), b = bot(w0, { x: 8, y: 1, z: 2 }); const o = b.exec; let bridged = false;          // within 3 blocks of the station: the station walk needs no bridge, the dig of a block out of reach does
+        b.exec = async (n, a) => (n === 'mine' && !bridged ? { ok: false, reason: 'unreachable', detail: { goal: 'reach block' } } : o(n, a));
+        b.gapOn = (c) => (w0.kindAt(c.x, c.y, c.z) === 'solid' ? { edge: { x: 0, z: 0 }, atEdge: true } : null);          // a gap toward a block to dig (the station's own walk finds none)
+        b.bridgeToward = async (c) => { calls.push(`bridge ${c.x},${c.y},${c.z}`); bridged = true; return { ok: true, placed: 3 }; };
+        const job = pit.createPitJob({ x0: 0, z0: 0, x1: 9, z1: 4, top: 0, bottom: 0 }, {}, { method: 'sweep' });
+        const reg = job.plan.regions[0]; job.ledger.join('A');
+        const far = reg.meta.stations.findIndex((s) => s.x >= 7);
+        const r = await job.runUnit(reg.id, { unit: far, layer: 0, row: far }, b);
+        const bridges = calls.filter((c) => c.startsWith('bridge')); assert.ok(bridges.length >= 1, 'bridged toward the block'); assert.strictEqual(new Set(bridges).size, bridges.length, 'once per cell');
+        assert.ok(r.ok || r.reason !== 'unreachable', JSON.stringify(r));
+        // no gap on the line (a wall, a floor, another dimension): nothing is bridged and the failure is the old one
+        const n = bot(world(0), { x: 0, y: 1, z: 0 }); const on = n.exec; n.exec = async (nm, a) => (nm === 'mine' ? { ok: false, reason: 'unreachable', detail: { why: 'no path' } } : on(nm, a));
+        let called = 0; n.gapOn = () => null; n.bridgeToward = async () => { called++; return { ok: true, placed: 1 }; };
+        const j2 = pit.createPitJob({ x0: 0, z0: 0, x1: 9, z1: 4, top: 0, bottom: 0 }, {}, { method: 'sweep' });
+        const r2 = await j2.runUnit(j2.plan.regions[0].id, { unit: far, layer: 0, row: far }, n);
+        assert.strictEqual(called, 0); assert.strictEqual(r2.reason, 'unreachable');
+    });
+
     await test('sweep: workers of a lane job finish it together; a bot with nothing left helps the slow lane at the same height and returns home', async () => {
         const w = world(0), shared = { calls: 0 };
         const job = pit.createPitJob({ x0: 0, z0: 0, x1: 19, z1: 9, top: 0, bottom: -2 }, { leaseMs: 1e9, maxLead: 1 }, { lanes: 2, method: 'sweep' });

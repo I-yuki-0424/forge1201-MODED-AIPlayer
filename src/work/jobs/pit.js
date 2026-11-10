@@ -210,7 +210,7 @@ async function runUnit(plan, region, u, env) {
     // Fill what sealPlan lists. `before`: only fluid that can be seen now (a pocket sealed inside stone cannot be clicked, and it
     // cannot flow until the cell next to it opens: live run p4, a water cell in the wall next to the last stone); after the dig
     // the opened cell is the window onto it, so everything is filled then, the pocket first and the opened cell last.
-    const liftedFor = new Set();
+    const liftedFor = new Set(), bridgedFor = new Set();
     // A placement the bot cannot reach a face for (unreachable) or that ends in a swim it cannot get out of (stuck): the same walk is not tried again. The server puts the bot on a standable
     // cell beside the fluid cell, once per cell, and the placement is tried from there (a different approach); if that fails too, the failure goes up and the unit is parked.
     const placeAt = async (f, item) => {
@@ -269,6 +269,17 @@ async function runUnit(plan, region, u, env) {
             liftedFor.add(`${c.x},${c.y},${c.z}`);
             const l = await env.lift(c, { skipSame: true });
             if (l.ok) { r.lifted = (r.lifted || 0) + 1; m = await env.exec('mine', mineArgs(c)); }
+        }
+        // A cell over a void that the layer below left (a unit a layer check sent back sits on a ledge, the floor between the bot and it is already dug): no walk, lift or pillar reaches it, a level
+        // bridge does (bot/bridge.js, as for a station). Once per cell. Live 2026-11-10: 383 of 854 problems in 15 min were `mine: reach block` six blocks over a gap, the bots stood still and were killed.
+        if (!m.ok && !open(c) && m.reason === 'unreachable' && env.bridgeToward && env.gapOn && !bridgedFor.has(`${c.x},${c.y},${c.z}`)) {
+            bridgedFor.add(`${c.x},${c.y},${c.z}`);
+            let gap = env.gapOn(c);
+            if (gap && !gap.atEdge && env.here) { const h = env.here(), w = await env.exec('move_to', { x: gap.edge.x, y: h.y, z: gap.edge.z }, { maxTicks: STATION_TICKS }); if (w.ok) gap = env.gapOn(c); }
+            if (gap && gap.atEdge) {
+                const br = await env.bridgeToward(c);
+                if (br.ok) { r.bridged = (r.bridged || 0) + br.placed; m = await env.exec('mine', mineArgs(c)); }
+            }
         }
         if (!m.ok && m.reason === 'protected') { r.skipped++; r.protected = (r.protected || 0) + 1; leave(c); return null; }       // the owner's chest or a tagged block inside the box: left standing (src/skills/fixtures.js)
         if (!m.ok && !open(c)) return fail(m, c, 'mine');
