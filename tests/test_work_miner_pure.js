@@ -166,20 +166,27 @@ function bot(w, start) {
         }
     });
 
-    await test('rows: a block 3-12 levels straight below a bot on the last block of a column: the block under the feet is broken and the mine tried again; deeper, fluid below, low health or off to the side: not', async () => {
-        const run = async (o, target = -6, below = null) => {
-            const w = world(-40), b = bot(w, { x: 0, y: 1, z: 0 }); w.set(0, 0, 0, 'stone'); w.set(0, target, 0, 'stone');       // the pillar under the feet (y 0) and the block to dig; air in between
-            if (below) w.set(0, below, 0, 'water');
-            const calls = []; const ex = b.exec; let dug = false;
-            b.here = () => ({ x: o.x ?? 0, y: 1, z: 0 }); b.hp = () => o.hp ?? 20;
-            b.exec = async (n, a) => { calls.push(`${n} ${a.x},${a.y},${a.z}${a.blind ? ' blind' : ''}`); if (n === 'mine' && a.x === 0 && a.y === 0 && a.z === 0) { dug = true; w.set(0, 0, 0, 'air'); return { ok: true }; } if (n === 'mine' && !dug) return { ok: false, reason: 'unreachable', detail: { why: 'no path' } }; return ex(n, a); };
+    await test('rows: a block 3 or more levels below a bot standing high: it goes down by `descend` to the block\'s level and mines again, once per cell; on natural ground, near, or not under it: not', async () => {
+        const run = async (o, target = -6) => {
+            const w = world(-40), b = bot(w, { x: 0, y: 1, z: 0 }); w.set(0, 0, 0, 'stone'); w.set(0, target, 0, 'stone');       // the block the bot stands on (y 0) and the one to dig; air in between and below the first
+            const calls = []; const ex = b.exec; let down = false;
+            b.here = () => ({ x: o.x ?? 0, y: o.y ?? 1, z: 0 });
+            b.run = async (n, a) => { calls.push(`${n} ${a.levels}`); down = true; return { ok: true, detail: { levels: a.levels } }; };
+            b.exec = async (n, a) => { if (n === 'mine' && !down) return { ok: false, reason: 'unreachable', detail: { why: 'no path' } }; return ex(n, a); };
             const j = pit.createPitJob({ x0: 0, z0: 0, x1: 0, z1: 0, top: target, bottom: target }, {}, { method: 'rows', road: false }); j.ledger.join('A');
             const r = await j.runUnit(j.plan.regions[0].id, { unit: 0, layer: 0, row: 0 }, b);
-            return { r, calls, dropped: calls.includes('mine 0,0,0 blind') };
+            return { r, calls };
         };
-        const yes = await run({}); assert.ok(yes.dropped, yes.calls.join(' | ')); assert.ok(yes.r.ok, JSON.stringify(yes.r));
-        assert.ok(!(await run({ hp: 8 })).dropped, 'low health'); assert.ok(!(await run({ x: 6 })).dropped, 'not under the bot');
-        assert.ok(!(await run({}, -20)).dropped, '21 levels: too deep, the forced fall deals with it'); assert.ok(!(await run({}, -6, -3)).dropped, 'water in the column');
+        const yes = await run({}); assert.deepStrictEqual(yes.calls, ['descend 7'], yes.calls.join(' | ')); assert.ok(yes.r.ok, JSON.stringify(yes.r));
+        assert.deepStrictEqual((await run({ x: 6 })).calls, ['descend 7'], 'six blocks across still counts');
+        assert.deepStrictEqual((await run({ x: 7 })).calls, [], 'seven across: not under it');
+        assert.deepStrictEqual((await run({}, -1)).calls, [], 'two levels: close enough');
+        // on natural ground (the block under the feet has solid under it too): no descent
+        const w = world(-40); for (let y = 0; y >= -3; y--) w.set(0, y, 0, 'stone'); w.set(0, -6, 0, 'stone');
+        const g = bot(w, { x: 0, y: 1, z: 0 }); const calls = []; const ex = g.exec; g.here = () => ({ x: 0, y: 1, z: 0 }); g.run = async (n) => { calls.push(n); return { ok: true, detail: { levels: 1 } }; };
+        g.exec = async (n, a) => (n === 'mine' ? { ok: false, reason: 'unreachable', detail: { why: 'no path' } } : ex(n, a));
+        const j = pit.createPitJob({ x0: 0, z0: 0, x1: 0, z1: 0, top: -6, bottom: -6 }, {}, { method: 'rows', road: false }); j.ledger.join('A');
+        await j.runUnit(j.plan.regions[0].id, { unit: 0, layer: 0, row: 0 }, g); assert.deepStrictEqual(calls, [], 'natural ground is not dug through');
     });
 
     await test('sweep: workers of a lane job finish it together; a bot with nothing left helps the slow lane at the same height and returns home', async () => {

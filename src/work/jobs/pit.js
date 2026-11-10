@@ -34,6 +34,7 @@ function aerialTree(w, c) {
 }
 const UNBREAKABLE = /^(bedrock|barrier|end_portal_frame|end_portal|nether_portal|command_block|structure_block|jigsaw)$/;
 // What the bot fills fluids with, in order of preference: cheap, common in a pit, does not fall (no sand or gravel).
+const { isHigh } = require('../bot/force');
 const SEAL_ITEMS = ['cobblestone', 'cobbled_deepslate', 'dirt', 'netherrack', 'stone', 'andesite', 'diorite', 'granite', 'tuff', 'deepslate'];
 /** The block to seal with: the usual ones first, else any placeable, non-falling, low-value block in the pack (env.tempItem; owner 2026-11-10), `n` of it at least. */
 const sealItem = (env, n = 1) => SEAL_ITEMS.find((x) => env.have(x) >= n) || (env.tempItem ? env.tempItem(n) : null);
@@ -281,18 +282,17 @@ async function runUnit(plan, region, u, env) {
                 if (br.ok) { r.bridged = (r.bridged || 0) + br.placed; m = await env.exec('mine', mineArgs(c)); }
             }
         }
-        // The block lies 3 to 12 levels straight below the bot and nothing can be walked to it: the bot stands on the last block of a column the dig left (a floating pillar; the normal rule keeps
-        // that block because breaking it drops the bot). Here the drop IS the way down: the block under the feet is broken and the bot falls (at most 12 levels = 9 damage, never with fluid or
-        // lava in the column or with less than 14 health), then the mine is tried again. Deeper than that stays for the forced fall (service/force.js). Once per cell.
-        if (!m.ok && !open(c) && m.reason === 'unreachable' && env.here && !droppedFor.has(`${c.x},${c.y},${c.z}`)) {
+        // The block lies 3 or more levels below the bot, within a few blocks across, and nothing can be walked to it: the bot stands high on a leftover block or column ("no way down, no place to bridge to",
+        // and then it was killed). It goes down the way it came up, reversed (moves.js `descend`: a block put blind under the block it stands on, that one broken, one level at a time, no fall longer
+        // than a block, no block lost), to the block's level, then the mine is tried again. Never with fluid or an unloaded cell below (descendStep); once per cell. Natural ground is not dug through:
+        // only when there are two cells of air under the block it stands on (isHigh).
+        if (!m.ok && !open(c) && m.reason === 'unreachable' && env.run && env.here && !droppedFor.has(`${c.x},${c.y},${c.z}`)) {
             const h = env.here(), dy = c.y - h.y;
-            if (dy <= -3 && dy >= -12 && Math.hypot(h.x - c.x, h.z - c.z) <= 4 && isSolid(env.w, h.x, h.y - 1, h.z) && (!env.hp || env.hp() >= 14)) {
-                let clear = true; for (let y = h.y - 2; y > c.y; y--) if (!['air', 'climb'].includes(env.w.kindAt(h.x, y, h.z))) { clear = false; break; }          // air all the way down to the target's level
-                if (clear) {
-                    droppedFor.add(`${c.x},${c.y},${c.z}`);
-                    const d = await env.exec('mine', { x: h.x, y: h.y - 1, z: h.z, collect: false, blind: true });
-                    if (d.ok || !isSolid(env.w, h.x, h.y - 1, h.z)) { r.dropped = (r.dropped || 0) + 1; if (env.pause) await env.pause(20); m = await env.exec('mine', mineArgs(c)); }
-                }
+            if (dy <= -3 && Math.hypot(h.x - c.x, h.z - c.z) <= 6 && isHigh((x, y, z) => env.w.kindAt(x, y, z), h)) {
+                droppedFor.add(`${c.x},${c.y},${c.z}`);
+                const d = await env.run('descend', { levels: Math.min(80, h.y - c.y) });
+                const got = (d.detail && d.detail.levels) || 0;
+                if (got) { r.descended = (r.descended || 0) + got; m = await env.exec('mine', mineArgs(c)); }
             }
         }
         if (!m.ok && m.reason === 'protected') { r.skipped++; r.protected = (r.protected || 0) + 1; leave(c); return null; }       // the owner's chest or a tagged block inside the box: left standing (src/skills/fixtures.js)
@@ -363,6 +363,7 @@ async function goToStation(S, handle, env, open, r) {
     let launches = 0;                    // one search for a better place to bridge from (a platform above the bot's base)
     let edges = 0;                       // walks to the edge of a gap (a base beside the void), at most two
     let bridges = 0;                     // at most three bridges per walk to a station (a gap of void between the End's platform and the island is crossed by a level bridge, bot/bridge.js)
+    let descents = 0;                    // at most two descents per walk to a station (moves.js `descend`)
     let lifts = 0;                       // at most two server lifts per walk to a station: a lift that lands in the same cell again changes nothing (live: Work17 lifted 0 blocks every 20 s)
     for (let t = 0; t < 10; t++) {
         const here = env.here();
@@ -432,6 +433,16 @@ async function goToStation(S, handle, env, open, r) {
             r.rose = (r.rose || 0) + ((p.detail && p.detail.levels) || 0);
             if (!p.ok) return { ok: false, reason: p.reason, detail: { ...(p.detail || {}), cell: S, stage: 'rise', ...r } };
             continue;
+        }
+        // The station is three or more levels BELOW the bot, which stands high (air under its block): down the column the way the pillar goes up (moves.js `descend`), then the walk or the corridor on
+        // the station's own level. Twice per walk.
+        if (env.run && above <= -3 && descents < 2 && Math.hypot(here.x - S.x, here.z - S.z) <= 24 && isHigh((x, y, z) => env.w.kindAt(x, y, z), here)) {
+            descents++;
+            const d = await env.run('descend', { levels: Math.min(80, here.y - S.y) });
+            const got = (d.detail && d.detail.levels) || 0;
+            r.descended = (r.descended || 0) + got;
+            if (got) continue;
+            r.descendFail = d.reason;
         }
         if (env.rejoin && (Math.hypot(here.x - S.x, here.z - S.z) > 24 || Math.abs(above) > 24)) {
             // Last resort before giving up (the commonest pit failure of 2026-11-09/10, 1,800 records): the chunk-exit router walks toward the station's column and level (the haul road, round what the

@@ -131,6 +131,35 @@ async function ready(world, from, items) {
         } finally { bot.stop(); }
     });
 
+    await test('descend: 6 levels down a column, a block put under the block under the feet (blind), that one broken, one block of fall at a time, the block count kept', async () => {
+        const w = scene(new Map());
+        for (let y = 0; y > -1; y--) w.set(0, y, 0, S.air);
+        fill(w, [-3, 3], [-8, 0], [-3, 3], S.air);                                      // an open pit down to y -8 (stone below)
+        w.set(0, 10, 0, S.stone);                                                       // the leftover block the bot stands on, 18 levels above the pit floor
+        const bot = await ready(w, new Vec3(0.5, 11, 0.5), ['stone_pickaxe', 'cobblestone']);
+        try {
+            const r = await runMove(bot, 'descend', { levels: 30 });
+            assert.strictEqual(r.ok, true, `${r.reason} ${JSON.stringify(r.detail)} refused ${JSON.stringify(bot.refused)}`);
+            assert.strictEqual(Math.floor(bot.entity.position.y), -8, `feet y ${bot.entity.position.y}: on the pit floor (stone up to y -9)`);
+            assert.deepStrictEqual(bot.refused, [], 'the simulated server refused nothing');
+            assert.strictEqual(r.detail.levels, 19); assert.strictEqual(bot.placed.length, 18, 'one block per level but the last (the ground was there)');
+            const left = []; for (let y = -8; y <= 10; y++) if (w.getBlock(new Vec3(0, y, 0)).name !== 'air') left.push(y);
+            assert.deepStrictEqual(left, [], 'no block of the descent is left above the floor (stone only from y -9)');
+            assert.ok(bot.inventory.items().some((i) => i.name === 'cobblestone' && i.count >= 1), 'the block comes back with every dig');
+        } finally { bot.stop(); }
+    });
+
+    await test('descend: nothing solid under the feet, a fluid below or no block to go down on are named, not hangs', async () => {
+        const w2 = scene(new Map(), { groundTop: -40 }); w2.set(0, 0, 0, S.stone);
+        const b2 = await ready(w2, new Vec3(0.5, 1, 0.5), ['stone_pickaxe']);
+        try { const r = await runMove(b2, 'descend', { levels: 3 }); assert.strictEqual(r.ok, false); assert.strictEqual(r.reason, 'missing_item'); } finally { b2.stop(); }
+        const { descendStep } = require('../src/work/bot/moves');
+        assert.deepStrictEqual(descendStep(() => 'air', { x: 0, y: 5, z: 0 }), { act: 'stop', reason: 'nothing solid under the feet' });
+        const col = (k2) => (x, y) => (y === 4 ? 'solid' : y === 3 ? k2 : 'air');
+        assert.strictEqual(descendStep(col('air'), { x: 0, y: 5, z: 0 }).act, 'place_break'); assert.strictEqual(descendStep(col('solid'), { x: 0, y: 5, z: 0 }).act, 'break');
+        assert.strictEqual(descendStep(col('water'), { x: 0, y: 5, z: 0 }).act, 'stop'); assert.strictEqual(descendStep(col('danger'), { x: 0, y: 5, z: 0 }).act, 'stop'); assert.strictEqual(descendStep(col('unknown'), { x: 0, y: 5, z: 0 }).act, 'stop');
+    });
+
     await test('pillar: no head room, no solid floor, or no block to stack are named failures, not hangs', async () => {
         const w = scene(new Map()); w.set(0, 3, 0, registry.blocksByName.stone.defaultState);      // ceiling two above the feet's head cell
         const bot = await ready(w, new Vec3(0.5, 1, 0.5), ['stone_pickaxe', 'cobblestone']);

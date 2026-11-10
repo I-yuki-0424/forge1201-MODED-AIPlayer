@@ -41,6 +41,12 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         if (fix === 'wait') { await sleep(1500 + Math.floor(Math.random() * 2000)); return; }          // something in the way moves on, the server catches up
         if (fix === 'lift') {
             if (rcon && envObj.lift) { const l = await envObj.lift(f, { radius: 4, up: 2, down: 1, purpose: 'recover', why: `escape after ${(failure && failure.reason) || 'a failed move'}` }); if (l.ok) return; }
+            // Stranded high (a leftover block or column, no server move): down the way it came up, reversed, to the level of the last good place (moves.js `descend`), not a fall.
+            if (good && good.y <= f.y - 3 && envObj.run && require('./force').isHigh((x, y, z) => w.kindAt(x, y, z), f)) {
+                fixSub('fix:descend');
+                const d = await envObj.run('descend', { levels: Math.min(80, f.y - good.y) });
+                if (d.ok || (d.detail && d.detail.levels)) return;
+            }
             if (!await sidestep(800)) await hold('jump', 350);
             return;
         }

@@ -81,6 +81,57 @@ async function pillar(ctx, { levels, items = null, within = null }) {
 }
 
 /**
+ * One step of `descend` from the feet cell `f` (pure): what the cells under the feet allow. `kindAt(x, y, z)` as the world model gives it.
+ * { act: 'place_break' } air two below: put a block there (against the underside of the block under the feet, blind), then break the one under the feet;
+ * { act: 'break' } solid two below: the ground is there, break the block under the feet and drop onto it; { act: 'stop', reason } nothing solid under the feet, a fluid or an unloaded cell below.
+ */
+function descendStep(kindAt, f) {
+    if (kindAt(f.x, f.y - 1, f.z) !== 'solid') return { act: 'stop', reason: 'nothing solid under the feet' };
+    const k = kindAt(f.x, f.y - 2, f.z);
+    if (k === 'solid') return { act: 'break' };
+    if (k === 'air' || k === 'climb') return { act: 'place_break' };
+    return { act: 'stop', reason: k === 'unknown' ? 'the cell below is not loaded' : `${k} below` };
+}
+
+/**
+ * descend {levels}: the reverse of `pillar` (owner 2026-11-10: bots on a high leftover block "get stuck with no way down", and were killed): go down `levels` blocks on one column, leaving nothing behind
+ * but the block under the feet. Per level: a block is put into the cell TWO below the feet against the underside of the block the bot stands on (placed blind: the server checks only the reach,
+ * and the body's `cell` frame names the face), then the block under the feet is broken and the bot drops one cell onto the new one. The same block comes back with the dig, so the pack keeps
+ * its count; no fall is longer than one block. Stops early on the ground (solid two below: the last step only breaks the block under the feet) and reports what it did.
+ */
+async function descend(ctx, { levels }) {
+    const bot = ctx.bot, w = ctx.world;
+    if (!Number.isInteger(levels) || levels < 1 || levels > 320) throw new SkillError('invalid_args', { why: 'levels 1..320' });
+    if (!bot.entity.onGround) await ctx.until(() => bot.entity.onGround, 40, 'stuck');
+    const start = feetCell(bot.entity.position);
+    let done = 0, stopped = null;
+    for (let i = 0; i < levels; i++) {
+        const f = feetCell(bot.entity.position), step = descendStep((x, y, z) => w.kindAt(x, y, z), f);
+        if (step.act === 'stop') { if (!done) throw new SkillError('invalid_target', { why: step.reason, at: f }); stopped = step.reason; break; }
+        const under = { x: f.x, y: f.y - 1, z: f.z }, below = { x: f.x, y: f.y - 2, z: f.z };
+        if (fixtures.coversContainer(w, f)) throw new SkillError('invalid_target', { why: 'standing on a container', at: f, done });
+        if (step.act === 'place_break') {
+            const handOnly = !bot.inventory.items().some((it) => it.name.endsWith('_pickaxe') && !options.isWorn(bot, it));
+            const item = tempblocks.choose(heldOf(bot), bot.registry, { hand: handOnly, valueOf: valueOf() });
+            if (!item) throw new SkillError('missing_item', { item: TEMP_ITEMS[0], why: 'no low-value block to go down on', tried: 'any placeable low-value block', done });
+            await holdItem(ctx, item);
+            ctx.phase('descend_place', { cell: below });
+            await ctx.tick({ use: true, cell: { x: under.x, y: under.y, z: under.z, face: 0 } });         // face 0 = the underside of the block under the feet
+            await ctx.tick({});
+            await ctx.until(() => w.blockAt(below.x, below.y, below.z)?.name === item, 12, 'not_confirmed');
+            if (bot.__temps) bot.__temps.add({ dim: fixtures.dimOf(bot), x: below.x, y: below.y, z: below.z, item, kind: 'pillar', by: bot.username });
+        }
+        ctx.phase('descend_break', { cell: under });
+        const r = await mine(ctx, { ...under, collect: false, blind: true, hand: true }).then(() => null, (e) => e);
+        if (r && !(r instanceof SkillError && r.reason === 'invalid_target')) throw r;
+        await ctx.until(() => bot.entity.onGround && feetCell(bot.entity.position).y === f.y - 1, 40, 'stuck');
+        done++;
+        if (step.act === 'break') break;                                                                    // on the ground
+    }
+    return { from: start, at: feetCell(bot.entity.position), levels: done, ...(stopped ? { stopped } : {}) };
+}
+
+/**
  * Dig one stackable block out of the undug part of a pit box next to the bot (`within` = the box {x0,x1,z0,z1,top,bottom}): the four sides at feet and head level, then the cell over
  * the head. Only a block whose drop is one of `items` (stone gives cobblestone, dirt gives dirt: never sand or gravel, they fall), only inside the box, never beside a fluid.
  * Up to six tries; returns {tried, got} (got: the item name now in the pack, or null). Pure of the walk: the bot stays where it is.
@@ -294,7 +345,7 @@ const mineHand = (ctx, a) => mine(ctx, { x: a.x, y: a.y, z: a.z, collect: false,
 // harvest: one stackable block out of the undug part of the pit beside the bot (for the water rule when the pack holds nothing to seal with: a chest tagged `any` is insert-only, so there is
 // nothing to fetch back). `within` is the pit box (the environment adds it), `items` what is wanted.
 const harvest = async (ctx, a) => harvestBlock(ctx, feetCell(ctx.bot.entity.position), a.within, a.items || []);
-const MOVES = { mine_hand: { fn: mineHand, ticks: () => 400 }, harvest: { fn: harvest, ticks: () => 700 }, pillar: { fn: pillar, ticks: (a) => 200 + 260 * (a.levels || 1) }, take_usable: { fn: takeUsable, ticks: () => 800 }, deposit_many: { fn: depositMany, ticks: (a) => 400 + 120 * ((a.items && a.items.length) || 1) }, stash_worn: { fn: stashWorn, ticks: () => 800 } };
+const MOVES = { descend: { fn: descend, ticks: (a) => 200 + 200 * (a.levels || 1) }, mine_hand: { fn: mineHand, ticks: () => 400 }, harvest: { fn: harvest, ticks: () => 700 }, pillar: { fn: pillar, ticks: (a) => 200 + 260 * (a.levels || 1) }, take_usable: { fn: takeUsable, ticks: () => 800 }, deposit_many: { fn: depositMany, ticks: (a) => 400 + 120 * ((a.items && a.items.length) || 1) }, stash_worn: { fn: stashWorn, ticks: () => 800 } };
 Object.assign(MOVES, require('./bridge').MOVES);          // bridge, sneak_walk: work over an abyss (bridge.js; no circular import: it does not need this file)
 
 /** Run one of the work layer's own movements on `bot` (same result shape as skills.execute). */
@@ -304,4 +355,4 @@ function runMove(bot, name, args = {}, opts = {}) {
     return run(bot, m.fn, args, { ...opts, maxTicks: opts.maxTicks || m.ticks(args) });
 }
 
-module.exports = { pillar, harvestBlock, finishPillar, climbTo, cleanTemp, runMove, takeUsable, depositMany, stashWorn, pickUsable, wornOut, MOVES, TEMP_ITEMS };
+module.exports = { pillar, descend, descendStep, harvestBlock, finishPillar, climbTo, cleanTemp, runMove, takeUsable, depositMany, stashWorn, pickUsable, wornOut, MOVES, TEMP_ITEMS };
