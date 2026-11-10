@@ -34,4 +34,16 @@ function test(name, fn) { console.log(`--- test: ${name} ---`); return Promise.r
         const b = L.claim('B', { x: 400, z: 0 }, 5); assert.strictEqual(b.region, 'r2', 'the next bot may have it at once');
         const late = L.claim('A', { x: 400, z: 0 }, 2 + 600001); assert.ok(late, 'after ten minutes it may be offered again');
     });
+    await test('a worker whose units fail four times in a row on the way to the work gives its post up (and an arrival resets the count)', async () => {
+        const { runWorker } = require('../src/work/bot/worker');
+        const L = new Ledger({ lanes: true, holdMs: 0, sameLimit: Infinity, maxAttempts: 99 });
+        for (let i = 0; i < 2; i++) L.addRegion({ id: `r${i}`, anchor: { x: i * 100, z: 0 }, layers: 1, rows: 40 });
+        let calls = 0; const events = [];
+        const job = { ledger: L, runUnit: async () => { calls++; return calls > 5 ? { ok: true } : { ok: false, reason: 'unreachable', detail: { stage: calls === 3 ? 'gap_edge' : 'station', botSide: true } }; } };
+        const env = { pos: () => ({ x: 0, z: 0 }), recover: async () => {}, now: Date.now };
+        let regions = [];
+        const origClaim = L.claim.bind(L); L.claim = (...a) => { const c = origClaim(...a); if (c) regions.push(c.region); return c; };
+        await runWorker(job, 'A', env, { pollMs: 1, backoff: () => 1, cancel: { cancelled: false }, onEvent: (e, d) => events.push([e, d]) , batch: 1 }).catch(() => {});
+        assert.ok(events.some(([e]) => e === 'forfeit'), 'the post was given up: ' + JSON.stringify(events.map(([e]) => e)));
+    });
 })().catch((e) => { console.error(e); process.exit(1); });

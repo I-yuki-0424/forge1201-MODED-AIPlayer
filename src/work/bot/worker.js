@@ -125,7 +125,7 @@ async function runWorker(job, id, env, { cancel = { cancelled: false }, policy =
                     for (const rest of claim.units) if (rest.unit > u.unit) L.fail(id, claim.region, rest.unit, 'cancelled', now());
                     L.leave(id, now()); onEvent('wrong_dimension', { id, have: env.dimension && env.dimension() }); return { ended: 'wrong_dimension', units, failed };
                 }
-                if (!r.ok && r.detail && ['rejoin', 'gap', 'station'].includes(r.detail.stage) && r.detail.botSide !== undefined) farFails++; else if (r.ok) farFails = 0;
+                if (!r.ok && r.detail && ['rejoin', 'gap', 'gap_edge', 'station'].includes(r.detail.stage) && r.detail.botSide !== undefined) farFails++; else if (r.ok) farFails = 0;
                 if (farFails >= 4 && L.forfeit && L.forfeit(id, now())) { farFails = 0; onEvent('forfeit', { id, region: claim.region }); }
                 if (r.ok) { L.done(id, claim.region, u.unit, now()); units++; streak = 0; for (const k of Object.keys(tries)) tries[k] = 0; if (env.rememberGood) env.rememberGood(); continue; }
                 failed++; sinceAudit = AUDIT_EVERY;                // a failure is the moment to check that the range is what it should be
