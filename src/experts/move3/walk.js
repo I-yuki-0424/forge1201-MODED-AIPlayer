@@ -101,7 +101,7 @@ async function walk3(env, to, o = {}) {
     const start = env.here(), ty = levelOf(env.w, to, start);
     const info = { decisions: 0, fails: 0, tool: 0, ms: 0, model: model.meta && model.meta.name || 'move3' };
     const out = (r) => ({ ...r, move3: info });
-    if (ty === null) return out({ ok: false, reason: 'unreachable', detail: { why: 'no cell to stand on in the target column' } });
+    if (ty === null) return out({ ok: false, reason: 'refused', detail: { why: 'no cell to stand on in the target column within 24 levels of the bot (the chunk may not be loaded): the chunk router decides' } });          // no attempt was made: a refusal, not a failed walk
     if (o.refuse !== false && (Math.hypot(to.x - start.x, to.z - start.z) > MAX_ACROSS || Math.abs(ty - start.y) > MAX_LEVELS)) return out({ ok: false, reason: 'refused', detail: { why: `farther than ${MAX_ACROSS} blocks across or ${MAX_LEVELS} levels: the chunk router's walk` } });
     const near = o.near === undefined ? 2 : o.near, nearY = o.nearY === undefined ? (Number.isInteger(to.level) && !Number.isInteger(to.y) ? 8 : 1) : o.nearY, tgt = { x: to.x, y: ty, z: to.z };
     const maxDec = o.maxDecisions || spec.HORIZON, bot = env.bot || null;
