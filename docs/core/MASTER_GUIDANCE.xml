@@ -1,4 +1,4 @@
-<master_guidance version="v11" updated="2026-11-09">
+<master_guidance version="v12" updated="2026-11-11">
 
   <!-- Operating rules for any agent working in this repository.
        Project facts live in GOAL.md, ARCHITECTURE.md and the knowledge-DB, not here.
@@ -71,7 +71,9 @@
   </git>
 
   <verification>
-    <rule>Run the task's validation_commands and record the result. Default: npm test (7 files) must pass before smoke_status is recorded as green.</rule>
+    <rule>REAL-WORLD STANDARD (owner 2026-11-11, highest trust, overrides every other measurement): a success rate for movement, escape from a stuck position or mining counts only when it was measured on a disposable COPY of the owner's play world (real seed, natural terrain, the same mods: /mnt/data/forgeaip-play/real, scripts/real/, docs/implemented/REAL-WORLD-VERIFICATION-v1.md) with random starts and targets, one client at a time, graded from the SERVER's position or blocks, with a negative control that scores 0. Targets: movement >= 80 %, escape from a stuck position >= 90 %, strip-mining / pit failures of the stuck kind <= 10 %, each as the Wilson 95 % interval with the lower bound reported. A world the simulator or a script built (fill, flat arena, generated scenarios) is a smoke test and a regression test, NEVER evidence of a rate: never write "N/N" from it as a result, never report it as the accuracy. A report must say which world a number comes from.</rule>
+    <rule>The production counters (health rows, forced.jsonl, problems.jsonl of the running console) are real-world evidence too, and are read first when a behaviour is reported: a rate the harness gives that the live counters contradict is a harness bug until shown otherwise.</rule>
+    <rule>Run the task's validation_commands and record the result. Default: npm test (the files listed in package.json) must pass before smoke_status is recorded as green.</rule>
     <rule>Report faithfully: failing tests with their output, skipped steps as skipped, verified work plainly.</rule>
   </verification>
 

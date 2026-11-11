@@ -1,10 +1,18 @@
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-Parent rules (all repos on this VPS): `/home/coder/projects/CLAUDE.md`. Precedence: **`docs/core/MASTER_GUIDANCE.xml` (v11) wins over
+Parent rules (all repos on this VPS): `/home/coder/projects/CLAUDE.md`. Precedence: **`docs/core/MASTER_GUIDANCE.xml` (v12) wins over
 this file**, this file wins over the parent file. MASTER_GUIDANCE holds the behaviour rules (autonomy, safeguards, MCP use, engineering,
 git, task tracking, response format); this file holds the commands and the map of the code, so it does not repeat the rules. Read the XML
 when a task touches tokens, scheduling, tracking or git hygiene.
+
+## Verification standard (owner 2026-11-11, binding, MASTER_GUIDANCE v12 `<verification>`)
+
+Movement, escape and mining rates count only when measured on the REAL-WORLD TEST COPY of the play world (`scripts/real/`, docs/implemented/REAL-WORLD-VERIFICATION-v1.md):
+random starts and targets in natural terrain (and the End pit), graded from the server, with a negative control. Targets: movement >= 80 %, escape >= 90 %, stuck-type pit failures <= 10 %.
+The simulator (`rl3/`), `scripts/work/*_live.js` arenas and anything built with `/fill` are smoke tests, never evidence: the "28/28 live worlds" of MOVE-v3 were the simulator's own generators
+and the running pit failed more than half of its units. State the world with every number.
+`scripts/real/up|down|refresh` live in `/mnt/data/forgeaip-play/real/` (container `forgeaip-real`, 127.0.0.1:25572); `scripts/real/run.sh real_move.js|real_escape.js|real_pit.js`.
 
 ## Boot Protocol
 
