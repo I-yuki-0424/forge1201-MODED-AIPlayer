@@ -1,6 +1,6 @@
 // Pushing bots that do nothing (owner 2026-11-10): the decision of bot/force.js and the health counter. Pure, fake clock.
 const assert = require('assert');
-const { Force, isHigh } = require('../src/work/bot/force');
+const { Force, isHigh, isAbyss } = require('../src/work/bot/force');
 const { Health } = require('../src/work/service/health');
 
 setTimeout(() => { console.error('test watchdog: still running after 20 s'); process.exit(2); }, 20000).unref();
@@ -30,6 +30,23 @@ const v = (o) => ({ working: true, act: 'unit', sub: null, stillMs: 0, high: tru
         f.unit('a', true, null, 90000);
         assert.strictEqual(f.decide('a', v({ now: 100000, stillMs: 60000 })), null, 'a unit finished 10 s ago');
         assert.strictEqual(f.decide('a', v({ now: 125000, stillMs: 60000 })).action, 'fall');
+    });
+    await test('a bot that is DOING things (new action-layer phases every few seconds: dig, collect, bridge) is not "still" even if its feet never move; and nothing is pushed into an abyss (live copy 2026-11-11: 4 of 5 bot deaths were forced falls of working bots over the End void)', () => {
+        const f = mk();
+        // standing at a station and digging: the position is the same for 60 s, a phase began 2 s ago
+        assert.strictEqual(f.decide('a', v({ now: 100000, stillMs: 60000, busyMs: 2000 })), null, 'digging blind from one station');
+        assert.strictEqual(f.decide('a', v({ now: 100000, stillMs: 60000, busyMs: 19000 })), null, 'a phase 19 s ago');
+        assert.strictEqual(f.decide('a', v({ now: 100000, stillMs: 60000, busyMs: 21000 })).action, 'fall', 'no phase for 21 s: really stuck');
+        assert.strictEqual(f.decide('a', v({ now: 100000, stillMs: 60000 })).action, 'fall', 'no phase information: as before');
+        // the error clock is not softened by activity: 60 s of failing units still kills
+        const g = mk(); g.unit('b', false, 'unreachable', 1000);
+        assert.strictEqual(g.decide('b', v({ now: 70000, stillMs: 0, busyMs: 1000 })).action, 'kill');
+        // an abyss under the bot (nothing within 40 cells) is no place to push anyone from
+        const void_ = () => 'air';
+        assert.ok(isAbyss(void_, { x: 0, y: 50, z: 0 }), 'nothing to land on: a fall there is not a push');
+        assert.ok(isHigh(void_, { x: 0, y: 50, z: 0 }), 'isHigh itself is unchanged (the descent logic uses it)');
+        assert.ok(!isAbyss((x, y) => (y <= 10 ? 'solid' : 'air'), { x: 0, y: 50, z: 0 }), 'a tall pillar over a floor 39 cells down is not an abyss');
+        assert.ok(!isAbyss((x, y) => (y === 49 ? 'solid' : 'unknown'), { x: 0, y: 50, z: 0 }), 'unknown chunks: no verdict');
     });
     await test('after a fall the bot is left alone for 30 s; if it still has not moved it is killed (still_after_fall); one fall per bot per run', () => {
         const f = mk();

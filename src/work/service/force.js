@@ -4,7 +4,7 @@
 // and `forceKill` (on by default) switch them off one at a time. A part of WorkService.
 const fs = require('fs');
 const path = require('path');
-const { isHigh } = require('../bot/force');
+const { isHigh, isAbyss } = require('../bot/force');
 const { CONTAINER } = require('../bot/janitor');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -19,8 +19,8 @@ class ForcePart {
             const working = !!(rec.worker && !rec.worker.dump && rec.worker.job) || !!(rec.retired && /^cooling/.test(rec.retired));
             const p = rec.bot.entity.position, f = { x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) };
             let high = false;
-            try { const w = require('../../skills/world').fromBot(rec.bot); high = isHigh((x, y, z) => w.kindAt(x, y, z), f); } catch (_) { high = false; }
-            const d = this.force.decide(rec.name, { working, act: rec.act && rec.act.name, sub: rec.act && rec.act.sub && rec.act.sub.name, stillMs: rec.stillSince ? now - rec.stillSince : 0, high, now });
+            try { const w = require('../../skills/world').fromBot(rec.bot); high = isHigh((x, y, z) => w.kindAt(x, y, z), f) && !isAbyss((x, y, z) => w.kindAt(x, y, z), f); } catch (_) { high = false; }
+            const d = this.force.decide(rec.name, { working, act: rec.act && rec.act.name, sub: rec.act && rec.act.sub && rec.act.sub.name, stillMs: rec.stillSince ? now - rec.stillSince : 0, busyMs: rec.phase ? now - rec.phase.at : undefined, high, now });
             if (!d) continue;
             if (d.action === 'fall' && this.settings.forceFall === false) continue;
             if (d.action === 'kill' && (this.settings.forceKill === false || !this.o.rcon)) continue;
