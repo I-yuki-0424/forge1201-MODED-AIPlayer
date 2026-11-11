@@ -28,12 +28,22 @@ async function main() {
 
     const standCell = (x, z) => L.standCell(S, bot, A, DIM, x, z);
 
+    // End mode: bridges and pillars the bot built stay in the world, and the next trial would walk over them. Every placed block of the bot's kit (cobblestone, and cobbled deepslate) is
+    // removed before each trial from the region around the pit, so that each trial starts without any bridge (the platform and the natural end stone stay).
+    const CLEAN = process.env.CLEAN ? process.env.CLEAN === '1' : DIM === 'end', CBOX = (process.env.CLEAN_BOX || '56,-8,112,40').split(',').map(Number);
+    const cleanWorld = async () => {
+        for (let y = 0; y < 100; y += 8) for (const blk of ['cobblestone', 'cobbled_deepslate', 'dirt']) {
+            const o = await S.cmd(`execute in ${L.dimId(DIM)} run fill ${CBOX[0]} ${y} ${CBOX[1]} ${CBOX[2]} ${y + 7} ${CBOX[3]} minecraft:air replace minecraft:${blk}`);
+            if (!/^(Successfully filled|No blocks were filled)/.test(o)) throw new Error(`clean refused: ${o}`);
+        }
+    };
     const rows = [], t00 = Date.now();
     let attempts = 0;
     while (rows.length < N && attempts++ < N * 12) {
         // start: a random column; the first trial of a bot also needs the dimension
         const inBox = (b) => [b[0] + Math.floor(rnd() * (b[2] - b[0] + 1)), b[1] + Math.floor(rnd() * (b[3] - b[1] + 1))];
         const [sx, sz] = SBOX ? inBox(SBOX) : [Math.round((rnd() - 0.5) * 2 * (DIM === 'end' ? 60 : RANGE)), Math.round((rnd() - 0.5) * 2 * (DIM === 'end' ? 60 : RANGE))];
+        if (CLEAN) await cleanWorld();
         const st = await standCell(sx, sz); if (!st) continue;
         let D = DIST[Math.floor(rnd() * DIST.length)], tx, tz;
         if (TBOX) { [tx, tz] = inBox(TBOX); D = Math.round(Math.hypot(tx - sx, tz - sz)); } else { const ang = rnd() * 2 * Math.PI; tx = Math.round(sx + D * Math.cos(ang)); tz = Math.round(sz + D * Math.sin(ang)); }

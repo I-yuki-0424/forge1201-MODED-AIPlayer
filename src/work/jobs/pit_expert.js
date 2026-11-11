@@ -27,6 +27,34 @@ function hopStation(m, bot, skip) {
     return best;
 }
 
+/**
+ * A FOOTING: a cell of thin air inside the chunk where the bot can stand once a block is laid under it (the learned walk bridges to it), from which the most cells are within the arm's
+ * reach, when no column with a floor reaches what is left (an isolated fragment of an island). Only within FOOT_MAX blocks of a cell the bot can really stand on (a bridge that long is
+ * built; a footing 20 blocks out in the void is a wish). {x, z, fy (feet level in the model), depth, n, footing: true} or null. `skip({x, z})` leaves a column out.
+ */
+const FOOT_MAX = 8;
+function footingStation(m, w, ox, oz, yb, skip) {
+    const starts = [];
+    for (let x = 0; x < N; x++) for (let z = 0; z < N; z++) for (let y = -1; y < H; y++) {
+        const wx = ox + x, wy = yb + y, wz = oz + z, fl = w.kindAt(wx, wy - 1, wz);
+        if ((fl === 'solid' || fl === 'partial') && w.kindAt(wx, wy, wz) === 'air' && w.kindAt(wx, wy + 1, wz) === 'air') starts.push([x, z, y]);
+    }
+    if (!starts.length) return null;
+    let best = null;
+    for (let x = 0; x < N; x++) for (let z = 0; z < N; z++) {
+        if (skip({ x, z })) continue;
+        for (let fy = 0; fy <= 3; fy++) {
+            if (m[x][z][fy] !== AIR || m[x][z][fy + 1] !== AIR) continue;
+            const set = M.digSet(m, x, z, fy, H); if (!set.length) continue;
+            let d = Infinity; for (const [sx, sz, sy] of starts) d = Math.min(d, Math.abs(sx - x) + Math.abs(sz - z) + 2 * Math.abs(sy - fy));
+            if (d > FOOT_MAX) continue;
+            const score = set.length - 0.6 * d;
+            if (!best || score > best.score) best = { x, z, fy, depth: H, n: set.length, score, footing: true };
+        }
+    }
+    return best;
+}
+
 /** The chunk as the model sees it: m[x][z][y], y 0 = the lower layer of the band at world level `yb`. Cells the unit must not dig (fixtures, kept road, trees out of reach, bedrock, unloaded) are ROCK. */
 function buildModel(c, ox, oz, yb) {
     const { env, plan, region, aerialTree, UNBREAKABLE } = c, w = env.w, meta = region.meta, m = [];
@@ -44,7 +72,7 @@ function buildModel(c, ox, oz, yb) {
                 if (k === 'water' || k === 'liquid') { col[y] = WATER; continue; }
                 if (k === 'solid' || k === 'partial') {
                     const name = bare(w.nameAt && w.nameAt(wx, wy, wz));
-                    if (wy > meta.top || UNBREAKABLE.test(name) || (keep !== undefined && wy <= keep) || (plan.accepted && plan.accepted.has(`${wx},${wy},${wz}`)) || aerialTree({ x: wx, y: wy, z: wz })) col[y] = ROCK;
+                    if (wy > meta.top || UNBREAKABLE.test(name) || (keep !== undefined && wy <= keep) || (plan.accepted && plan.accepted.has(`${wx},${wy},${wz}`)) || (env.temp && env.temp.has && env.temp.has(`${wx},${wy},${wz}`)) || aerialTree({ x: wx, y: wy, z: wz })) col[y] = ROCK;       // the bot's own bridge and pillar blocks are its way, not the pit's ore
                     else col[y] = SOLID;
                     continue;
                 }
@@ -65,7 +93,7 @@ async function runExpert(c) {
     const ox = meta.x0, oz = meta.z0, yb = meta.top - band * layer - (band - 1);
     const model = P.defaultModel(), stats = { stations: 0, cells: 0, planMs: 0, fails: 0, model: model ? (model.meta && model.meta.name) || 'net' : 'greedy' };
     r.expert = stats;
-    const failedCols = new Set(), failures = [];
+    const failedCols = new Set(), failures = [], supports = new Set();                      // supports: the blocks the bot stood on at its stations
     let lastN = 0, failsRow = 0, first = null;
     for (let t = 0; t < M.MAX_STATIONS; t++) {
         if (env.cancel && env.cancel.cancelled) return { ok: false, reason: 'cancelled', detail: { ...r } };
@@ -85,16 +113,19 @@ async function runExpert(c) {
         // No station the model can WALK to (its walk steps up one block at most, so a second island across a gap of void is unreachable for it): hop to the best station with a real floor,
         // far ones at a soft cost; goToStation bridges the gap (bot/bridge.js). Only after the walkable ones are used up, and never to a column that already failed.
         if (!q) { q = hopStation(m, bot, (c) => failedCols.has(`${c.x},${c.z}`) || !floored(c)); if (q) stats.hops = (stats.hops || 0) + 1; }
+        // Nothing with a floor reaches what is left: a footing laid beside it (see footingStation)
+        if (!q) { q = footingStation(m, env.w, ox, oz, yb, (c) => failedCols.has(`${c.x},${c.z}`)); if (q) stats.footings = (stats.footings || 0) + 1; }
         stats.planMs += Date.now() - t0;
         if (!q) {
             const left = M.bandLeft(m);
             // Over a void the last block of an island is the one the bot stood on (its own support: digging it drops the bot into the void). pit.js already leaves such a block on purpose
-            // (`standsOnFloater`); when nothing but such supports is left the unit is done, and says so (skipped / floating), as the tile sweep does.
+            // (`standsOnFloater`); when nothing but such supports (blocks THIS unit's stations stood on) is left the unit is done, and says so (skipped / floating), as the tile sweep does.
+            // Anything else that is left (a fragment nothing reaches) is a failure, never "left on purpose".
             if (!first && left) {
                 const rest = [];
                 for (let x = 0; x < N; x++) for (let z = 0; z < N; z++) for (let y = 0; y < H; y++) if (m[x][z][y] === SOLID) rest.push({ x: ox + x, y: yb + y, z: oz + z });
                 const bare = (c) => ![1, 2, 3].some((d) => { const k = env.w.kindAt(c.x, c.y - d, c.z); return k === 'solid' || k === 'partial'; });
-                if (rest.length && rest.every(bare) && stats.stations > 0) {
+                if (rest.length && rest.every((c) => bare(c) && supports.has(`${c.x},${c.y},${c.z}`)) && stats.stations > 0) {
                     for (const c of rest) if (plan.accepted) plan.accepted.add(`${c.x},${c.y},${c.z}`);
                     r.skipped = (r.skipped || 0) + rest.length; r.floating = (r.floating || 0) + rest.length; r.supports = rest.length;
                     break;
@@ -102,7 +133,7 @@ async function runExpert(c) {
             }
             return first || { ok: false, reason: 'unreachable', detail: { why: `${left} cells of the band are left and no station can reach them`, stage: 'expert', left, ...r } };
         }
-        const { f } = M.columns(m), S = { x: ox + q.x, y: yb + f[q.x][q.z], z: oz + q.z };
+        const { f } = M.columns(m), fz = q.footing ? q.fy : f[q.x][q.z], S = { x: ox + q.x, y: yb + fz, z: oz + q.z };
         stats.stations++;
         let g = (here.x === S.x && here.y === S.y && here.z === S.z) ? null : await c.goToStation(S);
         // goToStation answers null both when the bot stands there and when it could not be brought closer ("work from where it is"): the expert needs the exact place.
@@ -114,9 +145,10 @@ async function runExpert(c) {
             continue;
         }
         failsRow = 0;
+        supports.add(`${S.x},${S.y - 1},${S.z}`);
         // Dig what is in reach, top layer first, nearest first; a cell that cannot be done does not stop the others (as in a tile): the second failure ends the unit.
         const eye = { x: S.x + 0.5, y: S.y + 1.62, z: S.z + 0.5 };
-        const set = M.digSet(m, q.x, q.z, f[q.x][q.z], q.depth).map(([cx, cz, y]) => ({ x: ox + cx, y: yb + y, z: oz + cz }));
+        const set = M.digSet(m, q.x, q.z, fz, q.depth).map(([cx, cz, y]) => ({ x: ox + cx, y: yb + y, z: oz + cz }));
         set.sort((a, b) => b.y - a.y || Math.hypot(a.x + 0.5 - eye.x, a.z + 0.5 - eye.z) - Math.hypot(b.x + 0.5 - eye.x, b.z + 0.5 - eye.z));
         let dug = 0;
         for (const cell of set) {

@@ -32,6 +32,16 @@ function fakeEnv(w, start, { canWalk = () => true } = {}) {
     return env;
 }
 
+/** The bot of the End: it stands only on a block; its learned walk (`travel`) lays a block under the cell it steps onto when a standable cell is within 8 blocks (the bridge), else it fails. */
+function voidEnv(w, start) {
+    const floored = (a) => ['solid', 'partial'].includes(w.kindAt(a.x, a.y - 1, a.z));
+    const near = (a) => { for (let dx = -8; dx <= 8; dx++) for (let dz = -8; dz <= 8; dz++) if (Math.abs(dx) + Math.abs(dz) <= 8 && w.kindAt(a.x + dx, a.y - 1, a.z + dz) === 'solid' && w.kindAt(a.x + dx, a.y, a.z + dz) === 'air') return true; return false; };
+    const env = fakeEnv(w, start, { canWalk: floored }), base = env.exec;
+    env.profile = () => ({ minY: 0, voidBelow: true }); env.temp = new Map();            // env.temp: the bot's own bridge and pillar blocks (the real env keeps them), not ore
+    env.travel = async (to) => { if (!floored(to) && !near(to)) return { ok: false, reason: 'unreachable', detail: { why: 'no floor within 8' } }; if (!floored(to)) { w.set(to.x, to.y - 1, to.z, 'cobblestone'); env.temp.set(`${to.x},${to.y - 1},${to.z}`, { item: 'cobblestone' }); } return base('move_to', to); };
+    return { env, floored };
+}
+
 (async () => {
     const box = { x0: 0, z0: 0, x1: 15, z1: 15, top: 99, bottom: 96 };
     await test('plan: the expert method cuts a chunk into bands of two layers, one unit per band; the unit holds the band\'s cells', () => {
@@ -115,18 +125,32 @@ function fakeEnv(w, start, { canWalk = () => true } = {}) {
         for (let x = 2; x <= 6; x++) for (let z = 2; z <= 6; z++) for (const y of [98, 99]) init[`${x},${y},${z}`] = 'end_stone';
         for (let x = 10; x <= 13; x++) for (let z = 9; z <= 13; z++) for (const y of [98, 99]) init[`${x},${y},${z}`] = 'end_stone';
         const w = fakeWorld(-1000, init), job = pit.createPitJob(box, {}, { method: 'expert', road: false }), reg = job.plan.regions[0];
-        const floored = (a) => ['solid', 'partial'].includes(w.kindAt(a.x, a.y - 1, a.z));
-        const env = fakeEnv(w, { x: 4, y: 100, z: 4 }, { canWalk: floored });
+        const { env, floored } = voidEnv(w, { x: 4, y: 100, z: 4 });
         const r = await job.runUnit(reg.id, { unit: 0 }, env);
         const moves = env.log.filter((l) => l[0] === 'move_to');
         assert.ok(r.ok, JSON.stringify(r).slice(0, 300));
-        assert.strictEqual(r.detail.expert.fails, 0, 'no station was planned in thin air');
-        // what is left is only blocks with nothing under them (the supports of the last stations and rim blocks that no floor reaches; digging them needs scaffolding over the void),
-        // accepted AND counted in the unit's result, and few
-        let leftN = 0; for (let x = 0; x < 16; x++) for (let z = 0; z < 16; z++) for (const y of [98, 99]) if (w.kindAt(x, y, z) !== 'air') { leftN++; assert.ok(![1, 2, 3].some((d) => w.kindAt(x, y - d, z) === 'solid'), `${x},${y},${z} left although a floor is under it`); }
-        assert.strictEqual(leftN, r.detail.supports, 'every left block is a counted support'); assert.ok(leftN <= 12, `${leftN} supports of 90 blocks`);
-        assert.strictEqual(r.detail.skipped, leftN); assert.ok(r.detail.expert.hops >= 1, 'the second island was reached by a hop');
+        assert.strictEqual(r.detail.expert.fails, 0, 'no station failed');
+        // what is left is only the blocks a station stood on (the last block of an island is its own support over the void: digging it drops the bot), accepted AND counted in the unit's result
+        // (the bot's own bridge blocks, env.temp, are its way and are taken away by the unit's clean-up, not counted)
+        let leftN = 0; for (let x = 0; x < 16; x++) for (let z = 0; z < 16; z++) for (const y of [98, 99]) if (w.kindAt(x, y, z) !== 'air' && !env.temp.has(`${x},${y},${z}`)) { leftN++; assert.ok(![1, 2, 3].some((d) => w.kindAt(x, y - d, z) === 'solid'), `${x},${y},${z} left although a floor is under it`); }
+        assert.strictEqual(leftN, r.detail.supports || 0, 'every left block is a counted support'); assert.ok(leftN <= 6, `${leftN} supports of 90 blocks`);
+        assert.strictEqual(r.detail.skipped || 0, leftN); assert.ok(r.detail.expert.hops >= 1, 'the second island was reached by a hop');
         assert.ok(moves.length >= 1, 'the second island needs a walk');
     });
+
+    await test('runUnit over the void: a fragment no floor can reach is dug from a footing bridged beside it (a station in thin air that is built, not wished for); a footing too far from any floor is not tried', async () => {
+        // an island with ground to stand on, a fragment 9 columns away that no station on the island reaches (arm reach 4), and one 14 columns away from everything
+        const init = {};
+        for (let x = 1; x <= 4; x++) for (let z = 1; z <= 4; z++) for (const y of [98, 99]) init[`${x},${y},${z}`] = 'end_stone';
+        for (let x = 11; x <= 12; x++) for (const z of [2, 3]) init[`${x},99,${z}`] = 'end_stone';           // the reachable-by-footing fragment (9 columns from the island)
+        const w = fakeWorld(-1000, init), job = pit.createPitJob(box, {}, { method: 'expert', road: false }), reg = job.plan.regions[0];
+        const { env, floored } = voidEnv(w, { x: 2, y: 100, z: 2 });
+        const r = await job.runUnit(reg.id, { unit: 0 }, env);
+        assert.ok(r.ok, JSON.stringify(r).slice(0, 400));
+        assert.ok(r.detail.expert.footings >= 1, 'a footing station was used'); 
+        for (const x of [11, 12]) for (const z of [2, 3]) assert.ok(w.kindAt(x, 99, z) === 'air' || env.temp.has(`${x},99,${z}`), `fragment ${x},${z} left`);
+        // (every successful move_to of the fake bot had a block under the cell at the time: voidEnv refuses the rest)
+    });
+
     console.log('\npit expert unit: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });
