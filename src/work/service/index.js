@@ -44,7 +44,7 @@ class WorkService extends EventEmitter {
         this.factory = this.o.factory || defaultFactory(this.o);
         // `worker`: the env of a bot that works a job (defence, a place to dump trash away from every job); one-off commands get the plain env.
         this.envFactory = this.o.envFactory || ((bot, cancel, o = {}) => require('../bot/env').botEnv(bot, {
-            cancel, rcon: this.o.rcon ? (c) => this.rcon(c) : null, moved: (m) => this._moved(bot.username, m), teleport: () => this.settings.teleport || 'off', gates: this.gates, stockMiss: this.stockMiss, experts: () => this.settings.experts !== false, router: () => this.settings.router !== false, move3: () => this.settings.move3 !== false, expertLog: (m) => this._expertLog(bot.username, m),
+            cancel, rcon: this.o.rcon ? (c) => this.rcon(c) : null, moved: (m) => this._moved(bot.username, m), teleport: () => this.settings.teleport || 'off', gates: this.gates, stockMiss: this.stockMiss, experts: () => this.settings.experts !== false, router: () => this.settings.router !== false, move3: () => this.settings.move3 !== false, voidnav: () => this.settings.voidnav !== false, expertLog: (m) => this._expertLog(bot.username, m),
             ...(o.worker ? { guard: true, defend: this.settings.defend !== false, avoid: () => this._activeBoxes(), others: () => this._botSpots(bot.username) } : {}),
         }));
         this.known = this.o.known || null;

@@ -59,6 +59,9 @@ function footingStation(m, w, ox, oz, yb, skip) {
 function buildModel(c, ox, oz, yb) {
     const { env, plan, region, aerialTree, UNBREAKABLE } = c, w = env.w, meta = region.meta, m = [];
     const bare = (n) => String(n || '').replace(/^minecraft:/, '');
+    // Blocks any bot placed as its way (bridges, roads, pillars: the shared list, bot/temps.js) are never ore, whoever laid them.
+    const temps = env.bot && env.bot.__temps, dim = env.bot ? require('../../skills/fixtures').dimOf(env.bot) : null;
+    const isShared = (x, y, z) => !!(temps && temps.get && temps.get(dim, { x, y, z }));
     for (let x = 0; x < N; x++) {
         m.push([]);
         for (let z = 0; z < N; z++) {
@@ -72,7 +75,7 @@ function buildModel(c, ox, oz, yb) {
                 if (k === 'water' || k === 'liquid') { col[y] = WATER; continue; }
                 if (k === 'solid' || k === 'partial') {
                     const name = bare(w.nameAt && w.nameAt(wx, wy, wz));
-                    if (wy > meta.top || UNBREAKABLE.test(name) || (keep !== undefined && wy <= keep) || (plan.accepted && plan.accepted.has(`${wx},${wy},${wz}`)) || (env.temp && env.temp.has && env.temp.has(`${wx},${wy},${wz}`)) || aerialTree({ x: wx, y: wy, z: wz })) col[y] = ROCK;       // the bot's own bridge and pillar blocks are its way, not the pit's ore
+                    if (wy > meta.top || UNBREAKABLE.test(name) || (keep !== undefined && wy <= keep) || (plan.accepted && plan.accepted.has(`${wx},${wy},${wz}`)) || (env.temp && env.temp.has && env.temp.has(`${wx},${wy},${wz}`)) || isShared(wx, wy, wz) || aerialTree({ x: wx, y: wy, z: wz })) col[y] = ROCK;       // the bot's own bridge and pillar blocks are its way, not the pit's ore
                     else col[y] = SOLID;
                     continue;
                 }

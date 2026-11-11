@@ -8,7 +8,7 @@ const dimensions = require('../world/dimensions');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** The environment of a real Mineflayer bot on the action layer. */
-function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null, others = null, guard: withGuard = false, defend = true, moved = null, teleport = () => 'near', gates = null, stockMiss = null, experts = null, expertLog = null, router = null, move3 = null } = {}) {
+function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null, others = null, guard: withGuard = false, defend = true, moved = null, teleport = () => 'near', gates = null, stockMiss = null, experts = null, expertLog = null, router = null, move3 = null, voidnav = null } = {}) {
     const { execute } = require('../../skills');
     const { fromBot } = require('../../skills/world');
     const { feetCell } = require('../../skills/motion');
@@ -257,6 +257,18 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
             const rt = require('../../experts/route/router'), st = require('../../experts/route/stats'), tr = require('./travel'), ms = () => Date.now();
             const cancelled = (r) => ['died', 'disconnected', 'cancelled', 'wrong_dimension'].includes(r.reason);
             let r, m3failed = false, q3 = null;
+            // Where there is no ground (the End's void) and the target is a cell: the planned walk first (bot/voidnav.js: A* over walk, bridge, pillar, run with the action layer's own commands). The learned
+            // walk below it failed 40-55 % of the pit's station walks on the copy of the play world; a failed plan falls through to it and to the chain. Setting `voidnav` (default on).
+            if (!(voidnav && voidnav() === false) && Number.isInteger(t.y) && envObj.profile && envObj.profile().voidBelow) {
+                const here0 = feetCell(bot.entity.position);
+                if (Math.hypot(t.x - here0.x, t.z - here0.z) <= 48 && Math.abs(t.y - here0.y) <= 30) {
+                    const ev = Object.create(envObj); ev.cancel = unitCancel;
+                    let qv; try { qv = await require('./voidnav').walk(ev, { x: t.x, y: t.y, z: t.z }); } catch (e) { qv = { ok: false, reason: 'internal', detail: { message: String((e && e.message) || e).slice(0, 120) } }; }
+                    if (qv.ok) { require('../../experts/route/stats').final(qv); return qv; }
+                    if (cancelled(qv)) { require('../../experts/route/stats').final(qv); return qv; }
+                    r = qv;
+                }
+            }
             // The learned cell-level walk first (RL-MOVE-v3, src/experts/move3, setting `move3`): a target within about 48 blocks across and 30 levels, walked one action at a time with bridges,
             // pillars, descents and digging inside the pit where the old chain has none of them. It refuses a farther target at once; when it fails, the chunk router and the rest of the chain go on.
             if (!!move3 && move3() !== false) {
@@ -272,6 +284,7 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
             const r0 = await envObj._travelChain(t, o);
             if (m3failed) require('../../experts/move3/stats').fallback(!!r0.ok);
             // Say why the learned walk gave up when the chain behind it failed too (it was only a counter before: a failed pit station said "no leg of any length" and nothing of the walk's own reason).
+            if (!r0.ok && r && r.voidnav) r0.detail = { ...(r0.detail || {}), voidnav: { reason: r.reason, why: String((r.detail && r.detail.why) || '').slice(0, 100), ...r.voidnav } };
             if (!r0.ok && q3) r0.detail = { ...(r0.detail || {}), move3: { reason: q3.reason, why: String((q3.detail && (q3.detail.why || q3.detail.goal)) || '').slice(0, 100), decisions: q3.move3 && q3.move3.decisions, fails: q3.move3 && q3.move3.fails, at: q3.detail && q3.detail.at } };
             return r0;
         },
