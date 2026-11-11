@@ -108,5 +108,25 @@ function fakeEnv(w, start, { canWalk = () => true } = {}) {
         assert.ok(away > 0, 'a seal was placed'); assert.ok(r.ok, JSON.stringify(r).slice(0, 300));
         for (let x = 0; x < 16; x++) for (let z = 0; z < 16; z++) assert.notStrictEqual(w.kindAt(x, 99, z), 'solid', `${x},${z}`);
     });
+
+    await test('runUnit over the void (the End): a station is only planned where a block is under the feet; thin air at the band\'s level is not ground (live 2026-11-11: 52 of 60 failed stations were cells of air over air)', async () => {
+        // The simulator the planner was trained on always had rock under the band; the End has none. Two islands in a void, the bot can only stand on a block (as in the game).
+        const init = {};
+        for (let x = 2; x <= 6; x++) for (let z = 2; z <= 6; z++) for (const y of [98, 99]) init[`${x},${y},${z}`] = 'end_stone';
+        for (let x = 10; x <= 13; x++) for (let z = 9; z <= 13; z++) for (const y of [98, 99]) init[`${x},${y},${z}`] = 'end_stone';
+        const w = fakeWorld(-1000, init), job = pit.createPitJob(box, {}, { method: 'expert', road: false }), reg = job.plan.regions[0];
+        const floored = (a) => ['solid', 'partial'].includes(w.kindAt(a.x, a.y - 1, a.z));
+        const env = fakeEnv(w, { x: 4, y: 100, z: 4 }, { canWalk: floored });
+        const r = await job.runUnit(reg.id, { unit: 0 }, env);
+        const moves = env.log.filter((l) => l[0] === 'move_to');
+        assert.ok(r.ok, JSON.stringify(r).slice(0, 300));
+        assert.strictEqual(r.detail.expert.fails, 0, 'no station was planned in thin air');
+        // what is left is only blocks with nothing under them (the supports of the last stations and rim blocks that no floor reaches; digging them needs scaffolding over the void),
+        // accepted AND counted in the unit's result, and few
+        let leftN = 0; for (let x = 0; x < 16; x++) for (let z = 0; z < 16; z++) for (const y of [98, 99]) if (w.kindAt(x, y, z) !== 'air') { leftN++; assert.ok(![1, 2, 3].some((d) => w.kindAt(x, y - d, z) === 'solid'), `${x},${y},${z} left although a floor is under it`); }
+        assert.strictEqual(leftN, r.detail.supports, 'every left block is a counted support'); assert.ok(leftN <= 12, `${leftN} supports of 90 blocks`);
+        assert.strictEqual(r.detail.skipped, leftN); assert.ok(r.detail.expert.hops >= 1, 'the second island was reached by a hop');
+        assert.ok(moves.length >= 1, 'the second island needs a walk');
+    });
     console.log('\npit expert unit: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

@@ -10,6 +10,23 @@ const { SOLID, ROCK, WATER, AIR, N, H } = M;
 
 const MAX_FAILS_ROW = 6;                      // stations in a row that could not be reached or dug: the unit fails with the first reason
 
+/**
+ * The best station by dig count minus a soft distance cost over EVERY column of the chunk that can be stood on (not only those the model's step-by-step walk reaches), or null.
+ * `skip(col)` leaves a column out (failed before, no floor). Same station shape as `M.observe`'s candidates: {x, z, depth, n}.
+ */
+function hopStation(m, bot, skip) {
+    const tb = M.table(m, bot); let best = null;
+    for (let x = 0; x < M.N; x++) for (let z = 0; z < M.N; z++) {
+        if (!tb.ok[x][z] || skip({ x, z })) continue;
+        for (let d = 0; d < M.ND; d++) {
+            const n = tb.nd[x][z][d] + tb.nw[x][z][d]; if (n <= 0) continue;
+            const score = n - 0.15 * Math.hypot(x - bot[0], z - bot[1]);
+            if (!best || score > best.score) best = { x, z, depth: d + 1, n, score };
+        }
+    }
+    return best;
+}
+
 /** The chunk as the model sees it: m[x][z][y], y 0 = the lower layer of the band at world level `yb`. Cells the unit must not dig (fixtures, kept road, trees out of reach, bedrock, unloaded) are ROCK. */
 function buildModel(c, ox, oz, yb) {
     const { env, plan, region, aerialTree, UNBREAKABLE } = c, w = env.w, meta = region.meta, m = [];
@@ -44,7 +61,7 @@ function buildModel(c, ox, oz, yb) {
  * @returns { ok, reason?, detail } like runUnit
  */
 async function runExpert(c) {
-    const { env, region, r, handle, open, CELL_FAILS } = c, meta = region.meta, layer = c.unit, band = c.EXPERT_BAND;
+    const { env, plan, region, r, handle, open, CELL_FAILS } = c, meta = region.meta, layer = c.unit, band = c.EXPERT_BAND;
     const ox = meta.x0, oz = meta.z0, yb = meta.top - band * layer - (band - 1);
     const model = P.defaultModel(), stats = { stations: 0, cells: 0, planMs: 0, fails: 0, model: model ? (model.meta && model.meta.name) || 'net' : 'greedy' };
     r.expert = stats;
@@ -58,15 +75,34 @@ async function runExpert(c) {
         if (!M.bandLeft(m)) break;                                       // nothing left to dig in this band (or above it within the chunk)
         const bot = [Math.max(0, Math.min(N - 1, here.x - ox)), Math.max(0, Math.min(N - 1, here.z - oz))];
         const obs = M.observe({ m, bot, t, lastN });
-        const ban = new Set();
-        obs.cand.forEach((q, k) => { if (failedCols.has(`${q.x},${q.z}`)) ban.add(k); });
-        const k = P.choose(model, obs, ban);
+        const ban = new Set(), { f: feet } = M.columns(m);
+        // A station needs a real block under the feet. The model (and the simulator it was trained on) treats a column with nothing in the band as ground at the band's level, because in a
+        // ground pit solid rock lies under the band; over the End's void it does not, and 52 of 60 failed stations on the live pit of 2026-11-11 were cells of air over air that nobody
+        // could stand on ("could not stand at the station", then the 7 x 7 ban wiped out every candidate: "no station can reach them").
+        const floored = (q) => { const k = env.w.kindAt(ox + q.x, yb + feet[q.x][q.z] - 1, oz + q.z); return k === 'solid' || k === 'partial'; };
+        obs.cand.forEach((q, k) => { if (failedCols.has(`${q.x},${q.z}`) || !floored(q)) ban.add(k); });
+        let k = P.choose(model, obs, ban), q = k < 0 ? null : obs.cand[k];
+        // No station the model can WALK to (its walk steps up one block at most, so a second island across a gap of void is unreachable for it): hop to the best station with a real floor,
+        // far ones at a soft cost; goToStation bridges the gap (bot/bridge.js). Only after the walkable ones are used up, and never to a column that already failed.
+        if (!q) { q = hopStation(m, bot, (c) => failedCols.has(`${c.x},${c.z}`) || !floored(c)); if (q) stats.hops = (stats.hops || 0) + 1; }
         stats.planMs += Date.now() - t0;
-        if (k < 0) {
+        if (!q) {
             const left = M.bandLeft(m);
+            // Over a void the last block of an island is the one the bot stood on (its own support: digging it drops the bot into the void). pit.js already leaves such a block on purpose
+            // (`standsOnFloater`); when nothing but such supports is left the unit is done, and says so (skipped / floating), as the tile sweep does.
+            if (!first && left) {
+                const rest = [];
+                for (let x = 0; x < N; x++) for (let z = 0; z < N; z++) for (let y = 0; y < H; y++) if (m[x][z][y] === SOLID) rest.push({ x: ox + x, y: yb + y, z: oz + z });
+                const bare = (c) => ![1, 2, 3].some((d) => { const k = env.w.kindAt(c.x, c.y - d, c.z); return k === 'solid' || k === 'partial'; });
+                if (rest.length && rest.every(bare) && stats.stations > 0) {
+                    for (const c of rest) if (plan.accepted) plan.accepted.add(`${c.x},${c.y},${c.z}`);
+                    r.skipped = (r.skipped || 0) + rest.length; r.floating = (r.floating || 0) + rest.length; r.supports = rest.length;
+                    break;
+                }
+            }
             return first || { ok: false, reason: 'unreachable', detail: { why: `${left} cells of the band are left and no station can reach them`, stage: 'expert', left, ...r } };
         }
-        const q = obs.cand[k], { f } = M.columns(m), S = { x: ox + q.x, y: yb + f[q.x][q.z], z: oz + q.z };
+        const { f } = M.columns(m), S = { x: ox + q.x, y: yb + f[q.x][q.z], z: oz + q.z };
         stats.stations++;
         let g = (here.x === S.x && here.y === S.y && here.z === S.z) ? null : await c.goToStation(S);
         // goToStation answers null both when the bot stands there and when it could not be brought closer ("work from where it is"): the expert needs the exact place.
