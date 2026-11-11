@@ -123,6 +123,10 @@ async function walk3(env, to, o = {}) {
         const ban = new Set();
         for (let a = 0; a < spec.NA; a++) { const k = `${a}@${here.x},${here.y},${here.z}`; if (tabu.has(k) && tabu.get(k) > st.t) ban.add(a); }
         const mask = res.map((r) => r.valid);
+        // Digging the block under the feet drops the bot to the floor below. The simulator allowed any fall the bot survives (its pits always have rock under them); over islands in the End's void
+        // that put the bot 12-20 levels under its target (live copy of the play world, 2026-11-11: a trace showed dig_down from a ledge, a 20-level fall, and a walk spent climbing back until it
+        // gave up). A dig down is only offered for a drop of three blocks or less. (Here, not in rules.js: that file is the simulator's contract, tests/golden_move3.json.)
+        if (mask[A.DIGDOWN] && here.y - res[A.DIGDOWN].pos.y > 3) mask[A.DIGDOWN] = false;
         // Nothing but waiting is allowed (in a lake, say): after two such decisions the action layer's walk brings the bot to the nearest cell it can stand on.
         if (mask.every((m, i) => !m || i === A.WAIT)) idleN++; else idleN = 0;
         if (idleN >= 2 && env.bot && env.bot.entity && (env.bot.entity.onGround || env.bot.entity.isInWater)) {

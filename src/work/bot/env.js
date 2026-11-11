@@ -256,13 +256,12 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         travel: async (t, o) => {
             const rt = require('../../experts/route/router'), st = require('../../experts/route/stats'), tr = require('./travel'), ms = () => Date.now();
             const cancelled = (r) => ['died', 'disconnected', 'cancelled', 'wrong_dimension'].includes(r.reason);
-            let r, m3failed = false;
+            let r, m3failed = false, q3 = null;
             // The learned cell-level walk first (RL-MOVE-v3, src/experts/move3, setting `move3`): a target within about 48 blocks across and 30 levels, walked one action at a time with bridges,
             // pillars, descents and digging inside the pit where the old chain has none of them. It refuses a farther target at once; when it fails, the chunk router and the rest of the chain go on.
             if (!!move3 && move3() !== false) {
                 const m3 = require('../../experts/move3/walk'), m3s = require('../../experts/move3/stats'), t0 = ms();
                 const e3 = Object.create(envObj); e3.cancel = unitCancel; e3.spots = () => (others ? others() : []);
-                let q3;
                 try { q3 = await m3.walk3(e3, t, { near: Math.min(3, (o && o.near) === undefined ? 2 : o.near), nearY: (o && o.nearY) === undefined ? undefined : Math.min(4, o.nearY) }); }
                 catch (e) { q3 = { ok: false, reason: 'internal', detail: { message: String((e && e.message) || e).slice(0, 120) } }; }
                 m3s.record(q3, ms() - t0);
@@ -272,6 +271,8 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
             }
             const r0 = await envObj._travelChain(t, o);
             if (m3failed) require('../../experts/move3/stats').fallback(!!r0.ok);
+            // Say why the learned walk gave up when the chain behind it failed too (it was only a counter before: a failed pit station said "no leg of any length" and nothing of the walk's own reason).
+            if (!r0.ok && q3) r0.detail = { ...(r0.detail || {}), move3: { reason: q3.reason, why: String((q3.detail && (q3.detail.why || q3.detail.goal)) || '').slice(0, 100), decisions: q3.move3 && q3.move3.decisions, fails: q3.move3 && q3.move3.fails, at: q3.detail && q3.detail.at } };
             return r0;
         },
         _travelChain: async (t, o) => {

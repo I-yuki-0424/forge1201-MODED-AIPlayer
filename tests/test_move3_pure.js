@@ -93,5 +93,19 @@ const stateOf = (r) => ({ pos: { x: r.pos[0], y: r.pos[1], z: r.pos[2] }, tgt: {
         const r3 = await walk3(dead, { x: 6, z: 0, y: 5 }, { model: east }); assert.strictEqual(r3.ok, false); assert.ok(r3.move3.fails >= 8, 'gives up after failures in a row');
         assert.strictEqual((await walk3(env, { x: 6, z: 0, y: 5 }, { model: null, refuse: false })).reason === 'refused' || true, true);
     });
+    await test('walk3: dig_down is only used for a drop of three blocks or less (live copy 2026-11-11: it dug the ledge under its feet over the End void, fell 12-20 levels and spent the walk climbing back)', async () => {
+        // a ledge (y 4, solid) over a void with a floor 14 levels down; the policy would love to dig down; the target is far to the east
+        const world = (x, y, z) => (y === 4 && x <= 5 ? 'solid' : y === -10 ? 'solid' : 'air');
+        const pos = { x: 0, y: 5, z: 0 }, calls = [];
+        const env = { w: { kindAt: world, nameAt: () => 'end_stone' }, here: () => ({ ...pos }), within: { x0: -5, x1: 5, z0: -5, z1: 5, top: 10, bottom: -20 },
+            exec: async (n, a) => { calls.push(n); return { ok: false, reason: 'unreachable' }; }, run: async (n) => { calls.push(n); return { ok: false, reason: 'unreachable' }; } };
+        const r = await walk3(env, { x: 20, z: 0, y: 5 }, { model: fakeModel({ [SPEC.A.DIGDOWN]: 9 }), maxDecisions: 6 });
+        assert.ok(!calls.includes('mine'), `the floor under the feet was dug: ${calls.join()}`);
+        // a drop of three or less is allowed: a pit floor one level above solid rock
+        const calls2 = [], pos2 = { x: 0, y: 5, z: 0 };
+        const env2 = { ...env, w: { kindAt: (x, y, z) => (y <= 3 ? 'solid' : y === 4 && x <= 5 ? 'solid' : 'air'), nameAt: () => 'end_stone' }, here: () => ({ ...pos2 }), exec: async (n, a) => { calls2.push(n); return { ok: false, reason: 'unreachable' }; } };
+        await walk3(env2, { x: 20, z: 0, y: 5 }, { model: fakeModel({ [SPEC.A.DIGDOWN]: 9 }), maxDecisions: 3 });
+        assert.ok(calls2.includes('mine'), 'dig down onto rock one level below is still a legal move');
+    });
     console.log('\nmove3: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });
