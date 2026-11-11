@@ -7,12 +7,12 @@
 //                  surface of that column's neighbourhood (open sky) and alive, within LIMIT_S seconds. The goal cell the expert is given is the standable surface cell above.
 // FAMILY=recorded  the cells where the live bots were really recorded stuck (console problems.jsonl: still, forced_fall, forced_kill, unit_failed with a station that could not be reached)
 //                  in the copy of the world (End pit region), N of them at random; escaped = within 3 blocks of the entry platform (100, 49, 0) or of the station when it can be stood on.
-// Env: N, SEED, FAMILY, LIMIT_S (default 120), RANGE (cave columns within +-RANGE, default 3000), CONTROL=noop (stands still: must score 0), BOTNAME.
+// Env: N, SEED, FAMILY, LIMIT_S (default 120), DEPTH_MIN / DEPTH_MAX (cave depth under the surface, default 8 / 30: the scale of a pit shaft or a pocket; a first run at 10-70 timed out while the expert was still climbing), RANGE (cave columns within +-RANGE, default 3000), CONTROL=noop (stands still: must score 0), BOTNAME.
 const fs = require('fs');
 const L = require('./lib');
 
 const N = Number(process.env.N || 20), SEED = Number(process.env.SEED || 1), FAMILY = process.env.FAMILY || 'cave', LIMIT_S = Number(process.env.LIMIT_S || 120);
-const RANGE = Number(process.env.RANGE || 3000), CONTROL = process.env.CONTROL || '', A = process.env.BOTNAME || 'RealE';
+const DMIN = Number(process.env.DEPTH_MIN || 8), DMAX = Number(process.env.DEPTH_MAX || 30), RANGE = Number(process.env.RANGE || 3000), CONTROL = process.env.CONTROL || '', A = process.env.BOTNAME || 'RealE';
 
 async function main() {
     const { shared, S } = await L.connectRcon();
@@ -47,13 +47,13 @@ async function main() {
             const sc = await L.standCell(S, bot, A, 'overworld', x, z); if (!sc) continue;
             // a natural cell 10..60 blocks under that surface: air for the body, a full block under the feet, a roof of rock above, found by scanning the loaded column
             const cands = [];
-            for (let y = sc.y - 10; y >= Math.max(-58, sc.y - 70); y--) {
+            for (let y = sc.y - DMIN; y >= Math.max(-58, sc.y - DMAX); y--) {
                 if (!L.standableAt(bot, x, y, z)) continue;
                 let roof = false; for (let d = 2; d <= 6; d++) { const b = bot.blockAt(new Vec3(x, y + d, z)); if (b && b.boundingBox === 'block') { roof = true; break; } }
                 if (roof) cands.push(y);
             }
             if (!cands.length) {                                                      // the exact column has no cave: look at the neighbouring columns of the same chunk
-                for (let dx = -6; dx <= 6 && !cands.length; dx += 3) for (let dz = -6; dz <= 6 && !cands.length; dz += 3) for (let y = sc.y - 10; y >= Math.max(-58, sc.y - 70); y--) {
+                for (let dx = -6; dx <= 6 && !cands.length; dx += 3) for (let dz = -6; dz <= 6 && !cands.length; dz += 3) for (let y = sc.y - DMIN; y >= Math.max(-58, sc.y - DMAX); y--) {
                     if (!L.standableAt(bot, x + dx, y, z + dz)) continue;
                     let roof = false; for (let d = 2; d <= 6; d++) { const b = bot.blockAt(new Vec3(x + dx, y + d, z + dz)); if (b && b.boundingBox === 'block') { roof = true; break; } }
                     if (roof) { cands.push(y); start = { x: x + dx, y, z: z + dz }; break; }
@@ -74,6 +74,8 @@ async function main() {
         for (let i = 0; i < 40 && !(bot.health > 0 && bot.entity); i++) await L.sleep(250);
         cancel.cancelled = false;
         const deaths0 = deaths, t0 = Date.now(), timer = setTimeout(() => { cancel.cancelled = true; }, LIMIT_S * 1000);
+        // when the bot FIRST stood where the grade wants it (the expert may go on settling for a while after that)
+        let tFirst = null; const watch = setInterval(() => { const q = bot.entity && bot.entity.position; if (!q || tFirst !== null) return; const ok = FAMILY === 'cave' ? q.y >= goal.y - 2 : Math.hypot(q.x - (goal.x + 0.5), q.z - (goal.z + 0.5)) <= 3 && Math.abs(q.y - goal.y) <= 3; if (ok) tFirst = Math.round((Date.now() - t0) / 1000); }, 500);
         let res = { ok: false, reason: 'noop' }, steps = 0;
         if (CONTROL !== 'noop') {
             // The production way out, as the worker's ladder uses it: the stuck-escape expert toward the known good place first, then the fixes of the ladder (jump, sidestep, wait ...) and the
@@ -91,17 +93,18 @@ async function main() {
                 }
             } catch (err) { res = { ok: false, reason: 'exception', detail: { message: String(err && err.message).slice(0, 120) } }; }
         } else await L.sleep(Math.min(LIMIT_S, 20) * 1000);
-        clearTimeout(timer);
+        clearTimeout(timer); clearInterval(watch);
         const p = await L.posOf(S, A), died = deaths > deaths0;
         const dxz = p ? Math.hypot(p.x - (goal.x + 0.5), p.z - (goal.z + 0.5)) : null;
         const escaped = !!p && !died && (FAMILY === 'cave' ? p.y >= goal.y - 2 : dxz <= 3.5 && Math.abs(p.y - goal.y) <= 3.5);         // THE grade: the server's position
-        const row = { i: rows.length, family: FAMILY, start, goal, ok: escaped, last_reason: res.reason || null, died, final: p && { x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10, z: Math.round(p.z * 10) / 10 }, s: Math.round((Date.now() - t0) / 1000), steps, detail: res.detail ? JSON.stringify(res.detail).slice(0, 200) : null, ...label };
+        const row = { i: rows.length, family: FAMILY, start, goal, ok: escaped, last_reason: res.reason || null, died, final: p && { x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10, z: Math.round(p.z * 10) / 10 }, s: Math.round((Date.now() - t0) / 1000), t_first: tFirst, steps, detail: res.detail ? JSON.stringify(res.detail).slice(0, 200) : null, ...label };
         rows.push(row);
-        console.log(`[real-escape] #${row.i} ${JSON.stringify(label)} ${escaped ? 'ESCAPED' : 'FAIL'} last=${row.last_reason} ${died ? 'DIED ' : ''}${row.s}s steps=${steps} ${row.detail || ''}`);
+        console.log(`[real-escape] #${row.i} ${JSON.stringify(label)} ${escaped ? 'ESCAPED' : 'FAIL'}${tFirst !== null ? ' first at ' + tFirst + 's' : ''} last=${row.last_reason} ${died ? 'DIED ' : ''}${row.s}s steps=${steps} ${row.detail || ''}`);
     }
+    const bands = {}; for (const r of rows) { const b = (bands[r.depth < 15 ? '8-14' : r.depth < 25 ? '15-24' : r.depth < 40 ? '25-39' : '40+'] ||= { n: 0, k: 0 }); b.n++; if (r.ok) b.k++; }
     const k = rows.filter((r) => r.ok).length, reasons = {}; for (const r of rows.filter((q) => !q.ok)) { const key = r.died ? 'died' : r.last_reason || 'timeout'; reasons[key] = (reasons[key] || 0) + 1; }
-    const out = { kind: 'real-escape', family: FAMILY, world: 'play-world copy', seed: SEED, control: CONTROL || null, n: rows.length, escaped: k, rate: rows.length ? k / rows.length : 0, wilson95: L.wilson(k, rows.length), failure_reasons: reasons, wall_s: Math.round((Date.now() - t00) / 1000), rows };
-    console.log(`[real-escape] ${FAMILY} ${CONTROL ? 'CONTROL ' + CONTROL : ''} escape rate ${L.pct(k, rows.length)}; failures ${JSON.stringify(reasons)}`);
+    const out = { kind: 'real-escape', family: FAMILY, world: 'play-world copy', seed: SEED, control: CONTROL || null, n: rows.length, escaped: k, rate: rows.length ? k / rows.length : 0, wilson95: L.wilson(k, rows.length), failure_reasons: reasons, by_depth: bands, wall_s: Math.round((Date.now() - t00) / 1000), rows };
+    console.log(`[real-escape] ${FAMILY} ${CONTROL ? 'CONTROL ' + CONTROL : ''} escape rate ${L.pct(k, rows.length)}; by depth ${JSON.stringify(bands)}; failures ${JSON.stringify(reasons)}`);
     if (process.env.LIVE_OUT) fs.writeFileSync(process.env.LIVE_OUT, JSON.stringify(out, null, 1));
     process.exit(0);
 }
