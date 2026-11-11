@@ -23,6 +23,8 @@ function bestWeapon(bot) {
 
 const yawTo = (from, to) => Math.atan2(-(to.x - from.x), -(to.z - from.z));
 const dropped = (e) => (e && e.name === 'item' && e.getDroppedItem ? e.getDroppedItem() : null);
+/** Is there something solid within 3 cells under the cell of the position `p` (the cell itself counts: an item lying inside a slab or a plant)? */
+const groundUnder = (w, p) => { const x = Math.floor(p.x), y = Math.floor(p.y), z = Math.floor(p.z); for (let d = 0; d <= 3; d++) { const k = w.kindAt(x, y - d, z); if (k === 'solid' || k === 'partial') return true; if (k === 'unknown') return true; } return false; };
 
 /**
  * Walk onto the item entity `id` until `name` in the inventory exceeds `before`. Direct steering when the item is in
@@ -39,6 +41,9 @@ async function pickupEntity(ctx, id, name, before) {
         }
         const pos = bot.entity.position, ip = ent.position, cell = feetCell(pos);
         const d = hdist(pos, ip), dy = ip.y - pos.y;
+        // An item over a drop (the End's void, a chasm: nothing solid within 3 cells under it) is not chased: steering at it walks the bot off the rim. Live pit 2026-11-11: four bots died right after
+        // dig / collect_drop, each chasing the drop of a block it had mined beside the void. The drop is lost; the bot lives.
+        if (d > 0.01 && !groundUnder(w, ip)) throw new SkillError('target_lost', { why: 'the item lies over a drop: not chased', item: name, at: [Math.floor(ip.x), Math.floor(ip.y), Math.floor(ip.z)] });
         // Close by, or in the open: steer straight at it (jumping onto a block if it lies one block up).
         if (dy < 1.6 && dy > -1.5 && (d < 1.5 || (d < 8 && Math.abs(dy) < 1 && clearLine(w, pos, ip, cell.y)))) {
             if (d < 1.5 && ++close > 60) throw new SkillError('stuck', { why: 'next to the item for 3 s, not picked up', item: name, dy });

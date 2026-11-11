@@ -41,8 +41,9 @@ async function main() {
     // harness does the same by hand: a bot that is dead or outside the job's dimension is put on the arrival platform with a fresh kit. Every such return is counted as a death.
     let deaths = 0, returns = 0; const dead = new Set();
     const trail = new Map(names.map((n) => [n, []])), deathLog = [];
-    const sampler = setInterval(() => { for (const n of names) { const b = svc.bots.get(n).bot; if (b && b.entity) { const t = trail.get(n); t.push([Date.now() - t0, +b.entity.position.x.toFixed(1), +b.entity.position.y.toFixed(1), +b.entity.position.z.toFixed(1), b.entity.onGround ? 1 : 0]); if (t.length > 12) t.shift(); } } }, 500);
-    for (const n of names) svc.bots.get(n).bot.on('death', () => { deaths++; deathLog.push({ bot: n, at_s: Math.round((Date.now() - t0) / 1000), last_positions: trail.get(n).slice(-8), act: (svc.bots.get(n).act && (svc.bots.get(n).act.sub ? svc.bots.get(n).act.sub.name : svc.bots.get(n).act.name)) || null }); });
+    const phases = new Map(names.map((n) => [n, []]));
+    const sampler = setInterval(() => { for (const n of names) { const rec = svc.bots.get(n), b = rec.bot; if (b && b.entity) { const t = trail.get(n); t.push([Date.now() - t0, +b.entity.position.x.toFixed(1), +b.entity.position.y.toFixed(1), +b.entity.position.z.toFixed(1), b.entity.onGround ? 1 : 0]); if (t.length > 12) t.shift(); const ph = rec.phase && rec.phase.name, pl = phases.get(n); if (ph && pl[pl.length - 1] !== ph) { pl.push(ph); if (pl.length > 8) pl.shift(); } } } }, 500);
+    for (const n of names) svc.bots.get(n).bot.on('death', () => { deaths++; deathLog.push({ bot: n, at_s: Math.round((Date.now() - t0) / 1000), last_positions: trail.get(n).slice(-8), phases: phases.get(n).slice(-6), others: names.filter((q) => q !== n).map((q) => { const e = svc.bots.get(q).bot.entity; return e ? [q, +e.position.x.toFixed(1), +e.position.y.toFixed(1), +e.position.z.toFixed(1)] : [q]; }), act: (svc.bots.get(n).act && (svc.bots.get(n).act.sub ? svc.bots.get(n).act.sub.name : svc.bots.get(n).act.name)) || null }); });
     const gate = setInterval(async () => {
         for (const n of names) {
             const rec = svc.bots.get(n), b = rec && rec.bot; if (!b || !b.entity || dead.has(n)) continue;

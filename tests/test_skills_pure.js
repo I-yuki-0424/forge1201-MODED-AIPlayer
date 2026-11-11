@@ -247,6 +247,24 @@ const goalCell = (t) => ({ isGoal: (c) => c.x === t.x && c.y === t.y && c.z === 
         } finally { clearInterval(bot.timer); }
     });
 
+    await test('pickup never steps toward an item that lies over a drop (the End\'s void): live pit 2026-11-11, four bots died right after dig / collect_drop', async () => {
+        // Ground only at x <= 0 (cells (0,0,*) and below); the item fell from a block mined beside the bot and hangs at x 1.2, 0.4 above the feet level, with nothing under it for 3+ cells.
+        // Before the fix the close-by branch steered straight at it (forward) and the bot walked off the rim.
+        const { pickup } = require('../src/skills/commands/entity');
+        const bot = fakeBot();
+        Object.assign(bot, { inventory: { items: () => [], slots: [] }, food: 20, heldItem: null });
+        const solid = (p) => p.y <= 0 && p.x <= 0;
+        bot.blockAt = (p) => ({ name: solid(p) ? 'stone' : 'air', boundingBox: solid(p) ? 'block' : 'empty', shapes: solid(p) ? CUBE : [], position: p });
+        bot.entity.position = new Vec3(0.7, 1, 0.5);
+        bot.entities = { 3: { id: 3, name: 'item', position: new Vec3(1.2, 0.6, 0.5), getDroppedItem: () => ({ name: 'end_stone', count: 1 }) } };
+        try {
+            const r = await run(bot, pickup, { entity: 3 }, { maxTicks: 6 });
+            assert.strictEqual(r.ok, false);
+            assert.strictEqual(r.reason, 'target_lost', `${r.reason} ${JSON.stringify(r.detail)}`);
+            assert.ok(!r.trace.some((t) => String(t[2][0]) === 'F'), 'forward was never pressed toward the void');
+        } finally { clearInterval(bot.timer); }
+    });
+
     await test('intents: block name resolution, standing cells, surface search', () => {
         const { blockNames, cellsNear, surface } = require('../src/skills/intents');
         const reg = { blocksByName: { oak_log: {}, birch_log: {}, glass: {}, stone: {}, iron_ore: {}, deepslate_iron_ore: {} } };
