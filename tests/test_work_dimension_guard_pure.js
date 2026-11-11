@@ -114,6 +114,29 @@ function endWorld() {
         assert.strictEqual(w.kindAt(39, 48, 0), 'solid', 'the bridge lies up to the flank'); assert.strictEqual(bot.x, 60, 'and the walk went on to the station');
     });
 
+    await test('goToStation: over a void the learned walk (env.travel) takes the bot to the exact station cell first; when it fails the ladder (gap bridge) still runs', async () => {
+        const w = endWorld(), bot = { x: 4, y: 49, z: 0 }, S = { x: 60, y: 49, z: 3 }, calls = [];
+        const mk = (travel) => ({
+            w, here: () => ({ ...bot }), profile: () => ({ minY: 0, voidBelow: true }), cancel: { cancelled: false }, travel,
+            bridgeToward: async (to) => bridgeToward(env2, to), gapOn: (to) => gapOn(w, bot, to, 0),
+            run: async (name, a) => { calls.push(name); for (const c of a.cells) { w.set(c.x, a.y - 1, c.z, 'solid'); bot.x = c.x; bot.z = c.z; } return { ok: true, detail: { placed: a.cells } }; },
+            exec: async (name, a) => { calls.push(`move ${a.x},${a.y},${a.z}`); bot.x = a.x; bot.y = a.y; bot.z = a.z; return { ok: true }; },
+        });
+        let env2 = mk(async (to, o) => { calls.push(`travel ${to.x},${to.y},${to.z} near ${o.near}`); bot.x = to.x; bot.y = to.y; bot.z = to.z; return { ok: true }; });
+        let r = await pit.goToStation(S, async () => null, env2, (c) => w.kindAt(c.x, c.y, c.z) === 'air', {});
+        assert.strictEqual(r, null, JSON.stringify(r)); assert.deepStrictEqual(calls, ['travel 60,49,3 near 0'], 'the exact cell, no ladder');
+        // the walk fails (not fatal): the ladder runs as before
+        calls.length = 0; bot.x = 4; bot.y = 49; bot.z = 0;
+        env2 = mk(async () => { calls.push('travel'); return { ok: false, reason: 'stuck' }; });
+        r = await pit.goToStation(S, async () => null, env2, (c) => w.kindAt(c.x, c.y, c.z) === 'air', {});
+        assert.strictEqual(r, null, JSON.stringify(r)); assert.ok(calls[0] === 'travel' && calls.includes('bridge'), calls.join());
+        // a fatal reason ends the unit as the bot's own trouble
+        calls.length = 0; bot.x = 4; bot.y = 49; bot.z = 0;
+        env2 = mk(async () => ({ ok: false, reason: 'died' }));
+        r = await pit.goToStation(S, async () => null, env2, (c) => w.kindAt(c.x, c.y, c.z) === 'air', {});
+        assert.strictEqual(r.ok, false); assert.strictEqual(r.reason, 'died'); assert.strictEqual(r.detail.botSide, true);
+    });
+
     await test('goToStation: a bot standing inside a base beside the void walks to the edge first, then bridges', async () => {
         const w = endWorld(), bot = { x: 1, y: 49, z: 0 }, runs = [], S = { x: 60, y: 56, z: 0 };
         const env = {

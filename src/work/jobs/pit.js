@@ -378,6 +378,7 @@ async function goToStation(S, handle, env, open, r) {
     let bridges = 0;                     // at most three bridges per walk to a station (a gap of void between the End's platform and the island is crossed by a level bridge, bot/bridge.js)
     let descents = 0;                    // at most two descents per walk to a station (moves.js `descend`)
     let lifts = 0;                       // at most two server lifts per walk to a station: a lift that lands in the same cell again changes nothing (live: Work17 lifted 0 blocks every 20 s)
+    let walks = 0;                       // learned walks to the exact station cell (void dimensions), at most two
     for (let t = 0; t < 10; t++) {
         // What a rise left behind (the last pillar block) is taken away as soon as the bot has stepped off it, not at the next unit (owner 2026-11-11: "prevent forgetting to destroy scaffolding").
         if (r.rose && env.temp && env.temp.size) { try { await require('../bot/moves').cleanTemp(env); } catch (_) { /* tried again at the next unit */ } }
@@ -396,6 +397,16 @@ async function goToStation(S, handle, env, open, r) {
             if (!j.ok && j.reason === 'refused' && env.travel) { const t = await env.travel({ x: S.x, z: S.z }, { near: 12 }); j = t.ok ? { ok: true } : { ok: false, reason: t.reason, detail: { ...(t.detail || {}), why: `walking back to the job failed: ${(t.detail && t.detail.why) || t.reason}` } }; }
             if (!j.ok) return { ok: false, reason: j.reason || 'unreachable', detail: { ...(j.detail || {}), botSide: true, stage: 'rejoin', cell: S, ...r } };
             r.rejoined = (r.rejoined || 0) + 1; continue;
+        }
+        // Over a void (the End) the learned walk (env.travel -> move3: bridge, pillar, descend and dig, one cell at a time) takes the bot to the exact station cell. The ladder below bridges only on the
+        // bot's own level, only from more than 3 blocks away and in one x-then-z line; measured on the copy of the play world (scripts/real) the learned walk reached 13 of 16 random pit cells from
+        // the platform while the ladder reached none ("could not stand at the station", 1-3 blocks short of it on its own bridge). The ladder stays as the fallback.
+        if (env.travel && walks < 2 && env.profile && env.profile().voidBelow && Math.hypot(here.x - S.x, here.z - S.z) + Math.abs(here.y - S.y) > 0) {
+            walks++;
+            const q = await env.travel({ x: S.x, y: S.y, z: S.z }, { near: 0, nearY: 0 });
+            if (q.ok) { r.walked3 = (r.walked3 || 0) + 1; continue; }
+            if (['died', 'disconnected', 'cancelled', 'wrong_dimension'].includes(q.reason)) return { ok: false, reason: q.reason, detail: { ...(q.detail || {}), botSide: true, stage: 'walk', cell: S, ...r } };
+            r.walkFail = q.reason;
         }
         // A gap of void toward the station (the End: the obsidian platform and the island are 20-40 blocks apart): no walk, lift or pillar crosses it, a level bridge does. Rising by pillar beside the
         // platform only put the bot on a tower over the void, out of reach of the station and of its own temporary blocks (live 2026-11-10).
