@@ -5,7 +5,7 @@ const { SkillError } = require('../runner');
 const { standable, isInteractive, passable } = require('../world');
 const { FACES, lookAngles, aimPoints, viewDir, raycast } = require('../geometry');
 const { follow, cellGoal, reachGoal, approachUntil, approachBlock, aimAtBlock, clearOfEntities, feetCell, centre, hdist, same, AIM_REACH } = require('../motion');
-const { holdItem, count, resolveItemName } = require('./item');
+const { holdItem, holdOrFail, count, resolveItemName } = require('./item');
 const { collectDrops } = require('./entity');
 const skillOpts = require('../options');
 const fixtures = require('../fixtures');
@@ -121,7 +121,7 @@ async function mine(ctx, { x, y, z, collect = true, blind = false, hand = false 
     if (blind) {
         const eye = ctx.body.eye(), d = Math.hypot(eye.x - (x + 0.5), eye.y - (y + 0.5), eye.z - (z + 0.5));
         if (d > BLIND_REACH) throw new SkillError('not_visible', { target: cell, why: 'too far to dig without a line of sight', dist: Math.round(d * 100) / 100 });
-        if (tool.name) await holdItem(ctx, tool.name, notWorn);
+        if (tool.name) await holdOrFail(ctx, tool.name, notWorn);
         const face = faceToward(eye, cell), digTicks = ticksNow();
         ctx.phase('dig_blind', { block: b0.name, tool: tool.name, ticks: digTicks });
         const deadline = ctx.t + digTicks + 40;
@@ -130,7 +130,7 @@ async function mine(ctx, { x, y, z, collect = true, blind = false, hand = false 
     } else {
         // Never stand on the block being broken.
         await approachBlock(ctx, cell, { ok: (c) => !(c.x === x && c.z === z && c.y === y + 1) });
-        if (tool.name) await holdItem(ctx, tool.name, notWorn);
+        if (tool.name) await holdOrFail(ctx, tool.name, notWorn);
         const digTicks = ticksNow();
         ctx.phase('dig', { block: b0.name, tool: tool.name, ticks: digTicks });
         for (let attempt = 0; !gone(); attempt++) {
@@ -196,7 +196,7 @@ async function place(ctx, { x, y, z, item, fluid = false, temp = null }) {
         const goals = refs.map((r) => reachGoal(w, r.cell, { face: r.face, reach }));
         return { isGoal: (c) => free(c) && ok2(c) && goals.some((g) => g.isGoal(c)), h: (c) => Math.min(...goals.map((g) => g.h(c))), label: 'reach placement face' };
     }, () => (seen().length ? true : null), cell);
-    await holdItem(ctx, item);
+    await holdOrFail(ctx, item, undefined, 'item_held');
     // Step to the centre of the own cell if the body pokes into the target cell (the server refuses to place into a player).
     const mid = centre(feetCell(bot.entity.position));
     if (overlaps(bot.entity.position, cell)) {
@@ -232,7 +232,7 @@ async function activate(ctx, { x, y, z, item, sneak = false }) {
     // A held tool can act on any block (a wrench rotates or picks up mod blocks); without one only interactive blocks react.
     if (!item && !isInteractive(b0.name)) throw new SkillError('invalid_target', { block: b0.name, why: 'not an interactive block (give item to use a tool on it)' });
     await approachBlock(ctx, cell);
-    if (item) await holdItem(ctx, resolveItemName(bot, item));
+    if (item) await holdOrFail(ctx, resolveItemName(bot, item), undefined, 'item_held');
     const hit = await aimAtBlock(ctx, cell, { frame: { sneak } });
     const look = { yaw: bot.entity.yaw, pitch: bot.entity.pitch, sneak };
     ctx.phase('use', { block: b0.name, face: hit.face, item: item || null, sneak });

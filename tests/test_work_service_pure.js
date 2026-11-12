@@ -264,6 +264,10 @@ function fakeBot(name) {
         const s2 = new WS({ dataDir: d2, factory: f2, envFactory: e2, reconnectMs: 20 });
         s2.addBot('Work1'); await until(() => s2.status().bots[0].state === 'online');
         assert.deepStrictEqual([s2.settings.retireWorn, s2.settings.scripts], [true, true], 'worn-tool rule and recovery scripts are on by default');
+        assert.deepStrictEqual([s2.settings.rawCommands, s2.settings.stackJobs], [false, false], 'the operator goes through the router; the jobs only once the owner has measured it');
+        s2.setSettings({ rawCommands: true, stackJobs: true, bogus: 1 }); assert.deepStrictEqual([s2.settings.rawCommands, s2.settings.stackJobs], [true, true]);
+        s2.setSettings({ rawCommands: 'yes', stackJobs: 1 }); assert.deepStrictEqual([s2.settings.rawCommands, s2.settings.stackJobs], [true, true], 'only booleans are accepted');
+        s2.setSettings({ rawCommands: false, stackJobs: false });
         s2.setSettings({ retireWorn: false }); assert.strictEqual(bots2[0].__skillOpts.retireWorn, false, 'the switch reaches a bot that is connected');
         s2.setSettings({ retireWorn: true });
         let v = s2.status().bots[0]; assert.deepStrictEqual(v.tools.map((t) => [t.left, t.worn]), [[246, false], [210, false]], 'durability listed; the rule is configured on the bot only when its worker starts, so nothing is worn yet');

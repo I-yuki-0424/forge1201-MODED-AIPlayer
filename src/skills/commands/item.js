@@ -56,6 +56,17 @@ async function holdItem(ctx, name, ok = () => true) {
     await ctx.until(() => bot.heldItem?.name === name && ok(bot.heldItem), 10, 'not_confirmed');
 }
 
+/**
+ * The item a command needs in the hand. Atomic mode (the instruction layer of docs/implemented/COMMAND-STACK-v1.md) never swaps: a different or missing item is the
+ * unmet precondition `need` (default `tool_held`; `item_held` for what is placed or used) and the router's `equip` fixes it. Otherwise: holdItem.
+ */
+async function holdOrFail(ctx, name, ok = () => true, need = 'tool_held') {
+    if (!ctx.atomic) return holdItem(ctx, name, ok);
+    const held = ctx.bot.heldItem;
+    if (held && held.name === name && ok(held)) return;
+    throw new SkillError('precondition_failed', { unmet: [{ need, item: name }] });
+}
+
 /** equip {item, dest}: put the item in the main hand, the off hand or its armour slot. */
 async function equip(ctx, { item, dest = 'hand' }) {
     const bot = ctx.bot;
@@ -120,4 +131,4 @@ async function toss(ctx, { item, count: n }) {
     return { item, left: count(bot, item) };
 }
 
-module.exports = { equip, eat, toss, holdItem, count, slotOf, click, resolveItemName, SLOT };
+module.exports = { equip, eat, toss, holdItem, holdOrFail, count, slotOf, click, resolveItemName, SLOT };

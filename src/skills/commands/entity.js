@@ -3,7 +3,7 @@
 const { SkillError } = require('../runner');
 const { ENTITY_REACH, lookAngles, distToBox, entityBox } = require('../geometry');
 const { follow, feetCell, centre, hdist, clearLine } = require('../motion');
-const { holdItem, count } = require('./item');
+const { holdOrFail, count } = require('./item');
 
 // Attack damage and attacks per second of 1.20.1 melee weapons; anything else hits like a hand (1 damage, 4 per s).
 const WEAPON = {
@@ -55,6 +55,7 @@ async function pickupEntity(ctx, id, name, before) {
             await ctx.tick({ forward: da > (other ? 0.1 : 0.25), yaw: yawTo(pos, aim), jump: bot.entity.isCollidedHorizontally && bot.entity.onGround });
             continue;
         }
+        if (ctx.atomic) throw new SkillError('precondition_failed', { unmet: [{ need: 'in_reach', item: name, dist: Math.round(Math.hypot(d, dy) * 100) / 100 }] });
         const anchor = ip.clone();
         ctx.phase('go_to_item', { item: name, at: [anchor.x, anchor.y, anchor.z].map(Math.round) });
         await follow(ctx, {
@@ -120,7 +121,7 @@ async function attack(ctx, { entity }) {
     bot.on('entityDead', onDead);
     try {
         const weapon = bestWeapon(bot);
-        if (weapon.name) await holdItem(ctx, weapon.name);
+        if (weapon.name) await holdOrFail(ctx, weapon.name);
         ctx.phase('fight', { target: first.name, weapon: weapon.name, cooldown: weapon.cooldown });
         let last = -1000, swings = 0;
         for (;;) {
@@ -142,6 +143,8 @@ async function attack(ctx, { entity }) {
                 await ctx.tick({ ...look, attack: swing, forward: d > 1.8 });
                 continue;
             }
+            // Atomic: a target out of reach is the unmet precondition (it ran off): the router moves the bot and attacks again.
+            if (ctx.atomic) throw new SkillError('precondition_failed', { unmet: [{ need: 'in_reach', dist: Math.round(d * 100) / 100, max: ENTITY_REACH - 0.2 }] });
             const cell = feetCell(pos);
             if (hdist(pos, ent.position) < 10 && Math.abs(ent.position.y - pos.y) < 1.2 && clearLine(w, pos, ent.position, cell.y)) {
                 await ctx.tick({ ...look, forward: true, sprint: d > 4 && bot.food > 6, jump: bot.entity.isCollidedHorizontally && bot.entity.onGround });

@@ -41,6 +41,8 @@ class WorldPart {
         if (s && typeof s.resumeJobs === 'boolean') this.settings.resumeJobs = s.resumeJobs;      // read when the console starts: running jobs come back running
         if (s && typeof s.glow === 'boolean') { this.settings.glow = s.glow; if (!s.glow) for (const r of this.bots.values()) this._clearGlow(r); }
         if (s && typeof s.discardWorn === 'boolean') this.settings.discardWorn = s.discardWorn;
+        if (s && typeof s.stackJobs === 'boolean') this.settings.stackJobs = s.stackJobs;      // jobs (Pit, Build, scripts) send their mine / place / ... through the router too (src/stack); off until measured on the real-world copy
+        if (s && typeof s.rawCommands === 'boolean') this.settings.rawCommands = s.rawCommands;      // debugging: the operator's commands call the instruction layer directly, without the router (src/stack)
         if (s && typeof s.bedrockExploit === 'boolean') this.settings.bedrockExploit = s.bedrockExploit;      // bot/bedrock.js: off unless the operator turns it on
         if (s && typeof s.autoRepair === 'boolean') this.settings.autoRepair = s.autoRepair;      // stuck units of a finished job are tried again by themselves (workers.js _watchRepair)
         if (s && typeof s.endDump === 'boolean') this.settings.endDump = s.endDump;      // the dump at the end of a finished pit or build (workers.js _endDump)

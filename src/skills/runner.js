@@ -18,6 +18,7 @@ const REASONS = Object.freeze({
     no_station: 'no crafting table / furnace / container within range',
     unreachable: 'no walking path to a position from which the target can be reached',
     stuck: 'a path exists but the bot stopped making progress along it',
+    precondition_failed: 'a precondition of the command does not hold (detail.unmet lists each one with the measured value; atomic mode only): nothing was done, the caller (the router) decides what to do first',
     protected: 'the block is a fixture the owner placed (a chest, ender chest or shulker box the bot did not place, or a tagged block): it is never broken',
     not_visible: 'no unobstructed line from the eye to the target',
     not_confirmed: 'the input was sent but the server did not confirm the expected change',
@@ -42,10 +43,12 @@ const keyBits = (f) => ['forward', 'back', 'left', 'right', 'jump', 'sprint', 's
 const r3 = (v) => Math.round(v * 1000) / 1000;
 
 class Ctx {
-    constructor(bot, { maxTicks, cancel, onEvent }) {
+    constructor(bot, { maxTicks, cancel, onEvent, atomic }) {
         this.bot = bot;
         this.body = bot.__skillBody || (bot.__skillBody = new Body(bot));
         this.world = world.fromBot(bot);
+        // atomic: the command checks its preconditions and never walks, equips or swaps by itself (docs/implemented/COMMAND-STACK-v1.md); the router does that.
+        this.atomic = !!atomic;
         this.maxTicks = maxTicks; this.cancel = cancel || { cancelled: false }; this.onEvent = onEvent || (() => {});
         this.t = 0; this.trace = []; this.phases = []; this.phaseName = 'start';
         this.dead = false; this.ended = false;
@@ -119,8 +122,8 @@ class Ctx {
  * {ok, reason, detail, ticks, ms, phases, trace}; `trace` rows are
  * [t, phase, keys, x, y, z, vx, vy, vz, yaw, pitch, onGround, hotbar] (keys: FBLRJSNAU, Q drop, X swap).
  */
-async function run(bot, command, args, { maxTicks = 1200, cancel, onEvent } = {}) {
-    const ctx = new Ctx(bot, { maxTicks, cancel, onEvent });
+async function run(bot, command, args, { maxTicks = 1200, cancel, onEvent, atomic = false } = {}) {
+    const ctx = new Ctx(bot, { maxTicks, cancel, onEvent, atomic });
     const t0 = Date.now();
     let out;
     try {

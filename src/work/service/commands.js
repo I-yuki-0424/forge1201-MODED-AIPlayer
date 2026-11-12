@@ -3,6 +3,7 @@
 // A part of WorkService (index.js copies these methods onto it).
 const inventory = require('../operator/inventory');
 const gatherer = require('../jobs/gather');
+const stack = require('../../stack/router');
 const { catalog } = require('../operator/catalog');
 const skills = require('../../skills');
 const { Problem, need, int } = require('./common');
@@ -224,6 +225,16 @@ class CommandsPart {
         try { skills.validateArgs(spec.name, args); } catch (e) { throw new Problem(`${e.detail && e.detail.why ? e.detail.why : e.reason || e.message}`); }
     }
 
+    /**
+     * An action-layer command from the top of the stack (the operator, `gather`): through the router (src/stack/router.js), which makes the preconditions true (walk into reach, equip the tool,
+     * get out when sealed in) before the instruction runs. `rawCommands` (setting, debugging) and the commands the router has no rules for go to the instruction layer as they are.
+     */
+    async _command(rec, cancel, name, args, o = {}) {
+        const env = this.settings.rawCommands || !stack.ROUTED.has(name) ? null : this.envFactory(rec.bot, cancel);
+        if (!env || typeof env.command !== 'function') return skills.execute(rec.bot, name, args, { cancel, ...o });
+        try { return await env.command(name, args); } finally { if (env.dispose) env.dispose(); }
+    }
+
     _exec(rec, command, args, via = []) {
         const cancel = { cancelled: false }, id = ++this.cmdSeq, t0 = Date.now();
         rec.cmd = { id, name: command, args, via, status: 'running', started: t0, cancel, result: null };
@@ -258,7 +269,7 @@ class CommandsPart {
             if (command === 'break_bedrock') return this._bedrock(rec, cancel, args);
             if (command === 'gather') {
                 return gatherer.gather(bot, { target: String(args.target), count: args.count || 16, radius: args.radius || 32 }, {
-                    cancel, execute: (b, n, a, o) => skills.execute(b, n, a, o),
+                    cancel, execute: (b, n, a, o) => this._command(rec, cancel, n, a, o),
                     onProgress: (p) => { if (rec.cmd && rec.cmd.id === id) rec.cmd.progress = p; },
                 });
             }
@@ -288,7 +299,7 @@ class CommandsPart {
                 const env = this.envFactory(bot, cancel);
                 if (env && typeof env.exec === 'function') { try { return await env.exec(command, args); } finally { if (env.dispose) env.dispose(); } }
             }
-            return skills.execute(bot, command, args, { cancel });
+            return this._command(rec, cancel, command, args);
         })().then(finish, (e) => finish({ ok: false, reason: 'error', detail: { message: String(e.message).slice(0, 160) } }));
     }
 

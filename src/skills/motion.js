@@ -181,6 +181,12 @@ const AIM_REACH = BLOCK_REACH - 0.3;
  * tighter reach and a different cell.
  */
 async function approachUntil(ctx, makeGoal, visible, label) {
+    // Atomic: no walking here. What is in view from where the bot stands is all there is; if nothing is, that is the unmet precondition (the router moves the bot).
+    if (ctx.atomic) {
+        const v = visible();
+        if (v) return v;
+        throw new SkillError('precondition_failed', { unmet: [{ need: 'line_of_sight', target: label }] });
+    }
     for (let attempt = 0; attempt < 2; attempt++) {
         const here = feetCell(ctx.bot.entity.position);
         const g = makeGoal(BLOCK_REACH - 0.4 - 0.8 * attempt, attempt ? (c) => !same(c, here) : () => true);

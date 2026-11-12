@@ -8,7 +8,7 @@ const dimensions = require('../world/dimensions');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** The environment of a real Mineflayer bot on the action layer. */
-function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null, others = null, guard: withGuard = false, defend = true, moved = null, teleport = () => 'near', gates = null, stockMiss = null, experts = null, expertLog = null, router = null, move3 = null, voidnav = null } = {}) {
+function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null, others = null, guard: withGuard = false, defend = true, moved = null, teleport = () => 'near', gates = null, stockMiss = null, experts = null, stackJobs = null, expertLog = null, router = null, move3 = null, voidnav = null } = {}) {
     const { execute } = require('../../skills');
     const { fromBot } = require('../../skills/world');
     const { feetCell } = require('../../skills/motion');
@@ -178,6 +178,7 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         cand.sort((a, b) => (b.exit - a.exit) || (b.safe - a.safe) || (a.d - b.d));
         return cand[0] || null;
     };
+    const viaStack = (name) => !!stackJobs && stackJobs() && require('../../stack/router').ROUTED.has(name);       // setting stackJobs: the jobs go through the router too
     const CHEST_OPS = new Set(['deposit', 'withdraw']), CHEST_MOVES = new Set(['take_usable', 'stash_worn', 'deposit_many']);
     const envObj = {
         w, bot, now: Date.now, cancelled: () => !!cancel.cancelled, recover, stockMiss, act: null, sub: null,
@@ -325,7 +326,7 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         // harvest that block: a stone pickaxe is no replacement for the one that was missing for gold ore (live 2026-11-07: replace-tool answered ok and the bot waited on).
         canHarvest: function (itemName) { return canHarvest(itemName, this && this.need); },
         usableCount: function (cls) { return bot.inventory.items().filter((i) => i.name.endsWith(`_${cls}`) && !require('../../skills/options').isWorn(bot, i) && canHarvest(i.name, this && this.need)).length; },
-        gather: (a) => require('../jobs/gather').gather(bot, a, { cancel, execute: (b, n, x, o) => execute(b, n, x, o) }),
+        gather: (a) => require('../jobs/gather').gather(bot, a, { cancel, execute: (b, n, x, o) => (viaStack(n) ? envObj.command(n, x) : execute(b, n, x, o)) }),
         usableTool: function (cls) { return bot.inventory.items().find((i) => i.name.endsWith(`_${cls}`) && !require('../../skills/options').isWorn(bot, i) && canHarvest(i.name, this && this.need)) || null; },
         canCraft: (item) => { const it = bot.registry.itemsByName[item]; return !!it && bot.recipesFor(it.id, null, 1, true).length > 0; },
         itemExists: (n) => !!bot.registry.itemsByName[n],
@@ -415,8 +416,16 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         unitCancel,
         /** Why the last unit was stopped (operator, attacked, drowning, reflex), then forgotten; null when nothing stopped it. */
         takeCancelCause: () => { const c = stopCause || (bot.__preempt ? 'reflex' : null); stopCause = null; return c; },
+        // The top of the stack (docs/implemented/COMMAND-STACK-v1.md): an instruction and its arguments go through the router, which reads the unmet preconditions and the bot's state, writes the
+        // chain (unstick, move, equip ...) and runs the instruction last. The operator's commands, `gather` and (setting `routerPit`) the jobs call this, not `exec`.
+        command: (name, args) => require('../../stack/router').run({
+            bot, w, here: feet, cancelled: () => !!unitCancel.cancelled,
+            exec: (n, a, o = {}) => execute(bot, n, a, { cancel: unitCancel, ...o }),
+            travel: (t, o) => envObj.travel(t, o),
+            escape: () => envObj.expertEscape(null, { why: 'router: the target cannot be reached from where the bot is' }),
+        }, { name, args }),
         // `o.maxTicks`: a shorter budget than the command's own (a walk to a station that has not arrived in 30 s is not going to; the worker's ladder takes over).
-        exec: (name, args, o = {}) => (CHEST_OPS.has(name) ? queued(args, unitCancel, (c) => execute(bot, name, args, { cancel: c })) : execute(bot, name, args, { cancel: unitCancel, ...(Number.isInteger(o.maxTicks) ? { maxTicks: o.maxTicks } : {}) })),
+        exec: (name, args, o = {}) => (viaStack(name) && !o.raw ? envObj.command(name, args) : CHEST_OPS.has(name) ? queued(args, unitCancel, (c) => execute(bot, name, args, { cancel: c })) : execute(bot, name, args, { cancel: unitCancel, ...(Number.isInteger(o.maxTicks) ? { maxTicks: o.maxTicks } : {}) })),
         // For the water rescue: stopped by the operator only. `drowning()` is what sends the worker to the rescue, so the rescue's own commands must not be cancelled by it
         // (live 2026-11-09: every swim and fill came back `cancelled` at once, the worker claimed the next unit, which was cancelled at once too: 99,639 failures in a loop that never yielded and froze all 20 bots).
         execFree: (name, args) => (CHEST_OPS.has(name) ? queued(args, cancel, (c) => execute(bot, name, args, { cancel: c })) : execute(bot, name, args, { cancel })),

@@ -7,6 +7,7 @@ const { moveTo, lookAt, mine, place, activate, tunnel } = require('./commands/bl
 const { pickup, attack } = require('./commands/entity');
 const { equip, eat, toss } = require('./commands/item');
 const { craft, smelt, deposit, withdraw } = require('./commands/gui');
+const { unmet } = require('./preconditions');
 
 // Argument types. A trailing '?' marks an optional argument.
 const TYPES = {
@@ -20,19 +21,26 @@ const TYPES = {
     dir: (v) => ['north', 'south', 'east', 'west'].includes(v),
     dy: (v) => v === -1 || v === 0 || v === 1,
 };
+// A budget that grows with the walk the command may have to do first: a fixed 1200 ticks ended every walk of about 100 blocks or more as `timeout` although the bot was moving the whole
+// time (owner 2026-11-12, `place` {ticks: 1200, phase: walk}). `base` + 14 ticks per block beyond the first 5, at most 6000 (the trace cap). Targets without a cell (entities) keep `base`.
+const walkTicks = (base) => (a, bot) => {
+    if (!bot || !bot.entity || !Number.isInteger(a.x) || !Number.isInteger(a.z)) return base;
+    const p = bot.entity.position, d = Math.hypot(a.x + 0.5 - p.x, (Number.isInteger(a.y) ? a.y - p.y : 0), a.z + 0.5 - p.z);
+    return Math.min(6000, Math.max(base, Math.round(base + 14 * Math.max(0, d - 5))));
+};
 const XYZ = { x: 'int', y: 'int', z: 'int' };
 const XYZ_OPT = { x: 'int?', y: 'int?', z: 'int?' };
 
 const COMMANDS = {
-    move_to: { fn: moveTo, args: XYZ, ticks: 1200 },
+    move_to: { fn: moveTo, args: XYZ, ticks: walkTicks(1200) },
     look_at: { fn: lookAt, args: { ...XYZ_OPT, entity: 'entity?' }, oneOf: [['x', 'y', 'z'], ['entity']], ticks: 40 },
-    mine: { fn: mine, args: { ...XYZ, collect: 'bool?', blind: 'bool?' }, ticks: 1200 },    // collect:false / blind:true are work-layer options (src/work), not offered to the RL policy
+    mine: { fn: mine, args: { ...XYZ, collect: 'bool?', blind: 'bool?' }, ticks: walkTicks(1200) },    // collect:false / blind:true are work-layer options (src/work), not offered to the RL policy
     tunnel: { fn: tunnel, args: { dir: 'dir', dy: 'dy' }, ticks: 2400 },
-    place: { fn: place, args: { ...XYZ, item: 'item', fluid: 'bool?', temp: 'name?' }, ticks: 1200 },    // namespaced ids allowed: pure bots place mod blocks (work/build.js)
-    activate: { fn: activate, args: { ...XYZ, item: 'item?', sneak: 'bool?' }, ticks: 600 },
+    place: { fn: place, args: { ...XYZ, item: 'item', fluid: 'bool?', temp: 'name?' }, ticks: walkTicks(1200) },    // namespaced ids allowed: pure bots place mod blocks (work/build.js)
+    activate: { fn: activate, args: { ...XYZ, item: 'item?', sneak: 'bool?' }, ticks: walkTicks(600) },
     pickup: { fn: pickup, args: { entity: 'entity?', item: 'name?' }, oneOf: [['entity'], ['item']], ticks: 1200 },
     attack: { fn: attack, args: { entity: 'entity' }, ticks: 2400 },
-    equip: { fn: equip, args: { item: 'name', dest: 'dest?' }, ticks: 100 },
+    equip: { fn: equip, args: { item: 'item', dest: 'dest?' }, ticks: 100 },     // namespaced ids allowed: the router equips what `place` / `activate` need (create:wrench)
     eat: { fn: eat, args: { item: 'name?' }, ticks: 200 },
     toss: { fn: toss, args: { item: 'name', count: 'count' }, ticks: 400 },
     craft: { fn: craft, args: { item: 'name', count: 'count?', ...XYZ_OPT }, allOrNone: ['x', 'y', 'z'], ticks: 1200 },
@@ -72,8 +80,14 @@ async function execute(bot, name, args = {}, opts = {}) {
     try { validateArgs(name, args); } catch (e) {
         return { ok: false, reason: e.reason, detail: e.detail, ticks: 0, ms: 0, phases: [], trace: [] };
     }
+    // `opts.atomic` (docs/implemented/COMMAND-STACK-v1.md): the instruction as the bottom of the stack. Its preconditions are checked first, from the current state alone; if one does not hold it
+    // returns `precondition_failed` with each unmet one (and the measured value) before a single key is pressed, and it never walks, equips or swaps to satisfy them: the router decides that.
+    if (opts.atomic) {
+        const u = unmet(bot, name, args);
+        if (u.length) return { ok: false, reason: 'precondition_failed', detail: { unmet: u }, ticks: 0, ms: 0, phases: [], trace: [] };
+    }
     const c = COMMANDS[name];
-    const maxTicks = opts.maxTicks || (typeof c.ticks === 'function' ? c.ticks(args) : c.ticks);
+    const maxTicks = opts.maxTicks || (typeof c.ticks === 'function' ? c.ticks(args, bot) : c.ticks);
     return run(bot, c.fn, args, { ...opts, maxTicks });
 }
 
