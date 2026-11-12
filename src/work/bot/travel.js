@@ -8,7 +8,7 @@
 // Pure apart from `env.exec` (a command of the action layer) and `env.here`/`env.w` (reads): the tests drive it with a fake world.
 const { surface } = require('../../skills/intents');
 const { reachableAsync } = require('../../skills/planner');
-const { standable } = require('../../skills/world');
+const { standable, swimmable } = require('../../skills/world');
 
 const LEG = 40;                    // blocks per leg: inside the loaded area (4 chunks = 64 blocks radius, less the offset in the chunk)
 const NEAR = 3;                    // a walk ends within this many blocks of the target (the last, exact move_to follows)
@@ -16,6 +16,19 @@ const MAX_LEGS = 80;               // 80 legs of 40 = 3,200 blocks
 const MAX_DY = 24;                 // a leg ends no more than this far above or below where it starts (no walk down into the pit, no climb of a cliff by the planner's choice)
 
 const hd = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+
+/** The cell a leg can end in for the column x,z: the highest standing cell, else the surface of open water (the planner swims to it: a sea is crossed, not given up on). */
+function top(world, x, z, cap) {
+    const s = surface(world, x, z, cap);
+    if (s !== null) return s;
+    for (let y = Math.min(cap, 318); y > -64; y--) {
+        const k = world.kindAt(x, y, z);
+        if (k === 'unknown') return null;
+        if (swimmable(world, x, y, z)) return y;
+        if (k === 'solid') return null;
+    }
+    return null;
+}
 
 /**
  * The standable cells to try for the next leg, best first: the exact target when it is close enough, else points on the straight line at 100 %, 75 %, 50 % and 30 %
@@ -26,10 +39,10 @@ function legCandidates(world, from, to, { leg = LEG, reach = null, visited = nul
     // On the surface a leg ends on the TRUE top of the column. The old rule (the highest standing cell at or below from.y + 8) was made for working underground and, on a hillside, returned the first
     // standable cell below the cap: a cave 28 levels under the ridge, 'unreachable' after 20,000 planner nodes (acceptance world 1, 2026-11-12: a 2000-block walk ended at 790). Underground
     // (the bot stands more than 2 cells below the top of its own column) the cap stays.
-    const here = surface(world, from.x, from.z, 318), onSurface = here !== null && here - from.y <= 2;
+    const here = top(world, from.x, from.z, 318), onSurface = here !== null && here - from.y <= 2;
     const add = (x, z, why) => {
         x = Math.round(x); z = Math.round(z);
-        const y = onSurface ? surface(world, x, z, 318) : surface(world, x, z, from.y + 8);
+        const y = onSurface ? top(world, x, z, 318) : surface(world, x, z, from.y + 8);
         if (y === null || Math.abs(y - from.y) > MAX_DY) return;
         const k = `${x},${y},${z}`; if (seen.has(k)) return;
         seen.add(k); out.push({ x, y, z, why });
@@ -50,7 +63,7 @@ function legCandidates(world, from, to, { leg = LEG, reach = null, visited = nul
     if (!reach || reach.cells.length < 30) return out;
     const ok = out.filter((c) => hd(c, from) > 34 || reach.has(c.x, c.y, c.z));            // beyond the radius the search covered nothing is known: those stay
     const cell = (c) => `${Math.floor(c[0] / 8)},${Math.floor(c[2] / 8)}`, been = (c) => !!visited && visited.has(cell(c));
-    const far = reach.cells.filter((c) => Math.hypot(c[0] - from.x, c[2] - from.z) >= 10 && Math.abs(c[1] - from.y) <= MAX_DY && standable(world, c[0], c[1], c[2]));
+    const far = reach.cells.filter((c) => Math.hypot(c[0] - from.x, c[2] - from.z) >= 10 && Math.abs(c[1] - from.y) <= MAX_DY && (standable(world, c[0], c[1], c[2]) || swimmable(world, c[0], c[1], c[2])));
     const score = (c) => hd({ x: c[0], z: c[2] }, to) + (been(c) ? 30 : 0);
     const best = far.slice().sort((a, b) => score(a) - score(b)), picked = [], near = (c) => picked.some((p) => Math.hypot(p[0] - c[0], p[2] - c[2]) < 8);
     for (const c of best) { if (!near(c)) picked.push(c); if (picked.length >= 4) break; }

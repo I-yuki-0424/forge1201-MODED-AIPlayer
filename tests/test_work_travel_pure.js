@@ -18,7 +18,8 @@ function sim({ start = { x: 0, y: 64, z: 0 }, water = () => false, wall = () => 
             if (Math.hypot(a.x - bot.x, a.z - bot.z) > 48) return { ok: false, reason: 'unreachable', detail: { why: 'planner budget' } };
             if (planned) { const r = require('../src/skills/planner').reachable({ kindAt, shapesAt: () => [] }, bot, { maxNodes: 9000, radius: 52 }); if (!r.has(a.x, a.y, a.z)) return { ok: false, reason: 'unreachable', detail: { why: 'the planner has no path' } }; }       // the real planner walks round a wall
             else for (let t = 0; t <= 1; t += 0.02) if (wall(bot.x + (a.x - bot.x) * t, bot.z + (a.z - bot.z) * t)) return { ok: false, reason: 'unreachable', detail: { why: 'a wall across the way' } };        // the fake walks in straight lines
-            if (kindAt(a.x, a.y, a.z) !== 'air' || kindAt(a.x, a.y - 1, a.z) !== 'solid') return { ok: false, reason: 'invalid_target', detail: { why: 'a player cannot stand there' } };
+            const swim = kindAt(a.x, a.y, a.z) === 'water' && kindAt(a.x, a.y + 1, a.z) === 'air';          // the real planner swims to a cell at the surface of the water
+            if (!swim && (kindAt(a.x, a.y, a.z) !== 'air' || kindAt(a.x, a.y - 1, a.z) !== 'solid')) return { ok: false, reason: 'invalid_target', detail: { why: 'a player cannot stand there' } };
             bot.x = a.x; bot.y = a.y; bot.z = a.z; return { ok: true };
         },
     };
@@ -48,6 +49,15 @@ function sim({ start = { x: 0, y: 64, z: 0 }, water = () => false, wall = () => 
         assert.ok(s.moves.some((m) => m[0] > 50 && Math.abs(m[2]) > 10), 'a leg ended on the far side of the wall, off the straight line (the frontier), not on the wall top');
     });
 
+    await test('open water is crossed: a leg may end on the surface of the water (a sea 300 wide; reproducer: an acceptance world that spawns on an island, the walk north gave up after 200 blocks)', async () => {
+        const kindAt = (x, y, z) => { if (y <= 40) return 'solid'; if (x >= 20 && x <= 320) return y <= 63 ? 'water' : 'air'; return y <= 63 ? 'solid' : 'air'; };
+        const w = { kindAt, shapesAt: () => [] };
+        const c = legCandidates(w, { x: 100, y: 64, z: 0 }, { x: 400, z: 0 });         // the bot swims at the surface (feet at 63, in the water)
+        assert.ok(c.length && c.some((q) => q.x > 100 && q.y === 63), `swim cells are offered: ${JSON.stringify(c.slice(0, 3))}`);
+        const land = legCandidates(w, { x: 0, y: 64, z: 0 }, { x: 400, z: 0 });
+        assert.ok(land.some((q) => q.x >= 20 && q.y === 63), 'from the shore: the first cell in the water');
+    });
+
     await test('a target far beyond the loaded chunks is reached in legs (plain move_to fails: chunk not loaded)', async () => {
         const s = sim();
         const plain = await s.env.exec('move_to', { x: 300, y: 64, z: 40 }); assert.strictEqual(plain.ok, false);
@@ -56,7 +66,7 @@ function sim({ start = { x: 0, y: 64, z: 0 }, water = () => false, wall = () => 
         assert.ok(r.legs >= 7 && r.legs <= 10, `legs ${r.legs}`); assert.ok(s.moves.slice(1).every((m, i, a) => i === 0 || Math.hypot(m[0] - a[i - 1][0], m[2] - a[i - 1][2]) <= LEG + 1), 'no leg longer than the leg length');
     });
 
-    await test('a lake across the line is gone round: a leg that cannot be stood in is tried shorter and to the side', async () => {
+    await test('a lake across the line is crossed or gone round: the walk arrives (legs may end on the water now: the planner swims)', async () => {
         const s = sim({ water: (x, z) => x >= 30 && x <= 52 && Math.abs(z) <= 30 });
         const r = await travel(s.env, { x: 120, y: 64, z: 0 });
         assert.ok(r.ok, JSON.stringify(r)); assert.strictEqual(s.bot.x, 120);

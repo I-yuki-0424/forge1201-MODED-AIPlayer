@@ -2,7 +2,7 @@
 // Commands on blocks: move_to, look_at, mine, place, activate. Each one walks (motion.js), aims the crosshair, and
 // presses attack or use; success is the block change the server sends back, never the bot's own prediction.
 const { SkillError } = require('../runner');
-const { standable, isInteractive, passable } = require('../world');
+const { standable, swimmable, isInteractive, passable } = require('../world');
 const { FACES, lookAngles, aimPoints, viewDir, raycast } = require('../geometry');
 const { follow, cellGoal, reachGoal, approachUntil, approachBlock, aimAtBlock, clearOfEntities, feetCell, centre, hdist, same, AIM_REACH } = require('../motion');
 const { holdItem, holdOrFail, count, resolveItemName } = require('./item');
@@ -21,7 +21,7 @@ async function moveTo(ctx, { x, y, z }) {
     const t = { x, y, z };
     const b = ctx.world.blockAt(x, y, z);
     if (!b) throw new SkillError('unreachable', { why: 'target chunk not loaded', target: t });
-    if (!standable(ctx.world, x, y, z)) throw new SkillError('invalid_target', { why: 'a player cannot stand there', target: t });
+    if (!standable(ctx.world, x, y, z) && !swimmable(ctx.world, x, y, z)) throw new SkillError('invalid_target', { why: 'a player cannot stand there', target: t });          // a surface cell of open water counts: the planner swims to it
     const end = await follow(ctx, cellGoal(t, `cell ${x},${y},${z}`));
     const p = ctx.bot.entity.position;
     return { cell: end, pos: [p.x, p.y, p.z].map((v) => Math.round(v * 100) / 100) };
