@@ -82,6 +82,11 @@ function planRaw(items, slotsFree, policy, worn) {
     const out = (op, item, count, why) => { if (count > 0) { ops.push({ op, item, count, why }); } };
     const dispose = (item, count, why) => {
         const v = valueOf(item, policy);
+        // No container takes this item (no depot, and no tagged site that stores it: a tools chest and a supply chest are insert-never): junk is thrown away, what is worth keeping stays in the pack.
+        // Before, one tagged chest of any purpose made every surplus a deposit that failed with 'no site or depot' (acceptance world, a strip-mine with only a tools chest and a cobblestone chest:
+        // 309 failures in 25 minutes, packs full, bots standing about).
+        const stores = sitesOf(policy) && sitesOf(policy).storesFor ? sitesOf(policy).storesFor(item, null, policy) : [];
+        if (!policy.depot && !stores.length) { if (v < policy.neverToss) out('toss', item, count, why); return; }
         if (policy.depot || hasSites(policy)) {
             // The depot's rank: what is worth less than `storeMin` is thrown away, unless the operator tagged a chest for exactly that kind (junk, food, ...).
             const own = sitesOf(policy) && sitesOf(policy).classSite ? sitesOf(policy).classSite(item, policy) : null;

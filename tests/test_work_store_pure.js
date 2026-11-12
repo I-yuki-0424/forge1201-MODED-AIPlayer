@@ -21,6 +21,17 @@ const items = (o) => Object.entries(o).map(([name, count]) => ({ name, count }))
         assert.deepStrictEqual(janitor.plan(items({ cobblestone: 30, bread: 4 }), 30, janitor.pitPolicy({ sites: () => sites })), [], 'no trip when there is room');
     });
 
+    await test('plan: with tagged sites but none that stores an item (a tools chest and a take-only supply chest), junk is thrown away and valuables stay: no deposit that cannot succeed', () => {
+        const sites = new Sites([{ name: 't', x: 5, y: 64, z: 5, purpose: 'tools' }, { name: 'c', x: 9, y: 64, z: 5, purpose: 'free' }]);
+        const ops = janitor.plan(items({ cobblestone: 640, dirt: 300, gravel: 200, diamond: 5, raw_iron: 70, iron_pickaxe: 1 }), 3, janitor.pitPolicy({ sites: () => sites }));
+        assert.deepStrictEqual(ops.filter((o) => o.op === 'deposit'), [], 'nothing can be deposited');
+        const tossed = ops.filter((o) => o.op === 'toss').map((o) => o.item).sort();
+        assert.ok(tossed.includes('cobblestone') && tossed.includes('dirt'), `junk goes: ${tossed}`);
+        assert.ok(!tossed.includes('diamond') && !tossed.includes('raw_iron') && !tossed.includes('iron_pickaxe'), 'valuables and tools stay');
+        const any = new Sites([{ name: 'a', x: 5, y: 64, z: 5, purpose: 'any' }]);
+        assert.ok(janitor.plan(items({ cobblestone: 640 }), 3, janitor.pitPolicy({ sites: () => any })).some((o) => o.op === 'deposit'), 'with a chest that takes anything, it is still stored');
+    });
+
     await test('maintain: a full container takes what fits, the rest goes to the next container in the same trip, and the full one is skipped for two minutes', async () => {
         const sites = new Sites([{ name: 'a', x: 5, y: 64, z: 5, purpose: 'any' }, { name: 'b', x: 9, y: 64, z: 5, purpose: 'any' }]);
         const have = { cobblestone: 400, dirt: 200, coal: 80, raw_iron: 70 }, calls = [];
