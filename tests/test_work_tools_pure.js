@@ -172,11 +172,12 @@ const tool = (name, max, used) => ({ name, maxDurability: max, durabilityUsed: u
         const { botEnv } = require('../src/work/bot/env');
         const bot = new EventEmitter(); const reg = { blocksByName: {}, itemsByName: {} };
         Object.assign(bot, { username: 'Bot', registry: reg, entity: { position: { x: 0.5, y: 5, z: 0.5, floored: () => ({ x: 0, y: 5, z: 0 }) }, isInWater: true, onGround: false }, oxygenLevel: 20, inventory: { items: () => [] }, setControlState() {}, blockAt: () => null });
-        const env = botEnv(bot, { cancel: { cancelled: false } });
+        const env = botEnv(bot, { cancel: { cancelled: false }, worker: true });
         assert.strictEqual(env.unitCancel.cancelled, false, 'full air: go on');
         bot.oxygenLevel = 5; assert.strictEqual(env.unitCancel.cancelled, true, 'in water, air low: stop and surface');
         bot.entity.isInWater = false; assert.strictEqual(env.unitCancel.cancelled, false, 'low air but out of the water: go on');
         bot.entity.isInWater = true; bot.oxygenLevel = 12; assert.strictEqual(env.unitCancel.cancelled, false, 'in water with air to spare: go on');
+        bot.oxygenLevel = 3; assert.strictEqual(botEnv(bot, { cancel: { cancelled: false } }).unitCancel.cancelled, false, 'an operator command (no worker, no water rescue to hand over to) is not cancelled by low air');
         const op = { cancelled: false }, e2 = botEnv(bot, { cancel: op }); bot.oxygenLevel = 20; op.cancelled = true; assert.strictEqual(e2.unitCancel.cancelled, true, 'the operator still cancels');
     });
 

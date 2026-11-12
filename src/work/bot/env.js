@@ -8,7 +8,7 @@ const dimensions = require('../world/dimensions');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** The environment of a real Mineflayer bot on the action layer. */
-function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null, others = null, guard: withGuard = false, defend = true, moved = null, teleport = () => 'near', gates = null, stockMiss = null, experts = null, stackJobs = null, expertLog = null, router = null, move3 = null, voidnav = null } = {}) {
+function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null, others = null, guard: withGuard = false, worker = false, defend = true, moved = null, teleport = () => 'near', gates = null, stockMiss = null, experts = null, stackJobs = null, expertLog = null, router = null, move3 = null, voidnav = null } = {}) {
     const { execute } = require('../../skills');
     const { fromBot } = require('../../skills/world');
     const { feetCell } = require('../../skills/motion');
@@ -72,7 +72,9 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
     const drowning = () => { const o = bot.oxygenLevel; return typeof o === 'number' && o < 9 && (!!bot.entity.isInWater || require('./water').inWater(w, feetCell(bot.entity.position))); };
     // The first reason a unit was stopped is kept (takeCancelCause) so that a `cancelled` result says why: 17 cancelled units cost more bot time than 27 finished ones in one live window and nothing said which of the three it was.
     let stopCause = null;
-    const causeNow = () => cancel.cancelled ? 'operator' : (gd && defendOn && gd.interrupt.cancelled) ? 'attacked' : drowning() ? 'drowning' : null;
+    // Drowning stops a unit only for a WORKER (guard: true): the water rescue that follows is the worker's. An operator command (journey, obtain, mine ...) has no rescue to hand over to: cancelling it just left a bot
+    // that swam a sea or dug into an aquifer with every later command cancelled at once (acceptance worlds 5 and 7, 2026-11-12).
+    const causeNow = () => cancel.cancelled ? 'operator' : (gd && defendOn && gd.interrupt.cancelled) ? 'attacked' : ((worker || withGuard) && drowning()) ? 'drowning' : null;
     const unitCancel = { get cancelled() { const c = causeNow(); if (c && !stopCause) stopCause = c; return !!c; } };
     /** A cell with air for the body and solid below, and no drop of more than three beside it (no ledge, tree top or pillar edge to walk off: two bots fell to their death after a lift). */
     const safeStand = (x, y, z) => {

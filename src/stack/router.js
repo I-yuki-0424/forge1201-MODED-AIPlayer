@@ -79,6 +79,10 @@ async function decide(deps, goal, unmet, st) {
             const cands = standCells(deps, t, here), open = cands.filter((c) => reach.has(c.x, c.y, c.z));
             if (open.length) {
                 steps.push({ do: 'move', to: open[0] });
+            } else if (!cands.length) {
+                // no cell from which the target could be reached exists at all (it is buried in rock): walking, travelling and unsticking cannot help; the caller (gather) digs toward it or skips it.
+                // Before, a bot in its own tunnel (a closed region of a few dozen cells) was 'stuck' and dug itself back to the surface (acceptance, iron prospecting).
+                return { fail: { reason: 'unreachable', detail: { why: 'no standing cell within reach of the target exists (it is inside rock)', region: reach.cells.length } } };
             } else if (isClosed(reach)) {
                 // the target is outside the small region the bot is in: it is stuck, whatever else is the matter
                 if (st.escaped >= 2) return { fail: { reason: 'stuck', detail: { why: 'enclosed, and two escapes did not open a way', region: reach.cells.length } } };

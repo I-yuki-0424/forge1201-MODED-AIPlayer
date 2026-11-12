@@ -157,6 +157,18 @@ function fakeBot(scene, pos, { pack = [], held = null, entities = {} } = {}) {
         assert.ok(r.detail.router[0].region < router.CLOSED, 'the closed region was measured');
     });
 
+    await test('router: a bot in its own tunnel (a small closed region) with a target inside rock is NOT stuck: unreachable, no unstick (reproducer: prospecting dug itself back to the surface)', async () => {
+        const cells = { ...STONE_AT(8, 0) };                                       // a block inside solid rock: everything around it is stone
+        for (let x = 5; x <= 11; x++) for (let z = -3; z <= 3; z++) for (const y of [1, 2, 3]) cells[`${x},${y},${z}`] = 'stone';
+        for (let x = 0; x <= 4; x++) for (const y of [1, 2]) cells[`${x},${y},0`] = 'air';          // the bot's tunnel ends at x=4
+        for (let x = 0; x <= 4; x++) for (const z of [-1, 1]) for (const y of [1, 2, 3]) cells[`${x},${y},${z}`] = 'stone';
+        for (let x = 0; x <= 4; x++) cells[`${x},3,0`] = 'stone';
+        const s = sandbox(cells, { x: 0, y: 1, z: 0 }), r = await router.run(deps(s), { name: 'mine', args: { x: 8, y: 2, z: 0 } });
+        assert.strictEqual(r.ok, false);
+        assert.strictEqual(r.reason, 'unreachable');
+        assert.ok(!s.calls.some((c) => c[0] === 'unstick'), JSON.stringify(s.calls));
+    });
+
     await test('router: wrong tool in hand -> equip; far AND wrong tool -> move then equip (the order the owner described), nothing else', async () => {
         let s = sandbox({ ...STONE_AT(3, 0) }, { x: 0, y: 1, z: 0 }, { held: 'dirt' });
         let r = await router.run(deps(s), { name: 'mine', args: { x: 3, y: 1, z: 0 } });
