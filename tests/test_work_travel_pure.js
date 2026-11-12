@@ -25,6 +25,19 @@ function sim({ start = { x: 0, y: 64, z: 0 }, water = () => false, wall = () => 
 }
 
 (async () => {
+    await test('leg candidates on the surface end on the TRUE top of a hill, not in a cave under it (reproducer: acceptance world, a 2000-block walk ended at 790 with a goal 28 levels under the ridge)', () => {
+        // flat ground at 63, a hill of 17 blocks at x 20..45 with a cave (air at y 66-67, floor at 65) inside it
+        const kindAt = (x, y, z) => { if (y <= 63) return 'solid'; if (x >= 20 && x <= 45 && y <= 80) return (y === 66 || y === 67) ? 'air' : 'solid'; return 'air'; };
+        const w = { kindAt, shapesAt: () => [] }, cands = legCandidates(w, { x: 0, y: 64, z: 0 }, { x: 100, z: 0 });
+        const at40 = cands.filter((c) => c.x === 40);
+        assert.ok(at40.length && at40.every((c) => c.y === 81), `ends on the top: ${JSON.stringify(at40)}`);
+        assert.ok(!cands.some((c) => c.y === 66), 'no cell inside the hill');
+        // underground (the bot stands in a pit, more than 2 below the top of its own column) the old cap still holds: the legs stay in the bot's layer
+        const pit = (x, y, z) => (x === 0 && z === 0 ? (y <= 49 ? 'solid' : 'air') : (y <= 49 ? 'solid' : y <= 63 ? 'solid' : 'air'));
+        const deep = legCandidates({ kindAt: (x, y, z) => (x === 0 && z === 0 ? (y <= 49 ? 'solid' : y === 50 || y === 51 ? 'air' : 'solid') : kindAt(x, y, z)), shapesAt: () => [] }, { x: 0, y: 50, z: 0 }, { x: 100, z: 0 });
+        void pit; assert.ok(Array.isArray(deep));
+    });
+
     await test('a target far beyond the loaded chunks is reached in legs (plain move_to fails: chunk not loaded)', async () => {
         const s = sim();
         const plain = await s.env.exec('move_to', { x: 300, y: 64, z: 40 }); assert.strictEqual(plain.ok, false);

@@ -21,9 +21,13 @@ const hd = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
  */
 function legCandidates(world, from, to, { leg = LEG } = {}) {
     const d = hd(from, to), out = [], seen = new Set();
+    // On the surface a leg ends on the TRUE top of the column. The old rule (the highest standing cell at or below from.y + 8) was made for working underground and, on a hillside, returned the first
+    // standable cell below the cap: a cave 28 levels under the ridge, 'unreachable' after 20,000 planner nodes (acceptance world 1, 2026-11-12: a 2000-block walk ended at 790). Underground
+    // (the bot stands more than 2 cells below the top of its own column) the cap stays.
+    const here = surface(world, from.x, from.z, 318), onSurface = here !== null && here - from.y <= 2;
     const add = (x, z, why) => {
         x = Math.round(x); z = Math.round(z);
-        const y = surface(world, x, z, from.y + 8);
+        const y = onSurface ? surface(world, x, z, 318) : surface(world, x, z, from.y + 8);
         if (y === null || Math.abs(y - from.y) > MAX_DY) return;
         const k = `${x},${y},${z}`; if (seen.has(k)) return;
         seen.add(k); out.push({ x, y, z, why });

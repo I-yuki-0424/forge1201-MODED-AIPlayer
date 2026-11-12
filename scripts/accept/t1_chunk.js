@@ -4,12 +4,12 @@
 //   excavation: `execute if blocks <box slab> <air slab in the sky> masked` passes only when the slab holds no non-air block (it does not change the world); it must FAIL on the untouched chunk (control)
 //   backfill: `fill <slab> minecraft:air replace minecraft:cobblestone`, the sum of "Successfully filled N" over the slabs (the last step: it empties the cobblestone again)
 // The tools are command-generated (efficiency 255, unbreaking 255). A chest holds 1,728 blocks and the box needs about 36,000: the cobblestone chest is topped up by command whenever it runs low,
-// i.e. it is a supply chest that does not run dry. Env: BOTS (default 4), LIMIT_MIN per job (default 120), LIVE_OUT.
+// i.e. it is a supply chest that does not run dry. Env: BOTS (default 4), LIMIT_MIN per job (default 120), LIVE_OUT; for a rehearsal W (side, default 16 = the chunk) and DEPTH (layers from the top, default down to y -59).
 const fs = require('fs');
 const Vec3 = require('vec3');
 const L = require('../real/lib');
 
-const BOTS = Number(process.env.BOTS || 4), LIMIT_MIN = Number(process.env.LIMIT_MIN || 120), names = Array.from({ length: BOTS }, (_, i) => `Acc${i + 1}`);
+const W = Number(process.env.W || 16), DEPTH = Number(process.env.DEPTH || 0), BOTS = Number(process.env.BOTS || 4), LIMIT_MIN = Number(process.env.LIMIT_MIN || 120), names = Array.from({ length: BOTS }, (_, i) => `Acc${i + 1}`);
 const results = [];
 const check = (name, ok, detail) => { results.push({ name, ok: !!ok, detail }); console.log(`[accept-t1] ${ok ? 'PASS' : 'FAIL'} ${name} ${detail !== undefined ? JSON.stringify(detail).slice(0, 600) : ''}`); };
 const ENCH = '{Enchantments:[{id:"minecraft:efficiency",lvl:255},{id:"minecraft:unbreaking",lvl:255}]}';
@@ -20,12 +20,12 @@ async function main() {
     const bot = svc.bots.get(names[0]).bot; S.name = names[0];
     await L.sleep(4000);
     const p0 = await L.posOf(S, names[0]), init = { x: Math.floor(p0.x), y: Math.floor(p0.y), z: Math.floor(p0.z) };
-    const cx = Math.floor(init.x / 16), cz = Math.floor(init.z / 16), x0 = cx * 16, x1 = x0 + 15, z0 = cz * 16, z1 = z0 + 15;
+    const cx = Math.floor(init.x / 16), cz = Math.floor(init.z / 16), x0 = cx * 16, x1 = x0 + W - 1, z0 = cz * 16, z1 = z0 + W - 1;
     const seed = (await S.cmd('seed')).replace(/\x1b\[[0-9;]*m/g, '');
     // the highest non-air block of the chunk, read through the bot's loaded chunks
     const colTop = (x, z) => { for (let y = 319; y >= -64; y--) { const b = bot.blockAt(new Vec3(x, y, z)); if (b && b.name !== 'air' && b.name !== 'cave_air') return y; } return null; };
     let top = -64; for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) top = Math.max(top, colTop(x, z) ?? -64);
-    const bottom = -59, H = top - bottom + 1, box = { x0, z0, x1, z1, top, bottom };
+    const bottom = DEPTH ? top - DEPTH + 1 : -59, H = top - bottom + 1, box = { x0, z0, x1, z1, top, bottom };
     console.log(`[accept-t1] ${seed} initial point ${JSON.stringify(init)} chunk ${cx},${cz} box ${JSON.stringify(box)} height ${H}`);
     // ---- grading on the server
     const slabs = []; for (let y = bottom; y <= top; y += 100) slabs.push([y, Math.min(y + 99, top)]);
@@ -75,7 +75,7 @@ async function main() {
     check('the backfill job finished', br.state === 'finished', br);
     await L.sleep(3000);
     const n = await fillCobble();
-    check(`/fill air replace cobblestone reports 16 x 16 x ${H} = ${16 * 16 * H} blocks`, n === 16 * 16 * H, { reported: n, expected: 16 * 16 * H });
+    check(`/fill air replace cobblestone reports ${W} x ${W} x ${H} = ${W * W * H} blocks`, n === W * W * H, { reported: n, expected: W * W * H });
     check('no bot died', deaths === 0, { deaths });
     clearInterval(timer);
     await svc.stop();

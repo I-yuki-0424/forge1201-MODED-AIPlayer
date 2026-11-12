@@ -29,7 +29,7 @@ async function connectRcon() {
 
 /** A work service with the PRODUCTION settings (experts, router, move3, pitExpert on; teleport off) and `names` bots online. */
 async function openService(shared, names, settings = {}) {
-    const svc = new WorkService({ dataDir: fs.mkdtempSync('/tmp/real-live-'), host: process.env.MC_HOST || 'real', port: Number(process.env.MC_PORT) || 25565, maxBots: Math.max(4, names.length), reconnectMs: 4000, display: false, rcon: shared });
+    const svc = new WorkService({ dataDir: process.env.DATA_DIR ? (fs.mkdirSync(process.env.DATA_DIR, { recursive: true }), process.env.DATA_DIR) : fs.mkdtempSync('/tmp/real-live-'), host: process.env.MC_HOST || 'real', port: Number(process.env.MC_PORT) || 25565, maxBots: Math.max(4, names.length), reconnectMs: 4000, display: false, rcon: shared });
     svc.settings.autoKit = false; Object.assign(svc.settings, settings);
     for (const n of names) svc.addBot(n);
     const t0 = Date.now();
