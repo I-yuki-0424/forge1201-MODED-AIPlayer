@@ -4,7 +4,7 @@
 //   excavation: `execute if blocks <box slab> <air slab in the sky> masked` passes only when the slab holds no non-air block (it does not change the world); it must FAIL on the untouched chunk (control)
 //   backfill: `fill <slab> minecraft:air replace minecraft:cobblestone`, the sum of "Successfully filled N" over the slabs (the last step: it empties the cobblestone again)
 // The tools are command-generated (efficiency 255, unbreaking 255). A chest holds 1,728 blocks and the box needs about 36,000: the cobblestone chest is topped up by command whenever it runs low,
-// i.e. it is a supply chest that does not run dry. Env: BOTS (default 4), LIMIT_MIN per job (default 120), LIVE_OUT; for a rehearsal W (side, default 16 = the chunk) and DEPTH (layers from the top, default down to y -59).
+// i.e. it is a supply chest that does not run dry. Env: BOTS (default 4), LIMIT_MIN per job (default 120), LIVE_OUT; for a rehearsal W (side, default 16 = the chunk) and DEPTH (layers from the top, default down to y -59); METHOD (expert | sweep | rows) and ROAD (1 | 0) are the pit job's options.
 const fs = require('fs');
 const Vec3 = require('vec3');
 const L = require('../real/lib');
@@ -68,7 +68,7 @@ async function main() {
         }
         return { state: 'timeout', sec: LIMIT_MIN * 60 };
     };
-    const pit = svc.createPit({ box, bots: names, start: true });
+    const pit = svc.createPit({ box, bots: names, start: true, ...(process.env.METHOD ? { method: process.env.METHOD } : {}), ...(process.env.ROAD ? { road: process.env.ROAD === '1' } : {}) });
     const pr = await waitJob(pit.id, 'pit');
     check('the pit job finished', pr.state === 'finished', pr);
     await L.sleep(3000);
