@@ -107,7 +107,7 @@ test('a level target (a chest, a station): ends within near across and nearY lev
     assert.ok(r.ok, JSON.stringify(r)); assert.ok(Math.hypot(s.pos.x - 60, s.pos.z - 3) <= 6);
 });
 
-test('the simulator worlds: a lake, a cliff and a pit that the old legs fail are walked (heuristic policy, real path calculator)', async () => {
+test('the simulator worlds: a lake, a cliff and a pit are walked by the router at least as often as by the legs (heuristic policy, real path calculator; the legs choose from the planner\'s reach since 2026-11-12: 5/12 before, 7/12 now, the router 9/12)', async () => {
     const { travel } = require('../src/work/bot/travel');
     let routed = 0, legacy = 0, n = 0;
     for (const kind of ['lake', 'cliff', 'pit']) for (let seed = 1; seed <= 4; seed++) {
@@ -115,7 +115,7 @@ test('the simulator worlds: a lake, a cliff and a pit that the old legs fail are
         const q = S.place(S.scenario(seed, kind), seed), b2 = new S.SimBot(q), r2 = await travel(b2.env(), q.target);
         n++; routed += r.ok ? 1 : 0; legacy += r2.ok ? 1 : 0;
     }
-    assert.ok(routed >= legacy + 4, `router ${routed}/${n}, legacy ${legacy}/${n}`);
+    assert.ok(routed >= legacy && routed >= 8, `router ${routed}/${n}, legacy ${legacy}/${n}`);       // the old claim was routed >= legacy + 4; the legs got better (docs/implemented/COMMAND-STACK-v1.md, travel)
 });
 
 test('the simulator is deterministic and the bot sees only its 9 x 9 chunks', () => {
