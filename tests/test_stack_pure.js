@@ -67,6 +67,7 @@ function fakeBot(scene, pos, { pack = [], held = null, entities = {} } = {}) {
         assert.deepStrictEqual(unmet(far, 'place', { x: 1, y: 1, z: 0, item: 'dirt' }), [{ need: 'item_in_pack', item: 'dirt', count: 1 }], 'not in the pack at all: the router gets it');
         const u = unmet(far, 'place', { x: 9, y: 1, z: 0, item: 'cobblestone' }).map((x) => x.need);
         assert.deepStrictEqual(u, ['in_reach', 'item_held']);
+        assert.deepStrictEqual(unmet(far, 'place', { x: 200, y: 1, z: 0, item: 'iron_block' }).map((x) => x.need), ['item_in_pack', 'chunk_loaded'], 'a far target and no item: both are said, the item first');
     });
 
     await test('attack: out of reach and the sword not in hand are both reported; a missing entity is left to the command', () => {

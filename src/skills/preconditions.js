@@ -42,7 +42,8 @@ function unmet(bot, name, args) {
         }
         case 'place': {
             const cell = { x: args.x, y: args.y, z: args.z };
-            if (!w.blockAt(cell.x, cell.y, cell.z)) return [{ need: 'chunk_loaded', cell }];
+            // the item is reported even when the target is far away: the router makes it first (a craft takes minutes), then walks
+            if (!w.blockAt(cell.x, cell.y, cell.z)) return [...(count(bot, args.item) < 1 ? [{ need: 'item_in_pack', item: args.item, count: 1 }] : []), { need: 'chunk_loaded', cell }];
             const refs = supports(w, cell);
             if (refs.length) {
                 const near = refs.map((r) => cubeDist(eye, r.cell)).sort((a, b) => a - b)[0];
