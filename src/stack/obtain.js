@@ -10,6 +10,7 @@ const SMELT = Object.freeze({ stone: 'cobblestone', iron_ingot: 'raw_iron', gold
 const FUEL_VALUE = Object.freeze({ coal: 1600, charcoal: 1600, coal_block: 16000, oak_planks: 300, spruce_planks: 300, birch_planks: 300, jungle_planks: 300, acacia_planks: 300, dark_oak_planks: 300, mangrove_planks: 300, cherry_planks: 300 });
 const LOG = /^(oak|spruce|birch|jungle|acacia|dark_oak|mangrove|cherry)_log$/, PLANKS = /_planks$/;
 const MAX_DEPTH = 6, BATCH = 64;
+const { surface, prospect, back, ORE_LEVEL } = require('./explore');
 
 const count = (bot, pred) => bot.inventory.items().reduce((n, i) => n + (pred(i.name) ? i.count : 0), 0);
 /** `log` and `planks` are pseudo items: any kind of wood / any kind of planks (a recipe takes whichever the bot has). */
@@ -83,14 +84,34 @@ async function obtain(deps, item, n, depth = 0) {
     }
     // natural: blocks that give the item (logs, cobblestone, raw iron, coal, sand ...)
     if (item === 'log' || (!SMELT[item] && !craftable(bot, item)) || ['cobblestone', 'raw_iron', 'coal', 'sand', 'clay_ball'].includes(item)) {
-        const targets = item === 'log' ? bestLogTargets(deps) : [item];
-        for (const t of targets) {
-            const g = await deps.gather({ target: t, count: missing(), radius: 64 });
-            log(`gather ${t}: ${g.ok ? 'ok' : g.reason}${g.detail && g.detail.got !== undefined ? ` (${g.detail.got}/${g.detail.want})` : ''}`);
-            if (missing() <= 0) return { ok: true, detail: { steps } };
-            if (g.reason === 'cancelled' || g.reason === 'died' || g.reason === 'disconnected') return fail(g.reason, { steps });
+        const mineAll = async () => {
+            const targets = item === 'log' ? bestLogTargets(deps) : [item];
+            for (const t of targets) {
+                const g = await deps.gather({ target: t, count: missing(), radius: 64 });
+                log(`gather ${t}: ${g.ok ? 'ok' : g.reason}${g.detail && g.detail.got !== undefined ? ` (${g.detail.got}/${g.detail.want})` : ''}`);
+                if (missing() <= 0) return null;
+                if (g.reason === 'cancelled' || g.reason === 'died' || g.reason === 'disconnected') return g.reason;
+            }
+            return null;
+        };
+        let stop = await mineAll();
+        // Not within reach: look further. Ores: down a staircase to the depth where they are common and along a tunnel; the rest: out on rings over the surface.
+        for (let round = 0; round < 6 && missing() > 0 && !stop && deps.travel && deps.survey; round++) {
+            const nearby = () => { const ts = item === 'log' ? bestLogTargets(deps) : [item]; return ts.some((t) => ((deps.survey(t, 24) || {}).total || 0) > 0); };
+            if (ORE_LEVEL[item] !== undefined) {
+                const p = await prospect(deps, nearby, ORE_LEVEL[item]); log(`prospect ${item}: ${p.found ? 'found' : p.why || 'nothing'} (${p.stairs} stairs, ${p.tunnel} tunnel${p.fails.length ? `, ${p.fails.length} refusals` : ''})`);
+                stop = await mineAll();
+                if (missing() > 0 && !stop) { const b = await back(deps, p.entry); log(`back to the surface: ${b.ok ? 'ok' : b.reason}`); if (!b.ok) break; }
+                else if (!stop) { const b = await back(deps, p.entry); log(`back to the surface: ${b.ok ? 'ok' : b.reason}`); }
+                if (!p.found && p.why) break;
+            } else {
+                const s = await surface(deps, nearby); log(`explore for ${item}: ${s.found ? 'found' : s.why} (${s.stops.length} stops)`);
+                if (!s.found) break;
+                stop = await mineAll();
+            }
         }
-        return missing() <= 0 ? { ok: true, detail: { steps } } : fail('unreachable', { why: `${missing()} of ${item} still missing after gathering`, steps });
+        if (stop) return fail(stop, { steps });
+        return missing() <= 0 ? { ok: true, detail: { steps } } : fail('unreachable', { why: `${missing()} of ${item} still missing after gathering and looking further`, steps });
     }
     // smelted
     if (SMELT[item]) {

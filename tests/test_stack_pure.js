@@ -266,6 +266,24 @@ function fakeBot(scene, pos, { pack = [], held = null, entities = {} } = {}) {
         assert.strictEqual(r2.ok, false); assert.ok(['missing_materials', 'unreachable', 'invalid_target'].includes(r2.reason), r2.reason);
     });
 
+    await test('exploration: out on rings until the thing is near; prospecting digs a staircase down to the ore level, tunnels, looks again every few steps and gives back where the shaft began', async () => {
+        const ex = require('../src/stack/explore');
+        let pos = { x: 0, y: 70, z: 0 }, stops = 0;
+        const d = { here: () => ({ ...pos }), cancelled: () => false, travel: async (t) => { pos = { ...pos, x: t.x, z: t.z }; stops++; return { ok: true }; } };
+        const r = await ex.surface(d, () => stops >= 11);
+        assert.deepStrictEqual([r.found, r.stops.length], [true, 11]);
+        assert.ok(r.stops.every((q, i) => i < 8 ? q.ring === 80 : q.ring === 160), 'rings of 80 then 160');
+        assert.strictEqual((await ex.surface({ ...d, travel: async () => ({ ok: false, reason: 'died' }) }, () => false)).why, 'died');
+        const cmds = []; pos = { x: 5, y: 70, z: 5 };
+        const p = { here: () => ({ ...pos }), cancelled: () => false, command: async (n, a) => { cmds.push(a.dy); if (a.dy < 0) pos.y -= 1; return { ok: true }; } };
+        const got = await ex.prospect(p, () => cmds.filter((x) => x === 0).length >= 6, 16);
+        assert.strictEqual(got.found, true); assert.strictEqual(got.stairs, 54); assert.strictEqual(got.tunnel, 6); assert.deepStrictEqual(got.entry, { x: 5, y: 70, z: 5 });
+        // refused steps (water, lava) turn the heading instead of stopping
+        pos = { x: 0, y: 20, z: 0 }; let n = 0;
+        const q = await ex.prospect({ ...p, command: async (nm, a) => (a.dir === 'north' && n++ < 3 ? { ok: false, reason: 'invalid_target', detail: { why: 'fluid behind' } } : { ok: true }) }, () => false, 16, { maxTunnel: 6 });
+        assert.ok(q.fails.length >= 1 && q.tunnel > 0, JSON.stringify(q));       // the refusal turned the heading, the tunnel went on
+    });
+
     await test('the routed set is exactly the six instructions the router has rules for', () => {
         assert.deepStrictEqual([...router.ROUTED].sort(), ['activate', 'attack', 'mine', 'pickup', 'place', 'tunnel']);
     });

@@ -432,6 +432,7 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
             exec: (nm, a) => execute(bot, nm, a, { cancel: unitCancel }),
             gather: (a) => require('../jobs/gather').gather(bot, a, { cancel: unitCancel, execute: (b, nm, x, o) => (require('../../stack/router').ROUTED.has(nm) ? envObj.command(nm, x) : execute(b, nm, x, o)) }),
             survey: (t, r) => { try { return require('../jobs/gather').survey(bot, t, r); } catch (_) { return null; } },
+            travel: (t, o) => envObj.travel(t, o),
         }, item, n),
         // `o.maxTicks`: a shorter budget than the command's own (a walk to a station that has not arrived in 30 s is not going to; the worker's ladder takes over).
         exec: (name, args, o = {}) => (viaStack(name) && !o.raw ? envObj.command(name, args) : CHEST_OPS.has(name) ? queued(args, unitCancel, (c) => execute(bot, name, args, { cancel: c })) : execute(bot, name, args, { cancel: unitCancel, ...(Number.isInteger(o.maxTicks) ? { maxTicks: o.maxTicks } : {}) })),
