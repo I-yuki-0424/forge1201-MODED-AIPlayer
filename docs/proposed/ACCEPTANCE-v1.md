@@ -42,6 +42,22 @@ Negative controls: a run with nothing sent must score 0 on every check; the `/fi
 6. Regression of `move` / `unstick`; retraining where needed; simulator atomic mode on the PC.
 7. Deploy to the play console (restart: about four minutes of lost work, so after everything else), then the four tests in one run on a new world, from the initial state.
 
+## Status log (updated as work proceeds; everything graded by the server on Fabric acceptance worlds, `scripts/accept/`)
+
+World tooling: `/mnt/data/forgeaip-play/accept/up.sh N [--new]` (a Fabric 1.20.1 server per number, random seed, peaceful, about 2.8 GB each, ports 25581+), `scripts/accept/run.sh` (`ACC=N`), `scripts/accept/dryworld.sh N` (rerolls the seed until the starting chunk is dry land: a beach or sea chunk is underwater digging, a different problem). Tests: `t1_chunk.js`, `t2_walk.js`, `t3t4_items.js`; probes `probe.js`, `swim_probe.js`; the real-world movement and escape harnesses run on these worlds through shims.
+
+| Item | State (2026-11-13) |
+| :-- | :-- |
+| `mine` / `place` A/B on fresh copies of the play world (8-40 blocks) | old code 19/20 and 19/20, new code raw 19/20 and 19/20, router 19/20 and 19/20: no measurable difference at these distances (Wilson intervals [76, 99]) |
+| Test 2 (2000 N and back) | four causes found and fixed, each with a test that fails on the old code: leg targets inside caves under hills; legs ignoring what the planner can reach (now the frontier of its reach, bounded exploration); a sea (legs now end on the water surface, `move_to` accepts it); drowning cancelling an operator command. Not yet passed: world 7 (spawns on an island, 1100+ blocks of open ocean) ended `stuck` at z -1295 in deep water; a land world has not been run to the end with the final code |
+| Test 1 (strip-mine, `/fill`, backfill, `/fill`) | passes at 4 x 4 x 8 (6/6 checks: pit finished, masked compare clean, backfill, `/fill` = 128) on a dry world. Full chunk NOT passed: the pit stalls in steep natural terrain (see below). A janitor bug found on the way is fixed (no tagged container takes cobblestone: every surplus was a failing deposit, 309 failures) |
+| Tests 3 and 4 (64 x 4 items, iron blocks 500 S) | goal layer built (`obtain`: gather, smelt with fuel, craft with stations; exploration on rings for trees, staircase + tunnel for ore; `place` of an item not in the pack makes the router obtain it first). At 8 of each it found three more causes (nothing within gather's reach: no trees within 64, iron deeper than 4 blocks; the router calling a bot in its own tunnel stuck) now fixed; the small run has not yet completed; the full 64 / 500 run has not been done |
+| Expert measurement (retrain decision) | movement on a Fabric world: 24/30 = 80 % (Wilson [63, 90]), three of the six failures `stuck` at sea level in a run that predates the swimming legs: to be measured again with the final code. Escape: 16/20, but 3 of the 4 failures are the expert's own 3-minute cool-down after two failures (`refused`), i.e. a harness artefact; without them 16/17 = 94 % at a 120 s limit. No retraining is justified by these numbers. The item experts and the learned router stay unwired |
+
+### Open: the pit in steep natural terrain
+
+On world 4 (a mountainous start, box top y 116, bottom -59, 8 bots, `expert` method) 175 of 528 units finished before every bot stood waiting. Chain, from the problem log: units fail `unreachable` at `expert_station` ("could not stand at the station", the bot 2 blocks from it) or `station` ("too far from the station to dig a corridor toward it", the bot at the surface and the station 30+ levels down); after 60 s of such errors the console's own forced kill (`forceKill`) kills the bot, which drops its pack (tools included) and respawns at the world spawn, inside the box's column at the surface, over a pit now too deep to walk into (no haul road for the `expert` method, teleport off); 22 forced kills drained the tools chest and the remaining bots wait for a tool nobody can make. Candidates, not yet separated: the station model placing stations on cells the bot cannot reach in uneven terrain; the respawn-at-spawn loop; `road: true` for deep boxes. The same mechanism explains the beach chunk failure earlier.
+
 ## Not claimed
 
 Nothing in this document has been measured yet. Rates from the simulator are never evidence (CLAUDE.md, verification standard).
