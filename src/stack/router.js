@@ -11,6 +11,7 @@ const { reachableAsync } = require('../skills/planner');
 const { standable } = require('../skills/world');
 const { reachGoal, AIM_REACH, centre, hdist } = require('../skills/motion');
 const { ENTITY_REACH } = require('../skills/geometry');
+const { supports } = require('../skills/commands/block');
 
 const ROUTED = new Set(['mine', 'place', 'activate', 'attack', 'pickup', 'tunnel']);
 const MAX_STEPS = 8;              // instruction attempts, at most
@@ -36,11 +37,20 @@ function targetOf(deps, name, args) {
 /** Standing cells from which the target is within reach (and in view), nearest to `here` first. */
 function standCells(deps, t, here, { radius = 5, limit = 14 } = {}) {
     const w = deps.w, out = [];
-    const goal = t.kind === 'block' ? reachGoal(w, t, { reach: AIM_REACH - 0.5, ok: (c) => !(c.x === t.x && c.z === t.z) }) : null;
-    for (let dx = -radius; dx <= radius; dx++) for (let dz = -radius; dz <= radius; dz++) for (let dy = -3; dy <= 3; dy++) {
+    // What has to be in view: the block itself (mine, activate); for `place` the cell is air, so the supports it is placed against (as the command's own approach does); an entity: within arm's length.
+    let isGoal = null;
+    if (t.kind === 'block' && t.name === 'place') {
+        const free = (c) => !(c.x === t.x && c.z === t.z && (c.y === t.y || c.y + 1 === t.y)), goals = supports(w, t).map((r) => reachGoal(w, r.cell, { face: r.face, reach: AIM_REACH - 0.5, ok: free }));
+        isGoal = (c) => free(c) && goals.some((g) => g.isGoal(c));
+    } else if (t.kind === 'block') {
+        const g = reachGoal(w, t, { reach: AIM_REACH - 0.5, ok: (c) => !(c.x === t.x && c.z === t.z) });
+        isGoal = (c) => g.isGoal(c);
+    }
+    // vertical window: eye 1.62 above the feet and a reach of 4.2 allow feet from 5 below the block to 3 above its top
+    for (let dx = -radius; dx <= radius; dx++) for (let dz = -radius; dz <= radius; dz++) for (let dy = -5; dy <= 4; dy++) {
         const c = { x: t.x + dx, y: t.y + dy, z: t.z + dz };
         if (!standable(w, c.x, c.y, c.z)) continue;
-        const ok = goal ? goal.isGoal(c) : hdist(centre(c), t.pos) <= ENTITY_REACH - 0.8 && Math.abs(c.y - t.y) <= 1;
+        const ok = isGoal ? isGoal(c) : hdist(centre(c), t.pos) <= ENTITY_REACH - 0.8 && Math.abs(c.y - t.y) <= 1;
         if (ok) out.push({ ...c, d: Math.hypot(c.x - here.x, c.y - here.y, c.z - here.z) });
     }
     return out.sort((a, b) => a.d - b.d).slice(0, limit).map(({ x, y, z }) => ({ x, y, z }));
@@ -74,7 +84,7 @@ async function decide(deps, goal, unmet, st) {
                 if (st.escaped >= 2) return { fail: { reason: 'stuck', detail: { why: 'enclosed, and two escapes did not open a way', region: reach.cells.length } } };
                 steps.push({ do: 'unstick', region: reach.cells.length });
             } else if (!st.travelled) {
-                steps.push({ do: 'travel', to: t, why: 'no standing cell near the target is reachable by the planner' });       // the movement expert may still find a way
+                steps.push({ do: 'travel', to: t, why: `no standing cell near the target is reachable by the planner (candidates ${cands.length}, reachable ${open.length}, region ${reach.cells.length}, start ${reach.cells.length ? 'in the planner' : 'NOT a planner cell'})` });       // the movement expert may still find a way
             } else {
                 return { fail: { reason: 'unreachable', detail: { why: 'no standing cell within reach of the target can be walked to', candidates: cands.length } } };
             }
@@ -118,7 +128,7 @@ async function run(deps, goal) {
             const sr = await perform(deps, s);
             if (s.do === 'travel') st.travelled = true;
             if (s.do === 'unstick') st.escaped++;
-            chain.push({ do: s.do, ...(s.to ? { to: [s.to.x, s.to.y, s.to.z] } : {}), ...(s.item ? { item: s.item } : {}), ...(s.region !== undefined ? { region: s.region } : {}), ok: !!sr.ok, ...(sr.ok ? {} : { reason: sr.reason }) });
+            chain.push({ do: s.do, need: unmet.map((u) => u.need), ...(s.why ? { why: s.why } : {}), ...(s.to ? { to: [s.to.x, s.to.y, s.to.z] } : {}), ...(s.item ? { item: s.item } : {}), ...(s.region !== undefined ? { region: s.region } : {}), ok: !!sr.ok, ...(sr.ok ? {} : { reason: sr.reason }) });
             if (!sr.ok) { last = sr; if (FATAL.has(sr.reason)) return done(sr); break; }       // read the state again and decide again
         }
     }

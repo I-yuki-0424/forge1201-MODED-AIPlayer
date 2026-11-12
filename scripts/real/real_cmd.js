@@ -21,7 +21,8 @@ async function main() {
     await S.must('gamerule doImmediateRespawn true'); await S.must('time set day');
     let deaths = 0; bot.on('death', () => { deaths++; });
     const rnd = L.rng(SEED), rows = [];
-    let lastRes = null; const origCmd = svc._command.bind(svc); svc._command = async (...a) => { lastRes = await origCmd(...a); return lastRes; };
+    // (an older checkout, the A/B baseline, has no _command: then the result is read from the bot's command record)
+    let lastRes = null; if (svc._command) { const origCmd = svc._command.bind(svc); svc._command = async (...a) => { lastRes = await origCmd(...a); return lastRes; }; }
     for (let attempts = 0; rows.length < N && attempts++ < N * 12;) {
         const [sx, sz] = [Math.round((rnd() - 0.5) * 2 * RANGE), Math.round((rnd() - 0.5) * 2 * RANGE)];
         const st = await L.standCell(S, bot, A, 'overworld', sx, sz); if (!st) continue;
@@ -50,7 +51,7 @@ async function main() {
         const now = CMD === 'mine' ? !(await S.blockIs(cell, before)) : await S.blockIs(cell, 'cobblestone');                        // THE grade: the server's block
         const died = deaths > deaths0, ok = now && !died;
         const chain = res.detail && res.detail.router ? res.detail.router.map((c) => c.do + (c.ok === false ? `(${c.reason})` : '')) : [];
-        const row = { i: rows.length, cmd: CMD, mode: MODE, start: st, cell, dist: Math.round(horizontal * 10) / 10, dy: cell.y - st.y, block_before: before, ok, said_ok: !!res.ok, reason: res.reason || (rec.cmd && rec.cmd.result && rec.cmd.result.reason) || null, chain, died, s: Math.round((Date.now() - t0) / 1000), refused: sent && sent.refused && sent.refused.length ? sent.refused : undefined };
+        const row = { i: rows.length, cmd: CMD, mode: MODE, start: st, cell, dist: Math.round(horizontal * 10) / 10, dy: cell.y - st.y, block_before: before, ok, said_ok: !!res.ok, reason: res.reason || (rec.cmd && rec.cmd.result && rec.cmd.result.reason) || null, chain, chainFull: res.detail && res.detail.router, unmet0: res.detail && res.detail.unmet, died, s: Math.round((Date.now() - t0) / 1000), refused: sent && sent.refused && sent.refused.length ? sent.refused : undefined };
         rows.push(row);
         console.log(`[real-cmd] #${row.i} ${CMD}/${MODE} D=${row.dist} dy=${row.dy} ${ok ? 'OK' : 'FAIL'} said=${row.said_ok ? 'ok' : row.reason} chain=${chain.join('>') || '-'} ${died ? 'DIED ' : ''}${row.s}s`);
     }

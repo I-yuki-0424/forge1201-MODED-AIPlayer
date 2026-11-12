@@ -126,6 +126,17 @@ function fakeBot(scene, pos, { pack = [], held = null, entities = {} } = {}) {
     const chainOf = (r) => (r.detail.router || []).map((c) => c.do);
     const STONE_AT = (x, z, y = 1) => ({ [`${x},${y},${z}`]: 'stone' });
 
+    await test('standing cells: for place the cell is air, so the goal is the support it is placed against (reproducer: 14 of 20 real-world place runs found no cell and fell back to travel); a mine target in a pit is reached from the rim', () => {
+        const w = fakeWorld({ '8,1,3': 'stone' }), here = { x: 0, y: 1, z: 0 };
+        const place = { kind: 'block', name: 'place', x: 8, y: 1, z: 0 }, cells = router.standCells({ w }, place, here);
+        assert.ok(cells.length >= 4, `${cells.length} cells`);
+        for (const c of cells) assert.ok(!(c.x === 8 && c.z === 0), 'not inside the cell that is filled');
+        // a one-block pit: the target is the floor of the pit; the standing cells are on the rim, up to 3 levels above it
+        const cp = {}; for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) if (dx || dz) for (const y of [0, 1]) cp[`${10 + dx},${y},${5 + dz}`] = 'stone'; cp['10,0,5'] = 'air';
+        const pit = fakeWorld(cp), mineCells = router.standCells({ w: pit }, { kind: 'block', name: 'mine', x: 10, y: -1, z: 5 }, here);
+        assert.ok(mineCells.length === 0 || mineCells.every((c) => c.y >= 1), 'rim cells only');
+    });
+
     await test('router: far and free -> move, then the instruction (every instruction call is atomic)', async () => {
         const s = sandbox({ ...STONE_AT(12, 0) }, { x: 0, y: 1, z: 0 }), r = await router.run(deps(s), { name: 'mine', args: { x: 12, y: 1, z: 0 } });
         assert.strictEqual(r.ok, true, JSON.stringify(r));
