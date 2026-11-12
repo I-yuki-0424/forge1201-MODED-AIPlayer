@@ -7,6 +7,8 @@
 // chosen from where it stands. A failed leg is tried shorter and to either side before the walk gives up.
 // Pure apart from `env.exec` (a command of the action layer) and `env.here`/`env.w` (reads): the tests drive it with a fake world.
 const { surface } = require('../../skills/intents');
+const { reachableAsync } = require('../../skills/planner');
+const { standable } = require('../../skills/world');
 
 const LEG = 40;                    // blocks per leg: inside the loaded area (4 chunks = 64 blocks radius, less the offset in the chunk)
 const NEAR = 3;                    // a walk ends within this many blocks of the target (the last, exact move_to follows)
@@ -19,7 +21,7 @@ const hd = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
  * The standable cells to try for the next leg, best first: the exact target when it is close enough, else points on the straight line at 100 %, 75 %, 50 % and 30 %
  * of the leg length, then to either side of the line (so a lake or a cliff on it is gone round). Each is a surface cell of a loaded column near the heading.
  */
-function legCandidates(world, from, to, { leg = LEG } = {}) {
+function legCandidates(world, from, to, { leg = LEG, reach = null, visited = null } = {}) {
     const d = hd(from, to), out = [], seen = new Set();
     // On the surface a leg ends on the TRUE top of the column. The old rule (the highest standing cell at or below from.y + 8) was made for working underground and, on a hillside, returned the first
     // standable cell below the cap: a cave 28 levels under the ridge, 'unreachable' after 20,000 planner nodes (acceptance world 1, 2026-11-12: a 2000-block walk ended at 790). Underground
@@ -42,7 +44,18 @@ function legCandidates(world, from, to, { leg = LEG } = {}) {
     const ux = (to.x - from.x) / (d || 1), uz = (to.z - from.z) / (d || 1);
     for (const f of [1, 0.75, 0.5, 0.3]) { const l = Math.min(d, leg) * f; add(from.x + ux * l, from.z + uz * l, `${Math.round(f * 100)} %`); }
     for (const side of [10, -10, 20, -20]) { const l = Math.min(d, leg) * 0.7; add(from.x + ux * l - uz * side, from.z + uz * l + ux * side, `side ${side}`); }
-    return out;
+    // With the planner's own reach (what it can walk to from here, inside the loaded area): the cells it cannot walk to are dropped (a goal 17 levels up a cliff cost 20,000 planner nodes and ended the walk),
+    // and the FRONTIER of the reach is offered: the reachable cells nearest to the target that are not in a place the bot has already been (a cliff or a lake across the line is gone round, a dead end is
+    // not walked into twice). Only the legs are chosen this way; the walking itself is the same move_to.
+    if (!reach || reach.cells.length < 30) return out;
+    const ok = out.filter((c) => hd(c, from) > 34 || reach.has(c.x, c.y, c.z));            // beyond the radius the search covered nothing is known: those stay
+    const cell = (c) => `${Math.floor(c[0] / 8)},${Math.floor(c[2] / 8)}`, been = (c) => !!visited && visited.has(cell(c));
+    const far = reach.cells.filter((c) => Math.hypot(c[0] - from.x, c[2] - from.z) >= 10 && Math.abs(c[1] - from.y) <= MAX_DY && standable(world, c[0], c[1], c[2]));
+    const score = (c) => hd({ x: c[0], z: c[2] }, to) + (been(c) ? 30 : 0);
+    const best = far.slice().sort((a, b) => score(a) - score(b)), picked = [], near = (c) => picked.some((p) => Math.hypot(p[0] - c[0], p[2] - c[2]) < 8);
+    for (const c of best) { if (!near(c)) picked.push(c); if (picked.length >= 4) break; }
+    for (const c of picked) if (!seen.has(`${c[0]},${c[1]},${c[2]}`)) ok.push({ x: c[0], y: c[1], z: c[2], why: 'frontier' });
+    return ok;
 }
 
 /**
@@ -52,7 +65,9 @@ function legCandidates(world, from, to, { leg = LEG } = {}) {
  */
 async function travel(env, to, { leg = LEG, near = NEAR, maxLegs = MAX_LEGS } = {}) {
     let legs = 0, slow = 0, last = null;
-    const start = env.here();
+    const start = env.here(), visited = new Set(), mark = (p) => visited.add(`${Math.floor(p.x / 8)},${Math.floor(p.z / 8)}`);
+    mark(start);
+    let best = hd(start, to);                                          // the closest the walk has been to the target
     for (; legs < maxLegs; legs++) {
         if (env.cancel && env.cancel.cancelled) return { ok: false, reason: 'cancelled', detail: { legs } };
         if (env.wrongDim && env.wrongDim()) return { ok: false, reason: 'wrong_dimension', detail: { legs, why: 'the bot is not in the dimension of the target (a respawn): the coordinates are not this dimension\'s' } };
@@ -62,16 +77,20 @@ async function travel(env, to, { leg = LEG, near = NEAR, maxLegs = MAX_LEGS } = 
             return { ok: true, legs, walked: Math.round(hd(start, env.here())) };
         }
         let moved = false;
-        for (const c of legCandidates(env.w, here, to, { leg })) {
+        let reach = null; try { reach = await reachableAsync(env.w, { x: here.x, y: here.y, z: here.z }, { maxNodes: 3000, radius: 36 }); } catch (_) { /* a world without the readers: the straight-line candidates only */ }
+        for (const c of legCandidates(env.w, here, to, { leg: reach ? Math.min(leg, 30) : leg, reach, visited })) {          // with the reach known a leg stays inside the area it was checked in
             const r = await env.exec('move_to', { x: c.x, y: c.y, z: c.z });
             if (r.ok) { moved = true; break; }
             last = { reason: r.reason, detail: r.detail, tried: c };
             if (['died', 'disconnected', 'cancelled'].includes(r.reason)) return { ok: false, reason: r.reason, detail: { legs } };
         }
         if (!moved) return { ok: false, reason: (last && last.reason) || 'unreachable', detail: { ...(last && last.detail ? last.detail : {}), legs, at: env.here(), remaining: Math.round(d), why: 'no leg of any length or side could be walked' } };
-        const gained = d - hd(env.here(), to);
-        slow = gained < 2 ? slow + 1 : 0;
-        if (slow >= 3) return { ok: false, reason: 'stuck', detail: { legs: legs + 1, at: env.here(), remaining: Math.round(hd(env.here(), to)), why: 'three legs in a row brought the bot less than 2 blocks closer' } };
+        const fresh = !visited.has(`${Math.floor(env.here().x / 8)},${Math.floor(env.here().z / 8)}`);
+        mark(env.here());
+        const rem = hd(env.here(), to);
+        if (rem < best - 2) { best = rem; slow = 0; }                         // a new closest point: the walk goes on
+        else slow += fresh ? 0.25 : 1;                                        // a leg into ground the bot has not been on is exploring (round a ridge): twelve of them without a new closest point, or three on old ground, are stuck
+        if (slow >= 3) return { ok: false, reason: 'stuck', detail: { legs: legs + 1, at: env.here(), remaining: Math.round(hd(env.here(), to)), why: 'no new closest point to the target for several legs (twelve into new ground, three over old)' } };
     }
     return { ok: false, reason: 'timeout', detail: { legs, at: env.here(), remaining: Math.round(hd(env.here(), to)), why: `more than ${maxLegs} legs` } };
 }

@@ -422,8 +422,17 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
             bot, w, here: feet, cancelled: () => !!unitCancel.cancelled,
             exec: (n, a, o = {}) => execute(bot, n, a, { cancel: unitCancel, ...o }),
             travel: (t, o) => envObj.travel(t, o),
+            obtain: (item, n) => envObj.obtain(item, n),
             escape: () => envObj.expertEscape(null, { why: 'router: the target cannot be reached from where the bot is' }),
         }, { name, args }),
+        // "Have n of item" (src/stack/obtain.js): gather it, smelt it or craft it; every step an instruction through the router. The operator's `obtain`, and the router when `place` has no item.
+        obtain: (item, n) => require('../../stack/obtain').obtain({
+            bot, w, here: feet, cancelled: () => !!unitCancel.cancelled,
+            command: (nm, a) => envObj.command(nm, a),
+            exec: (nm, a) => execute(bot, nm, a, { cancel: unitCancel }),
+            gather: (a) => require('../jobs/gather').gather(bot, a, { cancel: unitCancel, execute: (b, nm, x, o) => (require('../../stack/router').ROUTED.has(nm) ? envObj.command(nm, x) : execute(b, nm, x, o)) }),
+            survey: (t, r) => { try { return require('../jobs/gather').survey(bot, t, r); } catch (_) { return null; } },
+        }, item, n),
         // `o.maxTicks`: a shorter budget than the command's own (a walk to a station that has not arrived in 30 s is not going to; the worker's ladder takes over).
         exec: (name, args, o = {}) => (viaStack(name) && !o.raw ? envObj.command(name, args) : CHEST_OPS.has(name) ? queued(args, unitCancel, (c) => execute(bot, name, args, { cancel: c })) : execute(bot, name, args, { cancel: unitCancel, ...(Number.isInteger(o.maxTicks) ? { maxTicks: o.maxTicks } : {}) })),
         // For the water rescue: stopped by the operator only. `drowning()` is what sends the worker to the rescue, so the rescue's own commands must not be cancelled by it

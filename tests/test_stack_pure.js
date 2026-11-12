@@ -64,7 +64,7 @@ function fakeBot(scene, pos, { pack = [], held = null, entities = {} } = {}) {
     await test('place: item in the pack but not in hand -> item_held; none in the pack -> left to the command (missing_item); out of reach of every support -> in_reach', () => {
         const sc = realScene(), far = fakeBot(sc, new Vec3(0.5, 1, 0.5), { pack: ['cobblestone'], held: null });
         assert.deepStrictEqual(unmet(far, 'place', { x: 1, y: 1, z: 0, item: 'cobblestone' }).map((x) => x.need), ['item_held']);
-        assert.deepStrictEqual(unmet(far, 'place', { x: 1, y: 1, z: 0, item: 'dirt' }), []);
+        assert.deepStrictEqual(unmet(far, 'place', { x: 1, y: 1, z: 0, item: 'dirt' }), [{ need: 'item_in_pack', item: 'dirt', count: 1 }], 'not in the pack at all: the router gets it');
         const u = unmet(far, 'place', { x: 9, y: 1, z: 0, item: 'cobblestone' }).map((x) => x.need);
         assert.deepStrictEqual(u, ['in_reach', 'item_held']);
     });
@@ -222,6 +222,47 @@ function fakeBot(scene, pos, { pack = [], held = null, entities = {} } = {}) {
         assert.throws(() => layout({ kind: 'fill', block: 'cobblestone', x0: 0, z0: 0, x1: 15, z1: 15, y: -59, height: 257 }), /height: 1..256/);
         assert.throws(() => layout({ kind: 'fill', block: 'cobblestone', x0: 0, z0: 0, x1: 31, z1: 31, y: 0, height: 64 }), /too many/);
         assert.throws(() => layout({ kind: 'wall', block: 'cobblestone', x0: 0, z0: 0, x1: 3, z1: 0, y: 0, height: 65 }), /height: 1..64/, 'other kinds keep 64');
+    });
+
+    await test('router: an item that is not in the pack -> obtain FIRST (then position and hand are read again), and the chain says what the goal layer did', async () => {
+        const s = sandbox({ ...STONE_AT(3, 0) }, { x: 0, y: 1, z: 0 }, { held: 'wooden_pickaxe' }); let got = null;
+        const d = deps(s); const base = d.exec;
+        let have = false;
+        d.exec = async (name, args, opt) => { if (name === 'place') { s.calls.push(['place']); return have ? { ok: true, detail: {} } : { ok: false, reason: 'precondition_failed', detail: { unmet: [{ need: 'item_in_pack', item: 'iron_block', count: 1 }] } }; } return base(name, args, opt); };
+        d.obtain = async (item, n) => { got = [item, n]; have = true; return { ok: true, detail: { steps: ['craft iron_block: ok'] } }; };
+        const r = await router.run(d, { name: 'place', args: { x: 3, y: 1, z: 0, item: 'iron_block' } });
+        assert.deepStrictEqual([r.ok, got, chainOf(r)], [true, ['iron_block', 1], ['obtain']], JSON.stringify(r));
+        assert.deepStrictEqual(r.detail.router[0].steps, ['craft iron_block: ok']);
+        // no goal layer in the environment: said plainly, no loop
+        const s2 = sandbox({}, { x: 0, y: 1, z: 0 }), d2 = deps(s2); d2.exec = async () => ({ ok: false, reason: 'precondition_failed', detail: { unmet: [{ need: 'item_in_pack', item: 'iron_block', count: 1 }] } });
+        const r2 = await router.run(d2, { name: 'place', args: { x: 3, y: 1, z: 0, item: 'iron_block' } });
+        assert.strictEqual(r2.ok, false); assert.strictEqual(r2.reason, 'missing_item');
+    });
+
+    await test('goal layer: planks from any log, a crafting table placed when none is near, iron blocks crafted from ingots, stone smelted from cobblestone with fuel (a fake bot; the order of the steps)', async () => {
+        const { obtain } = require('../src/stack/obtain'), { Recipe } = require(require.resolve('prismarine-recipe', { paths: [require.resolve('mineflayer')] }))(registry);
+        const inv = { oak_log: 2, iron_ingot: 9, cobblestone: 8 }, steps = [], reg = registry;
+        const bot = { registry: reg, inventory: { items: () => Object.entries(inv).filter(([, c]) => c > 0).map(([name, count]) => ({ name, count, type: reg.itemsByName[name].id })) }, findBlock: () => null,
+            recipesAll: (id) => Recipe.find(id, null) };
+        const world = fakeWorld(), placed = [];
+        const deps = { bot, w: world, here: () => ({ x: 0, y: 1, z: 0 }), cancelled: () => false,
+            command: async (name, a) => { steps.push(`${name} ${a.item}`); placed.push(a.item); inv[a.item] -= 1; bot.findBlock = () => ({ position: { x: a.x, y: a.y, z: a.z } }); return { ok: true }; },
+            exec: async (name, a) => {
+                steps.push(`${name} ${a.item}${a.x !== undefined ? ' @station' : ''}`);
+                if (name === 'craft') { const r = Recipe.find(reg.itemsByName[a.item].id, null)[0]; for (const d of r.delta) { const nm = reg.items[d.id].name; inv[nm] = (inv[nm] || 0) + d.count * Math.ceil(a.count / r.result.count); } }
+                if (name === 'smelt') { inv[a.item] -= a.count; inv.stone = (inv.stone || 0) + a.count; inv.coal -= 1; }
+                return { ok: true, detail: {} };
+            },
+            gather: async () => ({ ok: false, reason: 'unreachable', detail: {} }) };
+        const r = await obtain(deps, 'iron_block', 1);
+        assert.strictEqual(r.ok, true, JSON.stringify(r));
+        assert.ok(steps.some((x) => x.startsWith('place crafting_table')), `a table was placed: ${steps.join(' | ')}`);
+        assert.ok(steps.findIndex((x) => x.startsWith('craft crafting_table')) < steps.findIndex((x) => x.startsWith('place crafting_table')), 'the table is crafted before it is placed');
+        assert.ok(steps.some((x) => x === 'craft iron_block @station'), 'the iron block is crafted at the table');
+        // smelting: stone from cobblestone needs a furnace and fuel; with no fuel and nothing to gather it says so
+        const inv2 = { cobblestone: 8 }; const bot2 = { ...bot, inventory: { items: () => Object.entries(inv2).filter(([, c]) => c > 0).map(([name, count]) => ({ name, count, type: reg.itemsByName[name].id })) } };
+        const r2 = await obtain({ ...deps, bot: bot2 }, 'stone', 4);
+        assert.strictEqual(r2.ok, false); assert.ok(['missing_materials', 'unreachable', 'invalid_target'].includes(r2.reason), r2.reason);
     });
 
     await test('the routed set is exactly the six instructions the router has rules for', () => {

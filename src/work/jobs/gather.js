@@ -6,7 +6,8 @@
 // without a server.
 const { fromBot } = require('../../skills/world');
 
-const bare = (n) => String(n).replace(/^minecraft:/, '');
+const ALIAS = { redstone_dust: 'redstone', cobble: 'cobblestone' };          // how a person writes it -> the registry's name
+const bare = (n) => { const s = String(n).replace(/^minecraft:/, ''); return ALIAS[s] || s; };
 const REACH = 4.5;
 const MAX_DIG_IN = 4;                                // a buried block is reached by tunnelling at most this many blocks through solid rock
 const FLUID = new Set(['water', 'liquid', 'danger']);          // never dig next to water or lava (it would flow into the hole)                                   // blocks within this distance of the eyes are mined without walking

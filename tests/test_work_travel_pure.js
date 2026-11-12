@@ -6,7 +6,7 @@ function test(name, fn) { console.log(`--- test: ${name} ---`); return Promise.r
 const LOAD = 56;
 
 /** Flat ground (stone at y <= 63, feet at 64); `water(x,z)` columns are open water (not standable); `wall(x,z)` columns are solid up to y 80. */
-function sim({ start = { x: 0, y: 64, z: 0 }, water = () => false, wall = () => false, loadFollows = true } = {}) {
+function sim({ start = { x: 0, y: 64, z: 0 }, water = () => false, wall = () => false, loadFollows = true, planned = false } = {}) {
     const bot = { ...start }, moves = [];
     const known = (x, z) => Math.hypot(x - bot.x, z - bot.z) <= LOAD;
     const kindAt = (x, y, z) => { if (!known(x, z)) return 'unknown'; if (wall(x, z)) return y <= 80 ? 'solid' : 'air'; if (water(x, z) && y === 64) return 'water'; return y <= 63 ? 'solid' : 'air'; };
@@ -16,7 +16,8 @@ function sim({ start = { x: 0, y: 64, z: 0 }, water = () => false, wall = () => 
             moves.push([a.x, a.y, a.z]);
             if (kindAt(a.x, a.y, a.z) === 'unknown') return { ok: false, reason: 'unreachable', detail: { why: 'target chunk not loaded' } };
             if (Math.hypot(a.x - bot.x, a.z - bot.z) > 48) return { ok: false, reason: 'unreachable', detail: { why: 'planner budget' } };
-            for (let t = 0; t <= 1; t += 0.02) if (wall(bot.x + (a.x - bot.x) * t, bot.z + (a.z - bot.z) * t)) return { ok: false, reason: 'unreachable', detail: { why: 'a wall across the way' } };        // the fake walks in straight lines
+            if (planned) { const r = require('../src/skills/planner').reachable({ kindAt, shapesAt: () => [] }, bot, { maxNodes: 9000, radius: 52 }); if (!r.has(a.x, a.y, a.z)) return { ok: false, reason: 'unreachable', detail: { why: 'the planner has no path' } }; }       // the real planner walks round a wall
+            else for (let t = 0; t <= 1; t += 0.02) if (wall(bot.x + (a.x - bot.x) * t, bot.z + (a.z - bot.z) * t)) return { ok: false, reason: 'unreachable', detail: { why: 'a wall across the way' } };        // the fake walks in straight lines
             if (kindAt(a.x, a.y, a.z) !== 'air' || kindAt(a.x, a.y - 1, a.z) !== 'solid') return { ok: false, reason: 'invalid_target', detail: { why: 'a player cannot stand there' } };
             bot.x = a.x; bot.y = a.y; bot.z = a.z; return { ok: true };
         },
@@ -36,6 +37,15 @@ function sim({ start = { x: 0, y: 64, z: 0 }, water = () => false, wall = () => 
         const pit = (x, y, z) => (x === 0 && z === 0 ? (y <= 49 ? 'solid' : 'air') : (y <= 49 ? 'solid' : y <= 63 ? 'solid' : 'air'));
         const deep = legCandidates({ kindAt: (x, y, z) => (x === 0 && z === 0 ? (y <= 49 ? 'solid' : y === 50 || y === 51 ? 'air' : 'solid') : kindAt(x, y, z)), shapesAt: () => [] }, { x: 0, y: 50, z: 0 }, { x: 100, z: 0 });
         void pit; assert.ok(Array.isArray(deep));
+    });
+
+    await test('a barrier wider than the side steps (a ridge 60 across): the legs follow the frontier of what the planner can walk, round the end, and arrive (reproducer: the acceptance walk stopped at a ridge, 20,000 planner nodes spent on a goal it could not reach)', async () => {
+        const s = sim({ planned: true, wall: (x, z) => x >= 40 && x <= 50 && Math.abs(z) <= 30 });
+        const r = await travel(s.env, { x: 120, z: 0 });
+        assert.strictEqual(r.ok, true, JSON.stringify(r));
+        assert.ok(Math.hypot(s.bot.x - 120, s.bot.z) <= 4, `ended at ${s.bot.x},${s.bot.z}`);
+        assert.ok(r.legs <= 12, `${r.legs} legs`);
+        assert.ok(s.moves.some((m) => m[0] > 50 && Math.abs(m[2]) > 10), 'a leg ended on the far side of the wall, off the straight line (the frontier), not on the wall top');
     });
 
     await test('a target far beyond the loaded chunks is reached in legs (plain move_to fails: chunk not loaded)', async () => {

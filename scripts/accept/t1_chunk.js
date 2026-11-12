@@ -25,6 +25,10 @@ async function main() {
     // the highest non-air block of the chunk, read through the bot's loaded chunks
     const colTop = (x, z) => { for (let y = 319; y >= -64; y--) { const b = bot.blockAt(new Vec3(x, y, z)); if (b && b.name !== 'air' && b.name !== 'cave_air') return y; } return null; };
     let top = -64; for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) top = Math.max(top, colTop(x, z) ?? -64);
+    // a chunk whose surface is water (a beach, a lake, the sea) is a different problem (digging under water); DRYCHECK=1 only says whether the chunk is dry land: exit 0 dry, 3 wet
+    let wet = 0; for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) { const t = colTop(x, z), b = t === null ? null : bot.blockAt(new Vec3(x, t, z)); if (b && /water|lava|ice/.test(b.name)) wet++; }
+    console.log(`[accept-t1] surface columns that are water/lava/ice: ${wet} of ${(x1 - x0 + 1) * (z1 - z0 + 1)}`);
+    if (process.env.DRYCHECK) { await svc.stop(); process.exit(wet === 0 ? 0 : 3); }
     const bottom = DEPTH ? top - DEPTH + 1 : -59, H = top - bottom + 1, box = { x0, z0, x1, z1, top, bottom };
     console.log(`[accept-t1] ${seed} initial point ${JSON.stringify(init)} chunk ${cx},${cz} box ${JSON.stringify(box)} height ${H}`);
     // ---- grading on the server
@@ -46,6 +50,7 @@ async function main() {
         for (const [k, n] of kinds) for (let i = 0; i < n && slot < 27; i++) await S.must(`item replace block ${x} ${y} ${z} container.${slot++} with minecraft:${k}${ENCH} 1`);
     });
     const cobble = await put(x1 + 2, z0 + 6, async (x, y, z) => { for (let s = 0; s < 27; s++) await S.must(`item replace block ${x} ${y} ${z} container.${s} with minecraft:cobblestone 64`); });
+    for (const c of [tools, cobble]) for (let i = 0; i < 40; i++) { const b = bot.blockAt(new Vec3(c.x, c.y, c.z)); if (b && b.name === 'chest') break; await L.sleep(250); }       // the bot's own view catches up with the setblock
     svc.addSite({ name: 'tools1', ...tools, purpose: 'tools' }); svc.addSite({ name: 'cobble1', ...cobble, purpose: 'free' });
     const refill = async () => {                                         // a supply chest that does not run dry
         const o = await S.cmd(`data get block ${cobble.x} ${cobble.y} ${cobble.z} Items`), slots = (o.match(/Slot: \d+b/g) || []).length;

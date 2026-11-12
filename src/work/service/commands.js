@@ -174,6 +174,10 @@ class CommandsPart {
                 need(spec.name === 'expert_escape' ? [0, 3].includes(xyz.length) : xyz.length === 3, spec.name === 'expert_escape' ? 'give all of x, y, z or none' : 'x, y and z are required');
                 for (const k of xyz) int(args[k], k);
             }
+            if (spec.name === 'obtain') {
+                need(typeof args.item === 'string' && /^([a-z0-9_.-]{1,32}:)?[a-z0-9_/]{1,64}$/.test(args.item), 'item: an item name such as oak_log, stone, iron_ingot, iron_block');
+                need(Number.isInteger(args.count) && args.count >= 1 && args.count <= 2304, 'count: 1..2304');
+            }
             if (spec.name === 'gather') {
                 need(typeof args.target === 'string' && /^([a-z0-9_.-]{1,32}:)?[a-z0-9_/]{1,64}$/.test(args.target), 'target: a block or item name such as iron_ore, raw_iron, oak_log');
                 if (args.count !== undefined) need(Number.isInteger(args.count) && args.count >= 1 && args.count <= 2304, 'count: 1..2304');
@@ -267,6 +271,11 @@ class CommandsPart {
             if (command === 'trades' || command === 'trade') return this._trade(rec, cancel, command === 'trades', args);
             if (command === 'bridge') return this._bridge(rec, cancel, args);
             if (command === 'break_bedrock') return this._bedrock(rec, cancel, args);
+            if (command === 'obtain') {
+                const env = this.envFactory(bot, cancel);
+                if (!env || typeof env.obtain !== 'function') return { ok: false, reason: 'refused', detail: { why: 'this environment cannot obtain items' } };
+                try { return await env.obtain(String(args.item), args.count); } finally { if (env.dispose) env.dispose(); }
+            }
             if (command === 'gather') {
                 return gatherer.gather(bot, { target: String(args.target), count: args.count || 16, radius: args.radius || 32 }, {
                     cancel, execute: (b, n, a, o) => this._command(rec, cancel, n, a, o),

@@ -91,6 +91,8 @@ async function decide(deps, goal, unmet, st) {
         }
     }
     for (const u of unmet) if ((u.need === 'tool_held' || u.need === 'item_held') && !steps.some((s) => s.do === 'equip' && s.item === u.item)) steps.push({ do: 'equip', item: u.item });
+    // an item that is not in the pack at all comes first (it may take the bot elsewhere); the position and the hand are then read again
+    for (const u of unmet) if (u.need === 'item_in_pack') steps.unshift({ do: 'obtain', item: u.item, count: u.count || 1 });
     if (!steps.length) return { fail: { reason: 'invalid_args', detail: { why: `no rule for ${[...needs].join(', ')}` } } };
     return { steps };
 }
@@ -102,6 +104,7 @@ async function perform(deps, s) {
         case 'travel': return deps.travel({ x: s.to.x, y: s.to.y, z: s.to.z, level: s.to.y }, { near: 3, nearY: 3 });
         case 'unstick': return deps.escape ? deps.escape() : { ok: false, reason: 'stuck', detail: { why: 'no stuck-escape expert in this environment' } };
         case 'equip': return deps.exec('equip', { item: s.item }, { atomic: true });
+        case 'obtain': return deps.obtain ? deps.obtain(s.item, s.count) : { ok: false, reason: 'missing_item', detail: { item: s.item, why: 'this environment cannot get items' } };
         default: return { ok: false, reason: 'internal', detail: { why: `unknown step ${s.do}` } };
     }
 }
@@ -127,8 +130,9 @@ async function run(deps, goal) {
         for (const s of d.steps) {
             const sr = await perform(deps, s);
             if (s.do === 'travel') st.travelled = true;
+            if (s.do === 'obtain') chain.push({ do: 'obtain', item: s.item, count: s.count, ok: !!sr.ok, ...(sr.ok ? {} : { reason: sr.reason }), steps: sr.detail && sr.detail.steps });
             if (s.do === 'unstick') st.escaped++;
-            chain.push({ do: s.do, need: unmet.map((u) => u.need), ...(s.why ? { why: s.why } : {}), ...(s.to ? { to: [s.to.x, s.to.y, s.to.z] } : {}), ...(s.item ? { item: s.item } : {}), ...(s.region !== undefined ? { region: s.region } : {}), ok: !!sr.ok, ...(sr.ok ? {} : { reason: sr.reason }) });
+            if (s.do !== 'obtain') chain.push({ do: s.do, need: unmet.map((u) => u.need), ...(s.why ? { why: s.why } : {}), ...(s.to ? { to: [s.to.x, s.to.y, s.to.z] } : {}), ...(s.item ? { item: s.item } : {}), ...(s.region !== undefined ? { region: s.region } : {}), ok: !!sr.ok, ...(sr.ok ? {} : { reason: sr.reason }) });
             if (!sr.ok) { last = sr; if (FATAL.has(sr.reason)) return done(sr); break; }       // read the state again and decide again
         }
     }
