@@ -66,8 +66,16 @@ All coordinates are block cells (integers). "Success" is what the command waits 
 ### Failure taxonomy (closed, `REASONS` in `runner.js`)
 
 `invalid_args`, `invalid_target`, `missing_item`, `missing_tool`, `missing_materials`, `no_station`, `unreachable`,
-`stuck`, `not_visible`, `not_confirmed`, `target_lost`, `timeout`, `died`, `disconnected`, `cancelled`, `internal`.
-`internal` means a bug: the detail holds the stack. A `SkillError` with any other reason cannot be constructed.
+`stuck`, `not_visible`, `not_confirmed`, `target_lost`, `timeout`, `died`, `disconnected`, `cancelled`, `internal`, and (atomic mode only, since 2026-11-12)
+`precondition_failed`. `internal` means a bug: the detail holds the stack. A `SkillError` with any other reason cannot be constructed.
+
+### Atomic mode and tick budgets (2026-11-12, [COMMAND-STACK-v1](COMMAND-STACK-v1.md))
+
+`execute(bot, name, args, { atomic: true })` is the instruction as the bottom of the command stack: `src/skills/preconditions.js` checks, from the current state alone, that the
+target is in reach, that the right tool / item is in the hand and that the chunk is loaded; if not it returns `precondition_failed` with `detail.unmet` (`[{need: 'in_reach', dist, max}, {need: 'tool_held', item}, ...]`)
+before any tick, and the command never walks, equips or swaps by itself (`line_of_sight` is reported by the command's own aim search). The router (`src/stack/router.js`) reads the answer and the bot's state and decides what to do first.
+Without `atomic` the commands behave as in the table above (they approach and equip by themselves): the RL environment, the trained experts and every caller that has not moved to the router.
+The tick budget of `move_to`, `mine`, `place` and `activate` grows with the distance to the target (base + 14 ticks per block beyond 5, at most 6000) instead of a fixed 1200 / 600.
 
 ### Debugging
 

@@ -61,3 +61,14 @@ The injector intervenes just before world data loads to modify the `bot.registry
 | Undefined Reference | `dynamic_registry...` | Catch reference error, inject a dummy "Unknown Block" object into registry at runtime. |
 | Stack Overflow | `mineflayer-pathfinder` | Terminate algorithm via hard limit, notify LLM via IPC, and add "Inaccessible Area" rule to prompt. |
 | NBT/Payload Error | `inventory_nbt_patch` | Revert to safe default values (1 item) and command the LLM to "re-open inventory" to refresh packets. |
+
+## 8. Command stack: who may tell a bot to act (owner's architecture, 2026-11-12)
+
+Full text, rules and status: [implemented/COMMAND-STACK-v1.md](implemented/COMMAND-STACK-v1.md). In short: the lowest instruction a bot accepts is a machine-language instruction that checks its own
+preconditions (each decidable uniquely from the current state) and halts with a named error when one does not hold; it never walks, equips or suggests a remedy. Only a debugging session or an expert
+called from the router may issue it. The router (rule-based, with a teacher: success and failure can be told apart) alone knows the remedy and decides from the whole state: `mine` answering "far" to a bot that is
+stuck becomes unstick, move, equip, mine. The operator and the built-in mechanisms (Pit, Build) ask from the very top and never name an instruction.
+
+```
+operator · Pit · Build · gather  ->  ROUTER (src/stack)  ->  EXPERTS (src/experts, learned inside their preconditions)  ->  INSTRUCTIONS (src/skills, atomic)  ->  BODY  ->  mineflayer
+```

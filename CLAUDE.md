@@ -138,6 +138,7 @@ rl3/                RL-MOVE-v3 and pit expert trainer (JAX): simulator, PPO, exp
 moe/                experts (one small PPO policy per item), rule planner, XGBoost/LightGBM router, chain; tools/sim is its environment (docs/proposed/MOE-v1.md)
 src/work/           pure bots, ~13 role folders (jobs, bot, service, web, operator, world, display): map and "where do I change X" in src/work/README.md; calls execute() only
 src/skills/         the action layer: 14 commands built only from player inputs (body, planner, runner, commands/*), intents.js + llm_prompt.js for the LLM
+src/stack/           the router of the command stack (docs/implemented/COMMAND-STACK-v1.md): precondition failures + state -> the chain (unstick, move, equip ...); the only place that knows a remedy
 src/experts/move3/ + src/experts/pit/   the learned cell-level walk (env.travel, setting move3) and the pit's station scoring network (pit method expert, setting pitExpert); models in models/experts/
 src/skills_bot.js   the bot child process on the action layer (default; BOT_RUNTIME=legacy forks bot_actuator.js); src/vault_client.js reads LLM credentials
 src/rl/             RL environment (env, controls, observation, goal, DPOD file-API runner); src/transport/ = login/FML3 factory shared with the actuator, mod_registry.js = exact mod blocks/items
@@ -187,6 +188,14 @@ Every command is a sequence of per-tick input frames (movement keys, look, hotba
 `runner.js` runs it on the live clock with a tick budget and a per-tick trace and ends it with `ok` or a reason from a closed
 taxonomy (`REASONS`). Success is the change the server sends back, never the bot's own prediction. `execute(bot, name, args)` in
 `src/skills/index.js` is the entry point. Spec, command reference and measured success rates: `docs/implemented/SKILLS-v1.md`.
+
+### Command stack (owner's architecture, 2026-11-12, `docs/implemented/COMMAND-STACK-v1.md`, binding)
+
+operator / Pit / Build -> **router** (`src/stack/router.js`, rule-based) -> experts -> **atomic instructions** (`execute(..., {atomic: true})`, `src/skills/preconditions.js`) -> body -> mineflayer.
+An instruction checks its own preconditions (each decidable from the state alone: `mine` = in reach and the right tool in hand), halts with `precondition_failed` and the measured value, and never walks,
+equips or names a remedy; an expert refuses only for its own preconditions; only the router knows the remedy and decides from the whole state (far + stuck -> unstick, move, equip, mine). Rules for changes:
+the top (console commands, `gather`, and jobs once `stackJobs` is on) goes through `env.command`, not `execute`; a new instruction gets its preconditions in `preconditions.js` and a rule in `router.decide`;
+no robustness inside an instruction (no hidden approach, retry or tool swap): that is how the 2026-11-12 failures came about. `rawCommands` is for debugging only.
 
 ### Bot Actuator (`src/bot_actuator.js`, ~6.7k lines, plus `src/actuator/{ctx,environment,flight,tools,utils}.js`)
 

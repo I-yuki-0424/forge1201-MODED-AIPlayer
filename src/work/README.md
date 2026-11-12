@@ -19,6 +19,7 @@ escalation.js  request to the DPOD router (not wired into any job)
 
 | I want to change ... | file |
 | :-- | :-- |
+| what happens when a command's precondition does not hold (far, wrong tool in hand, sealed in): the chain unstick / move / equip, the rule table / the preconditions of an instruction | `src/stack/router.js` (`decide`, `run`) / `src/skills/preconditions.js`; the top calls `env.command` (`bot/env.js`), `_command` (`service/commands.js`); settings `rawCommands`, `stackJobs`; spec docs/implemented/COMMAND-STACK-v1.md |
 | how a pit is cut up, lanes, haul road, how a unit digs | `jobs/pit.js` |
 | who gets which unit, leases, retries, stuck units | `jobs/crew.js` |
 | how a structure is built (scaffold, order) / edited | `jobs/build.js` / `jobs/blueprint.js` |
