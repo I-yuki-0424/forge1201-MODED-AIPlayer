@@ -14,6 +14,8 @@ const DIST = (process.env.DIST || '3,5,10,20,40').split(',').map(Number), RANGE 
 const CONTROL = process.env.CONTROL || '', A = process.env.BOTNAME || 'RealA';
 
 async function main() {
+    // which code is under test (an A/B against an older checkout: REPO=/path scripts/real/run.sh ... as an ENVIRONMENT prefix; a REPO=... word after the script name only reaches the container)
+    console.log(`[real-cmd] code under test: ${fs.existsSync(require('path').join(__dirname, '../../src/stack/router.js')) ? 'with the command stack (src/stack)' : 'BEFORE the command stack (no src/stack)'}`);
     const { shared, S } = await L.connectRcon();
     const svc = await L.openService(shared, [A], { rawCommands: MODE === 'raw' });
     const rec = svc.bots.get(A), bot = rec.bot;
