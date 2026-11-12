@@ -33,7 +33,7 @@ async function main() {
     const a = await send(north.x, north.z), p1 = await L.posOf(S, A);
     check(`${DIST} blocks north of the initial point`, !!p1 && across(p1, north) <= 4, { target: north, at: p1 && [p1.x, p1.y, p1.z].map(Math.round), off: p1 && Math.round(across(p1, north)), sec: a.sec, said: a.said });
     const b = await send(init.x, init.z), p2 = await L.posOf(S, A);
-    check('back at the initial point', !!p2 && across(p2, init) <= 4 && Math.abs(p2.y - init.y) <= 3, { target: init, at: p2 && [p2.x, p2.y, p2.z].map(Math.round), off: p2 && Math.round(across(p2, init)), sec: b.sec, said: b.said });
+    check('back at the initial point (counts only if the walk out succeeded)', results[0].ok && !!p2 && across(p2, init) <= 4 && Math.abs(p2.y - init.y) <= 3, { target: init, at: p2 && [p2.x, p2.y, p2.z].map(Math.round), off: p2 && Math.round(across(p2, init)), sec: b.sec, said: b.said });
     check('no server move, no death', moves === 0 && deaths === 0, { moves, deaths });
     await svc.stop();
     const failed = results.filter((x) => !x.ok);

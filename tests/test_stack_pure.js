@@ -213,6 +213,17 @@ function fakeBot(scene, pos, { pack = [], held = null, entities = {} } = {}) {
         } finally { skills.execute = orig; }
     });
 
+    await test('layout kind fill: a solid box (the backfill of a pit): every cell, heights up to 256, cells and counts as the box says, and the limits still hold', () => {
+        const { layout } = require('../src/work/jobs/layout');
+        const L = layout({ kind: 'fill', block: 'cobblestone', x0: 0, z0: 0, x1: 15, z1: 15, y: -59, height: 140 });
+        assert.strictEqual(L.count, 16 * 16 * 140);
+        assert.deepStrictEqual(L.size, [16, 140, 16]);
+        assert.strictEqual(new Set(L.cells.map((c) => `${c.x},${c.y},${c.z}`)).size, L.count, 'no cell twice');
+        assert.throws(() => layout({ kind: 'fill', block: 'cobblestone', x0: 0, z0: 0, x1: 15, z1: 15, y: -59, height: 257 }), /height: 1..256/);
+        assert.throws(() => layout({ kind: 'fill', block: 'cobblestone', x0: 0, z0: 0, x1: 31, z1: 31, y: 0, height: 64 }), /too many/);
+        assert.throws(() => layout({ kind: 'wall', block: 'cobblestone', x0: 0, z0: 0, x1: 3, z1: 0, y: 0, height: 65 }), /height: 1..64/, 'other kinds keep 64');
+    });
+
     await test('the routed set is exactly the six instructions the router has rules for', () => {
         assert.deepStrictEqual([...router.ROUTED].sort(), ['activate', 'attack', 'mine', 'pickup', 'place', 'tunnel']);
     });

@@ -5,10 +5,11 @@
 //   floor  the rectangle x0..x1 by z0..z1, ONE layer at y
 //   wall   a straight line from (x0, z0) to (x1, z1), `height` layers from y up; it must run along x (z0 = z1) or along z (x0 = x1)
 //   room   the four walls around the rectangle x0..x1 by z0..z1, `height` layers from y up (the middle stays open; lay a floor separately)
+//   fill   every cell of the box x0..x1 by z0..z1, `height` layers from y up: a solid block (the backfill of a pit, ACCEPTANCE-v1 test 1)
 // `dim` (default overworld) and `limits` ({minY, height}, for a dimension nobody has described) decide which heights are allowed.
 const dimensions = require('../world/dimensions');
-const MAX_CELLS = 40000, MAX_SIDE = 256, MAX_HEIGHT = 64;
-const KINDS = ['floor', 'wall', 'room'];
+const MAX_CELLS = 40000, MAX_SIDE = 256, MAX_HEIGHT = 64, MAX_FILL_HEIGHT = 256;
+const KINDS = ['floor', 'wall', 'room', 'fill'];
 const BLOCK = /^([a-z0-9_.-]{1,32}:)?[a-z0-9_]{1,64}$/;
 const NOT_PLACEABLE = /^(air|cave_air|void_air|water|lava|bedrock|barrier|structure_void|jigsaw|command_block)$/;
 
@@ -26,7 +27,8 @@ function layout(s) {
     if (typeof s.block !== 'string' || !BLOCK.test(s.block) || NOT_PLACEABLE.test(s.block.replace(/^minecraft:/, ''))) bad('block: a placeable block such as cobblestone, oak_planks or create:andesite_casing');
     for (const k of ['x0', 'z0', 'x1', 'z1', 'y']) if (!Number.isInteger(s[k]) || Math.abs(s[k]) > 29_999_000) bad(`${k} must be an integer`);
     const height = s.kind === 'floor' ? 1 : s.height === undefined ? 3 : s.height;
-    if (!Number.isInteger(height) || height < 1 || height > MAX_HEIGHT) bad(`height: 1..${MAX_HEIGHT}`);
+    const maxH = s.kind === 'fill' ? MAX_FILL_HEIGHT : MAX_HEIGHT;
+    if (!Number.isInteger(height) || height < 1 || height > maxH) bad(`height: 1..${maxH}`);
     const P = dimensions.profile(s.dim === undefined ? 'overworld' : s.dim, s.limits);          // throws a DimensionError with a sentence for an unknown spelling
     if (s.y < P.minY || s.y + height - 1 > P.maxY) bad(`the layers must lie between y ${P.minY} and y ${P.maxY} in ${P.name}`);
     const block = s.block.replace(/^minecraft:/, '');
@@ -34,7 +36,7 @@ function layout(s) {
     if (s.kind === 'wall' && x0 !== x1 && z0 !== z1) bad('a wall runs straight: along x (z from = z to) or along z (x from = x to). Drag a line on the map, or make one pair of numbers equal.');
     if (x1 - x0 >= MAX_SIDE || z1 - z0 >= MAX_SIDE) bad(`at most ${MAX_SIDE} blocks per side`);
     const flat = new Set();                                         // the footprint: "x,z"
-    if (s.kind === 'floor') { for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) flat.add(`${x},${z}`); }
+    if (s.kind === 'floor' || s.kind === 'fill') { for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) flat.add(`${x},${z}`); }
     else if (s.kind === 'wall') { for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) flat.add(`${x},${z}`); }
     else {
         if (x1 - x0 < 1 || z1 - z0 < 1) bad('a room needs at least 2 x 2 blocks (for one straight line use a wall)');
@@ -46,7 +48,8 @@ function layout(s) {
     for (const k of flat) { const [x, z] = k.split(',').map(Number); for (let dy = 0; dy < height; dy++) cells.push({ x: x - x0, y: dy, z: z - z0, block }); }
     const w = x1 - x0 + 1, d = z1 - z0 + 1;
     const along = s.kind === 'wall' ? (x0 !== x1 || z0 === z1 ? 'x' : 'z') : null;
-    const describe = s.kind === 'floor' ? `a floor of ${w} × ${d} (${count} ${block}) at y ${s.y}, from x ${x0} to ${x1} and z ${z0} to ${z1}`
+    const describe = s.kind === 'fill' ? `a solid block of ${w} × ${d} × ${height} (${count} ${block}), y ${s.y} to ${s.y + height - 1}, from x ${x0} to ${x1} and z ${z0} to ${z1}`
+        : s.kind === 'floor' ? `a floor of ${w} × ${d} (${count} ${block}) at y ${s.y}, from x ${x0} to ${x1} and z ${z0} to ${z1}`
         : s.kind === 'wall' ? `a wall ${along === 'x' ? w : d} long and ${height} high (${count} ${block}), along ${along} from ${along === 'x' ? `x ${x0} to ${x1} at z ${z0}` : `z ${z0} to ${z1} at x ${x0}`}, y ${s.y} to ${s.y + height - 1}`
             : `the four walls of a ${w} × ${d} room, ${height} high (${count} ${block}), y ${s.y} to ${s.y + height - 1}; the inside stays open`;
     // The footprint as boxes for the map: one rectangle, or the four strips of a room's walls.
@@ -54,4 +57,4 @@ function layout(s) {
     return { origin: { x: x0, y: s.y, z: z0 }, size: [w, height, d], cells, count, describe, block, kind: s.kind, height, boxes, along };
 }
 
-module.exports = { layout, LayoutError, KINDS, MAX_CELLS, MAX_HEIGHT };
+module.exports = { layout, LayoutError, KINDS, MAX_CELLS, MAX_HEIGHT, MAX_FILL_HEIGHT };

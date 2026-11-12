@@ -6,6 +6,7 @@ function placePage() {
         ['floor', 'Floor', 'One layer over the whole rectangle you drag. Level y is the height of the blocks.'],
         ['wall', 'Wall', 'A straight line: drag from where it starts to where it ends. It runs along the longer direction; the blocks stand on level y and rise by the height.'],
         ['room', 'Room walls', 'The four walls around the rectangle you drag; the inside stays open. Lay a floor separately.'],
+        ['fill', 'Solid block', 'Every cell of the rectangle you drag, from level y up by the height (up to 256): the backfill of a pit.'],
     ];
     const COMMON = ['cobblestone', 'stone', 'stone_bricks', 'oak_planks', 'spruce_planks', 'birch_planks', 'dark_oak_planks', 'bricks', 'sandstone', 'smooth_stone', 'glass', 'dirt', 'oak_log', 'deepslate_bricks', 'white_concrete', 'create:andesite_casing'];
     const f = Object.fromEntries(['x0', 'z0', 'x1', 'z1', 'y', 'height'].map((k) => [k, h('input', { type: 'number', class: 'num', 'aria-label': k })]));
