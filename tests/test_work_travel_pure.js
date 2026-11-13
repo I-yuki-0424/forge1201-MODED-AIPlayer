@@ -99,5 +99,13 @@ function sim({ start = { x: 0, y: 64, z: 0 }, water = () => false, wall = () => 
         assert.ok(r.ok, JSON.stringify(r));
         assert.ok(s.moves.every((m) => m[1] > 50), `no leg went down into the pit: ${JSON.stringify(s.moves.filter((m) => m[1] <= 50))}`);
     });
+    await test('legs that go down more than 10 levels are tried after the level ones (the crater across the line is gone round, not entered)', async () => {
+        // ground at 63 everywhere, a crater from x 30 to 52 floored at 40 with walkable ledges down its west rim; the bot walks the straight candidates first and records every leg it is asked for
+        const pit = (x, z) => (x >= 30 && x <= 52 && Math.abs(z) <= 15 ? Math.max(40, 63 - 3 * (Math.floor((x - 30) / 2) + 1)) : false);
+        const s = sim({ start: { x: 22, y: 64, z: 0 }, pit });
+        const asked = []; const ex = s.env.exec; s.env.exec = async (n, a) => { asked.push(a.y); return ex(n, a); };
+        await travel(s.env, { x: 120, z: 0 });
+        assert.ok(asked.length > 0 && asked[0] > 50, `the first leg asked for is not into the crater: ${JSON.stringify(asked.slice(0, 4))}`);
+    });
     console.log('\nwork travel: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

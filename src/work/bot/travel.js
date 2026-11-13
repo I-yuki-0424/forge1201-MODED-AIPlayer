@@ -16,6 +16,7 @@ const MAX_LEGS = 80;               // 80 legs of 40 = 3,200 blocks
 const MAX_DY = 24;                 // a leg ends no more than this far above or below where it starts (no walk down into the pit, no climb of a cliff by the planner's choice)
 
 const hd = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+const DEEP = 10;                   // a leg that ends more than this far below its start is a last resort
 const RANGE = 36;                  // radius of the planner's reach used to judge a leg's destination
 
 /**
@@ -104,7 +105,10 @@ async function travel(env, to, { leg = LEG, near = NEAR, maxLegs = MAX_LEGS } = 
         }
         let moved = false;
         let reach = null; try { reach = await reachableAsync(env.w, { x: here.x, y: here.y, z: here.z }, { maxNodes: 3000, radius: 36 }); } catch (_) { /* a world without the readers: the straight-line candidates only */ }
-        for (const c of legCandidates(env.w, here, to, { leg: reach ? Math.min(leg, 30) : leg, reach, visited })) {          // with the reach known a leg stays inside the area it was checked in
+        // Legs that go down more than DEEP levels are tried last: a sinkhole or a ravine lies across the line far more often than a cliff worth descending, and what is entered is left only by digging
+        // (acceptance world 1, 2026-11-13: the 50 % leg went 17 levels into a crater, the frontier legs then wandered its floor; the same crater on three runs).
+        const cands = legCandidates(env.w, here, to, { leg: reach ? Math.min(leg, 30) : leg, reach, visited }).map((c, i) => ({ c, i, deep: c.y < here.y - DEEP })).sort((a, b) => (a.deep - b.deep) || (a.i - b.i)).map((q) => q.c);
+        for (const c of cands) {          // with the reach known a leg stays inside the area it was checked in
             if (c.y < here.y - 1 && !(await hasExit(env, c))) {
                 last = { reason: 'unreachable', detail: { why: 'a dead end (a pit or a ledge over one): the ground does not go on from there' }, tried: c };
                 if (env.trace) env.trace(`leg ${legs} ${here.x},${here.y},${here.z} -> ${c.x},${c.y},${c.z} (${c.why}) skipped: a dead end`);
