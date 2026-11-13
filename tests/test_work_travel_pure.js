@@ -92,8 +92,8 @@ function sim({ start = { x: 0, y: 64, z: 0 }, water = () => false, wall = () => 
         const r2 = await travel(far, { x: -15, z: -2055 }); assert.ok(!r2.ok && r2.legs === undefined || !r2.ok, 'hypot(2, 3) = 3.6 is not arrived: ' + JSON.stringify(r2));
     });
     await test('a leg does not end on the floor of a pit it cannot climb out of (reproducer: acceptance world 1, a sinkhole 25 across, 17 levels down, reached by ledges that go down only)', async () => {
-        // the west rim steps down in drops of 3 every 2 blocks (walkable downwards, not upwards), then a flat floor at 40 and a cliff back to the ground at x 61
-        const pit = (x, z) => (x >= 30 && x <= 60 && Math.abs(z) <= 15 ? Math.max(40, 63 - 3 * (Math.floor((x - 30) / 2) + 1)) : false);
+        // the west rim steps down in drops of 3 every 2 blocks (walkable downwards, not upwards), then a flat floor at 40 and a cliff back to the ground at x 53 (a pit inside the loaded chunks: one that runs out to their edge is judged open, the ground may go on)
+        const pit = (x, z) => (x >= 30 && x <= 52 && Math.abs(z) <= 15 ? Math.max(40, 63 - 3 * (Math.floor((x - 30) / 2) + 1)) : false);
         const s = sim({ start: { x: 0, y: 64, z: 0 }, pit });
         const r = await travel(s.env, { x: 120, z: 0 });
         assert.ok(r.ok, JSON.stringify(r));
