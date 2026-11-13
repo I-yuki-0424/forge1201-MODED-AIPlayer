@@ -17,10 +17,10 @@ async function main() {
     await L.sleep(4000);
     const p0 = await L.posOf(S, A), init = { x: Math.floor(p0.x), y: Math.floor(p0.y), z: Math.floor(p0.z) };
     console.log(`[accept-t2] initial point ${JSON.stringify(init)} seed ${(await S.cmd('seed')).replace(/\x1b\[[0-9;]*m/g, '')}`);
-    const send = async (x, z) => {
+    const send = async (x, z, y) => {
         const t0 = Date.now();
         if (CONTROL !== 'noop') {
-            const r = await svc.runCommand({ bots: [A], command: 'journey', args: { x, z } });
+            const r = await svc.runCommand({ bots: [A], command: 'journey', args: Number.isInteger(y) ? { x, y, z } : { x, z } });
             if (!r.started || !r.started.length) return { ok: false, why: 'refused', r };
             while (Date.now() - t0 < LIMIT_MIN * 60000 && rec.cmd && rec.cmd.status === 'running') await L.sleep(1000);
             if (rec.cmd && rec.cmd.status === 'running') rec.cmd.cancel.cancelled = true;
@@ -32,7 +32,7 @@ async function main() {
     const north = { x: init.x, z: init.z - DIST };
     const a = await send(north.x, north.z), p1 = await L.posOf(S, A);
     check(`${DIST} blocks north of the initial point`, !!p1 && across(p1, north) <= 4, { target: north, at: p1 && [p1.x, p1.y, p1.z].map(Math.round), off: p1 && Math.round(across(p1, north)), sec: a.sec, said: a.said });
-    const b = await send(init.x, init.z), p2 = await L.posOf(S, A);
+    const b = await send(init.x, init.z, init.y), p2 = await L.posOf(S, A);
     check('back at the initial point (counts only if the walk out succeeded)', results[0].ok && !!p2 && across(p2, init) <= 4 && Math.abs(p2.y - init.y) <= 3, { target: init, at: p2 && [p2.x, p2.y, p2.z].map(Math.round), off: p2 && Math.round(across(p2, init)), sec: b.sec, said: b.said });
     check('no server move, no death', moves === 0 && deaths === 0, { moves, deaths });
     await svc.stop();
