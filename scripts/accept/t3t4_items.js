@@ -21,6 +21,9 @@ async function main() {
     const p0 = await L.posOf(S, A), init = { x: Math.floor(p0.x), y: Math.floor(p0.y), z: Math.floor(p0.z) };
     console.log(`[accept-t3t4] initial point ${JSON.stringify(init)} ${(await S.cmd('seed')).replace(/\x1b\[[0-9;]*m/g, '')}`);
     for (const k of ['pickaxe', 'axe', 'shovel', 'sword']) await S.must(`give ${A} minecraft:netherite_${k}${ENCH} 1`);
+    // The tools chest stands at the initial point in the real set-up: a bot that died comes back to it. Here the tools are given again on the respawn (a bot that died lost them and every later step said missing_tool).
+    let deaths = 0; bot.on('death', () => { deaths++; });
+    bot.on('spawn', () => { setTimeout(async () => { try { if (!bot.inventory.items().some((i) => i.name === 'netherite_pickaxe')) for (const k of ['pickaxe', 'axe', 'shovel', 'sword']) await S.must(`give ${A} minecraft:netherite_${k}${ENCH} 1`); } catch (_) { /* the next respawn tries again */ } }, 2500); });
     const have = async (item) => S.count(item);
     const send = async (command, args, label) => {
         const t0 = Date.now();
@@ -34,7 +37,7 @@ async function main() {
         return { ok: !!res.ok, reason: res.reason, sec: Math.round((Date.now() - t0) / 1000) };
     };
     const beat = setInterval(async () => {                              // a heartbeat: where the bot is and what it carries (the steps are printed by obtain itself)
-        try { const p = await L.posOf(S, A); const n = {}; for (const k of ['raw_iron', 'iron_ingot', 'coal', 'cobblestone', 'stone', 'furnace', 'crafting_table', 'oak_log', 'birch_log', 'spruce_log']) n[k] = await have(k); console.log(`[accept-t3t4] beat at ${p && [p.x, p.y, p.z].map(Math.round)} cmd ${rec.cmd && rec.cmd.name}/${rec.cmd && rec.cmd.status} ${JSON.stringify(n)}`); } catch (_) { /* the harness never fails on a heartbeat */ }
+        try { const p = await L.posOf(S, A); const n = {}; for (const k of ['raw_iron', 'iron_ingot', 'coal', 'cobblestone', 'stone', 'furnace', 'crafting_table', 'oak_log', 'birch_log', 'spruce_log']) n[k] = await have(k); console.log(`[accept-t3t4] beat deaths ${deaths} at ${p && [p.x, p.y, p.z].map(Math.round)} cmd ${rec.cmd && rec.cmd.name}/${rec.cmd && rec.cmd.status} ${JSON.stringify(n)}`); } catch (_) { /* the harness never fails on a heartbeat */ }
     }, 120000);
     // ---- test 3
     for (const [item, what] of [['iron_ingot', 'iron'], ['stone', 'smelted stone'], ['cobblestone', 'cobblestone'], ['wood', 'wood']]) await send('obtain', { item, count: N3 }, `obtain ${N3} ${what}`);

@@ -94,7 +94,9 @@ async function back(deps, entry, trail = null) {
             if (!r.ok && FATAL.has(r.reason)) return r;
         }
     }
-    return deps.travel({ x: entry.x, y: entry.y, z: entry.z }, { near: 2, nearY: 3 });
+    // The column of the entry, not its exact cell: the cell the bot stood on when it began may be dug away or no longer standable ("invalid_target": 64 raw iron in the pack and the bot stranded underground,
+    // acceptance world 4, 2026-11-13); the walk ends on the surface of the column, within three blocks.
+    return deps.travel({ x: entry.x, z: entry.z }, { near: 3 });
 }
 
 module.exports = { surface, prospect, back, ORE_LEVEL, RINGS };
