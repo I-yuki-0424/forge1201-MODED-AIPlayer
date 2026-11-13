@@ -31,12 +31,13 @@ async function surface(deps, found, { maxRing = 640 } = {}) {
  * `command('tunnel', {dir, dy})` is the router's: tool in hand, being sealed in, are not this function's business.
  */
 async function prospect(deps, found, level, { maxStairs = 120, maxTunnel = 160 } = {}) {
-    const entry = deps.here(), log = { stairs: 0, tunnel: 0, fails: [] };
+    const entry = deps.here(), log = { stairs: 0, tunnel: 0, fails: [], trail: [] };
     let dir = 0, fails = 0;
+    const mark = () => { const h = deps.here(); log.trail.push({ x: h.x, y: h.y, z: h.z }); };
     const step = async (dy) => {
         for (let k = 0; k < 4; k++) {
             const r = await deps.command('tunnel', { dir: DIRS[dir], dy });
-            if (r.ok) { fails = 0; return true; }
+            if (r.ok) { fails = 0; mark(); return true; }
             if (FATAL.has(r.reason)) throw Object.assign(new Error(r.reason), { fatal: r.reason });
             // "Nothing to dig (a walk)": the cell ahead is already open (a cave, an old tunnel). That is no refusal, it is free ground: walk the step, and the search goes on from there
             // (acceptance world 4, 2026-11-13: such answers were counted as failures, turned the tunnel and ended it after six).
@@ -47,7 +48,7 @@ async function prospect(deps, found, level, { maxStairs = 120, maxTunnel = 160 }
                 for (const y of /nothing to dig/.test(String(r.detail.why)) ? [h.y + dy] : [h.y + dy, h.y + dy - 1, h.y + dy - 2, h.y + dy - 3]) {
                     if (deps.w && !(free(deps.w.kindAt(x, y, z)) && free(deps.w.kindAt(x, y + 1, z)) && deps.w.kindAt(x, y - 1, z) === 'solid')) continue;
                     const w = await deps.exec('move_to', { x, y, z });
-                    if (w.ok) { fails = 0; return true; }
+                    if (w.ok) { fails = 0; mark(); return true; }
                     break;
                 }
             }
@@ -79,6 +80,17 @@ async function prospect(deps, found, level, { maxStairs = 120, maxTunnel = 160 }
 }
 
 /** After prospecting: back to the surface by the way the bot came (the staircase is a 1 x 2 corridor with steps of one block: walkable). */
-async function back(deps, entry) { return deps.travel({ x: entry.x, y: entry.y, z: entry.z }, { near: 2, nearY: 3 }); }
+async function back(deps, entry, trail = null) {
+    // By the cells the bot dug and walked, newest first, a few at a time (a staircase is a 1 x 2 corridor: the legs of the surface walk do not find their way up a diagonal shaft: acceptance world 4, 2026-11-13,
+    // "back to the surface: unreachable" after 57 stairs); the surface walk is the fallback.
+    if (trail && trail.length && deps.exec) {
+        for (let i = trail.length - 1; i >= 0; i -= 4) {
+            if (deps.cancelled && deps.cancelled()) break;
+            const c = trail[i], r = await deps.exec('move_to', { x: c.x, y: c.y, z: c.z });
+            if (!r.ok && FATAL.has(r.reason)) return r;
+        }
+    }
+    return deps.travel({ x: entry.x, y: entry.y, z: entry.z }, { near: 2, nearY: 3 });
+}
 
 module.exports = { surface, prospect, back, ORE_LEVEL, RINGS };

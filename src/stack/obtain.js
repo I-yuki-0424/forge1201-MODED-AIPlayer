@@ -103,8 +103,8 @@ async function obtain(deps, item, n, depth = 0) {
             if (ORE_LEVEL[item] !== undefined) {
                 const p = await prospect({ ...deps, nearest }, nearby, ORE_LEVEL[item]); log(`prospect ${item}: ${p.found ? 'found' : p.why || 'nothing'} (${p.stairs} stairs, ${p.tunnel} tunnel${p.fails.length ? `, ${p.fails.length} refusals: ${[...new Set(p.fails.map((f) => f.replace(/^\w+( -?\d)?: /, '')))].slice(0, 4).join(' | ').slice(0, 260)}` : ''})`);
                 stop = await mineAll();
-                if (missing() > 0 && !stop) { const b = await back(deps, p.entry); log(`back to the surface: ${b.ok ? 'ok' : b.reason}`); if (!b.ok) break; }
-                else if (!stop) { const b = await back(deps, p.entry); log(`back to the surface: ${b.ok ? 'ok' : b.reason}`); }
+                if (missing() > 0 && !stop) { const b = await back(deps, p.entry, p.trail); log(`back to the surface: ${b.ok ? 'ok' : b.reason}`); if (!b.ok) break; }
+                else if (!stop) { const b = await back(deps, p.entry, p.trail); log(`back to the surface: ${b.ok ? 'ok' : b.reason}`); }
                 if (!p.found && p.why) break;
             } else {
                 const s = await surface(deps, nearby); log(`explore for ${item}: ${s.found ? 'found' : s.why} (${s.stops.length} stops)`);
