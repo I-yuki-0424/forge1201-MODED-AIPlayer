@@ -263,7 +263,9 @@ function tunnelCells(f, dir, dy) {
 /** Why a tunnel step cannot be dug from feet cell `f` (world only, no inventory), or null. Shared with the RL candidates. */
 function tunnelProblem(w, f, dir, dy) {
     const { clear, floor } = tunnelCells(f, dir, dy);
-    if (w.kindAt(floor.x, floor.y, floor.z) !== 'solid') return 'no floor to stand on';
+    const fk = w.kindAt(floor.x, floor.y, floor.z);
+    if (fk === 'unknown') return 'not loaded';
+    if (fk !== 'solid') return 'no floor to stand on';
     const inClear = (c) => clear.some((q) => q.x === c.x && q.y === c.y && q.z === c.z);
     let solid = 0;
     for (const c of clear) {

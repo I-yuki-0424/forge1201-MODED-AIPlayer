@@ -306,6 +306,16 @@ function fakeBot(scene, pos, { pack = [], held = null, entities = {} } = {}) {
         assert.strictEqual(r.fails.length, 0, 'no refusal was counted');
     });
 
+    await test('prospecting: "no floor to stand on" on a stair step is a drop, walked down to the first cell that can be stood on (reproducer: acceptance world 4, a cave layer under the hill ended the staircase after one step)', async () => {
+        const ex = require('../src/stack/explore'); let pos = { x: 0, y: 30, z: 0 }; const walks = [];
+        // everything air, except a floor at y 26 (so that a stair from y 30 has no floor at 29, and the first standable cell ahead is y 27)
+        const w = { kindAt: (x, y) => (y <= 26 ? 'solid' : 'air') };
+        const d = { here: () => ({ ...pos }), cancelled: () => false, w, command: async () => ({ ok: false, reason: 'invalid_target', detail: { why: 'no floor to stand on' } }),
+            exec: async (nm, a) => { walks.push([a.y]); pos = { x: a.x, y: a.y, z: a.z }; return { ok: true }; } };
+        const r = await ex.prospect(d, () => false, 27, { maxStairs: 3, maxTunnel: 0 });
+        assert.deepStrictEqual(walks[0], [27], JSON.stringify(walks)); assert.ok(r.stairs >= 1, JSON.stringify(r));
+    });
+
     await test('prospecting heads for ore it can see (the axis it is furthest along, a stair when it lies two levels off) instead of a blind heading', async () => {
         const ex = require('../src/stack/explore'); let pos = { x: 0, y: 20, z: 0 }; const seen = [];
         const d = { here: () => ({ ...pos }), cancelled: () => false, nearest: async () => ({ x: 9, y: 24, z: -3 }),

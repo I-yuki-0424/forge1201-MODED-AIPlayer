@@ -40,10 +40,16 @@ async function prospect(deps, found, level, { maxStairs = 120, maxTunnel = 160 }
             if (FATAL.has(r.reason)) throw Object.assign(new Error(r.reason), { fatal: r.reason });
             // "Nothing to dig (a walk)": the cell ahead is already open (a cave, an old tunnel). That is no refusal, it is free ground: walk the step, and the search goes on from there
             // (acceptance world 4, 2026-11-13: such answers were counted as failures, turned the tunnel and ended it after six).
-            if (deps.exec && r.detail && /nothing to dig/.test(String(r.detail.why || ''))) {
-                const h = deps.here(), [vx, vz] = VEC[DIRS[dir]];
-                const w = await deps.exec('move_to', { x: h.x + vx, y: h.y + dy, z: h.z + vz });
-                if (w.ok) { fails = 0; return true; }
+            // "No floor to stand on" is the same thing from above: the ground ahead falls away (a cave layer under the hill, a ledge). Walk down to the first cell that can be stood on, up to three levels below.
+            if (deps.exec && r.detail && /nothing to dig|no floor to stand on/.test(String(r.detail.why || ''))) {
+                const h = deps.here(), [vx, vz] = VEC[DIRS[dir]], x = h.x + vx, z = h.z + vz;
+                const free = (k) => k === 'air' || k === 'climb';
+                for (const y of /nothing to dig/.test(String(r.detail.why)) ? [h.y + dy] : [h.y + dy, h.y + dy - 1, h.y + dy - 2, h.y + dy - 3]) {
+                    if (deps.w && !(free(deps.w.kindAt(x, y, z)) && free(deps.w.kindAt(x, y + 1, z)) && deps.w.kindAt(x, y - 1, z) === 'solid')) continue;
+                    const w = await deps.exec('move_to', { x, y, z });
+                    if (w.ok) { fails = 0; return true; }
+                    break;
+                }
             }
             log.fails.push(`${DIRS[dir]}${dy ? ' ' + dy : ''}: ${(r.detail && r.detail.why) || r.reason}`); fails++;
             dir = (dir + 1) % 4;                                                    // water, lava, no floor, a drop: another way

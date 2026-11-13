@@ -6,7 +6,7 @@ const A = process.env.BOTNAME || 'ProbeC', CMD = process.env.CMD, ARGS = JSON.pa
 (async () => {
     const { shared, S } = await L.connectRcon();
     const svc = await L.openService(shared, [A], { teleport: 'off' }); const rec = svc.bots.get(A), bot = rec.bot; S.name = A;
-    await L.sleep(4000);
+    await L.sleep(Number(process.env.WAIT || 12000));
     const ENCH = '{Enchantments:[{id:"minecraft:efficiency",lvl:255},{id:"minecraft:unbreaking",lvl:255}]}';
     for (const k of ['pickaxe', 'axe', 'shovel', 'sword']) await S.must(`give ${A} minecraft:netherite_${k}${ENCH} 1`);
     if (process.env.TP) { const [x, y, z] = process.env.TP.split(',').map(Number); await S.must(`gamemode survival ${A}`); await L.tpIn(S, A, 'overworld', x + 0.5, y, z + 0.5); await L.sleep(6000); }
