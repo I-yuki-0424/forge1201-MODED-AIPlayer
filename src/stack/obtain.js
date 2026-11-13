@@ -28,9 +28,9 @@ function freeCells(deps, near = 2) {
     return out.sort((a, b) => a.d - b.d);
 }
 
-/** A station block (crafting table, furnace) within 16 blocks of the bot: its cell, or null. */
+/** A station block (crafting table, furnace) within 5 blocks of the bot: its cell, or null. Not 16: a furnace found 12 blocks away across a cliff was "found" and then "unreachable" (acceptance world 4, 2026-11-13); a new one costs eight cobblestone. */
 function stationNear(deps, name) {
-    const p = deps.bot.findBlock ? deps.bot.findBlock({ matching: (b) => b && b.name === name, maxDistance: 16 }) : null;
+    const p = deps.bot.findBlock ? deps.bot.findBlock({ matching: (b) => b && b.name === name, maxDistance: 5 }) : null;
     return p ? { x: p.position.x, y: p.position.y, z: p.position.z } : null;
 }
 
