@@ -76,7 +76,8 @@ function unmet(bot, name, args) {
                 const b = w.blockAt(c.x, c.y, c.z);
                 if (!b || w.kindAt(c.x, c.y, c.z) !== 'solid') continue;
                 const t = bestTool(bot, b);
-                if (t && t.name && !held(bot, t.name, notWorn)) { out.push({ need: 'tool_held', item: t.name }); break; }
+                if (t && t.name && !held(bot, t.name, notWorn)) out.push({ need: 'tool_held', item: t.name });
+                break;                                                              // the FIRST solid cell only: the command changes tools itself for the cells after it (a step from dirt into stone needs a shovel and a pickaxe: asking for both flipped the router between them until it gave up)
             }
             return out;
         }

@@ -18,5 +18,6 @@ const A = process.env.BOTNAME || 'ProbeC', CMD = process.env.CMD, ARGS = JSON.pa
     if (rec.cmd.status === 'running') rec.cmd.cancel.cancelled = true;
     clearInterval(beat); await L.sleep(1500);
     console.log(`[cmd] result ${JSON.stringify(rec.cmd && rec.cmd.result).slice(0, 4000)}`);
+    console.log(`[cmd] held now ${bot.heldItem && bot.heldItem.name} slot ${bot.quickBarSlot} inventory ${bot.inventory.items().map((i) => i.name + '@' + i.slot).join(' ')}`);
     await svc.stop(); process.exit(0);
 })().catch((e) => { console.error(e); process.exit(2); });

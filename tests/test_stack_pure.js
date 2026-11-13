@@ -48,6 +48,14 @@ function fakeBot(scene, pos, { pack = [], held = null, entities = {} } = {}) {
         assert.deepStrictEqual(Object.keys(u[0]).sort(), ['dist', 'max', 'need'], 'no remedy in the answer');
     });
 
+    await test('tunnel: a step whose cells need two tools asks for the tool of the first cell only (the command swaps for the rest; both at once flipped the router: "same unmet precondition", acceptance world 4)', () => {
+        const sc = realScene({ '1,1,0': 'dirt' }), pos = new Vec3(0.5, 1, 0.5);          // a stair step east: dirt at the top cell, stone below it
+        const shovel = fakeBot(sc, pos, { pack: ['wooden_shovel', 'wooden_pickaxe'], held: 'wooden_shovel' });
+        assert.deepStrictEqual(unmet(shovel, 'tunnel', { dir: 'east', dy: -1 }), [], 'the shovel for the first (dirt) cell is enough');
+        const pick = fakeBot(sc, pos, { pack: ['wooden_shovel', 'wooden_pickaxe'], held: 'wooden_pickaxe' });
+        assert.deepStrictEqual(unmet(pick, 'tunnel', { dir: 'east', dy: -1 }).map((x) => x.item), ['wooden_shovel'], 'one tool is asked for, never two');
+    });
+
     await test('mine: near and the right tool in hand -> nothing unmet; a fixture-free air cell, an unloaded chunk', () => {
         const sc = realScene({ '2,1,0': 'stone' }), bot = fakeBot(sc, new Vec3(0.5, 1, 0.5), { pack: ['wooden_pickaxe'], held: 'wooden_pickaxe' });
         assert.deepStrictEqual(unmet(bot, 'mine', { x: 2, y: 1, z: 0 }), []);
