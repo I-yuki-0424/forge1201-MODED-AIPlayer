@@ -116,15 +116,29 @@ function attach(bot, { world, enabled = () => true, onEvent = () => {} } = {}) {
         done('lava', { potion: !!potion });
     }
 
+    // Breath: the head under water for eight seconds (the air lasts fifteen). Swim straight up while the head is in water, for at most 25 s. Five of the six deaths on the acceptance worlds (2026-11-13) were
+    // "drowned": a bot at the bottom of a flooded shaft or a pocket opened in an aquifer, no rescue because an operator command has none (the worker's rescue is water.js).
+    let wet = 0;
+    const headWet = () => { const h = bot.blockAt(bot.entity.position.offset(0, 1.62, 0)); return !!h && h.name === 'water'; };
+    async function breath() {
+        onEvent('reflex', { kind: 'breath' });
+        const t0 = Date.now();
+        bot.setControlState('jump', true);
+        while (Date.now() - t0 < 25000 && headWet()) await sleep(100);
+        bot.setControlState('jump', false);
+        done('breath', {});
+    }
     const inLava = () => { const f = feet(); return bot.blockAt && (bot.blockAt(bot.entity.position.floored()) || {}).name === 'lava'; };
     const tick = () => {
         if (st.active || !enabled() || !bot.entity || !bot.entity.position) return;
         if (bot.__noReflexUntil && Date.now() < bot.__noReflexUntil) return;                       // a forced fall (service/force.js): the bot is meant to drop
         const e = bot.entity;
+        if (!e.isInWater) wet = 0;
         if (!e.onGround && e.velocity && e.velocity.y < -0.55 && !e.isInWater) {
             const f = feet(), d = dropBelow(kind, f.x, f.y, f.z);
             if (d !== null && d >= FALL_MIN) { st.active = true; bot.__preempt = true; st.fired++; st.since = Date.now(); fall(d).catch(() => done('fall', { error: true })); }
-        } else if (inLava()) { st.active = true; bot.__preempt = true; st.fired++; st.since = Date.now(); lava().catch(() => done('lava', { error: true })); }
+        } else if (e.isInWater && headWet() && ++wet >= 160) { wet = 0; st.active = true; bot.__preempt = true; st.fired++; st.since = Date.now(); breath().catch(() => done('breath', { error: true })); }
+        else if (inLava()) { st.active = true; bot.__preempt = true; st.fired++; st.since = Date.now(); lava().catch(() => done('lava', { error: true })); }
     };
     bot.on('physicsTick', tick);
     return { state: st, detach: () => { bot.removeListener('physicsTick', tick); bot.__preempt = false; } };
