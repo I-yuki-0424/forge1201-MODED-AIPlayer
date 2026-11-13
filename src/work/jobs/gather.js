@@ -102,11 +102,13 @@ function workable(bot, all, reach) {
         const core = digPath(w, c), path = core && withHeadroom(w, core, c);
         return !!path && nearReach(reach, core[0] || c, REACH_FROM - 0.4);
     }).sort((a, b) => a.dist - b.dist);
-    return cheap.filter((c, i) => {
-        if (i >= 12) return false;
-        if (c.exposed) return standOk(c);
-        const core = digPath(w, c); return standOk(core[0] || c);
-    });
+    const out = []; let tested = 0;                                              // the nearest that pass: the first ones are often under the bot's feet or in a wall it cannot stand against
+    for (const c of cheap) {
+        if (out.length >= 12 || tested >= 60) break;
+        tested++;
+        if (c.exposed ? standOk(c) : standOk((digPath(w, c) || [c])[0] || c)) out.push(c);
+    }
+    return out;
 }
 
 /** What `gather` would work with: for the page's "Find" button. */
