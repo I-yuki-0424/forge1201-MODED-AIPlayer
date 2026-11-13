@@ -104,5 +104,15 @@ const ore = (cells, x, y, z, n = 'iron_ore') => { cells[`${x},${y},${z}`] = n; }
         assert.ok(s.ok); assert.strictEqual(s.total, 4); assert.strictEqual(s.exposed, 3); assert.strictEqual(s.inReach, 2); assert.strictEqual(s.nearest[0].x, 2);
         assert.strictEqual(survey(f.bot, 'unobtainium', 8).ok, false);
     });
+    await test('gather: three picks in a row that cannot be reached end the call (the goal layer then looks elsewhere), ore around a failed one is skipped, a success resets the count', async () => {
+        const cells = {}; for (let i = 0; i < 12; i++) ore(cells, 20 + i * 8, 40, 20);                  // twelve exposed ores, 8 apart, none reachable
+        const f = fakeBot(cells); let calls = 0;
+        const r = await gather(f.bot, { target: 'raw_iron', count: 5, radius: 120 }, { execute: async () => { calls++; return { ok: false, reason: 'unreachable' }; } });
+        assert.ok(!r.ok && r.reason === 'unreachable' && calls === 3, JSON.stringify([r, calls]));
+        const c2 = {}; for (const x of [20, 22, 24, 60]) ore(c2, x, 40, 20);                           // three ores in one cave and one elsewhere: the first failure skips all three
+        const f2 = fakeBot(c2); const tried = [];
+        await gather(f2.bot, { target: 'raw_iron', count: 1, radius: 120 }, { execute: async (b, n, a) => { tried.push(a.x); return { ok: false, reason: 'unreachable' }; } });
+        assert.deepStrictEqual(tried, [20, 60], 'the ores beside the failed one are not tried');
+    });
     console.log('ALL OK');
 })().catch((e) => { console.error(e); process.exit(1); });

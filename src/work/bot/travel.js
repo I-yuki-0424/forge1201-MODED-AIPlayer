@@ -93,7 +93,8 @@ async function travel(env, to, { leg = LEG, near = NEAR, maxLegs = MAX_LEGS } = 
         let reach = null; try { reach = await reachableAsync(env.w, { x: here.x, y: here.y, z: here.z }, { maxNodes: 3000, radius: 36 }); } catch (_) { /* a world without the readers: the straight-line candidates only */ }
         for (const c of legCandidates(env.w, here, to, { leg: reach ? Math.min(leg, 30) : leg, reach, visited })) {          // with the reach known a leg stays inside the area it was checked in
             const r = await env.exec('move_to', { x: c.x, y: c.y, z: c.z });
-            if (r.ok) { moved = true; break; }
+            if (r.ok) { moved = true; if (env.trace) env.trace(`leg ${legs} ${here.x},${here.y},${here.z} -> ${c.x},${c.y},${c.z} (${c.why}) now ${JSON.stringify(env.here())}`); break; }
+            if (env.trace) env.trace(`leg ${legs} ${here.x},${here.y},${here.z} -> ${c.x},${c.y},${c.z} (${c.why}) ${r.reason}`);
             last = { reason: r.reason, detail: r.detail, tried: c };
             if (['died', 'disconnected', 'cancelled'].includes(r.reason)) return { ok: false, reason: r.reason, detail: { legs } };
         }

@@ -303,7 +303,7 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
                 if (q.ok || cancelled(q)) { st.final(q); return q; }
                 r = q;
             }
-            const t1 = ms(), run = () => tr.travel({ exec: envObj.exec, here: envObj.here, w, cancel: unitCancel, wrongDim: envObj.wrongDim }, t, o);
+            const t1 = ms(), run = () => tr.travel({ exec: envObj.exec, here: envObj.here, w, cancel: unitCancel, wrongDim: envObj.wrongDim, trace: process.env.TRAVEL_TRACE ? (m) => console.log(`[travel] ${bot.username} ${m}`) : null }, t, o);
             r = await run(); st.record('legacy', r, ms() - t1);
             // The old legs know no levels: a walk that came within `near` across of a block target is no arrival when the bot is still far above or below it (live check 2026-11-10: it said ok under a tower).
             if (r.ok && Number.isInteger(t.level) && Math.abs(feetCell(bot.entity.position).y - t.level) > ((o && o.nearY) === undefined ? 8 : o.nearY)) r = { ok: false, reason: 'unreachable', detail: { legs: r.legs, why: 'across within reach but not at the level of the target', level: t.level, at: feetCell(bot.entity.position) } };

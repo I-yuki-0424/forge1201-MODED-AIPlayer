@@ -98,7 +98,7 @@ async function gather(bot, { target, count = 16, radius = 32 }, { cancel = { can
     const spec = resolve(bot.registry, target);
     if (!spec) return { ok: false, reason: 'invalid_args', detail: { why: `${bare(target)} is neither a block nor an item of this world` } };
     const item = spec.item, base = item ? countOf(bot, item) : 0;
-    let mined = 0, tunnelled = 0, tries = 0, lastFail = null; const skip = new Set(), t0 = Date.now();
+    let mined = 0, tunnelled = 0, tries = 0, unreached = 0, lastFail = null; const skip = new Set(), t0 = Date.now();
     const got = () => (item ? countOf(bot, item) - base : mined);
     onProgress({ got: 0, want: count, mined });
     while (got() < count) {
@@ -116,10 +116,15 @@ async function gather(bot, { target, count = 16, radius = 32 }, { cancel = { can
         }
         if (!pick) return { ok: got() > 0, reason: got() > 0 ? null : 'invalid_target', detail: { got: got(), want: count, mined, why: all.length ? `${all.length} found but none of them can be reached from here: they are deeper than ${MAX_DIG_IN} blocks into rock, below the bot (it cannot dig straight down), or next to water or lava. Walk the bot to a cave or a wall face near them, or tunnel first` : `none within ${radius} blocks in the chunks this bot has loaded`, lastFail } };
         const r = await execute(bot, 'mine', { x: pick.x, y: pick.y, z: pick.z }, { cancel });
-        if (r.ok) { mined++; onProgress({ got: got(), want: count, mined }); continue; }
+        if (r.ok) { mined++; unreached = 0; onProgress({ got: got(), want: count, mined }); continue; }
         lastFail = r.reason;
         if (r.reason === 'missing_tool' || r.reason === 'died' || r.reason === 'disconnected' || r.reason === 'cancelled') return { ok: false, reason: r.reason, detail: { ...(r.detail || {}), got: got(), want: count, mined } };
         skip.add(`${pick.x},${pick.y},${pick.z}`);                                         // this one cannot be done from here: try the next
+        // Iron seen in a cave 20 levels down is "exposed" and nearest, yet no walk leads there; every attempt costs a minute and the cap is count * 4 + 20 attempts (acceptance world 4, 2026-11-13: eight minutes
+        // circling a hill with 256 ores in sight, the goal layer never got to its own prospecting). Ore around a failed one is in the same place: skip it too, and after three failures in a row give the
+        // goal layer the answer so that it looks elsewhere (a staircase down, a tunnel).
+        for (const c of all) if (Math.abs(c.x - pick.x) <= 5 && Math.abs(c.y - pick.y) <= 5 && Math.abs(c.z - pick.z) <= 5) skip.add(`${c.x},${c.y},${c.z}`);
+        if (++unreached >= 3) return { ok: got() > 0, reason: got() > 0 ? null : 'unreachable', detail: { got: got(), want: count, mined, why: `${unreached} picks in a row could not be reached from here (last: ${lastFail})` } };
     }
     return { ok: true, reason: null, detail: { got: got(), want: count, mined, tunnelled, seconds: Math.round((Date.now() - t0) / 1000) } };
 }
