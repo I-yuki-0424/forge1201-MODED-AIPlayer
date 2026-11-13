@@ -153,7 +153,7 @@ async function gather(bot, { target, count = 16, radius = 32 }, { cancel = { can
         // circling a hill with 256 ores in sight, the goal layer never got to its own prospecting). Ore around a failed one is in the same place: skip it too, and after three failures in a row give the
         // goal layer the answer so that it looks elsewhere (a staircase down, a tunnel).
         for (const c of all) if (Math.abs(c.x - pick.x) <= 5 && Math.abs(c.y - pick.y) <= 5 && Math.abs(c.z - pick.z) <= 5) skip.add(`${c.x},${c.y},${c.z}`);
-        if (++unreached >= 3) return { ok: got() > 0, reason: got() > 0 ? null : 'unreachable', detail: { got: got(), want: count, mined, why: `${unreached} picks in a row could not be reached from here (last: ${lastFail})` } };
+        if (++unreached >= 3) return { ok: got() > 0, reason: got() > 0 ? null : 'unreachable', detail: { got: got(), want: count, mined, lastDetail: lastDetail ? JSON.stringify(lastDetail).slice(0, 500) : null, why: `${unreached} picks in a row could not be reached from here (last: ${lastFail})` } };
     }
     return { ok: true, reason: null, detail: { got: got(), want: count, mined, tunnelled, seconds: Math.round((Date.now() - t0) / 1000) } };
 }

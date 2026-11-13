@@ -88,7 +88,7 @@ async function obtain(deps, item, n, depth = 0) {
             const targets = item === 'log' ? bestLogTargets(deps) : [item];
             for (const t of targets) {
                 const g = await deps.gather({ target: t, count: missing(), radius: 64 });
-                log(`gather ${t}: ${g.ok ? 'ok' : g.reason}${g.detail && g.detail.got !== undefined ? ` (${g.detail.got}/${g.detail.want})` : ''}${!g.ok && g.detail && g.detail.why ? ` - ${String(g.detail.why).slice(0, 160)}` : ''}${!g.ok && g.detail && g.detail.lastFail ? ` [last: ${g.detail.lastFail}${g.detail.lastDetail ? ' ' + g.detail.lastDetail : ''}]` : ''}`);
+                log(`gather ${t}: ${g.ok ? 'ok' : g.reason}${g.detail && g.detail.got !== undefined ? ` (${g.detail.got}/${g.detail.want})` : ''}${!g.ok && g.detail && g.detail.why ? ` - ${String(g.detail.why).slice(0, 160)}` : ''}${!g.ok && g.detail && (g.detail.lastFail || g.detail.lastDetail) ? ` [last: ${g.detail.lastFail || ''}${g.detail.lastDetail ? ' ' + g.detail.lastDetail : ''}]` : ''}`);
                 if (missing() <= 0) return null;
                 if (g.reason === 'cancelled' || g.reason === 'died' || g.reason === 'disconnected') return g.reason;
             }
