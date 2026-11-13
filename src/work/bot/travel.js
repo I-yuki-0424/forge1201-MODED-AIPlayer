@@ -171,4 +171,4 @@ async function travel(env, to, { leg = LEG, near = NEAR, maxLegs = MAX_LEGS } = 
 /** The distance beyond which a walk is split (a move_to this far usually fails for want of loaded chunks). */
 const FAR = 56;
 
-module.exports = { travel, legCandidates, LEG, NEAR, FAR, MAX_LEGS };
+module.exports = { travel, legCandidates, hasExit, digOut, LEG, NEAR, FAR, MAX_LEGS };
