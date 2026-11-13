@@ -92,12 +92,20 @@ const nearReach = (reach, c, r) => reach.cells.some((q) => Math.hypot(q[0] - c.x
  */
 function workable(bot, all, reach) {
     if (!reach) return all.filter((c) => !c.wet);
-    const w = fromBot(bot);
-    return all.filter((c) => {
+    const w = fromBot(bot), me = bot.entity.position, here = { x: Math.floor(me.x), y: Math.floor(me.y), z: Math.floor(me.z) };
+    // The router's own question (src/stack/router.js standCells: a standing cell with the block in reach AND in view) answered against the planner's reach: the same decision the mining will meet.
+    // A cheap distance test first, the exact one for the nearest few only (it casts rays).
+    const standOk = (cell) => { const sc = require('../../stack/router').standCells; return sc({ w }, { kind: 'block', name: 'mine', x: cell.x, y: cell.y, z: cell.z }, here).some((q) => reach.has(q.x, q.y, q.z)); };
+    const cheap = all.filter((c) => {
         if (c.wet) return false;
         if (c.exposed) return nearReach(reach, c, REACH_FROM - 0.4);
         const core = digPath(w, c), path = core && withHeadroom(w, core, c);
         return !!path && nearReach(reach, core[0] || c, REACH_FROM - 0.4);
+    }).sort((a, b) => a.dist - b.dist);
+    return cheap.filter((c, i) => {
+        if (i >= 12) return false;
+        if (c.exposed) return standOk(c);
+        const core = digPath(w, c); return standOk(core[0] || c);
     });
 }
 
