@@ -1,6 +1,6 @@
 'use strict';
 // ACCEPTANCE test 2 (docs/proposed/ACCEPTANCE-v1.md): 2000 blocks north of the initial point and back, through the console's own `journey` command, graded by the SERVER's position.
-// Allowed changes from the initial state: none (no chest needed). teleport stays off; no server move may happen; the bot may not die.
+// Allowed changes from the initial state: the tools of the tools chest, in the pack (TOOLS=0: none). teleport stays off; no server move may happen; the bot may not die.
 //   scripts/accept/run.sh t2_walk.js DIST=2000 LIVE_OUT=/out/t2.json        CONTROL=noop: nothing is sent (must fail both checks)
 const fs = require('fs');
 const L = require('../real/lib');
@@ -15,6 +15,8 @@ async function main() {
     const rec = svc.bots.get(A), bot = rec.bot; S.name = A;
     let moves = 0, deaths = 0; const om = svc._moved.bind(svc); svc._moved = (n, m) => { moves++; return om(n, m); }; bot.on('death', () => { deaths++; });
     await L.sleep(4000);
+    // The only changes the owner allows from the initial state are a tools chest and a cobblestone chest (ACCEPTANCE-v1): the bot has the chest's tools in its pack, as in tests 3 and 4 (TOOLS=0: bare hands).
+    if (process.env.TOOLS !== '0') { const ENCH = '{Enchantments:[{id:"minecraft:efficiency",lvl:255},{id:"minecraft:unbreaking",lvl:255}]}'; for (const k of ['pickaxe', 'axe', 'shovel', 'sword']) await S.must(`give ${A} minecraft:netherite_${k}${ENCH} 1`); }
     const p0 = await L.posOf(S, A), init = { x: Math.floor(p0.x), y: Math.floor(p0.y), z: Math.floor(p0.z) };
     console.log(`[accept-t2] initial point ${JSON.stringify(init)} seed ${(await S.cmd('seed')).replace(/\x1b\[[0-9;]*m/g, '')}`);
     const send = async (x, z, y) => {
