@@ -49,16 +49,16 @@ async function station(deps, name, depth) {
     return fail('invalid_target', { why: `the ${name} could not be placed next to the bot` });
 }
 
-/** Fuel for `smelts` items: coal first (1,600 ticks = 8 items), else planks (300 ticks); returns after the pack holds enough, or the failure. */
+/** Fuel for `smelts` items. The smelt instruction fuels the whole batch from ONE kind of item (coal, or one kind of planks), so a mix that adds up is no fuel: acceptance world 3, 2026-11-13, "no fuel for the batch" after
+ *  the goal layer had counted coal and planks together. Coal first (1,600 ticks = 8 items), else planks (300 ticks = 1.5 items). */
 async function fuelFor(deps, smelts, depth) {
-    const burn = () => deps.bot.inventory.items().reduce((n, i) => n + (FUEL_VALUE[i.name] || 0) * i.count, 0);
-    const need = smelts * 200;
-    if (burn() >= need) return { ok: true };
-    const coal = await obtain(deps, 'coal', Math.ceil((need - burn()) / FUEL_VALUE.coal), depth + 1);
-    if (coal.ok && burn() >= need) return { ok: true };
-    const planks = Math.ceil((need - burn()) / FUEL_VALUE.oak_planks);
-    const p = await obtain(deps, 'planks', have(deps.bot, 'planks') + planks, depth + 1);
-    return p.ok && burn() >= need ? { ok: true } : fail('missing_materials', { why: 'no fuel for the batch', needTicks: need, haveTicks: burn() });
+    const bot = deps.bot;
+    const single = () => bot.inventory.items().some((i) => (FUEL_VALUE[i.name] || 0) > 0 && count(bot, (n) => n === i.name) * FUEL_VALUE[i.name] / 200 >= smelts);
+    if (single()) return { ok: true };
+    const coal = await obtain(deps, 'coal', Math.ceil(smelts * 200 / FUEL_VALUE.coal), depth + 1);
+    if (coal.ok && single()) return { ok: true };
+    const p = await obtain(deps, 'planks', Math.ceil(smelts * 200 / FUEL_VALUE.oak_planks), depth + 1);
+    return p.ok && single() ? { ok: true } : fail('missing_materials', { why: 'no one kind of fuel covers the batch', smelts, coal: have(bot, 'coal'), planks: have(bot, 'planks') });
 }
 
 /**
