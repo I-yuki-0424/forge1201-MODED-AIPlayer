@@ -131,5 +131,12 @@ const ore = (cells, x, y, z, n = 'iron_ore') => { cells[`${x},${y},${z}`] = n; }
         const r = await gather(f.bot, { target: 'raw_iron', count: 1, radius: 20 }, { execute });
         assert.deepStrictEqual(seen, ['mine', 'pickup']); assert.ok(r.ok && r.detail.got === 1, JSON.stringify(r));
     });
+    await test('gather: a pick that failed stays out of the candidates of the NEXT call too (a listed ore the server says is air ended every round of the goal layer on the same cell)', async () => {
+        const cells = {}; ore(cells, 2, 64, 1); const f = fakeBot(cells); let calls = 0;
+        const execute = async () => { calls++; return { ok: false, reason: 'invalid_target', detail: { block: 'air' } }; };
+        await gather(f.bot, { target: 'raw_iron', count: 1, radius: 20 }, { execute });
+        const first = calls; await gather(f.bot, { target: 'raw_iron', count: 1, radius: 20 }, { execute });
+        assert.strictEqual(first, 1); assert.strictEqual(calls, 1, 'the second call did not try the dead cell again');
+    });
     console.log('ALL OK');
 })().catch((e) => { console.error(e); process.exit(1); });

@@ -24,11 +24,15 @@ const RANGE = 36;                  // radius of the planner's reach used to judg
  * runs out to the edge of the search area: the ground goes on. A reach that stays well inside the area is enclosed: a sinkhole, a ledge over one, a shaft. Acceptance world 1, 2026-11-13: legs went down into
  * a sinkhole 25 across, 17 levels deep, and the walk ended on its floor (twice, two runs); a guard on the depth alone let the first ledge through and trapped the bot there in the test.
  */
-async function hasExit(env, c) {
+async function hasExit(env, c, { sky = false } = {}) {
     let r; try { r = await reachableAsync(env.w, { x: c.x, y: c.y, z: c.z }, { maxNodes: 3000, radius: RANGE }); } catch (_) { return true; }
-    if (r.cells.length >= 3000) return true;
     const unknown = (x, y, z) => env.w.kindAt(x, y, z) === 'unknown';           // the edge of the loaded chunks is not a wall: the ground may go on beyond it
-    return r.cells.some((q) => Math.max(Math.abs(q[0] - c.x), Math.abs(q[2] - c.z)) >= RANGE - 2 || unknown(q[0] + 1, q[1], q[2]) || unknown(q[0] - 1, q[1], q[2]) || unknown(q[0], q[1], q[2] + 1) || unknown(q[0], q[1], q[2] - 1));
+    const open = r.cells.length >= 3000 || r.cells.some((q) => Math.max(Math.abs(q[0] - c.x), Math.abs(q[2] - c.z)) >= RANGE - 2 || unknown(q[0] + 1, q[1], q[2]) || unknown(q[0] - 1, q[1], q[2]) || unknown(q[0], q[1], q[2] + 1) || unknown(q[0], q[1], q[2] - 1));
+    if (!open || !sky) return open;
+    // with `sky`: a cell of the reach must also stand in the open air (its column has nothing above it): a tunnel network is big and still has no way out (a strip mine under a hill)
+    const step = Math.max(1, Math.floor(r.cells.length / 300));
+    for (let i = 0; i < r.cells.length; i += step) { const q = r.cells[i], t = top(env.w, q[0], q[2], 318); if (t === null || t <= q[1] + 2) return true; }
+    return false;
 }
 
 const COMPASS = ['north', 'east', 'south', 'west'], AXIS = { north: [0, -1], east: [1, 0], south: [0, 1], west: [-1, 0] };
@@ -45,7 +49,7 @@ async function digOut(env, to, { maxSteps = 60 } = {}) {
     while (steps < maxSteps) {
         if (env.cancel && env.cancel.cancelled) return { ok: false, reason: 'cancelled', steps };
         const h = env.here();
-        if (await hasExit(env, h)) return { ok: true, steps };
+        if (await hasExit(env, h, { sky: true })) return { ok: true, steps };
         const r = await env.exec('tunnel', { dir: COMPASS[dir], dy: 1 });
         if (env.trace) env.trace(`dig out ${h.x},${h.y},${h.z} ${COMPASS[dir]}: ${r.ok ? 'ok' : r.reason}`);
         if (r.ok) { steps++; fails = 0; dir = head(); continue; }
@@ -145,7 +149,7 @@ async function travel(env, to, { leg = LEG, near = NEAR, maxLegs = MAX_LEGS } = 
             last = { reason: r.reason, detail: r.detail, tried: c };
             if (['died', 'disconnected', 'cancelled'].includes(r.reason)) return { ok: false, reason: r.reason, detail: { legs } };
         }
-        if (!moved && env.exec && !(await hasExit(env, here))) {                 // enclosed: no leg can leave it on foot; dig a staircase up and go on from the rim
+        if (!moved && env.exec && !(await hasExit(env, here, { sky: true }))) {                 // enclosed: no leg can leave it on foot; dig a staircase up and go on from the rim
             const d = await digOut(env, to);
             if (d.ok && d.steps > 0) { mark(env.here()); continue; }
         }
@@ -155,7 +159,7 @@ async function travel(env, to, { leg = LEG, near = NEAR, maxLegs = MAX_LEGS } = 
         const rem = hd(env.here(), to);
         if (rem < best - 2) { best = rem; slow = 0; }                         // a new closest point: the walk goes on
         else slow += fresh ? 0.25 : 1;                                        // a leg into ground the bot has not been on is exploring (round a ridge): twelve of them without a new closest point, or three on old ground, are stuck
-        if (slow >= 3 && env.exec && !(await hasExit(env, env.here()))) {         // the same, when the legs wander inside an enclosure without a way out
+        if (slow >= 3 && env.exec && !(await hasExit(env, env.here(), { sky: true }))) {         // the same, when the legs wander inside an enclosure without a way out
             const d = await digOut(env, to);
             if (d.ok && d.steps > 0) { slow = 0; mark(env.here()); continue; }
         }

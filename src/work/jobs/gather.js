@@ -27,12 +27,17 @@ function resolve(registry, target) {
 
 const countOf = (bot, item) => bot.inventory.items().reduce((n, i) => n + (i.name === item ? i.count : 0), 0);
 
+/** Cells a pick failed on stay out of the candidates for ten minutes, across calls: the goal layer asks again and again, and one ore the world model still lists but the server says is air ("the target is gone") ended each of its rounds on the same cell. */
+const DEAD_MS = 10 * 60000;
+const isDead = (bot, key) => { const t = bot.__deadOre && bot.__deadOre.get(key); if (t === undefined) return false; if (Date.now() - t > DEAD_MS) { bot.__deadOre.delete(key); return false; } return true; };
+const markDead = (bot, c) => { (bot.__deadOre || (bot.__deadOre = new Map())).set(`${c.x},${c.y},${c.z}`, Date.now()); };
+
 /** Candidate cells sorted by distance from the bot: [{x, y, z, dist, exposed}]. `exposed` = a face touches air or a fluid (can be reached by digging only this block). */
 function find(bot, spec, radius, skip = new Set()) {
     const reg = bot.registry, ids = spec.blocks.map((n) => reg.blocksByName[n].id);
     const w = fromBot(bot), me = bot.entity.position, out = [];
     for (const p of bot.findBlocks({ matching: ids, maxDistance: radius, count: 256 })) {
-        const key = `${p.x},${p.y},${p.z}`; if (skip.has(key)) continue;
+        const key = `${p.x},${p.y},${p.z}`; if (skip.has(key) || isDead(bot, key)) continue;
         const kinds = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].map(([a, b, c]) => w.kindAt(p.x + a, p.y + b, p.z + c));
         const wet = kinds.some((k) => FLUID.has(k)), exposed = kinds.some((k) => k !== 'solid') && !wet;            // a block that touches water or lava is not safe to open
         out.push({ x: p.x, y: p.y, z: p.z, dist: Math.hypot(p.x + 0.5 - me.x, p.y + 0.5 - (me.y + 1.6), p.z + 0.5 - me.z), exposed, wet });
@@ -155,6 +160,7 @@ async function gather(bot, { target, count = 16, radius = 32 }, { cancel = { can
         lastFail = r.reason; lastDetail = r.detail || null;
         if (r.reason === 'missing_tool' || r.reason === 'died' || r.reason === 'disconnected' || r.reason === 'cancelled') return { ok: false, reason: r.reason, detail: { ...(r.detail || {}), got: got(), want: count, mined } };
         skip.add(`${pick.x},${pick.y},${pick.z}`);                                         // this one cannot be done from here: try the next
+        markDead(bot, pick);
         // Iron seen in a cave 20 levels down is "exposed" and nearest, yet no walk leads there; every attempt costs a minute and the cap is count * 4 + 20 attempts (acceptance world 4, 2026-11-13: eight minutes
         // circling a hill with 256 ores in sight, the goal layer never got to its own prospecting). Ore around a failed one is in the same place: skip it too, and after three failures in a row give the
         // goal layer the answer so that it looks elsewhere (a staircase down, a tunnel).
