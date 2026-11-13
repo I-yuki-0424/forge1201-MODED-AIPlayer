@@ -154,8 +154,11 @@ async function walk(ctx, goal, { sprint = true } = {}) {
 }
 
 /** Walk to the cell `t` (feet). The cell must be standable. */
-function cellGoal(t, label = 'cell') {
-    return { isGoal: (c) => same(c, t), h: (c) => Math.hypot(c.x - t.x, c.z - t.z) + 0.5 * Math.abs(c.y - t.y), label, settle: true };
+function cellGoal(t, label = 'cell', { swim = false } = {}) {
+    // A cell of open water: the feet bob up and down by a cell while the bot holds jump (the path follower already matches a swim node by its column, `onNode`). With an exact match the bot reached the
+    // column, bobbed to the other level, planned again and gave up after five replans: "end of partial path" (acceptance world 1, 2026-11-13: a sea crossing ended `stuck` in the first leg each time).
+    const isGoal = swim ? (c) => same(c, t) || (c.x === t.x && c.z === t.z && Math.abs(c.y - t.y) <= 1) : (c) => same(c, t);
+    return { isGoal, h: (c) => Math.hypot(c.x - t.x, c.z - t.z) + 0.5 * Math.abs(c.y - t.y), label, settle: true };
 }
 
 /**

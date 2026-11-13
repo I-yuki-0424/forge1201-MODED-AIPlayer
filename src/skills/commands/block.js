@@ -22,7 +22,7 @@ async function moveTo(ctx, { x, y, z }) {
     const b = ctx.world.blockAt(x, y, z);
     if (!b) throw new SkillError('unreachable', { why: 'target chunk not loaded', target: t });
     if (!standable(ctx.world, x, y, z) && !swimmable(ctx.world, x, y, z)) throw new SkillError('invalid_target', { why: 'a player cannot stand there', target: t });          // a surface cell of open water counts: the planner swims to it
-    const end = await follow(ctx, cellGoal(t, `cell ${x},${y},${z}`));
+    const end = await follow(ctx, cellGoal(t, `cell ${x},${y},${z}`, { swim: !standable(ctx.world, x, y, z) }));
     const p = ctx.bot.entity.position;
     return { cell: end, pos: [p.x, p.y, p.z].map((v) => Math.round(v * 100) / 100) };
 }

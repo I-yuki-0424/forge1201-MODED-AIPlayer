@@ -198,5 +198,13 @@ async function moveTo(world, from, to, maxTicks = 1500) {
         } finally { bot.stop(); }
     });
 
+    await test('a swim target is reached from the cell above or below in its column (the feet bob while the bot holds jump)', () => {
+        const { cellGoal } = require('../src/skills/motion');
+        const t = { x: 5, y: 62, z: -9 }, swim = cellGoal(t, 't', { swim: true }), land = cellGoal(t, 't');
+        for (const dy of [-1, 0, 1]) assert.ok(swim.isGoal({ x: 5, y: 62 + dy, z: -9 }), `swim goal at dy ${dy}`);
+        assert.ok(!swim.isGoal({ x: 5, y: 64, z: -9 }) && !swim.isGoal({ x: 6, y: 62, z: -9 }), 'two levels off or the next column is not the goal');
+        assert.ok(land.isGoal(t) && !land.isGoal({ x: 5, y: 61, z: -9 }), 'a standing target stays exact (a cell below is a different floor)');
+    });
+
     console.log('all motion simulation tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });
