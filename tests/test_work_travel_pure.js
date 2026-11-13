@@ -85,5 +85,11 @@ function sim({ start = { x: 0, y: 64, z: 0 }, water = () => false, wall = () => 
         const cands = legCandidates(sim().env.w, { x: 0, y: 64, z: 0 }, { x: 500, z: 0 });
         assert.ok(cands.length >= 5 && cands.every((c) => Math.abs(c.y - 64) <= 24) && cands[0].x === LEG, JSON.stringify(cands[0]));
     });
+    await test('a walk that stands 3.16 cells from a target inside a hill has arrived (4 blocks wherever in its cell the bot stands); 3.6 has not', async () => {
+        const mk = (x, z) => ({ here: () => ({ x, y: 60, z }), w: sim().env.w, exec: async () => assert.fail('no leg is needed'), cancel: { cancelled: false } });
+        const r = await travel(mk(-16, -2052), { x: -15, z: -2055 }); assert.ok(r.ok && r.legs === 0, JSON.stringify(r));
+        let asked = 0; const far = mk(-17, -2052); far.exec = async () => { asked++; return { ok: false, reason: 'unreachable' }; };
+        const r2 = await travel(far, { x: -15, z: -2055 }); assert.ok(!r2.ok && r2.legs === undefined || !r2.ok, 'hypot(2, 3) = 3.6 is not arrived: ' + JSON.stringify(r2));
+    });
     console.log('\nwork travel: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

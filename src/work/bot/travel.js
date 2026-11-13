@@ -11,7 +11,7 @@ const { reachableAsync } = require('../../skills/planner');
 const { standable, swimmable } = require('../../skills/world');
 
 const LEG = 40;                    // blocks per leg: inside the loaded area (4 chunks = 64 blocks radius, less the offset in the chunk)
-const NEAR = 3;                    // a walk ends within this many blocks of the target (the last, exact move_to follows)
+const NEAR = 3.3;                  // a walk ends within this many blocks of the target (the last, exact move_to follows). 3.3 and not 3: the cells' centres are compared, the bot stands up to 0.7 off its own centre, so 3.3 is within 4 blocks of the target wherever in its cell it stands (acceptance world 1, 2026-11-13: the bot stood 3.16 cells from a target inside a hill, no standing cell near, and the walk went on until it had been dug away to 7)
 const MAX_LEGS = 80;               // 80 legs of 40 = 3,200 blocks
 const MAX_DY = 24;                 // a leg ends no more than this far above or below where it starts (no walk down into the pit, no climb of a cliff by the planner's choice)
 
