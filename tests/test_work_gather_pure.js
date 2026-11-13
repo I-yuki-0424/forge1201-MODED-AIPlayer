@@ -114,5 +114,12 @@ const ore = (cells, x, y, z, n = 'iron_ore') => { cells[`${x},${y},${z}`] = n; }
         await gather(f2.bot, { target: 'raw_iron', count: 1, radius: 120 }, { execute: async (b, n, a) => { tried.push(a.x); return { ok: false, reason: 'unreachable' }; } });
         assert.deepStrictEqual(tried, [20, 60], 'the ores beside the failed one are not tried');
     });
+    await test('gather with the planner reach: exposed ore with no walkable cell near it is not tried (a cave 20 levels down), ore beside a walkable cell is', async () => {
+        const cells = {}; ore(cells, 2, 64, 1); ore(cells, 40, 44, 40);
+        const f = fakeBot(cells), log = { walks: 0, mined: [] };
+        const reach = async () => ({ cells: [[0, 64, 0, 0], [1, 64, 0, 1]], has: () => false });
+        const r = await gather(f.bot, { target: 'raw_iron', count: 2, radius: 80 }, { execute: fakeExecute(f, log), reach });
+        assert.deepStrictEqual(log.mined, [[2, 64, 1]], JSON.stringify(log)); assert.ok(r.ok && r.detail.got === 1, JSON.stringify(r));
+    });
     console.log('ALL OK');
 })().catch((e) => { console.error(e); process.exit(1); });

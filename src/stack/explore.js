@@ -20,7 +20,7 @@ async function surface(deps, found, { maxRing = 640 } = {}) {
             const w = await deps.travel(t, { near: 8 });
             stops.push({ ring: r, to: [t.x, t.z], ok: !!w.ok });
             if (w.reason && FATAL.has(w.reason)) return { found: false, stops, why: w.reason };
-            if (found()) return { found: true, stops };
+            if (await found()) return { found: true, stops };
         }
     }
     return { found: false, stops, why: 'nothing found within the rings' };
@@ -45,16 +45,16 @@ async function prospect(deps, found, level, { maxStairs = 120, maxTunnel = 160 }
     };
     try {
         while (deps.here().y > level && log.stairs < maxStairs) { if (!(await step(-1))) break; log.stairs++; }
-        if (found()) return { found: true, ...log, entry };
+        if (await found()) return { found: true, ...log, entry };
         while (log.tunnel < maxTunnel) {
             if (deps.cancelled && deps.cancelled()) break;
             if (!(await step(0))) { dir = (dir + 1) % 4; if (++fails > 6) break; continue; }
             log.tunnel++;
-            if (log.tunnel % 3 === 0 && found()) return { found: true, ...log, entry };
+            if (log.tunnel % 3 === 0 && await found()) return { found: true, ...log, entry };
             if (log.tunnel % 40 === 0) dir = (dir + 1) % 4;                         // a new strip, so that the search does not run along one line for ever
         }
     } catch (e) { if (!e.fatal) throw e; return { found: false, ...log, entry, why: e.fatal }; }
-    return { found: found(), ...log, entry, why: 'the tunnel ended' };
+    return { found: !!(await found()), ...log, entry, why: 'the tunnel ended' };
 }
 
 /** After prospecting: back to the surface by the way the bot came (the staircase is a 1 x 2 corridor with steps of one block: walkable). */

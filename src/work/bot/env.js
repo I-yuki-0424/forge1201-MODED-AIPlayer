@@ -427,12 +427,15 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
             obtain: (item, n) => envObj.obtain(item, n),
             escape: () => envObj.expertEscape(null, { why: 'router: the target cannot be reached from where the bot is' }),
         }, { name, args }),
+        // What the planner can walk to from where the bot stands (inside the loaded chunks): the test of whether a block or a leg can be reached at all.
+        reachOf: () => require('../../skills/planner').reachableAsync(w, feet(), { maxNodes: 3000, radius: 36 }),
         // "Have n of item" (src/stack/obtain.js): gather it, smelt it or craft it; every step an instruction through the router. The operator's `obtain`, and the router when `place` has no item.
         obtain: (item, n) => require('../../stack/obtain').obtain({
             bot, w, here: feet, cancelled: () => !!unitCancel.cancelled,
             command: (nm, a) => envObj.command(nm, a),
             exec: (nm, a) => execute(bot, nm, a, { cancel: unitCancel }),
-            gather: (a) => require('../jobs/gather').gather(bot, a, { cancel: unitCancel, execute: (b, nm, x, o) => (require('../../stack/router').ROUTED.has(nm) ? envObj.command(nm, x) : execute(b, nm, x, o)) }),
+            gather: (a) => require('../jobs/gather').gather(bot, a, { cancel: unitCancel, reach: envObj.reachOf, execute: (b, nm, x, o) => (require('../../stack/router').ROUTED.has(nm) ? envObj.command(nm, x) : execute(b, nm, x, o)) }),
+            workable: async (t, r) => { const G = require('../jobs/gather'), spec = G.resolve(bot.registry, t); if (!spec) return 0; return G.workable(bot, G.find(bot, spec, r), await envObj.reachOf()).length; },
             survey: (t, r) => { try { return require('../jobs/gather').survey(bot, t, r); } catch (_) { return null; } },
             travel: (t, o) => envObj.travel(t, o),
             say: (m) => console.log(`[obtain] ${bot.username} ${m}`),

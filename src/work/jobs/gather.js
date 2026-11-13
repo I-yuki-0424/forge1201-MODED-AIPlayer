@@ -82,6 +82,24 @@ function withHeadroom(w, path, target) {
     return add({ x: target.x, y: target.y + 1, z: target.z }) ? out : null;
 }
 
+/** True when some cell the planner can walk to (`reach`, from `reachableAsync`) lies within `r` blocks of the cell. */
+const nearReach = (reach, c, r) => reach.cells.some((q) => Math.abs(q[0] - c.x) <= r && Math.abs(q[2] - c.z) <= r && Math.abs(q[1] - c.y) <= r + 1);
+
+/**
+ * The candidates `gather` can actually work: an exposed block the bot can walk up to (a walkable cell within reach of it), or a buried one with a short dig path whose entrance is a cell the bot can
+ * walk to. Without `reach` (no planner) every candidate counts. Ore in a cave 20 levels down is exposed and nearest but no walk leads there (acceptance world 4, 2026-11-13).
+ */
+function workable(bot, all, reach) {
+    if (!reach) return all.filter((c) => !c.wet);
+    const w = fromBot(bot);
+    return all.filter((c) => {
+        if (c.wet) return false;
+        if (c.exposed) return nearReach(reach, c, 4);
+        const core = digPath(w, c), path = core && withHeadroom(w, core, c);
+        return !!path && nearReach(reach, core[0] || c, 2);
+    });
+}
+
 /** What `gather` would work with: for the page's "Find" button. */
 function survey(bot, target, radius) {
     const spec = resolve(bot.registry, target);
@@ -94,7 +112,7 @@ function survey(bot, target, radius) {
  * Collect `count` of `target`. Returns { ok, reason, detail: { got, want, mined, walked, ... } }.
  * opts: { cancel, execute(bot, name, args, {cancel}), onProgress({got, want, mined}) }
  */
-async function gather(bot, { target, count = 16, radius = 32 }, { cancel = { cancelled: false }, execute, onProgress = () => {} } = {}) {
+async function gather(bot, { target, count = 16, radius = 32 }, { cancel = { cancelled: false }, execute, onProgress = () => {}, reach: reachOf = null } = {}) {
     const spec = resolve(bot.registry, target);
     if (!spec) return { ok: false, reason: 'invalid_args', detail: { why: `${bare(target)} is neither a block nor an item of this world` } };
     const item = spec.item, base = item ? countOf(bot, item) : 0;
@@ -104,7 +122,9 @@ async function gather(bot, { target, count = 16, radius = 32 }, { cancel = { can
     while (got() < count) {
         if (cancel.cancelled) return { ok: false, reason: 'cancelled', detail: { got: got(), want: count, mined } };
         if (++tries > count * 4 + 20) return { ok: got() > 0, reason: got() > 0 ? null : 'stuck', detail: { got: got(), want: count, mined, why: 'too many attempts' } };
-        const all = find(bot, spec, radius, skip); let pick = all.find((c) => c.exposed);
+        const every = find(bot, spec, radius, skip), reach = reachOf ? await reachOf().catch(() => null) : null;
+        const ok = reach ? new Set(workable(bot, every, reach).map((c) => `${c.x},${c.y},${c.z}`)) : null, all = ok ? every.filter((c) => ok.has(`${c.x},${c.y},${c.z}`)) : every;       // with the planner's reach only what can be worked
+        let pick = all.find((c) => c.exposed);
         if (!pick) {                                                                         // everything left is buried: tunnel in to the nearest one that can be reached safely
             const w = fromBot(bot);
             for (const c of all.slice().sort((a, b) => a.dist - b.dist).slice(0, 12)) {
@@ -129,4 +149,4 @@ async function gather(bot, { target, count = 16, radius = 32 }, { cancel = { can
     return { ok: true, reason: null, detail: { got: got(), want: count, mined, tunnelled, seconds: Math.round((Date.now() - t0) / 1000) } };
 }
 
-module.exports = { resolve, find, survey, gather, digPath, withHeadroom, REACH, MAX_DIG_IN };
+module.exports = { resolve, find, survey, gather, digPath, withHeadroom, workable, nearReach, REACH, MAX_DIG_IN };
