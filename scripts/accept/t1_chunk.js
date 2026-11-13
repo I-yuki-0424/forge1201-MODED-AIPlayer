@@ -3,6 +3,8 @@
 // backfill the whole box with cobblestone, and check that `/fill ... air replace cobblestone` reports 16 x 16 x height blocks. Graded by the SERVER:
 //   excavation: `execute if blocks <box slab> <air slab in the sky> masked` passes only when the slab holds no non-air block (it does not change the world); it must FAIL on the untouched chunk (control)
 //   backfill: `fill <slab> minecraft:air replace minecraft:cobblestone`, the sum of "Successfully filled N" over the slabs (the last step: it empties the cobblestone again)
+// PREBUILT=1 (the owner's build world, `ACC=0`, /mnt/data/forgeaip-play/accept/t1.sh: fixed seed, spawn radius 0, supply chests that never run dry, terrain shaped by hand): nothing is created or topped up here; the starting chunk is the box,
+// the supply chests are the `forgeaip_supply` markers, tagged as tools and cobblestone chests, and the world is only read and mined.
 // The tools are command-generated (efficiency 255, unbreaking 255). A chest holds 1,728 blocks and the box needs about 36,000: the cobblestone chest is topped up by command whenever it runs low,
 // i.e. it is a supply chest that does not run dry. Env: BOTS (default 4), LIMIT_MIN per job (default 120), LIVE_OUT; for a rehearsal W (side, default 16 = the chunk) and DEPTH (layers from the top, default down to y -59); METHOD (expert | sweep | rows) and ROAD (1 | 0) are the pit job's options.
 const fs = require('fs');
@@ -42,21 +44,36 @@ async function main() {
     const fillCobble = async () => { let n = 0; for (const [a, b] of slabs) { const o = await S.cmd(`fill ${x0} ${a} ${z0} ${x1} ${b} ${z1} minecraft:air replace minecraft:cobblestone`); const m = /Successfully filled (\d+) block/.exec(o); n += m ? Number(m[1]) : 0; } return n; };
     await S.must(`forceload add ${x0} ${z0} ${x1} ${z1}`);
     check('control: the untouched chunk is NOT clean (the check can fail)', await nonAirLeft() === true);
+    if (process.env.PREBUILT) {
+        // the supply chests of the build world: one marker per chest (datapack forgeaip). Each is tagged as the tools chest and as the cobblestone source; they must stand outside the box.
+        const spots = [];
+        for (let i = 0; i < 8; i++) {
+            const o = await S.cmd('data get entity @e[type=minecraft:marker,tag=forgeaip_supply,tag=!seen,limit=1,sort=arbitrary] Pos'), m = /\[(-?[\d.]+)d, (-?[\d.]+)d, (-?[\d.]+)d\]/.exec(o);
+            if (!m) break;
+            await S.must('tag @e[type=minecraft:marker,tag=forgeaip_supply,tag=!seen,limit=1,sort=arbitrary] add seen');
+            spots.push({ x: Math.floor(Number(m[1])), y: Math.floor(Number(m[2])), z: Math.floor(Number(m[3])) });
+        }
+        await S.cmd('tag @e[type=minecraft:marker,tag=forgeaip_supply] remove seen');
+        check('the build world has a supply chest (marker) outside the box', spots.length > 0 && spots.every((c) => c.x < x0 || c.x > x1 || c.z < z0 || c.z > z1), spots);
+        for (const c of spots) for (let i = 0; i < 40; i++) { const b = bot.blockAt(new Vec3(c.x, c.y, c.z)); if (b && b.name === 'chest') break; await L.sleep(250); }
+        spots.forEach((c, i) => { svc.addSite({ name: `tools${i + 1}`, ...c, purpose: 'tools' }); svc.addSite({ name: `cobble${i + 1}`, ...c, purpose: 'free' }); });
+        console.log(`[accept-t1] prebuilt world: supply chests ${JSON.stringify(spots)}`);
+    }
     // ---- the two chests, outside the box, on the ground; tagged; the tools command-generated
     const ground = (x, z) => { const t = colTop(x, z); return t === null ? init.y : t; };
     const put = async (x, z, f) => { const y = ground(x, z) + 1; await S.must(`setblock ${x} ${y} ${z} minecraft:chest`); await f(x, y, z); return { x, y, z }; };
-    const tools = await put(x1 + 2, z0 + 3, async (x, y, z) => {
+    const tools = process.env.PREBUILT ? null : await put(x1 + 2, z0 + 3, async (x, y, z) => {
         const kinds = [['netherite_pickaxe', 12], ['netherite_shovel', 6], ['netherite_axe', 6], ['netherite_sword', 3]]; let slot = 0;
         for (const [k, n] of kinds) for (let i = 0; i < n && slot < 27; i++) await S.must(`item replace block ${x} ${y} ${z} container.${slot++} with minecraft:${k}${ENCH} 1`);
     });
-    const cobble = await put(x1 + 2, z0 + 6, async (x, y, z) => { for (let s = 0; s < 27; s++) await S.must(`item replace block ${x} ${y} ${z} container.${s} with minecraft:cobblestone 64`); });
-    for (const c of [tools, cobble]) for (let i = 0; i < 40; i++) { const b = bot.blockAt(new Vec3(c.x, c.y, c.z)); if (b && b.name === 'chest') break; await L.sleep(250); }       // the bot's own view catches up with the setblock
-    svc.addSite({ name: 'tools1', ...tools, purpose: 'tools' }); svc.addSite({ name: 'cobble1', ...cobble, purpose: 'free' });
+    const cobble = process.env.PREBUILT ? null : await put(x1 + 2, z0 + 6, async (x, y, z) => { for (let s = 0; s < 27; s++) await S.must(`item replace block ${x} ${y} ${z} container.${s} with minecraft:cobblestone 64`); });
+    if (!process.env.PREBUILT) for (const c of [tools, cobble]) for (let i = 0; i < 40; i++) { const b = bot.blockAt(new Vec3(c.x, c.y, c.z)); if (b && b.name === 'chest') break; await L.sleep(250); }       // the bot's own view catches up with the setblock
+    if (!process.env.PREBUILT) { svc.addSite({ name: 'tools1', ...tools, purpose: 'tools' }); svc.addSite({ name: 'cobble1', ...cobble, purpose: 'free' }); }
     const refill = async () => {                                         // a supply chest that does not run dry
         const o = await S.cmd(`data get block ${cobble.x} ${cobble.y} ${cobble.z} Items`), slots = (o.match(/Slot: \d+b/g) || []).length;
         if (slots < 12) for (let s = 0; s < 27; s++) await S.cmd(`item replace block ${cobble.x} ${cobble.y} ${cobble.z} container.${s} with minecraft:cobblestone 64`);
     };
-    const timer = setInterval(() => refill().catch(() => {}), 20000);
+    const timer = process.env.PREBUILT ? null : setInterval(() => refill().catch(() => {}), 20000);
     // ---- strip-mine
     let deaths = 0; for (const n of names) svc.bots.get(n).bot.on('death', () => { deaths++; });
     const waitJob = async (id, what) => {
@@ -82,7 +99,7 @@ async function main() {
     const n = await fillCobble();
     check(`/fill air replace cobblestone reports ${W} x ${W} x ${H} = ${W * W * H} blocks`, n === W * W * H, { reported: n, expected: W * W * H });
     check('no bot died', deaths === 0, { deaths });
-    clearInterval(timer);
+    if (timer) clearInterval(timer);
     await svc.stop();
     const failed = results.filter((x) => !x.ok);
     console.log(`[accept-t1] ${results.length - failed.length}/${results.length} pass`);

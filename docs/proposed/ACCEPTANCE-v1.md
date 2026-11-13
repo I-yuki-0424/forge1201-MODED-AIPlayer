@@ -61,3 +61,16 @@ On world 4 (a mountainous start, box top y 116, bottom -59, 8 bots, `expert` met
 ## Not claimed
 
 Nothing in this document has been measured yet. Rates from the simulator are never evidence (CLAUDE.md, verification standard).
+
+### The test-1 build world (owner request 2026-11-13: build the starting chunk by hand, run test 1 on it as the initial state)
+
+Join it with a Minecraft 1.20.1 client (vanilla or Fabric, no mods) at **`100.77.246.23:25580`** (tailnet only; operator `Seia_Y`). It is a persistent Fabric world, not a disposable one: `/mnt/data/forgeaip-play/accept/t1.sh up | down | status | snapshot [label] | list | restore <label>` (a snapshot is taken before every `down` and `restore`; `initial` is the untouched world). Files: `compose-t1.yaml`, `t1-datapack/` (own local git repo).
+
+| What the owner asked | What was done |
+| :-- | :-- |
+| Remove the randomness of the spawn point | fixed seed `4370349159688736012` (stored in `t1.seed`); `gamerule spawnRadius 0`; world spawn at **-16, 67, -48** (the chunk corner of chunk -1,-3). Every player, bot and respawn appears on that one block (a bed overrides it for a player) |
+| A chest that supplies cobblestone and the tools forever | a chest at **-19, 66, -44** (outside the spawn chunk, so the strip-mine does not dig it up). A marker entity (`forgeaip_supply`) stands in it and the datapack `forgeaip` re-stocks it every 0.2 s: slots 0-5 netherite pickaxe, axe, shovel, sword, hoe and shears (unbreakable, efficiency 255), slots 6-26 cobblestone 64. Anything taken is back within a fifth of a second (tested: slot emptied, back after 1 s) |
+
+Moving or adding chests: stand where the chest should be and run `/function forgeaip:supply_chest` (places a chest and its marker; as many as wanted). To move one: `/kill @e[type=marker,tag=forgeaip_supply,limit=1,sort=nearest]`, break the chest, run the function at the new spot. Keep each chest outside the box that will be strip-mined. The chest only works while its chunk is loaded (always the case near the spawn or any player or bot).
+
+Running test 1 on it afterwards (the harness reads the world, creates and tops up nothing): `ACC=0 PREBUILT=1 scripts/accept/run.sh t1_chunk.js METHOD=expert LIVE_OUT=/out/t1_prebuilt.json` (the box is the chunk of the spawn; the chests are found through the markers and tagged as tools and cobblestone chests). Take a `t1.sh snapshot` of the finished terrain first: the run changes the world.

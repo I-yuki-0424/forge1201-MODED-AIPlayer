@@ -33,6 +33,9 @@ async function main() {
         console.log(`[accept-t3t4] ${label}: ${res.ok ? 'ok' : res.reason} in ${Math.round((Date.now() - t0) / 1000)} s ${res.detail ? String(res.detail).slice(0, 300) : ''}`);
         return { ok: !!res.ok, reason: res.reason, sec: Math.round((Date.now() - t0) / 1000) };
     };
+    const beat = setInterval(async () => {                              // a heartbeat: where the bot is and what it carries (the steps are printed by obtain itself)
+        try { const p = await L.posOf(S, A); const n = {}; for (const k of ['raw_iron', 'iron_ingot', 'coal', 'cobblestone', 'stone', 'furnace', 'crafting_table', 'oak_log', 'birch_log', 'spruce_log']) n[k] = await have(k); console.log(`[accept-t3t4] beat at ${p && [p.x, p.y, p.z].map(Math.round)} cmd ${rec.cmd && rec.cmd.name}/${rec.cmd && rec.cmd.status} ${JSON.stringify(n)}`); } catch (_) { /* the harness never fails on a heartbeat */ }
+    }, 120000);
     // ---- test 3
     for (const [item, what] of [['iron_ingot', 'iron'], ['stone', 'smelted stone'], ['cobblestone', 'cobblestone'], ['wood', 'wood']]) await send('obtain', { item, count: N3 }, `obtain ${N3} ${what}`);
     const logs = (await Promise.all(['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'mangrove', 'cherry'].map((w) => have(`${w}_log`)))).reduce((a, b) => a + b, 0);
@@ -55,7 +58,7 @@ async function main() {
         }
         check(`test 4: ${cells.length} iron blocks stand ${SOUTH} blocks south of the initial point (server)`, cells.length >= 7 && placed >= 7, { placed, wanted: cells.length, ingotsLeft: await have('iron_ingot'), ironBlocksLeft: await have('iron_block') });
     }
-    await svc.stop();
+    clearInterval(beat); await svc.stop();
     const failed = results.filter((x) => !x.ok);
     console.log(`[accept-t3t4] ${results.length - failed.length}/${results.length} pass`);
     if (process.env.LIVE_OUT) fs.writeFileSync(process.env.LIVE_OUT, JSON.stringify({ init, results }, null, 1));

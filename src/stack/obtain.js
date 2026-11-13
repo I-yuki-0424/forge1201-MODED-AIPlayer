@@ -67,7 +67,7 @@ async function fuelFor(deps, smelts, depth) {
 async function obtain(deps, item, n, depth = 0) {
     item = ALIAS[item] || item;
     const bot = deps.bot, steps = [];
-    const log = (s) => steps.push(s);
+    const log = (s) => { steps.push(s); if (deps.say) deps.say(`${item} x${n}${depth ? ` (step ${depth})` : ''}: ${s}`); };
     if (depth > MAX_DEPTH) return fail('invalid_args', { why: `${item}: the recipe chain is too deep (a loop?)` });
     if (!bot.registry.itemsByName[item] && item !== 'log' && item !== 'planks') return fail('invalid_args', { why: `${item} is not an item of this world` });
     const missing = () => n - have(bot, item);
