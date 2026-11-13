@@ -425,7 +425,15 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
             exec: (n, a, o = {}) => execute(bot, n, a, { cancel: unitCancel, ...o }),
             travel: (t, o) => envObj.travel(t, o),
             obtain: (item, n) => envObj.obtain(item, n),
-            escape: () => envObj.expertEscape(null, { why: 'router: the target cannot be reached from where the bot is' }),
+            // The unstick expert first; when it fails, a staircase dug up out of the hole (src/work/bot/travel.js digOut: the same ability the walk uses). A bot that fell into a shaft near the spawn stood in it for 40 minutes
+            // while the expert timed out again and again (acceptance world 3, 2026-11-13).
+            escape: async () => {
+                const r = await envObj.expertEscape(null, { why: 'router: the target cannot be reached from where the bot is' });
+                if (r && r.ok) return r;
+                const tr = require('./travel'), h = feet();
+                const d = await tr.digOut({ exec: envObj.exec, here: envObj.here, w, cancel: unitCancel }, { x: h.x + 40, z: h.z });
+                return d.ok && d.steps > 0 ? { ok: true, detail: { dugOut: d.steps } } : r;
+            },
         }, { name, args }),
         // What the planner can walk to from where the bot stands (inside the loaded chunks): the test of whether a block or a leg can be reached at all.
         reachOf: () => require('../../skills/planner').reachableAsync(w, feet(), { maxNodes: 3000, radius: 36 }),
