@@ -22,8 +22,10 @@ function freeCells(deps, near = 2) {
     const w = deps.w, me = deps.here(), out = [];
     for (let dx = -near; dx <= near; dx++) for (let dz = -near; dz <= near; dz++) {
         if (!dx && !dz) continue;
-        const c = { x: me.x + dx, y: me.y, z: me.z + dz };
-        if (w.kindAt(c.x, c.y, c.z) === 'air' && w.kindAt(c.x, c.y + 1, c.z) === 'air' && w.kindAt(c.x, c.y - 1, c.z) === 'solid') out.push({ ...c, d: Math.abs(dx) + Math.abs(dz) });
+        for (const dy of [0, 1, -1, -2]) {                                          // the ground beside the bot is rarely at its exact level (a beach: 62 to 64 within a few blocks; acceptance world 4, test 4)
+            const c = { x: me.x + dx, y: me.y + dy, z: me.z + dz };
+            if (w.kindAt(c.x, c.y, c.z) === 'air' && w.kindAt(c.x, c.y + 1, c.z) === 'air' && w.kindAt(c.x, c.y - 1, c.z) === 'solid') { out.push({ ...c, d: Math.abs(dx) + Math.abs(dz) + Math.abs(dy) * 0.5 }); break; }
+        }
     }
     return out.sort((a, b) => a.d - b.d);
 }
