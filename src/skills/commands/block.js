@@ -198,9 +198,13 @@ async function place(ctx, { x, y, z, item, fluid = false, temp = null }) {
     }, () => (seen().length ? true : null), cell);
     await holdOrFail(ctx, item, undefined, 'item_held');
     // Step to the centre of the own cell if the body pokes into the target cell (the server refuses to place into a player).
-    const mid = centre(feetCell(bot.entity.position));
+    let mid = centre(feetCell(bot.entity.position));
     if (overlaps(bot.entity.position, cell)) {
         ctx.phase('clear_cell');
+        // The bot stands IN the target cell (the router's walk ends in the cell it was asked to reach): its own centre is the target's centre, stepping there clears nothing (acceptance world 4,
+        // 2026-11-13: "stuck" at clear_cell, 239 s, every block of test 4). Step to a neighbouring cell that can be stood on.
+        const f0 = feetCell(bot.entity.position);
+        if (f0.x === x && f0.z === z) { const n = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([a, b]) => ({ x: f0.x + a, y: f0.y, z: f0.z + b })).find((c) => standable(w, c.x, c.y, c.z)); if (n) mid = centre(n); }
         await ctx.until(() => !overlaps(bot.entity.position, cell), 30, 'stuck',
             () => ({ forward: hdist(bot.entity.position, mid) > 0.08, yaw: Math.atan2(-(mid.x - bot.entity.position.x), -(mid.z - bot.entity.position.z)) }));
         await ctx.until(() => Math.hypot(bot.entity.velocity.x, bot.entity.velocity.z) < 0.03, 10, 'stuck');

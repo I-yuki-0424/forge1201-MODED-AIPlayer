@@ -139,6 +139,7 @@ async function obtain(deps, item, n, depth = 0) {
             if (!f.ok) return fail(f.reason, { ...f.detail, steps });
             const s = await station(deps, 'furnace', depth); log(`furnace: ${s.ok ? (s.placed ? 'placed' : 'found') : s.reason}`);
             if (!s.ok) return fail(s.reason, { ...s.detail, steps });
+            if (have(bot, input) < k) { const a2 = await obtain(deps, input, k, depth + 1); log(`${input} again (the furnace took some): ${a2.ok ? 'ok' : a2.reason}`); if (!a2.ok) return fail(a2.reason, { ...a2.detail, steps }); }
             const before = have(bot, item);
             const r = await deps.exec('smelt', { item: input === 'log' ? firstLog(bot) : input, count: k, x: s.cell.x, y: s.cell.y, z: s.cell.z }); log(`smelt ${k} ${input}: ${r.ok ? 'ok' : r.reason}`);
             if (!r.ok) return fail(r.reason, { ...(r.detail || {}), steps });
