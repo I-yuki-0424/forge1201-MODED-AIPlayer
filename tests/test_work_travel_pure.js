@@ -7,9 +7,9 @@ const LOAD = 56;
 
 /** Flat ground (stone at y <= 63, feet at 64); `water(x,z)` columns are open water (not standable); `wall(x,z)` columns are solid up to y 80. */
 function sim({ start = { x: 0, y: 64, z: 0 }, water = () => false, wall = () => false, pit = () => false, loadFollows = true, planned = false } = {}) {
-    const bot = { ...start }, moves = [];
+    const bot = { ...start }, moves = [], dug = new Set();
     const known = (x, z) => Math.hypot(x - bot.x, z - bot.z) <= LOAD;
-    const kindAt = (x, y, z) => { if (!known(x, z)) return 'unknown'; if (wall(x, z)) return y <= 80 ? 'solid' : 'air'; if (pit(x, z)) return y <= (typeof pit(x, z) === 'number' ? pit(x, z) : 40) ? 'solid' : 'air'; if (water(x, z) && y === 64) return 'water'; return y <= 63 ? 'solid' : 'air'; };
+    const kindAt = (x, y, z) => { if (!known(x, z)) return 'unknown'; if (dug.has(`${x},${y},${z}`)) return 'air'; if (wall(x, z)) return y <= 80 ? 'solid' : 'air'; if (pit(x, z)) return y <= (typeof pit(x, z) === 'number' ? pit(x, z) : 40) ? 'solid' : 'air'; if (water(x, z) && y === 64) return 'water'; return y <= 63 ? 'solid' : 'air'; };
     const env = {
         w: { kindAt, shapesAt: () => [] }, here: () => ({ ...bot }), cancel: { cancelled: false },
         exec: async (name, a) => {
@@ -23,7 +23,7 @@ function sim({ start = { x: 0, y: 64, z: 0 }, water = () => false, wall = () => 
             bot.x = a.x; bot.y = a.y; bot.z = a.z; return { ok: true };
         },
     };
-    return { env, bot, moves };
+    return { env, bot, moves, dug };
 }
 
 (async () => {
@@ -106,6 +106,20 @@ function sim({ start = { x: 0, y: 64, z: 0 }, water = () => false, wall = () => 
         const asked = []; const ex = s.env.exec; s.env.exec = async (n, a) => { asked.push(a.y); return ex(n, a); };
         await travel(s.env, { x: 120, z: 0 });
         assert.ok(asked.length > 0 && asked[0] > 50, `the first leg asked for is not into the crater: ${JSON.stringify(asked.slice(0, 4))}`);
+    });
+    await test('inside a basin with walls no leg climbs, the walk digs a staircase up toward the target and goes on from the rim (reproducer: acceptance world 2, a basin 12 levels down ended the way back 515 blocks short)', async () => {
+        const pit = (x, z) => (x >= 30 && x <= 52 && Math.abs(z) <= 15 ? 40 : false);
+        const s = sim({ planned: true, start: { x: 52, y: 41, z: 0 }, pit });
+        const exec = s.env.exec; let tunnels = 0;
+        s.env.exec = async (name, a) => {
+            if (name !== 'tunnel') return exec(name, a);
+            const v = { north: [0, -1], south: [0, 1], west: [-1, 0], east: [1, 0] }[a.dir], x = s.bot.x + v[0], y = s.bot.y + a.dy, z = s.bot.z + v[1];
+            tunnels++; for (const c of [[x, y, z], [x, y + 1, z], [s.bot.x, s.bot.y + 2, s.bot.z]]) s.dug.add(c.join(','));
+            s.bot.x = x; s.bot.y = y; s.bot.z = z; return { ok: true };
+        };
+        const r = await travel(s.env, { x: 120, z: 0 });
+        assert.ok(r.ok, JSON.stringify(r)); assert.ok(tunnels >= 20 && tunnels <= 30, `${tunnels} stair steps`);
+        assert.ok(Math.hypot(s.bot.x - 120, s.bot.z) <= 4, `ended at ${s.bot.x},${s.bot.y},${s.bot.z}`);
     });
     console.log('\nwork travel: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

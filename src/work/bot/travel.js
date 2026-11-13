@@ -31,6 +31,31 @@ async function hasExit(env, c) {
     return r.cells.some((q) => Math.max(Math.abs(q[0] - c.x), Math.abs(q[2] - c.z)) >= RANGE - 2 || unknown(q[0] + 1, q[1], q[2]) || unknown(q[0] - 1, q[1], q[2]) || unknown(q[0], q[1], q[2] + 1) || unknown(q[0], q[1], q[2] - 1));
 }
 
+const COMPASS = ['north', 'east', 'south', 'west'], AXIS = { north: [0, -1], east: [1, 0], south: [0, 1], west: [-1, 0] };
+
+/**
+ * Out of an enclosed place (a basin, a sinkhole, a shaft) by digging: stair steps UP toward the target (the `tunnel` instruction, dy +1: a one-block rise per step through whatever is in the way), turning
+ * to the next heading when a step is refused, until the reach from where the bot stands is no longer enclosed. Acceptance world 2, 2026-11-13: a basin 12 levels down ended the way back 515 blocks short;
+ * no leg from its floor could be walked and the bot had the tools to dig. Returns {ok, steps} or {ok: false, reason, steps}.
+ */
+async function digOut(env, to, { maxSteps = 60 } = {}) {
+    let fails = 0, steps = 0;
+    const head = () => { const h = env.here(), dx = to.x - h.x, dz = to.z - h.z; return Math.abs(dx) >= Math.abs(dz) ? (dx > 0 ? 1 : 3) : (dz > 0 ? 2 : 0); };
+    let dir = head();
+    while (steps < maxSteps) {
+        if (env.cancel && env.cancel.cancelled) return { ok: false, reason: 'cancelled', steps };
+        const h = env.here();
+        if (await hasExit(env, h)) return { ok: true, steps };
+        const r = await env.exec('tunnel', { dir: COMPASS[dir], dy: 1 });
+        if (env.trace) env.trace(`dig out ${h.x},${h.y},${h.z} ${COMPASS[dir]}: ${r.ok ? 'ok' : r.reason}`);
+        if (r.ok) { steps++; fails = 0; dir = head(); continue; }
+        if (['died', 'disconnected', 'cancelled'].includes(r.reason)) return { ok: false, reason: r.reason, steps };
+        if (++fails > 8) return { ok: false, reason: r.reason || 'stuck', steps };
+        dir = (dir + 1) % 4;
+    }
+    return { ok: false, reason: 'timeout', steps };
+}
+
 /** The cell a leg can end in for the column x,z: the highest standing cell, else the surface of open water (the planner swims to it: a sea is crossed, not given up on). */
 function top(world, x, z, cap) {
     const s = surface(world, x, z, cap);
@@ -120,12 +145,20 @@ async function travel(env, to, { leg = LEG, near = NEAR, maxLegs = MAX_LEGS } = 
             last = { reason: r.reason, detail: r.detail, tried: c };
             if (['died', 'disconnected', 'cancelled'].includes(r.reason)) return { ok: false, reason: r.reason, detail: { legs } };
         }
+        if (!moved && env.exec && !(await hasExit(env, here))) {                 // enclosed: no leg can leave it on foot; dig a staircase up and go on from the rim
+            const d = await digOut(env, to);
+            if (d.ok && d.steps > 0) { mark(env.here()); continue; }
+        }
         if (!moved) return { ok: false, reason: (last && last.reason) || 'unreachable', detail: { ...(last && last.detail ? last.detail : {}), legs, at: env.here(), remaining: Math.round(d), why: 'no leg of any length or side could be walked' } };
         const fresh = !visited.has(`${Math.floor(env.here().x / 8)},${Math.floor(env.here().z / 8)}`);
         mark(env.here());
         const rem = hd(env.here(), to);
         if (rem < best - 2) { best = rem; slow = 0; }                         // a new closest point: the walk goes on
         else slow += fresh ? 0.25 : 1;                                        // a leg into ground the bot has not been on is exploring (round a ridge): twelve of them without a new closest point, or three on old ground, are stuck
+        if (slow >= 3 && env.exec && !(await hasExit(env, env.here()))) {         // the same, when the legs wander inside an enclosure without a way out
+            const d = await digOut(env, to);
+            if (d.ok && d.steps > 0) { slow = 0; mark(env.here()); continue; }
+        }
         if (slow >= 3) return { ok: false, reason: 'stuck', detail: { legs: legs + 1, at: env.here(), remaining: Math.round(hd(env.here(), to)), why: 'no new closest point to the target for several legs (twelve into new ground, three over old)' } };
     }
     return { ok: false, reason: 'timeout', detail: { legs, at: env.here(), remaining: Math.round(hd(env.here(), to)), why: `more than ${maxLegs} legs` } };
