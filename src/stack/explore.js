@@ -58,7 +58,7 @@ async function prospect(deps, found, level, { maxStairs = 120, maxTunnel = 160 }
         return false;
     };
     try {
-        while (deps.here().y > level && log.stairs < maxStairs) { if (!(await step(-1))) break; log.stairs++; }
+        while (deps.here().y > level && log.stairs < maxStairs) { if (!(await step(-1))) break; log.stairs++; if (log.stairs % 6 === 0 && await found()) return { found: true, ...log, entry }; }          // ore met on the way down is ore: no need to go to the end of the staircase
         if (await found()) return { found: true, ...log, entry };
         while (log.tunnel < maxTunnel) {
             if (deps.cancelled && deps.cancelled()) break;

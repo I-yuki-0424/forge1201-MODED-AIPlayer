@@ -101,10 +101,20 @@ async function obtain(deps, item, n, depth = 0) {
             const nearest = deps.nearestOre ? async () => (ORE_LEVEL[item] !== undefined ? deps.nearestOre(item, 24) : null) : null;
             const nearby = async () => { const ts = item === 'log' ? bestLogTargets(deps) : [item]; if (ORE_LEVEL[item] !== undefined && deps.workable) return (await deps.workable(item, 24)) > 0; return ts.some((t) => ((deps.survey(t, 24) || {}).total || 0) > 0); };
             if (ORE_LEVEL[item] !== undefined) {
-                const p = await prospect({ ...deps, nearest }, nearby, ORE_LEVEL[item]); log(`prospect ${item}: ${p.found ? 'found' : p.why || 'nothing'} (${p.stairs} stairs, ${p.tunnel} tunnel${p.fails.length ? `, ${p.fails.length} refusals: ${[...new Set(p.fails.map((f) => f.replace(/^\w+( -?\d)?: /, '')))].slice(0, 4).join(' | ').slice(0, 260)}` : ''})`);
+                let p = await prospect({ ...deps, nearest }, nearby, ORE_LEVEL[item]); log(`prospect ${item}: ${p.found ? 'found' : p.why || 'nothing'} (${p.stairs} stairs, ${p.tunnel} tunnel${p.fails.length ? `, ${p.fails.length} refusals: ${[...new Set(p.fails.map((f) => f.replace(/^\w+( -?\d)?: /, '')))].slice(0, 4).join(' | ').slice(0, 260)}` : ''})`);
+                const entry = p.entry, trail = p.trail.slice();
                 stop = await mineAll();
-                if (missing() > 0 && !stop) { const b = await back(deps, p.entry, p.trail); log(`back to the surface: ${b.ok ? 'ok' : b.reason}`); if (!b.ok) break; }
-                else if (!stop) { const b = await back(deps, p.entry, p.trail); log(`back to the surface: ${b.ok ? 'ok' : b.reason}`); }
+                // Stay down while the count is short: the next vein is a few tunnel steps from the last one, and the way up and down again costs minutes per iron (acceptance world 3/4, 2026-11-13: one to three
+                // ore per round trip, six rounds allowed). prospect() from where the bot stands skips the staircase (it is at the ore level) and tunnels toward the ore it can see.
+                for (let k = 0; k < 60 && missing() > 0 && !stop && p.found; k++) {
+                    const m0 = missing();
+                    p = await prospect({ ...deps, nearest }, nearby, ORE_LEVEL[item]); trail.push(...p.trail);
+                    log(`prospect on ${item}: ${p.found ? 'found' : p.why || 'nothing'} (${p.tunnel} tunnel)`);
+                    if (!p.found) break;
+                    stop = await mineAll();
+                    if (missing() >= m0 && p.stairs + p.tunnel === 0) break;                  // nothing moved, nothing mined: the next round would be the same
+                }
+                if (!stop) { const b = await back(deps, entry, trail); log(`back to the surface: ${b.ok ? 'ok' : b.reason}`); if (!b.ok && missing() > 0) break; }
                 if (!p.found && p.why) break;
             } else {
                 const s = await surface(deps, nearby); log(`explore for ${item}: ${s.found ? 'found' : s.why} (${s.stops.length} stops)`);
