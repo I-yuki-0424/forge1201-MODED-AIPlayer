@@ -5,7 +5,7 @@
 //   prospect  (ores) dig a staircase down to the depth where the ore is common, then drive a tunnel and look again every few steps; the way back is the staircase, walked
 // Pure given `deps` (here, w, command, travel, survey, cancelled): the tests drive it with a fake world.
 const ORE_LEVEL = Object.freeze({ raw_iron: 16, coal: 48, raw_copper: 40, raw_gold: -16, diamond: -58, redstone: -58, lapis_lazuli: 0, emerald: 100 });
-const DIRS = ['north', 'east', 'south', 'west'];
+const DIRS = ['north', 'east', 'south', 'west'], VEC = { north: [0, -1], east: [1, 0], south: [0, 1], west: [-1, 0] };
 const RINGS = [80, 160, 240, 320, 480, 640], ANGLES = 8;
 const FATAL = new Set(['died', 'disconnected', 'cancelled']);
 
@@ -38,6 +38,13 @@ async function prospect(deps, found, level, { maxStairs = 120, maxTunnel = 160 }
             const r = await deps.command('tunnel', { dir: DIRS[dir], dy });
             if (r.ok) { fails = 0; return true; }
             if (FATAL.has(r.reason)) throw Object.assign(new Error(r.reason), { fatal: r.reason });
+            // "Nothing to dig (a walk)": the cell ahead is already open (a cave, an old tunnel). That is no refusal, it is free ground: walk the step, and the search goes on from there
+            // (acceptance world 4, 2026-11-13: such answers were counted as failures, turned the tunnel and ended it after six).
+            if (deps.exec && r.detail && /nothing to dig/.test(String(r.detail.why || ''))) {
+                const h = deps.here(), [vx, vz] = VEC[DIRS[dir]];
+                const w = await deps.exec('move_to', { x: h.x + vx, y: h.y + dy, z: h.z + vz });
+                if (w.ok) { fails = 0; return true; }
+            }
             log.fails.push(`${DIRS[dir]}${dy ? ' ' + dy : ''}: ${(r.detail && r.detail.why) || r.reason}`); fails++;
             dir = (dir + 1) % 4;                                                    // water, lava, no floor, a drop: another way
         }

@@ -296,6 +296,16 @@ function fakeBot(scene, pos, { pack = [], held = null, entities = {} } = {}) {
         assert.ok(q.fails.length >= 1 && q.tunnel > 0, JSON.stringify(q));       // the refusal turned the heading, the tunnel went on
     });
 
+    await test('prospecting: "nothing to dig (a walk)" is free ground, walked, not a refusal (reproducer: acceptance world 4, a tunnel that met a cave ended after six of them)', async () => {
+        const ex = require('../src/stack/explore'); let pos = { x: 0, y: 20, z: 0 }; const walks = [];
+        const d = { here: () => ({ ...pos }), cancelled: () => false,
+            command: async (nm, a) => (a.dir === 'north' ? { ok: false, reason: 'invalid_target', detail: { why: 'nothing to dig (a walk)' } } : { ok: false, reason: 'invalid_target', detail: { why: 'fluid behind' } }),
+            exec: async (nm, a) => { walks.push([a.x, a.y, a.z]); pos = { x: a.x, y: a.y, z: a.z }; return { ok: true }; } };
+        const r = await ex.prospect(d, () => false, 20, { maxTunnel: 12 });
+        assert.strictEqual(r.tunnel, 12, JSON.stringify(r)); assert.ok(walks.length === 12 && walks.every((w, i) => w[2] === -(i + 1)), JSON.stringify(walks.slice(0, 3)));
+        assert.strictEqual(r.fails.length, 0, 'no refusal was counted');
+    });
+
     await test('the routed set is exactly the six instructions the router has rules for', () => {
         assert.deepStrictEqual([...router.ROUTED].sort(), ['activate', 'attack', 'mine', 'pickup', 'place', 'tunnel']);
     });
