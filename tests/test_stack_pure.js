@@ -306,6 +306,14 @@ function fakeBot(scene, pos, { pack = [], held = null, entities = {} } = {}) {
         assert.strictEqual(r.fails.length, 0, 'no refusal was counted');
     });
 
+    await test('prospecting heads for ore it can see (the axis it is furthest along, a stair when it lies two levels off) instead of a blind heading', async () => {
+        const ex = require('../src/stack/explore'); let pos = { x: 0, y: 20, z: 0 }; const seen = [];
+        const d = { here: () => ({ ...pos }), cancelled: () => false, nearest: async () => ({ x: 9, y: 24, z: -3 }),
+            command: async (nm, a) => { seen.push([a.dir, a.dy]); const v = { north: [0, -1], south: [0, 1], east: [1, 0], west: [-1, 0] }[a.dir]; pos = { x: pos.x + v[0], y: pos.y + a.dy, z: pos.z + v[1] }; return { ok: true }; } };
+        await ex.prospect(d, () => false, 20, { maxTunnel: 6 });
+        assert.deepStrictEqual(seen[0], ['east', 1], JSON.stringify(seen)); assert.ok(seen.every((q) => q[0] === 'east' || q[0] === 'north'), JSON.stringify(seen));
+    });
+
     await test('the routed set is exactly the six instructions the router has rules for', () => {
         assert.deepStrictEqual([...router.ROUTED].sort(), ['activate', 'attack', 'mine', 'pickup', 'place', 'tunnel']);
     });

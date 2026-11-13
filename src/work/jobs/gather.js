@@ -9,6 +9,7 @@ const { fromBot } = require('../../skills/world');
 const ALIAS = { redstone_dust: 'redstone', cobble: 'cobblestone' };          // how a person writes it -> the registry's name
 const bare = (n) => { const s = String(n).replace(/^minecraft:/, ''); return ALIAS[s] || s; };
 const REACH = 4.5;
+const REACH_FROM = 4.2;                          // how far from a block the router lets the bot work on it (the precondition's `max`); the cell must be one the bot can walk to
 const MAX_DIG_IN = 4;                                // a buried block is reached by tunnelling at most this many blocks through solid rock
 const FLUID = new Set(['water', 'liquid', 'danger']);          // never dig next to water or lava (it would flow into the hole)                                   // blocks within this distance of the eyes are mined without walking
 
@@ -83,7 +84,7 @@ function withHeadroom(w, path, target) {
 }
 
 /** True when some cell the planner can walk to (`reach`, from `reachableAsync`) lies within `r` blocks of the cell. */
-const nearReach = (reach, c, r) => reach.cells.some((q) => Math.abs(q[0] - c.x) <= r && Math.abs(q[2] - c.z) <= r && Math.abs(q[1] - c.y) <= r + 1);
+const nearReach = (reach, c, r) => reach.cells.some((q) => Math.hypot(q[0] - c.x, q[1] + 1.62 - (c.y + 0.5), q[2] - c.z) <= r);          // a walkable cell whose EYES are within r of the block's centre
 
 /**
  * The candidates `gather` can actually work: an exposed block the bot can walk up to (a walkable cell within reach of it), or a buried one with a short dig path whose entrance is a cell the bot can
@@ -94,9 +95,9 @@ function workable(bot, all, reach) {
     const w = fromBot(bot);
     return all.filter((c) => {
         if (c.wet) return false;
-        if (c.exposed) return nearReach(reach, c, 4);
+        if (c.exposed) return nearReach(reach, c, REACH_FROM - 0.4);
         const core = digPath(w, c), path = core && withHeadroom(w, core, c);
-        return !!path && nearReach(reach, core[0] || c, 2);
+        return !!path && nearReach(reach, core[0] || c, REACH_FROM - 0.4);
     });
 }
 

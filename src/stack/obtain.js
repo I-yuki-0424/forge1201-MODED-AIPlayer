@@ -98,9 +98,10 @@ async function obtain(deps, item, n, depth = 0) {
         // Not within reach: look further. Ores: down a staircase to the depth where they are common and along a tunnel; the rest: out on rings over the surface.
         for (let round = 0; round < 6 && missing() > 0 && !stop && deps.travel && deps.survey; round++) {
             // Ores count only when gather could work them (a block the bot can walk up to, or dig to from a cell it can walk to): iron in a cave 20 levels down is "found" and unreachable.
+            const nearest = deps.nearestOre ? async () => (ORE_LEVEL[item] !== undefined ? deps.nearestOre(item, 24) : null) : null;
             const nearby = async () => { const ts = item === 'log' ? bestLogTargets(deps) : [item]; if (ORE_LEVEL[item] !== undefined && deps.workable) return (await deps.workable(item, 24)) > 0; return ts.some((t) => ((deps.survey(t, 24) || {}).total || 0) > 0); };
             if (ORE_LEVEL[item] !== undefined) {
-                const p = await prospect(deps, nearby, ORE_LEVEL[item]); log(`prospect ${item}: ${p.found ? 'found' : p.why || 'nothing'} (${p.stairs} stairs, ${p.tunnel} tunnel${p.fails.length ? `, ${p.fails.length} refusals: ${[...new Set(p.fails.map((f) => f.replace(/^\w+( -?\d)?: /, '')))].slice(0, 4).join(' | ').slice(0, 260)}` : ''})`);
+                const p = await prospect({ ...deps, nearest }, nearby, ORE_LEVEL[item]); log(`prospect ${item}: ${p.found ? 'found' : p.why || 'nothing'} (${p.stairs} stairs, ${p.tunnel} tunnel${p.fails.length ? `, ${p.fails.length} refusals: ${[...new Set(p.fails.map((f) => f.replace(/^\w+( -?\d)?: /, '')))].slice(0, 4).join(' | ').slice(0, 260)}` : ''})`);
                 stop = await mineAll();
                 if (missing() > 0 && !stop) { const b = await back(deps, p.entry); log(`back to the surface: ${b.ok ? 'ok' : b.reason}`); if (!b.ok) break; }
                 else if (!stop) { const b = await back(deps, p.entry); log(`back to the surface: ${b.ok ? 'ok' : b.reason}`); }

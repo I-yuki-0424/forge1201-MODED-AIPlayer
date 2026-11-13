@@ -55,7 +55,15 @@ async function prospect(deps, found, level, { maxStairs = 120, maxTunnel = 160 }
         if (await found()) return { found: true, ...log, entry };
         while (log.tunnel < maxTunnel) {
             if (deps.cancelled && deps.cancelled()) break;
-            if (!(await step(0))) { dir = (dir + 1) % 4; if (++fails > 6) break; continue; }
+            // Ore in sight but not yet workable: head for it (the horizontal axis it is furthest along, a stair up or down when it lies two or more levels off), instead of a heading chosen blind
+            let dy = 0;
+            const tgt = deps.nearest ? await deps.nearest() : null;
+            if (tgt) {
+                const h = deps.here(), ddx = tgt.x - h.x, ddz = tgt.z - h.z, ddy = tgt.y - h.y;
+                if (Math.abs(ddx) + Math.abs(ddz) > 0 || ddy) dir = DIRS.indexOf(Math.abs(ddx) >= Math.abs(ddz) ? (ddx > 0 ? 'east' : 'west') : (ddz > 0 ? 'south' : 'north'));
+                if (Math.abs(ddy) >= 2 && Math.abs(ddx) + Math.abs(ddz) >= 1) dy = Math.sign(ddy);
+            }
+            if (!(await step(dy))) { dir = (dir + 1) % 4; if (++fails > 6) break; continue; }
             log.tunnel++;
             if (log.tunnel % 3 === 0 && await found()) return { found: true, ...log, entry };
             if (log.tunnel % 40 === 0) dir = (dir + 1) % 4;                         // a new strip, so that the search does not run along one line for ever
