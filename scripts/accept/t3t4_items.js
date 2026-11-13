@@ -24,6 +24,7 @@ async function main() {
     // The tools chest stands at the initial point in the real set-up: a bot that died comes back to it. Here the tools are given again on the respawn (a bot that died lost them and every later step said missing_tool).
     let deaths = 0; bot.on('death', () => { deaths++; });
     bot.on('spawn', () => { setTimeout(async () => { try { if (!bot.inventory.items().some((i) => i.name === 'netherite_pickaxe')) for (const k of ['pickaxe', 'axe', 'shovel', 'sword']) await S.must(`give ${A} minecraft:netherite_${k}${ENCH} 1`); } catch (_) { /* the next respawn tries again */ } }, 2500); });
+    if (process.env.GIVE_RAW) await S.must(`give ${A} minecraft:raw_iron ${N3}`);          // a shortcut for debugging the stages AFTER the mining (smelting, crafting, placing); never part of the acceptance run
     const have = async (item) => S.count(item);
     const send = async (command, args, label) => {
         const t0 = Date.now();

@@ -136,9 +136,9 @@ function attach(bot, { world, enabled = () => true, onEvent = () => {} } = {}) {
         if (!e.isInWater) wet = 0;
         if (!e.onGround && e.velocity && e.velocity.y < -0.55 && !e.isInWater) {
             const f = feet(), d = dropBelow(kind, f.x, f.y, f.z);
-            if (d !== null && d >= FALL_MIN) { st.active = true; bot.__preempt = true; st.fired++; st.since = Date.now(); fall(d).catch(() => done('fall', { error: true })); }
-        } else if (e.isInWater && headWet() && ++wet >= 160) { wet = 0; st.active = true; bot.__preempt = true; st.fired++; st.since = Date.now(); breath().catch(() => done('breath', { error: true })); }
-        else if (inLava()) { st.active = true; bot.__preempt = true; st.fired++; st.since = Date.now(); lava().catch(() => done('lava', { error: true })); }
+            if (d !== null && d >= FALL_MIN) { st.active = true; bot.__preempt = true; bot.__lastReflex = Date.now(); st.fired++; st.since = Date.now(); fall(d).catch(() => done('fall', { error: true })); }
+        } else if (e.isInWater && headWet() && ++wet >= 160) { wet = 0; st.active = true; bot.__preempt = true; bot.__lastReflex = Date.now(); st.fired++; st.since = Date.now(); breath().catch(() => done('breath', { error: true })); }
+        else if (inLava()) { st.active = true; bot.__preempt = true; bot.__lastReflex = Date.now(); st.fired++; st.since = Date.now(); lava().catch(() => done('lava', { error: true })); }
     };
     bot.on('physicsTick', tick);
     return { state: st, detach: () => { bot.removeListener('physicsTick', tick); bot.__preempt = false; } };
