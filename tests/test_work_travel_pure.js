@@ -6,10 +6,10 @@ function test(name, fn) { console.log(`--- test: ${name} ---`); return Promise.r
 const LOAD = 56;
 
 /** Flat ground (stone at y <= 63, feet at 64); `water(x,z)` columns are open water (not standable); `wall(x,z)` columns are solid up to y 80. */
-function sim({ start = { x: 0, y: 64, z: 0 }, water = () => false, wall = () => false, loadFollows = true, planned = false } = {}) {
+function sim({ start = { x: 0, y: 64, z: 0 }, water = () => false, wall = () => false, pit = () => false, loadFollows = true, planned = false } = {}) {
     const bot = { ...start }, moves = [];
     const known = (x, z) => Math.hypot(x - bot.x, z - bot.z) <= LOAD;
-    const kindAt = (x, y, z) => { if (!known(x, z)) return 'unknown'; if (wall(x, z)) return y <= 80 ? 'solid' : 'air'; if (water(x, z) && y === 64) return 'water'; return y <= 63 ? 'solid' : 'air'; };
+    const kindAt = (x, y, z) => { if (!known(x, z)) return 'unknown'; if (wall(x, z)) return y <= 80 ? 'solid' : 'air'; if (pit(x, z)) return y <= (typeof pit(x, z) === 'number' ? pit(x, z) : 40) ? 'solid' : 'air'; if (water(x, z) && y === 64) return 'water'; return y <= 63 ? 'solid' : 'air'; };
     const env = {
         w: { kindAt, shapesAt: () => [] }, here: () => ({ ...bot }), cancel: { cancelled: false },
         exec: async (name, a) => {
@@ -90,6 +90,14 @@ function sim({ start = { x: 0, y: 64, z: 0 }, water = () => false, wall = () => 
         const r = await travel(mk(-16, -2052), { x: -15, z: -2055 }); assert.ok(r.ok && r.legs === 0, JSON.stringify(r));
         let asked = 0; const far = mk(-17, -2052); far.exec = async () => { asked++; return { ok: false, reason: 'unreachable' }; };
         const r2 = await travel(far, { x: -15, z: -2055 }); assert.ok(!r2.ok && r2.legs === undefined || !r2.ok, 'hypot(2, 3) = 3.6 is not arrived: ' + JSON.stringify(r2));
+    });
+    await test('a leg does not end on the floor of a pit it cannot climb out of (reproducer: acceptance world 1, a sinkhole 25 across, 17 levels down, reached by ledges that go down only)', async () => {
+        // the west rim steps down in drops of 3 every 2 blocks (walkable downwards, not upwards), then a flat floor at 40 and a cliff back to the ground at x 61
+        const pit = (x, z) => (x >= 30 && x <= 60 && Math.abs(z) <= 15 ? Math.max(40, 63 - 3 * (Math.floor((x - 30) / 2) + 1)) : false);
+        const s = sim({ start: { x: 0, y: 64, z: 0 }, pit });
+        const r = await travel(s.env, { x: 120, z: 0 });
+        assert.ok(r.ok, JSON.stringify(r));
+        assert.ok(s.moves.every((m) => m[1] > 50), `no leg went down into the pit: ${JSON.stringify(s.moves.filter((m) => m[1] <= 50))}`);
     });
     console.log('\nwork travel: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

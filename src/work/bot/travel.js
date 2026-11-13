@@ -16,6 +16,19 @@ const MAX_LEGS = 80;               // 80 legs of 40 = 3,200 blocks
 const MAX_DY = 24;                 // a leg ends no more than this far above or below where it starts (no walk down into the pit, no climb of a cliff by the planner's choice)
 
 const hd = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+const RANGE = 36;                  // radius of the planner's reach used to judge a leg's destination
+
+/**
+ * Is the place a descending leg would end in a dead end? The planner's reach from there (drops count one way, so a pit whose walls cannot be climbed is one region) either fills its whole budget or
+ * runs out to the edge of the search area: the ground goes on. A reach that stays well inside the area is enclosed: a sinkhole, a ledge over one, a shaft. Acceptance world 1, 2026-11-13: legs went down into
+ * a sinkhole 25 across, 17 levels deep, and the walk ended on its floor (twice, two runs); a guard on the depth alone let the first ledge through and trapped the bot there in the test.
+ */
+async function hasExit(env, c) {
+    let r; try { r = await reachableAsync(env.w, { x: c.x, y: c.y, z: c.z }, { maxNodes: 3000, radius: RANGE }); } catch (_) { return true; }
+    if (r.cells.length >= 3000) return true;
+    const unknown = (x, y, z) => env.w.kindAt(x, y, z) === 'unknown';           // the edge of the loaded chunks is not a wall: the ground may go on beyond it
+    return r.cells.some((q) => Math.max(Math.abs(q[0] - c.x), Math.abs(q[2] - c.z)) >= RANGE - 2 || unknown(q[0] + 1, q[1], q[2]) || unknown(q[0] - 1, q[1], q[2]) || unknown(q[0], q[1], q[2] + 1) || unknown(q[0], q[1], q[2] - 1));
+}
 
 /** The cell a leg can end in for the column x,z: the highest standing cell, else the surface of open water (the planner swims to it: a sea is crossed, not given up on). */
 function top(world, x, z, cap) {
@@ -92,6 +105,11 @@ async function travel(env, to, { leg = LEG, near = NEAR, maxLegs = MAX_LEGS } = 
         let moved = false;
         let reach = null; try { reach = await reachableAsync(env.w, { x: here.x, y: here.y, z: here.z }, { maxNodes: 3000, radius: 36 }); } catch (_) { /* a world without the readers: the straight-line candidates only */ }
         for (const c of legCandidates(env.w, here, to, { leg: reach ? Math.min(leg, 30) : leg, reach, visited })) {          // with the reach known a leg stays inside the area it was checked in
+            if (c.y < here.y - 1 && !(await hasExit(env, c))) {
+                last = { reason: 'unreachable', detail: { why: 'a dead end (a pit or a ledge over one): the ground does not go on from there' }, tried: c };
+                if (env.trace) env.trace(`leg ${legs} ${here.x},${here.y},${here.z} -> ${c.x},${c.y},${c.z} (${c.why}) skipped: a dead end`);
+                continue;
+            }
             const r = await env.exec('move_to', { x: c.x, y: c.y, z: c.z });
             if (r.ok) { moved = true; if (env.trace) env.trace(`leg ${legs} ${here.x},${here.y},${here.z} -> ${c.x},${c.y},${c.z} (${c.why}) now ${JSON.stringify(env.here())}`); break; }
             if (env.trace) env.trace(`leg ${legs} ${here.x},${here.y},${here.z} -> ${c.x},${c.y},${c.z} (${c.why}) ${r.reason}`);
