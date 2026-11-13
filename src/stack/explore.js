@@ -35,8 +35,12 @@ async function prospect(deps, found, level, { maxStairs = 120, maxTunnel = 160 }
     let dir = 0, fails = 0;
     const mark = () => { const h = deps.here(); log.trail.push({ x: h.x, y: h.y, z: h.z }); };
     const step = async (dy) => {
+        let settle = 0;
         for (let k = 0; k < 4; k++) {
             const r = await deps.command('tunnel', { dir: DIRS[dir], dy });
+            // "Not standing on ground": the bot is still falling or settling after the last step (a drop, a loose block): a moment, the same step again, before it counts as a refusal
+            // (acceptance world 3, 2026-11-13: eight of them in a row ended the whole search for iron after 34 stairs).
+            if (!r.ok && r.detail && /not standing on ground/.test(String(r.detail.why || '')) && settle++ < 4) { await new Promise((res) => setTimeout(res, 600)); k--; continue; }
             if (r.ok) { fails = 0; mark(); return true; }
             if (FATAL.has(r.reason)) throw Object.assign(new Error(r.reason), { fatal: r.reason });
             // "Nothing to dig (a walk)": the cell ahead is already open (a cave, an old tunnel). That is no refusal, it is free ground: walk the step, and the search goes on from there

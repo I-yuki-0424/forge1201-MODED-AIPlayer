@@ -115,7 +115,8 @@ async function obtain(deps, item, n, depth = 0) {
                     if (missing() >= m0 && p.stairs + p.tunnel === 0) break;                  // nothing moved, nothing mined: the next round would be the same
                 }
                 if (!stop) { const b = await back(deps, entry, trail); log(`back to the surface: ${b.ok ? 'ok' : b.reason}`); if (!b.ok && missing() > 0) break; }
-                if (!p.found && p.why) break;
+                if (!p.found && ['died', 'disconnected', 'cancelled'].includes(p.why)) break;
+                if (!p.found && missing() > 0) { const h = deps.here(); await deps.travel({ x: h.x + (round % 2 ? 30 : -30), z: h.z + (round % 4 < 2 ? 30 : -30) }, { near: 4 }); log(`another site for the shaft (round ${round + 1})`); }          // a failed shaft is not the end of the search: dig the next one elsewhere
             } else {
                 const s = await surface(deps, nearby); log(`explore for ${item}: ${s.found ? 'found' : s.why} (${s.stops.length} stops)`);
                 if (!s.found) break;
