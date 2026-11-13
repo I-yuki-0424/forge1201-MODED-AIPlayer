@@ -154,7 +154,7 @@ async function mine(ctx, { x, y, z, collect = true, blind = false, hand = false 
     // way (run train3, Train6: every leaf/log on a tree top ended not_confirmed while the statistic rose).
     let missed = null;
     if (drop && collect) {
-        try { await collectDrops(ctx, cell, drop, before); } catch (e) { if (e.reason !== 'not_confirmed' && e.reason !== 'unreachable' && e.reason !== 'stuck') throw e; missed = e.reason; }
+        try { await collectDrops(ctx, cell, drop, before); } catch (e) { if (e.reason !== 'not_confirmed' && e.reason !== 'unreachable' && e.reason !== 'stuck' && e.reason !== 'precondition_failed') throw e; missed = e.reason; }          // atomic: the drop out of pickup range is no failure of a block that is already broken (the router answered it as one: "no standing cell within reach of the target", the mining of every ore beyond arm's length failed)
     }
     return { block: b0.name, tool: tool.name, drop, got: drop ? count(bot, drop) - before : 0, ...(missed ? { drop_missed: missed } : {}) };
 }

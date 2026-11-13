@@ -121,5 +121,15 @@ const ore = (cells, x, y, z, n = 'iron_ore') => { cells[`${x},${y},${z}`] = n; }
         const r = await gather(f.bot, { target: 'raw_iron', count: 2, radius: 80 }, { execute: fakeExecute(f, log), reach });
         assert.deepStrictEqual(log.mined, [[2, 64, 1]], JSON.stringify(log)); assert.ok(r.ok && r.detail.got === 1, JSON.stringify(r));
     });
+    await test('gather: a mined block whose drop lay out of pickup range is counted and the pickup is asked for as its own instruction', async () => {
+        const cells = {}; ore(cells, 2, 64, 1); const f = fakeBot(cells), seen = [];
+        const execute = async (bot, name, a) => {
+            seen.push(name);
+            if (name === 'mine') { f.world.delete(f.key(a.x, a.y, a.z)); return { ok: true, detail: { drop: 'raw_iron', drop_missed: 'precondition_failed' } }; }
+            f.inv.raw_iron = (f.inv.raw_iron || 0) + 1; return { ok: true };
+        };
+        const r = await gather(f.bot, { target: 'raw_iron', count: 1, radius: 20 }, { execute });
+        assert.deepStrictEqual(seen, ['mine', 'pickup']); assert.ok(r.ok && r.detail.got === 1, JSON.stringify(r));
+    });
     console.log('ALL OK');
 })().catch((e) => { console.error(e); process.exit(1); });

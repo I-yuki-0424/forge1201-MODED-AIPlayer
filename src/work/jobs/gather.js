@@ -145,7 +145,11 @@ async function gather(bot, { target, count = 16, radius = 32 }, { cancel = { can
         }
         if (!pick) return { ok: got() > 0, reason: got() > 0 ? null : 'invalid_target', detail: { got: got(), want: count, mined, lastDetail: lastDetail ? JSON.stringify(lastDetail).slice(0, 400) : null, why: all.length ? `${all.length} found but none of them can be reached from here: they are deeper than ${MAX_DIG_IN} blocks into rock, below the bot (it cannot dig straight down), or next to water or lava. Walk the bot to a cave or a wall face near them, or tunnel first` : `none within ${radius} blocks in the chunks this bot has loaded`, lastFail } };
         const r = await execute(bot, 'mine', { x: pick.x, y: pick.y, z: pick.z }, { cancel });
-        if (r.ok) { mined++; unreached = 0; onProgress({ got: got(), want: count, mined }); continue; }
+        if (r.ok) {
+            // The drop lay out of pickup range (the instruction does not walk): the pickup is its own instruction, the router's. A miss here costs the one drop, never the block that was broken.
+            if (r.detail && r.detail.drop_missed && r.detail.drop) await execute(bot, 'pickup', { item: r.detail.drop }, { cancel }).catch(() => null);
+            mined++; unreached = 0; onProgress({ got: got(), want: count, mined }); continue;
+        }
         lastFail = r.reason; lastDetail = r.detail || null;
         if (r.reason === 'missing_tool' || r.reason === 'died' || r.reason === 'disconnected' || r.reason === 'cancelled') return { ok: false, reason: r.reason, detail: { ...(r.detail || {}), got: got(), want: count, mined } };
         skip.add(`${pick.x},${pick.y},${pick.z}`);                                         // this one cannot be done from here: try the next
