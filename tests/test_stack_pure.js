@@ -286,6 +286,17 @@ function fakeBot(scene, pos, { pack = [], held = null, entities = {} } = {}) {
         assert.strictEqual(r2.ok, false); assert.ok(['missing_materials', 'unreachable', 'invalid_target'].includes(r2.reason), r2.reason);
     });
 
+    await test('goal layer: a smelt asks for the batch, counting what the pack holds (64 raw iron in the pack: nothing is mined; reproducer: it mined 64 more and put 700 cobblestone into one smelt)', async () => {
+        const { obtain } = require('../src/stack/obtain'), { Recipe } = require(require.resolve('prismarine-recipe', { paths: [require.resolve('mineflayer')] }))(registry);
+        const inv = { raw_iron: 64, coal: 8, furnace: 1 }, reg = registry, asked = [];
+        const bot = { registry: reg, inventory: { items: () => Object.entries(inv).filter(([, c]) => c > 0).map(([name, count]) => ({ name, count, type: reg.itemsByName[name].id })) }, findBlock: () => ({ position: { x: 1, y: 1, z: 0 } }), recipesAll: (id) => Recipe.find(id, null) };
+        const deps = { bot, w: fakeWorld(), here: () => ({ x: 0, y: 1, z: 0 }), cancelled: () => false, command: async () => ({ ok: true }),
+            exec: async (name, a) => { if (name === 'smelt') { inv.raw_iron -= a.count; inv.iron_ingot = (inv.iron_ingot || 0) + a.count; inv.coal -= 8; } return { ok: true, detail: {} }; },
+            gather: async (a) => { asked.push(a); return { ok: false, reason: 'unreachable', detail: {} }; } };
+        const r = await obtain(deps, 'iron_ingot', 64);
+        assert.strictEqual(r.ok, true, JSON.stringify(r)); assert.deepStrictEqual(asked, [], 'nothing was gathered: the 64 raw iron were enough');
+    });
+
     await test('exploration: out on rings until the thing is near; prospecting digs a staircase down to the ore level, tunnels, looks again every few steps and gives back where the shaft began', async () => {
         const ex = require('../src/stack/explore');
         let pos = { x: 0, y: 70, z: 0 }, stops = 0;

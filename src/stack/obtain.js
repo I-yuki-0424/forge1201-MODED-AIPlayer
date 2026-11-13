@@ -131,7 +131,9 @@ async function obtain(deps, item, n, depth = 0) {
         const input = SMELT[item];
         while (missing() > 0) {
             const k = Math.min(BATCH, missing());
-            const a = await obtain(deps, input, have(bot, input) + k, depth + 1); log(`${input}: ${a.ok ? 'ok' : a.reason}`);
+            // Enough input for THIS batch, counting what the pack holds: "what it holds plus the batch" mined 64 more raw iron with 64 in the pack and put 700 cobblestone into one smelt (acceptance
+            // worlds 3-5, 2026-11-13). The furnace, when none stands near, is made of 8 cobblestone first: for cobblestone that is 8 more.
+            const a = await obtain(deps, input, k + (input === 'cobblestone' && item !== 'furnace' && !stationNear(deps, 'furnace') ? 8 : 0), depth + 1); log(`${input}: ${a.ok ? 'ok' : a.reason}`);
             if (!a.ok) return fail(a.reason, { ...a.detail, steps });
             const f = await fuelFor(deps, k, depth); log(`fuel: ${f.ok ? 'ok' : f.reason}`);
             if (!f.ok) return fail(f.reason, { ...f.detail, steps });
