@@ -310,7 +310,7 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
             if (r.ok || !expertsOn() || !['unreachable', 'stuck', 'timeout', 'not_visible'].includes(r.reason)) { st.final(r); return r; }
             // No leg of any length could be walked: the movement expert takes the bot toward the target inside the loaded chunks (round what the planner cannot, through what it must dig), then the legs go on.
             const here = feetCell(bot.entity.position), aim = tr.legCandidates(w, here, t)[0];
-            if (!aim || Math.hypot(here.x - t.x, here.z - t.z) <= 6) { st.final(r); return r; }          // within six blocks the expert's remedy (dig toward the first candidate, a summit above the bot) only takes it away again: the walk's answer stands
+            if (!aim || aim.y < here.y - 5 || Math.hypot(here.x - t.x, here.z - t.z) <= 6) { st.final(r); return r; }          // never down into a cave for a leg: digging toward a cell more than five levels below took the bot 40 levels underground (acceptance world 2 with tools, 2026-11-13)          // within six blocks the expert's remedy (dig toward the first candidate, a summit above the bot) only takes it away again: the walk's answer stands
             const e = await envObj.expertMove({ x: aim.x, y: aim.y, z: aim.z }, { why: `no way on foot toward ${t.x} ${t.z} (${r.reason})`, maxMs: 60000 });
             if (!e.ok) { r = { ...r, detail: { ...(r.detail || {}), expert: e.reason } }; st.final(r); return r; }
             r = await run();
