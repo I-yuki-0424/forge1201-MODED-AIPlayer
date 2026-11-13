@@ -40,13 +40,16 @@ async function station(deps, name, depth) {
     if (s) return { ok: true, cell: s };
     const made = await obtain(deps, name, 1, depth + 1);
     if (!made.ok) return made;
-    const cells = freeCells(deps);
+    const cells = freeCells(deps, 3), tried = [];
     if (!cells.length) return fail('invalid_target', { why: `no free cell next to the bot to put the ${name} in` });
-    for (const c of cells.slice(0, 4)) {
+    for (const c of cells.slice(0, 8)) {
         const r = await deps.command('place', { x: c.x, y: c.y, z: c.z, item: name });
         if (r.ok) return { ok: true, cell: c, placed: true };
+        tried.push(`${c.x},${c.y},${c.z}: ${r.reason}${r.detail && r.detail.why ? ' ' + String(r.detail.why).slice(0, 60) : ''}`);
+        if (['died', 'disconnected', 'cancelled'].includes(r.reason)) break;
     }
-    return fail('invalid_target', { why: `the ${name} could not be placed next to the bot` });
+    if (deps.say) deps.say(`${name} could not be placed: ${tried.join(' | ').slice(0, 400)}`);
+    return fail('invalid_target', { why: `the ${name} could not be placed next to the bot`, tried });
 }
 
 /** Fuel for `smelts` items. The smelt instruction fuels the whole batch from ONE kind of item (coal, or one kind of planks), so a mix that adds up is no fuel: acceptance world 3, 2026-11-13, "no fuel for the batch" after
