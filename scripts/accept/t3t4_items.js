@@ -41,7 +41,8 @@ async function main() {
         try { const p = await L.posOf(S, A); const n = {}; for (const k of ['raw_iron', 'iron_ingot', 'coal', 'cobblestone', 'stone', 'furnace', 'crafting_table', 'oak_log', 'birch_log', 'spruce_log']) n[k] = await have(k); console.log(`[accept-t3t4] beat deaths ${deaths} at ${p && [p.x, p.y, p.z].map(Math.round)} cmd ${rec.cmd && rec.cmd.name}/${rec.cmd && rec.cmd.status} ${JSON.stringify(n)}`); } catch (_) { /* the harness never fails on a heartbeat */ }
     }, 120000);
     // ---- test 3
-    for (const [item, what] of [['iron_ingot', 'iron'], ['stone', 'smelted stone'], ['cobblestone', 'cobblestone'], ['wood', 'wood']]) await send('obtain', { item, count: N3 }, `obtain ${N3} ${what}`);
+    if (process.env.GIVE_INGOTS) await S.must(`give ${A} minecraft:iron_ingot ${N3}`);         // debugging shortcut for test 4 alone (with SKIP3=1); never part of the acceptance run
+    if (!process.env.SKIP3) for (const [item, what] of [['iron_ingot', 'iron'], ['stone', 'smelted stone'], ['cobblestone', 'cobblestone'], ['wood', 'wood']]) await send('obtain', { item, count: N3 }, `obtain ${N3} ${what}`);
     const logs = (await Promise.all(['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'mangrove', 'cherry'].map((w) => have(`${w}_log`)))).reduce((a, b) => a + b, 0);
     const got = { logs, cobblestone: await have('cobblestone'), stone: await have('stone'), iron_ingot: await have('iron_ingot') };
     check(`test 3: ${N3} wood, ${N3} cobblestone, ${N3} smelted stone, ${N3} iron (by the server's count of the pack)`, got.logs >= N3 && got.cobblestone >= N3 && got.stone >= N3 && got.iron_ingot >= N3, got);
