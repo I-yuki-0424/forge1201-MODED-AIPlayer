@@ -48,9 +48,14 @@ async function main() {
     // ---- test 4
     if (!process.env.SKIP4) {
         const blocks = Math.floor(got.iron_ingot / 9), tz = init.z + SOUTH, cells = [];
-        for (let i = 0; i < Math.min(7, blocks); i++) {
-            const st = await L.standCell(S, bot, A, 'overworld', init.x + i, tz);                    // the surface cell of that column, read the way the real-world checks read it
-            if (st) cells.push({ x: st.x, y: st.y, z: st.z });
+        // Seven cells in ONE row at z = initial z + 500 (a row a few blocks off when that z is water or forest all along: a column that is sea, leaves or a log is no place for a block to stand on)
+        for (const dz of [0, 1, -1, 2, -2, 3, -3, 4, -4, 5, -5, 6, -6, 8, -8, 10, -10]) {
+            const row = [];
+            for (let i = 0; i < 60 && row.length < Math.min(7, blocks); i++) {
+                const st = await L.standCell(S, bot, A, 'overworld', init.x + i, tz + dz);               // the surface cell of that column, read the way the real-world checks read it
+                if (st) row.push({ x: st.x, y: st.y, z: st.z });
+            }
+            if (row.length >= Math.min(7, blocks)) { cells.push(...row); break; }
         }
         await S.must(`gamemode survival ${A}`); await L.tpIn(S, A, 'overworld', init.x + 0.5, init.y, init.z + 0.5); await L.sleep(2500);        // back to the initial point (a harness move, before the instruction)
         console.log(`[accept-t3t4] ${cells.length} target cells ${SOUTH} blocks south: ${JSON.stringify(cells).slice(0, 300)}`);
