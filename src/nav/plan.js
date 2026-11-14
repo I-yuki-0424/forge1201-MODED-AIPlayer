@@ -153,7 +153,7 @@ function moves(V0, n, o) {
  */
 function* searchSteps(w, start, goal, o = {}) {
     const V = view(w, o), maxNodes = o.maxNodes || 16000, slice = o.slice || 700, R = o.radius || 96, W = o.weight || 1.5;          // weighted A*: a way within 1.5 x the cheapest, found in a fraction of the cells (a tunnel costs ~4 a block, the estimate 1)
-    const k0 = nodeKindOf(V, start.x, start.y, start.z, !!start.placed) || (solid(V, start.x, start.y - 1, start.z) ? 'stand' : null);
+    const k0 = nodeKindOf(V, start.x, start.y, start.z, !!start.placed) || (solid(V, start.x, start.y - 1, start.z) || start.ground ? 'stand' : null);
     if (!k0) return null;
     const key = (c) => `${c.x},${c.y},${c.z}`;
     const open = new Heap(), seen = new Map(), score = o.score || goal.h;

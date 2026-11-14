@@ -5,7 +5,7 @@
 const P = require('./plan');
 const fixtures = require('../skills/fixtures');
 
-const NIGHT_FROM = 12800, NIGHT_TO = 23400;          // hostile mobs spawn in the open about 13000-23000; zombies and skeletons burn soon after 23400
+const NIGHT_FROM = 11800, NIGHT_TO = 23400;          // mobs spawn in the open from about 13000 (sunset 12000): the hole is dug before (T26 2026-11-14: bots that began at 12800 were attacked while digging); zombies and skeletons burn soon after 23400
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** Is it night where the bot is (Overworld clock)? null when the server sent no time. */

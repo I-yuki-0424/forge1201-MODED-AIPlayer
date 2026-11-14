@@ -25,13 +25,18 @@ const say = (env, m) => { if (TRACE) console.log(`[nav] ${env.bot ? env.bot.user
 const MOBS = /^(zombie|zombie_villager|husk|drowned|skeleton|stray|bogged|spider|cave_spider|creeper|witch|pillager|vindicator|slime|silverfish|endermite|phantom|breeze|parched|zombie_nautilus|camel_husk)$/;
 function watch(env) {
     const bot = env.bot;
+    // hurt a moment ago: the shooter is fought too (a skeleton or a pillager within 16; T26: bots were shot dead walking on)
+    let hp = bot && bot.health, hurtAt = 0;
+    const onHealth = () => { if (Number.isFinite(hp) && bot.health < hp) hurtAt = Date.now(); hp = bot.health; };
+    if (bot && bot.on) bot.on('health', onHealth);
+    const dispose = () => { if (bot && bot.removeListener) bot.removeListener('health', onHealth); };
     const danger = () => {
         if (!bot || !bot.entity || !bot.entities) return null;
-        const p = bot.entity.position; let best = null;
+        const p = bot.entity.position, hurt = Date.now() - hurtAt < 3000; let best = null;
         for (const e of Object.values(bot.entities)) {
             if (!e || e === bot.entity || !e.position || !MOBS.test(String(e.name || ''))) continue;
-            const d = e.position.distanceTo(p), r = e.name === 'creeper' ? 7 : 4.5;
-            if (d <= r && Math.abs(e.position.y - p.y) <= 3 && (!best || d < best.d)) best = { id: e.id, name: e.name, d };
+            const d = e.position.distanceTo(p), r = e.name === 'creeper' ? 7 : hurt ? 16 : 4.5;
+            if (d <= r && Math.abs(e.position.y - p.y) <= (hurt ? 8 : 3) && (!best || d < best.d)) best = { id: e.id, name: e.name, d };
         }
         return best;
     };
@@ -50,7 +55,7 @@ function watch(env) {
         return { fought };
     };
     const feed = async () => { if (bot && bot.food !== undefined && (bot.food <= 14 || (bot.health < 12 && bot.food < 20))) await env.exec('eat', {}, { raw: true, maxTicks: 200, cancel: base }); };
-    return { danger, token, fight, feed };
+    return { danger, token, fight, feed, dispose };
 }
 
 /** What breaking a block costs with the bot's pack (null: never). Hardness 0..~5 with the right tool, more by hand; obsidian and harder, and unbreakable blocks, are never broken by a walk. */
@@ -184,7 +189,12 @@ async function perform(env, s) {
  * Returns {ok, reason?, detail: {segments, steps, pillars, bridges, digs, removed, left, at}}.
  */
 async function go(env0, target, o = {}) {
-    const W = watch(env0), env = Object.create(env0);
+    const W = watch(env0);
+    try { return await walk(W, env0, target, o); } finally { W.dispose(); }
+}
+
+async function walk(W, env0, target, o) {
+    const env = Object.create(env0);
     env.exec = (n, a, opt = {}) => env0.exec(n, a, { ...opt, cancel: opt.cancel || W.token });
     env.run = env0.run;
     const bot = env.bot, info = { segments: 0, steps: 0, pillars: 0, bridges: 0, digs: 0, removed: 0, left: 0, replans: 0, fights: 0 };
@@ -220,7 +230,8 @@ async function go(env0, target, o = {}) {
         }
         // the plan: the goal, or (beyond the loaded chunks) the reachable cell nearest it, not deep under the start
         const y0 = here.y, score = surface ? (n) => goal.h(n) : (n) => goal.h(n) + 0.6 * Math.max(0, y0 - n.y - 2);
-        const plan = await P.planAsync(env.w, here, goal, { dig: digCostFor(bot), protectedCell: protectedFor(env), noPlace: !!o.noPlace, noDig: !!o.noDig, maxNodes: o.maxNodes || 14000, score });
+        const start = { ...here, ...(bot && bot.entity && bot.entity.onGround ? { ground: true } : {}) };           // on a slab, a fence top, a bed: a start the grid would not call a node
+        const plan = await P.planAsync(env.w, start, goal, { dig: digCostFor(bot), protectedCell: protectedFor(env), noPlace: !!o.noPlace, noDig: !!o.noDig, maxNodes: o.maxNodes || 14000, score });
         info.segments++;
         if (!plan) {
             // not on a node (in a bush, half in a wall, mid-air): let the body settle, then the action layer's walk to the nearest cell
