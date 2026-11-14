@@ -132,13 +132,15 @@ function attach(bot, { world, enabled = () => true, onEvent = () => {} } = {}) {
     // within 3.5 blocks (a creeper 6) in sight, or one within 12 in sight when the bot was hurt a moment ago: the running command stops, the bot turns to it with the sword and hits on the
     // cooldown, closing in when it is out of reach, for at most 12 s, then lets go. A creeper is hit as soon as it is in reach: the knock-back stops its fuse.
     const HOSTILE = /^(zombie|zombie_villager|husk|drowned|skeleton|stray|bogged|spider|cave_spider|creeper|witch|pillager|vindicator|slime|silverfish|endermite|phantom|breeze|parched)$/;
+    const PROVOKED = /^(polar_bear|wolf|bee|llama|trader_llama|panda|goat|enderman|piglin|zombified_piglin|dolphin|iron_golem)$/;          // neutral: fought only when the bot was hurt a moment ago (T26: a bot slain by a polar bear it ignored)
     let hpLast = bot.health, hurtAt = 0;
     bot.on('health', () => { if (Number.isFinite(hpLast) && bot.health < hpLast) hurtAt = Date.now(); hpLast = bot.health; });
     const seeLine = (a, b) => { const n = Math.ceil(a.distanceTo(b) * 3); for (let i = 1; i < n; i++) { const t = i / n, k = kind(Math.floor(a.x + (b.x - a.x) * t), Math.floor(a.y + (b.y - a.y) * t), Math.floor(a.z + (b.z - a.z) * t)); if (k === 'solid' || k === 'partial') return false; } return true; };
     const foe = () => {
         const p = bot.entity.position, eye = p.offset(0, 1.62, 0), hurt = Date.now() - hurtAt < 2500; let best = null;
         for (const e of Object.values(bot.entities || {})) {
-            if (!e || e === bot.entity || !e.position || !HOSTILE.test(String(e.name || ''))) continue;
+            if (!e || e === bot.entity || !e.position) continue;
+            const nm = String(e.name || ''); if (!HOSTILE.test(nm) && !(hurt && PROVOKED.test(nm))) continue;
             const d = e.position.distanceTo(p), r = hurt ? 12 : e.name === 'creeper' ? 7 : 3.5;
             if (d > r || Math.abs(e.position.y - p.y) > (hurt ? 6 : 2.5)) continue;
             if (!seeLine(eye, e.position.offset(0, (e.height || 1.8) * 0.8, 0))) continue;

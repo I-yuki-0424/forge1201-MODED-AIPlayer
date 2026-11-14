@@ -161,6 +161,7 @@ async function perform(env, s) {
         case 'walk': {
             const r = await env.exec('move_to', { x: end.x, y: end.y, z: end.z }, { raw: true, maxTicks: 60 + 40 * s.cells.length });
             if (r.ok || FATAL.has(r.reason)) return r;
+            say(env, `    walk to the run's end failed: ${r.reason} ${JSON.stringify(r.detail || {}).slice(0, 160)} ticks ${r.ticks}`);
             // the action layer's own planner may not take the same way: cell by cell
             for (const c of s.cells) { const q = await env.exec('move_to', { x: c.x, y: c.y, z: c.z }, { raw: true, maxTicks: 120 }); if (!q.ok) return q; }
             return { ok: true };
@@ -211,7 +212,7 @@ async function walk(W, env0, target, o) {
     const goal = surface ? P.surfaceGoal(env.w, env.here()) : P.cellGoal(t, { near, nearY });
     const done = (r) => ({ ...r, detail: { ...(r.detail || {}), nav: { ...info, at: env.here() } } });
     say(env, `goal ${surface ? 'surface' : JSON.stringify(t)} near ${near}/${nearY}${o.why ? ' (' + o.why + ')' : ''} from ${JSON.stringify(env.here())}${TRACE ? ' <- ' + String(new Error().stack).split('\n').slice(3, 7).map((l) => l.trim().replace(/^at /, '').replace(/\(\/app\//, '(')).join(' < ') : ''}`);
-    let bestD = surface ? Infinity : hd(env.here(), t), still = 0, failsHere = 0, lastFail = null;
+    let bestD = surface ? Infinity : hd(env.here(), t), still = 0, failsHere = 0, lastFail = null, firstFailAt = 0;
     const maxSeg = o.maxSegments || 80;
     for (let seg = 0; seg < maxSeg; seg++) {
         if (env0.cancel && env0.cancel.cancelled) return done({ ok: false, reason: 'cancelled' });
@@ -271,9 +272,10 @@ async function walk(W, env0, target, o) {
         if (failed) {
             info.replans++;
             const k = `${failed.at.x},${failed.at.y},${failed.at.z}:${failed.step}`;
-            if (failed.reason !== 'interrupted') { failsHere = k === lastFail ? failsHere + 1 : 1; lastFail = k; }
-            if (failsHere >= 4) return done({ ok: false, reason: failed.reason || 'stuck', detail: { why: `the same step failed four times here: ${failed.step} (${failed.why || failed.reason})`, failed } });
-            await sleep(250);
+            if (failed.reason !== 'interrupted') { if (k === lastFail) failsHere++; else { failsHere = 1; firstFailAt = Date.now(); } lastFail = k; }
+            // four failures at one place AND a minute spent there (a server that lags while it generates chunks timed four quick tries out at the start of a 2000-block walk)
+            if (failsHere >= 4 && Date.now() - firstFailAt > 60000) return done({ ok: false, reason: failed.reason || 'stuck', detail: { why: `the same step failed four times here: ${failed.step} (${failed.why || failed.reason})`, failed } });
+            await sleep(Math.min(4000, 250 * 2 ** Math.min(4, failsHere)));
         }
         const now = env.here(), d = surface ? 0 : hd(now, t);
         if (!surface && !(failed && failed.reason === 'interrupted')) { if (d < bestD - 2) { bestD = d; still = 0; } else if (++still >= 8) return done({ ok: false, reason: 'stuck', detail: { why: `eight segments without getting closer (${Math.round(d)} blocks left)`, failed } }); }
