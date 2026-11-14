@@ -88,7 +88,7 @@ async function obtain(deps, item, n, depth = 0) {
         return missing() <= 0 ? { ok: true, detail: { steps } } : fail(r.reason || 'missing_materials', { ...(r.detail || {}), steps });
     }
     // natural: blocks that give the item (logs, cobblestone, raw iron, coal, sand ...)
-    if (item === 'log' || (!SMELT[item] && !craftable(bot, item)) || ['cobblestone', 'raw_iron', 'coal', 'sand', 'clay_ball'].includes(item)) {
+    if (item === 'log' || (!SMELT[item] && !craftable(bot, item)) || ['cobblestone', 'raw_iron', 'coal', 'sand', 'clay_ball'].includes(item) || ORE_LEVEL[item] !== undefined) {          // an ore's drop is mined, never crafted back from its storage block (raw gold went to raw_gold_block and failed)
         const mineAll = async () => {
             const targets = item === 'log' ? bestLogTargets(deps) : [item];
             for (const t of targets) {
