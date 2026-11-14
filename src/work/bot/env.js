@@ -466,14 +466,15 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
             say: (m) => console.log(`[obtain] ${bot.username} ${m}`),
         }, item, n),
         // `o.maxTicks`: a shorter budget than the command's own (a walk to a station that has not arrived in 30 s is not going to; the worker's ladder takes over).
-        exec: (name, args, o = {}) => (viaStack(name) && !o.raw ? envObj.command(name, args) : CHEST_OPS.has(name) ? queued(args, unitCancel, (c) => execute(bot, name, args, { cancel: c })) : execute(bot, name, args, { cancel: unitCancel, ...(Number.isInteger(o.maxTicks) ? { maxTicks: o.maxTicks } : {}) })),
+        exec: (name, args, o = {}) => (viaStack(name) && !o.raw ? envObj.command(name, args) : CHEST_OPS.has(name) ? queued(args, unitCancel, (c) => execute(bot, name, args, { cancel: c })) : execute(bot, name, args, { cancel: o.cancel || unitCancel, ...(Number.isInteger(o.maxTicks) ? { maxTicks: o.maxTicks } : {}) })),          // o.cancel: a walker's own token (nav's watch stops a step when a mob comes)
         // For the water rescue: stopped by the operator only. `drowning()` is what sends the worker to the rescue, so the rescue's own commands must not be cancelled by it
         // (live 2026-11-09: every swim and fill came back `cancelled` at once, the worker claimed the next unit, which was cancelled at once too: 99,639 failures in a loop that never yielded and froze all 20 bots).
         execFree: (name, args) => (CHEST_OPS.has(name) ? queued(args, cancel, (c) => execute(bot, name, args, { cancel: c })) : execute(bot, name, args, { cancel })),
         have,
         hp: () => (typeof bot.health === 'number' ? bot.health : 20),
         // A block to seal, stack or bridge with: any placeable, non-falling, low-value kind in the pack (tempblocks.js), `min` of it at least; null when there is none.
-        tempItem: (min = 1, o = {}) => require('./tempblocks').choose(bot.inventory.items().map((i) => ({ name: i.name, count: i.count })), bot.registry, { min, valueOf: janitor.valueOf, ...o }),
+        reserved: (n) => require('./tempblocks').reservedOf(bot, n),
+        tempItem: (min = 1, o = {}) => require('./tempblocks').choose(require('./tempblocks').freeHeld(bot), bot.registry, { min, valueOf: janitor.valueOf, ...o }),
         inv: () => janitor.inventoryOf(bot),
         here: feet,
         pos: () => ({ x: bot.entity.position.x, z: bot.entity.position.z, dim: envObj.dimension() }),      // dim: sites in another dimension are not usable containers (sites.js reachable)

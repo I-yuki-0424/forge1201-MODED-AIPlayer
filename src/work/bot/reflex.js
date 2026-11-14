@@ -68,7 +68,7 @@ function attach(bot, { world, enabled = () => true, onEvent = () => {} } = {}) {
             }
         } else {
             // No bucket: a block into the cell under the feet, against the wall beside it (the one the bot just left). Tried each tick while the drop lasts.
-            const tb = require('./tempblocks').choose(bot.inventory.items().map((i) => ({ name: i.name, count: i.count })), bot.registry, { valueOf: require('./janitor').valueOf }),
+            const tb = require('./tempblocks').choose(require('./tempblocks').freeHeld(bot), bot.registry, { valueOf: require('./janitor').valueOf }),
                 mat = (tb && bot.inventory.items().find((i) => i.name === tb)) || BLOCKS.map((n) => item(new RegExp(`^${n}$`))).find(Boolean);
             const t0 = Date.now();
             if (mat) {

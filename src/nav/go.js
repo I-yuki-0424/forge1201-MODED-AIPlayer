@@ -8,6 +8,7 @@
 //   - that last block, and any registered block of this bot within reach, is broken as soon as the bot stands on something else, before the next segment;
 //   - removal never walks: what is out of reach stays registered for the next pass, and the walk's result says so (`left`). The cleanup's own moves never place a block.
 const P = require('./plan');
+const night = require('./shelter');
 const fixtures = require('../skills/fixtures');
 
 const FATAL = new Set(['died', 'disconnected', 'cancelled', 'wrong_dimension']);
@@ -16,6 +17,41 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const hd = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 const TRACE = !!process.env.NAV_TRACE;
 const say = (env, m) => { if (TRACE) console.log(`[nav] ${env.bot ? env.bot.username : '?'} ${m}`); };
+
+/**
+ * The watch over a walk (owner 2026-11-14, Move A: a bot was blown up by a creeper 20 s after it set out, Normal difficulty at night). A hostile mob that comes close stops the step at once
+ * (the walker's cancel token) and is fought (the action layer's `attack`, sword first); hunger is fed between steps. Melee mobs within 4.5 blocks and level, a creeper within 7.
+ */
+const MOBS = /^(zombie|zombie_villager|husk|drowned|skeleton|stray|bogged|spider|cave_spider|creeper|witch|pillager|vindicator|slime|silverfish|endermite|phantom|breeze|parched|zombie_nautilus|camel_husk)$/;
+function watch(env) {
+    const bot = env.bot;
+    const danger = () => {
+        if (!bot || !bot.entity || !bot.entities) return null;
+        const p = bot.entity.position; let best = null;
+        for (const e of Object.values(bot.entities)) {
+            if (!e || e === bot.entity || !e.position || !MOBS.test(String(e.name || ''))) continue;
+            const d = e.position.distanceTo(p), r = e.name === 'creeper' ? 7 : 4.5;
+            if (d <= r && Math.abs(e.position.y - p.y) <= 3 && (!best || d < best.d)) best = { id: e.id, name: e.name, d };
+        }
+        return best;
+    };
+    const base = env.cancel || { cancelled: false };
+    const token = { get cancelled() { return !!base.cancelled || (!token.fighting && !!danger()); }, fighting: false };
+    const fight = async () => {
+        token.fighting = true; let fought = 0;
+        try {
+            for (let i = 0; i < 8 && !base.cancelled; i++) {
+                const t = danger(); if (!t) break;
+                fought++;
+                const r = await env.exec('attack', { entity: t.id }, { raw: true, maxTicks: 240, cancel: base });
+                if (r && ['died', 'disconnected'].includes(r.reason)) return { fought, ended: r.reason };
+            }
+        } finally { token.fighting = false; }
+        return { fought };
+    };
+    const feed = async () => { if (bot && bot.food !== undefined && (bot.food <= 14 || (bot.health < 12 && bot.food < 20))) await env.exec('eat', {}, { raw: true, maxTicks: 200, cancel: base }); };
+    return { danger, token, fight, feed };
+}
 
 /** What breaking a block costs with the bot's pack (null: never). Hardness 0..~5 with the right tool, more by hand; obsidian and harder, and unbreakable blocks, are never broken by a walk. */
 function digCostFor(bot) {
@@ -147,8 +183,11 @@ async function perform(env, s) {
  * `env`: w, here(), exec(name, args, opts), run(name, args), bot, cancel?, spots?, wrongDim?.
  * Returns {ok, reason?, detail: {segments, steps, pillars, bridges, digs, removed, left, at}}.
  */
-async function go(env, target, o = {}) {
-    const bot = env.bot, info = { segments: 0, steps: 0, pillars: 0, bridges: 0, digs: 0, removed: 0, left: 0, replans: 0 };
+async function go(env0, target, o = {}) {
+    const W = watch(env0), env = Object.create(env0);
+    env.exec = (n, a, opt = {}) => env0.exec(n, a, { ...opt, cancel: opt.cancel || W.token });
+    env.run = env0.run;
+    const bot = env.bot, info = { segments: 0, steps: 0, pillars: 0, bridges: 0, digs: 0, removed: 0, left: 0, replans: 0, fights: 0 };
     const surface = !!target.surface;
     const lvl = Number.isInteger(target.level) && !Number.isInteger(target.y);
     const t = surface ? null : { x: target.x, y: Number.isInteger(target.y) ? target.y : (lvl ? target.level : undefined), z: target.z };
@@ -158,7 +197,7 @@ async function go(env, target, o = {}) {
     let bestD = surface ? Infinity : hd(env.here(), t), still = 0, failsHere = 0, lastFail = null;
     const maxSeg = o.maxSegments || 80;
     for (let seg = 0; seg < maxSeg; seg++) {
-        if (env.cancel && env.cancel.cancelled) return done({ ok: false, reason: 'cancelled' });
+        if (env0.cancel && env0.cancel.cancelled) return done({ ok: false, reason: 'cancelled' });
         if (env.wrongDim && env.wrongDim()) return done({ ok: false, reason: 'wrong_dimension' });
         const here = env.here();
         if (goal.is({ ...here, kind: 'stand' })) {
@@ -170,6 +209,14 @@ async function go(env, target, o = {}) {
             }
             info.left = td.left.length;
             return done({ ok: true, ...(td.left.length ? { left: td.left.map((r) => ({ x: r.x, y: r.y, z: r.z })) } : {}) });
+        }
+        // the night under the open sky: fight what is close, then dig in until the morning (shelter.js); `noShelter` for walks that must not wait (a reflex, the cleanup)
+        if (!o.noShelter && night.isNight(bot) && P.seesSky(env.w, here.x, here.y, here.z)) {
+            if (W.danger()) { const f = await W.fight(); info.fights += f.fought; if (f.ended) return done({ ok: false, reason: f.ended }); }
+            const sh = await night.shelter(env, digCostFor(bot), { cancel: env0.cancel });
+            info.nights = (info.nights || 0) + 1; info.waited = (info.waited || 0) + (sh.waited || 0);
+            say(env, `night: ${sh.ok ? `sheltered ${sh.waited} s` : sh.reason}`);
+            if (sh.ok && sh.waited) continue;                                      // the morning: plan again from the hole
         }
         // the plan: the goal, or (beyond the loaded chunks) the reachable cell nearest it, not deep under the start
         const y0 = here.y, score = surface ? (n) => goal.h(n) : (n) => goal.h(n) + 0.6 * Math.max(0, y0 - n.y - 2);
@@ -186,8 +233,11 @@ async function go(env, target, o = {}) {
         const list = steps(plan.path);
         let failed = null;
         for (const s of list) {
-            if (env.cancel && env.cancel.cancelled) return done({ ok: false, reason: 'cancelled' });
+            if (env0.cancel && env0.cancel.cancelled) return done({ ok: false, reason: 'cancelled' });
+            if (W.danger()) { const f = await W.fight(); info.fights += f.fought; if (f.ended) return done({ ok: false, reason: f.ended }); failed = { step: 'fight', reason: 'interrupted', at: env.here() }; break; }
+            await W.feed();
             const r = await perform(env, s);
+            if (!r.ok && r.reason === 'cancelled' && !(env0.cancel && env0.cancel.cancelled)) { const f = await W.fight(); info.fights += f.fought; if (f.ended) return done({ ok: false, reason: f.ended }); failed = { step: s.kind, reason: 'interrupted', at: env.here(), fight: true }; break; }
             info.steps++;
             if (s.kind === 'pillar') info.pillars += s.cells.length; else if (s.kind === 'bridge') info.bridges += s.cells.length; else if (s.kind === 'dig' || s.kind === 'digdown') info.digs++;
             say(env, `  ${s.kind} x${s.cells.length} -> ${s.cells[s.cells.length - 1].x},${s.cells[s.cells.length - 1].y},${s.cells[s.cells.length - 1].z}: ${r.ok ? 'ok' : r.reason + ' ' + JSON.stringify(r.detail || {}).slice(0, 200)}`);
@@ -198,7 +248,7 @@ async function go(env, target, o = {}) {
         if (failed) {
             info.replans++;
             const k = `${failed.at.x},${failed.at.y},${failed.at.z}:${failed.step}`;
-            failsHere = k === lastFail ? failsHere + 1 : 1; lastFail = k;
+            if (failed.reason !== 'interrupted') { failsHere = k === lastFail ? failsHere + 1 : 1; lastFail = k; }
             if (failsHere >= 4) return done({ ok: false, reason: failed.reason || 'stuck', detail: { why: `the same step failed four times here: ${failed.step} (${failed.why || failed.reason})`, failed } });
             await sleep(250);
         }

@@ -38,7 +38,7 @@ const UNBREAKABLE = /^(bedrock|barrier|end_portal_frame|end_portal|nether_portal
 const { isHigh } = require('../bot/force');
 const SEAL_ITEMS = ['cobblestone', 'cobbled_deepslate', 'dirt', 'netherrack', 'stone', 'andesite', 'diorite', 'granite', 'tuff', 'deepslate'];
 /** The block to seal with: the usual ones first, else any placeable, non-falling, low-value block in the pack (env.tempItem; owner 2026-11-10), `n` of it at least. */
-const sealItem = (env, n = 1) => SEAL_ITEMS.find((x) => env.have(x) >= n) || (env.tempItem ? env.tempItem(n) : null);
+const sealItem = (env, n = 1) => SEAL_ITEMS.find((x) => env.have(x) - (env.reserved ? env.reserved(x) : 0) >= n) || (env.tempItem ? env.tempItem(n) : null);
 
 /**
  * Box {x0, z0, x1, z1, top, bottom} (inclusive columns; `top` = y of the first block layer to dig, `bottom` = y of the last).

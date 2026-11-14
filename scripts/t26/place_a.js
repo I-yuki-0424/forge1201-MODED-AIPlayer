@@ -24,7 +24,8 @@ const DIRS = [['E', 1, 0], ['W', -1, 0], ['S', 0, 1], ['N', 0, -1]], names = DIR
     await T.say(S, `place_a: 4 bots bridge ${LEN} blocks E/W/S/N from the platform at ${c.x} ${Y} ${c.z}`);
     await Promise.all(names.map((n, i) => (async () => {
         const [d, dx, dz] = DIRS[i], e = { x: c.x + dx * (1 + LEN), z: c.z + dz * (1 + LEN) };       // the last bridge cell
-        const r = await T.command(svc, n, process.env.CMD || 'bridge', { x: e.x + dx, y: Y + 1, z: e.z + dz, job: 'none' }, LIMIT_MIN);
+        const r = process.env.CMD === 'bridge' ? await T.command(svc, n, 'bridge', { x: e.x + dx, y: Y + 1, z: e.z + dz, job: 'none' }, LIMIT_MIN)
+            : await T.command(svc, n, 'build_bridge', { dir: { E: 'east', W: 'west', S: 'south', N: 'north' }[d], length: LEN }, LIMIT_MIN);
         let solid = 0; const gaps = [];
         for (let k = 2; k <= 1 + LEN; k++) { const x = c.x + dx * k, z = c.z + dz * k; if (/^Test passed/.test(T.strip(await S.cmd(`execute unless block ${x} ${Y} ${z} minecraft:air`)))) solid++; else gaps.push(k - 1); }
         const p = await T.posOf(S, n);

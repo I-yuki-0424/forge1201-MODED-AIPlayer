@@ -33,7 +33,8 @@ help() -> (
 
 request(what, test, n) -> (
     if(what == 'run' && global_tests ~ test == null, print(format('r unknown test ' + test)); return());
-    line = str('%d %s %s %s %d', unix_time(), player() ~ 'name', what, test, n);
+    p = player(); who = if(p == null, 'console', p ~ 'name');
+    line = str('%d %s %s %s %d', unix_time(), who, what, test, n);
     write_file('requests', 'text', line);
     print(format('g request sent: ' + what + ' ' + test + if(n > 1, ' x' + n, '') + '  (the watcher answers in chat within 2 s)'));
 );

@@ -30,7 +30,7 @@ async function extend(ctx, y, F, N, items, placed) {
     const floor = { x: N.x, y: y - 1, z: N.z }, support = { x: F.x, y: y - 1, z: F.z };
     const floorKind = w.kindAt(floor.x, floor.y, floor.z);
     if (floorKind === 'air' || floorKind === 'water') {                    // water is replaced by the block like air (a lake is bridged, not swum: found live 2026-11-11, `bridge` over water walked into it)
-        const item = BRIDGE_ITEMS.find((n) => bot.registry.blocksByName[n] && count(bot, n) >= 1) || tempblocks.choose(bot.inventory.items().map((i) => ({ name: i.name, count: i.count })), bot.registry, { valueOf: require('./janitor').valueOf });
+        const item = BRIDGE_ITEMS.find((n) => bot.registry.blocksByName[n] && count(bot, n) - tempblocks.reservedOf(bot, n) >= 1) || tempblocks.choose(tempblocks.freeHeld(bot), bot.registry, { valueOf: require('./janitor').valueOf });
         if (!item) throw new SkillError('missing_item', { item: BRIDGE_ITEMS[0], why: 'no block to bridge with (cobblestone, netherrack, end stone ...)', tried: BRIDGE_ITEMS, done: placed.length });
         if (w.kindAt(support.x, support.y, support.z) !== 'solid') throw new SkillError('invalid_target', { why: 'nothing solid under the feet to place against', cell: support, done: placed.length });
         await holdItem(ctx, item);
@@ -44,7 +44,7 @@ async function extend(ctx, y, F, N, items, placed) {
         await aimAtBlock(ctx, support, { face, frame: { sneak: true } });
         const look = { yaw: bot.entity.yaw, pitch: bot.entity.pitch, sneak: true };
         const T = bot.__temps, dim = require('../../skills/fixtures').dimOf(bot), got = () => w.blockAt(floor.x, floor.y, floor.z)?.name === item;
-        if (T) T.add({ dim, x: floor.x, y: floor.y, z: floor.z, item, kind: ctx.__road ? 'road' : 'bridge', by: bot.username });          // registered before the click (owner 2026-11-14: a late placement was in nobody's list)
+        if (T && !ctx.__build) T.add({ dim, x: floor.x, y: floor.y, z: floor.z, item, kind: ctx.__road ? 'road' : 'bridge', by: bot.username });          // registered before the click (owner 2026-11-14: a late placement was in nobody's list)
         await ctx.tick({ ...look, use: true });
         await ctx.tick(look);
         try { await ctx.until(got, 12, 'not_confirmed', look); } catch (e) { await ctx.idle(10); if (!got()) { if (T && w.kindAt(floor.x, floor.y, floor.z) !== 'solid') T.remove(dim, floor); throw e; } }
@@ -54,19 +54,19 @@ async function extend(ctx, y, F, N, items, placed) {
 }
 
 /** bridge {y, cells, items?}: see the top of the file. Returns { placed: [cells], at: the feet cell }. */
-async function bridge(ctx, { y, cells, keep = false, road = false }) {
+async function bridge(ctx, { y, cells, keep = false, road = false, build = false }) {
     const bot = ctx.bot;
     if (!Number.isInteger(y) || !Array.isArray(cells) || !cells.length || cells.length > 64) throw new SkillError('invalid_args', { why: 'y and 1..64 cells {x, z}' });
     if (!bot.entity.onGround) await ctx.until(() => bot.entity.onGround, 40, 'stuck');
     const placed = [];
-    ctx.__road = !!road;
+    ctx.__road = !!road; ctx.__build = !!build;              // build: the bridge IS the work (command build_bridge): not a temporary block, nothing taken away
     for (const N of cells) {
         const F = feetCell(bot.entity.position);
         if (F.y !== y) throw new SkillError('invalid_target', { why: `the bot stands at y ${F.y}, the bridge is at y ${y}`, at: F });
         await extend(ctx, y, F, N, BRIDGE_ITEMS, placed);
         // Passed = not needed (owner 2026-11-10: "once a placed block has been passed, destroy it immediately"): the block the bot stood on one step ago, if the bot laid it, is taken away from
         // here, as the pillar takes the one two below. A bridge that must be walked back (`keep`: workOver) stays until the way back has been walked.
-        if (!keep && !road) {
+        if (!keep && !road && !build) {
             const old = { x: F.x, y: y - 1, z: F.z }, T = bot.__temps, dim = require('../../skills/fixtures').dimOf(bot), rec = T && T.get(dim, old);
             if (rec && rec.kind === 'bridge' && rec.by === bot.username) {
                 ctx.phase('bridge_unlay', { cell: old });

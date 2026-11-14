@@ -17,4 +17,5 @@ for _ in $(seq 1 150); do [ "$(docker inspect -f '{{.State.Health.Status}}' forg
 "$REPO/scripts/t26/rcon.sh" "$N" gamerule keep_inventory false >/dev/null
 docker exec forgeaip-t26-$N sh -c 'mkdir -p /data/world/scripts && cp /dev-app/dev.sc /data/world/scripts/dev.sc'
 "$REPO/scripts/t26/rcon.sh" "$N" script load dev global
+"$REPO/scripts/t26/dev.sh" "$N" start >/dev/null
 echo "T26 world $N up: $("$REPO/scripts/t26/rcon.sh" "$N" seed) | join 100.77.246.23:$PORT (tailnet) | container forgeaip-t26-$N"

@@ -73,4 +73,13 @@ function reserve(stacks, n = RESERVE, registry = null, valueOf = null) {
     return out;
 }
 
-module.exports = { isTemp, order, choose, reserve, RESERVE, LOW_MAX, GRAVITY, SHAPE, BASE, HAND };
+/** How many of `name` a job holds back from temporary use on this bot (bot.__reserve: Map name -> count, set by a build job for its materials: owner 2026-11-14, the cottage's planks became scaffold). */
+const reservedOf = (bot, name) => { const R = bot && bot.__reserve; return R ? (R.get(strip(name)) || 0) : 0; };
+/** The pack as [{name, count}] less what a job holds back: the only pack the temporary-block choice may look at. */
+function freeHeld(bot) {
+    const have = new Map();
+    for (const i of bot.inventory.items()) have.set(strip(i.name), (have.get(strip(i.name)) || 0) + i.count);
+    return [...have].map(([name, count]) => ({ name, count: count - reservedOf(bot, name) })).filter((i) => i.count > 0);
+}
+
+module.exports = { reservedOf, freeHeld, isTemp, order, choose, reserve, RESERVE, LOW_MAX, GRAVITY, SHAPE, BASE, HAND };

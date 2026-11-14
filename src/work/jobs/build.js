@@ -132,6 +132,12 @@ function diffBuild(plan, w) {
  * layer) and removed by cleanup().
  */
 async function runUnit(plan, regionId, u, env) {
+    const bot = env.bot || null;
+    // the structure's materials are held back from temporary use (scaffolds, pillars, seals) while the bot works on it (owner 2026-11-14: the planks went into scaffolds)
+    if (bot) { if (!plan.__materials) { const m = new Map(); for (const t of plan.tiles.values()) for (const list of t.cells.values()) for (const c of list) { const it = itemFor(c.block); if (it) m.set(it, (m.get(it) || 0) + 1); } plan.__materials = m; } bot.__reserve = plan.__materials; }
+    try { return await runUnitBody(plan, regionId, u, env); } finally { if (bot && bot.__reserve === plan.__materials) bot.__reserve = null; }
+}
+async function runUnitBody(plan, regionId, u, env) {
     const cells = unitCells(plan, regionId, u.unit), r = { placed: 0, skipped: 0, scaffold: 0 };
     env.scaffold = env.scaffold || { layer: null, cells: [] };
     if (env.scaffold.layer !== null && env.scaffold.layer !== u.layer) await cleanup(env);

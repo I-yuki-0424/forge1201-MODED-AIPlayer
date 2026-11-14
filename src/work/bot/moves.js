@@ -13,7 +13,7 @@ const tempblocks = require('./tempblocks');
 
 /** The preferred low-value blocks (what a pit produces anyway). Since 2026-11-10 ANY block that can be placed, does not fall and is of low value qualifies (tempblocks.js); this list is only its first choice. */
 const TEMP_ITEMS = tempblocks.BASE;
-const heldOf = (bot) => bot.inventory.items().map((i) => ({ name: i.name, count: i.count }));
+const heldOf = (bot) => tempblocks.freeHeld(bot);               // less what a build job holds back for its own cells
 
 const HAND_ITEMS = ['dirt', 'coarse_dirt', 'grass_block'];          // blocks a bot breaks without a tool (and they do not fall)
 const PLACE_ABOVE = 1.002;        // feet this far above the old feet cell's floor: the placed block no longer touches the body (jump: 0.42, 0.75, 1.0013 ...)

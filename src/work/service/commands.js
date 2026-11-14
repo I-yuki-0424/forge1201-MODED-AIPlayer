@@ -183,6 +183,10 @@ class CommandsPart {
                 if (args.count !== undefined) need(Number.isInteger(args.count) && args.count >= 1 && args.count <= 2304, 'count: 1..2304');
                 if (args.radius !== undefined) need(Number.isInteger(args.radius) && args.radius >= 4 && args.radius <= 64, 'radius: 4..64');
             }
+            if (spec.name === 'build_bridge') {
+                need(['east', 'west', 'south', 'north'].includes(args.dir), 'dir: east, west, south or north');
+                if (args.length !== undefined) need(Number.isInteger(args.length) && args.length >= 1 && args.length <= 64, 'length: 1..64');
+            }
             if (spec.name === 'journey') {
                 for (const k of ['x', 'z']) int(args[k], k);
                 if (args.y !== undefined) int(args.y, 'y');
@@ -267,6 +271,12 @@ class CommandsPart {
                 return env.expertEscape(t, { why: 'operator command', maxMs: 150000 });
             }
             if (command === 'journey') return this._journey(rec, cancel, args);
+            if (command === 'build_bridge') {
+                const env = this.envFactory(bot, cancel), h = env.here(), D = { east: [1, 0], west: [-1, 0], south: [0, 1], north: [0, -1] }[String(args.dir)];
+                if (!D) return { ok: false, reason: 'invalid_args', detail: { why: 'dir: east, west, south or north' } };
+                const n = args.length || 30, cells = Array.from({ length: n }, (_, i) => ({ x: h.x + D[0] * (i + 1), z: h.z + D[1] * (i + 1) }));
+                try { return await env.run('bridge', { y: h.y, cells, build: true }); } finally { if (env.dispose) env.dispose(); }
+            }
             if (command === 'surface') { const env = this.envFactory(bot, cancel); try { return await env.travel({ surface: true }, {}); } finally { if (env.dispose) env.dispose(); } }
             if (command === 'set_spawn') return this._setSpawn(rec, cancel, args, id);
             if (command === 'trades' || command === 'trade') return this._trade(rec, cancel, command === 'trades', args);
