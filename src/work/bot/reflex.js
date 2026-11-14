@@ -118,7 +118,7 @@ function attach(bot, { world, enabled = () => true, onEvent = () => {} } = {}) {
 
     // Breath: the head under water for eight seconds (the air lasts fifteen). Swim straight up while the head is in water, for at most 25 s. Five of the six deaths on the acceptance worlds (2026-11-13) were
     // "drowned": a bot at the bottom of a flooded shaft or a pocket opened in an aquifer, no rescue because an operator command has none (the worker's rescue is water.js).
-    let wet = 0;
+    let wet = 0, fightTick = 0;
     const headWet = () => { const h = bot.blockAt(bot.entity.position.offset(0, 1.62, 0)); return !!h && h.name === 'water'; };
     async function breath() {
         onEvent('reflex', { kind: 'breath' });
@@ -127,6 +127,43 @@ function attach(bot, { world, enabled = () => true, onEvent = () => {} } = {}) {
         while (Date.now() - t0 < 25000 && headWet()) await sleep(100);
         bot.setControlState('jump', false);
         done('breath', {});
+    }
+    // Fight (owner 2026-11-14, T26 mine_a: 18 deaths in one run, zombies, skeletons, creepers, most while prospecting underground; no command but the walk looked out for mobs). A hostile
+    // within 3.5 blocks (a creeper 6) in sight, or one within 12 in sight when the bot was hurt a moment ago: the running command stops, the bot turns to it with the sword and hits on the
+    // cooldown, closing in when it is out of reach, for at most 12 s, then lets go. A creeper is hit as soon as it is in reach: the knock-back stops its fuse.
+    const HOSTILE = /^(zombie|zombie_villager|husk|drowned|skeleton|stray|bogged|spider|cave_spider|creeper|witch|pillager|vindicator|slime|silverfish|endermite|phantom|breeze|parched)$/;
+    let hpLast = bot.health, hurtAt = 0;
+    bot.on('health', () => { if (Number.isFinite(hpLast) && bot.health < hpLast) hurtAt = Date.now(); hpLast = bot.health; });
+    const seeLine = (a, b) => { const n = Math.ceil(a.distanceTo(b) * 3); for (let i = 1; i < n; i++) { const t = i / n, k = kind(Math.floor(a.x + (b.x - a.x) * t), Math.floor(a.y + (b.y - a.y) * t), Math.floor(a.z + (b.z - a.z) * t)); if (k === 'solid' || k === 'partial') return false; } return true; };
+    const foe = () => {
+        const p = bot.entity.position, eye = p.offset(0, 1.62, 0), hurt = Date.now() - hurtAt < 2500; let best = null;
+        for (const e of Object.values(bot.entities || {})) {
+            if (!e || e === bot.entity || !e.position || !HOSTILE.test(String(e.name || ''))) continue;
+            const d = e.position.distanceTo(p), r = hurt ? 12 : e.name === 'creeper' ? 6 : 3.5;
+            if (d > r || Math.abs(e.position.y - p.y) > (hurt ? 6 : 2.5)) continue;
+            if (!seeLine(eye, e.position.offset(0, (e.height || 1.8) * 0.8, 0))) continue;
+            if (!best || d < best.d) best = { e, d };
+        }
+        return best;
+    };
+    async function fight(first) {
+        onEvent('reflex', { kind: 'fight', mob: first.e.name, dist: Math.round(first.d * 10) / 10 });
+        const sword = bot.inventory.items().filter((i) => /_sword$/.test(i.name)).sort((a, b) => (b.name.startsWith('netherite') - a.name.startsWith('netherite')) || (b.name.startsWith('diamond') - a.name.startsWith('diamond')))[0];
+        if (sword && (!bot.heldItem || bot.heldItem.name !== sword.name)) { try { await bot.equip(sword, 'hand'); } catch (_) { /* fight with what is held */ } }
+        const t0 = Date.now(); let lastHit = 0, hits = 0;
+        try {
+            while (Date.now() - t0 < 12000) {
+                const f = foe(); if (!f) break;
+                const e = f.e, p = bot.entity.position, d = e.position.distanceTo(p);
+                await bot.lookAt(e.position.offset(0, (e.height || 1.8) * 0.85, 0), true);
+                const reach = d <= 3.0;
+                bot.setControlState('forward', !reach && d < 12); bot.setControlState('sprint', !reach && d > 5);
+                bot.setControlState('jump', !reach && bot.entity.isCollidedHorizontally);
+                if (reach && Date.now() - lastHit > 620) { bot.attack(e); lastHit = Date.now(); hits++; }
+                await sleep(60);
+            }
+        } finally { for (const c of ['forward', 'sprint', 'jump']) bot.setControlState(c, false); }
+        done('fight', { hits });
     }
     const inLava = () => { const f = feet(); return bot.blockAt && (bot.blockAt(bot.entity.position.floored()) || {}).name === 'lava'; };
     const tick = () => {
@@ -139,6 +176,7 @@ function attach(bot, { world, enabled = () => true, onEvent = () => {} } = {}) {
             if (d !== null && d >= FALL_MIN) { st.active = true; bot.__preempt = true; bot.__lastReflex = Date.now(); st.fired++; st.since = Date.now(); fall(d).catch(() => done('fall', { error: true })); }
         } else if (e.isInWater && headWet() && ++wet >= 160) { wet = 0; st.active = true; bot.__preempt = true; bot.__lastReflex = Date.now(); st.fired++; st.since = Date.now(); breath().catch(() => done('breath', { error: true })); }
         else if (inLava()) { st.active = true; bot.__preempt = true; bot.__lastReflex = Date.now(); st.fired++; st.since = Date.now(); lava().catch(() => done('lava', { error: true })); }
+        else if (bot.health > 0 && (++fightTick % 4 === 0)) { const f = foe(); if (f) { st.active = true; bot.__preempt = true; bot.__lastReflex = Date.now(); st.fired++; st.since = Date.now(); fight(f).catch(() => done('fight', { error: true })); } }
     };
     bot.on('physicsTick', tick);
     return { state: st, detach: () => { bot.removeListener('physicsTick', tick); bot.__preempt = false; } };
