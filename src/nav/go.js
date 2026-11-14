@@ -102,7 +102,8 @@ async function tidy(env, { reach = 4.2 } = {}) {
         if (env.w.kindAt(r.x, r.y, r.z) !== 'solid') { T.remove(dim, r); continue; }                  // gone already
         const nm = String((env.w.nameAt && env.w.nameAt(r.x, r.y, r.z)) || '');
         if ((r.item && !nm.endsWith(String(r.item).replace(/^minecraft:/, ''))) || (bot.__keep && bot.__keep(r.x, r.y, r.z))) { T.remove(dim, r); continue; }      // another block there now (a wall of the build took the cell): not ours any more
-        if (r.x === f.x && r.z === f.z && r.y === f.y - 1) { out.left.push(r); continue; }           // standing on it
+        const P0 = bot.entity.position, under = r.y === f.y - 1 && P0.x + 0.3 > r.x && P0.x - 0.3 < r.x + 1 && P0.z + 0.3 > r.z && P0.z - 0.3 < r.z + 1;
+        if (under) { out.left.push(r); continue; }           // standing on it, the feet cell or the edge of the body (a bot on a wall's edge fell when its pillar block went: a loop of pillar, step, fall)
         const p = bot.entity.position, d = Math.hypot(r.x + 0.5 - p.x, r.y + 0.5 - (p.y + 1.62), r.z + 0.5 - p.z);
         if (d > reach + 0.6) { out.left.push(r); continue; }
         let m = await env.exec('mine', { x: r.x, y: r.y, z: r.z, collect: true }, { raw: true, maxTicks: 200 });
@@ -273,4 +274,29 @@ async function walk(W, env0, target, o) {
     return done({ ok: false, reason: 'timeout', detail: { why: `more than ${maxSeg} segments` } });
 }
 
-module.exports = { go, tidy, steps, digCostFor, protectedFor, perform };
+/**
+ * The end of a job (or anything that wants none left): walk to each movement block of this bot still registered in its dimension, nearest first, never placing a block on the way, and break it.
+ * Returns {removed, left}. `max` blocks per call.
+ */
+async function sweep(env, { max = 60 } = {}) {
+    const bot = env.bot, T = bot && bot.__temps, out = { removed: 0, left: 0 };
+    if (!T) return out;
+    const dim = fixtures.dimOf(bot), me = bot.username;
+    for (let i = 0; i < max; i++) {
+        if (env.cancel && env.cancel.cancelled) break;
+        const f = env.here(), list = T.list((r) => r.dim === dim && r.by === me && ['pillar', 'bridge', 'scaffold', 'reflex'].includes(r.kind)).sort((a, b) => Math.hypot(a.x - f.x, a.y - f.y, a.z - f.z) - Math.hypot(b.x - f.x, b.y - f.y, b.z - f.z));
+        if (!list.length) break;
+        const r = list[0];
+        if (env.w.kindAt(r.x, r.y, r.z) === 'unknown' && Math.hypot(r.x - f.x, r.z - f.z) > 100) { out.left = list.length; break; }
+        const before = T.size;
+        let td = await tidy(env); out.removed += td.removed;
+        if (T.size < before) continue;
+        const t = { x: r.x, y: r.y + 1, z: r.z }, opt = { near: 3, nearY: 3, noPlace: true, noShelter: true, maxSegments: 12 };
+        const g = env.nav ? await env.nav(t, opt) : await go(env, t, opt);
+        td = await tidy(env); out.removed += td.removed;
+        if (T.size >= before) { if (!g.ok) T.remove(dim, r); out.left++; }          // unreachable without placing: forgotten (reported), not walked to for ever
+    }
+    return out;
+}
+
+module.exports = { go, tidy, sweep, steps, digCostFor, protectedFor, perform };

@@ -88,7 +88,7 @@ async function runWorker(job, id, env, { cancel = { cancelled: false }, policy =
                     }
                     if (sw.busy && ++sweepWaits < 900) { await sleep(pollMs); continue; }       // another bot is looking at a chunk: it may send units back, be there for them
                 } else if (L.finished() && finalAudits < 3 && ++finalAudits && audit(true)) continue;
-                if (L.finished()) { if (job.cleanup) await job.cleanup(env); return { ended: 'finished', units, failed }; }
+                if (L.finished()) { if (job.cleanup) await job.cleanup(env); if (env.navOn && env.navOn()) await require('../../nav/go').sweep(env); return { ended: 'finished', units, failed }; }          // nav's sweep: none of this bot's movement blocks outlives the job
                 // The next layer waits for units other bots are still running; if nobody is running anything, nothing will change.
                 if (L.progress().leased === 0 && !L.checkBusy(now()) && ++idle > 20) { L.leave(id, now()); return { ended: 'stalled', units, failed }; }
                 act('idle');                                    // nothing claimable: the next layer waits for other bots' units, or the units left are on hold after a failure
