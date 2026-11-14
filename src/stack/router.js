@@ -67,7 +67,7 @@ const isClosed = (reach) => reach.cells.length < CLOSED;
 async function decide(deps, goal, unmet, st) {
     const needs = new Set(unmet.map((u) => u.need)), steps = [];
     const t = targetOf(deps, goal.name, goal.args), here = deps.here();
-    const positional = needs.has('chunk_loaded') || needs.has('in_reach') || needs.has('line_of_sight');
+    const positional = needs.has('chunk_loaded') || needs.has('in_reach') || needs.has('line_of_sight') || needs.has('cell_free');
     if (positional) {
         if (!t) return { fail: { reason: 'invalid_target', detail: { why: 'the target is gone' } } };
         const across = hdist(here, t);

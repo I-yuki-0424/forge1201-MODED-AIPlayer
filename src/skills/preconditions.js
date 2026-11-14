@@ -49,6 +49,8 @@ function unmet(bot, name, args) {
                 const near = refs.map((r) => cubeDist(eye, r.cell)).sort((a, b) => a - b)[0];
                 if (near > AIM_REACH) out.push({ need: 'in_reach', dist: r2(near), max: r2(AIM_REACH) });
             }
+            // the bot's own body in the cell (it stands in it, or its head does): decidable from its position; the router walks it to a standing cell within reach (a roof corner placed from on top of the wall)
+            { const p = bot.entity.position, ox = (a, lo) => a + 0.3 > lo && a - 0.3 < lo + 1; if (ox(p.x, cell.x) && ox(p.z, cell.z) && p.y < cell.y + 1 && p.y + 1.8 > cell.y) out.push({ need: 'cell_free', cell }); }
             if (count(bot, args.item) < 1) out.push({ need: 'item_in_pack', item: args.item, count: 1 });         // the router gets it: gather, smelt or craft (src/stack/obtain.js)
             else if (!held(bot, args.item)) out.push({ need: 'item_held', item: args.item });
             return out;
