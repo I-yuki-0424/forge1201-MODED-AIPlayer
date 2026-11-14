@@ -10,7 +10,12 @@ export N PORT=$((25590 + N)) REPO SEED XDG_RUNTIME_DIR=/run/user/1000 DOCKER_HOS
 [ -f "$HOME_/.env" ] || { umask 077; echo "RCON_PASSWORD=$(head -c 32 /dev/urandom | base64 | tr -dc A-Za-z0-9 | head -c 24)" > "$HOME_/.env"; }
 . "$HOME_/.env"; export RCON_PASSWORD
 C=(docker compose -f "$REPO/docker/t26/compose.yaml" --project-directory "$REPO/docker/t26")
-[ $NEW = 1 ] && { "${C[@]}" down -v >/dev/null 2>&1 || true; }
+if [ $NEW = 1 ]; then
+  "$REPO/scripts/t26/dev.sh" "$N" stop >/dev/null 2>&1 || true          # the watcher mounts the world volume: while it runs the volume cannot be removed (the "new" world kept its seed)
+  "${C[@]}" down -v >/dev/null 2>&1 || true
+  docker volume rm "forgeaip-t26-${N}_data" >/dev/null 2>&1 || true
+  if docker volume inspect "forgeaip-t26-${N}_data" >/dev/null 2>&1; then echo "world $N: the old volume is still there (in use?): not a new world" >&2; exit 1; fi
+fi
 "${C[@]}" up -d mc >/dev/null
 for _ in $(seq 1 150); do [ "$(docker inspect -f '{{.State.Health.Status}}' forgeaip-t26-$N 2>/dev/null)" = healthy ] && break; sleep 4; done
 [ "$(docker inspect -f '{{.State.Health.Status}}' forgeaip-t26-$N)" = healthy ] || { docker logs --tail 40 forgeaip-t26-$N >&2; echo "t26 world $N not healthy" >&2; exit 1; }
