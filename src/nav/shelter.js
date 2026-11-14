@@ -32,10 +32,11 @@ async function shelter(env, dig, { maxWaitMs = 12 * 60000, cancel = null } = {})
     let f = env.here();
     if (!canDigIn(w, f, dig, bot.__keep)) {
         const near = [];
-        for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) { const c = { x: f.x + dx, y: f.y, z: f.z + dz }; if ((dx || dz) && P.nodeKindOf(P.view(w), c.x, c.y, c.z, false) === 'stand' && canDigIn(w, c, dig, bot.__keep)) near.push(c); }
-        near.sort((a, b) => Math.hypot(a.x - f.x, a.z - f.z) - Math.hypot(b.x - f.x, b.z - f.z));
+        // within six blocks and two levels (T26 move_a: 11 nights in a row "no shelter" within two blocks, on sand by the sea, and the bot walked on in the dark)
+        for (let dx = -6; dx <= 6; dx++) for (let dz = -6; dz <= 6; dz++) for (let dy = -2; dy <= 2; dy++) { const c = { x: f.x + dx, y: f.y + dy, z: f.z + dz }; if ((dx || dz || dy) && P.nodeKindOf(P.view(w), c.x, c.y, c.z, false) === 'stand' && canDigIn(w, c, dig, bot.__keep)) near.push(c); }
+        near.sort((a, b) => Math.hypot(a.x - f.x, a.y - f.y, a.z - f.z) - Math.hypot(b.x - f.x, b.y - f.y, b.z - f.z));
         let moved = false;
-        for (const c of near.slice(0, 3)) { if ((await env.exec('move_to', c, { raw: true, maxTicks: 120 })).ok) { moved = true; break; } }
+        for (const c of near.slice(0, 4)) { if ((await env.exec('move_to', c, { raw: true, maxTicks: 200 })).ok) { moved = true; break; } }
         f = env.here();
         if (!moved || !canDigIn(w, f, dig, bot.__keep)) return { ok: false, reason: 'no_shelter', waited: 0 };
     }
