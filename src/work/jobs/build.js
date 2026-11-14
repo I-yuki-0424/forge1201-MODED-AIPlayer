@@ -137,7 +137,9 @@ async function runUnit(plan, regionId, u, env) {
     // only what is still to be placed (a cell that already holds its block needs nothing): an over-reserve starved the walker's pillar of the blocks the kit had for it
     let res = null;
     if (bot) { res = new Map(); for (const t of plan.tiles.values()) for (const list of t.cells.values()) for (const c of list) { if (env.w.nameAt(c.x, c.y, c.z) === c.block) continue; const it = itemFor(c.block); if (it) res.set(it, (res.get(it) || 0) + 1); } bot.__reserve = res; }
-    try { return await runUnitBody(plan, regionId, u, env); } finally { if (bot && bot.__reserve === res) bot.__reserve = null; }
+    // the structure's cells are never dug by the walker on its way (it dug through the cottage's walls to reach the inside: two wrong cells at the end)
+    if (bot) { if (!plan.__cellSet) { plan.__cellSet = new Set(); for (const t of plan.tiles.values()) for (const list of t.cells.values()) for (const c of list) plan.__cellSet.add(`${c.x},${c.y},${c.z}`); } bot.__keep = (x, y, z) => plan.__cellSet.has(`${x},${y},${z}`); }
+    try { return await runUnitBody(plan, regionId, u, env); } finally { if (bot && bot.__reserve === res) bot.__reserve = null; if (bot) bot.__keep = null; }
 }
 async function runUnitBody(plan, regionId, u, env) {
     const cells = unitCells(plan, regionId, u.unit), r = { placed: 0, skipped: 0, scaffold: 0 };

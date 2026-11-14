@@ -84,6 +84,7 @@ function protectedFor(env) {
     return (x, y, z) => {
         const n = String((w.nameAt && w.nameAt(x, y, z)) || '');
         if (fixtures.isBox(n) || fixtures.isBed(n)) return true;
+        if (bot && bot.__keep && bot.__keep(x, y, z)) return true;                                  // a cell of the structure the bot is building
         const r = T && T.get(dim, { x, y, z });
         if (r && r.by && r.by !== me) return true;
         return spots.some((s) => s.name !== me && Math.floor(s.x) === x && Math.floor(s.z) === z && (Math.floor(s.y) - 1 === y || Math.floor(s.y) === y || Math.floor(s.y) + 1 === y));
