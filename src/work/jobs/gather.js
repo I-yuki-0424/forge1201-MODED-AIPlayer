@@ -34,9 +34,12 @@ const markDead = (bot, c) => { (bot.__deadOre || (bot.__deadOre = new Map())).se
 
 /** Candidate cells sorted by distance from the bot: [{x, y, z, dist, exposed}]. `exposed` = a face touches air or a fluid (can be reached by digging only this block). */
 function find(bot, spec, radius, skip = new Set()) {
-    const reg = bot.registry, ids = spec.blocks.map((n) => reg.blocksByName[n].id);
+    const want = new Set(spec.blocks.map((n) => String(n).replace(/^minecraft:/, '')));
     const w = fromBot(bot), me = bot.entity.position, out = [];
-    for (const p of bot.findBlocks({ matching: ids, maxDistance: radius, count: 256 })) {
+    // world.findStates reads state ids section by section and skips sections whose palette has none (mineflayer's findBlocks builds a whole Block, biome and block entity included, for every
+    // cell: 86 s of CPU in a T26 mine_a run, the event loop blocked 15-22 s and every bot was kicked for the keep-alive)
+    const hits = w.sid ? require('../../skills/world').findStates(bot, w, me, radius, (i) => want.has(i.name), { count: 256 }) : bot.findBlocks({ matching: spec.blocks.map((n) => bot.registry.blocksByName[n].id), maxDistance: radius, count: 256 });
+    for (const p of hits) {
         const key = `${p.x},${p.y},${p.z}`; if (skip.has(key) || isDead(bot, key)) continue;
         const kinds = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].map(([a, b, c]) => w.kindAt(p.x + a, p.y + b, p.z + c));
         const wet = kinds.some((k) => FLUID.has(k)), exposed = kinds.some((k) => k !== 'solid') && !wet;            // a block that touches water or lava is not safe to open

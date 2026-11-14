@@ -204,6 +204,7 @@ async function walk(W, env0, target, o) {
     const near = o.near === undefined ? 1 : o.near, nearY = o.nearY === undefined ? (lvl ? 8 : 1) : o.nearY;
     const goal = surface ? P.surfaceGoal(env.w, env.here()) : P.cellGoal(t, { near, nearY });
     const done = (r) => ({ ...r, detail: { ...(r.detail || {}), nav: { ...info, at: env.here() } } });
+    say(env, `goal ${surface ? 'surface' : JSON.stringify(t)} near ${near}/${nearY}${o.why ? ' (' + o.why + ')' : ''} from ${JSON.stringify(env.here())}${TRACE ? ' <- ' + String(new Error().stack).split('\n').slice(3, 7).map((l) => l.trim().replace(/^at /, '').replace(/\(\/app\//, '(')).join(' < ') : ''}`);
     let bestD = surface ? Infinity : hd(env.here(), t), still = 0, failsHere = 0, lastFail = null;
     const maxSeg = o.maxSegments || 80;
     for (let seg = 0; seg < maxSeg; seg++) {

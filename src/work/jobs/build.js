@@ -134,8 +134,10 @@ function diffBuild(plan, w) {
 async function runUnit(plan, regionId, u, env) {
     const bot = env.bot || null;
     // the structure's materials are held back from temporary use (scaffolds, pillars, seals) while the bot works on it (owner 2026-11-14: the planks went into scaffolds)
-    if (bot) { if (!plan.__materials) { const m = new Map(); for (const t of plan.tiles.values()) for (const list of t.cells.values()) for (const c of list) { const it = itemFor(c.block); if (it) m.set(it, (m.get(it) || 0) + 1); } plan.__materials = m; } bot.__reserve = plan.__materials; }
-    try { return await runUnitBody(plan, regionId, u, env); } finally { if (bot && bot.__reserve === plan.__materials) bot.__reserve = null; }
+    // only what is still to be placed (a cell that already holds its block needs nothing): an over-reserve starved the walker's pillar of the blocks the kit had for it
+    let res = null;
+    if (bot) { res = new Map(); for (const t of plan.tiles.values()) for (const list of t.cells.values()) for (const c of list) { if (env.w.nameAt(c.x, c.y, c.z) === c.block) continue; const it = itemFor(c.block); if (it) res.set(it, (res.get(it) || 0) + 1); } bot.__reserve = res; }
+    try { return await runUnitBody(plan, regionId, u, env); } finally { if (bot && bot.__reserve === res) bot.__reserve = null; }
 }
 async function runUnitBody(plan, regionId, u, env) {
     const cells = unitCells(plan, regionId, u.unit), r = { placed: 0, skipped: 0, scaffold: 0 };
