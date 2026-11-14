@@ -267,6 +267,7 @@ class CommandsPart {
                 return env.expertEscape(t, { why: 'operator command', maxMs: 150000 });
             }
             if (command === 'journey') return this._journey(rec, cancel, args);
+            if (command === 'surface') { const env = this.envFactory(bot, cancel); try { return await env.travel({ surface: true }, {}); } finally { if (env.dispose) env.dispose(); } }
             if (command === 'set_spawn') return this._setSpawn(rec, cancel, args, id);
             if (command === 'trades' || command === 'trade') return this._trade(rec, cancel, command === 'trades', args);
             if (command === 'bridge') return this._bridge(rec, cancel, args);

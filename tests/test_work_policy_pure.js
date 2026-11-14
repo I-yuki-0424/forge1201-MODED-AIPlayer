@@ -60,10 +60,10 @@ const POLICY = { wooden: 'use_up', stone: 'use_up', iron: 'use_up', golden: 'use
             blockAt: () => ({ name: 'stone', boundingBox: 'block', shapes: [[0, 0, 0, 1, 1, 1]] }), inventory: { items: () => [] }, setControlState() {} });
         let calls = 0, answer = { ok: false, reason: 'timeout', steps: 5 }; experts.drive = async () => { calls++; return answer; };
         try {
-            const env = botEnv(bot, { experts: () => true }), t = { x: 3, y: 1, z: 3 };
+            const env = botEnv(bot, { experts: () => true, navigator: () => 'legacy' }), t = { x: 3, y: 1, z: 3 };          // the experts are the legacy mover (NAV-v1)
             assert.strictEqual((await env.expertMove(t)).reason, 'timeout'); assert.strictEqual((await env.expertMove(t)).reason, 'timeout');
             const refused = await env.expertMove(t); assert.strictEqual(refused.reason, 'refused'); assert.ok(refused.detail.blockedFor > 170, JSON.stringify(refused.detail)); assert.strictEqual(calls, 2, 'the third was not even tried');
-            const env2 = botEnv(bot, { experts: () => true }); calls = 0;
+            const env2 = botEnv(bot, { experts: () => true, navigator: () => 'legacy' }); calls = 0;
             assert.strictEqual((await env2.expertMove(t)).reason, 'timeout'); answer = { ok: true, steps: 3 }; assert.ok((await env2.expertMove(t)).ok); answer = { ok: false, reason: 'timeout', steps: 5 };
             assert.strictEqual((await env2.expertMove(t)).reason, 'timeout'); assert.strictEqual((await env2.expertMove(t)).reason, 'timeout', 'a success in between reset the count: this was the second failure in a row, and it was still tried');
         } finally { experts.drive = orig; }

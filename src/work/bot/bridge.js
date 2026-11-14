@@ -43,11 +43,12 @@ async function extend(ctx, y, F, N, items, placed) {
         ctx.phase('bridge_place', { cell: floor, against: support });
         await aimAtBlock(ctx, support, { face, frame: { sneak: true } });
         const look = { yaw: bot.entity.yaw, pitch: bot.entity.pitch, sneak: true };
+        const T = bot.__temps, dim = require('../../skills/fixtures').dimOf(bot), got = () => w.blockAt(floor.x, floor.y, floor.z)?.name === item;
+        if (T) T.add({ dim, x: floor.x, y: floor.y, z: floor.z, item, kind: ctx.__road ? 'road' : 'bridge', by: bot.username });          // registered before the click (owner 2026-11-14: a late placement was in nobody's list)
         await ctx.tick({ ...look, use: true });
         await ctx.tick(look);
-        await ctx.until(() => w.blockAt(floor.x, floor.y, floor.z)?.name === item, 12, 'not_confirmed', look);
+        try { await ctx.until(got, 12, 'not_confirmed', look); } catch (e) { await ctx.idle(10); if (!got()) { if (T && w.kindAt(floor.x, floor.y, floor.z) !== 'solid') T.remove(dim, floor); throw e; } }
         placed.push(floor);
-        if (bot.__temps) bot.__temps.add({ dim: require('../../skills/fixtures').dimOf(bot), x: floor.x, y: floor.y, z: floor.z, item, kind: ctx.__road ? 'road' : 'bridge', by: bot.username });          // the shared list (temps.js): a bridge block is a movement block; a road (the shared way from the platform to the work) stays
     }
     await ctx.until(() => { fellIf(ctx, y, placed.length); const f = feetCell(bot.entity.position); return f.x === N.x && f.z === N.z && f.y === y && bot.entity.onGround; }, 40, 'stuck', walk);
 }

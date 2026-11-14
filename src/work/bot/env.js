@@ -8,7 +8,7 @@ const dimensions = require('../world/dimensions');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** The environment of a real Mineflayer bot on the action layer. */
-function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null, others = null, guard: withGuard = false, worker = false, defend = true, moved = null, teleport = () => 'near', gates = null, stockMiss = null, experts = null, stackJobs = null, expertLog = null, router = null, move3 = null, voidnav = null } = {}) {
+function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null, others = null, guard: withGuard = false, worker = false, defend = true, moved = null, teleport = () => 'near', gates = null, stockMiss = null, experts = null, stackJobs = null, expertLog = null, router = null, move3 = null, voidnav = null, navigator = null } = {}) {
     const { execute } = require('../../skills');
     const { fromBot } = require('../../skills/world');
     const { feetCell } = require('../../skills/motion');
@@ -221,9 +221,10 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         },
         climb: (t) => require('./moves').climbTo(envObj, t),
         /** The movement expert (or, from inside a hole, the stuck-escape expert: `escape`) takes the bot to the cell `target`. {ok, reason, detail} like a command. */
-        expertMove: (target, o = {}) => useExpert(o.escape ? 'unstick' : 'move', target, o),
+        expertMove: (target, o = {}) => (envObj.navOn() ? envObj.nav(target, { near: 1, nearY: 1 }) : useExpert(o.escape ? 'unstick' : 'move', target, o)),
         /** The stuck-escape expert: out of a shaft, pit or sealed pocket, to `target` or, when none is given, the open ground around. */
         expertEscape: (target = null, o = {}) => {
+            if (envObj.navOn()) return envObj.nav(target || { surface: true }, target ? { near: 1, nearY: 1 } : {});
             const g = target || require('../../experts/ground').groundAbove(w, feetCell(bot.entity.position));
             if (!g) return Promise.resolve({ ok: false, reason: 'unreachable', detail: { why: 'no open ground found in the loaded chunks around the bot' } });
             return useExpert('unstick', { x: g.x, y: g.y, z: g.z }, { why: o.why || 'stuck', ...o });
@@ -256,7 +257,11 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         // A long walk in legs inside the loaded chunks (travel.js): a move_to beyond the view distance fails for want of chunks.
         // The chunk-exit router comes first (src/experts/route, docs/implemented/ROUTE-v1.md: the policy picks where to leave each chunk, the path calculator walks between the exits, waypoints
         // in the destination chunk); the old legs and then the movement expert are the fallback when it fails. Setting `router` (default on) turns it off.
+        // NAV (src/nav, docs/implemented/NAV-v1.md, setting `navigator`, default 'nav'): ONE planner for every walk; the old chain below (voidnav, learned walk, chunk router, legs, movement expert) only with navigator = 'legacy'.
+        nav: (t, o = {}) => { const e = Object.create(envObj); e.cancel = unitCancel; e.spots = () => (others ? others() : []); return require('../../nav/go').go(e, t, o); },
+        navOn: () => !navigator || navigator() !== 'legacy',
         travel: async (t, o) => {
+            if (envObj.navOn()) return envObj.nav(t, o || {});
             const rt = require('../../experts/route/router'), st = require('../../experts/route/stats'), tr = require('./travel'), ms = () => Date.now();
             const cancelled = (r) => ['died', 'disconnected', 'cancelled', 'wrong_dimension'].includes(r.reason);
             let r, m3failed = false, q3 = null;

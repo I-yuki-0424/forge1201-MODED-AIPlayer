@@ -64,18 +64,23 @@ async function pillar(ctx, { levels, items = null, within = null }) {
         ctx.phase('pillar_jump', { level: i + 1, of: levels });
         await ctx.tick({ ...look, jump: true });
         await ctx.until(() => bot.entity.position.y >= f.y + PLACE_ABOVE, 14, 'stuck', { ...look, jump: true });
+        const cell = f, got = () => w.blockAt(cell.x, cell.y, cell.z)?.name === item;
+        // Registered BEFORE the click (owner 2026-11-14: "stack, stack, break only one"): a placement the server applies after the confirmation window ran out used to be in nobody's list.
+        const T = bot.__temps, dim = fixtures.dimOf(bot);
+        if (T) T.add({ dim, x: cell.x, y: cell.y, z: cell.z, item, kind: 'pillar', by: bot.username });
         await ctx.tick({ ...look, use: true });
         await ctx.tick(look);
-        const cell = f, got = () => w.blockAt(cell.x, cell.y, cell.z)?.name === item;
-        await ctx.until(got, 12, 'not_confirmed', look);
+        try { await ctx.until(got, 12, 'not_confirmed', look); } catch (e) { await ctx.idle(10); if (!got()) { if (T && w.kindAt(cell.x, cell.y, cell.z) !== 'solid') T.remove(dim, cell); throw e; } }
         await ctx.until(() => bot.entity.onGround && feetCell(bot.entity.position).y === f.y + 1, 30, 'stuck', look);
         placed++;
-        if (bot.__temps) bot.__temps.add({ dim: fixtures.dimOf(bot), x: cell.x, y: cell.y, z: cell.z, item, kind: 'pillar', by: bot.username });       // the shared list of placed blocks (temps.js)
-        // The block placed the round before is now two below the feet.
+        // The block placed the round before is now two below the feet: broken now, a second try blind; one that stays is still registered (the walker's tidy takes it from the side).
         if (prev) {
             ctx.phase('pillar_unstack', { cell: prev });
-            const r = await mine(ctx, { ...prev, collect: false, blind: true, hand: true }).then(() => null, (e) => e);        // without a pickaxe by hand: the routine is the same (owner 2026-11-07)
-            if (r && !(r instanceof SkillError && (r.reason === 'invalid_target' || r.reason === 'missing_tool'))) throw r;          // already gone is fine; no pickaxe for cobblestone leaves the column (cheap)
+            for (let k = 0; k < 2 && w.kindAt(prev.x, prev.y, prev.z) === 'solid'; k++) {
+                const r = await mine(ctx, { ...prev, collect: false, blind: true, hand: true }).then(() => null, (e) => e);        // without a pickaxe by hand: the routine is the same (owner 2026-11-07)
+                if (r && !(r instanceof SkillError && ['invalid_target', 'missing_tool', 'not_visible', 'timeout', 'not_confirmed'].includes(r.reason))) throw r;
+            }
+            if (T && w.kindAt(prev.x, prev.y, prev.z) !== 'solid') T.remove(dim, prev);
         }
         prev = cell;
     }
@@ -119,10 +124,10 @@ async function descend(ctx, { levels }) {
             if (!item) throw new SkillError('missing_item', { item: TEMP_ITEMS[0], why: 'no low-value block to go down on', tried: 'any placeable low-value block', done });
             await holdItem(ctx, item);
             ctx.phase('descend_place', { cell: below });
+            if (bot.__temps) bot.__temps.add({ dim: fixtures.dimOf(bot), x: below.x, y: below.y, z: below.z, item, kind: 'pillar', by: bot.username });     // registered before the click (see pillar)
             await ctx.tick({ use: true, cell: { x: under.x, y: under.y, z: under.z, face: 0 } });         // face 0 = the underside of the block under the feet
             await ctx.tick({});
-            await ctx.until(() => w.blockAt(below.x, below.y, below.z)?.name === item, 12, 'not_confirmed');
-            if (bot.__temps) bot.__temps.add({ dim: fixtures.dimOf(bot), x: below.x, y: below.y, z: below.z, item, kind: 'pillar', by: bot.username });
+            try { await ctx.until(() => w.blockAt(below.x, below.y, below.z)?.name === item, 12, 'not_confirmed'); } catch (e) { await ctx.idle(10); if (w.blockAt(below.x, below.y, below.z)?.name !== item) { if (bot.__temps && w.kindAt(below.x, below.y, below.z) !== 'solid') bot.__temps.remove(fixtures.dimOf(bot), below); throw e; } }
         }
         ctx.phase('descend_break', { cell: under });
         const r = await mine(ctx, { ...under, collect: false, blind: true, hand: true }).then(() => null, (e) => e);

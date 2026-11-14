@@ -1,0 +1,211 @@
+'use strict';
+// NAV, the walker (docs/implemented/NAV-v1.md): plan a segment with plan.js, carry it out with the action layer's own commands, replan, until the goal holds. One mover for every
+// walk the bots make (env.travel: journeys, pit stations, the router's `travel` and `unstick` steps), in place of the chain voidnav -> learned walk -> chunk router -> legs -> movement expert.
+//
+// Temporary blocks are this file's business from placement to removal, so none outlives the walk that needed it (owner 2026-11-14, problem 1):
+//   - a run of pillar steps in one column is ONE pillar move (each level breaks the block two below), so a climb of n levels leaves one block, under the feet at the top;
+//   - a bridge across a gap takes each block away once the bot has passed it (bridge move without `keep`), so it too leaves one block, under the feet;
+//   - that last block, and any registered block of this bot within reach, is broken as soon as the bot stands on something else, before the next segment;
+//   - removal never walks: what is out of reach stays registered for the next pass, and the walk's result says so (`left`). The cleanup's own moves never place a block.
+const P = require('./plan');
+const fixtures = require('../skills/fixtures');
+
+const FATAL = new Set(['died', 'disconnected', 'cancelled', 'wrong_dimension']);
+const WALKS = new Set(['walk', 'up', 'drop', 'swim', 'climb']);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const hd = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+const TRACE = !!process.env.NAV_TRACE;
+const say = (env, m) => { if (TRACE) console.log(`[nav] ${env.bot ? env.bot.username : '?'} ${m}`); };
+
+/** What breaking a block costs with the bot's pack (null: never). Hardness 0..~5 with the right tool, more by hand; obsidian and harder, and unbreakable blocks, are never broken by a walk. */
+function digCostFor(bot) {
+    const reg = bot.registry, tools = new Set(bot.inventory.items().map((i) => i.type));
+    const memo = new Map();
+    return (name) => {
+        if (memo.has(name)) return memo.get(name);
+        const b = reg.blocksByName[name];
+        let c = null;
+        if (b && b.diggable !== false && Number.isFinite(b.hardness) && b.hardness >= 0 && b.hardness < 20 && !fixtures.isBox(name) && !fixtures.isBed(name) && !/^(chest|trapped_chest|ender_chest|barrel|furnace|blast_furnace|smoker|crafting_table|spawner|end_portal_frame|bedrock|reinforced_deepslate)$/.test(name)) {
+            const harvest = !b.harvestTools || Object.keys(b.harvestTools).some((id) => tools.has(Number(id)));
+            const toolFits = b.material && bot.inventory.items().some((i) => reg.items[i.type] && /_(pickaxe|axe|shovel|hoe|sword)$/.test(reg.items[i.type].name) && String(b.material).includes(reg.items[i.type].name.split('_').pop()));
+            c = b.hardness * (toolFits ? 0.5 : harvest ? 2.5 : 6);
+            if (c > 12) c = null;                                                  // by hand through stone: walk round instead
+        }
+        memo.set(name, c);
+        return c;
+    };
+}
+
+/** Cells the walk must leave alone: containers and beds, another bot's temporary blocks (it may stand on them), the feet cell of another bot. */
+function protectedFor(env) {
+    const bot = env.bot, w = env.w, T = bot && bot.__temps, dim = fixtures.dimOf(bot), me = bot && bot.username;
+    const spots = env.spots ? env.spots() : [];
+    return (x, y, z) => {
+        const n = String((w.nameAt && w.nameAt(x, y, z)) || '');
+        if (fixtures.isBox(n) || fixtures.isBed(n)) return true;
+        const r = T && T.get(dim, { x, y, z });
+        if (r && r.by && r.by !== me) return true;
+        return spots.some((s) => s.name !== me && Math.floor(s.x) === x && Math.floor(s.z) === z && (Math.floor(s.y) - 1 === y || Math.floor(s.y) === y || Math.floor(s.y) + 1 === y));
+    };
+}
+
+/** Break the movement blocks of this bot within reach (never the one under its feet, never walking for it). Returns {removed, left: [cells out of reach]}. */
+async function tidy(env, { reach = 4.2 } = {}) {
+    const bot = env.bot, T = bot && bot.__temps, out = { removed: 0, left: [] };
+    if (!T) return out;
+    const dim = fixtures.dimOf(bot), me = bot.username, f = env.here();
+    const mine = T.list((r) => r.dim === dim && r.by === me && (r.kind === 'pillar' || r.kind === 'bridge' || r.kind === 'scaffold' || r.kind === 'reflex'));
+    for (const r of mine) {
+        if (env.cancel && env.cancel.cancelled) break;
+        if (env.w.kindAt(r.x, r.y, r.z) !== 'solid') { T.remove(dim, r); continue; }                  // gone already
+        if (r.x === f.x && r.z === f.z && r.y === f.y - 1) { out.left.push(r); continue; }           // standing on it
+        const p = bot.entity.position, d = Math.hypot(r.x + 0.5 - p.x, r.y + 0.5 - (p.y + 1.62), r.z + 0.5 - p.z);
+        if (d > reach + 0.6) { out.left.push(r); continue; }
+        let m = await env.exec('mine', { x: r.x, y: r.y, z: r.z, collect: true }, { raw: true, maxTicks: 200 });
+        if (!m.ok && env.w.kindAt(r.x, r.y, r.z) === 'solid') m = await env.exec('mine', { x: r.x, y: r.y, z: r.z, collect: false, blind: true }, { raw: true, maxTicks: 200 });
+        if (m.ok || env.w.kindAt(r.x, r.y, r.z) !== 'solid') { T.remove(dim, r); out.removed++; } else out.left.push(r);
+    }
+    return out;
+}
+
+/** A standing cell next to `here` on ground that is not a registered block, still a goal cell: where the bot steps to take away the block it stands on. */
+function stepOff(env, here, goal) {
+    const w = env.w, T = env.bot && env.bot.__temps, dim = fixtures.dimOf(env.bot);
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) for (const dy of [0, 1, -1]) {
+        const c = { x: here.x + dx, y: here.y + dy, z: here.z + dz };
+        if (P.nodeKindOf(P.view(w), c.x, c.y, c.z, false) !== 'stand') continue;
+        if (T && T.has(dim, { x: c.x, y: c.y - 1, z: c.z })) continue;
+        if (goal.is({ ...c, kind: 'stand' })) return c;
+    }
+    return null;
+}
+
+/** The plan cut into steps the action layer runs: walks (one move_to to the end of a run of walking moves), digs, a pillar run, a bridge run, a dig down. */
+function steps(path) {
+    const out = [];
+    for (let i = 1; i < path.length; i++) {
+        const n = path[i], last = out[out.length - 1];
+        if (WALKS.has(n.move) && !(n.dig && n.dig.length)) { if (last && last.kind === 'walk' && last.cells.length < 16) last.cells.push(n); else out.push({ kind: 'walk', cells: [n] }); continue; }
+        if (n.move === 'pillar') { if (last && last.kind === 'pillar' && last.cells[last.cells.length - 1].x === n.x && last.cells[last.cells.length - 1].z === n.z) last.cells.push(n); else out.push({ kind: 'pillar', cells: [n] }); continue; }
+        if (n.move === 'bridge') { if (last && last.kind === 'bridge' && last.cells[last.cells.length - 1].y === n.y && last.cells.length < 32) last.cells.push(n); else out.push({ kind: 'bridge', cells: [n] }); continue; }
+        out.push({ kind: n.move === 'digdown' ? 'digdown' : 'dig', cells: [n] });
+    }
+    return out;
+}
+
+/** Break `c` until it is passable (a falling block above it refills it: up to six times). */
+async function clearCell(env, c) {
+    for (let i = 0; i < 6; i++) {
+        const k = env.w.kindAt(c.x, c.y, c.z);
+        if (k === 'air' || k === 'climb' || k === 'water') return { ok: true };
+        let m = await env.exec('mine', { x: c.x, y: c.y, z: c.z, collect: false }, { raw: true, maxTicks: 400 });
+        if (!m.ok && env.w.kindAt(c.x, c.y, c.z) === 'solid' && !FATAL.has(m.reason)) m = await env.exec('mine', { x: c.x, y: c.y, z: c.z, collect: false, blind: true }, { raw: true, maxTicks: 400 });
+        if (!m.ok && FATAL.has(m.reason)) return m;
+        if (!m.ok && env.w.kindAt(c.x, c.y, c.z) === 'solid') return m;
+        await sleep(120);
+    }
+    return { ok: env.w.kindAt(c.x, c.y, c.z) !== 'solid', reason: 'stuck', detail: { why: 'a falling block keeps filling the cell', cell: c } };
+}
+
+/** Carry out one step; {ok, reason?, detail?}. */
+async function perform(env, s) {
+    const end = s.cells[s.cells.length - 1];
+    switch (s.kind) {
+        case 'walk': {
+            const r = await env.exec('move_to', { x: end.x, y: end.y, z: end.z }, { raw: true, maxTicks: 60 + 40 * s.cells.length });
+            if (r.ok || FATAL.has(r.reason)) return r;
+            // the action layer's own planner may not take the same way: cell by cell
+            for (const c of s.cells) { const q = await env.exec('move_to', { x: c.x, y: c.y, z: c.z }, { raw: true, maxTicks: 120 }); if (!q.ok) return q; }
+            return { ok: true };
+        }
+        case 'dig': {
+            for (const c of end.dig) { const r = await clearCell(env, c); if (!r.ok) return r; }
+            return env.exec('move_to', { x: end.x, y: end.y, z: end.z }, { raw: true, maxTicks: 160 });
+        }
+        case 'digdown': {
+            const f0 = env.here();
+            const r = await clearCell(env, end.dig[0]);
+            if (!r.ok) return r;
+            for (let i = 0; i < 40; i++) { const f = env.here(); if (f.y < f0.y && env.bot.entity.onGround) return { ok: true }; await sleep(100); }
+            return { ok: false, reason: 'stuck', detail: { why: 'the floor was broken but the bot did not come down' } };
+        }
+        case 'pillar': {
+            for (const n of s.cells) for (const c of n.dig) { /* the pillar move clears the head room itself */ void c; }
+            return env.run('pillar', { levels: s.cells.length });
+        }
+        case 'bridge': {
+            const f = env.here();
+            return env.run('bridge', { y: f.y, cells: s.cells.map((c) => ({ x: c.x, z: c.z })) });
+        }
+        default: return { ok: false, reason: 'internal', detail: { why: `no step ${s.kind}` } };
+    }
+}
+
+/**
+ * Walk to `target`: {x, z, y?} (a cell; without y the column at any level), {x, z, level} (that column, near that level), or {surface: true} (a standing cell under the open sky).
+ * `o`: near (default 1), nearY (default 1; 8 for a level), noPlace (no pillar or bridge), noDig, maxSegments (default 80), maxNodes (per segment, default 14000).
+ * `env`: w, here(), exec(name, args, opts), run(name, args), bot, cancel?, spots?, wrongDim?.
+ * Returns {ok, reason?, detail: {segments, steps, pillars, bridges, digs, removed, left, at}}.
+ */
+async function go(env, target, o = {}) {
+    const bot = env.bot, info = { segments: 0, steps: 0, pillars: 0, bridges: 0, digs: 0, removed: 0, left: 0, replans: 0 };
+    const surface = !!target.surface;
+    const lvl = Number.isInteger(target.level) && !Number.isInteger(target.y);
+    const t = surface ? null : { x: target.x, y: Number.isInteger(target.y) ? target.y : (lvl ? target.level : undefined), z: target.z };
+    const near = o.near === undefined ? 1 : o.near, nearY = o.nearY === undefined ? (lvl ? 8 : 1) : o.nearY;
+    const goal = surface ? P.surfaceGoal(env.w, env.here()) : P.cellGoal(t, { near, nearY });
+    const done = (r) => ({ ...r, detail: { ...(r.detail || {}), nav: { ...info, at: env.here() } } });
+    let bestD = surface ? Infinity : hd(env.here(), t), still = 0, failsHere = 0, lastFail = null;
+    const maxSeg = o.maxSegments || 80;
+    for (let seg = 0; seg < maxSeg; seg++) {
+        if (env.cancel && env.cancel.cancelled) return done({ ok: false, reason: 'cancelled' });
+        if (env.wrongDim && env.wrongDim()) return done({ ok: false, reason: 'wrong_dimension' });
+        const here = env.here();
+        if (goal.is({ ...here, kind: 'stand' })) {
+            let td = await tidy(env); info.removed += td.removed;
+            // standing on its own last block (the top of a pillar, the end of a bridge): one step onto natural ground that still satisfies the goal, then that block goes too
+            if (td.left.some((r) => r.x === here.x && r.z === here.z && r.y === here.y - 1)) {
+                const off = stepOff(env, here, goal);
+                if (off && (await env.exec('move_to', off, { raw: true, maxTicks: 120 })).ok) { td = await tidy(env); info.removed += td.removed; }
+            }
+            info.left = td.left.length;
+            return done({ ok: true, ...(td.left.length ? { left: td.left.map((r) => ({ x: r.x, y: r.y, z: r.z })) } : {}) });
+        }
+        // the plan: the goal, or (beyond the loaded chunks) the reachable cell nearest it, not deep under the start
+        const y0 = here.y, score = surface ? (n) => goal.h(n) : (n) => goal.h(n) + 0.6 * Math.max(0, y0 - n.y - 2);
+        const plan = await P.planAsync(env.w, here, goal, { dig: digCostFor(bot), protectedCell: protectedFor(env), noPlace: !!o.noPlace, noDig: !!o.noDig, maxNodes: o.maxNodes || 14000, score });
+        info.segments++;
+        if (!plan) {
+            // not on a node (in a bush, half in a wall, mid-air): let the body settle, then the action layer's walk to the nearest cell
+            await sleep(400);
+            if (++failsHere > 4) return done({ ok: false, reason: 'stuck', detail: { why: 'the bot is not standing anywhere the planner can start from', at: here } });
+            continue;
+        }
+        say(env, `seg ${seg} from ${here.x},${here.y},${here.z}: ${plan.partial ? 'partial' : 'full'} plan, ${plan.path.length - 1} moves (${[...new Set(plan.path.slice(1).map((n) => n.move))].join(',')}), ${plan.expanded} cells`);
+        if (plan.path.length <= 1) return done({ ok: false, reason: 'unreachable', detail: { why: plan.partial ? 'no move gets the bot any closer (every way is closed or unsafe)' : 'no way', expanded: plan.expanded } });
+        const list = steps(plan.path);
+        let failed = null;
+        for (const s of list) {
+            if (env.cancel && env.cancel.cancelled) return done({ ok: false, reason: 'cancelled' });
+            const r = await perform(env, s);
+            info.steps++;
+            if (s.kind === 'pillar') info.pillars += s.cells.length; else if (s.kind === 'bridge') info.bridges += s.cells.length; else if (s.kind === 'dig' || s.kind === 'digdown') info.digs++;
+            say(env, `  ${s.kind} x${s.cells.length} -> ${s.cells[s.cells.length - 1].x},${s.cells[s.cells.length - 1].y},${s.cells[s.cells.length - 1].z}: ${r.ok ? 'ok' : r.reason + ' ' + JSON.stringify(r.detail || {}).slice(0, 200)}`);
+            if (!r.ok) { failed = { step: s.kind, reason: r.reason, why: r.detail && (r.detail.why || r.detail.goal), at: env.here() }; if (FATAL.has(r.reason)) return done({ ok: false, reason: r.reason, detail: { failed } }); break; }
+            // a movement block of this bot that it no longer stands on goes now
+            if (s.kind === 'walk' || s.kind === 'dig' || s.kind === 'digdown') { const td = await tidy(env); info.removed += td.removed; }
+        }
+        if (failed) {
+            info.replans++;
+            const k = `${failed.at.x},${failed.at.y},${failed.at.z}:${failed.step}`;
+            failsHere = k === lastFail ? failsHere + 1 : 1; lastFail = k;
+            if (failsHere >= 4) return done({ ok: false, reason: failed.reason || 'stuck', detail: { why: `the same step failed four times here: ${failed.step} (${failed.why || failed.reason})`, failed } });
+            await sleep(250);
+        }
+        const now = env.here(), d = surface ? 0 : hd(now, t);
+        if (!surface) { if (d < bestD - 2) { bestD = d; still = 0; } else if (++still >= 8) return done({ ok: false, reason: 'stuck', detail: { why: `eight segments without getting closer (${Math.round(d)} blocks left)`, failed } }); }
+    }
+    return done({ ok: false, reason: 'timeout', detail: { why: `more than ${maxSeg} segments` } });
+}
+
+module.exports = { go, tidy, steps, digCostFor, protectedFor, perform };
