@@ -235,7 +235,14 @@ async function walk(W, env0, target, o) {
         }
         // the plan: the goal, or (beyond the loaded chunks) the reachable cell nearest it, not deep under the start
         const y0 = here.y, score = surface ? (n) => goal.h(n) : (n) => goal.h(n) + 0.6 * Math.max(0, y0 - n.y - 2);
-        const start = { ...here, ...(bot && bot.entity && bot.entity.onGround ? { ground: true } : {}) };           // on a slab, a fence top, a bed: a start the grid would not call a node
+        // under water (sunk in a lake or the sea, T26 move_a: "not standing anywhere the planner can start from" at the sea floor, a pillar tried from the bottom): up to the surface first
+        if (bot && bot.entity && bot.entity.isInWater && !P.nodeKindOf(P.view(env.w), here.x, here.y, here.z, false)) {
+            bot.setControlState('jump', true);
+            for (let i = 0; i < 60 && bot.entity.isInWater && !P.nodeKindOf(P.view(env.w), env.here().x, env.here().y, env.here().z, false); i++) await sleep(100);
+            bot.setControlState('jump', false);
+            if (P.nodeKindOf(P.view(env.w), env.here().x, env.here().y, env.here().z, false)) continue;
+        }
+        const start = { ...here, ...(bot && bot.entity && bot.entity.onGround && !bot.entity.isInWater ? { ground: true } : {}) };           // on a slab, a fence top, a bed: a start the grid would not call a node
         const plan = await P.planAsync(env.w, start, goal, { dig: digCostFor(bot), protectedCell: protectedFor(env), noPlace: !!o.noPlace, noDig: !!o.noDig, maxNodes: o.maxNodes || 14000, score });
         info.segments++;
         if (!plan) {

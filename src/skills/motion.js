@@ -57,7 +57,7 @@ const onNode = (n, c) => same(n, c) || (n.kind === 'swim' && n.x === c.x && n.z 
 
 async function walk(ctx, goal, { sprint = true } = {}) {
     const bot = ctx.bot, w = ctx.world;
-    let path = null, idx = 0, replans = 0, best = -Infinity, lastGain = ctx.t, airborne = 0, sunk = 0, stepOffs = 0;
+    let path = null, idx = 0, replans = 0, best = -Infinity, lastGain = ctx.t, airborne = 0, sunk = 0, stepOffs = 0, restY = 0, lastY = NaN;
     const replan = (why) => {
         if (path && ++replans > MAX_REPLANS) throw new SkillError('stuck', { goal: goal.label, why, replans: replans - 1 });
         path = null;
@@ -67,7 +67,11 @@ async function walk(ctx, goal, { sprint = true } = {}) {
         const e = bot.entity, pos = e.position, cell = feetCell(pos);
         if (goal.abort && goal.abort()) return null;
         const onClimb = w.kindAt(cell.x, cell.y, cell.z) === 'climb';
-        if (!e.onGround && !e.isInWater && !onClimb) {
+        // "In the air" with the body not moving up or down for half a second is resting on something the physics does not call ground (a block edge, a wedge between two blocks: T26 move_a,
+        // a bot on a hillside "airborne for 4 s" four times in a row at y 112.0): it is treated as standing.
+        if (!e.onGround && !e.isInWater && !onClimb && Math.abs(pos.y - lastY) < 1e-3) restY++; else restY = 0;
+        lastY = pos.y;
+        if (!e.onGround && !e.isInWater && !onClimb && restY < 10) {
             // In the air (step-up jump, drop, jump onto a ladder): keep steering toward the current target.
             if (++airborne > 80) throw new SkillError('stuck', { goal: goal.label, why: 'airborne for 4 s' });
             const tgt = path && path[Math.min(idx + 1, path.length - 1)];
