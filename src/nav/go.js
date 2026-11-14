@@ -41,7 +41,9 @@ function watch(env) {
         return best;
     };
     const base = env.cancel || { cancelled: false };
-    const token = { get cancelled() { return !!base.cancelled || (!token.fighting && !!danger()); }, fighting: false };
+    // The fighting itself is the fight reflex's (work/bot/reflex.js: in sight only, for every command). The walk only notices that a reflex took the body (its step comes back
+    // cancelled) and plans again; stopping a step for a mob it could not see (behind a wall, across water) cost T26 two walks ("eight segments without getting closer").
+    const token = { get cancelled() { return !!base.cancelled; }, fighting: false };
     const fight = async () => {
         token.fighting = true; let fought = 0;
         try {
@@ -227,7 +229,6 @@ async function walk(W, env0, target, o) {
         }
         // the night under the open sky: fight what is close, then dig in until the morning (shelter.js); `noShelter` for walks that must not wait (a reflex, the cleanup)
         if (!o.noShelter && night.isNight(bot) && P.seesSky(env.w, here.x, here.y, here.z)) {
-            if (W.danger()) { const f = await W.fight(); info.fights += f.fought; if (f.ended) return done({ ok: false, reason: f.ended }); }
             const sh = await night.shelter(env, digCostFor(bot), { cancel: env0.cancel });
             info.nights = (info.nights || 0) + 1; info.waited = (info.waited || 0) + (sh.waited || 0);
             say(env, `night: ${sh.ok ? `sheltered ${sh.waited} s` : sh.reason}`);
@@ -257,10 +258,9 @@ async function walk(W, env0, target, o) {
         let failed = null;
         for (const s of list) {
             if (env0.cancel && env0.cancel.cancelled) return done({ ok: false, reason: 'cancelled' });
-            if (W.danger()) { const f = await W.fight(); info.fights += f.fought; if (f.ended) return done({ ok: false, reason: f.ended }); failed = { step: 'fight', reason: 'interrupted', at: env.here() }; break; }
             await W.feed();
             const r = await perform(env, s);
-            if (!r.ok && r.reason === 'cancelled' && !(env0.cancel && env0.cancel.cancelled)) { const f = await W.fight(); info.fights += f.fought; if (f.ended) return done({ ok: false, reason: f.ended }); failed = { step: s.kind, reason: 'interrupted', at: env.here(), fight: true }; break; }
+            if (!r.ok && r.reason === 'cancelled' && !(env0.cancel && env0.cancel.cancelled)) { for (let i = 0; i < 150 && bot && bot.__preempt; i++) await sleep(100); info.fights++; failed = { step: s.kind, reason: 'interrupted', at: env.here(), reflex: true }; break; }
             info.steps++;
             if (s.kind === 'pillar') info.pillars += s.cells.length; else if (s.kind === 'bridge') info.bridges += s.cells.length; else if (s.kind === 'dig' || s.kind === 'digdown') info.digs++;
             say(env, `  ${s.kind} x${s.cells.length} -> ${s.cells[s.cells.length - 1].x},${s.cells[s.cells.length - 1].y},${s.cells[s.cells.length - 1].z}: ${r.ok ? 'ok' : r.reason + ' ' + JSON.stringify(r.detail || {}).slice(0, 200)}`);
@@ -276,7 +276,7 @@ async function walk(W, env0, target, o) {
             await sleep(250);
         }
         const now = env.here(), d = surface ? 0 : hd(now, t);
-        if (!surface) { if (d < bestD - 2) { bestD = d; still = 0; } else if (++still >= 8) return done({ ok: false, reason: 'stuck', detail: { why: `eight segments without getting closer (${Math.round(d)} blocks left)`, failed } }); }
+        if (!surface && !(failed && failed.reason === 'interrupted')) { if (d < bestD - 2) { bestD = d; still = 0; } else if (++still >= 8) return done({ ok: false, reason: 'stuck', detail: { why: `eight segments without getting closer (${Math.round(d)} blocks left)`, failed } }); }
     }
     return done({ ok: false, reason: 'timeout', detail: { why: `more than ${maxSeg} segments` } });
 }
