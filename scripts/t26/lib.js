@@ -47,10 +47,19 @@ async function onSurface(S, name, x, z) {
     return { said: o.slice(0, 120), at: p };
 }
 
-/** Deaths per bot, counted from the bot's own death event (the server's death message is the same thing). */
-function countDeaths(svc, names) {
+/**
+ * Deaths per bot, counted by the SERVER (a deathCount scoreboard objective, created at the start). The bot's own death event was not enough: after a death the service may connect a new bot
+ * object and the listener was gone (pb-b, 2026-11-15: two deaths in the server log, 0 in the report). The returned object is filled in by `await deaths.read()`; until then it holds the
+ * event count as a lower bound.
+ */
+function countDeaths(svc, names, S = null) {
     const d = Object.fromEntries(names.map((n) => [n, 0]));
-    for (const n of names) svc.bots.get(n).bot.on('death', () => { d[n]++; });
+    for (const n of names) { const r = svc.bots.get(n); if (r && r.bot) r.bot.on('death', () => { d[n]++; }); }
+    if (S) {
+        S.cmd('scoreboard objectives add t26deaths deathCount').catch(() => {});
+        for (const n of names) S.cmd(`scoreboard players set ${n} t26deaths 0`).catch(() => {});
+        Object.defineProperty(d, 'read', { enumerable: false, value: async () => { for (const n of names) { const m = /has (\d+) \[/.exec(strip(await S.cmd(`scoreboard players get ${n} t26deaths`))); if (m) d[n] = Math.max(d[n], Number(m[1])); } return d; } });
+    }
     return d;
 }
 

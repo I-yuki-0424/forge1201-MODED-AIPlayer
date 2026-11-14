@@ -25,7 +25,7 @@ function cottage() {
 (async () => {
     const rep = T.reporter('place_b');
     const { S, svc, seed } = await T.open([name]);
-    const deaths = T.countDeaths(svc, [name]), moves = T.countMoves(svc);
+    const deaths = T.countDeaths(svc, [name], S), moves = T.countMoves(svc);
     const p0 = await T.posOf(S, name);
     await T.onSurface(S, name, Math.floor(p0.x), Math.floor(p0.z));
     const g = await T.posOf(S, name), gy = Math.floor(g.y);
@@ -59,6 +59,7 @@ function cottage() {
     if (!ok) for (const q of cells) { if (wrong.length >= 15) break; if (!/^Test passed/.test(T.strip(await S.cmd(`execute if block ${o.x + q.x} ${o.y + q.y} ${o.z + q.z} minecraft:${q.block}`)))) wrong.push([q.x, q.y, q.z, q.block]); }
     // the air cells of the box too (a block left inside the house fails the comparison as much as a missing wall)
     if (!ok) { const set = new Set(cells.map((q) => `${q.x},${q.y},${q.z}`)); for (let x = 0; x <= 6; x++) for (let y = 0; y <= 4; y++) for (let z = 0; z <= 6; z++) { if (set.has(`${x},${y},${z}`) || wrong.length >= 20) continue; if (!/^Test passed/.test(T.strip(await S.cmd(`execute if block ${o.x + x} ${o.y + y} ${o.z + z} minecraft:air`)))) wrong.push([x, y, z, 'air']); } }
+    if (deaths.read) await deaths.read();
     rep.trial(name, controlOk && ok && state === 'finished' && deaths[name] === 0 && !moves[name], { origin: o, controlOk, state, match: ok, wrongCells: wrong, min: Math.round((Date.now() - t0) / 60000), deaths: deaths[name], serverMoves: moves[name] || 0 });
     const k = rep.write({ seed });
     await svc.stop(); process.exit(k ? 0 : 1);

@@ -11,7 +11,7 @@ const CORNERS = [[0, 0], [2000, 0], [0, 2000], [2000, 2000]], names = CORNERS.ma
 (async () => {
     const rep = T.reporter('mine_a');
     const { S, svc, seed } = await T.open(names);
-    const deaths = T.countDeaths(svc, names), moves = T.countMoves(svc);
+    const deaths = T.countDeaths(svc, names, S), moves = T.countMoves(svc);
     const p0 = await T.posOf(S, names[0]), sp = { x: Math.floor(p0.x), z: Math.floor(p0.z) };
     const starts = [];
     for (let i = 0; i < names.length; i++) { const s = await T.onSurface(S, names[i], sp.x + CORNERS[i][0], sp.z + CORNERS[i][1]); starts.push(s.at); await T.kit(S, names[i]); }
@@ -26,6 +26,7 @@ const CORNERS = [[0, 0], [2000, 0], [0, 2000], [2000, 2000]], names = CORNERS.ma
         }
         const have = {}; for (const [item, id] of GOALS) have[item] = await T.holds(S, n, id);
         const ok = GOALS.every(([item]) => have[item] >= N_EACH) && !moves[n];
+        if (deaths.read) await deaths.read();
         rep.trial(n, ok, { start: starts[i] && [starts[i].x, starts[i].y, starts[i].z].map(Math.round), have, deaths: deaths[n], serverMoves: moves[n] || 0, steps });
     })()));
     const k = rep.write({ seed, spawn: sp });

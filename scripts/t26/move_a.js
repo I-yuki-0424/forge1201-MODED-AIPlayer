@@ -9,7 +9,7 @@ const DIRS = [['E', 1, 0], ['W', -1, 0], ['S', 0, 1], ['N', 0, -1]], names = DIR
 (async () => {
     const rep = T.reporter('move_a');
     const { S, svc, seed } = await T.open(names);
-    const deaths = T.countDeaths(svc, names), moves = T.countMoves(svc);
+    const deaths = T.countDeaths(svc, names, S), moves = T.countMoves(svc);
     const p0 = await T.posOf(S, names[0]), sp = { x: Math.floor(p0.x), z: Math.floor(p0.z) };
     for (const n of names) { await T.onSurface(S, n, sp.x, sp.z); await T.kit(S, n); }
     await T.sleep(3000);
@@ -18,6 +18,7 @@ const DIRS = [['E', 1, 0], ['W', -1, 0], ['S', 0, 1], ['N', 0, -1]], names = DIR
         const n = names[i], t = { x: sp.x + dx * DIST, z: sp.z + dz * DIST };
         const r = await T.command(svc, n, 'journey', t, LIMIT_MIN);
         const p = await T.posOf(S, n), off = p ? Math.round(Math.hypot(p.x - t.x - 0.5, p.z - t.z - 0.5)) : null;
+        if (deaths.read) await deaths.read();
         rep.trial(n, off !== null && off <= 4 && deaths[n] === 0 && !moves[n], { dir: d, target: t, at: p && [p.x, p.y, p.z].map(Math.round), off, deaths: deaths[n], serverMoves: moves[n] || 0, sec: r.sec, timeout: r.timeout, said: r.result });
     })());
     await Promise.all(runs);

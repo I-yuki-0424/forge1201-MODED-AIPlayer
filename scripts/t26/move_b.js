@@ -50,7 +50,7 @@ function findCave(bot, c, R = 56) {
 (async () => {
     const rep = T.reporter('move_b');
     const { S, svc, seed } = await T.open([name]);
-    const deaths = T.countDeaths(svc, [name]), moves = T.countMoves(svc), bot = svc.bots.get(name).bot;
+    const deaths = T.countDeaths(svc, [name], S), moves = T.countMoves(svc), bot = svc.bots.get(name).bot;
     const p0 = await T.posOf(S, name), sp = { x: Math.floor(p0.x), z: Math.floor(p0.z) };
     await S.must(`gamemode spectator ${name}`); await S.must(`tp ${name} ${sp.x} 100 ${sp.z}`);
     let cave = null;
@@ -66,6 +66,7 @@ function findCave(bot, c, R = 56) {
     const r = await T.command(svc, name, process.env.CMD || 'surface', {}, LIMIT_MIN);
     const p = await T.posOf(S, name), f = p && { x: Math.floor(p.x), y: Math.floor(p.y + 0.01), z: Math.floor(p.z) };
     const sky = !!f && await T.seesSky(S, f.x, f.y, f.z);
+    if (deaths.read) await deaths.read();
     rep.trial(name, sky && deaths[name] === 0 && !moves[name] && !skyAtStart, { cave, start: start && [start.x, start.y, start.z].map(Math.round), skyAtStart, at: f, sky, deaths: deaths[name], serverMoves: moves[name] || 0, sec: r.sec, timeout: r.timeout, said: r.result });
     const k = rep.write({ seed, spawn: sp });
     await svc.stop(); process.exit(k ? 0 : 1);

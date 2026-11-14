@@ -10,7 +10,7 @@ const LIMIT_MIN = Number(process.env.LIMIT_MIN || 240), DEPTH = Number(process.e
 (async () => {
     const rep = T.reporter('mine_b');
     const { S, svc, seed } = await T.open([name]);
-    const deaths = T.countDeaths(svc, [name]), moves = T.countMoves(svc), bot = svc.bots.get(name).bot;
+    const deaths = T.countDeaths(svc, [name], S), moves = T.countMoves(svc), bot = svc.bots.get(name).bot;
     const p0 = await T.posOf(S, name), cx = Math.floor(Math.floor(p0.x) / 16), cz = Math.floor(Math.floor(p0.z) / 16);
     const x0 = cx * 16, z0 = cz * 16, x1 = x0 + W - 1, z1 = z0 + W - 1;
     await S.must(`forceload add ${x0} ${z0} ${x1} ${z1}`);
@@ -43,6 +43,7 @@ const LIMIT_MIN = Number(process.env.LIMIT_MIN || 240), DEPTH = Number(process.e
     await T.sleep(3000);
     const left = await dirty();
     const tempsLeft = svc.temps.list((r) => r.x >= x0 - 2 && r.x <= x1 + 2 && r.z >= z0 - 2 && r.z <= z1 + 2).map((r) => [r.x, r.y, r.z, r.kind]);
+    if (deaths.read) await deaths.read();
     rep.trial(name, controlOk && left.length === 0 && !moves[name], { box, controlDirtyLayers: before.length, state, min: Math.round((Date.now() - t0) / 60000), dirtyLayers: left.length, firstDirty: left.slice(0, 12), registeredTempsLeft: tempsLeft.length, temps: tempsLeft.slice(0, 20), deaths: deaths[name], serverMoves: moves[name] || 0 });
     await S.cmd(`forceload remove ${x0} ${z0} ${x1} ${z1}`);
     const k = rep.write({ seed });

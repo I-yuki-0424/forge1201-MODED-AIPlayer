@@ -10,7 +10,7 @@ const DIRS = [['E', 1, 0], ['W', -1, 0], ['S', 0, 1], ['N', 0, -1]], names = DIR
 (async () => {
     const rep = T.reporter('place_a');
     const { S, svc, seed } = await T.open(names);
-    const deaths = T.countDeaths(svc, names), moves = T.countMoves(svc);
+    const deaths = T.countDeaths(svc, names, S), moves = T.countMoves(svc);
     const p0 = await T.posOf(S, names[0]), c = { x: Math.floor(p0.x), z: Math.floor(p0.z) };
     await T.onSurface(S, names[0], c.x, c.z);
     const g = await T.posOf(S, names[0]), Y = Math.floor(g.y) + 40;        // the platform's top layer; the bots' feet are at Y + 1
@@ -30,6 +30,7 @@ const DIRS = [['E', 1, 0], ['W', -1, 0], ['S', 0, 1], ['N', 0, -1]], names = DIR
         for (let k = 2; k <= 1 + LEN; k++) { const x = c.x + dx * k, z = c.z + dz * k; if (/^Test passed/.test(T.strip(await S.cmd(`execute unless block ${x} ${Y} ${z} minecraft:air`)))) solid++; else gaps.push(k - 1); }
         const p = await T.posOf(S, n);
         const fell = !p || p.y < Y - 1;
+        if (deaths.read) await deaths.read();
         rep.trial(n, solid === LEN && deaths[n] === 0 && !fell && !moves[n], { dir: d, solid, of: LEN, gaps: gaps.slice(0, 10), at: p && [p.x, p.y, p.z].map(Math.round), fell, deaths: deaths[n], sec: r.sec, timeout: r.timeout, said: r.result });
     })()));
     const k = rep.write({ seed, platform: { ...c, y: Y } });
