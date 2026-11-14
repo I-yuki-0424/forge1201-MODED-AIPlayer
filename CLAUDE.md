@@ -6,7 +6,13 @@ this file**, this file wins over the parent file. MASTER_GUIDANCE holds the beha
 git, task tracking, response format); this file holds the commands and the map of the code, so it does not repeat the rules. Read the XML
 when a task touches tokens, scheduling, tracking or git hygiene.
 
-## Verification standard (owner 2026-11-11, binding, MASTER_GUIDANCE v12 `<verification>`)
+## Verification standard (owner 2026-11-14, binding, MASTER_GUIDANCE `<verification>` "T26 STANDARD")
+
+Tests run on the T26 Fabric 26.1.2 worlds (docs/implemented/TEST-WORLDS-T26.md): `scripts/t26/suite.sh <test> 3` (three NEW random-seed worlds in parallel, server-graded, the owner's
+scale: <= 80 % failure, 90 % WIP, 100 % success). The six tests and their required rates are in that doc; `/dev run <test>` starts one from inside the game. The Forge real-world copy below is
+history for now (MOD support is set aside).
+
+## Verification standard, earlier (owner 2026-11-11, superseded by the T26 standard above)
 
 Movement, escape and mining rates count only when measured on the REAL-WORLD TEST COPY of the play world (`scripts/real/`, docs/implemented/REAL-WORLD-VERIFICATION-v1.md):
 random starts and targets in natural terrain (and the End pit), graded from the server, with a negative control. Targets: movement >= 80 %, escape >= 90 %, stuck-type pit failures <= 10 %.
