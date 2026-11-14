@@ -139,7 +139,7 @@ async function runUnit(plan, regionId, u, env) {
     if (bot) { res = new Map(); for (const t of plan.tiles.values()) for (const list of t.cells.values()) for (const c of list) { if (env.w.nameAt(c.x, c.y, c.z) === c.block) continue; const it = itemFor(c.block); if (it) res.set(it, (res.get(it) || 0) + 1); } bot.__reserve = res; }
     // the structure's cells are never dug by the walker on its way (it dug through the cottage's walls to reach the inside: two wrong cells at the end)
     if (bot) { if (!plan.__cellSet) { plan.__cellSet = new Set(); for (const t of plan.tiles.values()) for (const list of t.cells.values()) for (const c of list) plan.__cellSet.add(`${c.x},${c.y},${c.z}`); } bot.__keep = (x, y, z) => plan.__cellSet.has(`${x},${y},${z}`); }
-    try { return await runUnitBody(plan, regionId, u, env); } finally { if (bot && bot.__reserve === res) bot.__reserve = null; if (bot) bot.__keep = null; }
+    try { return await runUnitBody(plan, regionId, u, env); } finally { if (bot && bot.__reserve === res) bot.__reserve = null; }          // __keep stays: between units (the night shelter) the structure is still not to be dug
 }
 async function runUnitBody(plan, regionId, u, env) {
     const cells = unitCells(plan, regionId, u.unit), r = { placed: 0, skipped: 0, scaffold: 0 };

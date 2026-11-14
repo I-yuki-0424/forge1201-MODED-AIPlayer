@@ -62,6 +62,8 @@ async function runWorker(job, id, env, { cancel = { cancelled: false }, policy =
             // through the gate (`_enterDim`); nothing is claimed, walked or failed meanwhile (live 2026-11-10: a unit in the Overworld walked toward End coordinates for minutes).
             if (env.wrongDim && env.wrongDim()) { L.leave(id, now()); onEvent('wrong_dimension', { id, have: env.dimension && env.dimension() }); return { ended: 'wrong_dimension', units, failed }; }
             if (sinceAudit >= AUDIT_EVERY) { sinceAudit = 0; act('audit'); audit(false); }
+            // The night under the open sky (no armour, Normal: T26 2026-11-15, builders and pit bots shot and blown up at night): dug in until the morning, the unit claimed after it.
+            if (env.nightGuard) { act('night'); const ng = await env.nightGuard(); if (ng && ng.waited) onEvent('night', { id, waited: ng.waited }); }
             act('claim');
             const claim = L.claim(id, env.pos(), now(), { batch });
             if (!claim) {

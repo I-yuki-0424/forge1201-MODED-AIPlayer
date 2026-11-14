@@ -139,7 +139,7 @@ function attach(bot, { world, enabled = () => true, onEvent = () => {} } = {}) {
         const p = bot.entity.position, eye = p.offset(0, 1.62, 0), hurt = Date.now() - hurtAt < 2500; let best = null;
         for (const e of Object.values(bot.entities || {})) {
             if (!e || e === bot.entity || !e.position || !HOSTILE.test(String(e.name || ''))) continue;
-            const d = e.position.distanceTo(p), r = hurt ? 12 : e.name === 'creeper' ? 6 : 3.5;
+            const d = e.position.distanceTo(p), r = hurt ? 12 : e.name === 'creeper' ? 7 : 3.5;
             if (d > r || Math.abs(e.position.y - p.y) > (hurt ? 6 : 2.5)) continue;
             if (!seeLine(eye, e.position.offset(0, (e.height || 1.8) * 0.8, 0))) continue;
             if (!best || d < best.d) best = { e, d };
@@ -155,6 +155,14 @@ function attach(bot, { world, enabled = () => true, onEvent = () => {} } = {}) {
             while (Date.now() - t0 < 12000) {
                 const f = foe(); if (!f) break;
                 const e = f.e, p = bot.entity.position, d = e.position.distanceTo(p);
+                // A creeper that is not yet at arm's length: away from it, sprinting (its fuse starts within 3 blocks and a blast without armour takes most of the health; T26 2026-11-15: 6 of 9 deaths).
+                // At arm's length it is hit: the knock-back stops the fuse.
+                if (e.name === 'creeper' && d > 2.6) {
+                    await bot.look(Math.atan2(-(p.x - e.position.x), -(p.z - e.position.z)), 0, true);          // facing away from it (mineflayer's yaw: atan2(-dx, -dz) faces dx, dz)
+                    bot.setControlState('forward', true); bot.setControlState('sprint', true); bot.setControlState('jump', bot.entity.isCollidedHorizontally);
+                    if (d > 8) break;
+                    await sleep(80); continue;
+                }
                 await bot.lookAt(e.position.offset(0, (e.height || 1.8) * 0.85, 0), true);
                 const reach = d <= 3.0;
                 bot.setControlState('forward', !reach && d < 12); bot.setControlState('sprint', !reach && d > 5);

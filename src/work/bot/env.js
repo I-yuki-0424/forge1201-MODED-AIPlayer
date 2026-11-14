@@ -260,6 +260,14 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         // NAV (src/nav, docs/implemented/NAV-v1.md, setting `navigator`, default 'nav'): ONE planner for every walk; the old chain below (voidnav, learned walk, chunk router, legs, movement expert) only with navigator = 'legacy'.
         nav: (t, o = {}) => { const e = Object.create(envObj); e.cancel = unitCancel; e.spots = () => (others ? others() : []); return require('../../nav/go').go(e, t, o); },
         navOn: () => !navigator || navigator() !== 'legacy',
+        // nav's night shelter outside a walk (a job between units, the router before an instruction): only at night and only under the open sky; null otherwise
+        nightGuard: async () => {
+            if (!envObj.navOn()) return null;
+            const SH = require('../../nav/shelter'), P = require('../../nav/plan'), f = feet();
+            if (!SH.isNight(bot) || !P.seesSky(w, f.x, f.y, f.z)) return null;
+            const e = Object.create(envObj); e.cancel = unitCancel;
+            return SH.shelter(e, require('../../nav/go').digCostFor(bot), { cancel: unitCancel });
+        },
         travel: async (t, o) => {
             if (envObj.navOn()) return envObj.nav(t, o || {});
             const rt = require('../../experts/route/router'), st = require('../../experts/route/stats'), tr = require('./travel'), ms = () => Date.now();
@@ -426,7 +434,7 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         // The top of the stack (docs/implemented/COMMAND-STACK-v1.md): an instruction and its arguments go through the router, which reads the unmet preconditions and the bot's state, writes the
         // chain (unstick, move, equip ...) and runs the instruction last. The operator's commands, `gather` and (setting `routerPit`) the jobs call this, not `exec`.
         command: (name, args) => require('../../stack/router').run({
-            bot, w, here: feet, cancelled: () => !!unitCancel.cancelled,
+            bot, w, here: feet, cancelled: () => !!unitCancel.cancelled, night: () => envObj.nightGuard(),
             exec: (n, a, o = {}) => execute(bot, n, a, { cancel: unitCancel, ...o }),
             travel: (t, o) => envObj.travel(t, o),
             obtain: (item, n) => envObj.obtain(item, n),

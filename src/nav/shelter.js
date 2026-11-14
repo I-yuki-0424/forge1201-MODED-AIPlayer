@@ -16,8 +16,8 @@ function isNight(bot) {
 }
 
 /** Can the bot dig in where it stands: three diggable cells under the feet with nothing fluid beside them, and solid ground under the third? */
-function canDigIn(w, f, dig) {
-    const V = P.view(w, { dig });
+function canDigIn(w, f, dig, keep = null) {
+    const V = P.view(w, { dig, protectedCell: (x, y, z) => !!(keep && keep(x, y, z)) });          // never into the structure being built
     for (let d = 1; d <= 3; d++) if (V.digCost(f.x, f.y - d, f.z) === null) return false;
     return w.kindAt(f.x, f.y - 4, f.z) === 'solid';
 }
@@ -30,14 +30,14 @@ async function shelter(env, dig, { maxWaitMs = 12 * 60000, cancel = null } = {})
     const bot = env.bot, w = env.w;
     if (!isNight(bot)) return { ok: true, waited: 0 };
     let f = env.here();
-    if (!canDigIn(w, f, dig)) {
+    if (!canDigIn(w, f, dig, bot.__keep)) {
         const near = [];
-        for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) { const c = { x: f.x + dx, y: f.y, z: f.z + dz }; if ((dx || dz) && P.nodeKindOf(P.view(w), c.x, c.y, c.z, false) === 'stand' && canDigIn(w, c, dig)) near.push(c); }
+        for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) { const c = { x: f.x + dx, y: f.y, z: f.z + dz }; if ((dx || dz) && P.nodeKindOf(P.view(w), c.x, c.y, c.z, false) === 'stand' && canDigIn(w, c, dig, bot.__keep)) near.push(c); }
         near.sort((a, b) => Math.hypot(a.x - f.x, a.z - f.z) - Math.hypot(b.x - f.x, b.z - f.z));
         let moved = false;
         for (const c of near.slice(0, 3)) { if ((await env.exec('move_to', c, { raw: true, maxTicks: 120 })).ok) { moved = true; break; } }
         f = env.here();
-        if (!moved || !canDigIn(w, f, dig)) return { ok: false, reason: 'no_shelter', waited: 0 };
+        if (!moved || !canDigIn(w, f, dig, bot.__keep)) return { ok: false, reason: 'no_shelter', waited: 0 };
     }
     const top = { ...f };
     for (let d = 1; d <= 3; d++) {

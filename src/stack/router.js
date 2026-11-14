@@ -129,6 +129,8 @@ async function run(deps, goal) {
     const chain = [], seen = new Map(), st = { travelled: 0, escaped: 0 };
     let last = null;
     const done = (r) => (chain.length ? { ...r, detail: { ...(r.detail || {}), router: chain } } : r);
+    // the state before anything else: night under the open sky -> dig in first (nav/shelter.js; a no-op by day or under a roof)
+    if (deps.night) { const n = await deps.night(); if (n && n.waited) chain.push({ do: 'shelter', waited: n.waited, ok: !!n.ok }); }
     for (let i = 0; i < MAX_STEPS; i++) {
         if (deps.cancelled && deps.cancelled()) return done({ ok: false, reason: 'cancelled', detail: {} });
         // The router decides FIRST (owner 2026-11-14: "the place almost every command passes through first, not only the error cases"): the preconditions are read from the state before
