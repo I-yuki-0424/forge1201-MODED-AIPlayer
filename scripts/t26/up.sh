@@ -11,6 +11,7 @@ export N PORT=$((25590 + N)) REPO SEED XDG_RUNTIME_DIR=/run/user/1000 DOCKER_HOS
 . "$HOME_/.env"; export RCON_PASSWORD
 C=(docker compose -f "$REPO/docker/t26/compose.yaml" --project-directory "$REPO/docker/t26")
 if [ $NEW = 1 ]; then
+  if docker ps --format '{{.Names}}' | grep -q "^live-t26-$N-"; then echo "world $N: a test is running on it (live-t26-$N-*): not thrown away" >&2; exit 1; fi
   "$REPO/scripts/t26/dev.sh" "$N" stop >/dev/null 2>&1 || true          # the watcher mounts the world volume: while it runs the volume cannot be removed (the "new" world kept its seed)
   "${C[@]}" down -v >/dev/null 2>&1 || true
   docker volume rm "forgeaip-t26-${N}_data" >/dev/null 2>&1 || true
