@@ -22,7 +22,9 @@ async function main() {
     const bot = svc.bots.get(names[0]).bot; S.name = names[0];
     await L.sleep(4000);
     const p0 = await L.posOf(S, names[0]), init = { x: Math.floor(p0.x), y: Math.floor(p0.y), z: Math.floor(p0.z) };
-    const cx = Math.floor(init.x / 16), cz = Math.floor(init.z / 16), x0 = cx * 16, x1 = x0 + W - 1, z0 = cz * 16, z1 = z0 + W - 1;
+    // CHUNK=cx,cz: the chunk to strip-mine when it is not the one the bots log in in (the build world's spawn stands OUTSIDE the box so that respawns do not land on the pit floor)
+    const [ccx, ccz] = process.env.CHUNK ? process.env.CHUNK.split(',').map(Number) : [Math.floor(init.x / 16), Math.floor(init.z / 16)];
+    const cx = ccx, cz = ccz, x0 = cx * 16, x1 = x0 + W - 1, z0 = cz * 16, z1 = z0 + W - 1;
     const seed = (await S.cmd('seed')).replace(/\x1b\[[0-9;]*m/g, '');
     // the highest non-air block of the chunk, read through the bot's loaded chunks
     const colTop = (x, z) => { for (let y = 319; y >= -64; y--) { const b = bot.blockAt(new Vec3(x, y, z)); if (b && b.name !== 'air' && b.name !== 'cave_air') return y; } return null; };
