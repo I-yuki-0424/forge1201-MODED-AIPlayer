@@ -100,6 +100,8 @@ async function tidy(env, { reach = 4.2 } = {}) {
     for (const r of mine) {
         if (env.cancel && env.cancel.cancelled) break;
         if (env.w.kindAt(r.x, r.y, r.z) !== 'solid') { T.remove(dim, r); continue; }                  // gone already
+        const nm = String((env.w.nameAt && env.w.nameAt(r.x, r.y, r.z)) || '');
+        if ((r.item && !nm.endsWith(String(r.item).replace(/^minecraft:/, ''))) || (bot.__keep && bot.__keep(r.x, r.y, r.z))) { T.remove(dim, r); continue; }      // another block there now (a wall of the build took the cell): not ours any more
         if (r.x === f.x && r.z === f.z && r.y === f.y - 1) { out.left.push(r); continue; }           // standing on it
         const p = bot.entity.position, d = Math.hypot(r.x + 0.5 - p.x, r.y + 0.5 - (p.y + 1.62), r.z + 0.5 - p.z);
         if (d > reach + 0.6) { out.left.push(r); continue; }
