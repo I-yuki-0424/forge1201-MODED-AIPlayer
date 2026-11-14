@@ -113,6 +113,11 @@ async function perform(deps, s) {
     }
 }
 
+/** The unmet preconditions of an instruction read from the state alone (src/skills/preconditions.js), [] when it may run or the instruction has none. */
+function pre(deps, goal) {
+    try { return (deps.unmet || require('../skills/preconditions').unmet)(deps.bot, goal.name, goal.args) || []; } catch (_) { return []; }
+}
+
 /**
  * Carry out the goal `{name, args}` (an instruction and its arguments, as the top sends them). Resolves to the instruction's result; `detail.router` lists the steps taken.
  * deps: { bot, w, here(), exec(name, args, opts) -> result (the action layer), travel(target, opts), escape(), cancelled() }
@@ -123,9 +128,15 @@ async function run(deps, goal) {
     const done = (r) => (chain.length ? { ...r, detail: { ...(r.detail || {}), router: chain } } : r);
     for (let i = 0; i < MAX_STEPS; i++) {
         if (deps.cancelled && deps.cancelled()) return done({ ok: false, reason: 'cancelled', detail: {} });
-        const r = await deps.exec(goal.name, goal.args, { atomic: true });
-        if (r.ok || r.reason !== 'precondition_failed') return done(r);
-        const unmet = (r.detail && r.detail.unmet) || [], here = deps.here();
+        // The router decides FIRST (owner 2026-11-14: "the place almost every command passes through first, not only the error cases"): the preconditions are read from the state before
+        // the instruction runs, and the chain (travel, unstick, move, equip, obtain) is written from them; the instruction's own precondition_failed is the check after each attempt.
+        let unmet = i === 0 && deps.bot ? pre(deps, goal) : null;
+        if (!unmet || !unmet.length) {
+            const r = await deps.exec(goal.name, goal.args, { atomic: true });
+            if (r.ok || r.reason !== 'precondition_failed') return done(r);
+            unmet = (r.detail && r.detail.unmet) || [];
+        }
+        const here = deps.here();
         const key = JSON.stringify([unmet.map((u) => `${u.need}:${u.item || ''}`), here.x, here.y, here.z]);
         seen.set(key, (seen.get(key) || 0) + 1);
         if (seen.get(key) > 2) return done({ ok: false, reason: last && last.reason && !FATAL.has(last.reason) ? last.reason : 'stuck', detail: { why: 'the same unmet precondition at the same place after two attempts to fix it', unmet, last: last && last.detail } });
@@ -143,4 +154,4 @@ async function run(deps, goal) {
     return done({ ok: false, reason: last && last.reason && !FATAL.has(last.reason) ? last.reason : 'stuck', detail: { why: `the router gave up after ${MAX_STEPS} attempts`, last: last && last.detail } });
 }
 
-module.exports = { run, decide, standCells, isClosed, targetOf, perform, ROUTED, FAR, CLOSED, MAX_STEPS };
+module.exports = { run, pre, decide, standCells, isClosed, targetOf, perform, ROUTED, FAR, CLOSED, MAX_STEPS };
