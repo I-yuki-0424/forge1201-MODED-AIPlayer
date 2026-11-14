@@ -1,7 +1,8 @@
 'use strict';
 // Pushing bots that do nothing (owner 2026-11-10; decision in bot/force.js): a forced FALL for a high bot that has not moved for 30 s, a forced KILL for a bot that has failed for 60 s
 // or that stays put after its fall. Both are written to forced.jsonl and counted in the health row (`forced`), so that "how often does this happen" is a number. Settings `forceFall`
-// and `forceKill` (on by default) switch them off one at a time. A part of WorkService.
+// and `forceKill` switch them on one at a time; OFF by default since 2026-11-14 (owner, problem 1: a forced kill left the temporary blocks behind, and without keepInventory it
+// threw away the pack: the T26 cottage builder lost 86 planks to it). A stuck bot is the router's and the walker's business. A part of WorkService.
 const fs = require('fs');
 const path = require('path');
 const { isHigh, isAbyss } = require('../bot/force');
