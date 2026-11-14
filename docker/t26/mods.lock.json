@@ -1,0 +1,94 @@
+{
+ "minecraft": "26.1.2",
+ "loader": "fabric",
+ "mods": [
+  {
+   "project": "fabric-api",
+   "version": "0.155.3+26.1.2",
+   "type": "release",
+   "file": "fabric-api-0.155.3+26.1.2.jar",
+   "sha512": "fa0308b42e9cd0dc3ff946f246d199d74547e0c946d7e3c9780a2537155307baf25129f69bd1349273babf879ffb4608b7e4af0740938f9c0f7b371b1c67d6ca",
+   "url": "https://cdn.modrinth.com/data/P7dR8mSH/versions/3dM0X6ou/fabric-api-0.155.3%2B26.1.2.jar"
+  },
+  {
+   "project": "carpet",
+   "version": "26.1",
+   "type": "release",
+   "file": "fabric-carpet-26.1+v260402.jar",
+   "sha512": "d98b02eb2bd2c7594aac3913c7ddfc8ef6ff724a6b1e86098611e09c303134626eb76e1c9fe910101c6972c8fe0993fb0b21ea99c7affc0e33a0ac64f941954b",
+   "url": "https://cdn.modrinth.com/data/TQTTVgYE/versions/ygtmLbO3/fabric-carpet-26.1%2Bv260402.jar"
+  },
+  {
+   "project": "lithium",
+   "version": "mc26.1.2-0.24.7-fabric",
+   "type": "release",
+   "file": "lithium-fabric-0.24.7+mc26.1.2.jar",
+   "sha512": "37240bdbf93c19fdc6aa632d89223639f0ef9d923ee1793b33d624946b0482cc972834049ed07d71db3494e16c9de68e755937aac7c4ac5d7291bd38c1425899",
+   "url": "https://cdn.modrinth.com/data/gvQqBUqZ/versions/Oqq8TOAV/lithium-fabric-0.24.7%2Bmc26.1.2.jar"
+  },
+  {
+   "project": "ferrite-core",
+   "version": "9.0.0-fabric",
+   "type": "release",
+   "file": "ferritecore-9.0.0-fabric.jar",
+   "sha512": "d81fa97e11784c19d42f89c2f433831d007603dd7193cee45fa177e4a6a9c52b384b198586e04a0f7f63cd996fed713322578bde9a8db57e1188854ae5cbe584",
+   "url": "https://cdn.modrinth.com/data/uXXizFIs/versions/d5ddUdiB/ferritecore-9.0.0-fabric.jar"
+  },
+  {
+   "project": "krypton",
+   "version": "0.3.0",
+   "type": "release",
+   "file": "krypton-0.3.0.jar",
+   "sha512": "14233210283a76f3cf435a3b8ddbcbd65a858d2b1a10b88ff643c0a01486dfd2bf1843bd3456cd4fb86cbb3b06f2dea0c4e663b1976a48e96de16d3b5a707ec9",
+   "url": "https://cdn.modrinth.com/data/fQEb0iXm/versions/kYAGItyj/krypton-0.3.0.jar"
+  },
+  {
+   "project": "scalablelux",
+   "version": "0.2.0+fabric.2b63825",
+   "type": "release",
+   "file": "ScalableLux-0.2.0+fabric.2b63825-all.jar",
+   "sha512": "48565a4d8a1cbd623f0044086d971f2c0cf1c40e1d0b6636a61d41512f4c1c1ddff35879d9dba24b088a670ee254e2d5842d13a30b6d76df23706fa94ea4a58b",
+   "url": "https://cdn.modrinth.com/data/Ps1zyz6x/versions/gYbHVCz8/ScalableLux-0.2.0%2Bfabric.2b63825-all.jar"
+  },
+  {
+   "project": "ksyxis",
+   "version": "1.4.6",
+   "type": "release",
+   "file": "Ksyxis-1.4.6.jar",
+   "sha512": "1571cd9b15b6733002dd164beab4ad1022fab2c904414b39db6fb609a41c48cca394f1751e5634ebc555795d9bd9dba48c2c280c152d9e0f570795d47a91c1d5",
+   "url": "https://cdn.modrinth.com/data/2ecVyZ49/versions/kzLBJQLn/Ksyxis-1.4.6.jar"
+  },
+  {
+   "project": "appleskin",
+   "version": "3.0.10+mc26.1.2",
+   "type": "release",
+   "file": "appleskin-fabric-mc26.1.2-3.0.10.jar",
+   "sha512": "eacb134cc9e03a4fd870c3e75fedd3fba6ef9bf1611dcff5b89f0d35b22bda5709f085436ac071c018cf7d3e5a54c9783477c4f091d4ded74deb5292f25f5644",
+   "url": "https://cdn.modrinth.com/data/EsAfCjCV/versions/zLlqqiTA/appleskin-fabric-mc26.1.2-3.0.10.jar"
+  },
+  {
+   "project": "jade",
+   "version": "26.1.9+fabric",
+   "type": "release",
+   "file": "Jade-mc26.1-Fabric-26.1.9.jar",
+   "sha512": "6b38ad22b3888057c619aeb89eaa78ade68c03dbba8d3758c65b32ad34471378cf222dc1b9108c3107d9739eeeb385476e760c14ccd68afde754660f63cedcce",
+   "url": "https://cdn.modrinth.com/data/nvQzSEkH/versions/fW2xykin/Jade-mc26.1-Fabric-26.1.9.jar"
+  },
+  {
+   "project": "viafabric",
+   "version": "0.4.22+188-26.x",
+   "type": "alpha",
+   "file": "ViaFabric-0.4.22+188-26.x.jar",
+   "sha512": "090e8b47b413523b8682c3953beb6d99e5a92473a8d0580bdbf6a057352aadb8ad8b7a2d08f36c99c14ed3294923102c45724c88b24d697a05b729925ce03de3",
+   "url": "https://cdn.modrinth.com/data/YlKdE5VK/versions/z1FVDMnq/ViaFabric-0.4.22%2B188-26.x.jar"
+  },
+  {
+   "project": "viaversion",
+   "version": "5.12.2",
+   "type": "release",
+   "file": "ViaVersion-5.12.2.jar",
+   "sha512": "c6af11f50e14bc1ba239f5a90be653cce85feee30c473a4b53336b4d5527d790369cf43843f7cb06d3ac3a34fc207e7203436737ca719070644101472453401b",
+   "url": "https://cdn.modrinth.com/data/P1OZGk5p/versions/cVhZ1kgN/ViaVersion-5.12.2.jar"
+  }
+ ]
+}

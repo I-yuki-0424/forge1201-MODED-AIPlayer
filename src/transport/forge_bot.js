@@ -114,15 +114,19 @@ function hardenClientChatParsers(bot) {
     }
 }
 
-/** createBot with the FML3 host marker, then the chat hardening. `host` is the plain host name. */
+/** The game version the bots speak: MC_VERSION (default 1.20.1, the Forge worlds). Anything else is a vanilla-protocol server (the T26 Fabric test worlds: 26.1). */
+const gameVersion = () => process.env.MC_VERSION || '1.20.1';
+const isForge = () => gameVersion() === '1.20.1' && process.env.MC_FORGE !== '0';
+
+/** createBot with the FML3 host marker (Forge 1.20.1 only), then the chat hardening. `host` is the plain host name. */
 function createForgeBot({ host = 'localhost', port = 25565, username, viewDistance, checkTimeoutInterval }) {
-    applyProtocolBypasses();
+    if (isForge()) applyProtocolBypasses();
     require('./time_scale').fromEnv();    // GAME_SPEED: a server running tools/tickrate needs the client clock to match
     const bot = mineflayer.createBot({
-        host: host + '\0FML3\0',
+        host: isForge() ? host + '\0FML3\0' : host,
         port,
         username,
-        version: '1.20.1',
+        version: gameVersion(),
         maxPacketSize: 10 * 1024 * 1024,
         disableChatSigning: true,
         hideErrors: true,
@@ -142,6 +146,7 @@ function createForgeBot({ host = 'localhost', port = 25565, username, viewDistan
  * The result is emitted once as bot 'mod_registry' {mode, content, blocks, states, items, missing, error?}.
  */
 function attachForgeHandshake(bot, { registry = 'auto', table } = {}) {
+    if (!isForge()) { bot.once('login', () => bot.emit('mod_registry', { mode: 'vanilla', content: false, version: gameVersion() })); return; }       // a vanilla-protocol server sends no FML3 handshake
     bot.on('inject_allowed', () => {
         hardenClientChatParsers(bot);
         require('./forge_windows').attach(bot);                 // screens a mod opens through its own channel (Ender Storage)
@@ -165,4 +170,4 @@ function attachForgeHandshake(bot, { registry = 'auto', table } = {}) {
     });
 }
 
-module.exports = { applyProtocolBypasses, hardenClientChatParsers, createForgeBot, attachForgeHandshake };
+module.exports = { gameVersion, isForge, applyProtocolBypasses, hardenClientChatParsers, createForgeBot, attachForgeHandshake };
