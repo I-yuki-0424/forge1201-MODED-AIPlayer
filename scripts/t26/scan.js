@@ -9,5 +9,6 @@ const Vec3 = require('vec3');
     const count = {}, cells = [];
     for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) { const b = bot.blockAt(new Vec3(x, y, z)); const n = b ? b.name : 'unloaded'; count[n] = (count[n] || 0) + 1; if (names.includes(n)) cells.push([x, y, z, n]); }
     console.log(JSON.stringify(count)); console.log(JSON.stringify(cells.slice(0, 200)));
+    if (process.env.GRID) for (let y = y1; y >= y0; y--) { const rows = []; for (let z = z0; z <= z1; z++) { let r = ""; for (let x = x0; x <= x1; x++) { const b = bot.blockAt(new Vec3(x, y, z)); r += b ? (b.name === "air" ? "." : b.name[0]) : "?"; } rows.push(r); } console.log(`y ${y}: ${rows.join(" | ")}`); }
     await svc.stop(); process.exit(0);
 })().catch((e) => { console.error(e); process.exit(2); });

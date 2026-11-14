@@ -85,7 +85,8 @@ async function walk(ctx, goal, { sprint = true } = {}) {
         if (goal.isGoal(cell)) {
             const c = centre(cell), d = hdist(pos, c);
             if (!goal.settle || d < 0.25) {
-                await ctx.until(() => Math.hypot(e.velocity.x, e.velocity.z) < 0.03, 10, 'stuck');
+                // On ice the body slides for more than ten ticks (T26 move_a 2026-11-14: every arrival on an ice field ended 'stuck'): up to 40, then the cell decides, not the speed.
+                try { await ctx.until(() => Math.hypot(e.velocity.x, e.velocity.z) < 0.03, 40, 'stuck'); } catch (err) { if (!(err instanceof SkillError) || err.reason !== 'stuck') throw err; }
                 if (goal.isGoal(feetCell(e.position))) return feetCell(e.position);
                 continue;
             }
