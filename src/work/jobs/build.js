@@ -155,7 +155,11 @@ async function runUnitBody(plan, regionId, u, env) {
         let p = await env.exec('place', { x: c.x, y: c.y, z: c.z, item });
         // A scaffold helps when the cell cannot be reached or seen, and also when the walk to the placement face ends in the open
         // (a roof cell inside the walls: live run, reason 'stuck', goal 'reach placement face'). Other 'stuck' reasons are the bot's body.
-        if (!p.ok && (p.reason === 'unreachable' || p.reason === 'not_visible' || (p.reason === 'stuck' && p.detail && p.detail.goal === 'reach placement face'))) {
+        // With NAV (env.navOn) the router's walk reaches the cell itself (pillar beside a wall, then the wall top; its blocks are taken away): no scaffold staircase of its own.
+        if (!p.ok && env.navOn && env.navOn() && ['unreachable', 'not_visible', 'stuck', 'precondition_failed'].includes(p.reason)) {
+            const t = await env.travel({ x: c.x, y: c.y, z: c.z }, { near: 3, nearY: 3 });
+            if (t.ok) p = await env.exec('place', { x: c.x, y: c.y, z: c.z, item });
+        } else if (!p.ok && (p.reason === 'unreachable' || p.reason === 'not_visible' || (p.reason === 'stuck' && p.detail && p.detail.goal === 'reach placement face'))) {
             const sc = scaffoldFor(plan, env.w, c, plan.origin.y, { reuse: new Set(env.scaffold.cells.map((q) => `${q.x},${q.y},${q.z}`)) }), mat = anyItem();
             if (sc && sc.cells.length && mat) {
                 for (const s of sc.cells) {
