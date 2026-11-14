@@ -134,7 +134,23 @@ function createForgeBot({ host = 'localhost', port = 25565, username, viewDistan
         ...(checkTimeoutInterval ? { checkTimeoutInterval } : {})
     });
     hardenClientChatParsers(bot);
+    if (!isForge()) bot.once('login', () => fixDigTime(bot));
     return bot;
+}
+
+/**
+ * 26.1 (prismarine-item with item components): `item.enchants` is the raw component {enchantments: [{id, level}]}, not the list [{name, lvl}] that prismarine-block's digTime
+ * iterates, so every dig with an enchanted tool threw "enchantments is not iterable" (T26 Mine B, 2026-11-14: each unit of the pit failed `internal`). The same computation as
+ * mineflayer's digTime with the list normalised.
+ */
+function fixDigTime(bot) {
+    const norm = (e) => (Array.isArray(e) ? e : e && Array.isArray(e.enchantments) ? e.enchantments.map((x) => ({ name: (bot.registry.enchantments[x.id] || {}).name || null, lvl: x.level })) : []);
+    bot.digTime = function digTime(block) {
+        const held = bot.heldItem, head = bot.inventory.slots[bot.getEquipmentDestSlot('head')];
+        const ench = [...(held ? norm(held.enchants) : []), ...(head ? norm(head.enchants) : [])];
+        const eye = bot._getBlockAtEyeLevel ? bot._getBlockAtEyeLevel() : null;
+        return block.digTime(held ? held.type : null, bot.game.gameMode === 'creative', ['water', 'flowing_water'].includes(eye && eye.name), !bot.entity.onGround, ench, bot.entity.effects);
+    };
 }
 
 /**
@@ -170,4 +186,4 @@ function attachForgeHandshake(bot, { registry = 'auto', table } = {}) {
     });
 }
 
-module.exports = { gameVersion, isForge, applyProtocolBypasses, hardenClientChatParsers, createForgeBot, attachForgeHandshake };
+module.exports = { gameVersion, isForge, fixDigTime, applyProtocolBypasses, hardenClientChatParsers, createForgeBot, attachForgeHandshake };

@@ -67,7 +67,7 @@ class WorkersPart {
             scriptEnv: () => ({ sites: this.sites, policy: job.policy, box: job.spec.box, need: rec.missingTool }),
             onEvent: (ev, d) => {
                 if (ev === 'unit') { this.health.unit(d); this.force.unit(rec.name, d.ok, d.reason, Date.now()); }
-                if (ev === 'parked') { this.health.park(d); this.note('info', `${d.id} parked ${d.region} u${d.unit} (${d.reason}${d.detail && d.detail.stage ? ` at ${d.detail.stage}` : ''}${d.detail && d.detail.why ? `: ${String(d.detail.why).slice(0, 60)}` : ''}): ${d.why === 'same_failure' ? 'the same failure twice' : 'too many tries'}, the range goes on, the repair pass tries it again`, { job: job.id, cell: d.detail && d.detail.cell }); }
+                if (ev === 'parked') { this.health.park(d); this.note('info', `${d.id} parked ${d.region} u${d.unit} (${d.reason}${d.detail && d.detail.stage ? ` at ${d.detail.stage}` : ''}${d.detail && (d.detail.why || d.detail.message) ? `: ${String(d.detail.why || d.detail.message).slice(0, 120)}` : ''}): ${d.why === 'same_failure' ? 'the same failure twice' : 'too many tries'}, the range goes on, the repair pass tries it again`, { job: job.id, cell: d.detail && d.detail.cell }); }
                 if (ev === 'janitor_done') this.health.deposit(d);
                 if (ev === 'janitor_failed') this.health.deposit({ failed: true });
                 if (ev === 'unit' && d.ok) { rec.fixes = 0; rec.cool = 0; rec.autoTries = 0; this._clearGlow(rec); }
