@@ -140,6 +140,13 @@ function steps(path) {
     return out;
 }
 
+/** How many temporary blocks the pack holds (what pillars and bridges may use): the same rule as the moves' choice of a block. */
+function packBlocks(bot) {
+    if (!bot || !bot.inventory) return Infinity;
+    const tb = require('../work/bot/tempblocks'), held = tb.freeHeld(bot), names = new Set(tb.order(held, bot.registry, { valueOf: require('../work/bot/janitor').valueOf }));
+    return held.reduce((n, i) => n + (names.has(i.name) ? i.count : 0), 0);
+}
+
 /** Break `c` until it is passable (a falling block above it refills it: up to six times). */
 async function clearCell(env, c) {
     for (let i = 0; i < 6; i++) {
@@ -245,7 +252,7 @@ async function walk(W, env0, target, o) {
             if (P.nodeKindOf(P.view(env.w), env.here().x, env.here().y, env.here().z, false)) continue;
         }
         const start = { ...here, ...(bot && bot.entity && bot.entity.onGround && !bot.entity.isInWater ? { ground: true } : {}) };           // on a slab, a fence top, a bed: a start the grid would not call a node
-        const plan = await P.planAsync(env.w, start, goal, { dig: digCostFor(bot), protectedCell: protectedFor(env), noPlace: !!o.noPlace, noDig: !!o.noDig, maxNodes: o.maxNodes || 14000, score });
+        const plan = await P.planAsync(env.w, start, goal, { dig: digCostFor(bot), protectedCell: protectedFor(env), noPlace: !!o.noPlace, noDig: !!o.noDig, maxNodes: o.maxNodes || 14000, score, blocks: packBlocks(bot) });
         info.segments++;
         if (!plan) {
             // not on a node (in a bush, half in a wall, mid-air): let the body settle, then the action layer's walk to the nearest cell
