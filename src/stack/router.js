@@ -87,6 +87,9 @@ async function decide(deps, goal, unmet, st) {
                 // the target is outside the small region the bot is in: it is stuck, whatever else is the matter
                 if (st.escaped >= 2) return { fail: { reason: 'stuck', detail: { why: 'enclosed, and two escapes did not open a way', region: reach.cells.length } } };
                 steps.push({ do: 'unstick', region: reach.cells.length });
+            } else if (st.travelled < cands.length && st.travelled < 3) {
+                // the walker (NAV) climbs, digs and bridges where the on-foot reach does not go: straight to a standing cell within reach, the nearest untried first
+                steps.push({ do: 'travel', to: cands[st.travelled], exact: true, why: `no standing cell near the target is reachable on foot (candidates ${cands.length}, region ${reach.cells.length})` });
             } else if (!st.travelled) {
                 steps.push({ do: 'travel', to: t, why: `no standing cell near the target is reachable by the planner (candidates ${cands.length}, reachable ${open.length}, region ${reach.cells.length}, start ${reach.cells.length ? 'in the planner' : 'NOT a planner cell'})` });       // the movement expert may still find a way
             } else {
@@ -105,7 +108,7 @@ async function decide(deps, goal, unmet, st) {
 async function perform(deps, s) {
     switch (s.do) {
         case 'move': return deps.exec('move_to', { x: s.to.x, y: s.to.y, z: s.to.z }, { atomic: true });
-        case 'travel': return deps.travel({ x: s.to.x, y: s.to.y, z: s.to.z, level: s.to.y }, { near: 3, nearY: 3 });
+        case 'travel': return s.exact ? deps.travel({ x: s.to.x, y: s.to.y, z: s.to.z }, { near: 0, nearY: 0 }) : deps.travel({ x: s.to.x, y: s.to.y, z: s.to.z, level: s.to.y }, { near: 3, nearY: 3 });
         case 'unstick': return deps.escape ? deps.escape() : { ok: false, reason: 'stuck', detail: { why: 'no stuck-escape expert in this environment' } };
         case 'equip': return deps.exec('equip', { item: s.item }, { atomic: true });
         case 'obtain': return deps.obtain ? deps.obtain(s.item, s.count) : { ok: false, reason: 'missing_item', detail: { item: s.item, why: 'this environment cannot get items' } };
@@ -123,7 +126,7 @@ function pre(deps, goal) {
  * deps: { bot, w, here(), exec(name, args, opts) -> result (the action layer), travel(target, opts), escape(), cancelled() }
  */
 async function run(deps, goal) {
-    const chain = [], seen = new Map(), st = { travelled: false, escaped: 0 };
+    const chain = [], seen = new Map(), st = { travelled: 0, escaped: 0 };
     let last = null;
     const done = (r) => (chain.length ? { ...r, detail: { ...(r.detail || {}), router: chain } } : r);
     for (let i = 0; i < MAX_STEPS; i++) {
@@ -144,7 +147,7 @@ async function run(deps, goal) {
         if (d.fail) return done({ ok: false, reason: d.fail.reason, detail: { ...d.fail.detail, unmet } });
         for (const s of d.steps) {
             const sr = await perform(deps, s);
-            if (s.do === 'travel') st.travelled = true;
+            if (s.do === 'travel') st.travelled++;
             if (s.do === 'obtain') chain.push({ do: 'obtain', item: s.item, count: s.count, ok: !!sr.ok, ...(sr.ok ? {} : { reason: sr.reason }), steps: sr.detail && sr.detail.steps });
             if (s.do === 'unstick') st.escaped++;
             if (s.do !== 'obtain') chain.push({ do: s.do, need: unmet.map((u) => u.need), ...(s.why ? { why: s.why } : {}), ...(s.to ? { to: [s.to.x, s.to.y, s.to.z] } : {}), ...(s.item ? { item: s.item } : {}), ...(s.region !== undefined ? { region: s.region } : {}), ok: !!sr.ok, ...(sr.ok ? {} : { reason: sr.reason }) });
