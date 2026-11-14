@@ -3,10 +3,10 @@
 const T = require('./lib');
 (async () => {
     const n = 'Walk' + T.WORLD, { S, svc } = await T.open([n]);
-    const [fx, fy, fz] = process.env.FROM.split(',').map(Number), to = process.env.TO.split(',').map(Number);
+    const [fx, fy, fz] = process.env.FROM.split(',').map(Number), to = process.env.TO === 'surface' ? [] : process.env.TO.split(',').map(Number);
     await S.must(`tp ${n} ${fx + 0.5} ${fy} ${fz + 0.5}`); await T.kit(S, n); await T.sleep(3000);
     const t = to.length === 3 ? { x: to[0], y: to[2], z: to[1] } : { x: to[0], z: to[1] };
-    const r = await T.command(svc, n, 'journey', t, Number(process.env.LIMIT_MIN || 10));
+    const r = process.env.TO === 'surface' ? await T.command(svc, n, 'surface', {}, Number(process.env.LIMIT_MIN || 10)) : await T.command(svc, n, 'journey', t, Number(process.env.LIMIT_MIN || 10));
     console.log('RESULT', JSON.stringify(r).slice(0, 1500), 'at', JSON.stringify(await T.posOf(S, n)));
     await svc.stop(); process.exit(0);
 })().catch((e) => { console.error(e); process.exit(2); });

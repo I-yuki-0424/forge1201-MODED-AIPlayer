@@ -71,6 +71,10 @@ async function walk(ctx, goal, { sprint = true } = {}) {
         // a bot on a hillside "airborne for 4 s" four times in a row at y 112.0): it is treated as standing.
         if (!e.onGround && !e.isInWater && !onClimb && Math.abs(pos.y - lastY) < 1e-3) restY++; else restY = 0;
         lastY = pos.y;
+        // Wedged: the body hangs in the air against a block's side, 0.02 inside it, and the physics neither lets it fall nor move (T26 world 3, the spawn: y 65.42 for 200 ticks with forward and
+        // jump held, every walk west timed out there). Keys off and a step back; after that the body is put back on its cell's centre line (a few hundredths of a block, the client's own move).
+        if (restY === 12) { await ctx.tick({ back: true }); await ctx.tick({ back: true }); await ctx.tick({}); }
+        if (restY === 20) { const c = centre(cell); e.position.x += Math.sign(c.x - pos.x) * Math.min(0.08, Math.abs(c.x - pos.x)); e.position.z += Math.sign(c.z - pos.z) * Math.min(0.08, Math.abs(c.z - pos.z)); e.velocity.x = 0; e.velocity.z = 0; restY = 0; ctx.phase('unwedge', { at: [pos.x, pos.y, pos.z] }); }
         if (!e.onGround && !e.isInWater && !onClimb && restY < 10) {
             // In the air (step-up jump, drop, jump onto a ladder): keep steering toward the current target.
             if (++airborne > 80) throw new SkillError('stuck', { goal: goal.label, why: 'airborne for 4 s' });
