@@ -8,7 +8,7 @@
 //   climb         ladders and vines                                              1.5
 //   dig           a body cell in the way is broken first (tunnel, step up through rock, a staircase down)   per block: 3 + hardness (unsafe cells: never)
 //   digdown       break the floor and drop onto the cell below (no deeper fall than 3)                       1.5 + hardness
-//   pillar        place a block in the feet cell and stand on it                                             PILLAR (10; +4 when the head room must be dug: a staircase is the way up through rock)
+//   pillar        place a block in the feet cell and stand on it, in open air only                          PILLAR (10; through rock the staircase is the way up)
 //   bridge        place a block under the next cell (no ground within 3 below) and step on                   BRIDGE (8)
 // Pure: the world comes in as world.js's interface (kindAt, nameAt); `o.dig(name)` says whether and how hard a block is to break with the pack the bot has (null = never).
 // The plan does not model its own changes beyond the node it makes (a pillar or bridge node stands on its placed block), the way Baritone's movements do; the walker replans every segment.
@@ -124,9 +124,11 @@ function moves(V0, n, o) {
         add({ x: X, y, z: Z, kind: k, move: 'walk', cost: Math.SQRT2 * (k === 'swim' || here === 'swim' ? SWIM : 1), dig: [] });
     }
     // straight up on a placed block (pillar), digging the cell over the head if needed
-    if (here === 'stand' && !o.noPlace) {
+    // only in open air (the head room free) and only from a full block or the last pillar block: through rock the staircase is the way up (T26 move_b: pillars "stuck" and "nothing solid
+    // under the feet" in caves, where the start stood on a partial block or the head room had to be dug at every level)
+    if (here === 'stand' && !o.noPlace && (n.placed || solid(V, x, y - 1, z))) {
         const h = V.clear(x, y + 2, z);
-        if (h !== null) add({ x, y: y + 1, z, kind: 'stand', move: 'pillar', cost: PILLAR + h + (h ? 4 : 0), dig: h ? [{ x, y: y + 2, z }] : [], place: { x, y, z }, placed: true });
+        if (h === 0) add({ x, y: y + 1, z, kind: 'stand', move: 'pillar', cost: PILLAR, dig: [], place: { x, y, z }, placed: true });
     }
     // straight down: break the floor, land on the next floor within MAX_DROP (never into a fluid)
     if (here === 'stand' && !n.placed) {
