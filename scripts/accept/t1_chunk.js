@@ -4,7 +4,7 @@
 //   excavation: `execute if blocks <box slab> <air slab in the sky> masked` passes only when the slab holds no non-air block (it does not change the world); it must FAIL on the untouched chunk (control)
 //   backfill: `fill <slab> minecraft:air replace minecraft:cobblestone`, the sum of "Successfully filled N" over the slabs (the last step: it empties the cobblestone again)
 // PREBUILT=1 (the owner's build world, `ACC=0`, /mnt/data/forgeaip-play/accept/t1.sh: fixed seed, spawn radius 0, supply chests that never run dry, terrain shaped by hand): nothing is created or topped up here; the starting chunk is the box,
-// the supply chests are the `forgeaip_supply` markers, tagged as tools and cobblestone chests, and the world is only read and mined.
+// the supply chests are the `forgeaip_supply` markers, tagged `free` (tools and cobblestone from the one chest), and the world is only read and mined.
 // The tools are command-generated (efficiency 255, unbreaking 255). A chest holds 1,728 blocks and the box needs about 36,000: the cobblestone chest is topped up by command whenever it runs low,
 // i.e. it is a supply chest that does not run dry. Env: BOTS (default 4), LIMIT_MIN per job (default 120), LIVE_OUT; for a rehearsal W (side, default 16 = the chunk) and DEPTH (layers from the top, default down to y -59); METHOD (expert | sweep | rows) and ROAD (1 | 0) are the pit job's options.
 const fs = require('fs');
@@ -56,7 +56,8 @@ async function main() {
         await S.cmd('tag @e[type=minecraft:marker,tag=forgeaip_supply] remove seen');
         check('the build world has a supply chest (marker) outside the box', spots.length > 0 && spots.every((c) => c.x < x0 || c.x > x1 || c.z < z0 || c.z > z1), spots);
         for (const c of spots) for (let i = 0; i < 40; i++) { const b = bot.blockAt(new Vec3(c.x, c.y, c.z)); if (b && b.name === 'chest') break; await L.sleep(250); }
-        spots.forEach((c, i) => { svc.addSite({ name: `tools${i + 1}`, ...c, purpose: 'tools' }); svc.addSite({ name: `cobble${i + 1}`, ...c, purpose: 'free' }); });
+        // One tag per cell: `free` ("its contents may be used freely: bots take what they need") serves the tools and the cobblestone alike
+        spots.forEach((c, i) => { svc.addSite({ name: `supply${i + 1}`, ...c, purpose: 'free' }); });
         console.log(`[accept-t1] prebuilt world: supply chests ${JSON.stringify(spots)}`);
     }
     // ---- the two chests, outside the box, on the ground; tagged; the tools command-generated
