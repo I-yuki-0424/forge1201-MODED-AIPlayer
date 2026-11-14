@@ -60,3 +60,4 @@ Every number with its run id; runs of `suite.sh` only.
 | :-- | :-- | :-- | :-- |
 | `pa-b` (2026-11-14) | place_a | 12/12 = 100 %: success; control 0/4 | 5 (4877508311917734823), 6 (1714940017838245013), 7 (-5442695363753872941) |
 | `ma-2000-a` (2026-11-14, before the walk's watch) | move_a | 0/12: every bot killed by night mobs | 1-3 |
+| `ma-2000-b` (2026-11-14, watch + shelter at 12800, before the ice and shooter fixes) | move_a | 7/12 = 58 %: failure. 4 deaths at night (creeper, zombie, skeleton, pillager), 1 stuck arriving on an ice field (fixed: motion.js settle), 2000 blocks walked in 12-13 min by the others | 1 (-1128338543546415426) 2/4, 2 (1296430200317631099) 4/4, 3 (5550394729391805158) 1/4 |
