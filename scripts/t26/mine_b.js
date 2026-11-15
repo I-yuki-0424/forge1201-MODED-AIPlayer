@@ -19,7 +19,10 @@ const LIMIT_MIN = Number(process.env.LIMIT_MIN || 240), DEPTH = Number(process.e
     const x0 = cx * 16, z0 = cz * 16, x1 = x0 + W - 1, z1 = z0 + W - 1;
     await S.must(`forceload add ${x0} ${z0} ${x1} ${z1}`);
     // the top of the terrain in the box (the bot's view), the bot then stands beside the box on the surface
-    const colTop = (x, z) => { for (let y = 319; y >= -64; y--) { const b = bot.blockAt(new Vec3(x, y, z)); if (b && b.name !== 'air' && b.name !== 'cave_air') return y; } return null; };
+    // "Top of terrain" (owner): tree blocks are not terrain. A canopy 10 blocks over the ground (seed -8223826995433110289: 150 leaves at y 88-96 over ground at 85) would otherwise set the box top, and the pit
+    // leaves such trees alone by design (pit.js aerialTree: out of reach for a bot on the ground). Tree blocks BELOW the terrain top, rooted in the box, are in the box and are graded like anything else.
+    const TREE = /(_leaves|_log|_wood|_vines?|^vine|^bamboo|^mangrove_roots)$/;
+    const colTop = (x, z) => { let seen = false; for (let y = 319; y >= -64; y--) { const b = bot.blockAt(new Vec3(x, y, z)); if (!b) continue; seen = true; if (b.name !== 'air' && b.name !== 'cave_air' && !TREE.test(b.name)) return y; } return seen ? -64 : null; };
     // the box's chunk must be in the bot's view before it is measured (a loaded server delayed it past a fixed wait: "y must be between -64 and 319")
     let top = -64;
     for (let tries = 0; tries < 40; tries++) {
