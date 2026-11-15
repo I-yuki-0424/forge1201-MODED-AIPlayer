@@ -43,3 +43,10 @@ The first live run of the expert found a real bug the fake world could not: a wa
 - A chunk whose lanes are narrower than 16 or clipped at the box edge is modelled with rock beyond its edge; the network never saw such shapes in training (the simulator's chunks are always 16 x 16).
 - The leftover pass of the final sweep (`pit_sweep.js`) still reopens whole bands; a leftover single block costs a band's worth of stations again (the expert then digs only the cells that are left, from the few stations that reach them).
 - Not verified on the production End pit (a running job keeps its own method; a new pit gets `expert` when the setting `pitExpert` is on).
+
+## Sweep against expert on equal boxes in natural terrain (T26, 2026-11-16)
+
+Same seeds, the same box (the chunk of the world spawn, top of terrain, 16 layers), Peaceful, one bot, the code of `7ef28b89`, graded by the server (run `cmp4-*`, TEST-WORLDS-T26.md): seed 8573729881198107154 sweep PASS 1365 s, expert PASS 706 s (0.52 x); seed 4461664185924705895
+(7 water cells in the box) sweep PASS 1335 s, expert FAIL 867 s (5 blocks of the lake fill left at the box edge, three units parked "could not stand at the station"); seed -8223826995433110289 both stuck on the first unit (the bot cannot walk to the box). The expert is about twice as fast where it
+works; its failures are edge cells and irregular ground. The live arena result above (28 % less time, flat stone block with water planted) is the optimistic end of the same difference. Water: [PIT-LAKE-v1](PIT-LAKE-v1.md).
+
