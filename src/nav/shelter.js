@@ -8,8 +8,14 @@ const fixtures = require('../skills/fixtures');
 const NIGHT_FROM = 11800, NIGHT_TO = 23400;          // mobs spawn in the open from about 13000 (sunset 12000): the hole is dug before (T26 2026-11-14: bots that began at 12800 were attacked while digging); zombies and skeletons burn soon after 23400
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** Is it night where the bot is (Overworld clock)? null when the server sent no time. */
+// The server difficulty, polled by the work service over RCON (mineflayer does not track it on 26.1: bot.game.difficulty is undefined). On Peaceful no hostile mob spawns, so there is nothing to
+// dig in from: the night rule would only make every instruction wait for the morning (live T26 2026-11-16: `place` "hanging" 8-10 minutes with the bot standing still = one night; nothing was wrong).
+let difficulty = null;
+const setDifficulty = (d) => { difficulty = d ? String(d).toLowerCase() : null; };
+
+/** Is it night where the bot is (Overworld clock)? null when the server sent no time. False on Peaceful (no night rule: no mob to hide from). */
 function isNight(bot) {
+    if (difficulty === 'peaceful') return false;
     const t = bot && bot.time && bot.time.timeOfDay;
     if (!Number.isFinite(t)) return null;
     return t >= NIGHT_FROM && t < NIGHT_TO;
@@ -70,4 +76,4 @@ async function shelter(env, dig, { maxWaitMs = 12 * 60000, cancel = null } = {})
     return { ok: true, waited: Math.round((Date.now() - t0) / 1000), covered };
 }
 
-module.exports = { shelter, isNight, canDigIn, NIGHT_FROM, NIGHT_TO };
+module.exports = { shelter, isNight, canDigIn, setDifficulty, NIGHT_FROM, NIGHT_TO };

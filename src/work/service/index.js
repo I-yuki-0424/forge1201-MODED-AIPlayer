@@ -85,6 +85,7 @@ class WorkService extends EventEmitter {
         this._lag.unref?.();
         this._lagMax = 0;
         this._health = setInterval(() => this._heartbeat(), this.o.healthMs || 60000); this._health.unref?.();
+        this._diff = setInterval(() => this._pollDifficulty(), 120000); this._diff.unref?.(); const dt = setTimeout(() => this._pollDifficulty(), 3000); dt.unref?.();
         this._sampler = setInterval(() => this._sampleBots(), 2000); this._sampler.unref?.();
     }
 
@@ -186,7 +187,7 @@ class WorkService extends EventEmitter {
         if (this.display) { this.display.stop(); try { await Promise.race([this.display.clear(), new Promise((r) => setTimeout(r, 3000))]); } catch (_) { /* swept at the next start */ } }
         for (const rec of this.bots.values()) { rec.removed = true; clearTimeout(rec.timer); this._stopWorker(rec); try { rec.bot && rec.bot.quit && rec.bot.quit(); } catch (_) { /* gone */ } }
         if (this._rcon) { try { this._rcon.close(); } catch (_) { /* gone */ } }
-        clearInterval(this._watch); clearInterval(this._lag); clearInterval(this._sampler); clearInterval(this._mapSave); this.maps.close(); if (this.display) this.display.stop();
+        clearInterval(this._watch); clearInterval(this._lag); clearInterval(this._sampler); clearInterval(this._mapSave); clearInterval(this._diff); this.maps.close(); if (this.display) this.display.stop();
     }
 }
 

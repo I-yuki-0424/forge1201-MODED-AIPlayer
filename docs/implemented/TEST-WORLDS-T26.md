@@ -36,19 +36,40 @@ Bot names say what they do: `MvE1` (move A, east, world 1), `Cave2` (move B, wor
 ```
 
 `FIRST=k` puts a suite on worlds k.. (two suites side by side); `KEEP=1` reuses running worlds (debugging only); `CONTROL=noop` sends no command (the negative control: every trial must fail).
+`SEEDS="s1 s2 s3"` gives world k the k-th seed instead of a random one: **an equal-box comparison of two settings** (run the suite twice with the same SEEDS, e.g. `METHOD=sweep` and `METHOD=expert`, or `PIT_LAKE=0|1`).
+`scripts/t26/rcon.sh N -- ...` passes negative coordinates (the `--` is built in since 2026-11-16: `rcon-cli` took `-15` for a flag).
 `NAV_TRACE=1` prints every plan segment and step of the walker. Containers: `forgeaip-t26-N` (server, 4 GB cap), `forgeaip-t26-dev-N` (watcher), `live-t26-N-<pid>` (a test run).
+
+## The owner's three standing Fabric servers (2026-11-16)
+
+Before the Forge MODs the system is verified on vanilla: three standing Fabric 26.1.2 servers, seed 1359280 (compose project `fabric26-worlds`, `/mnt/data/fabric26-worlds`, same server-side mod set as the T26 worlds), each with its own work console
+(the repo is mounted read-only at `/app`: **a console restart deploys the committed code**; `docker compose -f /mnt/data/fabric26-worlds/compose.yaml restart console-creative console-survival-hard console-survival-op`).
+
+| Mode | Game | Console | Server |
+| :-- | :-- | :-- | :-- |
+| creative | `100.77.246.23:25601`, Normal | `100.77.246.23:3031` | `fabric26-creative` |
+| survival, hard, no cheats ("pure survival") | `100.77.246.23:25602`, Hard | `100.77.246.23:3032` | `fabric26-survival-hard` |
+| survival for development (OP `Seia_Y`) | `100.77.246.23:25603`, Normal | `100.77.246.23:3033` | `fabric26-survival-op` |
+
+`scripts/t26/f26.sh creative|survival-hard|survival-op script.js [NAME=value ...]` runs a harness script of this directory against one of them (the T26 tests are DESTRUCTIVE at the spawn: only when the owner is not building there).
+All three are tailnet-only (the ports are bound to `100.77.246.23`; the consoles have no token, the network decides). Smoke 2026-11-16 (`smoke.js` on each): the bot logs in on 26.1, game mode and RCON kit work on all three
+(the spawn of seed 1359280 is a snow/packed-ice area; the smoke's own mine/move targets were naive and not a finding).
 
 ## The tests and their grading
 
-Kit for every test: full tool set (diamond pickaxe, axe, shovel, sword, hoe, shears), 64 cobblestone (temporary blocks), 32 steak; Normal difficulty, keep_inventory false. A death fails the trial;
+Kit for every test: full tool set (diamond pickaxe, axe, shovel, sword, hoe, shears), 64 cobblestone (temporary blocks), 32 steak; keep_inventory false. A death fails the trial;
 a server move (teleport) fails it. The scale (owner): 80 % or below = complete failure, 90 % = WIP, 100 % = success.
+
+**Difficulty (owner 2026-11-16):** the movement tests (`move_a`, `move_b`) run on **Normal**, every other test (`mine_a`, `mine_b`, `place_a`, `place_b`) on **Peaceful**. A hostile mob was a failure cause that cannot be told
+apart from a fault of the system (mine_a: 18 deaths in one run, place_b: night deaths and timeouts); on Peaceful a failed trial is the system's. `lib.js open(names, settings, difficulty)` sets it, `DIFFICULTY=easy|normal|hard|peaceful` overrides for one
+run, the report carries `difficulty`. Results of runs before this rule were all measured on Normal.
 
 | Test | Setup | Pass (per trial, read from the server) | Required |
 | :-- | :-- | :-- | :-- |
 | `move_a` | 4 bots at the spawn, targets 2000 blocks E, W, S, N (`journey`) | within 4 blocks across of the target, alive | 100 % |
 | `move_b` | 1 bot at the lowest standing cell of the nearest cave (200+ cells of air under a roof), command `surface` | `can_see_sky` at its feet, alive; the start must not see the sky | 80 % |
 | `mine_a` | 4 bots at the corners of a 2000-block square, `obtain` wood, cobblestone, coal, raw iron, raw gold, 8 each | the server counts >= 8 of each in the pack | 90 % |
-| `mine_b` | 1 bot, best tools (netherite, efficiency 255, unbreakable), 128 temporary blocks; pit job on the spawn chunk, top of terrain to y -59 | every layer equals air in the sky (`execute if blocks ... masked`); the untouched chunk fails the same check | 100 % |
+| `mine_b` | 1 bot, best tools (netherite, efficiency 255, unbreakable), 128 temporary blocks; pit job on the chunk of the **world spawn** (`bot.spawnPoint`; before 2026-11-16 the bot's join position, which differed between two runs of one seed), top of **terrain** (tree blocks do not count; 2026-11-16) to y -59 | every layer equals air in the sky (`execute if blocks ... masked`); the untouched chunk fails the same check | 100 % |
 | `place_a` | 4 bots on a 3x3 platform 40 above the ground, `build_bridge` 30 blocks E, W, S, N | all 30 cells solid, the bot alive and not below the platform | 100 % |
 | `place_b` | 1 bot with the exact materials, build job of a 7x7 cottage (floor, plank walls with a doorway and windows, roof) on a cleared site | `execute if blocks <site> <reference copy in the sky> all` (every cell, air included); the empty site must fail | 100 % |
 

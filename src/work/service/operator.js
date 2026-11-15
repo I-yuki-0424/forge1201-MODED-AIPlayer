@@ -16,6 +16,12 @@ class OperatorPart {
         return p.finally(() => { this._rconPending--; });
     }
 
+    /** The server's difficulty ("The difficulty is Peaceful"), handed to the night rule (nav/shelter.js: no night rule on Peaceful). Nothing happens without RCON; a failed poll keeps the last value. */
+    async _pollDifficulty() {
+        if (!this.o.rcon) return;
+        try { const m = /difficulty is (\w+)/i.exec(String(await this.rcon('difficulty'))); if (m) require('../../nav/shelter').setDifficulty(m[1]); } catch (_) { /* RCON down */ }
+    }
+
     /** Players on the server with their position (RCON: `list`, `data get entity`). Bots are listed too, flagged. */
     async players() {
         const list = await this.rcon('list');
