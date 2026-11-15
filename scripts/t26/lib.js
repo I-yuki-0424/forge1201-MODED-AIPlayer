@@ -7,6 +7,7 @@ const L = require('../real/lib');
 
 const sleep = L.sleep;
 const strip = (s) => String(s).replace(/\x1b\[[0-9;]*m/g, '').replace(/§./g, '');
+let CURRENT_DIFFICULTY = null;
 const WORLD = Number(process.env.T26_WORLD || 0), RUN = process.env.RUN || `r${Date.now().toString(36)}`, CONTROL = process.env.CONTROL || '';
 
 /** Tools: plain diamond (the owner's "full set of tools"); BEST=1 netherite, efficiency 255, unbreakable (strip-mining: "give the best possible tools"). */
@@ -91,7 +92,7 @@ function reporter(test) {
         write(extra = {}) {
             const dir = `/out/${RUN}`; fs.mkdirSync(dir, { recursive: true });
             const k = trials.filter((t) => t.ok).length;
-            fs.writeFileSync(`${dir}/${test}-w${WORLD}${CONTROL ? '-' + CONTROL : ''}.json`, JSON.stringify({ ...meta, ...extra, sec: Math.round((Date.now() - t0) / 1000), passed: k, trials }, null, 1));
+            fs.writeFileSync(`${dir}/${test}-w${WORLD}${CONTROL ? '-' + CONTROL : ''}.json`, JSON.stringify({ ...meta, difficulty: CURRENT_DIFFICULTY, ...extra, sec: Math.round((Date.now() - t0) / 1000), passed: k, trials }, null, 1));
             console.log(`[${test} w${WORLD}] ${k}/${trials.length} trials passed${CONTROL ? ' (CONTROL ' + CONTROL + ')' : ''}`);
             return k;
         },
@@ -101,12 +102,19 @@ function reporter(test) {
 /** Say something in the game (the owner watching sees what the test does). */
 async function say(S, text) { try { await S.cmd(`tellraw @a ${JSON.stringify({ text: `[test] ${text}`, color: 'aqua' })}`); } catch (_) { /* chat is a courtesy */ } }
 
-async function open(names, settings = {}) {
+/**
+ * Difficulty (owner 2026-11-16): the movement tests (move_a, move_b) run on Normal, with the night's mobs; every other test runs PEACEFUL, so that a failure cannot be a hostile mob
+ * (which the system cannot tell apart from a system fault). `open(names, settings, 'normal')` is how a movement test says so; DIFFICULTY=normal|easy|hard|peaceful overrides for one run.
+ */
+async function open(names, settings = {}, difficulty = 'peaceful') {
     const { shared, S } = await L.connectRcon();
     const seed = strip(await S.cmd('seed'));
-    await S.cmd('gamerule keep_inventory false'); await S.cmd('difficulty normal');
+    const diff = process.env.DIFFICULTY || difficulty;
+    if (!['peaceful', 'easy', 'normal', 'hard'].includes(diff)) throw new Error(`bad difficulty ${diff}`);
+    await S.cmd('gamerule keep_inventory false'); await S.cmd(`difficulty ${diff}`);
+    CURRENT_DIFFICULTY = diff; console.log(`[t26] difficulty ${diff}`);
     const svc = await L.openService(shared, names, { teleport: 'off', ...settings });
-    return { shared, S, svc, seed };
+    return { shared, S, svc, seed, difficulty: diff };
 }
 
 module.exports = { ...L, sleep, strip, WORLD, RUN, CONTROL, kit, holds, seesSky, onSurface, countDeaths, countMoves, command, reporter, say, open, toolItems };

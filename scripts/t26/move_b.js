@@ -49,7 +49,7 @@ function findCave(bot, c, R = 56) {
 
 (async () => {
     const rep = T.reporter('move_b');
-    const { S, svc, seed } = await T.open([name]);
+    const { S, svc, seed } = await T.open([name], {}, 'normal');
     const deaths = T.countDeaths(svc, [name], S), moves = T.countMoves(svc), bot = svc.bots.get(name).bot;
     const p0 = await T.posOf(S, name), sp = { x: Math.floor(p0.x), z: Math.floor(p0.z) };
     await S.must(`gamemode spectator ${name}`); await S.must(`tp ${name} ${sp.x} 100 ${sp.z}`);

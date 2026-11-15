@@ -22,6 +22,13 @@ const LIMIT_MIN = Number(process.env.LIMIT_MIN || 240), DEPTH = Number(process.e
     const refY = Math.max(top + 20, 200);
     const layerClean = async (y) => /^Test passed/.test(T.strip(await S.cmd(`execute if blocks ${x0} ${y} ${z0} ${x1} ${y} ${z1} ${x0} ${refY} ${z0} masked`)));
     const dirty = async () => { const out = []; for (let y = bottom; y <= top; y++) if (!(await layerClean(y))) out.push(y); return out; };
+    // fluid in the box and in the one-cell ring around it (the water the pit has to deal with), read from the bot's view of the chunks
+    const fluidAt = (x, y, z) => { let b = null; try { b = bot.blockAt(new Vec3(x, y, z)); } catch (_) { /* unloaded */ } return b ? (/water|lava|bubble_column|kelp|seagrass/.test(b.name) || (b.getProperties && b.getProperties().waterlogged === true) ? b.name : null) : null; };
+    const fluid = { box: 0, ring: 0, kinds: {} };
+    for (let y = bottom; y <= top; y++) for (let x = x0 - 1; x <= x1 + 1; x++) for (let z = z0 - 1; z <= z1 + 1; z++) {
+        const f = fluidAt(x, y, z); if (!f) continue;
+        const inside = x >= x0 && x <= x1 && z >= z0 && z <= z1; fluid[inside ? 'box' : 'ring']++; fluid.kinds[f] = (fluid.kinds[f] || 0) + 1;
+    }
     const before = await dirty();
     const controlOk = before.length > 0;                           // the untouched chunk must fail
     await T.onSurface(S, name, x1 + 3, z0 + 8);
@@ -42,9 +49,10 @@ const LIMIT_MIN = Number(process.env.LIMIT_MIN || 240), DEPTH = Number(process.e
     }
     await T.sleep(3000);
     const left = await dirty();
+    let jobEnd = null; try { const j = [...svc.jobs.values()][0]; if (j) { const v = svc.jobDetail(j.id); jobEnd = { progress: v.progress, stuck: v.stuck, report: JSON.stringify(v.report || {}).slice(0, 1200) }; } } catch (_) { /* informational */ }
     const tempsLeft = svc.temps.list((r) => r.x >= x0 - 2 && r.x <= x1 + 2 && r.z >= z0 - 2 && r.z <= z1 + 2).map((r) => [r.x, r.y, r.z, r.kind]);
     if (deaths.read) await deaths.read();
-    rep.trial(name, controlOk && left.length === 0 && !moves[name], { box, controlDirtyLayers: before.length, state, min: Math.round((Date.now() - t0) / 60000), dirtyLayers: left.length, firstDirty: left.slice(0, 12), registeredTempsLeft: tempsLeft.length, temps: tempsLeft.slice(0, 20), deaths: deaths[name], serverMoves: moves[name] || 0 });
+    rep.trial(name, controlOk && left.length === 0 && !moves[name], { method: process.env.METHOD || 'default', fluid, sec: Math.round((Date.now() - t0) / 1000), jobEnd, box, controlDirtyLayers: before.length, state, min: Math.round((Date.now() - t0) / 60000), dirtyLayers: left.length, firstDirty: left.slice(0, 12), registeredTempsLeft: tempsLeft.length, temps: tempsLeft.slice(0, 20), deaths: deaths[name], serverMoves: moves[name] || 0 });
     await S.cmd(`forceload remove ${x0} ${z0} ${x1} ${z1}`);
     const k = rep.write({ seed });
     await svc.stop(); process.exit(k ? 0 : 1);

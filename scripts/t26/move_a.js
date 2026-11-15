@@ -8,7 +8,7 @@ const DIRS = [['E', 1, 0], ['W', -1, 0], ['S', 0, 1], ['N', 0, -1]], names = DIR
 
 (async () => {
     const rep = T.reporter('move_a');
-    const { S, svc, seed } = await T.open(names);
+    const { S, svc, seed } = await T.open(names, {}, 'normal');
     const deaths = T.countDeaths(svc, names, S), moves = T.countMoves(svc);
     const p0 = await T.posOf(S, names[0]), sp = { x: Math.floor(p0.x), z: Math.floor(p0.z) };
     for (const n of names) { await T.onSurface(S, n, sp.x, sp.z); await T.kit(S, n); }
