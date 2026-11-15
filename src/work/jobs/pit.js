@@ -255,8 +255,21 @@ async function runUnit(plan, region, u, env) {
     // One cell. Returns null when it is open afterwards, or the failure. A cell whose water rule needs a block the bot does not have yet
     // (a bot with an empty inventory next to a shore) is not a failure of the unit: it is left for after the row, when digging has
     // brought dirt or cobblestone.
+    // A body of water met by the dig is filled as a whole before the cell is dug (pit_lake.js: the coffer-dam; the per-cell rule below cannot reach into a lake). Once per fluid cell and unit;
+    // when it cannot finish (no standing place, no blocks) the per-cell rule goes on as before. PIT_LAKE=0 turns it off (A/B runs).
+    const lakeSeen = new Set();
+    const lakeFill = async (c) => {
+        if (process.env.PIT_LAKE === '0' || !env.here || !env.exec) return;
+        const sp = sealPlan(env.w, [c]), seeds = [...sp.fill, ...sp.unsupported].filter((f) => !lakeSeen.has(`${f.x},${f.y},${f.z}`));
+        if (!seeds.length) return;
+        for (const f of seeds) lakeSeen.add(`${f.x},${f.y},${f.z}`);
+        const t0 = Date.now(), res = await require('./pit_lake').fillLake({ env, plan, isFluid, sealItem, items: SEAL_ITEMS, goToStation: (S) => goToStation(S, handle, env, open, r) }, seeds);
+        const L = r.lake || (r.lake = { calls: 0, filled: 0, stations: 0, ms: 0, left: 0 });
+        L.calls++; L.filled += res.filled; L.stations += res.stations; L.ms += Date.now() - t0; L.left = res.left; if (!res.ok) L.reason = res.reason;
+    };
     const handle = async (c, last) => {
         if (isSolid(env.w, c.x, c.y, c.z) && aerialTree(env.w, c)) { r.skipped++; r.aerial = (r.aerial || 0) + 1; return null; }       // out of reach by design, see aerialTree
+        await lakeFill(c);
         let s = await seal(c, true);
         if (!s.ok) return s.reason === 'missing_item' && !last ? 'defer' : fail(s, c, 'seal');
         if (open(c)) { r.skipped++; return null; }

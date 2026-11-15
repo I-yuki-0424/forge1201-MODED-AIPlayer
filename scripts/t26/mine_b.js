@@ -3,6 +3,8 @@
 // unbreakable), 2 stacks of temporary blocks, food; Normal, no keepInventory. The job counts as done ONLY if not a single block (fluids included) is left in the box: the SERVER compares
 // every layer with air in the sky (`execute if blocks ... masked`; the untouched chunk must fail the same check: the control). Required: 100 %.
 //   scripts/t26/run.sh N mine_b.js [LIMIT_MIN=240] [DEPTH=layers from the top, a rehearsal] [W=16] [METHOD=sweep|expert|rows] [CONTROL=noop]
+//   [POND=WxD] plants a pond (W x W cells across, D deep, flush with the ground, source blocks) in the middle of the box before the run: a SMOKE test of the water rule, never evidence
+//   (built with commands); [PIT_LAKE=0] turns the lake fill off (A/B). The natural coast/aquifer chunks are the evidence.
 const T = require('./lib');
 const Vec3 = require('vec3');
 const LIMIT_MIN = Number(process.env.LIMIT_MIN || 240), DEPTH = Number(process.env.DEPTH || 0), W = Number(process.env.W || 16), name = `Pit${T.WORLD}`;
@@ -15,10 +17,23 @@ const LIMIT_MIN = Number(process.env.LIMIT_MIN || 240), DEPTH = Number(process.e
     const x0 = cx * 16, z0 = cz * 16, x1 = x0 + W - 1, z1 = z0 + W - 1;
     await S.must(`forceload add ${x0} ${z0} ${x1} ${z1}`);
     // the top of the terrain in the box (the bot's view), the bot then stands beside the box on the surface
-    await T.sleep(3000);
     const colTop = (x, z) => { for (let y = 319; y >= -64; y--) { const b = bot.blockAt(new Vec3(x, y, z)); if (b && b.name !== 'air' && b.name !== 'cave_air') return y; } return null; };
-    let top = -64; for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) top = Math.max(top, colTop(x, z) ?? -64);
+    // the box's chunk must be in the bot's view before it is measured (a loaded server delayed it past a fixed wait: "y must be between -64 and 319")
+    let top = -64;
+    for (let tries = 0; tries < 40; tries++) {
+        await T.sleep(1500); top = -64; let missing = 0;
+        for (let x = x0; x <= x1; x += 3) for (let z = z0; z <= z1; z += 3) { const t = colTop(x, z); if (t === null) missing++; else top = Math.max(top, t); }
+        if (!missing) break;
+    }
+    for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) top = Math.max(top, colTop(x, z) ?? -64);
+    if (top <= -64) throw new Error('mine_b: the box chunk never loaded');
     const bottom = DEPTH ? top - DEPTH + 1 : -59, box = { x0, z0, x1, z1, top, bottom };
+    let pond = null;
+    if (process.env.POND) {
+        const [pw, pd] = process.env.POND.split('x').map(Number), px = x0 + Math.floor((W - pw) / 2), pz = z0 + Math.floor((W - pw) / 2), g = colTop(px + (pw >> 1), pz + (pw >> 1));
+        await S.must(`fill ${px} ${g - pd + 1} ${pz} ${px + pw - 1} ${g} ${pz + pw - 1} minecraft:water`);
+        pond = { px, pz, pw, pd, surface: g }; await T.sleep(2500);
+    }
     const refY = Math.max(top + 20, 200);
     const layerClean = async (y) => /^Test passed/.test(T.strip(await S.cmd(`execute if blocks ${x0} ${y} ${z0} ${x1} ${y} ${z1} ${x0} ${refY} ${z0} masked`)));
     const dirty = async () => { const out = []; for (let y = bottom; y <= top; y++) if (!(await layerClean(y))) out.push(y); return out; };
@@ -52,7 +67,7 @@ const LIMIT_MIN = Number(process.env.LIMIT_MIN || 240), DEPTH = Number(process.e
     let jobEnd = null; try { const j = [...svc.jobs.values()][0]; if (j) { const v = svc.jobDetail(j.id); jobEnd = { progress: v.progress, stuck: v.stuck, report: JSON.stringify(v.report || {}).slice(0, 1200) }; } } catch (_) { /* informational */ }
     const tempsLeft = svc.temps.list((r) => r.x >= x0 - 2 && r.x <= x1 + 2 && r.z >= z0 - 2 && r.z <= z1 + 2).map((r) => [r.x, r.y, r.z, r.kind]);
     if (deaths.read) await deaths.read();
-    rep.trial(name, controlOk && left.length === 0 && !moves[name], { method: process.env.METHOD || 'default', fluid, sec: Math.round((Date.now() - t0) / 1000), jobEnd, box, controlDirtyLayers: before.length, state, min: Math.round((Date.now() - t0) / 60000), dirtyLayers: left.length, firstDirty: left.slice(0, 12), registeredTempsLeft: tempsLeft.length, temps: tempsLeft.slice(0, 20), deaths: deaths[name], serverMoves: moves[name] || 0 });
+    rep.trial(name, controlOk && left.length === 0 && !moves[name], { pond, lakeFill: process.env.PIT_LAKE !== '0', method: process.env.METHOD || 'default', fluid, sec: Math.round((Date.now() - t0) / 1000), jobEnd, box, controlDirtyLayers: before.length, state, min: Math.round((Date.now() - t0) / 60000), dirtyLayers: left.length, firstDirty: left.slice(0, 12), registeredTempsLeft: tempsLeft.length, temps: tempsLeft.slice(0, 20), deaths: deaths[name], serverMoves: moves[name] || 0 });
     await S.cmd(`forceload remove ${x0} ${z0} ${x1} ${z1}`);
     const k = rep.write({ seed });
     await svc.stop(); process.exit(k ? 0 : 1);
