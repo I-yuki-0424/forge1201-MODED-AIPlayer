@@ -84,5 +84,16 @@ const station = (w, env, pos) => async (S) => { if (!(w.kindAt(S.x, S.y, S.z) ==
         const res = await fillLake({ env, plan: { box: { ...box, top: 70 } }, isFluid: pit.isFluid, sealItem: pit.sealItem, items: pit.SEAL_ITEMS, goToStation: station(w, env, pos) }, [{ x: 7, y: 60, z: 7 }]);
         assert.strictEqual(res.ok, false); assert(['unreachable', 'unsupported', 'too_deep'].includes(res.reason), res.reason);
     });
+    await test('the end of the job takes away the lake-fill blocks that are still there (the ones a parked unit left)', async () => {
+        const w = lakeWorld(60, lake), { env, pos } = fakeEnv(w, { x: 3, y: 61, z: 7 }, { n: 1000 });
+        const plan = { box };
+        await fillLake({ env, plan, isFluid: pit.isFluid, sealItem: pit.sealItem, items: pit.SEAL_ITEMS, goToStation: station(w, env, pos) }, [{ x: 5, y: 60, z: 7 }]).then((r) => { plan.lakeFilled = new Set(r.placed.map((q) => `${q.x},${q.y},${q.z}`)); });
+        assert.strictEqual(plan.lakeFilled.size, 72);
+        const mined = []; const exec0 = env.exec;
+        env.exec = async (name, a) => { if (name === 'mine') { mined.push(a); w.set(a.x, a.y, a.z, 'air'); return { ok: true }; } return exec0(name, a); };
+        await pit.cleanLakeBlocks(plan, env);
+        assert.strictEqual(mined.length, 72); assert.strictEqual(plan.lakeFilled.size, 0); assert.strictEqual(w.kindAt(7, 60, 7), 'air');
+        await pit.cleanLakeBlocks({ box }, env);                      // nothing owned: nothing happens
+    });
     console.log('all lake tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

@@ -266,6 +266,7 @@ async function runUnit(plan, region, u, env) {
         const t0 = Date.now(), res = await require('./pit_lake').fillLake({ env, plan, isFluid, sealItem, items: SEAL_ITEMS, goToStation: (S) => goToStation(S, handle, env, open, r) }, seeds);
         const L = r.lake || (r.lake = { calls: 0, filled: 0, stations: 0, ms: 0, left: 0 });
         L.calls++; L.filled += res.filled; L.stations += res.stations; L.ms += Date.now() - t0; L.left = res.left; if (!res.ok) L.reason = res.reason;
+        const owned = plan.lakeFilled || (plan.lakeFilled = new Set()); for (const q of res.placed || []) owned.add(`${q.x},${q.y},${q.z}`);          // the job's end takes away what is still ours (cleanup)
     };
     const handle = async (c, last) => {
         if (isSolid(env.w, c.x, c.y, c.z) && aerialTree(env.w, c)) { r.skipped++; r.aerial = (r.aerial || 0) + 1; return null; }       // out of reach by design, see aerialTree
@@ -521,6 +522,23 @@ async function sweepDrops(env, S) {
     return { picked: n, seen, ...(fail ? { fail } : {}) };
 }
 
+/** The lake-fill blocks (pit_lake.js) that are still there when the job is over: mined one by one, nearest first, at most 300 cells and five minutes. A unit that owned them may have been parked; the audit tolerates that, the end of the job does not leave the block. */
+async function cleanLakeBlocks(plan, env) {
+    const owned = plan.lakeFilled; if (!owned || !owned.size || !env.exec || !env.here) return;
+    const t0 = Date.now(); let n = 0;
+    try {
+        for (;;) {
+            const h = env.here(), left = [];
+            for (const k of [...owned]) { const [x, y, z] = k.split(',').map(Number), kd = env.w.kindAt(x, y, z); if (kd === 'solid' || kd === 'partial') left.push({ x, y, z }); else if (kd !== 'unknown') owned.delete(k); }
+            if (!left.length || n >= 300 || Date.now() - t0 > 300000 || (env.cancel && env.cancel.cancelled)) return;
+            left.sort((a, b) => Math.hypot(a.x - h.x, a.y - h.y, a.z - h.z) - Math.hypot(b.x - h.x, b.y - h.y, b.z - h.z));
+            const c = left[0]; n++;
+            const m = await env.exec('mine', { x: c.x, y: c.y, z: c.z, collect: false });
+            if (!m.ok) owned.delete(`${c.x},${c.y},${c.z}`);                      // not reachable: the audit reports it, it is not retried here
+        }
+    } catch (_) { /* the end of a job must not fail for a leftover block */ }
+}
+
 /**
  * Cells of a finished unit that are not open: leftover blocks, blocks placed by mistake (a water-control block at a height that was
  * dug already), water that ran in. Unloaded cells are not judged, but counted (`unknown`: the sweep walks to the chunk and looks again). Pure; `w` is only read.
@@ -597,7 +615,7 @@ function createPitJob(box, ledgerOpts = {}, { lanes = 0, method = 'rows', tile =
     // sweep: the check at the end (pit_sweep.js): every chunk is walked to, read from the top layer down, and what still holds a block goes back to work.
     const sweep = makeSweeper({ plan, ledger, state: auditState, cellState });
     auditState.layer = new Map();
-    return { kind: 'pit', ledger, plan, checkLayer: (env, ck, now) => checkLayer(plan, ledger, byId, auditState, env, ck, now), cleanup: (env) => (ledger.finished() ? require('../bot/temps').cleanTemps(env, { box: plan.box, max: 60, maxMs: 120000 }) : null), runUnit: (regionId, unit, env) => runUnit(plan, byId.get(regionId), unit, env), audit: (env, now, opts) => audit(plan, ledger, env.w, now, auditState, opts), sweep, rescue: (env, why) => require('../bot/water').rescue(env, plan.box, { why }) };
+    return { kind: 'pit', ledger, plan, checkLayer: (env, ck, now) => checkLayer(plan, ledger, byId, auditState, env, ck, now), cleanup: async (env) => { if (!ledger.finished()) return null; const t = await require('../bot/temps').cleanTemps(env, { box: plan.box, max: 60, maxMs: 120000 }); await cleanLakeBlocks(plan, env); return t; }, runUnit: (regionId, unit, env) => runUnit(plan, byId.get(regionId), unit, env), audit: (env, now, opts) => audit(plan, ledger, env.w, now, auditState, opts), sweep, rescue: (env, why) => require('../bot/water').rescue(env, plan.box, { why }) };
 }
 
-module.exports = { sealItem, MAX_UNITS, goToStation, checkLayer, LAYER_ROUNDS, standsOnFloater, aerialTree, planPit, laneBoxes, planRoad, stationsOf, lineCells, unitCells, sealPlan, orderFill, isFluid, exposed, runUnit, wrongCells, cellState, audit, createPitJob, SEAL_ITEMS, CHUNK, TILE, SWEEP_R };
+module.exports = { cleanLakeBlocks, sealItem, MAX_UNITS, goToStation, checkLayer, LAYER_ROUNDS, standsOnFloater, aerialTree, planPit, laneBoxes, planRoad, stationsOf, lineCells, unitCells, sealPlan, orderFill, isFluid, exposed, runUnit, wrongCells, cellState, audit, createPitJob, SEAL_ITEMS, CHUNK, TILE, SWEEP_R };

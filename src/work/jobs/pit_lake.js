@@ -95,7 +95,7 @@ function chooseStation(w, fillable, here, skip) {
 async function fillLake(c, seeds) {
     const { env, plan, isFluid, sealItem } = c, w = env.w, box = plan.box;
     const body = component(w, box, seeds, isFluid, c.max || MAX_CELLS);
-    const stats = { ok: false, cells: body.cells.length, filled: 0, stations: 0, harvested: 0, truncated: body.truncated, left: body.cells.length };
+    const stats = { ok: false, cells: body.cells.length, filled: 0, stations: 0, harvested: 0, truncated: body.truncated, left: body.cells.length, placed: [] };
     if (!body.cells.length) return { ...stats, ok: true, left: 0 };
     const bannedStation = new Set(), cellFails = new Map();
     let rowFails = 0, cells = body.cells;
@@ -137,7 +137,7 @@ async function fillLake(c, seeds) {
             if (!item && env.run && env.within) { const hv = await env.run('harvest', { items: c.items }); if (hv.ok && hv.detail && hv.detail.got) { stats.harvested++; item = sealItem(env); } }
             if (!item) return done({ reason: 'missing_item', detail: { why: 'no blocks left to fill the lake with', filled: stats.filled } });
             const p = await env.exec('place', { x: f.x, y: f.y, z: f.z, item, fluid: true }, { raw: true, maxTicks: 160 });
-            if (p.ok) { stats.filled++; placed++; rowFails = 0; continue; }
+            if (p.ok) { stats.filled++; placed++; rowFails = 0; stats.placed.push({ x: f.x, y: f.y, z: f.z }); continue; }
             if (p.reason === 'died' || p.reason === 'disconnected' || p.reason === 'cancelled') return done({ reason: p.reason, detail: p.detail });
             const k = key(f.x, f.y, f.z); cellFails.set(k, (cellFails.get(k) || 0) + 1);
         }
