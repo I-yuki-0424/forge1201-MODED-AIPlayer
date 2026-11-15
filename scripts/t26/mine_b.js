@@ -13,7 +13,9 @@ const LIMIT_MIN = Number(process.env.LIMIT_MIN || 240), DEPTH = Number(process.e
     const rep = T.reporter('mine_b');
     const { S, svc, seed } = await T.open([name]);
     const deaths = T.countDeaths(svc, [name], S), moves = T.countMoves(svc), bot = svc.bots.get(name).bot;
-    const p0 = await T.posOf(S, name), cx = Math.floor(Math.floor(p0.x) / 16), cz = Math.floor(Math.floor(p0.z) / 16);
+    // THE WORLD SPAWN's chunk (the owner's definition), the same for every run of a seed: a bot joins at a random spot around the spawn, and boxes taken from its position differed between two
+    // runs of one seed (found 2026-11-16: cmp-sweep-a/cmp-expert-a compared different chunks). bot.spawnPoint is the spawn_position packet; the bot's own position only if it is missing.
+    const sp = bot.spawnPoint, p0 = sp ? { x: sp.x, y: sp.y, z: sp.z } : await T.posOf(S, name), cx = Math.floor(Math.floor(p0.x) / 16), cz = Math.floor(Math.floor(p0.z) / 16);
     const x0 = cx * 16, z0 = cz * 16, x1 = x0 + W - 1, z1 = z0 + W - 1;
     await S.must(`forceload add ${x0} ${z0} ${x1} ${z1}`);
     // the top of the terrain in the box (the bot's view), the bot then stands beside the box on the surface
@@ -69,7 +71,7 @@ const LIMIT_MIN = Number(process.env.LIMIT_MIN || 240), DEPTH = Number(process.e
     let jobEnd = null; try { const j = [...svc.jobs.values()][0]; if (j) { const v = svc.jobDetail(j.id); jobEnd = { progress: v.progress, stuck: v.stuck, report: JSON.stringify(v.report || {}).slice(0, 1200) }; } } catch (_) { /* informational */ }
     const tempsLeft = svc.temps.list((r) => r.x >= x0 - 2 && r.x <= x1 + 2 && r.z >= z0 - 2 && r.z <= z1 + 2).map((r) => [r.x, r.y, r.z, r.kind]);
     if (deaths.read) await deaths.read();
-    rep.trial(name, controlOk && left.length === 0 && !moves[name], { pond, lakeFill: process.env.PIT_LAKE !== '0', method: process.env.METHOD || 'default', fluid, sec: Math.round((Date.now() - t0) / 1000), jobEnd, box, controlDirtyLayers: before.length, state, min: Math.round((Date.now() - t0) / 60000), dirtyLayers: left.length, firstDirty: left.slice(0, 12), registeredTempsLeft: tempsLeft.length, temps: tempsLeft.slice(0, 20), deaths: deaths[name], serverMoves: moves[name] || 0 });
+    rep.trial(name, controlOk && left.length === 0 && !moves[name], { spawn: p0, pond, lakeFill: process.env.PIT_LAKE !== '0', method: process.env.METHOD || 'default', fluid, sec: Math.round((Date.now() - t0) / 1000), jobEnd, box, controlDirtyLayers: before.length, state, min: Math.round((Date.now() - t0) / 60000), dirtyLayers: left.length, firstDirty: left.slice(0, 12), registeredTempsLeft: tempsLeft.length, temps: tempsLeft.slice(0, 20), deaths: deaths[name], serverMoves: moves[name] || 0 });
     await S.cmd(`forceload remove ${x0} ${z0} ${x1} ${z1}`);
     const k = rep.write({ seed });
     await svc.stop(); process.exit(k ? 0 : 1);
