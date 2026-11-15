@@ -259,6 +259,8 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         // in the destination chunk); the old legs and then the movement expert are the fallback when it fails. Setting `router` (default on) turns it off.
         // NAV (src/nav, docs/implemented/NAV-v1.md, setting `navigator`, default 'nav'): ONE planner for every walk; the old chain below (voidnav, learned walk, chunk router, legs, movement expert) only with navigator = 'legacy'.
         nav: (t, o = {}) => { const e = Object.create(envObj); e.cancel = unitCancel; e.spots = () => (others ? others() : []); return require('../../nav/go').go(e, t, o); },
+        // The same walker for a bot that is drowning or being rescued: its cancel is the operator's only (unitCancel also fires on `drowning()`, which is exactly when the water rescue runs).
+        navFree: (t, o = {}) => { const e = Object.create(envObj); e.cancel = cancel; e.spots = () => (others ? others() : []); return require('../../nav/go').go(e, t, o); },
         navOn: () => !navigator || navigator() !== 'legacy',
         // nav's night shelter outside a walk (a job between units, the router before an instruction): only at night and only under the open sky; null otherwise
         nightGuard: async () => {

@@ -83,7 +83,12 @@ async function rescue(env, box, { why = null, maxFill = 48 } = {}) {
         if (inWater(env.w, f)) {
             const shore = shoreCell(env.w, f);
             out.surfaced = true;
-            if (shore) { const m = await exec('move_to', shore); if (!m.ok && env.recover) await env.recover(2, m); }
+            if (shore) {
+                // NAV swims (the surface band) and climbs out over the rim; the action layer's plain move_to ended 'stuck' again and again in a pond (T26 lake smoke, 2026-11-16: "water rescue: to the shore, 0 filled (stuck)")
+                let m = env.navFree && env.navOn && env.navOn() ? await env.navFree({ x: shore.x, y: shore.y, z: shore.z }, { near: 0, nearY: 1 }) : null;
+                if (!m || !m.ok) m = await exec('move_to', shore);
+                if (!m.ok && env.recover) await env.recover(2, m);
+            }
             else if (env.recover) await env.recover(2, { reason: 'in_water' });
             f = env.here();
             // Swimming out did not work (a flooded pit bottom: no shore within reach): the server puts the bot on the nearest dry standable cell (env.lift), up to 14 blocks away.

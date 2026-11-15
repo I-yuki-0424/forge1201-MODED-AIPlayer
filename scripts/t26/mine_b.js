@@ -27,12 +27,14 @@ const LIMIT_MIN = Number(process.env.LIMIT_MIN || 240), DEPTH = Number(process.e
     }
     for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) top = Math.max(top, colTop(x, z) ?? -64);
     if (top <= -64) throw new Error('mine_b: the box chunk never loaded');
-    const bottom = DEPTH ? top - DEPTH + 1 : -59, box = { x0, z0, x1, z1, top, bottom };
+    let bottom = DEPTH ? top - DEPTH + 1 : -59;
+    const box = { x0, z0, x1, z1, top, bottom };
     let pond = null;
     if (process.env.POND) {
         const [pw, pd] = process.env.POND.split('x').map(Number), px = x0 + Math.floor((W - pw) / 2), pz = z0 + Math.floor((W - pw) / 2), g = colTop(px + (pw >> 1), pz + (pw >> 1));
         await S.must(`fill ${px} ${g - pd + 1} ${pz} ${px + pw - 1} ${g} ${pz + pw - 1} minecraft:water`);
         pond = { px, pz, pw, pd, surface: g }; await T.sleep(2500);
+        top = Math.min(top, g + 2); bottom = g - pd; box.top = top; box.bottom = bottom;          // the smoke box is the pond's own layers (+ the air layers above), the rest is not the question
     }
     const refY = Math.max(top + 20, 200);
     const layerClean = async (y) => /^Test passed/.test(T.strip(await S.cmd(`execute if blocks ${x0} ${y} ${z0} ${x1} ${y} ${z1} ${x0} ${refY} ${z0} masked`)));
