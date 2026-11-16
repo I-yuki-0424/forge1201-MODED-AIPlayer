@@ -34,6 +34,9 @@ function cottage() {
     // the site: air from the floor layer up, stone under it, two cells of margin
     await S.must(`fill ${o.x - 2} ${o.y} ${o.z - 2} ${X1 + 2} ${Y1 + 4} ${Z1 + 2} minecraft:air`);
     await S.must(`fill ${o.x - 2} ${o.y - 1} ${o.z - 2} ${X1 + 2} ${o.y - 1} ${Z1 + 2} minecraft:stone`);
+    // a foundation under the pad: on a slope the cleared site floated over a cliff (pb-d, seed -6411205641318655142: a 40-block fall and a death with the materials); air and water under it become stone
+    await S.must(`fill ${o.x - 2} ${o.y - 14} ${o.z - 2} ${X1 + 2} ${o.y - 2} ${Z1 + 2} minecraft:stone replace minecraft:air`);
+    await S.must(`fill ${o.x - 2} ${o.y - 14} ${o.z - 2} ${X1 + 2} ${o.y - 2} ${Z1 + 2} minecraft:stone replace minecraft:water`);
     // the reference copy in the sky (air around it)
     const ref = { x: o.x, y: 230, z: o.z };
     await S.must(`fill ${ref.x} ${ref.y} ${ref.z} ${ref.x + 6} ${ref.y + 4} ${ref.z + 6} minecraft:air`);
