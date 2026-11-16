@@ -551,7 +551,7 @@ async function cleanHanging(plan, env) {
     const inBox = (x, y, z) => x >= box.x0 && x <= box.x1 && z >= box.z0 && z <= box.z1 && y <= box.top && y >= box.bottom;
     const cellsNow = () => {
         const map = new Map();
-        if (temps && dim) for (const r of temps.list((q) => q.dim === dim && inBox(q.x, q.y, q.z))) map.set(`${r.x},${r.y},${r.z}`, { x: r.x, y: r.y, z: r.z, reg: true });
+        if (temps && dim) for (const r of temps.list((q) => q.dim === dim && (q.kind === 'seal' || q.kind === 'rescue') && inBox(q.x, q.y, q.z))) map.set(`${r.x},${r.y},${r.z}`, { x: r.x, y: r.y, z: r.z, reg: true });
         for (const k of owned) { const [x, y, z] = k.split(',').map(Number); if (inBox(x, y, z)) map.set(k, { x, y, z, reg: false }); }
         return map;
     };
