@@ -20,7 +20,7 @@ const PASSABLE = new Set(['air', 'climb']);
 // Natural tree blocks. One that hangs high above the ground below it cannot be reached on foot: the planner expands 20,000 cells and gives up
 // (30-85 s per try, six tries per unit, bots end up standing on the canopy) - the live pit of 2026-11-07 with top y 90 over ground at y 64 and a tree.
 // The pit leaves such blocks alone (they are not ground; the audit does not count them) and says how many it left.
-const TREE = /(_leaves|_log|_wood|_vines?|^vine|^bamboo|^mangrove_roots)$/;
+const { TREE } = require('./pit_trees');          // the tree pass (pit_trees.js) clears these before the digging and again at the end; what it could not reach is still left alone here
 const AERIAL_UP = 6;                        // blocks above the ground below: from there on a tree block is out of reach for a bot standing on the ground
 function aerialTree(w, c) {
     const bare = (n) => String(n || '').replace(/^minecraft:/, '');
@@ -338,6 +338,19 @@ async function runUnit(plan, region, u, env) {
         return null;
     };
     const deferred = [];
+    // Tree pass (pit_trees.js, owner 2026-11-16): once per region, before its first unit digs, the tree blocks of the box are taken down (low ones from the ground, aerial ones from a pillar
+    // beside them). One bot does it; the others do not wait (a unit never depends on it). PIT_TREES=0 turns it off (A/B runs).
+    if (process.env.PIT_TREES !== '0' && env.run && env.here && env.exec) {
+        const reg = plan.trees || (plan.trees = new Map());
+        if (!reg.has(region.id)) {
+            reg.set(region.id, { busy: true });
+            try {
+                const m = region.meta, tr = await require('./pit_trees').clearTrees(env, { x0: m.x0, x1: m.x1, z0: m.z0, z1: m.z1, top: m.top });
+                reg.set(region.id, { done: true }); r.trees = { mined: tr.mined, risen: tr.risen, columns: tr.columns, left: tr.left, failed: tr.failed.length, ms: tr.ms };
+                if (!tr.ok && tr.reason && ['died', 'disconnected', 'cancelled'].includes(tr.reason)) { reg.delete(region.id); return { ok: false, reason: tr.reason, detail: { stage: 'trees', ...r } }; }
+            } catch (e) { reg.set(region.id, { done: true, error: String(e && e.message || e) }); }
+        }
+    }
     // Nothing to dig here (only open air, unbreakable blocks and tree blocks out of reach): done, and the bot does not walk anywhere. Walking to the station
     // of such a tile sent bots up the canopy of a tree (the planner takes the nearest reachable cell to a station in mid-air: live pit of 2026-11-07).
     if (cells.every((c) => open(c) || UNBREAKABLE.test(env.w.nameAt(c.x, c.y, c.z) || '') || (isSolid(env.w, c.x, c.y, c.z) && aerialTree(env.w, c)))) {
@@ -522,6 +535,21 @@ async function sweepDrops(env, S) {
     return { picked: n, seen, ...(fail ? { fail } : {}) };
 }
 
+/** The last look at the trees (owner 2026-11-16): what hangs in the box when everything else is dug (leaves whose ground was dug away, a canopy the first pass could not reach), taken down region by region, nearest first, five minutes at most. */
+async function cleanTrees(plan, env) {
+    if (process.env.PIT_TREES === '0' || !env.run || !env.here || !env.exec) return;
+    const t0 = Date.now();
+    try {
+        const here = env.here();
+        for (const region of [...plan.regions].sort((a, b) => Math.hypot(a.anchor.x - here.x, a.anchor.z - here.z) - Math.hypot(b.anchor.x - here.x, b.anchor.z - here.z))) {
+            if (Date.now() - t0 > 300000 || (env.cancel && env.cancel.cancelled)) return;
+            const m = region.meta, box = { x0: m.x0, x1: m.x1, z0: m.z0, z1: m.z1, top: m.top };
+            if (!require('./pit_trees').scan(env.w, box).length) continue;
+            await require('./pit_trees').clearTrees(env, box, { maxMs: Math.max(30000, 300000 - (Date.now() - t0)) });
+        }
+    } catch (_) { /* the end of a job must not fail for a leftover leaf */ }
+}
+
 /** The lake-fill blocks (pit_lake.js) that are still there when the job is over: mined one by one, nearest first, at most 300 cells and five minutes. A unit that owned them may have been parked; the audit tolerates that, the end of the job does not leave the block. */
 async function cleanLakeBlocks(plan, env) {
     const owned = plan.lakeFilled; if (!owned || !owned.size || !env.exec || !env.here) return;
@@ -615,7 +643,7 @@ function createPitJob(box, ledgerOpts = {}, { lanes = 0, method = 'rows', tile =
     // sweep: the check at the end (pit_sweep.js): every chunk is walked to, read from the top layer down, and what still holds a block goes back to work.
     const sweep = makeSweeper({ plan, ledger, state: auditState, cellState });
     auditState.layer = new Map();
-    return { kind: 'pit', ledger, plan, checkLayer: (env, ck, now) => checkLayer(plan, ledger, byId, auditState, env, ck, now), cleanup: async (env) => { if (!ledger.finished()) return null; const t = await require('../bot/temps').cleanTemps(env, { box: plan.box, max: 60, maxMs: 120000 }); await cleanLakeBlocks(plan, env); return t; }, runUnit: (regionId, unit, env) => runUnit(plan, byId.get(regionId), unit, env), audit: (env, now, opts) => audit(plan, ledger, env.w, now, auditState, opts), sweep, rescue: (env, why) => require('../bot/water').rescue(env, plan.box, { why }) };
+    return { kind: 'pit', ledger, plan, checkLayer: (env, ck, now) => checkLayer(plan, ledger, byId, auditState, env, ck, now), cleanup: async (env) => { if (!ledger.finished()) return null; await cleanTrees(plan, env); const t = await require('../bot/temps').cleanTemps(env, { box: plan.box, max: 60, maxMs: 120000 }); await cleanLakeBlocks(plan, env); return t; }, runUnit: (regionId, unit, env) => runUnit(plan, byId.get(regionId), unit, env), audit: (env, now, opts) => audit(plan, ledger, env.w, now, auditState, opts), sweep, rescue: (env, why) => require('../bot/water').rescue(env, plan.box, { why }) };
 }
 
-module.exports = { cleanLakeBlocks, sealItem, MAX_UNITS, goToStation, checkLayer, LAYER_ROUNDS, standsOnFloater, aerialTree, planPit, laneBoxes, planRoad, stationsOf, lineCells, unitCells, sealPlan, orderFill, isFluid, exposed, runUnit, wrongCells, cellState, audit, createPitJob, SEAL_ITEMS, CHUNK, TILE, SWEEP_R };
+module.exports = { cleanTrees, cleanLakeBlocks, sealItem, MAX_UNITS, goToStation, checkLayer, LAYER_ROUNDS, standsOnFloater, aerialTree, planPit, laneBoxes, planRoad, stationsOf, lineCells, unitCells, sealPlan, orderFill, isFluid, exposed, runUnit, wrongCells, cellState, audit, createPitJob, SEAL_ITEMS, CHUNK, TILE, SWEEP_R };
