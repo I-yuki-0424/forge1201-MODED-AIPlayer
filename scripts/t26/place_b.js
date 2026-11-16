@@ -38,7 +38,9 @@ function cottage() {
     await S.must(`fill ${o.x - 2} ${o.y - 14} ${o.z - 2} ${X1 + 2} ${o.y - 2} ${Z1 + 2} minecraft:stone replace minecraft:air`);
     await S.must(`fill ${o.x - 2} ${o.y - 14} ${o.z - 2} ${X1 + 2} ${o.y - 2} ${Z1 + 2} minecraft:stone replace minecraft:water`);
     // the reference copy in the sky (air around it)
-    const ref = { x: o.x, y: 230, z: o.z };
+    // The reference copy stands 48 blocks beside the site, high up (it hung straight over the site before: the bot saw no open sky above the cottage, `escape` planned a 63-block pillar toward the sky and the bot died on the way down; pb-f world 3)
+    const ref = { x: o.x + 48, y: 230, z: o.z };
+    await S.must(`forceload add ${ref.x} ${ref.z} ${ref.x + 6} ${ref.z + 6}`);
     await S.must(`fill ${ref.x} ${ref.y} ${ref.z} ${ref.x + 6} ${ref.y + 4} ${ref.z + 6} minecraft:air`);
     const cells = cottage();
     for (const q of cells) await S.must(`setblock ${ref.x + q.x} ${ref.y + q.y} ${ref.z + q.z} minecraft:${q.block}`);
@@ -64,6 +66,7 @@ function cottage() {
     if (!ok) { const set = new Set(cells.map((q) => `${q.x},${q.y},${q.z}`)); for (let x = 0; x <= 6; x++) for (let y = 0; y <= 4; y++) for (let z = 0; z <= 6; z++) { if (set.has(`${x},${y},${z}`) || wrong.length >= 20) continue; if (!/^Test passed/.test(T.strip(await S.cmd(`execute if block ${o.x + x} ${o.y + y} ${o.z + z} minecraft:air`)))) wrong.push([x, y, z, 'air']); } }
     if (deaths.read) await deaths.read();
     rep.trial(name, controlOk && ok && state === 'finished' && deaths[name] === 0 && !moves[name], { problems: (svc.problems && svc.problems.list || []).slice(-12).map((q) => JSON.stringify(q).slice(0, 380)), origin: o, controlOk, state, match: ok, wrongCells: wrong, min: Math.round((Date.now() - t0) / 60000), deaths: deaths[name], serverMoves: moves[name] || 0 });
+    await S.cmd(`forceload remove ${ref.x} ${ref.z} ${ref.x + 6} ${ref.z + 6}`);
     const k = rep.write({ seed });
     await svc.stop(); process.exit(k ? 0 : 1);
 })().catch((e) => { console.error(e); process.exit(2); });
