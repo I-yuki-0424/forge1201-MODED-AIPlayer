@@ -567,10 +567,22 @@ async function cleanHanging(plan, env) {
         }
         return out;
     };
-    if (!find(w, null).length) return { left: 0 };
+    // A seal that stands at the box edge with the lake beside it keeps the lake out of the box: the water cells next to it are filled first (the fill covers the ring one cell beyond the box,
+    // pit_lake.js), then the seal holds nothing back and goes. Seed 4461664185924705895, 2026-11-16: one seal at the lake's edge kept a layer dirty.
+    const sealed = [];
+    for (const c of cellsNow().values()) {
+        if (w.kindAt(c.x, c.y, c.z) !== 'solid' || holdsNothingBack(w, c)) continue;
+        for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]]) if (isFluid(w, c.x + dx, c.y + dy, c.z + dz)) sealed.push({ x: c.x + dx, y: c.y + dy, z: c.z + dz });
+    }
+    let lakeRes = null;
+    if (sealed.length) {
+        lakeRes = await require('./pit_lake').fillLake({ env, plan, isFluid, sealItem, items: SEAL_ITEMS, goToStation: async (S) => { const m = await env.exec('move_to', S, { maxTicks: STATION_TICKS }); return m.ok ? null : m; } }, sealed).catch((e) => ({ error: String(e && e.message || e) }));
+        if (lakeRes && lakeRes.placed) for (const q of lakeRes.placed) owned.add(`${q.x},${q.y},${q.z}`);
+    }
+    if (!find(w, null).length) return { left: 0, ...(lakeRes ? { lake: { filled: lakeRes.filled, left: lakeRes.left, reason: lakeRes.reason || lakeRes.error } } : {}) };
     const res = await require('./pit_trees').clearTrees(env, { x0: box.x0, x1: box.x1, z0: box.z0, z1: box.z1, top: box.top }, { find, maxMs: 240000, done: (c) => w.kindAt(c.x, c.y, c.z) !== 'solid' });
     for (const c of cellsNow().values()) if (w.kindAt(c.x, c.y, c.z) !== 'solid') { if (c.reg) temps.remove(dim, c); owned.delete(`${c.x},${c.y},${c.z}`); }
-    return { mined: res.mined, risen: res.risen, left: res.left, failed: res.failed.slice(0, 4), ms: res.ms };
+    return { mined: res.mined, risen: res.risen, left: res.left, failed: res.failed.slice(0, 4), ms: res.ms, ...(lakeRes ? { lake: { filled: lakeRes.filled, left: lakeRes.left, reason: lakeRes.reason || lakeRes.error } } : {}) };
 }
 
 /** The last look at the trees (owner 2026-11-16): what hangs in the box when everything else is dug (leaves whose ground was dug away, a canopy the first pass could not reach), taken down region by region, nearest first, five minutes at most. */
@@ -597,7 +609,11 @@ async function cleanLakeBlocks(plan, env) {
     try {
         for (;;) {
             const h = env.here(), left = [];
-            for (const k of [...owned]) { const [x, y, z] = k.split(',').map(Number), kd = env.w.kindAt(x, y, z); if (kd === 'solid' || kd === 'partial') left.push({ x, y, z }); else if (kd !== 'unknown') owned.delete(k); }
+            for (const k of [...owned]) {
+                const [x, y, z] = k.split(',').map(Number), kd = env.w.kindAt(x, y, z);
+                const b = plan.box; if (b && !(x >= b.x0 && x <= b.x1 && z >= b.z0 && z <= b.z1)) { owned.delete(k); continue; }          // the ring beyond the box keeps the lake out of it: never taken away
+                if (kd === 'solid' || kd === 'partial') left.push({ x, y, z }); else if (kd !== 'unknown') owned.delete(k);
+            }
             if (!left.length || n >= 300 || Date.now() - t0 > 300000 || (env.cancel && env.cancel.cancelled)) return;
             left.sort((a, b) => Math.hypot(a.x - h.x, a.y - h.y, a.z - h.z) - Math.hypot(b.x - h.x, b.y - h.y, b.z - h.z));
             const c = left[0]; n++;
