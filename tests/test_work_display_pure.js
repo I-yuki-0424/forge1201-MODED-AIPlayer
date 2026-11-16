@@ -73,7 +73,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         const o = new Overlay({ rcon: async (c) => { sent.push(c); return ''; }, state: () => st, config: () => cfg, humans: async () => humans, pending: () => pending, perFrame: 400 });
         const n1 = await o.frame(1000);
         assert.ok(n1 > 0 && sent.filter((c) => c.includes('block_display') && c.includes('summon')).length === n1);
-        assert.deepStrictEqual(sent.filter((c) => c.startsWith('gamerule')), ['gamerule sendCommandFeedback false', 'gamerule logAdminCommands false']);
+        assert.deepStrictEqual(sent.filter((c) => c.startsWith('gamerule')), ['gamerule send_command_feedback false', 'gamerule log_admin_commands false', 'gamerule sendCommandFeedback false', 'gamerule logAdminCommands false']);
         assert.strictEqual(sent.filter((c) => c.includes(`tag=!${o.epoch}`)).length, 1, 'the entities of an earlier run are killed once, first');
         assert.ok(sent.filter((c) => c.includes('summon')).every((c) => c.startsWith('execute in minecraft:overworld run summon block_display ') && c.includes(o.epoch)));
         sent.length = 0; assert.strictEqual(await o.frame(2000), 0, 'nothing new, nothing sent'); assert.strictEqual(sent.length, 0);
