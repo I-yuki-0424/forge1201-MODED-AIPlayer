@@ -501,7 +501,11 @@ async function goToStation(S, handle, env, open, r) {
         if (env.rejoin && (Math.hypot(here.x - S.x, here.z - S.z) > 24 || Math.abs(above) > 24)) {
             // Last resort before giving up (the commonest pit failure of 2026-11-09/10, 1,800 records): the chunk-exit router walks toward the station's column and level (the haul road, round what the
             // planner's own search cannot cross); once, and only on foot.
-            if (env.travel && routed < 1) { routed++; const t = await env.travel({ x: S.x, z: S.z, level: S.y }, { near: 8, nearY: 6 }); if (t.ok) { r.routed = (r.routed || 0) + 1; continue; } r.routeFail = t.reason; }
+            if (env.travel && routed < 2) {
+                // The exact cell first (a bot that fell out of the pit through a cave: from (29,-16) at y 68 the exact cell was walked in 14 s on 2026-11-16, 3 tries of the level form failed), then the column near its level.
+                routed++; const t = routed === 1 ? await env.travel({ x: S.x, y: S.y, z: S.z }, { near: 2 }) : await env.travel({ x: S.x, z: S.z, level: S.y }, { near: 8, nearY: 6 });
+                if (t.ok) { r.routed = (r.routed || 0) + 1; continue; } r.routeFail = `${r.routeFail ? r.routeFail + ',' : ''}${t.reason}`;
+            }
             return { ok: false, reason: 'unreachable', detail: { why: `too far from the station to dig a corridor toward it${r.launchTried ? ` (launch cell: ${r.launchTried})` : ''}`, botSide: true, stage: 'station', cell: S, ...r } };
         }
         const next = lineCells(here, S, S.y).find((c) => !open(c) && !UNBREAKABLE.test(env.w.nameAt(c.x, c.y, c.z) || ''));
