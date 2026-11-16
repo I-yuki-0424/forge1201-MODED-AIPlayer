@@ -71,7 +71,7 @@ const LIMIT_MIN = Number(process.env.LIMIT_MIN || 240), DEPTH = Number(process.e
     }
     await T.sleep(3000);
     const left = await dirty();
-    let jobEnd = null; try { const j = [...svc.jobs.values()][0]; if (j) { const v = svc.jobDetail(j.id); jobEnd = { progress: v.progress, stuck: v.stuck, report: JSON.stringify(v.report || {}).slice(0, 1200) }; } } catch (_) { /* informational */ }
+    let jobEnd = null; try { const j = [...svc.jobs.values()][0]; if (j) { const v = svc.jobDetail(j.id); const jj = svc.jobs.get(j.id); jobEnd = { problems: (svc.problems && svc.problems.list || []).slice(-14).map((q) => JSON.stringify(q).slice(0, 420)), endReport: jj && jj.impl && jj.impl.plan && jj.impl.plan.endReport, progress: v.progress, stuck: v.stuck, report: JSON.stringify(v.report || {}).slice(0, 1200) }; } } catch (_) { /* informational */ }
     const tempsLeft = svc.temps.list((r) => r.x >= x0 - 2 && r.x <= x1 + 2 && r.z >= z0 - 2 && r.z <= z1 + 2).map((r) => [r.x, r.y, r.z, r.kind]);
     if (deaths.read) await deaths.read();
     rep.trial(name, controlOk && left.length === 0 && !moves[name], { spawn: p0, pond, lakeFill: process.env.PIT_LAKE !== '0', method: process.env.METHOD || 'default', fluid, sec: Math.round((Date.now() - t0) / 1000), jobEnd, box, controlDirtyLayers: before.length, state, min: Math.round((Date.now() - t0) / 60000), dirtyLayers: left.length, firstDirty: left.slice(0, 12), registeredTempsLeft: tempsLeft.length, temps: tempsLeft.slice(0, 20), deaths: deaths[name], serverMoves: moves[name] || 0 });

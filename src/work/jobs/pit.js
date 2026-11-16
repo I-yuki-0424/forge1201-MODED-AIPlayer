@@ -537,17 +537,19 @@ async function sweepDrops(env, S) {
 
 /** The last look at the trees (owner 2026-11-16): what hangs in the box when everything else is dug (leaves whose ground was dug away, a canopy the first pass could not reach), taken down region by region, nearest first, five minutes at most. */
 async function cleanTrees(plan, env) {
-    if (process.env.PIT_TREES === '0' || !env.run || !env.here || !env.exec) return;
-    const t0 = Date.now();
+    if (process.env.PIT_TREES === '0' || !env.run || !env.here || !env.exec) return null;
+    const t0 = Date.now(), sum = { regions: 0, mined: 0, risen: 0, left: 0, failed: 0 };
     try {
         const here = env.here();
         for (const region of [...plan.regions].sort((a, b) => Math.hypot(a.anchor.x - here.x, a.anchor.z - here.z) - Math.hypot(b.anchor.x - here.x, b.anchor.z - here.z))) {
-            if (Date.now() - t0 > 300000 || (env.cancel && env.cancel.cancelled)) return;
+            if (Date.now() - t0 > 300000 || (env.cancel && env.cancel.cancelled)) return sum;
             const m = region.meta, box = { x0: m.x0, x1: m.x1, z0: m.z0, z1: m.z1, top: m.top };
             if (!require('./pit_trees').scan(env.w, box).length) continue;
-            await require('./pit_trees').clearTrees(env, box, { maxMs: Math.max(30000, 300000 - (Date.now() - t0)) });
+            const tr = await require('./pit_trees').clearTrees(env, box, { maxMs: Math.max(30000, 300000 - (Date.now() - t0)) });
+            sum.regions++; sum.mined += tr.mined; sum.risen += tr.risen; sum.left += tr.left; sum.failed += tr.failed.length;
         }
-    } catch (_) { /* the end of a job must not fail for a leftover leaf */ }
+    } catch (e) { sum.error = String(e && e.message || e); /* the end of a job must not fail for a leftover leaf */ }
+    return sum;
 }
 
 /** The lake-fill blocks (pit_lake.js) that are still there when the job is over: mined one by one, nearest first, at most 300 cells and five minutes. A unit that owned them may have been parked; the audit tolerates that, the end of the job does not leave the block. */
@@ -643,7 +645,7 @@ function createPitJob(box, ledgerOpts = {}, { lanes = 0, method = 'rows', tile =
     // sweep: the check at the end (pit_sweep.js): every chunk is walked to, read from the top layer down, and what still holds a block goes back to work.
     const sweep = makeSweeper({ plan, ledger, state: auditState, cellState });
     auditState.layer = new Map();
-    return { kind: 'pit', ledger, plan, checkLayer: (env, ck, now) => checkLayer(plan, ledger, byId, auditState, env, ck, now), cleanup: async (env) => { if (!ledger.finished()) return null; await cleanTrees(plan, env); const t = await require('../bot/temps').cleanTemps(env, { box: plan.box, max: 60, maxMs: 120000 }); await cleanLakeBlocks(plan, env); return t; }, runUnit: (regionId, unit, env) => runUnit(plan, byId.get(regionId), unit, env), audit: (env, now, opts) => audit(plan, ledger, env.w, now, auditState, opts), sweep, rescue: (env, why) => require('../bot/water').rescue(env, plan.box, { why }) };
+    return { kind: 'pit', ledger, plan, checkLayer: (env, ck, now) => checkLayer(plan, ledger, byId, auditState, env, ck, now), cleanup: async (env) => { if (!ledger.finished()) return null; const rep = plan.endReport || (plan.endReport = {}); rep.trees = await cleanTrees(plan, env); const t = await require('../bot/temps').cleanTemps(env, { box: plan.box, max: 60, maxMs: 120000 }); rep.temps = t; await cleanLakeBlocks(plan, env); return t; }, runUnit: (regionId, unit, env) => runUnit(plan, byId.get(regionId), unit, env), audit: (env, now, opts) => audit(plan, ledger, env.w, now, auditState, opts), sweep, rescue: (env, why) => require('../bot/water').rescue(env, plan.box, { why }) };
 }
 
 module.exports = { cleanTrees, cleanLakeBlocks, sealItem, MAX_UNITS, goToStation, checkLayer, LAYER_ROUNDS, standsOnFloater, aerialTree, planPit, laneBoxes, planRoad, stationsOf, lineCells, unitCells, sealPlan, orderFill, isFluid, exposed, runUnit, wrongCells, cellState, audit, createPitJob, SEAL_ITEMS, CHUNK, TILE, SWEEP_R };

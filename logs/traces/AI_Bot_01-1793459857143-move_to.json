@@ -1,0 +1,1 @@
+{"bot":"AI_Bot_01","command":"move_to","args":{"x":17,"z":8,"y":-60},"reason":"unreachable","detail":{"goal":"cell 17,-60,8","expanded":5},"phases":[{"t":0,"phase":"plan","from":{"x":12,"y":-60,"z":8},"goal":"cell 17,-60,8"}],"trace":[]}
