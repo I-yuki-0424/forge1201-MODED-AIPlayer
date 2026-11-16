@@ -57,6 +57,9 @@ function framePieces(state, cfg) {
     return out;
 }
 
+/** The rules that switch off the operators' chat/log echo of console commands: 26.1 spelling first, then the 1.20.1 one. */
+const QUIET_RULES = ['send_command_feedback', 'log_admin_commands', 'sendCommandFeedback', 'logAdminCommands'];
+
 class Overlay {
     /**
      * @param o.rcon      async (command) -> reply: the service's RCON queue
@@ -88,8 +91,9 @@ class Overlay {
      * (they hide the feedback of everyone's commands, errors still show): the owner asked for it.
      */
     async _quiet() {
-        await this.o.rcon('gamerule sendCommandFeedback false');
-        await this.o.rcon('gamerule logAdminCommands false');
+        // Minecraft 26.1 renamed every game rule to snake_case: `sendCommandFeedback` is rejected there ("Incorrect argument") and the feedback kept coming (found 2026-11-16, 1310
+        // "[Rcon: Summoned new Block Display]" lines in one log). Both spellings are sent; the one the server does not know is answered with an error and ignored.
+        for (const rule of QUIET_RULES) await this.o.rcon(`gamerule ${rule} false`);
         this.quiet = true;
     }
 
@@ -139,4 +143,4 @@ class Overlay {
     }
 }
 
-module.exports = { Overlay, framePieces, VIEW_TAG, DEFAULTS, PATH_STALE_MS, FRAME_MS, NEAR };
+module.exports = { QUIET_RULES, Overlay, framePieces, VIEW_TAG, DEFAULTS, PATH_STALE_MS, FRAME_MS, NEAR };

@@ -21,6 +21,7 @@ fi
 for _ in $(seq 1 150); do [ "$(docker inspect -f '{{.State.Health.Status}}' forgeaip-t26-$N 2>/dev/null)" = healthy ] && break; sleep 4; done
 [ "$(docker inspect -f '{{.State.Health.Status}}' forgeaip-t26-$N)" = healthy ] || { docker logs --tail 40 forgeaip-t26-$N >&2; echo "t26 world $N not healthy" >&2; exit 1; }
 "$REPO/scripts/t26/rcon.sh" "$N" gamerule keep_inventory false >/dev/null
+for g in send_command_feedback log_admin_commands; do "$REPO/scripts/t26/rcon.sh" "$N" gamerule "$g" false >/dev/null; done      # 26.1 names: the camelCase ones are rejected, the console echoed every display command
 docker exec forgeaip-t26-$N sh -c 'mkdir -p /data/world/scripts && cp /dev-app/dev.sc /data/world/scripts/dev.sc'
 "$REPO/scripts/t26/rcon.sh" "$N" script load dev global
 "$REPO/scripts/t26/dev.sh" "$N" start >/dev/null

@@ -112,6 +112,7 @@ async function open(names, settings = {}, difficulty = 'peaceful') {
     const diff = process.env.DIFFICULTY || difficulty;
     if (!['peaceful', 'easy', 'normal', 'hard'].includes(diff)) throw new Error(`bad difficulty ${diff}`);
     await S.cmd('gamerule keep_inventory false'); await S.cmd(`difficulty ${diff}`);
+    for (const g of ['send_command_feedback', 'log_admin_commands']) await S.cmd(`gamerule ${g} false`).catch(() => {});      // 26.1 names (the 1.20.1 camelCase ones are rejected there): no "[Rcon: ...]" echo of the display's and the harness's commands
     CURRENT_DIFFICULTY = diff; console.log(`[t26] difficulty ${diff}`);
     const svc = await L.openService(shared, names, { teleport: 'off', ...settings });
     return { shared, S, svc, seed, difficulty: diff };
