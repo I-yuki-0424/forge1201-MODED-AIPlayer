@@ -63,7 +63,7 @@ function cottage() {
     // the air cells of the box too (a block left inside the house fails the comparison as much as a missing wall)
     if (!ok) { const set = new Set(cells.map((q) => `${q.x},${q.y},${q.z}`)); for (let x = 0; x <= 6; x++) for (let y = 0; y <= 4; y++) for (let z = 0; z <= 6; z++) { if (set.has(`${x},${y},${z}`) || wrong.length >= 20) continue; if (!/^Test passed/.test(T.strip(await S.cmd(`execute if block ${o.x + x} ${o.y + y} ${o.z + z} minecraft:air`)))) wrong.push([x, y, z, 'air']); } }
     if (deaths.read) await deaths.read();
-    rep.trial(name, controlOk && ok && state === 'finished' && deaths[name] === 0 && !moves[name], { origin: o, controlOk, state, match: ok, wrongCells: wrong, min: Math.round((Date.now() - t0) / 60000), deaths: deaths[name], serverMoves: moves[name] || 0 });
+    rep.trial(name, controlOk && ok && state === 'finished' && deaths[name] === 0 && !moves[name], { problems: (svc.problems && svc.problems.list || []).slice(-12).map((q) => JSON.stringify(q).slice(0, 380)), origin: o, controlOk, state, match: ok, wrongCells: wrong, min: Math.round((Date.now() - t0) / 60000), deaths: deaths[name], serverMoves: moves[name] || 0 });
     const k = rep.write({ seed });
     await svc.stop(); process.exit(k ? 0 : 1);
 })().catch((e) => { console.error(e); process.exit(2); });
