@@ -111,5 +111,12 @@ const left = (w, box = BOX) => scan(w, box).length;
         assert.strictEqual(w.nameAt(5, 85, 5), 'oak_leaves'); assert.strictEqual(w.nameAt(6, 75, 5), 'air'); assert.strictEqual(res.ok, true);
     });
 
+    await test('find mode: seal blocks hanging 8 over the pit floor (the registered leftovers) are taken the same way', async () => {
+        const w = world([[5, GROUND + 8, 5, 'cobblestone'], [6, GROUND + 9, 5, 'cobblestone'], [5, GROUND + 3, 8, 'cobblestone']]), { env, pos } = fakeEnv(w, { x: 2, y: GROUND + 1, z: 2 });
+        const cells = () => ['5,68,5', '6,69,5', '5,63,8'].map((k) => k.split(',').map(Number)).filter(([x, y, z]) => w.kindAt(x, y, z) === 'solid').map(([x, y, z]) => ({ x, y, z, gy: GROUND }));
+        const res = await clearTrees(env, BOX, { find: () => cells(), done: (c) => w.kindAt(c.x, c.y, c.z) !== 'solid' });
+        assert.strictEqual(res.ok, true, JSON.stringify(res)); assert.strictEqual(cells().length, 0); assert.strictEqual(cobble(w), 0); assert.strictEqual(pos.y, GROUND + 1);
+    });
+
     console.log('\npit trees: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

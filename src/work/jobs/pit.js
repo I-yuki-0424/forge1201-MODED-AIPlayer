@@ -535,6 +535,40 @@ async function sweepDrops(env, S) {
     return { picked: n, seen, ...(fail ? { fail } : {}) };
 }
 
+/**
+ * What is still in the box when the plain cleanups are done (owner 2026-11-16): the bot's registered seal blocks and the lake-fill blocks that hang above the pit floor (a seal laid at the
+ * water line of a pit that was dug 16 layers deeper; `mine` cannot reach it from the floor and the router says "enclosed"). The tree pass's walk serves them: stand on the floor beside the
+ * block, rise on a pillar, mine it, come down. A seal that still holds water back (fluid beside or above) stays, as in cleanTemps.
+ */
+async function cleanHanging(plan, env) {
+    if (!env.run || !env.here || !env.exec || !env.w) return null;
+    const temps = env.temps, box = plan.box, w = env.w, owned = plan.lakeFilled || new Set();
+    const { holdsNothingBack, dimOf } = require('../bot/temps'), dim = temps && env.bot ? dimOf(env.bot) : null;
+    const inBox = (x, y, z) => x >= box.x0 && x <= box.x1 && z >= box.z0 && z <= box.z1 && y <= box.top && y >= box.bottom;
+    const cellsNow = () => {
+        const map = new Map();
+        if (temps && dim) for (const r of temps.list((q) => q.dim === dim && inBox(q.x, q.y, q.z))) map.set(`${r.x},${r.y},${r.z}`, { x: r.x, y: r.y, z: r.z, reg: true });
+        for (const k of owned) { const [x, y, z] = k.split(',').map(Number); if (inBox(x, y, z)) map.set(k, { x, y, z, reg: false }); }
+        return map;
+    };
+    const find = (ww, skip) => {
+        const all = cellsNow(), out = [];
+        for (const [k, c] of all) {
+            const kd = ww.kindAt(c.x, c.y, c.z);
+            if (kd === 'unknown') continue;
+            if (kd !== 'solid') { if (c.reg) temps.remove(dim, c); owned.delete(k); continue; }                 // gone already
+            if (skip && skip.has(k) || !holdsNothingBack(ww, c)) continue;
+            let gy = c.y - 1; while (gy >= box.bottom - 2 && (ww.kindAt(c.x, gy, c.z) === 'air' || all.has(`${c.x},${gy},${c.z}`))) gy--;
+            out.push({ x: c.x, y: c.y, z: c.z, gy });
+        }
+        return out;
+    };
+    if (!find(w, null).length) return { left: 0 };
+    const res = await require('./pit_trees').clearTrees(env, { x0: box.x0, x1: box.x1, z0: box.z0, z1: box.z1, top: box.top }, { find, maxMs: 240000, done: (c) => w.kindAt(c.x, c.y, c.z) !== 'solid' });
+    for (const c of cellsNow().values()) if (w.kindAt(c.x, c.y, c.z) !== 'solid') { if (c.reg) temps.remove(dim, c); owned.delete(`${c.x},${c.y},${c.z}`); }
+    return { mined: res.mined, risen: res.risen, left: res.left, failed: res.failed.slice(0, 4), ms: res.ms };
+}
+
 /** The last look at the trees (owner 2026-11-16): what hangs in the box when everything else is dug (leaves whose ground was dug away, a canopy the first pass could not reach), taken down region by region, nearest first, five minutes at most. */
 async function cleanTrees(plan, env) {
     if (process.env.PIT_TREES === '0' || !env.run || !env.here || !env.exec) return null;
@@ -645,7 +679,7 @@ function createPitJob(box, ledgerOpts = {}, { lanes = 0, method = 'rows', tile =
     // sweep: the check at the end (pit_sweep.js): every chunk is walked to, read from the top layer down, and what still holds a block goes back to work.
     const sweep = makeSweeper({ plan, ledger, state: auditState, cellState });
     auditState.layer = new Map();
-    return { kind: 'pit', ledger, plan, checkLayer: (env, ck, now) => checkLayer(plan, ledger, byId, auditState, env, ck, now), cleanup: async (env) => { if (!ledger.finished()) return null; const rep = plan.endReport || (plan.endReport = {}); rep.trees = await cleanTrees(plan, env); const t = await require('../bot/temps').cleanTemps(env, { box: plan.box, max: 60, maxMs: 120000 }); rep.temps = t; await cleanLakeBlocks(plan, env); return t; }, runUnit: (regionId, unit, env) => runUnit(plan, byId.get(regionId), unit, env), audit: (env, now, opts) => audit(plan, ledger, env.w, now, auditState, opts), sweep, rescue: (env, why) => require('../bot/water').rescue(env, plan.box, { why }) };
+    return { kind: 'pit', ledger, plan, checkLayer: (env, ck, now) => checkLayer(plan, ledger, byId, auditState, env, ck, now), cleanup: async (env) => { if (!ledger.finished()) return null; const rep = plan.endReport || (plan.endReport = {}); rep.trees = await cleanTrees(plan, env); const t = await require('../bot/temps').cleanTemps(env, { box: plan.box, max: 60, maxMs: 120000 }); rep.temps = t; await cleanLakeBlocks(plan, env); rep.hanging = await cleanHanging(plan, env).catch((e) => ({ error: String(e && e.message || e) })); return t; }, runUnit: (regionId, unit, env) => runUnit(plan, byId.get(regionId), unit, env), audit: (env, now, opts) => audit(plan, ledger, env.w, now, auditState, opts), sweep, rescue: (env, why) => require('../bot/water').rescue(env, plan.box, { why }) };
 }
 
 module.exports = { cleanTrees, cleanLakeBlocks, sealItem, MAX_UNITS, goToStation, checkLayer, LAYER_ROUNDS, standsOnFloater, aerialTree, planPit, laneBoxes, planRoad, stationsOf, lineCells, unitCells, sealPlan, orderFill, isFluid, exposed, runUnit, wrongCells, cellState, audit, createPitJob, SEAL_ITEMS, CHUNK, TILE, SWEEP_R };

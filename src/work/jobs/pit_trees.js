@@ -71,15 +71,17 @@ function columnsFor(w, t, here) {
  * Clear the tree blocks of `box` (y <= box.top). `env`: w (kindAt, nameAt), here(), exec(name, args), run(name, args) (moves: pillar, descend), cancel, optional travel.
  * @returns { ok, mined, risen, columns, failed: [{x,y,z,why}], left, ms, capped? }
  */
-async function clearTrees(env, box, { maxMs = MAX_MS, maxCells = MAX_CELLS } = {}) {
+async function clearTrees(env, box, { maxMs = MAX_MS, maxCells = MAX_CELLS, find = null, done = null } = {}) {
     const t0 = Date.now(), res = { ok: true, mined: 0, direct: 0, risen: 0, columns: 0, failed: [], left: 0 };
     const failed = new Map(), w = env.w;
+    // `find(w, skip)` replaces the tree scan for another kind of target (the pit's leftover seal blocks): the same walk, pillar and descend serve any block that hangs over the floor. `done(c)`: is the target gone?
+    const look = (skip) => (find ? find(w, skip) : scan(w, box, { skip }));
     const stop = () => (env.cancel && env.cancel.cancelled) || Date.now() - t0 > maxMs || res.mined >= maxCells;
     const eye = () => { const h = env.here(); return { x: h.x + 0.5, y: h.y + 1.62, z: h.z + 0.5 }; };
     const inReach = (c) => { const e = eye(); return Math.hypot(e.x - (c.x + 0.5), e.y - (c.y + 0.5), e.z - (c.z + 0.5)) <= REACH; };
     const dead = (r) => r && ['died', 'disconnected', 'cancelled'].includes(r.reason);
     const give = (c, why) => { failed.set(`${c.x},${c.y},${c.z}`, { x: c.x, y: c.y, z: c.z, why }); };
-    const gone = (c) => { const k = w.kindAt(c.x, c.y, c.z); return k === 'air' || !isTree(w.nameAt(c.x, c.y, c.z)); };
+    const gone = (c) => (done ? done(c) : (() => { const k = w.kindAt(c.x, c.y, c.z); return k === 'air' || !isTree(w.nameAt(c.x, c.y, c.z)); })());
 
     // the bot's own position may be unloaded around the box: go there first (same as the layer gate)
     const cx = (box.x0 + box.x1) >> 1, cz = (box.z0 + box.z1) >> 1;
@@ -87,7 +89,7 @@ async function clearTrees(env, box, { maxMs = MAX_MS, maxCells = MAX_CELLS } = {
 
     for (let round = 0; round < 400 && !stop(); round++) {
         const here = env.here();
-        const all = scan(w, box, { skip: new Set(failed.keys()) });
+        const all = look(new Set(failed.keys()));
         if (!all.length) break;
         // 1. blocks within reach of the ground: logs first (the leaves decay on their own once no log is near), nearest first
         const low = all.filter((c) => c.y - c.gy <= LOW).sort((a, b) => (/_log|_wood|_stem/.test(bare(w.nameAt(b.x, b.y, b.z))) ? 1 : 0) - (/_log|_wood|_stem/.test(bare(w.nameAt(a.x, a.y, a.z))) ? 1 : 0) || Math.hypot(a.x - here.x, a.z - here.z) - Math.hypot(b.x - here.x, b.z - here.z));
@@ -115,7 +117,7 @@ async function clearTrees(env, box, { maxMs = MAX_MS, maxCells = MAX_CELLS } = {
             for (let stage = 0; stage < 40 && !stop(); stage++) {
                 // everything of the tree within reach of the eyes, nearest first (blind: the server checks the distance, not the line)
                 for (;;) {
-                    const e = eye(), near = scan(w, box, { skip: new Set(failed.keys()) }).filter((c) => Math.hypot(c.x + 0.5 - (col.x + 0.5), c.z + 0.5 - (col.z + 0.5)) <= RADIUS && inReach(c));
+                    const e = eye(), near = look(new Set(failed.keys())).filter((c) => Math.hypot(c.x + 0.5 - (col.x + 0.5), c.z + 0.5 - (col.z + 0.5)) <= RADIUS && inReach(c));
                     if (!near.length || stop()) break;
                     near.sort((a, b) => Math.hypot(a.x + 0.5 - e.x, a.y + 0.5 - e.y, a.z + 0.5 - e.z) - Math.hypot(b.x + 0.5 - e.x, b.y + 0.5 - e.y, b.z + 0.5 - e.z));
                     const c = near[0], m = await env.exec('mine', { x: c.x, y: c.y, z: c.z, collect: false, blind: true });
@@ -123,7 +125,7 @@ async function clearTrees(env, box, { maxMs = MAX_MS, maxCells = MAX_CELLS } = {
                     if (m.ok || gone(c)) { res.mined++; progress = true; } else give(c, m.reason || 'mine');
                 }
                 // what is left within the radius, above the eyes: rise another stage, or stop
-                const e = eye(), up = scan(w, box, { skip: new Set(failed.keys()) }).filter((c) => Math.hypot(c.x + 0.5 - (col.x + 0.5), c.z + 0.5 - (col.z + 0.5)) <= RADIUS && c.y + 0.5 > e.y - 0.5);
+                const e = eye(), up = look(new Set(failed.keys())).filter((c) => Math.hypot(c.x + 0.5 - (col.x + 0.5), c.z + 0.5 - (col.z + 0.5)) <= RADIUS && c.y + 0.5 > e.y - 0.5);
                 if (!up.length || stop()) break;
                 const want = Math.min(...up.map((c) => c.y)) - 1 - env.here().y;
                 const n = Math.max(1, Math.min(STAGE, want));
@@ -147,7 +149,7 @@ async function clearTrees(env, box, { maxMs = MAX_MS, maxCells = MAX_CELLS } = {
 
     function finish() {
         res.failed = [...failed.values()]; res.ms = Date.now() - t0;
-        res.left = scan(w, box).length;
+        res.left = look(new Set()).length;
         if (res.left) res.ok = false;
         res.capped = stop() || undefined;
         return res;

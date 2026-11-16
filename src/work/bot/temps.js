@@ -106,9 +106,10 @@ async function cleanTemps(env, o = {}) {
         if (!temps.claim(dim, r, env.bot.username)) continue;
         out.tried++;
         const m = await env.exec('mine', { x: r.x, y: r.y, z: r.z, collect: false });
-        if (m.ok || env.w.kindAt(r.x, r.y, r.z) !== 'solid') { temps.remove(dim, r); out.broken++; }
-        else if (['died', 'disconnected', 'cancelled'].includes(m.reason)) break;
-        else if (m.reason === 'protected') temps.remove(dim, r);                                // it became a fixture: not ours to break
+        if (m.ok || env.w.kindAt(r.x, r.y, r.z) !== 'solid') { temps.remove(dim, r); out.broken++; continue; }
+        if (m.reason) { out.fails = out.fails || {}; out.fails[m.reason] = (out.fails[m.reason] || 0) + 1; out.firstFail = out.firstFail || { cell: [r.x, r.y, r.z], reason: m.reason, at: [f.x, f.y, f.z], detail: JSON.stringify(m.detail || {}).slice(0, 240) }; }
+        if (['died', 'disconnected', 'cancelled'].includes(m.reason)) break;
+        if (m.reason === 'protected') temps.remove(dim, r);                                     // it became a fixture: not ours to break
     }
     return out;
 }
