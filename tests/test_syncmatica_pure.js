@@ -71,3 +71,23 @@ const CONFIRM_USER = '1773796e636d61746963613a636f6e6669726d5f757365720000000184
         console.log('syncmatica client: ok');
     }).catch((e) => { console.error(e); process.exit(1); });
 }
+
+// the service side: list and build from a placement (stubs for the bot and for _buildFrom)
+(async () => {
+    const { JobsPart } = require('../src/work/service/jobs');
+    const fs = require('fs'), path = require('path');
+    const file = fs.readFileSync(path.join(__dirname, 'fixtures/easy-ironfarm-fixd.litematic'));
+    const c = new sm.SyncmaticaClient({}, { send: () => {} });
+    c.ready = true;
+    c.placements.set('p1', { id: 'p1', name: 'easy-ironfarm', fileName: 'easy-ironfarm.litematic', ownerName: 'Seia_Y', lastModifiedName: 'Seia_Y', pos: { x: 100, y: 70, z: 200 }, dimension: 'minecraft:overworld', rotation: 'NONE', mirror: 'NONE', subRegions: [], hash: sm.hashOf(file) });
+    c.fetch = async () => file;
+    let got = null;
+    const svc = Object.assign(Object.create(JobsPart.prototype), { bots: new Map([['B', { bot: { syncmatica: c } }]]), _dimSpec: () => ({ dim: 'overworld' }), _buildFrom: async (bp, origin, spec, st, extra) => { got = { bp, origin, spec, extra }; return { id: 'j1' }; } });
+    const list = svc.syncPlacements('B'); assert.strictEqual(list.length, 1); assert.strictEqual(list[0].owner, 'Seia_Y');
+    assert.throws(() => svc.syncPlacements('nobody'), /no Syncmatica list/);
+    await svc.createBuildFromPlacement({ placement: 'p1', bots: ['B'], start: true });
+    assert.deepStrictEqual(got.origin, { x: 100 - 22, y: 70 - 1, z: 200 - 20 }, 'the box minimum is the placement origin plus the region offset');
+    assert.strictEqual(got.spec.tile, 64); assert.deepStrictEqual(got.bp.size, [45, 23, 46]);
+    await assert.rejects(svc.createBuildFromPlacement({ placement: 'nope' }), /no placement/);
+    console.log('syncmatica service: ok');
+})().catch((e) => { console.error(e); process.exit(1); });

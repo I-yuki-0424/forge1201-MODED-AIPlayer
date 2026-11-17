@@ -117,6 +117,35 @@ class JobsPart {
         return d.kind === 'chest' ? { kind: 'chest', x: int(d.x, 'depot.x'), y: int(d.y, 'depot.y'), z: int(d.z, 'depot.z'), minValue } : { kind: 'shulker', item, minValue };
     }
 
+    /** The Syncmatica client of `name` (or of the first bot that has the list): Fabric mode, a server that runs the mod. */
+    _syncClient(name) {
+        const rec = name ? this.bots.get(name) : [...this.bots.values()].find((r) => r.bot && r.bot.syncmatica && r.bot.syncmatica.ready);
+        const c = rec && rec.bot && rec.bot.syncmatica;
+        need(c && c.ready, 'no Syncmatica list on that bot (Fabric mode and a server with the Syncmatica mod; the list arrives when the bot joins)', 404);
+        return c;
+    }
+
+    /** The placements the server shares, as a bot sees them: [{ id, name, fileName, owner, pos, dimension, rotation, mirror, subRegions, hash }]. */
+    syncPlacements(botName) {
+        return [...this._syncClient(botName).placements.values()].map((p) => ({ id: p.id, name: p.name, fileName: p.fileName, owner: p.ownerName, lastModifiedBy: p.lastModifiedName, pos: p.pos, dimension: p.dimension, rotation: p.rotation, mirror: p.mirror, subRegions: p.subRegions.length, hash: p.hash, litematicVersion: p.litematicVersion, dataVersion: p.dataVersion }));
+    }
+
+    /**
+     * Build job from a Syncmatica placement: the file is downloaded over the protocol (hash checked), read, put where Litematica shows it (origin, rotation, mirror; `spec.origin` moves its
+     * minimum corner instead) and built bottom-up. spec: { placement: id, bot?, bots?, start?, origin?, name?, tile? }. The material list (with buckets) is in the job summary.
+     */
+    async createBuildFromPlacement(spec) {
+        need(spec && typeof spec === 'object' && typeof spec.placement === 'string', 'spec.placement (a Syncmatica placement id) missing');
+        const c = this._syncClient(spec.bot || (spec.bots && spec.bots[0])), p = c.placements.get(spec.placement);
+        need(p, `no placement ${String(spec.placement).slice(0, 40)} in the list`, 404);
+        let file; try { file = await c.fetch(p.id); } catch (e) { throw new Problem(`the download failed: ${e.message}`); }
+        let placed; try { placed = require('../jobs/litematic').place(require('../jobs/litematic').parse(file), p, { keepAir: false }); } catch (e) { throw new Problem(`not a usable litematic: ${e.message}`); }
+        const o = spec.origin, origin = o ? { x: int(o.x, 'origin.x'), y: int(o.y, 'origin.y'), z: int(o.z, 'origin.z') } : placed.origin;
+        const D = this._dimSpec({ dim: String(p.dimension || 'minecraft:overworld').replace(/^minecraft:/, '').replace('the_', '') });
+        const name = String(spec.name || p.name || p.fileName).replace(/[^\w .-]/g, '').slice(0, 40) || 'litematic';
+        return this._buildFrom(placed.bp, origin, { ...spec, name, tile: spec.tile || 64 }, null, { dim: D.dim, syncmatica: { id: p.id, hash: p.hash, ignoredSubRegions: placed.ignored } });
+    }
+
     /** Build job. spec: { name?, structure, origin: {x,y,z}, ops?: [...], bots?, start?, force? } */
     async createBuild(spec) {
         need(spec && typeof spec === 'object', 'spec missing');
