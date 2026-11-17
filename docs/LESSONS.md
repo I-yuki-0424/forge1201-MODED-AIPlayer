@@ -167,3 +167,10 @@ they never create a bot). Found by the first live run of the console (structure 
   explicit format (`gunzip` + `parseUncompressed(.., 'big')`) instead of `nbt.parse`'s detection, which relies on exceptions.
 - **Rule:** a test of anything that reads NBT runs under `applyProtocolBypasses()` (tests/test_blueprint_pure.js does), and a pure test is no
   evidence about a process-wide patch: the first live run of a new feature is part of the task.
+
+## L20 — a blueprint made by commands can hold cells the survival game cannot (found 2026-11-17, the owner's iron golem trap)
+
+`easy-ironfarm-fixd.litematic` has six `oak_wall_sign` cells hung on other wall signs (a 3 x 3 block of signs facing south, only the first row on glass). Litematica pastes without block updates, so the file
+holds them, but the game refuses to place a wall sign whose support is not a solid block, and removing a support pops the sign: no order of placements builds them. Planning for them would park the unit for ever.
+- **Rule:** the Build plan (`build.unbuildable`) finds attached blocks whose support cell is empty or is itself an attached block, reports them in `plan.unbuildable` and does not try them; the completion check (`scripts/t26/place_c.js`) leaves them out of the reference and says so. Say it to the owner instead of failing the test quietly.
+- Also: a rule that matches a name suffix (`door$` for "needs a support") must not match another block (`trapdoor`): the simulated-server test (`tests/test_build_litematic_pure.js`) caught it; a unit test of the planner alone would not.
