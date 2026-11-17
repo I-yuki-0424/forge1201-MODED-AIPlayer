@@ -35,13 +35,13 @@ const has = (name, props, pred, solid = solidAll) => { const r = O.recipes(name,
     const r = has('piston', { facing: 'up', extended: 'false' }, () => true); assert.strictEqual(r.pitch, 'down');
     assert.deepStrictEqual(O.model('piston', { clicked: 'east', hy: 0.5, yRot: 270, pitch: 'level' }).props, { facing: 'west' });
 }
-{   // torches and signs: the item gives the standing or the wall block depending on where the player looks
-    const standing = has('torch', {}, () => true); assert.strictEqual(standing.pitch, 'down');
+{   // torches and signs (26.1.2, measured): the top of a block gives the standing block, a side face the wall block hung on the clicked block
+    const standing = has('torch', {}, () => true); assert.strictEqual(standing.pitch, 'down'); assert.strictEqual(standing.clicked, 'up');
     const wall = O.recipes('wall_torch', { facing: 'east' }, (d) => d === 'west'); assert.ok(wall.length);
-    for (const q of wall) assert.strictEqual(O.dirOfYRot(q.yRot), 'west', 'looks at the wall it hangs on');
+    for (const q of wall) { assert.strictEqual(q.clicked, 'east', 'the face clicked is the face the torch looks out of'); assert.strictEqual(O.dirOfYRot(q.yRot), 'west', 'and the player looks at the wall'); assert.strictEqual(q.support, 'west'); }
     assert.deepStrictEqual(O.recipes('wall_torch', { facing: 'east' }, (d) => d === 'east'), [], 'no wall on the west side');
     const rw = O.recipes('redstone_wall_torch', { facing: 'south', lit: 'true' }, (d) => d === 'north'); assert.ok(rw.length); assert.strictEqual(rw[0].name, 'redstone_wall_torch');
-    const ws = O.recipes('oak_wall_sign', { facing: 'south', waterlogged: 'false' }, (d) => d === 'north'); assert.ok(ws.length); assert.strictEqual(O.itemOf('oak_wall_sign'), 'oak_sign');
+    const ws = O.recipes('oak_wall_sign', { facing: 'south', waterlogged: 'false' }, (d) => d === 'north'); assert.ok(ws.length); assert.strictEqual(O.itemOf('oak_wall_sign'), 'oak_sign'); assert.ok(ws.every((q) => q.support === 'north' && q.clicked === 'south'));
     for (let rot = 0; rot < 16; rot++) { const r = O.recipes('oak_sign', { rotation: String(rot) }); assert.ok(r.length, `rotation ${rot}`); assert.strictEqual(O.model('oak_sign', r[0], solidAll).props.rotation, String(rot)); }
 }
 {   // chest, bed, gate, wire, pillars

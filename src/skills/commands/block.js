@@ -237,7 +237,7 @@ async function placeWithRecipe(ctx, { cell, item, expect, recipe, temp }) {
     const D = { north: [0, 0, -1], south: [0, 0, 1], west: [-1, 0, 0], east: [1, 0, 0], up: [0, 1, 0], down: [0, -1, 0] }[recipe.support];
     if (!D) throw new SkillError('invalid_args', { why: 'bad recipe support', recipe });
     const sup = { x: x + D[0], y: y + D[1], z: z + D[2] }, sb = w.blockAt(sup.x, sup.y, sup.z);
-    if (!sb || REPLACEABLE.test(sb.name) || FLUID.test(sb.name) || sb.boundingBox === 'empty') throw new SkillError('invalid_target', { why: 'the recipe support is not a block that can be clicked', support: sup, block: sb ? sb.name : null, target: cell });
+    if (!sb || REPLACEABLE.test(sb.name) || FLUID.test(sb.name)) throw new SkillError('invalid_target', { why: 'the recipe support is not a block that can be clicked', support: sup, block: sb ? sb.name : null, target: cell });
     const sneak = !!recipe.sneak || isInteractive(sb.name);
     const free = (c) => !(c.x === x && c.z === z && (c.y === y || c.y + 1 === y));
     const dist = (c) => Math.hypot(c.x + 0.5 - (sup.x + 0.5), c.y + 1.62 - (sup.y + 0.5), c.z + 0.5 - (sup.z + 0.5));

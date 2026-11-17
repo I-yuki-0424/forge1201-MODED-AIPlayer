@@ -86,12 +86,12 @@ function model(name, ctx, solid = () => true) {
         case 'ladder': return horizontal(clicked) ? { name: n, props: { facing: clicked } } : null;
         case 'wire': return clicked === 'up' && solid('down') ? { name: n, props: {} } : null;
         case 'torch': case 'sign': {
-            // StandingAndWallBlockItem: the first of the player's nearest-looking directions (never UP) at which the block can stand wins. Only a look along one axis is taken (ties of the
-            // order are not modelled): down = the standing block, a horizontal look = the wall block on the wall the player looks at.
+            // Measured on 26.1.2 (sign_probe, 2026-11-17): a click on the TOP of a block gives the standing block whatever the look; a click on a SIDE face gives the wall block, attached to the
+            // clicked block (facing = the face clicked). The recipe also looks toward the wall (the older rule of the nearest-looking directions), so that both rules agree.
             const wall = fam === 'torch' ? n.replace(/torch$/, 'wall_torch') : n.replace(/_sign$/, '_wall_sign').replace(/^(.*)_hanging_wall_sign$/, '$1_wall_hanging_sign');
-            if (look === 'up') return null;
-            if (look === 'down') return solid('down') ? { name: n, props: fam === 'sign' ? { rotation: String(Math.floor(((180 + ctx.yRot) * 16) / 360 + 0.5) & 15) } : {} } : null;
-            return solid(look) ? { name: wall, props: { facing: OPP[look] } } : null;
+            if (clicked === 'down') return null;
+            if (clicked === 'up') return pitch === 'down' && solid('down') ? { name: n, props: fam === 'sign' ? { rotation: String(Math.floor(((180 + ctx.yRot) * 16) / 360 + 0.5) & 15) } : {} } : null;
+            return pitch === 'level' && facing === OPP[clicked] && solid(OPP[clicked]) ? { name: wall, props: { facing: clicked } } : null;
         }
         default: return null;
     }

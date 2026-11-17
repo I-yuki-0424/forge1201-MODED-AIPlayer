@@ -21,7 +21,7 @@ function sim(deckY) {
         blockAt: (x, y, z) => { const b = get(x, y, z); return { name: b.name, getProperties: () => ({ ...b.props }), boundingBox: THIN.test(b.name) ? 'empty' : 'block' }; },
     };
     const set = (x, y, z, name, props = {}) => m.set(key(x, y, z), { name, props });
-    const clickable = (p) => { const k = w.kindAt(p.x, p.y, p.z); return k === 'solid' || k === 'partial'; };
+    const clickable = (p) => { const n = w.nameAt(p.x, p.y, p.z); return !REPL.test(n); };
     const dir = (c, d) => ({ x: c.x + O.DIR[d][0], y: c.y + O.DIR[d][1], z: c.z + O.DIR[d][2] });
     const exec = async (name, a) => {
         const c = { x: a.x, y: a.y, z: a.z };
@@ -84,5 +84,6 @@ function sim(deckY) {
     assert.deepStrictEqual([...S.m.entries()].filter(([k, b]) => b.name === 'cobblestone' && !plan.cellSet.has(k)), [], 'no temporary block is left');
     // a mid-air bed: foot placed, the game made the head
     assert.strictEqual(at(...[...placed.bp.blocks.filter((b) => /bed/.test(placed.bp.palette[b.s].name) && placed.bp.palette[b.s].props.part === 'head')].slice(0, 1).map((b) => [b.x, b.y, b.z])[0]).props.part, 'head');
+    if (process.env.SHOW_TEMPS) { const rel = (c) => `${c.x - origin.x},${c.y - origin.y},${c.z - origin.z}`; let run = []; const out = []; for (const e of S.log) { if (e[0] === 'place' && e[3] === 'scaffold') run.push(rel(e[1])); else if (run.length) { out.push(run.join(' ')); run = []; } } console.log(out.length + ' chains:\n' + out.join('\n')); }
     console.log(`build litematic: ok (${S.log.length} actions, ${temps.length} temporary blocks, ${pours.length} buckets)`);
 })().catch((e) => { console.error(e); process.exit(1); });

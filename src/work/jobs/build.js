@@ -113,13 +113,18 @@ function planBuild(cells, origin, { tile = TILE, known = null } = {}) {
     // phases: per height one for the blocks that stand alone and one for the ones that need a support (a torch hangs on a block of the next row, which a row-wise order would not have yet), then the fluids
     const minY = Math.min(...all.map((c) => c.y)), maxY = Math.max(...all.map((c) => c.y)), layers = maxY - minY + 1, phases = 2 * layers + (all.some(fluidCell) ? 1 : 0);
     const phaseOf = (c) => (fluidCell(c) ? 2 * layers : 2 * (c.y - minY) + (ATTACHED.test(c.block) ? 1 : 0));
+    // ORDER (2026-11-17): within a phase a cell is placed next to something that already stands, growing outwards like a flood from what is built (earlier phases, then the cells placed
+    // before it in this phase); a row-by-row order put the far end of a floating arm first and needed a chain of temporary blocks to reach it. Only a component that touches nothing
+    // gets a seed (its lowest cell), and that one cell is the only one that may need a temporary support.
+    const order = growthOrder(all, phaseOf, fluidCell, 2 * layers, tile);
     const tiles = new Map();
     for (const c of all) {
         const tx = Math.floor(c.x / tile), tz = Math.floor(c.z / tile), id = `b${tx}_${tz}`;
         let t = tiles.get(id);
         if (!t) tiles.set(id, t = { id, z0: tz * tile, z1: tz * tile + tile - 1, x0: Infinity, x1: -Infinity, cells: new Map() });
         t.x0 = Math.min(t.x0, c.x); t.x1 = Math.max(t.x1, c.x);
-        const key = phaseOf(c) * tile + (c.z - t.z0);                                              // unit index inside the tile = phase * rows + row
+        const o = order.get(ckeyOf(c)), key = phaseOf(c) * tile + o.unit;                         // unit index inside the tile = phase * rows + a chunk of the growth order
+        c.seq = o.seq;
         (t.cells.get(key) || t.cells.set(key, []).get(key)).push(c);
     }
     const regions = [...tiles.values()].map((t) => ({
@@ -131,11 +136,42 @@ function planBuild(cells, origin, { tile = TILE, known = null } = {}) {
     return { origin, minY, layers, phases, tiles, regions, unsupported, unbuildable: [...never].map(([k, why]) => ({ at: k, why })), footprint, cellSet, want, count: placeable.length + waterlog.length, skipped, materials: materialsOf(placeable) };
 }
 
-/** Cells of one unit in placement order: structural blocks first, then attached ones; x serpentine by row. */
+/** Cells of one unit in placement order (the growth order of planBuild; a waterlog pass cell after its block). */
 function unitCells(plan, regionId, u) {
     const t = plan.tiles.get(regionId), list = (t.cells.get(u) || []).slice();
-    list.sort((a, b) => (!!a.waterlog - !!b.waterlog) || (ATTACHED.test(a.block) - ATTACHED.test(b.block)) || (a.y - b.y) || ((u % 2) ? b.x - a.x : a.x - b.x));
+    list.sort((a, b) => (!!a.waterlog - !!b.waterlog) || (a.seq - b.seq));
     return list;
+}
+
+const ckeyOf = (c) => `${c.x},${c.y},${c.z}`;
+/**
+ * seq / unit of every cell. Per phase, in phase order: a cell is READY when a 6-neighbour is already ordered (an earlier phase, or earlier in this phase); ready cells are taken in a
+ * breadth-first wave (lowest first), and when nothing is ready the lowest remaining cell seeds a new component. Units are chunks of the order (at least 4 cells, at most 63 per phase).
+ * The fluid phase keeps height, then x, then z. Returns Map key -> { seq, unit }.
+ */
+function growthOrder(cells, phaseOf, fluidCell, fluidPhase, tile = TILE) {
+    const byPhase = new Map(), out = new Map(), done = new Set();
+    for (const c of cells) { const p = phaseOf(c); (byPhase.get(p) || byPhase.set(p, []).get(p)).push(c); }
+    const NB = [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]];
+    for (const p of [...byPhase.keys()].sort((a, b) => a - b)) {
+        const list = byPhase.get(p).slice().sort((a, b) => a.y - b.y || a.x - b.x || a.z - b.z), seqd = [];
+        if (p === fluidPhase) { for (const c of list) seqd.push(c); }
+        else {
+            const rest = new Map(list.map((c) => [ckeyOf(c), c])), touches = (c) => NB.some(([dx, dy, dz]) => done.has(`${c.x + dx},${c.y + dy},${c.z + dz}`));
+            const take = (c) => { rest.delete(ckeyOf(c)); done.add(ckeyOf(c)); seqd.push(c); };
+            let frontier = list.filter(touches);
+            while (rest.size) {
+                if (!frontier.length) { const seed = [...rest.values()][0]; frontier = [seed]; }            // nothing ready: the lowest remaining cell starts a component
+                const next = [];
+                for (const c of frontier) { if (!rest.has(ckeyOf(c))) continue; take(c); for (const [dx, dy, dz] of NB) { const q = rest.get(`${c.x + dx},${c.y + dy},${c.z + dz}`); if (q) next.push(q); } }
+                frontier = next.sort((a, b) => a.y - b.y || a.x - b.x || a.z - b.z);
+            }
+        }
+        const chunk = Math.max(4, Math.ceil(seqd.length / (tile - 1)));
+        seqd.forEach((c, i) => out.set(ckeyOf(c), { seq: i, unit: Math.min(tile - 1, Math.floor(i / chunk)) }));
+        if (p !== fluidPhase) for (const c of seqd) done.add(ckeyOf(c));
+    }
+    return out;
 }
 
 const at = (c, d) => ({ x: c.x + D[d][0], y: c.y + D[d][1], z: c.z + D[d][2] });
@@ -352,7 +388,7 @@ async function placeOriented(plan, c, item, env, r) {
 /** A block a placement can be clicked against: not air, a fluid or a replaceable plant, and with a shape. */
 function clickable(w, p) {
     const k = w.kindAt(p.x, p.y, p.z), n = w.nameAt(p.x, p.y, p.z);
-    return (k === 'solid' || k === 'partial') && !!n && !REPLACEABLE.test(n);
+    return !!n && k !== 'air' ? !REPLACEABLE.test(n) : !!n && !REPLACEABLE.test(n) && !/^(air|cave_air|void_air|water|lava)$/.test(n);      // a torch or a sign has no collision (kind 'air') but the server accepts a click on it
 }
 const isInteractiveBlock = (w, p) => (require('../../skills/world').isInteractive((w.nameAt(p.x, p.y, p.z) || '')) ? 1 : 0);
 
