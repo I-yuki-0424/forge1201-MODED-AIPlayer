@@ -3,7 +3,7 @@
 // per-tick input frames, run by skills/runner.js, ending in a named reason) but are NOT registered in skills/index.js COMMANDS: the
 // RL action matrix and its spec hash stay what every checkpoint was trained on (docs/proposed/WORKERS-v1.md).
 const { run, SkillError } = require('../../skills/runner');
-const { feetCell } = require('../../skills/motion');
+const { feetCell, centre, hdist } = require('../../skills/motion');
 const { holdItem, count } = require('../../skills/commands/item');
 const { mine, dropOf } = require('../../skills/commands/block');
 const { openAt, station, openBox, CONTAINERS, inPlayer, inContainer } = require('../../skills/commands/gui');
@@ -36,6 +36,9 @@ async function pillar(ctx, { levels, items = null, within = null }) {
     for (let i = 0; i < levels; i++) {
         const f = feetCell(bot.entity.position);
         if (w.kindAt(f.x, f.y - 1, f.z) !== 'solid') throw new SkillError('invalid_target', { why: 'nothing solid under the feet', at: f, done: placed });
+        // Centred on the cell first: a body standing 0.2 off the middle brushes the next column with its head or its feet when it jumps (a block there stopped the jump, `pillar_jump stuck`,
+        // 14 ticks, 30 times in a row on the litematic builds 2026-11-17).
+        { const mid = centre(f); if (hdist(bot.entity.position, mid) > 0.15) await ctx.until(() => hdist(bot.entity.position, mid) <= 0.12, 25, 'stuck', () => ({ forward: hdist(bot.entity.position, mid) > 0.1, sneak: true, yaw: Math.atan2(-(mid.x - bot.entity.position.x), -(mid.z - bot.entity.position.z)) })).catch(() => null); }
         // Never ride on another bot's scaffolding (owner 2026-11-11): its owner takes it away, and a bot standing on it falls. The caller steps aside and tries again.
         const under = bot.__temps && bot.__temps.get(fixtures.dimOf(bot), { x: f.x, y: f.y - 1, z: f.z });
         if (under && under.by && under.by !== bot.username && under.kind !== 'road' && under.kind !== 'seal' && under.kind !== 'rescue') throw new SkillError('invalid_target', { why: "standing on another bot's block", crowded: true, at: f, done: placed, by: under.by });
