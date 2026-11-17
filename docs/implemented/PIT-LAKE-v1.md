@@ -47,6 +47,18 @@ What that means in the code (`pit.js` `lakeFill` + `floorFill`, `pit_lake.js` op
 
 Not decided by me, to be seen in the runs: whether a floor cell in the middle of a lake can always be laid (it needs a neighbour that is already a block and a line of sight through an opened cell; the pending list is the answer to the order problem, not a proof).
 
+### Layered rule: measured (2026-11-17, Peaceful, NOT yet a pass)
+
+| Run | Chunk | Result |
+| :-- | :-- | :-- |
+| `mna-layer-a` (mine_a, worlds 4-6) | random | **12/12, PASS** (the rule does not touch it) |
+| `mnb-layer-a` (mine_b, 240 min, expert) w1 | seed 5542787360336474983: a rock-covered flooded cave (4403 water cells in the 16x16 box, water from y 59 down to the bottom, almost no air) | FAIL: 9/69 units, the bot drowned within 10 minutes (water rescue "stuck"), lost its kit and waited for a pickaxe for the other 220 min |
+| w2 | seed 2858809012018838319: 987 water + 135 lava cells | FAIL: 15/64 units, 3 stuck (could not stand at the station, rise stuck), 2 deaths, 372 temporaries left |
+| w3 | seed -5661193582629250896: 3 water cells | FAIL (finished 68/68 in 5407 s but 4 dirty layers: 2 seals kept + 2 water cells at the ring unreachable, 3 temporaries) |
+| `DEPTH=24` A/B on w1's seed, same chunk, layered vs `PIT_LAKE_MODE=body`, 50 min | the flooded cave, y 78..55 | **both FAIL**: layered 10/12 units, 1 death, `lake` blocks laid at y 62..58 (the rule does run), then "stuck at rise" / water rescue "stuck" at y 57-56 and 115 blocks left; body 9/12, 1 death, 143 plain blocks left, `missing_item` in the lake call |
+
+What the runs show: the layered rule lays floors in a real lake for the first 3-4 levels; below that the bot ends up in the water (a pillar in water does not rise: `stuck at rise`; the water rescue cannot get it out), dies, and the harness (keep_inventory false) leaves it without tools for the rest of the run. The same chunk fails the same way with the old fill, so the first problem is not the rule's bookkeeping but what happens at the moment the bot loses its floor. Unknown yet: which dig opens the bot to the water (a ceiling cell over hidden water, a ring cell beside the box), and whether the floor of the next level could have been laid before that dig.
+
 ## Open
 
 - The lake-fill blocks are plain blocks that nobody owns: when the unit that should dig them is parked they stay (seed 4461, 5 blocks). Register them with a `lake` kind that the expert model does not treat as rock and that `cleanTemps` takes at the end, or let the final sweep (`pit_sweep.js`) count them as wrong cells again.
