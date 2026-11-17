@@ -231,7 +231,7 @@ class SyncmaticaClient extends EventEmitter {
 
     // -------- share (upload)
     /** Publish a file as a placement; resolves when the server has the file (it then lists the placement and tells every client). */
-    share({ file, name, fileName, pos, dimension = 'minecraft:overworld', rotation = 'NONE', mirror = 'NONE', owner, ownerName, litematicVersion = 7, dataVersion = 0 }) {
+    share({ file, name, fileName, pos, dimension = 'minecraft:overworld', rotation = 'NONE', mirror = 'NONE', owner, ownerName, litematicVersion = 7, dataVersion = 0, idleMs = 6000 }) {
         if (!this.ready) return Promise.reject(new Error('not connected to the Syncmatica list yet'));
         const id = crypto.randomUUID(), hash = hashOf(file);
         const p = { id, fileName: fileName || `${name}.litematic`, hash, name, owner, ownerName, lastModifiedBy: owner, lastModifiedName: ownerName, litematicVersion, dataVersion, pos, dimension, rotation, mirror, subRegions: [] };
@@ -239,11 +239,14 @@ class SyncmaticaClient extends EventEmitter {
         u.promise = new Promise((resolve, reject) => { u.resolve = resolve; u.reject = reject; u.timer = setTimeout(() => { this.uploads.delete(id); reject(new Error('upload timed out')); }, 60000); });
         this.uploads.set(id, u);
         this.send('register_metadata', writeMetadata(p, this.features));
-        return u.promise.then(() => p);
+        // A server that already holds a file with this hash does not ask for it again (it lists the placement at once): no request_download within a few seconds is that case.
+        u.idle = setTimeout(() => { if (this.uploads.get(id) === u && u.offset === 0) { this.uploads.delete(id); clearTimeout(u.timer); u.already = true; u.resolve(); } }, idleMs);
+        return u.promise.then(() => { p.already = !!u.already; return p; });
     }
     _upload(id, ack = false) {
         const u = this.uploads.get(id);
         if (!u) return;
+        clearTimeout(u.idle);
         if (u.offset >= u.file.length) {
             this.send('finished_litematic', new Writer().uuid(id).done());
             this.uploads.delete(id); clearTimeout(u.timer); u.resolve();

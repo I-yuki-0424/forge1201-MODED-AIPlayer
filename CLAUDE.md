@@ -177,6 +177,13 @@ do not add LLM calls to a per-tick path. Today's `AgentManager` still plans with
 
 `AgentManager` queues chat, enforces a 5 s LLM cooldown, and tracks in-flight LLM calls per bot (`activeLlmRequests`, keyed by botId). On a new `EXECUTE_ACTION` the legacy actuator sets `currentCancelToken.cancelled = true`, drains the queue, then awaits `isExecuting` before assigning a new token (prevents races).
 
+### Forge mode and Fabric mode (2026-11-17, docs/implemented/SYNCMATICA-v1.md)
+
+`src/transport/platform.js` (`MC_PLATFORM=forge|fabric`) picks `forge_bot.js` (FML3 host marker, handshake proxy, bypasses, chat hardening, mod registry) or `fabric_bot.js` (the vanilla protocol, nothing patched; the
+26.1 item-component fix; the Syncmatica client `bot.syncmatica`); callers use `src/transport/index.js` (`createBot`, `attachHandshake`). Litematica blueprints: `src/transport/syncmatica.js` (placement list, download, share),
+`src/work/jobs/litematic.js` (file -> Blueprint, placement with rotation / mirror), `src/work/jobs/orient.js` (block states as a search over clicked face, click height and look), the Build job `src/work/jobs/build.js`
+(bottom-up, fluids last, temporary chains, state check), command `pour` for buckets. Test: `scripts/t26/run.sh N place_c.js` (an iron golem trap in the sky, five-trial standard 50 %).
+
 ### Forge Protocol Bridge (`src/forge_handshake_state_machine.js`)
 
 Intercepts `login_plugin_request` and acts as a transparent proxy; `fml:loginwrapper` wraps `fml:handshake`. Disc 1 → mod list reply; 3 → buffer registry sync; 4 → Ack; 6 → complete. Emits `handshake_complete` with the buffered registry payload. The trigger is the host suffix `\0FML3\0` (breaks on Node 22.23.4, BUGFIX-20261030-002).
