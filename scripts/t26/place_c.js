@@ -15,7 +15,8 @@ const sm = require('../../src/transport/syncmatica');
 const lit = require('../../src/work/jobs/litematic');
 const build = require('../../src/work/jobs/build');
 const O = require('../../src/work/jobs/orient');
-const LIMIT_MIN = Number(process.env.LIMIT_MIN || 90), TRIALS = Number(process.env.TRIALS || 1), name = `Fm${T.WORLD}`;
+const LIMIT_MIN = Number(process.env.LIMIT_MIN || 90), TRIALS = Number(process.env.TRIALS || 1), BOTS = Math.min(6, Math.max(1, Number(process.env.BOTS || 1)));
+const names = Array.from({ length: BOTS }, (_, i) => `Fm${T.WORLD}${'abcdef'[i - 1] || ''}`), name = names[0];      // BOTS=n: n builders on one job (the crew ledger shares the units)
 const FILE = process.env.LITEMATIC || path.join(__dirname, '../../tests/fixtures/easy-ironfarm-fixd.litematic');
 const STACK = { white_bed: 1, water_bucket: 1, lava_bucket: 1, oak_sign: 16, snowball: 16 };
 const sleep = T.sleep, strip = T.strip;
@@ -92,8 +93,7 @@ async function trial(k, S, svc, seed, rep) {
         const items = chests[i].map((s, j) => `{Slot:${j}b,id:"minecraft:${s.it}",count:${s.n}}`).join(',');
         await S.must(`data merge block ${sup[i].x} ${sup[i].y} ${sup[i].z} {Items:[${items}]}`);
     }
-    await S.must(`tp ${name} ${M.x - 4.5} ${M.y} ${M.z - 3.5}`);
-    await T.kit(S, name, { blocks: 128 });
+    for (const [i, n] of names.entries()) { await S.must(`tp ${n} ${M.x - 4.5 - i} ${M.y} ${M.z - 3.5}`); await T.kit(S, n, { blocks: 128 }); }
     await sleep(4000);
     for (let i = 0; i < chests.length; i++) svc.addSite({ name: `supply${i}`, x: sup[i].x, y: sup[i].y, z: sup[i].z, purpose: 'free' });      // after the bot sees the chunk
     await T.say(S, `place_c: ${name} builds ${parsed.meta.name} (${probe.blocks.length} blocks) at ${M.x} ${M.y} ${M.z}, trial ${k + 1}/${TRIALS}`);
@@ -110,7 +110,7 @@ async function trial(k, S, svc, seed, rep) {
             const f = await c.fetch(found.id);
             got = { id: found.id, bytes: f.length, pos: found.pos, hashOk: sm.hashOf(f) === found.hash, rotation: found.rotation, mirror: found.mirror };
             const pp = lit.place(lit.parse(f), found, { keepAir: false });
-            const job = await svc._buildFrom(pp.bp, pp.origin, { name: 'iron-farm', bots: [name], start: true, tile: 64 }, null, { dim: 'overworld' });
+            const job = await svc._buildFrom(pp.bp, pp.origin, { name: 'iron-farm', bots: names, start: true, tile: 64 }, null, { dim: 'overworld' });
             got.origin = pp.origin; got.job = job.id;
             let lastLog = 0;
             while (Date.now() - t0 < LIMIT_MIN * 60000) {
@@ -149,7 +149,7 @@ async function trial(k, S, svc, seed, rep) {
 
 (async () => {
     const rep = T.reporter('place_c');
-    const { S, svc, seed } = await T.open([name]);
+    const { S, svc, seed } = await T.open(names);
     await S.must('gamerule keep_inventory true');                                                             // owner: survival with keep inventory, peaceful
     const out = [];
     for (let k = 0; k < TRIALS; k++) out.push(await trial(k, S, svc, seed, rep));

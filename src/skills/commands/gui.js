@@ -123,6 +123,8 @@ async function withdraw(ctx, { item, count: n, x, y, z, partial = false }) {
     if (!it) throw new SkillError('invalid_args', { item });
     const win = await openAt(ctx, station(ctx, CONTAINERS, { x, y, z }, 'container'), (b) => openBox(bot, b));
     // fewer in the container than asked: take what there is (a supply chest holds 9 hoppers, a script asks for a stack); none at all is the failure
+    // the contents of the window can arrive a moment after it opens: wait a second for the item before calling it missing
+    await ctx.until(() => inContainer(win, it.id) >= Math.min(n, 1), 20, 'not_confirmed').catch(() => null);
     const there = inContainer(win, it.id);
     if (there < 1 || (there < n && !partial)) { bot.closeWindow(win); throw new SkillError('missing_item', { item, where: 'container', want: n, have: there }); }
     const want = n; n = Math.min(n, there);
