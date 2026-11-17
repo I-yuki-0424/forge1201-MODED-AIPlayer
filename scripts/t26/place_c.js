@@ -126,7 +126,7 @@ async function trial(k, S, svc, seed, rep) {
                         const all = j.impl.ledger.stuck || [], cnt = {};
                         for (const x of all) { const k = `${x.reason}/${(x.detail && x.detail.stage) || ''}`; cnt[k] = (cnt[k] || 0) + 1; }
                         const rel = (x) => { const c = x.detail && x.detail.cell; return c ? `${c.block}@${c.x - pp.origin.x},${c.y - pp.origin.y},${c.z - pp.origin.z}` : '?'; };
-                        if (all.length) console.log(`[stuck units ${all.length}] ${JSON.stringify(cnt)} first: ${all.slice(0, 10).map((x) => rel(x) + ' ' + JSON.stringify(x.detail && x.detail.why || '').slice(0, 70)).join(' | ')}`);
+                        if (all.length) console.log(`[stuck units ${all.length}] ${JSON.stringify(cnt)} first: ${all.slice(0, 10).map((x) => rel(x) + ' ' + JSON.stringify(x.detail && x.detail.nav || x.detail && x.detail.why || '').slice(0, 230)).join(' | ')}`);
                     } catch (e) { console.log('[progress] failed:', e.message); }
                 }
                 await sleep(3000);

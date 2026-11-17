@@ -364,6 +364,7 @@ async function placeOriented(plan, c, item, env, r) {
         if (!p.ok && env.navOn && env.navOn() && ['unreachable', 'not_visible', 'stuck', 'precondition_failed'].includes(p.reason)) {
             const t = await env.travel({ x: c.x, y: c.y, z: c.z }, { near: 3, nearY: 3 });
             if (t.ok) p = await env.exec('place', args);
+            else p = { ...p, detail: { ...(p.detail || {}), nav: { reason: t.reason, why: t.detail && t.detail.why, failed: t.detail && t.detail.failed } } };
         } else if (!p.ok && (p.reason === 'unreachable' || p.reason === 'not_visible' || (p.reason === 'stuck' && p.detail && p.detail.goal === 'reach placement face'))) {
             // no NAV (legacy walker): a staircase of temporary blocks outside the footprint, climbed, then the same placement again
             const sc = scaffoldFor(plan, w, c, plan.origin.y, { reuse: new Set(env.scaffold.cells.map((z) => `${z.x},${z.y},${z.z}`)) }), mat = sealItem(env, 2);
