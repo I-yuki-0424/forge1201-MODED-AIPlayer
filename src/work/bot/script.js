@@ -156,7 +156,7 @@ async function runScript(script, env, { cancel = { cancelled: false }, maxSteps 
                     const k = `${t.item}@${chest.x},${chest.y},${chest.z}`;
                     if (missed(k)) continue;                                         // this run already found the chest without it
                     const a = await approach(env, chest, { why: `to take ${t.item}` });
-                    if (a) { why.push(`${chest.name}: ${a.reason}`); if (['died', 'disconnected', 'cancelled'].includes(a.reason)) { res = a; break; } continue; }
+                    if (a) { why.push(`${chest.name}: ${a.reason}${a.detail && a.detail.why ? ' (' + String(a.detail.why).slice(0, 90) + ')' : ''}`); if (['died', 'disconnected', 'cancelled'].includes(a.reason)) { res = a; break; } continue; }
                     let r = await command('withdraw', { item: t.item, count: want, partial: true }, { atSite: chest });       // fewer than asked: what there is
                     if (r.ok) { res = r; note(`took ${t.item} from ${chest.name}`); break; }
                     if (r.reason === 'missing_item') markMiss(k);
@@ -178,7 +178,7 @@ async function runScript(script, env, { cancel = { cancelled: false }, maxSteps 
                         const k = `${cls}@${chest.x},${chest.y},${chest.z}`;
                         if (missed(k)) continue;
                         const a = await approach(env, chest, { why: `to take a ${cls}` });
-                        if (a) { why.push(`${chest.name}: ${a.reason}`); if (['died', 'disconnected', 'cancelled'].includes(a.reason)) { res = a; break; } continue; }
+                        if (a) { why.push(`${chest.name}: ${a.reason}${a.detail && a.detail.why ? ' (' + String(a.detail.why).slice(0, 90) + ')' : ''}`); if (['died', 'disconnected', 'cancelled'].includes(a.reason)) { res = a; break; } continue; }
                         for (let n = 0; n < 6 && usable() < until; n++) {
                             const r = await command('take_usable', { class: cls }, { atSite: chest });
                             if (r.ok) { note(`took a ${cls}${r.detail && r.detail.item ? ` (${r.detail.item}, ${r.detail.left} uses left)` : ''} from ${chest.name}`); continue; }
