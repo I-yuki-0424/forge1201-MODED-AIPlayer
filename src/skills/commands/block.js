@@ -174,9 +174,9 @@ function supports(w, cell) {
 const overlaps = (pos, c) => pos.x + 0.3 > c.x && pos.x - 0.3 < c.x + 1 && pos.z + 0.3 > c.z && pos.z - 0.3 < c.z + 1 && pos.y + 1.8 > c.y && pos.y < c.y + 1;
 
 /** place {x, y, z, item, fluid?}: place the block item into that cell, against any solid neighbour. `fluid` allows a cell of water or lava. */
-async function place(ctx, { x, y, z, item, fluid = false, temp = null }) {
+async function place(ctx, { x, y, z, item, fluid = false, temp = null, recipe = null, block = null }) {
     const bot = ctx.bot, w = ctx.world, cell = { x, y, z };
-    if (!bot.registry.blocksByName[item]) throw new SkillError('invalid_args', { item, why: 'not a placeable block item' });
+    if (!bot.registry.blocksByName[block || item]) throw new SkillError('invalid_args', { item, block, why: 'not a placeable block item' });
     const cur = w.blockAt(x, y, z);
     if (!cur) throw new SkillError('unreachable', { why: 'target chunk not loaded' });
     if (!REPLACEABLE.test(cur.name) && !(fluid && FLUID.test(cur.name))) throw new SkillError('invalid_target', { why: `cell holds ${cur.name}`, target: cell });
@@ -184,6 +184,7 @@ async function place(ctx, { x, y, z, item, fluid = false, temp = null }) {
     // Never on top of a chest, Ender chest or shulker box: it could not be opened any more (owner 2026-11-10). A water seal (`fluid`) is the one exception, a fluid must be stopped;
     // it is registered as temporary (`temp`) and taken away again when nothing flows any more (work/bot/temps.js).
     if (!fluid && fixtures.coversContainer(w, cell)) throw new SkillError('protected', { why: 'a block there would cover a container', block: item, target: cell });
+    if (recipe) return placeWithRecipe(ctx, { cell, item, expect: block || item, recipe, temp });
     const refs = supports(w, cell);
     if (!refs.length) throw new SkillError('invalid_target', { why: 'no solid neighbour to place against', target: cell });
     const free = (c) => !(c.x === x && c.z === z && (c.y === y || c.y + 1 === y));
@@ -223,6 +224,45 @@ async function place(ctx, { x, y, z, item, fluid = false, temp = null }) {
         if (++tried >= 3) break;
     }
     throw new SkillError(tried ? 'not_confirmed' : 'not_visible', { target: cell, tried });
+}
+
+/**
+ * Place with an explicit recipe (src/work/jobs/orient.js): the click lands on the face `recipe.face` of the block `recipe.support` away from the cell, at height
+ * `recipe.hy`, while the player looks along `recipe.yRot` / `recipe.pitch` (the look decides facing, rotation and half of most blocks). The server checks the reach
+ * to the clicked block, not the line of sight (vanilla), so the click is blind (Body frame `cell`); only the walk to a spot within reach is needed.
+ * `expect` is the block that must stand in the cell afterwards (an item may place another block: redstone -> redstone_wire).
+ */
+async function placeWithRecipe(ctx, { cell, item, expect, recipe, temp }) {
+    const bot = ctx.bot, w = ctx.world, { x, y, z } = cell;
+    const D = { north: [0, 0, -1], south: [0, 0, 1], west: [-1, 0, 0], east: [1, 0, 0], up: [0, 1, 0], down: [0, -1, 0] }[recipe.support];
+    if (!D) throw new SkillError('invalid_args', { why: 'bad recipe support', recipe });
+    const sup = { x: x + D[0], y: y + D[1], z: z + D[2] }, sb = w.blockAt(sup.x, sup.y, sup.z);
+    if (!sb || w.kindAt(sup.x, sup.y, sup.z) !== 'solid') throw new SkillError('invalid_target', { why: 'the recipe support is not a solid block', support: sup, target: cell });
+    const sneak = !!recipe.sneak || isInteractive(sb.name);
+    const free = (c) => !(c.x === x && c.z === z && (c.y === y || c.y + 1 === y));
+    const dist = (c) => Math.hypot(c.x + 0.5 - (sup.x + 0.5), c.y + 1.62 - (sup.y + 0.5), c.z + 0.5 - (sup.z + 0.5));
+    await approachUntil(ctx, (reach, ok2) => ({ isGoal: (c) => free(c) && ok2(c) && dist(c) <= reach + 0.5, h: (c) => Math.max(0, dist(c) - reach), label: 'reach placement face' }), () => true, cell);
+    await holdOrFail(ctx, item, undefined, 'item_held');
+    let mid = centre(feetCell(bot.entity.position));
+    if (overlaps(bot.entity.position, cell)) {
+        ctx.phase('clear_cell');
+        const f0 = feetCell(bot.entity.position);
+        if (f0.x === x && f0.z === z) { const n = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([a, b]) => ({ x: f0.x + a, y: f0.y, z: f0.z + b })).find((c) => standable(w, c.x, c.y, c.z)); if (n) mid = centre(n); }
+        await ctx.until(() => !overlaps(bot.entity.position, cell), 30, 'stuck', () => ({ forward: hdist(bot.entity.position, mid) > 0.08, yaw: Math.atan2(-(mid.x - bot.entity.position.x), -(mid.z - bot.entity.position.z)) }));
+        await ctx.until(() => Math.hypot(bot.entity.velocity.x, bot.entity.velocity.z) < 0.03, 10, 'stuck');
+    }
+    const n = FACES[recipe.face];                                               // normal of the clicked face; the cursor is on that face
+    const cursor = { x: n[0] > 0 ? 1 : n[0] < 0 ? 0 : 0.5, y: n[1] > 0 ? 1 : n[1] < 0 ? 0 : (recipe.hy ?? 0.5), z: n[2] > 0 ? 1 : n[2] < 0 ? 0 : 0.5 };
+    const look = { yaw: ((180 - recipe.yRot) * Math.PI) / 180, pitch: recipe.pitch === 'up' ? Math.PI / 2 : recipe.pitch === 'down' ? -Math.PI / 2 : 0, sneak };
+    const placed = () => w.blockAt(x, y, z)?.name === expect;
+    ctx.phase('place', { against: sup, face: recipe.face, hy: recipe.hy, yRot: recipe.yRot, pitch: recipe.pitch, sneak });
+    for (let attempt = 0; attempt < 2; attempt++) {
+        await ctx.tick(look); await ctx.tick(look);                             // the look reaches the server before the click (placement reads the player's rotation)
+        await ctx.tick({ ...look, use: true, cell: { x: sup.x, y: sup.y, z: sup.z, face: recipe.face, cursor } });
+        await ctx.tick(look);
+        try { await ctx.until(placed, 10, 'not_confirmed', look); fixtures.markPlaced(bot, expect, cell); if (temp && bot.__temps) bot.__temps.add({ dim: fixtures.dimOf(bot), x, y, z, item, kind: temp, by: bot.username }); return { against: sup, face: recipe.face, recipe: true }; } catch (e) { if (e.reason !== 'not_confirmed') throw e; }
+    }
+    throw new SkillError('not_confirmed', { target: cell, recipe: { support: recipe.support, face: recipe.face, hy: recipe.hy, yRot: recipe.yRot, pitch: recipe.pitch }, now: w.blockAt(x, y, z)?.name || null });
 }
 
 /**

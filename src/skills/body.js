@@ -6,8 +6,8 @@
 //   yaw pitch                                   absolute look (Mineflayer radians); omitted = unchanged
 //   hotbar                                      0..8 selected hotbar slot; omitted = unchanged
 //   drop ('one'|'stack'), swap (true)           the Q and F keys, pressed this tick
-//   cell {x,y,z,face}                           ONLY for the work layer's blind dig and blind placement (src/work, `mine` with blind, `descend`): break (attack) or place against
-//                                               (use) this block's `face` instead of the crosshair's. The server checks reach, not line of sight (vanilla); nothing in the RL path sets it.
+//   cell {x,y,z,face,cursor?}                   ONLY for the work layer's blind dig and blind placement (src/work, `mine` with blind, `descend`, `place` with a recipe): break (attack) or place against
+//                                               (use) this block's `face` instead of the crosshair's, at `cursor` (0..1 inside the block) or the middle of the face. The server checks reach, not line of sight (vanilla); nothing in the RL path sets it.
 // Keys not named in a frame are released. Every command in src/skills/commands is a sequence of frames plus waits,
 // so this file is the only place where input becomes packets (window clicks excepted: commands/gui.js).
 const Vec3 = require('vec3');
@@ -160,7 +160,7 @@ class Body {
         if (!edge) return;                                    // held: an item already in use stays in use
         // A given cell: place against that block's face (the centre of the face), whether or not it is in view (blind placement, `descend`).
         const cellBlock = cell ? b.blockAt(new Vec3(cell.x, cell.y, cell.z)) : null;
-        const target = cellBlock ? (() => { const f = FACES[cell.face ?? 1]; return { kind: 'block', block: cellBlock, face: cell.face ?? 1, point: new Vec3(cell.x + 0.5 + f[0] * 0.5, cell.y + 0.5 + f[1] * 0.5, cell.z + 0.5 + f[2] * 0.5) }; })() : this.crosshair();
+        const target = cellBlock ? (() => { const f = FACES[cell.face ?? 1], c = cell.cursor; return { kind: 'block', block: cellBlock, face: cell.face ?? 1, point: c ? new Vec3(cell.x + c.x, cell.y + c.y, cell.z + c.z) : new Vec3(cell.x + 0.5 + f[0] * 0.5, cell.y + 0.5 + f[1] * 0.5, cell.z + 0.5 + f[2] * 0.5) }; })() : this.crosshair();
         const held = b.heldItem;
         if (target && target.kind === 'block') {
             const p = target.block.position, h = target.point;

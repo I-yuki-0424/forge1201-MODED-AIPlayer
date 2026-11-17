@@ -20,6 +20,11 @@ const TYPES = {
     dest: (v) => ['hand', 'off_hand', 'head', 'chest', 'legs', 'feet'].includes(v),
     dir: (v) => ['north', 'south', 'east', 'west'].includes(v),
     dy: (v) => v === -1 || v === 0 || v === 1,
+    // placement recipe (work/jobs/orient.js): which face of which neighbour is clicked, at what height, with which look
+    recipe: (v) => !!v && typeof v === 'object' && Object.keys(v).every((k) => ['support', 'face', 'hy', 'yRot', 'pitch', 'sneak'].includes(k))
+        && ['north', 'south', 'east', 'west', 'up', 'down'].includes(v.support) && Number.isInteger(v.face) && v.face >= 0 && v.face <= 5
+        && (v.hy === undefined || (typeof v.hy === 'number' && v.hy >= 0 && v.hy <= 1)) && typeof v.yRot === 'number' && v.yRot >= 0 && v.yRot < 360
+        && ['level', 'up', 'down'].includes(v.pitch) && (v.sneak === undefined || typeof v.sneak === 'boolean'),
 };
 // A budget that grows with the walk the command may have to do first: a fixed 1200 ticks ended every walk of about 100 blocks or more as `timeout` although the bot was moving the whole
 // time (owner 2026-11-12, `place` {ticks: 1200, phase: walk}). `base` + 14 ticks per block beyond the first 5, at most 6000 (the trace cap). Targets without a cell (entities) keep `base`.
@@ -36,7 +41,7 @@ const COMMANDS = {
     look_at: { fn: lookAt, args: { ...XYZ_OPT, entity: 'entity?' }, oneOf: [['x', 'y', 'z'], ['entity']], ticks: 40 },
     mine: { fn: mine, args: { ...XYZ, collect: 'bool?', blind: 'bool?' }, ticks: walkTicks(1200) },    // collect:false / blind:true are work-layer options (src/work), not offered to the RL policy
     tunnel: { fn: tunnel, args: { dir: 'dir', dy: 'dy' }, ticks: 2400 },
-    place: { fn: place, args: { ...XYZ, item: 'item', fluid: 'bool?', temp: 'name?' }, ticks: walkTicks(1200) },    // namespaced ids allowed: pure bots place mod blocks (work/build.js)
+    place: { fn: place, args: { ...XYZ, item: 'item', fluid: 'bool?', temp: 'name?', recipe: 'recipe?', block: 'item?' }, ticks: walkTicks(1200) },    // namespaced ids allowed: pure bots place mod blocks (work/build.js)
     activate: { fn: activate, args: { ...XYZ, item: 'item?', sneak: 'bool?' }, ticks: walkTicks(600) },
     pickup: { fn: pickup, args: { entity: 'entity?', item: 'name?' }, oneOf: [['entity'], ['item']], ticks: 1200 },
     attack: { fn: attack, args: { entity: 'entity' }, ticks: 2400 },
