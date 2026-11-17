@@ -68,7 +68,7 @@ function neighbours(w, n) {
         if (standable(w, x, n.y + 1, z) && open(w, n.x, n.y + 2, n.z)) { push(x, n.y + 1, z, 'stand', 'up', 2); continue; }
         if (here !== 'swim' && free(w, x, n.y, z) && free(w, x, n.y + 1, z)) {
             for (let d = 1; d <= MAX_DROP_WATER; d++) {
-                if (d <= MAX_DROP && standable(w, x, n.y - d, z)) { push(x, n.y - d, z, 'stand', 'drop', 1 + 0.5 * d); break; }
+                if (d <= ((w.maxDrop && w.maxDrop()) || MAX_DROP) && standable(w, x, n.y - d, z)) { push(x, n.y - d, z, 'stand', 'drop', 1 + 0.5 * d); break; }
                 if (swimmable(w, x, n.y - d, z)) { push(x, n.y - d, z, 'swim', 'drop', 1 + 0.2 * d); break; }
                 if (climbable(w, x, n.y - d, z)) { push(x, n.y - d, z, 'climb', 'drop', 1 + 0.5 * d); break; }   // caught by a ladder
                 if (!free(w, x, n.y - d, z)) break;

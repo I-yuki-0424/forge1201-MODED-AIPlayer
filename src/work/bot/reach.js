@@ -28,6 +28,8 @@ async function walkTo(env, chest, { why = 'to a container', strict = true } = {}
     // top of a temporary pillar: 8 nodes expanded, `unreachable: reach block`, litematic builds 2026-11-17).
     if (env.navOn && env.navOn() && env.travel && (d > 6 || Math.abs(chest.y - h.y) > 3)) {
         const t = await env.travel({ x: chest.x, y: chest.y, z: chest.z }, { near: 3, nearY: 3 });
+        env.lastNav = t.ok ? null : { reason: t.reason, detail: t.detail };
+        if (process.env.NAV_DEBUG_FILE) { try { require('fs').appendFileSync(process.env.NAV_DEBUG_FILE, JSON.stringify({ t: Date.now(), from: env.here(), chest: { x: chest.x, y: chest.y, z: chest.z }, ok: t.ok, reason: t.reason, detail: t.detail }).slice(0, 1500) + '\n'); } catch (_) { /* diagnostics only */ } }
         if (t.ok) return null;
         if (['died', 'disconnected', 'cancelled'].includes(t.reason)) return { ok: false, reason: t.reason, detail: { ...(t.detail || {}), why: `the walk to the container failed (${t.reason})`, stage: 'approach' } };
     }
