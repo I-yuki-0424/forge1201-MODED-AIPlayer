@@ -168,11 +168,11 @@ they never create a bot). Found by the first live run of the console (structure 
 - **Rule:** a test of anything that reads NBT runs under `applyProtocolBypasses()` (tests/test_blueprint_pure.js does), and a pure test is no
   evidence about a process-wide patch: the first live run of a new feature is part of the task.
 
-## L20 — wall signs on wall signs: what the game does (measured 2026-11-17 on 26.1.2, `scripts/t26/sign_probe.js`)
+## L20 — wall signs on wall signs need a SNEAKED click (the owner was right; my probe did not sneak, 2026-11-17)
 
 `easy-ironfarm-fixd.litematic` has nine wall signs in a 3 x 3 block, facing south; only the first row hangs on glass, the other six hang on the signs of the row before. The owner says the blueprint is right and the
 system must place them. What the server does: a bot's click on the south face of a wall sign with a sign in hand is REFUSED (nothing is placed); a sign placed against a temporary stone block in that cell is accepted,
 and when the bot breaks the stone the sign pops (air). No ordinary placement order gets there; Litematica gets there by pasting without block updates. The plan still reports the six as `plan.unbuildable` and does not try them.
-**Unresolved: how the owner's world came to hold them (creative paste? an update-suppression build?). It is the owner's call whether those six may be left out of the exact match.**
+**Resolved 2026-11-18 (owner): a plain right-click on a sign opens its text editor; Shift-click places the sign on it. The probe clicked without sneaking, so the server never saw a placement. `isInteractive` has signs, the plan builds all nine. Lesson: before calling a blueprint impossible, check that the probe does what a player does (sneak included) and ask.**
 - Also measured: a click on the TOP of a block gives the standing sign or torch whatever the look; a side face gives the wall variant (orient.js had the older "nearest looking direction" rule: wrong).
 - A rule that matches a name suffix (`door$` for "needs a support") must not match another block (`trapdoor`): the simulated-server test caught it.
