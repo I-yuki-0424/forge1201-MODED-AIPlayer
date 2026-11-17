@@ -157,8 +157,7 @@ async function runScript(script, env, { cancel = { cancelled: false }, maxSteps 
                     if (missed(k)) continue;                                         // this run already found the chest without it
                     const a = await approach(env, chest, { why: `to take ${t.item}` });
                     if (a) { why.push(`${chest.name}: ${a.reason}`); if (['died', 'disconnected', 'cancelled'].includes(a.reason)) { res = a; break; } continue; }
-                    let r = await command('withdraw', { item: t.item, count: want }, { atSite: chest });
-                    if (!r.ok && r.reason === 'missing_item' && want > 1) r = await command('withdraw', { item: t.item, count: 1 }, { atSite: chest });      // fewer than asked: what there is
+                    let r = await command('withdraw', { item: t.item, count: want, partial: true }, { atSite: chest });       // fewer than asked: what there is
                     if (r.ok) { res = r; note(`took ${t.item} from ${chest.name}`); break; }
                     if (r.reason === 'missing_item') markMiss(k);
                     why.push(`${chest.name}: ${r.reason}`);

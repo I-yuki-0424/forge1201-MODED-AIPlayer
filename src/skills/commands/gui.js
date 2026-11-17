@@ -118,17 +118,20 @@ async function deposit(ctx, { item, count: n, x, y, z }) {
 }
 
 /** withdraw {item, count, x, y, z}: take `count` of `item` out of the container at x,y,z. */
-async function withdraw(ctx, { item, count: n, x, y, z }) {
+async function withdraw(ctx, { item, count: n, x, y, z, partial = false }) {
     const bot = ctx.bot, it = bot.registry.itemsByName[item];
     if (!it) throw new SkillError('invalid_args', { item });
     const win = await openAt(ctx, station(ctx, CONTAINERS, { x, y, z }, 'container'), (b) => openBox(bot, b));
-    if (inContainer(win, it.id) < n) { bot.closeWindow(win); throw new SkillError('missing_item', { item, where: 'container', want: n }); }
+    // fewer in the container than asked: take what there is (a supply chest holds 9 hoppers, a script asks for a stack); none at all is the failure
+    const there = inContainer(win, it.id);
+    if (there < 1 || (there < n && !partial)) { bot.closeWindow(win); throw new SkillError('missing_item', { item, where: 'container', want: n, have: there }); }
+    const want = n; n = Math.min(n, there);
     const before = inPlayer(win, it.id);
-    ctx.phase('withdraw', { item, count: n });
+    ctx.phase('withdraw', { item, count: n, ...(n < want ? { short: want - n } : {}) });
     await ctx.during(win.withdraw(it.id, null, n), 60);
     await ctx.until(() => inPlayer(win, it.id) >= before + n, 20);
     bot.closeWindow(win);
-    return { item, moved: n };
+    return { item, moved: n, ...(n < want ? { short: want - n } : {}) };
 }
 
 module.exports = { craft, smelt, deposit, withdraw, fuelValue, openAt, station, openBox, CONTAINERS, inPlayer, inContainer };

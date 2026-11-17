@@ -22,7 +22,7 @@ const DOC = {
     deposit: ['Items', 'Walk to a chest and put items into it.'],
     withdraw: ['Items', 'Walk to a chest and take items out.'],
 };
-const HIDDEN = new Set(['recipe', 'block']);      // work-layer arguments of `place` (a placement recipe, the block an item makes): not for a form
+const HIDDEN = new Set(['recipe', 'block', 'partial']);      // work-layer arguments of `place` (a placement recipe, the block an item makes): not for a form
 const HINT = { waterlog: 'water the block itself', x: 'x', y: 'y (feet level)', z: 'z', entity: 'nearby entity', item: 'item', count: 'count', dest: 'where', dir: 'direction', dy: 'slope', fluid: 'fill water or lava', sneak: 'sneak', collect: 'pick up the drop (default yes)', blind: 'dig without line of sight' };
 
 const META = [
