@@ -87,6 +87,7 @@ async function trial(k, S, svc, seed, rep) {
     // supply chests on the deck (tagged `free`), every item of the plan's material list
     const mats = pl && build.materialsOf(pl.bp.blocks.filter((b) => !never.has(`${b.x},${b.y},${b.z}`)).map((b) => ({ block: pl.bp.palette[b.s].name.replace(/^minecraft:/, ''), props: pl.bp.palette[b.s].props })).filter((c) => !/^(air|cave_air|void_air)$/.test(c.block)));
     const stacks = []; for (const [it, n0] of Object.entries(mats)) { const n = /_bucket$/.test(it) ? n0 : n0 * 2, ms = STACK[it] || 64; for (let r = n; r > 0; r -= ms) stacks.push({ it, n: Math.min(ms, r) }); }      // twice the list: several builders fetch a stack each and must not starve each other (buckets and beds exactly)
+    for (let r = 1024; r > 0; r -= 64) stacks.push({ it: 'cobblestone', n: 64 });                        // enough temporary blocks (the bots do not pick the removed ones up again)
     const chests = []; for (let i = 0; i < stacks.length; i += 27) chests.push(stacks.slice(i, i + 27));
     const sup = chests.map((_, i) => ({ x: M.x - 3, y: M.y, z: M.z + 2 * i }));
     for (let i = 0; i < chests.length; i++) {
