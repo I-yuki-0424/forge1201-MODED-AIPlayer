@@ -158,9 +158,9 @@ class JobsPart {
         const file = path.join(this.o.dataDir, 'jobs', `${id}.nbt`);
         fs.writeFileSync(file, bp.write(b));                                            // an immutable copy: editing the library later changes nothing
         let impl;
-        try { impl = build.createBuildJob(bp.cells(b), origin, { leaseMs: 45000 }, { known: this.known }); } catch (e) { fs.rmSync(file, { force: true }); throw new Problem(e.message); }
-        const job = this._newJob('build', spec.name || `build ${structure}`, { structure, origin, file: path.basename(file), ...extra }, impl, id);
-        job.summary = { size: b.size, count: impl.plan.count, unsupported: impl.plan.unsupported, materials: this._materials(impl.plan), ...summaryExtra };
+        try { impl = build.createBuildJob(bp.cells(b), origin, { leaseMs: 45000 }, { known: this.known, ...(spec.tile ? { tile: spec.tile } : {}) }); } catch (e) { fs.rmSync(file, { force: true }); throw new Problem(e.message); }
+        const job = this._newJob('build', spec.name || `build ${structure}`, { structure, origin, file: path.basename(file), ...(spec.tile ? { tile: spec.tile } : {}), ...extra }, impl, id);
+        job.summary = { size: b.size, count: impl.plan.count, unsupported: impl.plan.unsupported, materials: impl.plan.materials || this._materials(impl.plan), skipped: impl.plan.skipped, ...summaryExtra };
         try { this._guardOverlap(job, spec.force); } catch (e) { fs.rmSync(file, { force: true }); throw e; }
         return this._register(job, spec);
     }
@@ -190,7 +190,7 @@ class JobsPart {
         if (j.kind === 'pit') impl = pit.createPitJob(normalizeBox(j.spec.box, j.spec.dim || 'overworld', j.spec.limits || null), PIT_LEDGER, { lanes: j.spec.lanes || 0, method: j.spec.method || 'rows', road: j.spec.road === undefined ? true : !!j.spec.road });
         else {
             const b = await bp.read(fs.readFileSync(path.join(this.o.dataDir, 'jobs', path.basename(j.spec.file))));
-            impl = build.createBuildJob(bp.cells(b), j.spec.origin, { leaseMs: 45000, maxAttempts: 6 }, { known: this.known });
+            impl = build.createBuildJob(bp.cells(b), j.spec.origin, { leaseMs: 45000, maxAttempts: 6 }, { known: this.known, ...(j.spec.tile ? { tile: j.spec.tile } : {}) });
         }
         const job = this._newJob(j.kind, j.name, j.spec, impl, j.id);
         job.created = base.created;

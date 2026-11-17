@@ -266,6 +266,54 @@ async function placeWithRecipe(ctx, { cell, item, expect, recipe, temp }) {
 }
 
 /**
+ * pour {x, y, z, item, waterlog?}: empty a water or lava bucket. Without `waterlog` the fluid source appears in the (empty) cell: the crosshair is put on a face of a
+ * solid neighbour that borders the cell (the server takes the target from the real look ray, so this needs a line of sight, unlike `place` with a recipe). With `waterlog`
+ * the bucket is used on the block in the cell itself (stairs, slabs, trapdoors ...): it becomes waterlogged, no water flows. Success = what the server sends back.
+ */
+async function pour(ctx, { x, y, z, item, waterlog = false }) {
+    const bot = ctx.bot, w = ctx.world, cell = { x, y, z };
+    if (!/^(water|lava)_bucket$/.test(item)) throw new SkillError('invalid_args', { item, why: 'pour needs a water or lava bucket' });
+    const cur = w.blockAt(x, y, z);
+    if (!cur) throw new SkillError('unreachable', { why: 'target chunk not loaded' });
+    if (count(bot, item) < 1) throw new SkillError('missing_item', { item });
+    const fluid = item.startsWith('lava') ? 'lava' : 'water';
+    const done = () => { const b = w.blockAt(x, y, z); return !!b && (waterlog ? !!b.getProperties && b.getProperties().waterlogged === 'true' : b.name === fluid); };
+    if (done()) return { already: true };
+    if (waterlog) {
+        if (!cur.getProperties || !('waterlogged' in cur.getProperties())) throw new SkillError('invalid_target', { why: `${cur.name} cannot be waterlogged`, target: cell });
+        if (fluid !== 'water') throw new SkillError('invalid_args', { why: 'only water waterlogs' });
+        await approachBlock(ctx, cell);
+        await holdOrFail(ctx, item, undefined, 'item_held');
+        const hit = await aimAtBlock(ctx, cell, {});
+        const look = { yaw: bot.entity.yaw, pitch: bot.entity.pitch };
+        ctx.phase('pour', { block: cur.name, face: hit.face });
+        await ctx.tick({ ...look, use: true }); await ctx.tick(look);
+        await ctx.until(done, 20, 'not_confirmed', look);
+        return { block: cur.name, waterlog: true };
+    }
+    if (!REPLACEABLE.test(cur.name) && !FLUID.test(cur.name)) throw new SkillError('invalid_target', { why: `cell holds ${cur.name}`, target: cell });
+    const refs = supports(w, cell);
+    if (!refs.length) throw new SkillError('invalid_target', { why: 'no solid neighbour to aim at', target: cell });
+    const seen = () => refs.filter((r) => aimPoints(ctx.body.eye(), r.cell, w.shapesAt, { face: r.face, limit: 1, reach: AIM_REACH }).length);
+    await approachUntil(ctx, (reach, ok2) => {
+        const goals = refs.map((r) => reachGoal(w, r.cell, { face: r.face, reach }));
+        return { isGoal: (c) => !(c.x === x && c.z === z && (c.y === y || c.y + 1 === y)) && ok2(c) && goals.some((g) => g.isGoal(c)), h: (c) => Math.min(...goals.map((g) => g.h(c))), label: 'reach pouring face' };
+    }, () => (seen().length ? true : null), cell);
+    await holdOrFail(ctx, item, undefined, 'item_held');
+    let tried = 0;
+    for (const r of seen()) {
+        let hit;
+        try { hit = await aimAtBlock(ctx, r.cell, { face: r.face, frame: { sneak: r.interactive } }); } catch (e) { if (e.reason === 'not_visible') continue; throw e; }
+        const look = { yaw: bot.entity.yaw, pitch: bot.entity.pitch, sneak: r.interactive };
+        ctx.phase('pour', { against: r.cell, face: hit.face });
+        await ctx.tick({ ...look, use: true }); await ctx.tick(look);
+        try { await ctx.until(done, 20, 'not_confirmed', look); return { against: r.cell, face: hit.face }; } catch (e) { if (e.reason !== 'not_confirmed') throw e; }
+        if (++tried >= 3) break;
+    }
+    throw new SkillError(tried ? 'not_confirmed' : 'not_visible', { target: cell, tried });
+}
+
+/**
  * activate {x, y, z, item?, sneak?}: right-click an interactive block (lever, door, trapdoor, gate, chest, ...), optionally
  * holding `item` (a mod tool such as create:wrench) and sneaking. Success = the block's state changed or a screen opened.
  */
@@ -352,4 +400,4 @@ async function tunnel(ctx, { dir, dy }) {
     return { to: end, mined, tools };
 }
 
-module.exports = { moveTo, lookAt, mine, place, activate, tunnel, tunnelCells, tunnelProblem, bestTool, faceToward, dropOf, supports, overlaps, REPLACEABLE, DIRS };
+module.exports = { moveTo, lookAt, mine, place, pour, activate, tunnel, tunnelCells, tunnelProblem, bestTool, faceToward, dropOf, supports, overlaps, REPLACEABLE, DIRS };

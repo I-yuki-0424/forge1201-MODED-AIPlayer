@@ -3,15 +3,23 @@
 // its minimum corner. Sources: the game's own structure format (`.nbt` of the structure block; Create schematics are the same
 // file) or a generator (`house`). The job places the cells bottom-up with the existing `place` command, one row per unit.
 // A cell that cannot be reached from the ground gets a temporary staircase of cheap blocks (scaffold), removed afterwards.
-// Block properties (stairs/slab/log orientation) are NOT reproduced: `place` puts a block down the way a click does.
+// Block states ARE reproduced (2026-11-17, litematic builds): facing, half, axis, rotation ... are a function of the clicked face, the click height and the look, so orient.js searches the
+// recipe that gives the wanted state and `place {recipe}` clicks it; a state that came out wrong is mined and tried with the next recipe; open / delay are set by right-clicking afterwards.
+// Order: bottom-up by layer; inside a layer solid blocks first, then the ones that need a support (torches, signs, redstone, repeaters, doors); FLUIDS LAST (a source placed before its walls
+// stand flows out), flows and the second half of a bed or door are not placed (the game makes them). A block that may float (stairs, trapdoors, hoppers, chests ...) with no neighbour yet is
+// placed against a temporary block (chain from the nearest solid block) that is taken away at the layer change; blocks that need a support never use one.
 // Mod blocks are placed by their namespaced name; whether a bot can place one is the registry's question (the console asks it).
 const { Ledger } = require('./crew');
 const { SEAL_ITEMS, sealItem } = require('./pit');
+const O = require('./orient');
 
 const TILE = 16;
 const SKIP = /^(air|cave_air|void_air|structure_void|jigsaw|structure_block|barrier)$/;
-const ATTACHED = /(torch|ladder|button|lever|sign|door|trapdoor|pressure_plate|carpet|banner|rail|lantern|vine)$/;   // placed after the solids of their layer
-const ITEM_OF = { wall_torch: 'torch', redstone_wall_torch: 'redstone_torch', soul_wall_torch: 'soul_torch', wall_sign: 'oak_sign', water: null, lava: null };
+const ATTACHED = /(torch|ladder|button|lever|sign|door|trapdoor|pressure_plate|carpet|banner|rail|lantern|vine|redstone_wire|repeater|comparator)$/;   // placed after the solids of their layer
+// blocks that fall off when their support goes: never placed against a temporary block
+const NEEDS_SUPPORT = /(torch|ladder|button|lever|sign|pressure_plate|carpet|banner|rail|lantern|vine|redstone_wire|repeater|comparator|door)$/;
+const ITEM_OF = { wall_torch: 'torch', redstone_wall_torch: 'redstone_torch', soul_wall_torch: 'soul_torch', wall_sign: 'oak_sign', water: 'water_bucket', lava: 'lava_bucket', redstone_wire: 'redstone' };
+const FLUID = /^(water|lava)$/;
 
 const bare = (n) => String(n).replace(/^minecraft:/, '');
 /** The item that places `block`, or null when `place` cannot (fluids). Mod blocks keep their namespace (`create:cogwheel`). */
@@ -20,6 +28,27 @@ function itemFor(block) {
     if (n.includes(':')) return n;
     if (n in ITEM_OF) return ITEM_OF[n];
     return n.replace(/^(.*)_wall_(sign|banner|head)$/, '$1_$2');
+}
+
+/** What the planner does with a cell: 'block' | 'attached' (needs a support) | 'fluid' (a source: bucket, last) | 'flow' (made by the game) | 'derived' (the other half of a bed or door, a piston arm). */
+function kindOf(c) {
+    const n = bare(c.block), p = c.props || {};
+    if (FLUID.test(n)) return p.level && p.level !== '0' ? 'flow' : 'fluid';
+    if (O.derivedCell(n, p)) return 'derived';
+    return NEEDS_SUPPORT.test(n) ? 'attached' : 'block';
+}
+
+/** Items a bot must hold for the plan, as Litematica counts them: a bed or door once per pair, a slab twice when double, snow and candles per layer / piece, a bucket per fluid source and waterlogged block. */
+function materialsOf(cells) {
+    const m = {}, add = (it, n = 1) => { if (it) m[it] = (m[it] || 0) + n; };
+    for (const c of cells) {
+        const k = kindOf(c), n = bare(c.block), p = c.props || {};
+        if (k === 'flow' || k === 'derived') continue;
+        if (k === 'fluid') { add(itemFor(n)); continue; }
+        add(itemFor(n), /_slab$/.test(n) && p.type === 'double' ? 2 : n === 'snow' ? Number(p.layers || 1) : /candle$/.test(n) ? Number(p.candles || 1) : n === 'sea_pickle' ? Number(p.pickles || 1) : 1);
+        if (p.waterlogged === 'true') add('water_bucket');
+    }
+    return m;
 }
 
 /** A plain house: floor, four walls with a door and windows, flat roof. Cells are relative to the corner. */
@@ -43,37 +72,72 @@ async function fromStructureNbt(buf) {
     return bp.cells(await bp.read(buf));
 }
 
-/** Cut a blueprint into tiles and add them to a ledger: layer = height above the origin (bottom-up), rows = z lines of a tile. */
+/** Cut a blueprint into tiles and add them to a ledger: layer = height above the origin (bottom-up), rows = z lines of a tile; the fluid pass is one layer more, last. */
 function planBuild(cells, origin, { tile = TILE, known = null } = {}) {
     if (!cells.length) throw new Error('blueprint is empty');
-    const abs = cells.map((c) => ({ x: origin.x + c.x, y: origin.y + c.y, z: origin.z + c.z, block: bare(c.block), props: c.props }));
+    const abs = cells.map((c) => ({ x: origin.x + c.x, y: origin.y + c.y, z: origin.z + c.z, block: bare(c.block), props: c.props || {} }));
     // `known(name)`: does the bot's registry have this block (a mod block of another mod set does not)? Unplaceable ones are listed, not tried.
     const cannot = (b) => itemFor(b) === null || (known && !known(b));
     const unsupported = [...new Set(abs.map((c) => c.block).filter((b) => !SKIP.test(b) && cannot(b)))];
-    const placeable = abs.filter((c) => !cannot(c.block) && !SKIP.test(c.block));
+    const real = abs.filter((c) => !SKIP.test(c.block));
+    const skipped = { flow: real.filter((c) => kindOf(c) === 'flow').length, derived: real.filter((c) => kindOf(c) === 'derived').length };
+    const placeable = real.filter((c) => !cannot(c.block) && kindOf(c) !== 'flow' && kindOf(c) !== 'derived');
     if (!placeable.length) throw new Error('nothing the bots can place (every block is unsupported)');
-    const minY = Math.min(...placeable.map((c) => c.y)), maxY = Math.max(...placeable.map((c) => c.y)), layers = maxY - minY + 1;
+    // a waterlogged block is placed dry in its layer and filled with water in the fluid pass (a bucket used on the block itself: no flow, no race)
+    const waterlog = placeable.filter((c) => c.props.waterlogged === 'true' && kindOf(c) !== 'fluid').map((c) => ({ x: c.x, y: c.y, z: c.z, block: 'water', props: { level: '0' }, waterlog: true, of: c.block }));
+    const all = [...placeable, ...waterlog], fluidCell = (c) => c.waterlog || kindOf(c) === 'fluid';
+    const minY = Math.min(...all.map((c) => c.y)), maxY = Math.max(...all.map((c) => c.y)), layers = maxY - minY + 1, phases = layers + (all.some(fluidCell) ? 1 : 0);
     const tiles = new Map();
-    for (const c of placeable) {
+    for (const c of all) {
         const tx = Math.floor(c.x / tile), tz = Math.floor(c.z / tile), id = `b${tx}_${tz}`;
         let t = tiles.get(id);
         if (!t) tiles.set(id, t = { id, z0: tz * tile, z1: tz * tile + tile - 1, x0: Infinity, x1: -Infinity, cells: new Map() });
         t.x0 = Math.min(t.x0, c.x); t.x1 = Math.max(t.x1, c.x);
-        const key = (c.y - minY) * tile + (c.z - t.z0);                       // unit index inside the tile = layer * rows + row
+        const key = (fluidCell(c) ? layers : c.y - minY) * tile + (c.z - t.z0);                       // unit index inside the tile = layer * rows + row
         (t.cells.get(key) || t.cells.set(key, []).get(key)).push(c);
     }
     const regions = [...tiles.values()].map((t) => ({
-        id: t.id, anchor: { x: (t.x0 + t.x1) / 2, z: (t.z0 + t.z1) / 2 }, layers, rows: tile, meta: { tile: t.id, minY },
+        id: t.id, anchor: { x: (t.x0 + t.x1) / 2, z: (t.z0 + t.z1) / 2 }, layers: phases, rows: tile, meta: { tile: t.id, minY },
     }));
     const footprint = new Set(placeable.map((c) => `${c.x},${c.z}`));
-    return { origin, minY, layers, tiles, regions, unsupported, footprint, count: placeable.length };
+    const cellSet = new Set(real.map((c) => `${c.x},${c.y},${c.z}`));                                 // every cell the structure owns (flows and bed heads too): no temporary block goes there
+    return { origin, minY, layers, phases, tiles, regions, unsupported, footprint, cellSet, count: placeable.length + waterlog.length, skipped, materials: materialsOf(placeable) };
 }
 
 /** Cells of one unit in placement order: structural blocks first, then attached ones; x serpentine by row. */
 function unitCells(plan, regionId, u) {
     const t = plan.tiles.get(regionId), list = (t.cells.get(u) || []).slice();
-    list.sort((a, b) => (ATTACHED.test(a.block) - ATTACHED.test(b.block)) || ((u % 2) ? b.x - a.x : a.x - b.x));
+    list.sort((a, b) => (!!a.waterlog - !!b.waterlog) || (ATTACHED.test(a.block) - ATTACHED.test(b.block)) || (a.y - b.y) || ((u % 2) ? b.x - a.x : a.x - b.x));
     return list;
+}
+
+const D = O.DIR, ckey = (c) => `${c.x},${c.y},${c.z}`;
+const at = (c, d) => ({ x: c.x + D[d][0], y: c.y + D[d][1], z: c.z + D[d][2] });
+const REPLACEABLE = /^(air|cave_air|void_air|grass|tall_grass|short_grass|fern|snow|dead_bush)$/;
+
+/** Does the block in the world have the wanted name and the properties placement decides? */
+function stateMatches(b, c) {
+    if (!b || b.name !== c.block) return false;
+    const want = O.staticProps(c.block, c.props), have = b.getProperties ? b.getProperties() : {};
+    return Object.entries(want).every(([k, v]) => String(have[k]) === v);
+}
+/** The first property that right-clicking has to fix (open, delay), or null. */
+function useMismatch(b, c) {
+    const have = b && b.getProperties ? b.getProperties() : {};
+    for (const [k, v] of Object.entries(O.useProps(c.block, c.props))) if (String(have[k]) !== v) return [k, v];
+    return null;
+}
+
+/** What differs between the blueprint and the world: cells whose block (or state) is not the wanted one (a repair job's input). Fluids and waterlogging are checked by name / property. */
+function diffBuild(plan, w) {
+    const missing = [];
+    for (const t of plan.tiles.values()) for (const list of t.cells.values()) for (const c of list) {
+        const b = w.blockAt ? w.blockAt(c.x, c.y, c.z) : null;
+        if (c.waterlog) { if (!b || !b.getProperties || b.getProperties().waterlogged !== 'true') missing.push(c); continue; }
+        if (b) { if (!stateMatches(b, c) || useMismatch(b, c)) missing.push(c); continue; }
+        if (w.nameAt(c.x, c.y, c.z) !== c.block) missing.push(c);
+    }
+    return missing;
 }
 
 /**
@@ -116,14 +180,27 @@ function scaffoldFor(plan, w, target, groundY, { maxK = 10, reuse = new Set() } 
     return null;
 }
 
-/** What differs between the blueprint and the world: cells whose block is not the wanted one (a repair job's input). */
-function diffBuild(plan, w) {
-    const missing = [];
-    for (const t of plan.tiles.values()) for (const list of t.cells.values()) for (const c of list) {
-        const n = w.nameAt(c.x, c.y, c.z);
-        if (n !== c.block) missing.push(c);
+/**
+ * A chain of temporary blocks that ends in a support next to the cell `c`: the shortest path of free cells (air, not owned by the structure, not `c`) from a cell
+ * that touches a solid block to a cell beside `c` in one of `dirs`. Returned in placement order (the one touching solid ground first, the support last), or null.
+ */
+function tempChain(plan, w, c, dirs, maxLen = 4) {
+    const solid = (p) => w.kindAt(p.x, p.y, p.z) === 'solid', isC = (p) => p.x === c.x && p.y === c.y && p.z === c.z;
+    const free = (p) => w.kindAt(p.x, p.y, p.z) === 'air' && !plan.cellSet.has(ckey(p)) && !isC(p);
+    const touches = (p) => Object.keys(D).some((d) => { const q = at(p, d); return !isC(q) && solid(q); });
+    let best = null;
+    for (const d of dirs) {
+        const s = at(c, d);
+        if (!free(s)) continue;
+        const seen = new Set([ckey(s)]), queue = [[s]];
+        while (queue.length) {
+            const path = queue.shift(), last = path[path.length - 1];
+            if (touches(last)) { if (!best || path.length < best.length) best = path.slice().reverse(); break; }
+            if (path.length >= maxLen) continue;
+            for (const dd of Object.keys(D)) { const q = at(last, dd); if (!seen.has(ckey(q)) && free(q)) { seen.add(ckey(q)); queue.push([...path, q]); } }
+        }
     }
-    return missing;
+    return best;
 }
 
 /**
@@ -136,51 +213,145 @@ async function runUnit(plan, regionId, u, env) {
     // the structure's materials are held back from temporary use (scaffolds, pillars, seals) while the bot works on it (owner 2026-11-14: the planks went into scaffolds)
     // only what is still to be placed (a cell that already holds its block needs nothing): an over-reserve starved the walker's pillar of the blocks the kit had for it
     let res = null;
-    if (bot) { res = new Map(); for (const t of plan.tiles.values()) for (const list of t.cells.values()) for (const c of list) { if (env.w.nameAt(c.x, c.y, c.z) === c.block) continue; const it = itemFor(c.block); if (it) res.set(it, (res.get(it) || 0) + 1); } bot.__reserve = res; }
+    if (bot) { res = new Map(); for (const t of plan.tiles.values()) for (const list of t.cells.values()) for (const c of list) { if (c.waterlog ? false : env.w.nameAt(c.x, c.y, c.z) === c.block) continue; const it = c.waterlog ? 'water_bucket' : itemFor(c.block); if (it) res.set(it, (res.get(it) || 0) + 1); } bot.__reserve = res; }
     // the structure's cells are never dug by the walker on its way (it dug through the cottage's walls to reach the inside: two wrong cells at the end)
     if (bot) { if (!plan.__cellSet) { plan.__cellSet = new Set(); for (const t of plan.tiles.values()) for (const list of t.cells.values()) for (const c of list) plan.__cellSet.add(`${c.x},${c.y},${c.z}`); } bot.__keep = (x, y, z) => plan.__cellSet.has(`${x},${y},${z}`); }
     try { return await runUnitBody(plan, regionId, u, env); } finally { if (bot && bot.__reserve === res) bot.__reserve = null; }          // __keep stays: between units (the night shelter) the structure is still not to be dug
 }
 async function runUnitBody(plan, regionId, u, env) {
-    const cells = unitCells(plan, regionId, u.unit), r = { placed: 0, skipped: 0, scaffold: 0 };
+    const cells = unitCells(plan, regionId, u.unit), r = { placed: 0, skipped: 0, scaffold: 0, fixed: 0, poured: 0 };
     env.scaffold = env.scaffold || { layer: null, cells: [] };
     if (env.scaffold.layer !== null && env.scaffold.layer !== u.layer) await cleanup(env);
     env.scaffold.layer = u.layer;
-    const fail = (res, cell, stage) => ({ ok: false, reason: res.reason, detail: { ...(res.detail || {}), cell, stage, ...r } });
-    const anyItem = () => sealItem(env, 2);
     for (const c of cells) {
-        const item = itemFor(c.block), cur = env.w.nameAt(c.x, c.y, c.z);
-        if (cur === c.block) { r.skipped++; continue; }
-        if (cur && !/^(air|cave_air|void_air|grass|tall_grass|short_grass|fern|snow|dead_bush)$/.test(cur)) {
+        const res = await buildCell(plan, c, env, r);
+        if (!res.ok) return { ok: false, reason: res.reason, detail: { ...(res.detail || {}), cell: c, stage: res.stage || 'place', ...r } };
+    }
+    return { ok: true, reason: null, detail: r };
+}
+
+const ok = { ok: true };
+const bad = (reason, detail, stage) => ({ ok: false, reason, detail, stage });
+
+/** One cell: skip it when it is right, dig out what is wrong, place it with the recipe that gives its state, check the state, right-click what needs it. */
+async function buildCell(plan, c, env, r) {
+    const w = env.w;
+    if (c.waterlog || kindOf(c) === 'fluid') return pourCell(c, env, r);
+    const item = itemFor(c.block), here = () => (w.blockAt ? w.blockAt(c.x, c.y, c.z) : null);
+    let cur = here();
+    if (cur ? stateMatches(cur, c) : w.nameAt(c.x, c.y, c.z) === c.block) { const um = useMismatch(cur, c); if (!um) { r.skipped++; return ok; } return fixUse(c, env, r); }
+    const curName = cur ? cur.name : w.nameAt(c.x, c.y, c.z);
+    if (curName && !REPLACEABLE.test(curName)) {
+        if (/^(water|lava)$/.test(curName) && w.kindAt(c.x, c.y, c.z) !== 'solid') { /* a fluid is replaced by the block */ } else {
             const m = await env.exec('mine', { x: c.x, y: c.y, z: c.z });
-            if (!m.ok) return fail(m, c, 'clear');
+            if (!m.ok) return { ...m, stage: 'clear' };
         }
-        if (env.have(item) < 1) return fail({ reason: 'missing_item', detail: { item } }, c, 'stock');
-        let p = await env.exec('place', { x: c.x, y: c.y, z: c.z, item });
-        // A scaffold helps when the cell cannot be reached or seen, and also when the walk to the placement face ends in the open
-        // (a roof cell inside the walls: live run, reason 'stuck', goal 'reach placement face'). Other 'stuck' reasons are the bot's body.
-        // With NAV (env.navOn) the router's walk reaches the cell itself (pillar beside a wall, then the wall top; its blocks are taken away): no scaffold staircase of its own.
+    }
+    if (env.have(item) < 1) return bad('missing_item', { item }, 'stock');
+    return placeOriented(plan, c, item, env, r);
+}
+
+async function placeOriented(plan, c, item, env, r) {
+    const w = env.w, fam = O.itemFamilyOf(c.block), solidAt = (p) => w.kindAt(p.x, p.y, p.z) === 'solid';
+    const recs = fam === 'plain' ? null : O.recipes(c.block, c.props, (d) => solidAt(at(c, d)));
+    if (recs && !recs.length) return bad('invalid_target', { why: 'no placement recipe for this state', block: c.block, props: c.props }, 'recipe');
+    const blockArg = c.block !== item ? { block: c.block } : {};
+    const tried = new Set(), temp = () => sealItem(env, 2);
+    for (let attempt = 0; attempt < 4; attempt++) {
+        let q = null, args;
+        if (recs) {
+            const cand = recs.filter((x) => !tried.has(x) && solidAt(at(c, x.support))).sort((a, b) => (isInteractiveBlock(w, at(c, a.support)) - isInteractiveBlock(w, at(c, b.support))));
+            q = cand[0] || null;
+            if (!q) {
+                if (NEEDS_SUPPORT.test(c.block)) return bad('unreachable', { why: 'no solid support for a block that needs one (it is placed after its support)', block: c.block }, 'support');
+                const ch = tempChain(plan, w, c, [...new Set(recs.filter((x) => !tried.has(x)).map((x) => x.support))]);
+                if (!ch) return bad('invalid_target', { why: 'no way to support this block (no solid block near, no free cell for a temporary one)', block: c.block }, 'support');
+                const sc = await putTemps(ch, env, r); if (!sc.ok) return sc;
+                continue;
+            }
+            args = { x: c.x, y: c.y, z: c.z, item, ...blockArg, recipe: { support: q.support, face: q.face, hy: q.hy, yRot: q.yRot, pitch: q.pitch } };
+        } else {
+            if (!Object.keys(D).some((d) => solidAt(at(c, d)))) {
+                const ch = tempChain(plan, w, c, Object.keys(D));
+                if (!ch) return bad('invalid_target', { why: 'no solid neighbour and no free cell for a temporary block', block: c.block }, 'support');
+                const sc = await putTemps(ch, env, r); if (!sc.ok) return sc;
+            }
+            args = { x: c.x, y: c.y, z: c.z, item, ...blockArg };
+        }
+        let p = await env.exec('place', args);
+        // A temporary block helps when the cell cannot be reached or seen. With NAV (env.navOn) the router's walk reaches the cell itself (pillar beside a wall, then the wall top; its blocks are taken away).
         if (!p.ok && env.navOn && env.navOn() && ['unreachable', 'not_visible', 'stuck', 'precondition_failed'].includes(p.reason)) {
             const t = await env.travel({ x: c.x, y: c.y, z: c.z }, { near: 3, nearY: 3 });
-            if (t.ok) p = await env.exec('place', { x: c.x, y: c.y, z: c.z, item });
-        } else if (!p.ok && (p.reason === 'unreachable' || p.reason === 'not_visible' || (p.reason === 'stuck' && p.detail && p.detail.goal === 'reach placement face'))) {
-            const sc = scaffoldFor(plan, env.w, c, plan.origin.y, { reuse: new Set(env.scaffold.cells.map((q) => `${q.x},${q.y},${q.z}`)) }), mat = anyItem();
+            if (t.ok) p = await env.exec('place', args);
+        } else if (!p.ok && !recs && (p.reason === 'unreachable' || p.reason === 'not_visible' || (p.reason === 'stuck' && p.detail && p.detail.goal === 'reach placement face'))) {
+            const sc = scaffoldFor(plan, w, c, plan.origin.y, { reuse: new Set(env.scaffold.cells.map((z) => `${z.x},${z.y},${z.z}`)) }), mat = temp();
             if (sc && sc.cells.length && mat) {
                 for (const s of sc.cells) {
-                    if (env.w.nameAt(s.x, s.y, s.z) === mat) continue;
-                    const q = await env.exec('place', { x: s.x, y: s.y, z: s.z, item: mat, temp: 'scaffold' });
-                    if (!q.ok) return fail(q, s, 'scaffold');
+                    if (w.nameAt(s.x, s.y, s.z) === mat) continue;
+                    const z = await env.exec('place', { x: s.x, y: s.y, z: s.z, item: mat, temp: 'scaffold' });
+                    if (!z.ok) return { ...z, stage: 'scaffold' };
                     env.scaffold.cells.push(s); r.scaffold++;
                 }
                 const mv = await env.exec('move_to', sc.top);
-                if (!mv.ok) return fail(mv, sc.top, 'climb');
-                p = await env.exec('place', { x: c.x, y: c.y, z: c.z, item });
+                if (!mv.ok) return { ...mv, stage: 'climb' };
+                p = await env.exec('place', args);
             }
         }
-        if (!p.ok) return fail(p, c, 'place');
+        if (!p.ok) { if (q && p.reason === 'not_confirmed') { tried.add(q); continue; } return { ...p, stage: 'place' }; }
+        // what the server made of it
+        const now = w.blockAt ? w.blockAt(c.x, c.y, c.z) : null;
+        if (now && !stateMatches(now, c)) {
+            r.fixed++;
+            if (q) tried.add(q);
+            const m = await env.exec('mine', { x: c.x, y: c.y, z: c.z });
+            if (!m.ok) return { ...m, stage: 'redo' };
+            if (!q && !recs) return bad('not_confirmed', { why: 'placed block differs from the wanted state', wanted: c.props, got: now.getProperties ? now.getProperties() : null, block: c.block }, 'state');
+            continue;
+        }
         r.placed++;
+        const um = now && useMismatch(now, c);
+        return um ? fixUse(c, env, r) : ok;
     }
-    return { ok: true, reason: null, detail: r };
+    return bad('not_confirmed', { why: 'no placement recipe gave the wanted state', block: c.block, props: c.props, tried: tried.size }, 'state');
+}
+
+const isInteractiveBlock = (w, p) => (require('../../skills/world').isInteractive((w.nameAt(p.x, p.y, p.z) || '')) ? 1 : 0);
+
+async function putTemps(chain, env, r) {
+    const mat = sealItem(env, 2);
+    if (!mat) return bad('missing_item', { why: 'no low-value block for a temporary support', tried: SEAL_ITEMS }, 'support');
+    for (const s of chain) {
+        if (env.w.nameAt(s.x, s.y, s.z) === mat) continue;
+        const q = await env.exec('place', { x: s.x, y: s.y, z: s.z, item: mat, temp: 'scaffold' });
+        if (!q.ok) return { ...q, stage: 'scaffold' };
+        env.scaffold.cells.push(s); r.scaffold++;
+    }
+    return ok;
+}
+
+/** open / delay: right-click until the state is the wanted one (a trapdoor toggles once, a repeater steps its delay 1..4). */
+async function fixUse(c, env, r) {
+    for (let k = 0; k < 5; k++) {
+        const b = env.w.blockAt(c.x, c.y, c.z), um = useMismatch(b, c);
+        if (!um) { r.fixed++; return ok; }
+        const a = await env.exec('activate', { x: c.x, y: c.y, z: c.z });
+        if (!a.ok) return { ...a, stage: 'use' };
+    }
+    return bad('not_confirmed', { why: 'the block would not take the wanted state by right-clicking', block: c.block, props: c.props }, 'use');
+}
+
+/** A water or lava source (a bucket on the cell) or the water of a waterlogged block (a bucket on the block itself). */
+async function pourCell(c, env, r) {
+    const w = env.w, b = w.blockAt ? w.blockAt(c.x, c.y, c.z) : null, item = c.waterlog ? 'water_bucket' : itemFor(c.block);
+    if (c.waterlog) {
+        if (b && b.getProperties && b.getProperties().waterlogged === 'true') { r.skipped++; return ok; }
+        if (!b || b.name !== c.of) return bad('precondition_failed', { why: 'the block to waterlog is not there', block: c.of }, 'pour');
+    } else if (b && b.name === c.block && (!b.getProperties || (b.getProperties().level || '0') === '0')) { r.skipped++; return ok; }
+    if (env.have(item) < 1) return bad('missing_item', { item }, 'stock');
+    const p = await env.exec('pour', { x: c.x, y: c.y, z: c.z, item, ...(c.waterlog ? { waterlog: true } : {}) });
+    if (!p.ok) return { ...p, stage: 'pour' };
+    r.poured++;
+    return ok;
 }
 
 /** Remove the temporary blocks, highest first, so the bot always has something to stand on. */
@@ -202,4 +373,4 @@ function createBuildJob(cells, origin, ledgerOpts = {}, planOpts = {}) {
     return { kind: 'build', ledger, plan, runUnit: (regionId, unit, env) => runUnit(plan, regionId, unit, env), cleanup, diff: (w) => diffBuild(plan, w) };
 }
 
-module.exports = { house, fromStructureNbt, planBuild, unitCells, scaffoldFor, diffBuild, runUnit, cleanup, createBuildJob, itemFor };
+module.exports = { house, fromStructureNbt, planBuild, unitCells, scaffoldFor, tempChain, diffBuild, runUnit, cleanup, createBuildJob, itemFor, kindOf, materialsOf, stateMatches, useMismatch };

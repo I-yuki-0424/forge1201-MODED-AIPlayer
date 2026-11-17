@@ -1,9 +1,9 @@
 'use strict';
-// The command set: 15 commands over the player's primitive inputs (body.js), each with a closed argument schema and a
+// The command set: 16 commands over the player's primitive inputs (body.js), each with a closed argument schema and a
 // tick budget. execute() validates, runs on the live clock (runner.js) and returns a result with a named reason.
 // Reference: docs/implemented/SKILLS-v1.md.
 const { run, SkillError, REASONS } = require('./runner');
-const { moveTo, lookAt, mine, place, activate, tunnel } = require('./commands/block');
+const { moveTo, lookAt, mine, place, pour, activate, tunnel } = require('./commands/block');
 const { pickup, attack } = require('./commands/entity');
 const { equip, eat, toss } = require('./commands/item');
 const { craft, smelt, deposit, withdraw } = require('./commands/gui');
@@ -42,6 +42,7 @@ const COMMANDS = {
     mine: { fn: mine, args: { ...XYZ, collect: 'bool?', blind: 'bool?' }, ticks: walkTicks(1200) },    // collect:false / blind:true are work-layer options (src/work), not offered to the RL policy
     tunnel: { fn: tunnel, args: { dir: 'dir', dy: 'dy' }, ticks: 2400 },
     place: { fn: place, args: { ...XYZ, item: 'item', fluid: 'bool?', temp: 'name?', recipe: 'recipe?', block: 'item?' }, ticks: walkTicks(1200) },    // namespaced ids allowed: pure bots place mod blocks (work/build.js)
+    pour: { fn: pour, args: { ...XYZ, item: 'item', waterlog: 'bool?' }, ticks: walkTicks(1200) },    // a water / lava bucket: a source in the cell, or the water of a waterlogged block (work/build.js)
     activate: { fn: activate, args: { ...XYZ, item: 'item?', sneak: 'bool?' }, ticks: walkTicks(600) },
     pickup: { fn: pickup, args: { entity: 'entity?', item: 'name?' }, oneOf: [['entity'], ['item']], ticks: 1200 },
     attack: { fn: attack, args: { entity: 'entity' }, ticks: 2400 },
