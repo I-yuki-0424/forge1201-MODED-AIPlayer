@@ -168,9 +168,11 @@ they never create a bot). Found by the first live run of the console (structure 
 - **Rule:** a test of anything that reads NBT runs under `applyProtocolBypasses()` (tests/test_blueprint_pure.js does), and a pure test is no
   evidence about a process-wide patch: the first live run of a new feature is part of the task.
 
-## L20 — a blueprint made by commands can hold cells the survival game cannot (found 2026-11-17, the owner's iron golem trap)
+## L20 — wall signs on wall signs: what the game does (measured 2026-11-17 on 26.1.2, `scripts/t26/sign_probe.js`)
 
-`easy-ironfarm-fixd.litematic` has six `oak_wall_sign` cells hung on other wall signs (a 3 x 3 block of signs facing south, only the first row on glass). Litematica pastes without block updates, so the file
-holds them, but the game refuses to place a wall sign whose support is not a solid block, and removing a support pops the sign: no order of placements builds them. Planning for them would park the unit for ever.
-- **Rule:** the Build plan (`build.unbuildable`) finds attached blocks whose support cell is empty or is itself an attached block, reports them in `plan.unbuildable` and does not try them; the completion check (`scripts/t26/place_c.js`) leaves them out of the reference and says so. Say it to the owner instead of failing the test quietly.
-- Also: a rule that matches a name suffix (`door$` for "needs a support") must not match another block (`trapdoor`): the simulated-server test (`tests/test_build_litematic_pure.js`) caught it; a unit test of the planner alone would not.
+`easy-ironfarm-fixd.litematic` has nine wall signs in a 3 x 3 block, facing south; only the first row hangs on glass, the other six hang on the signs of the row before. The owner says the blueprint is right and the
+system must place them. What the server does: a bot's click on the south face of a wall sign with a sign in hand is REFUSED (nothing is placed); a sign placed against a temporary stone block in that cell is accepted,
+and when the bot breaks the stone the sign pops (air). No ordinary placement order gets there; Litematica gets there by pasting without block updates. The plan still reports the six as `plan.unbuildable` and does not try them.
+**Unresolved: how the owner's world came to hold them (creative paste? an update-suppression build?). It is the owner's call whether those six may be left out of the exact match.**
+- Also measured: a click on the TOP of a block gives the standing sign or torch whatever the look; a side face gives the wall variant (orient.js had the older "nearest looking direction" rule: wrong).
+- A rule that matches a name suffix (`door$` for "needs a support") must not match another block (`trapdoor`): the simulated-server test caught it.
