@@ -10,7 +10,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 (async () => {
     const bot = createBot({ host: process.env.MC_HOST || 'localhost', port: Number(process.env.MC_PORT) || 25565, username: process.env.BOTNAME || 'SyncProbe', viewDistance: 2 });
     attachHandshake(bot, { registry: 'vanilla' });
-    const c = sm.attach(bot);
+    const c = bot.syncmatica;
     const raw = [];
     bot._client.on('custom_payload', (p) => { if (p.channel === sm.CHANNEL) raw.push(Buffer.from(p.data).toString('hex').slice(0, 400)); });
     c.on('log', (s) => console.log('[sync]', s));

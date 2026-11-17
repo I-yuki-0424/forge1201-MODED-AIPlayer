@@ -38,9 +38,14 @@ function fixDigTime(bot) {
     };
 }
 
-/** A Fabric server sends no registry handshake: the registry of the game version is the server's. Announced once for the callers that wait for it. */
+/**
+ * A Fabric server sends no registry handshake: the registry of the game version is the server's. Announced once for the callers that wait for it.
+ * Also attaches the Syncmatica client (`bot.syncmatica`, src/transport/syncmatica.js) before the login: the channel must be announced in the configuration phase, and
+ * the server's handshake starts when the bot joins. On a server without the mod it does nothing. SYNCMATICA=0 leaves it off.
+ */
 function attach(bot) {
     bot.once('login', () => bot.emit('mod_registry', { mode: 'vanilla', content: false, version: gameVersion() }));
+    if (process.env.SYNCMATICA !== '0' && !bot.syncmatica) bot.syncmatica = require('./syncmatica').attach(bot);
 }
 
 module.exports = { createBot, attach, fixDigTime };

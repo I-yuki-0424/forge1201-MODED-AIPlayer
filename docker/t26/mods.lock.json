@@ -89,6 +89,14 @@
    "file": "ViaVersion-5.12.2.jar",
    "sha512": "c6af11f50e14bc1ba239f5a90be653cce85feee30c473a4b53336b4d5527d790369cf43843f7cb06d3ac3a34fc207e7203436737ca719070644101472453401b",
    "url": "https://cdn.modrinth.com/data/P1OZGk5p/versions/cVhZ1kgN/ViaVersion-5.12.2.jar"
+  },
+  {
+   "project": "syncmatica",
+   "version": "0.3.20",
+   "type": "release",
+   "file": "syncmatica-fabric-26.1.2-0.3.20.jar",
+   "sha512": "dc59580bf971412f39bd84fa8f7757d148946ea949934eadc15670bf1fc9a371a7619f36fb390ad22952a913496c506ff981299d4b49030a9deb5417b35568bd",
+   "url": "https://cdn.modrinth.com/data/bfneejKo/versions/wsFbuMkX/syncmatica-fabric-26.1.2-0.3.20.jar"
   }
  ]
 }
