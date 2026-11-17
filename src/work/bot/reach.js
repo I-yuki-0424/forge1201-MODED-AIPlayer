@@ -24,6 +24,13 @@ async function approach(env, chest, opt = {}) {
 async function walkTo(env, chest, { why = 'to a container', strict = true } = {}) {
     if (!env || typeof env.here !== 'function') return null;
     const h = env.here(), d = Math.hypot(chest.x - h.x, chest.z - h.z);
+    // With the NAV planner the bot first walks to the container's neighbourhood itself, whatever the distance: the container command only walks on foot (it fails from a perch such as the
+    // top of a temporary pillar: 8 nodes expanded, `unreachable: reach block`, litematic builds 2026-11-17).
+    if (env.navOn && env.navOn() && env.travel && (d > 6 || Math.abs(chest.y - h.y) > 3)) {
+        const t = await env.travel({ x: chest.x, y: chest.y, z: chest.z }, { near: 3, nearY: 3 });
+        if (t.ok) return null;
+        if (['died', 'disconnected', 'cancelled'].includes(t.reason)) return { ok: false, reason: t.reason, detail: { ...(t.detail || {}), why: `the walk to the container failed (${t.reason})`, stage: 'approach' } };
+    }
     if (Math.abs(chest.y - h.y) <= REACH_DY && d <= FAR) return null;
     // Far across: a walk in legs first. Inside a deep pit the legs often fail (no surface to walk on): then the server puts the bot next to the container, as it does for another layer
     // (the chest is inside the loaded area when it is within 4 chunks; farther, the lift finds no standable cell and says so).

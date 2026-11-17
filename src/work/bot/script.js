@@ -160,10 +160,10 @@ async function runScript(script, env, { cancel = { cancelled: false }, maxSteps 
                     let r = await command('withdraw', { item: t.item, count: want, partial: true }, { atSite: chest });       // fewer than asked: what there is
                     if (r.ok) { res = r; note(`took ${t.item} from ${chest.name}`); break; }
                     if (r.reason === 'missing_item') markMiss(k);
-                    why.push(`${chest.name}: ${r.reason}`);
+                    why.push(`${chest.name}: ${r.reason}${r.detail ? ' ' + JSON.stringify(r.detail).slice(0, 160) : ''}`);
                     if (['died', 'disconnected', 'cancelled'].includes(r.reason)) { res = r; break; }
                 }
-                note(`take ${t.item} (${t.from}): ${res.ok ? 'ok' : res.reason}${!res.ok && why.length ? ' [' + why.join('; ').slice(0, 200) + ']' : ''}`);
+                note(`take ${t.item} (${t.from}): ${res.ok ? 'ok' : res.reason}${!res.ok && why.length ? ' [' + why.join('; ').slice(0, 520) + ']' : ''}`);
             } else if (s.take_tool !== undefined) {
                 // Usable tools of the class from the containers (take_usable: not worn out, best tier, most uses left), never a worn one, until the bot holds `until` of them
                 // (default 1). The tools chests first, then every other container within 10 chunks; a chest in another layer is gone to (reach.js), one that fails is passed over.
