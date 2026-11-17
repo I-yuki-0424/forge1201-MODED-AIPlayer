@@ -14,6 +14,7 @@ const { SEAL_ITEMS, sealItem } = require('./pit');
 const O = require('./orient');
 
 const TILE = 16;
+const D = O.DIR, ckey = (c) => `${c.x},${c.y},${c.z}`;
 const SKIP = /^(air|cave_air|void_air|structure_void|jigsaw|structure_block|barrier)$/;
 const ATTACHED = /(torch|ladder|button|lever|sign|door|trapdoor|pressure_plate|carpet|banner|rail|lantern|vine|redstone_wire|repeater|comparator)$/;   // placed after the solids of their layer
 // blocks that fall off when their support goes: never placed against a temporary block
@@ -36,6 +37,28 @@ function kindOf(c) {
     if (FLUID.test(n)) return p.level && p.level !== '0' ? 'flow' : 'fluid';
     if (O.derivedCell(n, p)) return 'derived';
     return NEEDS_SUPPORT.test(n) ? 'attached' : 'block';
+}
+
+/**
+ * Cells that cannot exist in the survival game: a block that needs a support whose support cell is empty or is itself such a block (a wall sign hung on another wall sign,
+ * as in a blueprint that was pasted with commands). A placement is refused by the game and removing a support pops the block, so no order of placements gets there. `props`/`block`
+ * of the cells; returns Map key -> reason. Only the clear cases: a missing or attached-kind support (torches on walls and fences are fine).
+ */
+function unbuildable(abs) {
+    const at = new Map(abs.map((c) => [ckey(c), c])), out = new Map();
+    const needs = (n) => /(wall_sign|wall_torch|wall_hanging_sign)$/.test(n) ? 'wall' : /(^|_)(sign|torch|redstone_wire|repeater|comparator|pressure_plate|carpet)$/.test(n) ? 'floor' : null;
+    const weak = (n) => /(sign|torch|redstone_wire|repeater|comparator|pressure_plate|carpet|button|lever|rail|ladder|banner)$/.test(n);
+    for (const c of abs) {
+        const n = bare(c.block), kind = needs(n);
+        if (!kind) continue;
+        const p = kind === 'wall' ? { x: c.x + D[O.OPP[(c.props || {}).facing] || 'north'][0], y: c.y, z: c.z + D[O.OPP[(c.props || {}).facing] || 'north'][2] } : { x: c.x, y: c.y - 1, z: c.z };
+        const sup = at.get(ckey(p));
+        if (!sup || SKIP.test(bare(sup.block))) { out.set(ckey(c), `${n}: its support cell is empty in the blueprint`); continue; }
+        if (weak(bare(sup.block)) || FLUID.test(bare(sup.block))) out.set(ckey(c), `${n}: its support is ${bare(sup.block)}, which cannot carry it`);
+    }
+    // a block hung on an unbuildable one cannot be built either
+    for (let again = true; again;) { again = false; for (const c of abs) { const n = bare(c.block), kind = needs(n); if (!kind || out.has(ckey(c))) continue; const p = kind === 'wall' ? { x: c.x + D[O.OPP[(c.props || {}).facing] || 'north'][0], y: c.y, z: c.z + D[O.OPP[(c.props || {}).facing] || 'north'][2] } : { x: c.x, y: c.y - 1, z: c.z }; if (out.has(ckey(p))) { out.set(ckey(c), `${n}: its support is unbuildable`); again = true; } } }
+    return out;
 }
 
 /** Items a bot must hold for the plan, as Litematica counts them: a bed or door once per pair, a slab twice when double, snow and candles per layer / piece, a bucket per fluid source and waterlogged block. */
@@ -80,8 +103,9 @@ function planBuild(cells, origin, { tile = TILE, known = null } = {}) {
     const cannot = (b) => itemFor(b) === null || (known && !known(b));
     const unsupported = [...new Set(abs.map((c) => c.block).filter((b) => !SKIP.test(b) && cannot(b)))];
     const real = abs.filter((c) => !SKIP.test(c.block));
-    const skipped = { flow: real.filter((c) => kindOf(c) === 'flow').length, derived: real.filter((c) => kindOf(c) === 'derived').length };
-    const placeable = real.filter((c) => !cannot(c.block) && kindOf(c) !== 'flow' && kindOf(c) !== 'derived');
+    const never = unbuildable(real);                                                                 // cells the survival game cannot hold: reported, not tried
+    const skipped = { flow: real.filter((c) => kindOf(c) === 'flow').length, derived: real.filter((c) => kindOf(c) === 'derived').length, unbuildable: never.size };
+    const placeable = real.filter((c) => !cannot(c.block) && kindOf(c) !== 'flow' && kindOf(c) !== 'derived' && !never.has(ckey(c)));
     if (!placeable.length) throw new Error('nothing the bots can place (every block is unsupported)');
     // a waterlogged block is placed dry in its layer and filled with water in the fluid pass (a bucket used on the block itself: no flow, no race)
     const waterlog = placeable.filter((c) => c.props.waterlogged === 'true' && kindOf(c) !== 'fluid').map((c) => ({ x: c.x, y: c.y, z: c.z, block: 'water', props: { level: '0' }, waterlog: true, of: c.block }));
@@ -101,7 +125,7 @@ function planBuild(cells, origin, { tile = TILE, known = null } = {}) {
     }));
     const footprint = new Set(placeable.map((c) => `${c.x},${c.z}`));
     const cellSet = new Set(real.map((c) => `${c.x},${c.y},${c.z}`));                                 // every cell the structure owns (flows and bed heads too): no temporary block goes there
-    return { origin, minY, layers, phases, tiles, regions, unsupported, footprint, cellSet, count: placeable.length + waterlog.length, skipped, materials: materialsOf(placeable) };
+    return { origin, minY, layers, phases, tiles, regions, unsupported, unbuildable: [...never].map(([k, why]) => ({ at: k, why })), footprint, cellSet, count: placeable.length + waterlog.length, skipped, materials: materialsOf(placeable) };
 }
 
 /** Cells of one unit in placement order: structural blocks first, then attached ones; x serpentine by row. */
@@ -111,7 +135,6 @@ function unitCells(plan, regionId, u) {
     return list;
 }
 
-const D = O.DIR, ckey = (c) => `${c.x},${c.y},${c.z}`;
 const at = (c, d) => ({ x: c.x + D[d][0], y: c.y + D[d][1], z: c.z + D[d][2] });
 const REPLACEABLE = /^(air|cave_air|void_air|grass|tall_grass|short_grass|fern|snow|dead_bush)$/;
 
@@ -186,21 +209,25 @@ function scaffoldFor(plan, w, target, groundY, { maxK = 10, reuse = new Set() } 
  */
 function tempChain(plan, w, c, dirs, maxLen = 16) {
     const solid = (p) => clickable(w, p), isC = (p) => p.x === c.x && p.y === c.y && p.z === c.z;
-    const free = (p) => w.kindAt(p.x, p.y, p.z) === 'air' && !plan.cellSet.has(ckey(p)) && !isC(p);
     const touches = (p) => Object.keys(D).some((d) => { const q = at(p, d); return !isC(q) && solid(q); });
-    let best = null;
-    for (const d of dirs) {
-        const s = at(c, d);
-        if (!free(s)) continue;
-        const seen = new Set([ckey(s)]), queue = [[s]];
-        while (queue.length && seen.size < 4000) {
-            const path = queue.shift(), last = path[path.length - 1];
-            if (touches(last)) { if (!best || path.length < best.length) best = path.slice().reverse(); break; }
-            if (path.length >= maxLen) continue;
-            for (const dd of Object.keys(D)) { const q = at(last, dd); if (!seen.has(ckey(q)) && free(q)) { seen.add(ckey(q)); queue.push([...path, q]); } }
+    // first only cells the structure does not own; if that finds nothing (the cell is walled in by cells still to be placed) also those: they are dug again before their own block goes in
+    for (const own of [false, true]) {
+        const free = (p) => w.kindAt(p.x, p.y, p.z) === 'air' && (own || !plan.cellSet.has(ckey(p))) && !isC(p);
+        let best = null;
+        for (const d of dirs) {
+            const s = at(c, d);
+            if (!free(s)) continue;
+            const seen = new Set([ckey(s)]), queue = [[s]];
+            while (queue.length && seen.size < 4000) {
+                const path = queue.shift(), last = path[path.length - 1];
+                if (touches(last)) { if (!best || path.length < best.length) best = path.slice().reverse(); break; }
+                if (path.length >= maxLen) continue;
+                for (const dd of Object.keys(D)) { const q = at(last, dd); if (!seen.has(ckey(q)) && free(q)) { seen.add(ckey(q)); queue.push([...path, q]); } }
+            }
         }
+        if (best) return best;
     }
-    return best;
+    return null;
 }
 
 /**
@@ -316,11 +343,15 @@ function clickable(w, p) {
 const isInteractiveBlock = (w, p) => (require('../../skills/world').isInteractive((w.nameAt(p.x, p.y, p.z) || '')) ? 1 : 0);
 
 async function putTemps(chain, env, r) {
-    const mat = sealItem(env, 2);
+    const mat = sealItem(env, 2), w = env.w;
     if (!mat) return bad('missing_item', { why: 'no low-value block for a temporary support', tried: SEAL_ITEMS }, 'support');
     for (const s of chain) {
-        if (env.w.nameAt(s.x, s.y, s.z) === mat) continue;
-        const a = { x: s.x, y: s.y, z: s.z, item: mat, temp: 'scaffold' };
+        if (w.nameAt(s.x, s.y, s.z) === mat) continue;
+        // click against a block next to it (the one below first, then the sides): a recipe, so that a stair or a trapdoor can be the support too
+        const dir = ['down', 'north', 'south', 'east', 'west', 'up'].find((d) => clickable(w, at(s, d)));
+        if (!dir) return bad('invalid_target', { why: 'a temporary block has nothing to be placed against', cell: s }, 'scaffold');
+        const q0 = O.recipes(mat, {}, () => true).find((x) => x.support === dir);
+        const a = { x: s.x, y: s.y, z: s.z, item: mat, temp: 'scaffold', recipe: { support: q0.support, face: q0.face, hy: q0.hy, yRot: q0.yRot, pitch: q0.pitch } };
         let q = await env.exec('place', a);
         if (!q.ok && env.navOn && env.navOn() && ['unreachable', 'not_visible', 'stuck', 'precondition_failed'].includes(q.reason)) {
             const t = await env.travel({ x: s.x, y: s.y, z: s.z }, { near: 3, nearY: 3 });
@@ -376,4 +407,4 @@ function createBuildJob(cells, origin, ledgerOpts = {}, planOpts = {}) {
     return { kind: 'build', ledger, plan, runUnit: (regionId, unit, env) => runUnit(plan, regionId, unit, env), cleanup, diff: (w) => diffBuild(plan, w) };
 }
 
-module.exports = { house, fromStructureNbt, planBuild, unitCells, scaffoldFor, tempChain, diffBuild, runUnit, cleanup, createBuildJob, itemFor, kindOf, materialsOf, stateMatches, useMismatch };
+module.exports = { house, fromStructureNbt, planBuild, unbuildable, unitCells, scaffoldFor, tempChain, diffBuild, runUnit, cleanup, createBuildJob, itemFor, kindOf, materialsOf, stateMatches, useMismatch };

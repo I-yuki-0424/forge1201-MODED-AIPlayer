@@ -69,8 +69,10 @@ async function trial(k, S, svc, seed, rep) {
     await S.must(`fill ${M.x - 6} ${M.y - 1} ${M.z - 6} ${X1 + 6} ${M.y - 1} ${Z1 + 6} minecraft:stone`);
     // the reference copy, from the same blueprint with every state (dynamic ones included), then settle
     const pl = lit.place(parsed, { pos, ...placement0 }, { keepAir: false });
+    // cells the survival game cannot hold (a wall sign hung on a wall sign: pasted by commands): not part of the reference, reported
+    const plan0 = build.planBuild(require('../../src/work/jobs/blueprint').cells(pl.bp), { x: 0, y: 0, z: 0 }, { tile: 64 }), never = new Set(plan0.unbuildable.map((u) => u.at));
     const fluids = [], solids = [];
-    for (const b of pl.bp.blocks) { const p = pl.bp.palette[b.s], st = build.kindOf({ block: p.name, props: p.props }); (st === 'flow' || st === 'fluid' ? fluids : solids).push({ b, p }); }
+    for (const b of pl.bp.blocks) { if (never.has(`${b.x},${b.y},${b.z}`)) continue; const p = pl.bp.palette[b.s], st = build.kindOf({ block: p.name, props: p.props }); (st === 'flow' || st === 'fluid' ? fluids : solids).push({ b, p }); }
     const stateStr = (p) => `${p.name}${Object.keys(p.props).length ? '[' + Object.entries(p.props).map(([a, v]) => `${a}=${v}`).join(',') + ']' : ''}`;
     for (const { b, p } of solids) { if (O.derivedCell(p.name, p.props) && /_bed$/.test(p.name) && p.props.part === 'head') continue; await S.cmd(`setblock ${ref.x + b.x} ${ref.y + b.y} ${ref.z + b.z} ${stateStr({ name: p.name, props: { ...p.props, ...(p.props.waterlogged ? { waterlogged: 'false' } : {}) } })} replace`); }
     for (const { b, p } of fluids) if (p.props.level === '0' || !p.props.level) await S.cmd(`setblock ${ref.x + b.x} ${ref.y + b.y} ${ref.z + b.z} ${p.name} replace`);
@@ -81,7 +83,7 @@ async function trial(k, S, svc, seed, rep) {
     const match = async () => /^Test passed/.test(strip(await S.cmd(`execute if blocks ${M.x} ${M.y} ${M.z} ${X1} ${Y1} ${Z1} ${ref.x} ${ref.y} ${ref.z} all`)));
     const controlOk = !(await match());
     // supply chests on the deck (tagged `free`), every item of the plan's material list
-    const mats = pl && build.materialsOf(pl.bp.blocks.map((b) => ({ block: pl.bp.palette[b.s].name.replace(/^minecraft:/, ''), props: pl.bp.palette[b.s].props })).filter((c) => !/^(air|cave_air|void_air)$/.test(c.block)));
+    const mats = pl && build.materialsOf(pl.bp.blocks.filter((b) => !never.has(`${b.x},${b.y},${b.z}`)).map((b) => ({ block: pl.bp.palette[b.s].name.replace(/^minecraft:/, ''), props: pl.bp.palette[b.s].props })).filter((c) => !/^(air|cave_air|void_air)$/.test(c.block)));
     const stacks = []; for (const [it, n] of Object.entries(mats)) { const ms = STACK[it] || 64; for (let r = n; r > 0; r -= ms) stacks.push({ it, n: Math.min(ms, r) }); }
     const chests = []; for (let i = 0; i < stacks.length; i += 27) chests.push(stacks.slice(i, i + 27));
     const sup = chests.map((_, i) => ({ x: M.x - 3, y: M.y, z: M.z + 2 * i }));
@@ -129,7 +131,7 @@ async function trial(k, S, svc, seed, rep) {
         }
     }
     const staticOk = strict || (wrong.length > 0 && wrong.every((q) => q.dynamicOnly));
-    rep.trial(`${name}#${k + 1}`, controlOk && state === 'finished' && staticOk, { strict, staticOk, controlOk, state, err, minutes: Math.round((Date.now() - t0) / 60000), min: M, box: [sx, sy, sz], blocks: probe.blocks.length, materials: mats, syncmatica: got, wrongCells: wrong.slice(0, 40), problems: (svc.problems && svc.problems.list || []).slice(-8).map((q) => JSON.stringify(q).slice(0, 300)), units: (svc.jobs.get(got && got.job) || {}).progress });
+    rep.trial(`${name}#${k + 1}`, controlOk && state === 'finished' && staticOk, { strict, staticOk, controlOk, state, err, minutes: Math.round((Date.now() - t0) / 60000), min: M, box: [sx, sy, sz], blocks: probe.blocks.length, unbuildable: plan0.unbuildable, materials: mats, syncmatica: got, wrongCells: wrong.slice(0, 40), problems: (svc.problems && svc.problems.list || []).slice(-8).map((q) => JSON.stringify(q).slice(0, 300)), units: (svc.jobs.get(got && got.job) || {}).progress });
     return { strict, staticOk };
 }
 

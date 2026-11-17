@@ -183,7 +183,7 @@ async function place(ctx, { x, y, z, item, fluid = false, temp = null, recipe = 
     if (count(bot, item) < 1) throw new SkillError('missing_item', { item });
     // Never on top of a chest, Ender chest or shulker box: it could not be opened any more (owner 2026-11-10). A water seal (`fluid`) is the one exception, a fluid must be stopped;
     // it is registered as temporary (`temp`) and taken away again when nothing flows any more (work/bot/temps.js).
-    if (!fluid && fixtures.coversContainer(w, cell)) throw new SkillError('protected', { why: 'a block there would cover a container', block: item, target: cell });
+    if (!fluid && fixtures.coversContainer(w, cell) && !(recipe && fixtures.isOwn(bot, { x, y: y - 1, z }))) throw new SkillError('protected', { why: 'a block there would cover a container', block: item, target: cell });
     if (recipe) return placeWithRecipe(ctx, { cell, item, expect: block || item, recipe, temp });
     const refs = supports(w, cell);
     if (!refs.length) throw new SkillError('invalid_target', { why: 'no solid neighbour to place against', target: cell });
