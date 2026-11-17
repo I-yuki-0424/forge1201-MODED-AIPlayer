@@ -114,6 +114,7 @@ function recipes(name, props, solid = () => true) {
     const yRots = fam === 'sign' && 'rotation' in (props || {}) && !/wall/.test(bare(name)) ? Array.from({ length: 16 }, (_, k) => ((k * 22.5 - 180) % 360 + 360) % 360) : HORIZ.map((d) => YROT[d]);
     for (const clicked of ['up', 'north', 'south', 'east', 'west', 'down']) for (const hy of [0.25, 0.75]) for (const pitch of ['level', 'down', 'up']) for (const yRot of yRots) {
         if (!horizontal(clicked) && hy !== 0.25) continue;                       // the height of the click matters on side faces only
+        if (fam === 'plain' && (hy !== 0.25 || pitch !== 'level' || yRot !== 0)) continue;     // nothing depends on the look: one recipe per clicked face
         const ctx = { clicked, hy, yRot, pitch }, r = model(fam === 'torch' || fam === 'sign' ? itemOf(name) : name, ctx, solid);
         if (!r || r.name !== bare(name) || !eq(r.props, want)) continue;
         out.push({ ...ctx, sneak: false, support: OPP[clicked], face: faceIndex[clicked], name: r.name, props: r.props });

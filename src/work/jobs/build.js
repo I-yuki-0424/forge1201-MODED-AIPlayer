@@ -184,8 +184,8 @@ function scaffoldFor(plan, w, target, groundY, { maxK = 10, reuse = new Set() } 
  * A chain of temporary blocks that ends in a support next to the cell `c`: the shortest path of free cells (air, not owned by the structure, not `c`) from a cell
  * that touches a solid block to a cell beside `c` in one of `dirs`. Returned in placement order (the one touching solid ground first, the support last), or null.
  */
-function tempChain(plan, w, c, dirs, maxLen = 4) {
-    const solid = (p) => w.kindAt(p.x, p.y, p.z) === 'solid', isC = (p) => p.x === c.x && p.y === c.y && p.z === c.z;
+function tempChain(plan, w, c, dirs, maxLen = 16) {
+    const solid = (p) => clickable(w, p), isC = (p) => p.x === c.x && p.y === c.y && p.z === c.z;
     const free = (p) => w.kindAt(p.x, p.y, p.z) === 'air' && !plan.cellSet.has(ckey(p)) && !isC(p);
     const touches = (p) => Object.keys(D).some((d) => { const q = at(p, d); return !isC(q) && solid(q); });
     let best = null;
@@ -193,7 +193,7 @@ function tempChain(plan, w, c, dirs, maxLen = 4) {
         const s = at(c, d);
         if (!free(s)) continue;
         const seen = new Set([ckey(s)]), queue = [[s]];
-        while (queue.length) {
+        while (queue.length && seen.size < 4000) {
             const path = queue.shift(), last = path[path.length - 1];
             if (touches(last)) { if (!best || path.length < best.length) best = path.slice().reverse(); break; }
             if (path.length >= maxLen) continue;
@@ -252,15 +252,15 @@ async function buildCell(plan, c, env, r) {
 }
 
 async function placeOriented(plan, c, item, env, r) {
-    const w = env.w, fam = O.itemFamilyOf(c.block), solidAt = (p) => w.kindAt(p.x, p.y, p.z) === 'solid';
-    const recs = fam === 'plain' ? null : O.recipes(c.block, c.props, (d) => solidAt(at(c, d)));
-    if (recs && !recs.length) return bad('invalid_target', { why: 'no placement recipe for this state', block: c.block, props: c.props }, 'recipe');
+    const w = env.w, solidAt = (p) => w.kindAt(p.x, p.y, p.z) === 'solid', clickAt = (p) => clickable(w, p);
+    const recs = O.recipes(c.block, c.props, (d) => solidAt(at(c, d)));
+    if (!recs.length) return bad('invalid_target', { why: 'no placement recipe for this state', block: c.block, props: c.props }, 'recipe');
     const blockArg = c.block !== item ? { block: c.block } : {};
-    const tried = new Set(), temp = () => sealItem(env, 2);
+    const tried = new Set();
     for (let attempt = 0; attempt < 4; attempt++) {
         let q = null, args;
-        if (recs) {
-            const cand = recs.filter((x) => !tried.has(x) && solidAt(at(c, x.support))).sort((a, b) => (isInteractiveBlock(w, at(c, a.support)) - isInteractiveBlock(w, at(c, b.support))));
+        {
+            const cand = recs.filter((x) => !tried.has(x) && clickAt(at(c, x.support))).sort((a, b) => (isInteractiveBlock(w, at(c, a.support)) - isInteractiveBlock(w, at(c, b.support))));
             q = cand[0] || null;
             if (!q) {
                 if (NEEDS_SUPPORT.test(c.block)) return bad('unreachable', { why: 'no solid support for a block that needs one (it is placed after its support)', block: c.block }, 'support');
@@ -270,21 +270,15 @@ async function placeOriented(plan, c, item, env, r) {
                 continue;
             }
             args = { x: c.x, y: c.y, z: c.z, item, ...blockArg, recipe: { support: q.support, face: q.face, hy: q.hy, yRot: q.yRot, pitch: q.pitch } };
-        } else {
-            if (!Object.keys(D).some((d) => solidAt(at(c, d)))) {
-                const ch = tempChain(plan, w, c, Object.keys(D));
-                if (!ch) return bad('invalid_target', { why: 'no solid neighbour and no free cell for a temporary block', block: c.block }, 'support');
-                const sc = await putTemps(ch, env, r); if (!sc.ok) return sc;
-            }
-            args = { x: c.x, y: c.y, z: c.z, item, ...blockArg };
         }
         let p = await env.exec('place', args);
         // A temporary block helps when the cell cannot be reached or seen. With NAV (env.navOn) the router's walk reaches the cell itself (pillar beside a wall, then the wall top; its blocks are taken away).
         if (!p.ok && env.navOn && env.navOn() && ['unreachable', 'not_visible', 'stuck', 'precondition_failed'].includes(p.reason)) {
             const t = await env.travel({ x: c.x, y: c.y, z: c.z }, { near: 3, nearY: 3 });
             if (t.ok) p = await env.exec('place', args);
-        } else if (!p.ok && !recs && (p.reason === 'unreachable' || p.reason === 'not_visible' || (p.reason === 'stuck' && p.detail && p.detail.goal === 'reach placement face'))) {
-            const sc = scaffoldFor(plan, w, c, plan.origin.y, { reuse: new Set(env.scaffold.cells.map((z) => `${z.x},${z.y},${z.z}`)) }), mat = temp();
+        } else if (!p.ok && (p.reason === 'unreachable' || p.reason === 'not_visible' || (p.reason === 'stuck' && p.detail && p.detail.goal === 'reach placement face'))) {
+            // no NAV (legacy walker): a staircase of temporary blocks outside the footprint, climbed, then the same placement again
+            const sc = scaffoldFor(plan, w, c, plan.origin.y, { reuse: new Set(env.scaffold.cells.map((z) => `${z.x},${z.y},${z.z}`)) }), mat = sealItem(env, 2);
             if (sc && sc.cells.length && mat) {
                 for (const s of sc.cells) {
                     if (w.nameAt(s.x, s.y, s.z) === mat) continue;
@@ -305,7 +299,6 @@ async function placeOriented(plan, c, item, env, r) {
             if (q) tried.add(q);
             const m = await env.exec('mine', { x: c.x, y: c.y, z: c.z });
             if (!m.ok) return { ...m, stage: 'redo' };
-            if (!q && !recs) return bad('not_confirmed', { why: 'placed block differs from the wanted state', wanted: c.props, got: now.getProperties ? now.getProperties() : null, block: c.block }, 'state');
             continue;
         }
         r.placed++;
@@ -315,6 +308,11 @@ async function placeOriented(plan, c, item, env, r) {
     return bad('not_confirmed', { why: 'no placement recipe gave the wanted state', block: c.block, props: c.props, tried: tried.size }, 'state');
 }
 
+/** A block a placement can be clicked against: not air, a fluid or a replaceable plant, and with a shape. */
+function clickable(w, p) {
+    const k = w.kindAt(p.x, p.y, p.z), n = w.nameAt(p.x, p.y, p.z);
+    return (k === 'solid' || k === 'partial') && !!n && !REPLACEABLE.test(n);
+}
 const isInteractiveBlock = (w, p) => (require('../../skills/world').isInteractive((w.nameAt(p.x, p.y, p.z) || '')) ? 1 : 0);
 
 async function putTemps(chain, env, r) {
@@ -322,7 +320,12 @@ async function putTemps(chain, env, r) {
     if (!mat) return bad('missing_item', { why: 'no low-value block for a temporary support', tried: SEAL_ITEMS }, 'support');
     for (const s of chain) {
         if (env.w.nameAt(s.x, s.y, s.z) === mat) continue;
-        const q = await env.exec('place', { x: s.x, y: s.y, z: s.z, item: mat, temp: 'scaffold' });
+        const a = { x: s.x, y: s.y, z: s.z, item: mat, temp: 'scaffold' };
+        let q = await env.exec('place', a);
+        if (!q.ok && env.navOn && env.navOn() && ['unreachable', 'not_visible', 'stuck', 'precondition_failed'].includes(q.reason)) {
+            const t = await env.travel({ x: s.x, y: s.y, z: s.z }, { near: 3, nearY: 3 });
+            if (t.ok) q = await env.exec('place', a);
+        }
         if (!q.ok) return { ...q, stage: 'scaffold' };
         env.scaffold.cells.push(s); r.scaffold++;
     }
