@@ -8,7 +8,7 @@
 // mod blocks and items when the server has content mods, src/transport/mod_registry.js).
 const fs = require('fs');
 const path = require('path');
-const { createForgeBot, attachForgeHandshake } = require('./transport/forge_bot');
+const { createBot: createForgeBot, attachHandshake: attachForgeHandshake } = require('./transport');
 const { runIntent } = require('./skills/intents');
 const { EventLog } = require('./rl/events');
 

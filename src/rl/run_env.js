@@ -7,7 +7,7 @@
 // Options: --gap-ms N waits N ms after each terminal observation before the next reset (for graders that inspect the server).
 const fs = require('fs');
 const path = require('path');
-const { createForgeBot, attachForgeHandshake } = require('../transport/forge_bot');
+const { createBot: createForgeBot, attachHandshake: attachForgeHandshake } = require('../transport');
 const { Rcon } = require('./rcon');
 const { LineWriter, LineReader } = require('./jsonl_channel');
 const { SPECS, specHash, checkSpec, validate } = require('./action_spec');

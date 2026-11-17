@@ -12,5 +12,5 @@ export XDG_RUNTIME_DIR=/run/user/1000 DOCKER_HOST=${DOCKER_HOST:-unix:///run/use
 SELF=/home/coder/projects/forge1201-MODED-AIPlayer
 EXTRA=(); ARGS=(); for a in "$@"; do case "$a" in --*) ARGS+=("$a");; *=*) EXTRA+=(-e "$a");; *) ARGS+=("$a");; esac; done
 exec docker run --rm --name "live-f26-$MODE-$$" --network fabric26-worlds_default --memory 3g -v "${REPO:-$SELF}":/app:ro -v "$SELF/node_modules":/app/node_modules:ro -v "$HOME_/out":/out -w /app \
-  -e MC_HOST="$MODE" -e RCON_HOST="$MODE" -e RCON_PASSWORD="$RCON_PASSWORD" -e MC_VERSION=26.1 -e BOT_REGISTRY=vanilla -e T26_WORLD="$N" "${EXTRA[@]}" \
+  -e MC_HOST="$MODE" -e RCON_HOST="$MODE" -e RCON_PASSWORD="$RCON_PASSWORD" -e MC_PLATFORM=fabric -e MC_VERSION=26.1 -e BOT_REGISTRY=vanilla -e T26_WORLD="$N" "${EXTRA[@]}" \
   node@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0 sh -c 'exec node $NODE_ARGS "$0" "$@"' "scripts/t26/$SCRIPT" "${ARGS[@]}"

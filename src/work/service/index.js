@@ -19,7 +19,7 @@ const { need, BOT_NAME, STRUCT_NAME, DEFAULT_KIT, Problem, normalizeBox } = requ
 
 /** Default bot factory: a Mineflayer bot with the FML3 handshake and the mod table (BOT_MOD_TABLE). */
 function defaultFactory({ host, port }) {
-    const { createForgeBot, attachForgeHandshake } = require('../../transport/forge_bot');
+    const { createBot: createForgeBot, attachHandshake: attachForgeHandshake } = require('../../transport');
     return (name) => {
         const bot = createForgeBot({ host, port, username: name, viewDistance: 4 });
         attachForgeHandshake(bot, { registry: process.env.BOT_REGISTRY || 'auto' });

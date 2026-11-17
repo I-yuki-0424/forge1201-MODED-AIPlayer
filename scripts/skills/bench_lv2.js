@@ -25,7 +25,7 @@
 const fs = require('fs');
 const path = require('path');
 const Vec3 = require('vec3');
-const { createForgeBot, attachForgeHandshake } = require('../../src/transport/forge_bot');
+const { createBot: createForgeBot, attachHandshake: attachForgeHandshake } = require('../../src/transport');
 const { Rcon } = require('../../src/rl/rcon');
 const { mulberry32 } = require('../../src/rl/run_env');
 const { execute, COMMANDS } = require('../../src/skills');

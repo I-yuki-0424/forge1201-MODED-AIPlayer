@@ -1,11 +1,12 @@
 'use strict';
-// Transport layer: everything needed to get a Mineflayer bot logged in to a Forge 1.20.1 server.
+// Transport layer, FORGE mode: everything needed to get a Mineflayer bot logged in to a Forge 1.20.1 server (the Fabric mode is src/transport/fabric_bot.js; src/transport/index.js picks).
 // Extracted from bot_actuator.js (TASK-20261030-009 first step) so the RL environment (src/rl) and the actuator share it.
 const mineflayer = require('mineflayer');
 const nbt = require('prismarine-nbt');
 const ForgeHandshakeStateMachine = require('../forge_handshake_state_machine');
 const DynamicRegistryInjector = require('../dynamic_registry_injector');
 const modRegistry = require('./mod_registry');
+const { platform } = require('./platform');
 
 let bypassesApplied = false;
 
@@ -114,16 +115,17 @@ function hardenClientChatParsers(bot) {
     }
 }
 
-/** The game version the bots speak: MC_VERSION (default 1.20.1, the Forge worlds). Anything else is a vanilla-protocol server (the T26 Fabric test worlds: 26.1). */
-const gameVersion = () => process.env.MC_VERSION || '1.20.1';
-const isForge = () => gameVersion() === '1.20.1' && process.env.MC_FORGE !== '0';
+/** Forge's game version is fixed (the FML3 handshake and the mod set are 1.20.1's). */
+const gameVersion = () => '1.20.1';
+const isForge = () => platform() === 'forge';
 
-/** createBot with the FML3 host marker (Forge 1.20.1 only), then the chat hardening. `host` is the plain host name. */
+/** createBot against a Forge 1.20.1 server: the FML3 host marker, the protocol bypasses, then the chat hardening. `host` is the plain host name. */
 function createForgeBot({ host = 'localhost', port = 25565, username, viewDistance, checkTimeoutInterval }) {
-    if (isForge()) applyProtocolBypasses();
+    if (platform() !== 'forge') return require('./fabric_bot').createBot({ host, port, username, viewDistance, checkTimeoutInterval });    // callers that predate src/transport/index.js
+    applyProtocolBypasses();
     require('./time_scale').fromEnv();    // GAME_SPEED: a server running tools/tickrate needs the client clock to match
     const bot = mineflayer.createBot({
-        host: isForge() ? host + '\0FML3\0' : host,
+        host: host + '\0FML3\0',
         port,
         username,
         version: gameVersion(),
@@ -134,23 +136,7 @@ function createForgeBot({ host = 'localhost', port = 25565, username, viewDistan
         ...(checkTimeoutInterval ? { checkTimeoutInterval } : {})
     });
     hardenClientChatParsers(bot);
-    if (!isForge()) bot.once('login', () => fixDigTime(bot));
     return bot;
-}
-
-/**
- * 26.1 (prismarine-item with item components): `item.enchants` is the raw component {enchantments: [{id, level}]}, not the list [{name, lvl}] that prismarine-block's digTime
- * iterates, so every dig with an enchanted tool threw "enchantments is not iterable" (T26 Mine B, 2026-11-14: each unit of the pit failed `internal`). The same computation as
- * mineflayer's digTime with the list normalised.
- */
-function fixDigTime(bot) {
-    const norm = (e) => (Array.isArray(e) ? e : e && Array.isArray(e.enchantments) ? e.enchantments.map((x) => ({ name: (bot.registry.enchantments[x.id] || {}).name || null, lvl: x.level })) : []);
-    bot.digTime = function digTime(block) {
-        const held = bot.heldItem, head = bot.inventory.slots[bot.getEquipmentDestSlot('head')];
-        const ench = [...(held ? norm(held.enchants) : []), ...(head ? norm(head.enchants) : [])];
-        const eye = bot._getBlockAtEyeLevel ? bot._getBlockAtEyeLevel() : null;
-        return block.digTime(held ? held.type : null, bot.game.gameMode === 'creative', ['water', 'flowing_water'].includes(eye && eye.name), !bot.entity.onGround, ench, bot.entity.effects);
-    };
 }
 
 /**
@@ -162,7 +148,7 @@ function fixDigTime(bot) {
  * The result is emitted once as bot 'mod_registry' {mode, content, blocks, states, items, missing, error?}.
  */
 function attachForgeHandshake(bot, { registry = 'auto', table } = {}) {
-    if (!isForge()) { bot.once('login', () => bot.emit('mod_registry', { mode: 'vanilla', content: false, version: gameVersion() })); return; }       // a vanilla-protocol server sends no FML3 handshake
+    if (platform() !== 'forge') return require('./fabric_bot').attach(bot);       // a vanilla-protocol server sends no FML3 handshake
     bot.on('inject_allowed', () => {
         hardenClientChatParsers(bot);
         require('./forge_windows').attach(bot);                 // screens a mod opens through its own channel (Ender Storage)
@@ -186,4 +172,4 @@ function attachForgeHandshake(bot, { registry = 'auto', table } = {}) {
     });
 }
 
-module.exports = { gameVersion, isForge, fixDigTime, applyProtocolBypasses, hardenClientChatParsers, createForgeBot, attachForgeHandshake };
+module.exports = { gameVersion, isForge, applyProtocolBypasses, hardenClientChatParsers, createForgeBot, attachForgeHandshake };

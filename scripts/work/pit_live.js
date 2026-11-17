@@ -13,7 +13,7 @@
 //   scripts/world/test-down.sh
 const fs = require('fs');
 const path = require('path');
-const { createForgeBot, attachForgeHandshake } = require('../../src/transport/forge_bot');
+const { createBot: createForgeBot, attachHandshake: attachForgeHandshake } = require('../../src/transport');
 const { Rcon } = require('../../src/rl/rcon');
 const { Server, sleep } = require('../skills/bench');
 const { createPitJob } = require('../../src/work/jobs/pit');
