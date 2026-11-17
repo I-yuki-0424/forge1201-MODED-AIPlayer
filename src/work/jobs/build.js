@@ -459,7 +459,7 @@ async function cleanup(env) {
         // only what is still the temporary block: the structure's own block may have been built into the cell since (a chain passes through cells that are built later)
         if (t.plan && t.plan.want && t.plan.want.get(ckey(c)) === here) continue;
         if (c.mat && here !== c.mat) continue;
-        const m = await env.exec('mine', { x: c.x, y: c.y, z: c.z });
+        const m = await env.exec('mine', { x: c.x, y: c.y, z: c.z, collect: false, blind: true });       // a temporary block is not worth the walk to pick it up
         if (m.ok) removed++;
     }
     t.cells = []; t.layer = null;
