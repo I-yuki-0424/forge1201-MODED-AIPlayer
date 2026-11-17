@@ -48,7 +48,8 @@ function view(w, o = {}) {
     };
     /** The cost of making a body cell passable: 0 when it is, the dig cost when it can be dug, null when neither. */
     const clear = (x, y, z) => { const k = kind(x, y, z); if (passable(k) || k === 'water') return 0; return digCost(x, y, z); };            // water: the body passes (swimming); whether it can be held there is the node's business
-    return { kind, name, digCost, clear, within: box };
+    const maxDrop = o.maxDrop || (w.maxDrop && w.maxDrop()) || MAX_DROP;        // a job that works high up (a build in the sky) raises it for its bot: bot.__maxDrop
+    return { kind, name, digCost, clear, within: box, maxDrop };
 }
 
 const solid = (V, x, y, z) => V.kind(x, y, z) === 'solid';
@@ -89,10 +90,10 @@ function moves(V0, n, o) {
             else if (!dig.length && here !== 'swim' && passable(k)) {
                 // off an edge: the first floor within MAX_DROP, a water surface, or a bridge block when there is nothing
                 let landed = false;
-                for (let d = 1; d <= MAX_DROP + 5; d++) {
+                for (let d = 1; d <= V.maxDrop + 5; d++) {
                     const kk = V.kind(X, y - d, Z);
                     if (kk === 'water') { if (swimmable({ kindAt: V.kind }, X, y - d, Z)) { add({ x: X, y: y - d, z: Z, kind: 'swim', move: 'drop', cost: 1 + 0.2 * d, dig }); } landed = true; break; }
-                    if (d <= MAX_DROP && solid(V, X, y - d - 1, Z) && passable(kk)) { add({ x: X, y: y - d, z: Z, kind: 'stand', move: 'drop', cost: 1 + 0.3 * d, dig }); landed = true; break; }
+                    if (d <= V.maxDrop && solid(V, X, y - d - 1, Z) && passable(kk)) { add({ x: X, y: y - d, z: Z, kind: 'stand', move: 'drop', cost: 1 + 0.3 * d, dig }); landed = true; break; }
                     if (!passable(kk)) { landed = true; break; }
                 }
                 if (!landed && k === 'air' && (here === 'stand' || here === 'bridge' || n.placed) && !o.noPlace) add({ x: X, y, z: Z, kind: 'stand', move: 'bridge', cost: BRIDGE, dig: [], place: { x: X, y: y - 1, z: Z }, placed: true });
@@ -134,7 +135,7 @@ function moves(V0, n, o) {
     if (here === 'stand' && !n.placed) {
         const c = V.digCost(x, y - 1, z);
         if (c !== null) {
-            for (let d = 2; d <= MAX_DROP + 1; d++) {
+            for (let d = 2; d <= (V.maxDrop === MAX_DROP ? MAX_DROP : 3) + 1; d++) {
                 const kk = V.kind(x, y - d, z);
                 if (kk === 'solid') { add({ x, y: y - d + 1, z, kind: 'stand', move: 'digdown', cost: 1.5 + c + 0.3 * (d - 2), dig: [{ x, y: y - 1, z }] }); break; }
                 if (!passable(kk)) break;

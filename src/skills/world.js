@@ -117,6 +117,7 @@ function fromBot(bot) {
     }
     // `bot.__avoidFloor(x, y, z)`: a floor the planner must not plan to stand on (another bot's scaffolding: owner 2026-11-11, "stop the bot from trying to ride on people's scaffolding"). Looked up at call time.
     w.avoidFloor = (x, y, z) => !!(bot.__avoidFloor && bot.__avoidFloor(x, y, z));
+    w.maxDrop = () => bot.__maxDrop || 0;
     bot.__skillWorld = { registry: bot.registry, world: bot.world, w };
     return w;
 }

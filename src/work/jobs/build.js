@@ -284,6 +284,7 @@ function tempChain(plan, w, c, dirs, maxLen = 16) {
  */
 async function runUnit(plan, regionId, u, env) {
     const bot = env.bot || null;
+    if (bot) bot.__maxDrop = 8;          // a build in the sky: the walker may step off an edge up to 8 down (4 hearts) instead of stranding on its own floating blocks (it was 3)
     // the structure's materials are held back from temporary use (scaffolds, pillars, seals) while the bot works on it (owner 2026-11-14: the planks went into scaffolds)
     // only what is still to be placed (a cell that already holds its block needs nothing): an over-reserve starved the walker's pillar of the blocks the kit had for it
     let res = null;
