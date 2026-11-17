@@ -112,7 +112,19 @@ async function trial(k, S, svc, seed, rep) {
             const pp = lit.place(lit.parse(f), found, { keepAir: false });
             const job = await svc._buildFrom(pp.bp, pp.origin, { name: 'iron-farm', bots: [name], start: true, tile: 64 }, null, { dim: 'overworld' });
             got.origin = pp.origin; got.job = job.id;
-            while (Date.now() - t0 < LIMIT_MIN * 60000) { const j = svc.jobs.get(job.id); if (!j || j.state === 'finished' || j.state === 'cancelled') { state = j ? j.state : 'gone'; break; } await sleep(3000); }
+            let lastLog = 0;
+            while (Date.now() - t0 < LIMIT_MIN * 60000) {
+                const j = svc.jobs.get(job.id); if (!j || j.state === 'finished' || j.state === 'cancelled') { state = j ? j.state : 'gone'; break; }
+                if (Date.now() - lastLog > 120000) {          // progress, read from the bot's own view of the world (a diagnostic, never the verdict)
+                    lastLog = Date.now();
+                    try {
+                        const bot = svc.bots.get(name).bot, miss = j.impl.diff(require('../../src/skills/world').fromBot(bot)), by = {};
+                        for (const c of miss) by[c.waterlog ? 'waterlog' : c.block] = (by[c.waterlog ? 'waterlog' : c.block] || 0) + 1;
+                        console.log(`[progress ${Math.round((Date.now() - t0) / 60000)} min] ${j.impl.plan.count - miss.length}/${j.impl.plan.count} cells right; missing by block: ${JSON.stringify(Object.entries(by).sort((a, b) => b[1] - a[1]).slice(0, 8))}`);
+                    } catch (e) { console.log('[progress] failed:', e.message); }
+                }
+                await sleep(3000);
+            }
             if (state === 'control') state = 'timeout';
         } catch (e) { err = e.message; state = 'error'; console.error(e); }
     }

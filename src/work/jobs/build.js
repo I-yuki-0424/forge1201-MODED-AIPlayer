@@ -18,7 +18,7 @@ const D = O.DIR, ckey = (c) => `${c.x},${c.y},${c.z}`;
 const SKIP = /^(air|cave_air|void_air|structure_void|jigsaw|structure_block|barrier)$/;
 const ATTACHED = /(torch|ladder|button|lever|sign|door|trapdoor|pressure_plate|carpet|banner|rail|lantern|vine|redstone_wire|repeater|comparator)$/;   // placed after the solids of their layer
 // blocks that fall off when their support goes: never placed against a temporary block
-const NEEDS_SUPPORT = /(torch|ladder|button|lever|sign|pressure_plate|carpet|banner|rail|lantern|vine|redstone_wire|repeater|comparator|door)$/;
+const NEEDS_SUPPORT = /(torch|ladder|button|lever|sign|pressure_plate|carpet|banner|rail|lantern|vine|redstone_wire|repeater|comparator|(^|_)door)$/;
 const ITEM_OF = { wall_torch: 'torch', redstone_wall_torch: 'redstone_torch', soul_wall_torch: 'soul_torch', wall_sign: 'oak_sign', water: 'water_bucket', lava: 'lava_bucket', redstone_wire: 'redstone' };
 const FLUID = /^(water|lava)$/;
 
@@ -110,22 +110,25 @@ function planBuild(cells, origin, { tile = TILE, known = null } = {}) {
     // a waterlogged block is placed dry in its layer and filled with water in the fluid pass (a bucket used on the block itself: no flow, no race)
     const waterlog = placeable.filter((c) => c.props.waterlogged === 'true' && kindOf(c) !== 'fluid').map((c) => ({ x: c.x, y: c.y, z: c.z, block: 'water', props: { level: '0' }, waterlog: true, of: c.block }));
     const all = [...placeable, ...waterlog], fluidCell = (c) => c.waterlog || kindOf(c) === 'fluid';
-    const minY = Math.min(...all.map((c) => c.y)), maxY = Math.max(...all.map((c) => c.y)), layers = maxY - minY + 1, phases = layers + (all.some(fluidCell) ? 1 : 0);
+    // phases: per height one for the blocks that stand alone and one for the ones that need a support (a torch hangs on a block of the next row, which a row-wise order would not have yet), then the fluids
+    const minY = Math.min(...all.map((c) => c.y)), maxY = Math.max(...all.map((c) => c.y)), layers = maxY - minY + 1, phases = 2 * layers + (all.some(fluidCell) ? 1 : 0);
+    const phaseOf = (c) => (fluidCell(c) ? 2 * layers : 2 * (c.y - minY) + (ATTACHED.test(c.block) ? 1 : 0));
     const tiles = new Map();
     for (const c of all) {
         const tx = Math.floor(c.x / tile), tz = Math.floor(c.z / tile), id = `b${tx}_${tz}`;
         let t = tiles.get(id);
         if (!t) tiles.set(id, t = { id, z0: tz * tile, z1: tz * tile + tile - 1, x0: Infinity, x1: -Infinity, cells: new Map() });
         t.x0 = Math.min(t.x0, c.x); t.x1 = Math.max(t.x1, c.x);
-        const key = (fluidCell(c) ? layers : c.y - minY) * tile + (c.z - t.z0);                       // unit index inside the tile = layer * rows + row
+        const key = phaseOf(c) * tile + (c.z - t.z0);                                              // unit index inside the tile = phase * rows + row
         (t.cells.get(key) || t.cells.set(key, []).get(key)).push(c);
     }
     const regions = [...tiles.values()].map((t) => ({
         id: t.id, anchor: { x: (t.x0 + t.x1) / 2, z: (t.z0 + t.z1) / 2 }, layers: phases, rows: tile, meta: { tile: t.id, minY },
     }));
     const footprint = new Set(placeable.map((c) => `${c.x},${c.z}`));
+    const want = new Map(placeable.filter((c) => !c.waterlog).map((c) => [`${c.x},${c.y},${c.z}`, c.block]));
     const cellSet = new Set(real.map((c) => `${c.x},${c.y},${c.z}`));                                 // every cell the structure owns (flows and bed heads too): no temporary block goes there
-    return { origin, minY, layers, phases, tiles, regions, unsupported, unbuildable: [...never].map(([k, why]) => ({ at: k, why })), footprint, cellSet, count: placeable.length + waterlog.length, skipped, materials: materialsOf(placeable) };
+    return { origin, minY, layers, phases, tiles, regions, unsupported, unbuildable: [...never].map(([k, why]) => ({ at: k, why })), footprint, cellSet, want, count: placeable.length + waterlog.length, skipped, materials: materialsOf(placeable) };
 }
 
 /** Cells of one unit in placement order: structural blocks first, then attached ones; x serpentine by row. */
@@ -227,6 +230,14 @@ function tempChain(plan, w, c, dirs, maxLen = 16) {
         }
         if (best) return best;
     }
+    // a lone block high above everything (a corner marker): a pillar straight down to the first block under it
+    const col = [];
+    for (let k = 1; k <= 40; k++) {
+        const p = { x: c.x, y: c.y - k, z: c.z };
+        if (clickable(w, p)) return col.length ? col.reverse() : null;
+        if (w.kindAt(p.x, p.y, p.z) !== 'air') return null;
+        col.push(p);
+    }
     return null;
 }
 
@@ -248,6 +259,7 @@ async function runUnit(plan, regionId, u, env) {
 async function runUnitBody(plan, regionId, u, env) {
     const cells = unitCells(plan, regionId, u.unit), r = { placed: 0, skipped: 0, scaffold: 0, fixed: 0, poured: 0 };
     env.scaffold = env.scaffold || { layer: null, cells: [] };
+    env.scaffold.plan = plan;
     if (env.scaffold.layer !== null && env.scaffold.layer !== u.layer) await cleanup(env);
     env.scaffold.layer = u.layer;
     for (const c of cells) {
@@ -279,8 +291,10 @@ async function buildCell(plan, c, env, r) {
 }
 
 async function placeOriented(plan, c, item, env, r) {
-    const w = env.w, solidAt = (p) => w.kindAt(p.x, p.y, p.z) === 'solid', clickAt = (p) => clickable(w, p);
-    const recs = O.recipes(c.block, c.props, (d) => solidAt(at(c, d)));
+    const w = env.w, clickAt = (p) => clickable(w, p);
+    // what a torch, sign or repeater can stand on / hang on: a full block; a wall or fence carries a block on top (center support)
+    const solidAt = (p, d) => w.kindAt(p.x, p.y, p.z) === 'solid' || (d === 'down' && /(_wall|_fence)$/.test(w.nameAt(p.x, p.y, p.z) || ''));
+    const recs = O.recipes(c.block, c.props, (d) => solidAt(at(c, d), d));
     if (!recs.length) return bad('invalid_target', { why: 'no placement recipe for this state', block: c.block, props: c.props }, 'recipe');
     const blockArg = c.block !== item ? { block: c.block } : {};
     const tried = new Set();
@@ -358,7 +372,7 @@ async function putTemps(chain, env, r) {
             if (t.ok) q = await env.exec('place', a);
         }
         if (!q.ok) return { ...q, stage: 'scaffold' };
-        env.scaffold.cells.push(s); r.scaffold++;
+        env.scaffold.cells.push({ ...s, mat }); r.scaffold++;
     }
     return ok;
 }
@@ -393,7 +407,11 @@ async function cleanup(env) {
     const t = env.scaffold; if (!t || !t.cells.length) { if (t) t.layer = null; return { ok: true, removed: 0 }; }
     const cells = t.cells.sort((a, b) => b.y - a.y || b.x - a.x); let removed = 0;
     for (const c of cells) {
-        if (!env.w.nameAt(c.x, c.y, c.z) || /^(air|cave_air)$/.test(env.w.nameAt(c.x, c.y, c.z))) continue;
+        const here = env.w.nameAt(c.x, c.y, c.z);
+        if (!here || /^(air|cave_air)$/.test(here)) continue;
+        // only what is still the temporary block: the structure's own block may have been built into the cell since (a chain passes through cells that are built later)
+        if (t.plan && t.plan.want && t.plan.want.get(ckey(c)) === here) continue;
+        if (c.mat && here !== c.mat) continue;
         const m = await env.exec('mine', { x: c.x, y: c.y, z: c.z });
         if (m.ok) removed++;
     }
