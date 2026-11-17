@@ -34,6 +34,19 @@ The pit's water rule (`pit.js` `seal`, `sealPlan`) fills the fluid next to the c
 - **No night rule on Peaceful** (`nav/shelter.js setDifficulty`, polled by the service over RCON because mineflayer does not know the difficulty on 26.1). The peaceful T26 tests waited out whole nights in a shelter; "`place` hanging 8-10 minutes" and "`fix:return` 6 minutes" in the health rows were a bot standing still.
 - `mine_b` took the box from where the bot joined (random around the spawn): two runs of one seed compared different chunks. It is now the chunk of `bot.spawnPoint`. Its top is the top of the **terrain** (tree blocks do not count): a 150-leaf canopy over the spawn chunk of seed -8223826995433110289 set the top and neither pit method removes aerial trees (by design, `aerialTree`).
 
+## Layered rule (owner 2026-11-17: unlimited depth) - my reading of the instruction, built and under test
+
+The owner's method: call the level to dig Y; the level the bot walks on is Y-1. Liquid at Y-1 is replaced by temporary blocks first (and in the neighbouring range, where the liquid spans into it, blocks are placed to stop the inflow); when Y is done, Y-1 becomes the new Y and is dug together with the temporary blocks; the new Y-1 is treated the same, as often as needed. A water source that shows up later is removed; a partition that failed is placed again; forgotten temporary blocks are cleaned up as for movement.
+
+What that means in the code (`pit.js` `lakeFill` + `floorFill`, `pit_lake.js` options `slab` and `exact`, `PIT_LAKE_MODE=body` = the old whole-body fill for A/B):
+
+1. **The level and its floor.** When a cell has fluid in it or beside it, the water at the cell's level `y` and at `y-1` (the floor) is replaced over its whole extent (the box plus the one-cell ring, which is the partition against the neighbouring range): `fillLake` with `slab {lo: y-1, hi: y}`, still from the shore inwards and column-complete, but only two levels thick, so the depth of the lake no longer matters (the old whole-body fill gave up at about two levels, `too_deep`).
+2. **The floor under every opened cell.** After a cell is dug (`handle`), the block under it is the floor the bot will stand on when this layer is the one being dug. Water there is replaced (`floorFill`: `fillLake` with `exact` and `slab {y-1, y-1}`) against a neighbour, seen through the hole the dig made. A floor cell without a neighbour to place against or without a line to it is kept in `plan.floorPending` and tried again after the next opened cell nearby (about 6 blocks, at most 12 per call, 600 kept).
+3. **Registered temporary blocks.** The blocks are `temp: 'lake'` (new kind in `bot/temps.js`, `HOLDS_BACK`: only taken when no fluid lies beside or above). The pit model (`pit_expert.js buildModel`) treats a `lake` block as SOLID, not ROCK: the next layer digs it with the rest ("dig it out together with the temporary blocks"). What is left at the end goes through `cleanHanging` / `cleanLakeBlocks` / the seal pass of the job's cleanup, as before.
+4. **Water that gets in anyway** is the old per-cell rule's business (`seal` after the dig: the source is filled, the cell dug again; `checkLayer` sends a unit back whose cells hold water or blocks). Nothing new there.
+
+Not decided by me, to be seen in the runs: whether a floor cell in the middle of a lake can always be laid (it needs a neighbour that is already a block and a line of sight through an opened cell; the pending list is the answer to the order problem, not a proof).
+
 ## Open
 
 - The lake-fill blocks are plain blocks that nobody owns: when the unit that should dig them is parked they stay (seed 4461, 5 blocks). Register them with a `lake` kind that the expert model does not treat as rock and that `cleanTemps` takes at the end, or let the final sweep (`pit_sweep.js`) count them as wrong cells again.
