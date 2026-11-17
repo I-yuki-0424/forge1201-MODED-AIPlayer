@@ -20,6 +20,7 @@ const names = Array.from({ length: BOTS }, (_, i) => `Fm${T.WORLD}${'abcdef'[i -
 const FILE = process.env.LITEMATIC || path.join(__dirname, '../../tests/fixtures/easy-ironfarm-fixd.litematic');
 const STACK = { white_bed: 1, water_bucket: 1, lava_bucket: 1, oak_sign: 16, snowball: 16 };
 const sleep = T.sleep, strip = T.strip;
+let moves = {};
 
 /** Upload the file as a Syncmatica placement with a throw-away bot (what the owner's Litematica does with "share"); resolves the placement the server lists. */
 async function shareFile(file, pos, rotation, mirror) {
@@ -147,13 +148,14 @@ async function trial(k, S, svc, seed, rep) {
         }
     }
     const staticOk = strict || (wrong.length > 0 && wrong.every((q) => q.dynamicOnly));
-    rep.trial(`${name}#${k + 1}`, controlOk && state === 'finished' && staticOk, { strict, staticOk, controlOk, state, err, minutes: Math.round((Date.now() - t0) / 60000), min: M, box: [sx, sy, sz], blocks: probe.blocks.length, unbuildable: plan0.unbuildable, materials: mats, syncmatica: got, wrongCells: wrong.slice(0, 40), problems: (svc.problems && svc.problems.list || []).slice(-8).map((q) => JSON.stringify(q).slice(0, 300)), units: (svc.jobs.get(got && got.job) || {}).progress });
+    rep.trial(`${name}#${k + 1}`, controlOk && state === 'finished' && staticOk, { strict, staticOk, controlOk, state, err, minutes: Math.round((Date.now() - t0) / 60000), min: M, box: [sx, sy, sz], blocks: probe.blocks.length, unbuildable: plan0.unbuildable, materials: mats, syncmatica: got, wrongCells: wrong.slice(0, 40), problems: (svc.problems && svc.problems.list || []).slice(-8).map((q) => JSON.stringify(q).slice(0, 300)), serverMoves: moves, units: (svc.jobs.get(got && got.job) || {}).progress });
     return { strict, staticOk };
 }
 
 (async () => {
     const rep = T.reporter('place_c');
-    const { S, svc, seed } = await T.open(names);
+    const { S, svc, seed } = await T.open(names, { teleport: process.env.TELEPORT || 'near' });     // 'near': the server may put a bot next to a supply chest or back on its feet (counted in the report as serverMoves); TELEPORT=off for none
+    moves = T.countMoves(svc);
     await S.must('gamerule keep_inventory true');                                                             // owner: survival with keep inventory, peaceful
     const out = [];
     for (let k = 0; k < TRIALS; k++) out.push(await trial(k, S, svc, seed, rep));
