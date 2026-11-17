@@ -121,6 +121,8 @@ async function trial(k, S, svc, seed, rep) {
                         const bot = svc.bots.get(name).bot, miss = j.impl.diff(require('../../src/skills/world').fromBot(bot)), by = {};
                         for (const c of miss) by[c.waterlog ? 'waterlog' : c.block] = (by[c.waterlog ? 'waterlog' : c.block] || 0) + 1;
                         console.log(`[progress ${Math.round((Date.now() - t0) / 60000)} min] ${j.impl.plan.count - miss.length}/${j.impl.plan.count} cells right; missing by block: ${JSON.stringify(Object.entries(by).sort((a, b) => b[1] - a[1]).slice(0, 8))}`);
+                        const pk = (j.impl.ledger.stuck || []).slice(-6).map((x) => { const c = x.detail && x.detail.cell; return `${x.reason}@${c ? `${c.block} ${c.x - pp.origin.x},${c.y - pp.origin.y},${c.z - pp.origin.z}` : '?'} ${x.detail && x.detail.stage || ''}`; });
+                        if (pk.length) console.log(`[stuck units] ${pk.join(' | ')}`);
                     } catch (e) { console.log('[progress] failed:', e.message); }
                 }
                 await sleep(3000);
