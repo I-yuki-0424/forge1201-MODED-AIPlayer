@@ -47,7 +47,7 @@ function kindOf(c) {
 function unbuildable(abs) {
     const at = new Map(abs.map((c) => [ckey(c), c])), out = new Map();
     const needs = (n) => /(wall_sign|wall_torch|wall_hanging_sign)$/.test(n) ? 'wall' : /(^|_)(sign|torch|redstone_wire|repeater|comparator|pressure_plate|carpet)$/.test(n) ? 'floor' : null;
-    const weak = (n) => /(sign|torch|redstone_wire|repeater|comparator|pressure_plate|carpet|button|lever|rail|ladder|banner)$/.test(n);
+    const weak = (n) => /(torch|redstone_wire|repeater|comparator|pressure_plate|carpet|button|lever|rail|ladder|banner)$/.test(n);
     for (const c of abs) {
         const n = bare(c.block), kind = needs(n);
         if (!kind) continue;
@@ -116,7 +116,7 @@ function planBuild(cells, origin, { tile = TILE, known = null } = {}) {
     // ORDER (2026-11-17): within a phase a cell is placed next to something that already stands, growing outwards like a flood from what is built (earlier phases, then the cells placed
     // before it in this phase); a row-by-row order put the far end of a floating arm first and needed a chain of temporary blocks to reach it. Only a component that touches nothing
     // gets a seed (its lowest cell), and that one cell is the only one that may need a temporary support.
-    const order = growthOrder(all, phaseOf, fluidCell, 2 * layers, tile);
+    const order = growthOrder(all, phaseOf, fluidCell, 2 * layers, tile, supportKey);
     const tiles = new Map();
     for (const c of all) {
         const tx = Math.floor(c.x / tile), tz = Math.floor(c.z / tile), id = `b${tx}_${tz}`;
@@ -144,26 +144,36 @@ function unitCells(plan, regionId, u) {
 }
 
 const ckeyOf = (c) => `${c.x},${c.y},${c.z}`;
+/** The cell a block needs to stand or hang on (null for a block that needs none): a wall sign / wall torch hangs on the block behind it, a standing torch, sign, wire, repeater on the one below. */
+function supportKey(c) {
+    const n = bare(c.block), f = (c.props || {}).facing;
+    if (/(wall_sign|wall_torch|wall_hanging_sign)$/.test(n) && f && O.OPP[f]) { const d = D[O.OPP[f]]; return `${c.x + d[0]},${c.y + d[1]},${c.z + d[2]}`; }
+    if (/(^|_)(sign|torch|redstone_wire|repeater|comparator|pressure_plate|carpet)$/.test(n)) return `${c.x},${c.y - 1},${c.z}`;
+    return null;
+}
 /**
  * seq / unit of every cell. Per phase, in phase order: a cell is READY when a 6-neighbour is already ordered (an earlier phase, or earlier in this phase); ready cells are taken in a
  * breadth-first wave (lowest first), and when nothing is ready the lowest remaining cell seeds a new component. Units are chunks of the order (at least 4 cells, at most 63 per phase).
  * The fluid phase keeps height, then x, then z. Returns Map key -> { seq, unit }.
  */
-function growthOrder(cells, phaseOf, fluidCell, fluidPhase, tile = TILE) {
-    const byPhase = new Map(), out = new Map(), done = new Set();
+function growthOrder(cells, phaseOf, fluidCell, fluidPhase, tile = TILE, supportKey = () => null) {
+    const byPhase = new Map(), out = new Map(), done = new Set(), owned = new Set(cells.map(ckeyOf));
     for (const c of cells) { const p = phaseOf(c); (byPhase.get(p) || byPhase.set(p, []).get(p)).push(c); }
     const NB = [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]];
     for (const p of [...byPhase.keys()].sort((a, b) => a - b)) {
         const list = byPhase.get(p).slice().sort((a, b) => a.y - b.y || a.x - b.x || a.z - b.z), seqd = [];
         if (p === fluidPhase) { for (const c of list) seqd.push(c); }
         else {
-            const rest = new Map(list.map((c) => [ckeyOf(c), c])), touches = (c) => NB.some(([dx, dy, dz]) => done.has(`${c.x + dx},${c.y + dy},${c.z + dz}`));
+            const rest = new Map(list.map((c) => [ckeyOf(c), c])), touches = (c) => supported(c) && NB.some(([dx, dy, dz]) => done.has(`${c.x + dx},${c.y + dy},${c.z + dz}`));
+            const supported = (c) => { const k = supportKey(c); return !k || done.has(k) || !owned.has(k); };        // a sign hangs on the block behind it, a torch stands on the one below: that one first
             const take = (c) => { rest.delete(ckeyOf(c)); done.add(ckeyOf(c)); seqd.push(c); };
             let frontier = list.filter(touches);
             while (rest.size) {
-                if (!frontier.length) { const seed = [...rest.values()][0]; frontier = [seed]; }            // nothing ready: the lowest remaining cell starts a component
+                if (!frontier.length) { const all = [...rest.values()]; frontier = [all.find(supported) || all[0]]; }            // nothing ready: the lowest remaining cell starts a component
                 const next = [];
-                for (const c of frontier) { if (!rest.has(ckeyOf(c))) continue; take(c); for (const [dx, dy, dz] of NB) { const q = rest.get(`${c.x + dx},${c.y + dy},${c.z + dz}`); if (q) next.push(q); } }
+                const later = [];
+                for (const c of frontier) { if (!rest.has(ckeyOf(c))) continue; if (!supported(c)) { later.push(c); continue; } take(c); for (const [dx, dy, dz] of NB) { const q = rest.get(`${c.x + dx},${c.y + dy},${c.z + dz}`); if (q) next.push(q); } }
+                next.push(...later.filter((c) => rest.has(ckeyOf(c))));
                 frontier = next.sort((a, b) => a.y - b.y || a.x - b.x || a.z - b.z);
             }
         }
@@ -330,7 +340,7 @@ async function buildCell(plan, c, env, r) {
 async function placeOriented(plan, c, item, env, r) {
     const w = env.w, clickAt = (p) => clickable(w, p);
     // what a torch, sign or repeater can stand on / hang on: a full block; a wall or fence carries a block on top (center support)
-    const solidAt = (p, d) => w.kindAt(p.x, p.y, p.z) === 'solid' || (d === 'down' && /(_wall|_fence)$/.test(w.nameAt(p.x, p.y, p.z) || ''));
+    const solidAt = (p, d) => w.kindAt(p.x, p.y, p.z) === 'solid' || (d === 'down' && /(_wall|_fence)$/.test(w.nameAt(p.x, p.y, p.z) || '')) || (/_sign$/.test(c.block) && /_sign$/.test(w.nameAt(p.x, p.y, p.z) || ''));      // a sign hangs on a sign when the click is sneaked (the owner built it so in survival)
     const recs = O.recipes(c.block, c.props, (d) => solidAt(at(c, d), d));
     if (!recs.length) return bad('invalid_target', { why: 'no placement recipe for this state', block: c.block, props: c.props }, 'recipe');
     const blockArg = c.block !== item ? { block: c.block } : {};

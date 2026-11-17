@@ -38,9 +38,9 @@ function sim(deckY) {
         if (!REPL.test(cur.name)) return { ok: false, reason: 'invalid_target', detail: { why: `cell holds ${cur.name}` } };
         const r = a.recipe, sup = dir(c, r.support);
         if (!clickable(sup)) return { ok: false, reason: 'invalid_target', detail: { why: 'support' } };
-        const res = O.model(a.item === 'redstone' ? 'redstone_wire' : /(torch|_sign)$/.test(a.item) ? a.item : (a.block || a.item), { clicked: O.OPP[r.support], hy: r.hy, yRot: r.yRot, pitch: r.pitch }, (d) => w.kindAt(dir(c, d).x, dir(c, d).y, dir(c, d).z) === 'solid' || (d === 'down' && /(_wall|_fence)$/.test(w.nameAt(dir(c, d).x, dir(c, d).y, dir(c, d).z))));
+        const res = O.model(a.item === 'redstone' ? 'redstone_wire' : /(torch|_sign)$/.test(a.item) ? a.item : (a.block || a.item), { clicked: O.OPP[r.support], hy: r.hy, yRot: r.yRot, pitch: r.pitch }, (d) => w.kindAt(dir(c, d).x, dir(c, d).y, dir(c, d).z) === 'solid' || (/_sign$/.test(a.item) && /_sign$/.test(w.nameAt(dir(c, d).x, dir(c, d).y, dir(c, d).z))) || (d === 'down' && /(_wall|_fence)$/.test(w.nameAt(dir(c, d).x, dir(c, d).y, dir(c, d).z))));
         if (!res) return { ok: false, reason: 'not_confirmed', detail: { why: 'the game refused' } };
-        if (THIN.test(res.name) && /wall_(torch|sign)$/.test(res.name)) { const s = dir(c, O.OPP[res.props.facing]); if (w.kindAt(s.x, s.y, s.z) !== 'solid') return { ok: false, reason: 'not_confirmed' }; }
+        if (THIN.test(res.name) && /wall_(torch|sign)$/.test(res.name)) { const s = dir(c, O.OPP[res.props.facing]); if (w.kindAt(s.x, s.y, s.z) !== 'solid' && !(/sign/.test(res.name) && /_sign$/.test(w.nameAt(s.x, s.y, s.z)) && r.sneak !== false)) return { ok: false, reason: 'not_confirmed' }; }
         const props = { ...res.props }; if (/trapdoor|gate/.test(res.name)) props.open = 'false'; if (/repeater/.test(res.name)) props.delay = '1'; if (/stairs|trapdoor|hopper|chest/.test(res.name) || /bed/.test(res.name)) props.waterlogged = props.waterlogged || 'false';
         set(c.x, c.y, c.z, res.name, props);
         if (/_bed$/.test(res.name)) { const h = dir(c, res.props.facing); set(h.x, h.y, h.z, res.name, { facing: res.props.facing, part: 'head' }); }
@@ -55,11 +55,10 @@ function sim(deckY) {
     const cells = bpm.cells(placed.bp), origin = placed.origin;
     // the plan
     const job = build.createBuildJob(cells, origin, { leaseMs: 60000, maxAttempts: 6 }, { tile: 64 }), plan = job.plan;
-    assert.strictEqual(plan.unbuildable.length, 6, 'the six wall signs hung on wall signs');
-    assert.ok(plan.unbuildable.every((u) => /oak_wall_sign/.test(u.why)));
+    assert.strictEqual(plan.unbuildable.length, 0, 'the nine wall signs are all buildable (a sneaked click hangs a sign on a sign)');
     assert.strictEqual(plan.skipped.flow, 224); assert.strictEqual(plan.skipped.derived, 14, 'bed heads and the piston arm are made by the game');
     assert.strictEqual(plan.phases, 2 * plan.layers + 1, 'two phases per height (stand-alone, needs a support) and the fluids');
-    assert.strictEqual(plan.materials.water_bucket, 36); assert.strictEqual(plan.materials.lava_bucket, 1); assert.strictEqual(plan.materials.white_bed, 12); assert.strictEqual(plan.materials.oak_sign, 3);
+    assert.strictEqual(plan.materials.water_bucket, 36); assert.strictEqual(plan.materials.lava_bucket, 1); assert.strictEqual(plan.materials.white_bed, 12); assert.strictEqual(plan.materials.oak_sign, 9);
     assert.strictEqual(plan.materials.stone_bricks, 364); assert.ok(!('oak_wall_sign' in plan.materials));
     // run it
     const S = sim(origin.y - 1), inv = new Proxy({}, { get: () => 999 });
@@ -68,7 +67,7 @@ function sim(deckY) {
     if (res.ended !== 'finished') console.error(JSON.stringify(job.ledger.stuck.slice(0, 8).map((x) => ({ reason: x.reason, detail: JSON.stringify(x.detail || x).slice(0, 400) })), null, 1));
     assert.strictEqual(res.ended, 'finished', JSON.stringify(job.ledger.progress()));
     const missing = job.diff(S.w);
-    if (missing.length) for (const c of missing.slice(0, 2)) { console.error('wrong:', c.block, JSON.stringify(c.props), 'got', JSON.stringify(S.get(c.x, c.y, c.z))); console.error(JSON.stringify(S.log.filter((e) => e[1].x === c.x && e[1].y === c.y && e[1].z === c.z))); console.error(JSON.stringify(job.ledger.stuck.map((x) => x.reason + ' ' + JSON.stringify(x.detail && x.detail.cell && [x.detail.cell.x - origin.x, x.detail.cell.y - origin.y, x.detail.cell.z - origin.z])))); }
+    if (missing.length) for (const c of missing.slice(0, 2)) { console.error('wrong:', c.block, JSON.stringify(c.props), 'got', JSON.stringify(S.get(c.x, c.y, c.z))); console.error(JSON.stringify(S.log.filter((e) => e[1].x === c.x && e[1].y === c.y && e[1].z === c.z))); console.error(JSON.stringify(job.ledger.stuck.map((x) => x.reason + ' ' + JSON.stringify(x.detail).slice(0, 300)))); }
     assert.deepStrictEqual(missing.map((c) => `${c.block}@${c.x - origin.x},${c.y - origin.y},${c.z - origin.z}`), [], 'every buildable cell is right');
     // states, spot checks against the blueprint
     const at = (x, y, z) => S.get(origin.x + x, origin.y + y, origin.z + z);
