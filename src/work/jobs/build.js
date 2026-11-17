@@ -286,7 +286,7 @@ async function buildCell(plan, c, env, r) {
             if (!m.ok) return { ...m, stage: 'clear' };
         }
     }
-    if (env.have(item) < 1) return bad('missing_item', { item }, 'stock');
+    if (env.have(item) < 1) { await cleanup(env); return bad('missing_item', { item }, 'stock'); }       // the bot is about to walk to a supply chest: it must not be perched on its own temporary pillar (the walk fails from there)
     return placeOriented(plan, c, item, env, r);
 }
 
@@ -395,7 +395,7 @@ async function pourCell(c, env, r) {
         if (b && b.getProperties && b.getProperties().waterlogged === 'true') { r.skipped++; return ok; }
         if (!b || b.name !== c.of) return bad('precondition_failed', { why: 'the block to waterlog is not there', block: c.of }, 'pour');
     } else if (b && b.name === c.block && (!b.getProperties || (b.getProperties().level || '0') === '0')) { r.skipped++; return ok; }
-    if (env.have(item) < 1) return bad('missing_item', { item }, 'stock');
+    if (env.have(item) < 1) { await cleanup(env); return bad('missing_item', { item }, 'stock'); }
     const p = await env.exec('pour', { x: c.x, y: c.y, z: c.z, item, ...(c.waterlog ? { waterlog: true } : {}) });
     if (!p.ok) return { ...p, stage: 'pour' };
     r.poured++;
