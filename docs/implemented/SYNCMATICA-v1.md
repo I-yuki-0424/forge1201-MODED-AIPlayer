@@ -52,4 +52,27 @@ A block's state after placement is a function of the clicked face, the height of
 
 `scripts/t26/place_c.js` (`scripts/t26/run.sh N place_c.js [LIMIT_MIN=90] [TRIALS=5]`): the owner's iron golem trap (`tests/fixtures/easy-ironfarm-fixd.litematic`, the owner's `E:\Minecraft JAVA\instances\fabric 26.3\instance\schematics\iron-farm\easy-ironfarm-fixd.litematic`) is shared through Syncmatica by one bot, the builder bot receives it from the server, builds it in the sky (box minimum at y 200 on a stone deck), from chests that hold every item of the plan's material list; survival, keep inventory, peaceful. The server compares the box with a reference copy that the harness makes by commands (`execute if blocks ... all`, air included); the empty site must not match. The report gives the strict verdict and a "static" one (same blocks and placement-decided properties; power, `lit` and similar may differ).
 
-See the results below (updated after each run).
+## Results (2026-11-17, T26 world 7, Fabric 26.1.2 with Syncmatica 0.3.20)
+
+**The acceptance (five builds of the iron golem trap, 50 % must match) is NOT met: no build was finished. Best state: 62 of 1282 cells right after 4 minutes with two builders, then a stall (below).** What was verified and what was not:
+
+| | Status |
+| :-- | :-- |
+| Fabric transport without handshake, bypasses or chat hardening | works: every bot of every run logged in and ran on 26.1; `tests/test_transport_platform_pure.js` |
+| Syncmatica handshake, list and download against the owner's real server (`fabric26-survival-op`, placement `easy-ironfarm` at 319 65 247, the older 6394-byte file) | works, hash checked, file parsed (45 x 23 x 44, 5440 blocks); golden packets in the test |
+| Syncmatica share (upload) and the announcement to another bot, on world 7 | works (`place_c`: the sharer uploads, the builder gets `register_metadata`, downloads, hash ok, parses, places); a file the server already holds is not requested again (`share` resolves on its own idle timer) |
+| `.litematic` reader, material list, placement with rotation / mirror | unit-tested; the owner's `easy-ironfarm-fixd.litematic`: 45 x 23 x 46, 1514 blocks, 19 item types (+ 36 water and 1 lava bucket for 1 + 36 fluid sources and waterlogged stairs) |
+| Build with block states (recipes), fluids last, temporary chains, state check | the simulated-server test builds the whole structure (every buildable cell right, fluids last, no temporary block left, `tests/test_build_litematic_pure.js`); live: the first layers are placed right (62 cells, signs, hoppers, chests ...) |
+| Supply from tagged chests | works (`fetch-item` takes from the `free` chests); fixed along the way: `withdraw` took one item at a time when a chest held fewer than a stack and then gave up (now takes what there is) |
+| Fluids (`pour`), waterlogging, repeater delay by right-click, beds, redstone / piston states, the composter | NOT reached live (the build stalls in the first layers); only the simulator exercises them |
+
+**The iron farm cannot be built exactly in survival: six `oak_wall_sign` cells (a 3 x 3 block of wall signs, 3 x 2 of them hung on other wall signs) have no support the game accepts** (LESSONS L20). The plan reports them (`plan.unbuildable`) and the reference copy of `place_c` leaves them out. Say this to the owner: with these cells the file is not buildable by survival means at all, whatever the bots do.
+
+Causes found and fixed during the runs (each in a commit): the "needs a support" rule matched trapdoors (`door$`); attached blocks were ordered per row, not per height (a torch hangs on a block of the next row); a cleanup mined the structure's own block where a temporary one had been; `place` refused any block over a chest the bot had placed; a wall top could not carry a torch; the planner had no chain for a lone block 21 cells up (the corner marker); containers were approached by the on-foot command only.
+
+**Open, in the order that blocks most:**
+1. **The builder strands itself.** A floating component (the dirt fragments of the cut terrain at height 3) is reached over a temporary pillar; after the temporary blocks are taken away the bot stands on the floating block, 5 above the deck, and the NAV planner finds no way down (`unreachable {goal: reach block, expanded: 8}`), so the next supply trip fails and the worker waits for an item that is in a chest. Needed: a descent that places its own temporary stair (or the pillar is kept until the bot is down), or a bot that never leaves the ground for these cells (place from a pillar beside, then climb down it).
+2. **Speed.** The first layers (many small floating pieces, each with a temporary chain that is built, climbed and dug up) ran at 5 to 10 cells a minute; a whole structure is hours for one bot, five trials tens of hours. `BOTS=n` builders on one job is in the harness (the ledger shares the rows) but was not measured past two bots.
+3. Fluids, waterlogging and the circuit's derived states (see the table) have not been seen live.
+
+Run: `scripts/t26/up.sh 7 --new` then `scripts/t26/run.sh 7 place_c.js LIMIT_MIN=240 TRIALS=5 BOTS=3`; read `[progress N min]` lines (the bot's own view, a diagnostic) and the report in `/mnt/data/forgeaip-play/t26/out/<RUN>/place_c-w7.json` (strict and static verdicts, differing cells, `unbuildable`, problems).

@@ -90,7 +90,7 @@ const WHITE = { left: 'white', middle: 'white', right: 'white' };
         const sc = script.validate({ name: 't', steps: [{ take: { item: 'iron_ingot', count: 3, from: 'ore' } }, { take: { item: 'iron_ingot', count: 3, from: 'any' } }, { return: 'ok' }] });
         const r = await script.runScript(sc, env);
         assert.ok(r.ok, JSON.stringify(r));
-        assert.deepStrictEqual(log, ['lift -59', 'withdraw ender 3', 'withdraw ender 1', 'lift 64', 'withdraw tools 3', 'withdraw tools 1', 'withdraw near 3', 'withdraw near 3'], 'Ender first, then the tools chest, then the plain one; the second take opens only the one that has it');
+        assert.deepStrictEqual(log, ['lift -59', 'withdraw ender 3', 'lift 64', 'withdraw tools 3', 'withdraw near 3', 'withdraw near 3'], 'Ender first, then the tools chest, then the plain one; the second take opens only the one that has it (one partial withdraw per container since 2026-11-17: it takes what there is)');
         const none = await script.runScript(script.validate({ name: 'n', steps: [{ take: { item: 'iron_ingot', from: 'ore' } }] }), { ...env, sites: new Sites() });
         assert.strictEqual(none.reason, 'invalid_target'); assert.ok(/no container within 50 chunks/.test(none.detail.why), none.detail.why);
     });
