@@ -28,8 +28,9 @@ const key = (x, y, z) => `${x},${y},${z}`;
  * The connected fluid (6-neighbour) around the `seeds`, inside the pit's box plus a one-cell ring, from the box bottom up to one above its top. Water below the box cannot run up into it.
  * Returns { cells: [{x,y,z}], truncated }.
  */
-function component(w, box, seeds, isFluid, max = MAX_CELLS) {
-    const inside = (x, y, z) => x >= box.x0 - 1 && x <= box.x1 + 1 && z >= box.z0 - 1 && z <= box.z1 + 1 && y >= box.bottom && y <= box.top + 1;
+function component(w, box, seeds, isFluid, max = MAX_CELLS, slab = null) {
+    const lo = slab ? Math.max(box.bottom, slab.lo) : box.bottom, hi = slab ? Math.min(box.top + 1, slab.hi) : box.top + 1;          // slab: only these levels (the layered rule: the level to dig and the floor under it)
+    const inside = (x, y, z) => x >= box.x0 - 1 && x <= box.x1 + 1 && z >= box.z0 - 1 && z <= box.z1 + 1 && y >= lo && y <= hi;
     const seen = new Set(), out = [], queue = [];
     for (const s of seeds) { const k = key(s.x, s.y, s.z); if (!seen.has(k) && inside(s.x, s.y, s.z) && isFluid(w, s.x, s.y, s.z)) { seen.add(k); queue.push(s); } }
     let truncated = false;
@@ -94,7 +95,10 @@ function chooseStation(w, fillable, here, skip) {
  */
 async function fillLake(c, seeds) {
     const { env, plan, isFluid, sealItem } = c, w = env.w, box = plan.box;
-    const body = component(w, box, seeds, isFluid, c.max || MAX_CELLS);
+    // c.slab {lo, hi}: the layered rule (owner 2026-11-17) fills only the level to dig and the floor under it, however deep the water goes; c.exact: exactly the seeds that are still fluid, no growth
+    // (the floor cell under a cell that was just opened). The blocks are registered as temporary blocks of kind `lake` (the next layer digs them, the job's end takes the rest).
+    const grow = (cells0) => (c.exact ? cells0.filter((f) => isFluid(w, f.x, f.y, f.z)) : component(w, box, cells0, isFluid, c.max || MAX_CELLS, c.slab).cells);
+    const body = c.exact ? { cells: grow(seeds.filter((f) => f.y >= box.bottom && f.y <= box.top + 1)), truncated: false } : component(w, box, seeds, isFluid, c.max || MAX_CELLS, c.slab);
     const stats = { ok: false, cells: body.cells.length, filled: 0, stations: 0, harvested: 0, truncated: body.truncated, left: body.cells.length, placed: [] };
     if (!body.cells.length) return { ...stats, ok: true, left: 0 };
     const bannedStation = new Set(), cellFails = new Map();
@@ -108,7 +112,7 @@ async function fillLake(c, seeds) {
     for (let round = 0; round < (c.rounds || MAX_ROUNDS); round++) {
         if (env.cancel && env.cancel.cancelled) return done({ reason: 'cancelled' });
         // the body as it is now: what is still fluid, and what the fluid has spread into since
-        cells = component(w, box, cells, isFluid, c.max || MAX_CELLS).cells;
+        cells = grow(cells);
         const rem = cells.filter((f) => (cellFails.get(key(f.x, f.y, f.z)) || 0) < 2);
         if (!cells.length) return done({ ok: true });
         refreshLowest();
@@ -136,7 +140,7 @@ async function fillLake(c, seeds) {
             let item = sealItem(env);
             if (!item && env.run && env.within) { const hv = await env.run('harvest', { items: c.items }); if (hv.ok && hv.detail && hv.detail.got) { stats.harvested++; item = sealItem(env); } }
             if (!item) return done({ reason: 'missing_item', detail: { why: 'no blocks left to fill the lake with', filled: stats.filled } });
-            const p = await env.exec('place', { x: f.x, y: f.y, z: f.z, item, fluid: true }, { raw: true, maxTicks: 160 });
+            const p = await env.exec('place', { x: f.x, y: f.y, z: f.z, item, fluid: true, temp: 'lake' }, { raw: true, maxTicks: 160 });
             if (p.ok) { stats.filled++; placed++; rowFails = 0; stats.placed.push({ x: f.x, y: f.y, z: f.z }); continue; }
             if (p.reason === 'died' || p.reason === 'disconnected' || p.reason === 'cancelled') return done({ reason: p.reason, detail: p.detail });
             const k = key(f.x, f.y, f.z); cellFails.set(k, (cellFails.get(k) || 0) + 1);

@@ -61,7 +61,7 @@ function buildModel(c, ox, oz, yb) {
     const bare = (n) => String(n || '').replace(/^minecraft:/, '');
     // Blocks any bot placed as its way (bridges, roads, pillars: the shared list, bot/temps.js) are never ore, whoever laid them.
     const temps = env.bot && env.bot.__temps, dim = env.bot ? require('../../skills/fixtures').dimOf(env.bot) : null;
-    const isShared = (x, y, z) => !!(temps && temps.get && temps.get(dim, { x, y, z }));
+    const isShared = (x, y, z) => { const t = temps && temps.get && temps.get(dim, { x, y, z }); return !!t && t.kind !== 'lake'; };          // a `lake` block (the layered water rule's floor) IS the pit's work: the next layer digs it
     for (let x = 0; x < N; x++) {
         m.push([]);
         for (let z = 0; z < N; z++) {

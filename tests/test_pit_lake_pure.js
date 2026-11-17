@@ -95,5 +95,39 @@ const station = (w, env, pos) => async (S) => { if (!(w.kindAt(S.x, S.y, S.z) ==
         assert.strictEqual(mined.length, 72); assert.strictEqual(plan.lakeFilled.size, 0); assert.strictEqual(w.kindAt(7, 60, 7), 'air');
         await pit.cleanLakeBlocks({ box }, env);                      // nothing owned: nothing happens
     });
+
+    await test('layered rule: a lake 9 deep is filled over its whole extent in the top two levels only, from the shore inwards (the platform grows), the rest stays water for its own layer', async () => {
+        const big = { x0: 3, x1: 12, z0: 3, z1: 12, y0: 52, y1: 60 };       // 10 x 10 x 9
+        const w = lakeWorld(60, big), stock = { n: 1000 }, { env, pos, calls } = fakeEnv(w, { x: 1, y: 61, z: 7 }, stock);
+        const res = await fillLake({ env, plan: { box }, isFluid: pit.isFluid, sealItem: pit.sealItem, items: pit.SEAL_ITEMS, slab: { lo: 59, hi: 60 }, goToStation: station(w, env, pos) }, [{ x: 3, y: 60, z: 7 }]);
+        assert.strictEqual(res.ok, true, JSON.stringify(res)); assert.strictEqual(res.filled, 200); assert.strictEqual(calls.place, 200);
+        for (let x = 3; x <= 12; x++) for (let z = 3; z <= 12; z++) { assert.strictEqual(w.kindAt(x, 60, z), 'solid'); assert.strictEqual(w.kindAt(x, 59, z), 'solid'); assert.strictEqual(w.kindAt(x, 58, z), 'water'); }
+        // next layer: its floor (level 58) cell by cell under cells that were opened (dug): from the shore inwards each one is placed against its neighbour
+        const open = [[3, 3], [4, 3], [5, 3], [3, 4], [4, 4]];
+        for (let x = 3; x <= 12; x++) for (let z = 3; z <= 12; z++) w.set(x, 60, z, 'air');          // level 60 is dug (the bot stands on level 59, feet at 60)
+        for (const [x, z] of open) w.set(x, 59, z, 'air');          // the dig of level 59 opened these (the cell under each: level 58 water)
+        pos.x = 6; pos.y = 60; pos.z = 6;
+        const seeds = open.map(([x, z]) => ({ x, y: 58, z }));
+        const r2 = await fillLake({ env, plan: { box }, isFluid: pit.isFluid, sealItem: pit.sealItem, items: pit.SEAL_ITEMS, exact: true, slab: { lo: 58, hi: 58 }, goToStation: station(w, env, pos) }, seeds);
+        assert(r2.filled >= 1 && r2.filled <= 5, JSON.stringify(r2));
+        for (const q of r2.placed) assert.strictEqual(q.y, 58);
+        assert.strictEqual(w.kindAt(3, 57, 3), 'water');                // never deeper than the floor level
+    });
+    await test('exact mode: a seed that is not fluid is left alone, nothing else is touched', async () => {
+        const w = lakeWorld(60, lake), { env, pos, calls } = fakeEnv(w, { x: 3, y: 61, z: 7 }, { n: 1000 });
+        const res = await fillLake({ env, plan: { box }, isFluid: pit.isFluid, sealItem: pit.sealItem, items: pit.SEAL_ITEMS, exact: true, slab: { lo: 60, hi: 60 }, goToStation: station(w, env, pos) }, [{ x: 2, y: 60, z: 7 }]);
+        assert.strictEqual(res.ok, true); assert.strictEqual(res.filled, 0); assert.strictEqual(calls.place, 0); assert.strictEqual(count(w, lake), 72);
+    });
+    await test('the pit model digs `lake` blocks (the layered rule\'s floor) and leaves other registered blocks alone', () => {
+        const { buildModel } = require('../src/work/jobs/pit_expert');
+        const solid = { x: 4, y: 40, z: 4 }, other = { x: 5, y: 40, z: 4 };
+        const w = { kindAt: (x, y, z) => (y <= 40 ? 'solid' : 'air'), nameAt: () => 'cobblestone' };
+        const reg = new Map([[`o|${solid.x},${solid.y},${solid.z}`, { kind: 'lake' }], [`o|${other.x},${other.y},${other.z}`, { kind: 'bridge' }]]);
+        const bot = { __temps: { get: (dim, c) => reg.get(`o|${c.x},${c.y},${c.z}`) || null }, game: { dimension: 'overworld' } };
+        const region = { meta: { x0: 0, x1: 15, z0: 0, z1: 15, top: 40, bottom: 30, band: 2 } };
+        const m = buildModel({ env: { w, bot, temp: new Map() }, plan: { road: { keep: new Map() }, accepted: new Set() }, region, aerialTree: () => false, UNBREAKABLE: /^bedrock$/ }, 0, 0, 39);
+        const { SOLID, ROCK } = require('../src/experts/pit/model');
+        assert.strictEqual(m[4][4][1], SOLID); assert.strictEqual(m[5][4][1], ROCK);
+    });
     console.log('all lake tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

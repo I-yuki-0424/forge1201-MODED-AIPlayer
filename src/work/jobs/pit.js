@@ -257,18 +257,47 @@ async function runUnit(plan, region, u, env) {
     // brought dirt or cobblestone.
     // A body of water met by the dig is filled as a whole before the cell is dug (pit_lake.js: the coffer-dam; the per-cell rule below cannot reach into a lake). Once per fluid cell and unit;
     // when it cannot finish (no standing place, no blocks) the per-cell rule goes on as before. PIT_LAKE=0 turns it off (A/B runs).
-    const lakeSeen = new Set();
+    const lakeSeen = new Set(), layered = process.env.PIT_LAKE_MODE !== 'body';
+    const lakeStats = () => r.lake || (r.lake = { calls: 0, filled: 0, stations: 0, ms: 0, left: 0, floors: 0 });
+    const lakeOwn = (res) => { const owned = plan.lakeFilled || (plan.lakeFilled = new Set()); for (const q of res.placed || []) owned.add(`${q.x},${q.y},${q.z}`); };          // the job's end takes away what is still ours (cleanup)
     const lakeFill = async (c) => {
         if (process.env.PIT_LAKE === '0' || !env.here || !env.exec) return;
         const sp = sealPlan(env.w, [c]), seeds = [...sp.fill, ...sp.unsupported].filter((f) => !lakeSeen.has(`${f.x},${f.y},${f.z}`));
         if (!seeds.length) return;
         for (const f of seeds) lakeSeen.add(`${f.x},${f.y},${f.z}`);
-        const t0 = Date.now(), res = await require('./pit_lake').fillLake({ env, plan, isFluid, sealItem, items: SEAL_ITEMS, goToStation: (S) => goToStation(S, handle, env, open, r) }, seeds);
-        const L = r.lake || (r.lake = { calls: 0, filled: 0, stations: 0, ms: 0, left: 0 });
+        // Layered rule (owner 2026-11-17): only the level being dug and the floor under it are replaced, over the whole extent of the water (the platform grows from the shore), however deep the water goes;
+        // what lies deeper is met when its layer is the floor (floorFill). PIT_LAKE_MODE=body: the old whole-body fill (A/B).
+        const t0 = Date.now(), res = await require('./pit_lake').fillLake({ env, plan, isFluid, sealItem, items: SEAL_ITEMS, slab: layered ? { lo: c.y - 1, hi: c.y } : null, goToStation: (S) => goToStation(S, handle, env, open, r) }, seeds);
+        const L = lakeStats();
         L.calls++; L.filled += res.filled; L.stations += res.stations; L.ms += Date.now() - t0; L.left = res.left; if (!res.ok) L.reason = res.reason;
-        const owned = plan.lakeFilled || (plan.lakeFilled = new Set()); for (const q of res.placed || []) owned.add(`${q.x},${q.y},${q.z}`);          // the job's end takes away what is still ours (cleanup)
+        lakeOwn(res);
     };
-    const handle = async (c, last) => {
+    // The floor rule (owner 2026-11-17): the block under a cell that was just opened is what the bot will stand on when this layer is the one it digs. Water there is replaced by a temporary block (`lake`)
+    // against a neighbour (the shore, or a block placed before it), seen through the hole the dig has just made. A floor cell that cannot be done yet (no neighbour to place against, no line to it)
+    // is kept in plan.floorPending and tried again after each next opened cell nearby; the next layer digs the blocks together with the rest.
+    let floorBusy = false;                                   // a fill's own walk can dig a corridor cell, which would start a fill inside the fill
+    const floorFill = async (c) => {
+        if (floorBusy || process.env.PIT_LAKE === '0' || !layered || !env.here || !env.exec || process.env.PIT_FLOOR === '0') return;
+        const y = c.y - 1; if (y < plan.box.bottom) return;
+        const pend = plan.floorPending || (plan.floorPending = new Map()), seeds = [];
+        if (isFluid(env.w, c.x, y, c.z)) seeds.push({ x: c.x, y, z: c.z }); else pend.delete(`${c.x},${y},${c.z}`);
+        for (const [k, q] of pend) {
+            if (seeds.length >= 12) break;
+            if (!isFluid(env.w, q.x, q.y, q.z)) { if (env.w.kindAt(q.x, q.y, q.z) !== 'unknown') pend.delete(k); continue; }
+            if (q.y === y && Math.hypot(q.x - c.x, q.z - c.z) <= 6 && !seeds.some((s) => s.x === q.x && s.z === q.z)) seeds.push(q);
+        }
+        if (!seeds.length) return;
+        floorBusy = true;
+        try {
+        const t0 = Date.now(), res = await require('./pit_lake').fillLake({ env, plan, isFluid, sealItem, items: SEAL_ITEMS, exact: true, slab: { lo: y, hi: y }, rounds: 10, goToStation: (S) => goToStation(S, handle, env, open, r) }, seeds);
+        const L = lakeStats();
+        L.floors += res.filled; L.filled += res.filled; L.stations += res.stations; L.ms += Date.now() - t0; if (!res.ok && res.reason) L.floorReason = res.reason;
+        lakeOwn(res);
+        for (const q of seeds) { const k = `${q.x},${q.y},${q.z}`; if (isFluid(env.w, q.x, q.y, q.z)) { if (pend.size < 600) pend.set(k, q); } else pend.delete(k); }
+        r.floorLeft = seeds.filter((q) => isFluid(env.w, q.x, q.y, q.z)).length;
+        } finally { floorBusy = false; }
+    };
+    const handleCell = async (c, last) => {
         if (isSolid(env.w, c.x, c.y, c.z) && aerialTree(env.w, c)) { r.skipped++; r.aerial = (r.aerial || 0) + 1; return null; }       // out of reach by design, see aerialTree
         await lakeFill(c);
         let s = await seal(c, true);
@@ -337,6 +366,8 @@ async function runUnit(plan, region, u, env) {
         if (!open(c)) return fail({ reason: 'not_confirmed', detail: { why: 'cell keeps filling' } }, c, 'seal_after');
         return null;
     };
+    // One cell: the dig with the water rule, then the floor under it (a cell that is open now and has water under it gets its floor block).
+    const handle = async (c, last) => { const res = await handleCell(c, last); if (res === null && open(c)) await floorFill(c).catch(() => { /* a floor that cannot be laid now is tried again at the next cell */ }); return res; };
     const deferred = [];
     // Tree pass (pit_trees.js, owner 2026-11-16): once per region, before its first unit digs, the tree blocks of the box are taken down (low ones from the ground, aerial ones from a pillar
     // beside them). One bot does it; the others do not wait (a unit never depends on it). PIT_TREES=0 turns it off (A/B runs).
@@ -551,7 +582,7 @@ async function cleanHanging(plan, env) {
     const inBox = (x, y, z) => x >= box.x0 && x <= box.x1 && z >= box.z0 && z <= box.z1 && y <= box.top && y >= box.bottom;
     const cellsNow = () => {
         const map = new Map();
-        if (temps && dim) for (const r of temps.list((q) => q.dim === dim && (q.kind === 'seal' || q.kind === 'rescue') && inBox(q.x, q.y, q.z))) map.set(`${r.x},${r.y},${r.z}`, { x: r.x, y: r.y, z: r.z, reg: true });
+        if (temps && dim) for (const r of temps.list((q) => q.dim === dim && (q.kind === 'seal' || q.kind === 'rescue' || q.kind === 'lake') && inBox(q.x, q.y, q.z))) map.set(`${r.x},${r.y},${r.z}`, { x: r.x, y: r.y, z: r.z, reg: true });
         for (const k of owned) { const [x, y, z] = k.split(',').map(Number); if (inBox(x, y, z)) map.set(k, { x, y, z, reg: false }); }
         return map;
     };
@@ -699,10 +730,10 @@ function createPitJob(box, ledgerOpts = {}, { lanes = 0, method = 'rows', tile =
     // sweep: the check at the end (pit_sweep.js): every chunk is walked to, read from the top layer down, and what still holds a block goes back to work.
     const sweep = makeSweeper({ plan, ledger, state: auditState, cellState });
     auditState.layer = new Map();
-    return { kind: 'pit', ledger, plan, checkLayer: (env, ck, now) => checkLayer(plan, ledger, byId, auditState, env, ck, now), cleanup: async (env) => { if (!ledger.finished()) return null; const rep = plan.endReport || (plan.endReport = {}); rep.trees = await cleanTrees(plan, env); const TM = require('../bot/temps'), t = await TM.cleanTemps(env, { box: plan.box, max: 60, maxMs: 120000, kinds: new Set([...TM.KINDS].filter((k) => k !== 'seal' && k !== 'rescue')) }); rep.temps = t;
+    return { kind: 'pit', ledger, plan, checkLayer: (env, ck, now) => checkLayer(plan, ledger, byId, auditState, env, ck, now), cleanup: async (env) => { if (!ledger.finished()) return null; const rep = plan.endReport || (plan.endReport = {}); rep.trees = await cleanTrees(plan, env); const TM = require('../bot/temps'), t = await TM.cleanTemps(env, { box: plan.box, max: 60, maxMs: 120000, kinds: new Set([...TM.KINDS].filter((k) => k !== 'seal' && k !== 'rescue' && k !== 'lake')) }); rep.temps = t;
             // seals and lake-fill blocks hang over the floor of a deep pit: the pillar walk takes them (a plain mine of one cost the whole time budget: "enclosed", 120 s, and left a pillar block behind)
             rep.hanging = await cleanHanging(plan, env).catch((e) => ({ error: String(e && e.message || e) }));
-            await cleanLakeBlocks(plan, env); rep.seals = await TM.cleanTemps(env, { box: plan.box, max: 20, maxMs: 60000, kinds: new Set(['seal', 'rescue']) }); return t; }, runUnit: (regionId, unit, env) => runUnit(plan, byId.get(regionId), unit, env), audit: (env, now, opts) => audit(plan, ledger, env.w, now, auditState, opts), sweep, rescue: (env, why) => require('../bot/water').rescue(env, plan.box, { why }) };
+            await cleanLakeBlocks(plan, env); rep.seals = await TM.cleanTemps(env, { box: plan.box, max: 20, maxMs: 60000, kinds: new Set(['seal', 'rescue', 'lake']) }); return t; }, runUnit: (regionId, unit, env) => runUnit(plan, byId.get(regionId), unit, env), audit: (env, now, opts) => audit(plan, ledger, env.w, now, auditState, opts), sweep, rescue: (env, why) => require('../bot/water').rescue(env, plan.box, { why }) };
 }
 
 module.exports = { cleanTrees, cleanLakeBlocks, sealItem, MAX_UNITS, goToStation, checkLayer, LAYER_ROUNDS, standsOnFloater, aerialTree, planPit, laneBoxes, planRoad, stationsOf, lineCells, unitCells, sealPlan, orderFill, isFluid, exposed, runUnit, wrongCells, cellState, audit, createPitJob, SEAL_ITEMS, CHUNK, TILE, SWEEP_R };
