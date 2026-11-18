@@ -316,6 +316,10 @@ async function pourCell(c, env, r) {
     if (env.have(item) < 1) return bad('missing_item', { item }, 'stock');
     const p = await env.exec('pour', { x: c.x, y: c.y, z: c.z, item, ...(c.waterlog ? { waterlog: true } : {}) }, { raw: true, maxTicks: 300 });
     if (!p.ok) return { ...p, stage: 'pour' };
+    // The bot's view follows the server's answer a moment later. A pour that leaves the cell something else (run 5, 2026-11-18: the cell held FLOWING water of a neighbouring source, level 1,
+    // and 18 rounds of buckets were poured into it: 280 s and 18 buckets) is a failure with what the cell holds, not progress.
+    for (let k = 0; k < 6 && !right(c, env.w); k++) await new Promise((res) => setTimeout(res, 200));
+    if (!right(c, env.w)) { const b = env.w.blockAt ? env.w.blockAt(c.x, c.y, c.z) : null; return bad('not_confirmed', { why: 'the pour did not make the cell what the blueprint wants', block: c.block, now: b ? `${b.name}${JSON.stringify(b.getProperties ? b.getProperties() : {})}` : null }, 'pour'); }
     r.poured++;
     return ok;
 }
