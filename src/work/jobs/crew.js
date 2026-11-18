@@ -41,7 +41,8 @@ class Ledger {
      * @param maxAttempts failures (other than the bot's own death) before a unit is `stuck`
      * @param crowd       score penalty per other bot already in a region (huge = help only when nothing unowned is left)
      */
-    constructor({ leaseMs = 60000, maxAttempts = 3, crowd = 1e6, maxLead = Infinity, lanes = false, sameLimit = Infinity, holdMs = 0, gate = false } = {}) {
+    constructor({ leaseMs = 60000, maxAttempts = 3, crowd = 1e6, maxLead = Infinity, lanes = false, sameLimit = Infinity, holdMs = 0, gate = false, noShun = false } = {}) {
+        this.noShun = noShun;         // builds: a bot may try a unit again that it failed (after the hold): the posts decide who may work where, and the key unit of a structure must not wait for 'another bot'
         this.gate = gate;             // a layer opens the next only after its check (needCheck / checkDone); off for builds
         this.sameLimit = sameLimit;   // identical failures in a row (same reason, stage, cell, words) before a unit is parked as stuck
         this.holdMs = holdMs;         // a unit that failed is not claimable for this long (x2 per identical failure in a row); the bot takes its other units meanwhile
@@ -207,7 +208,7 @@ class Ledger {
         // the bot retries it itself (the worker waits between tries) instead of idling with a range full of units it has shunned.
         const homeId = b.home !== null ? b.home : b.last, homeR = homeId ? this.regions.get(homeId) : null, stayHome = !!homeR && !this.complete(homeR);
         const sharedHome = stayHome && homeR.lessees.size - (homeR.lessees.has(b.idx) ? 1 : 0) > 0;           // another bot works this range too: it may take the unit
-        const shun = alive > 1 && !(stayHome && this.lanes && !sharedHome) ? b.idx : -2;
+        const shun = !this.noShun && alive > 1 && !(stayHome && this.lanes && !sharedHome) ? b.idx : -2;
         let best = null, minFront = Infinity;
         if (this.maxLead !== Infinity) for (const r of this.regions.values()) if (r.front < r.layers && r.front < minFront) minFront = r.front;
         // Helping (owner 2026-11-06, tightened 2026-11-07): a bot works its HOME region (the first one it was given). Only a bot whose home region is complete (dug to the bottom) helps.

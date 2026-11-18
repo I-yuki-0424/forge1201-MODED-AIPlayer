@@ -76,7 +76,9 @@ function order(plan, job, cands, { pos, bot }, now = Date.now()) {
     return [...head, ...own.filter((u) => !head.includes(u)), ...foreign];
 }
 
-/** The bot starts working on unit u: where it is (others keep away from it). */
+/** The bot starts working on unit u: where it is (others keep away from it) until the unit ends (a bot that is not working anywhere is not in the way: the key unit of a structure that failed must not
+ * wait for 'a distance from its keeper', run 4, 2026-11-18: 230 s). */
 function working(plan, job, id, u) { job.posts.at.set(id, plan.centre[u]); }
+function resting(job, id) { job.posts.at.delete(id); }
 
-module.exports = { makePosts, postOf, allows, order, working, finished, remaining, present, KEEP_MS, IDLE_MS, APART };
+module.exports = { makePosts, postOf, allows, order, working, resting, finished, remaining, present, KEEP_MS, IDLE_MS, APART };

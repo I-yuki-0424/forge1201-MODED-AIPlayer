@@ -109,15 +109,19 @@ async function unstrand(job, me, env) {
     const f = env.here();
     if (f.x !== s.x || f.y !== s.y || f.z !== s.z) { delete job.strand[me]; return; }
     if (++s.n < 2) return;
+    if (TRACE && s.n === 2 && env.w) { const g = (dy) => [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => `${env.w.nameAt(f.x + dx, f.y + dy, f.z + dz) || '?'}/${env.w.kindAt(f.x + dx, f.y + dy, f.z + dz)}`).join(' '); console.log(`[build] ${me} strand view at ${f.x},${f.y},${f.z}: y+1 ${g(1)} | y ${g(0)} | y-1 ${g(-1)} | y-2 ${g(-2)}`); }
     if (TRACE) console.log(`[build] ${Math.round((Date.now() - T0) / 1000)}s ${me} stranded at ${f.x},${f.y},${f.z} (${s.n}): escape`);
-    try { await env.recover(Math.min(6, s.n + 1), { reason: 'unreachable', detail: { why: 'stranded' } }); } catch (_) { /* a failed fix is tried again with the next */ }
+    try {
+        if (env.stepOff && s.n % 2 === 0) { const o = await env.stepOff(); if (TRACE) console.log(`[build] ${me} step off: ${o.ok ? 'to ' + JSON.stringify(o.to) : 'no edge'}`); if (o.ok) return; }          // every other time: over the edge of what it stands on
+        await env.recover(Math.min(6, s.n + 1), { reason: 'unreachable', detail: { why: 'stranded' } });
+    } catch (_) { /* a failed fix is tried again with the next */ }
 }
 
 async function runUnit(plan, job, regionId, u, env) {
     const me = env.bot ? env.bot.username : null;
     if (!job.strand) job.strand = {};
     if (me) await unstrand(job, me, env);
-    const t0 = Date.now(), res = await runUnit0(plan, job, regionId, u, env);
+    const t0 = Date.now(), res = await runUnit0(plan, job, regionId, u, env).finally(() => { if (me && job.posts) posts.resting(job, me); });
     if (me) { const f = env.here(), d = res.detail || {}; if (d.noMove && !(d.placed > 0)) { const s = job.strand[me]; if (!s || s.x !== f.x || s.y !== f.y || s.z !== f.z) job.strand[me] = { x: f.x, y: f.y, z: f.z, n: 0 }; } else delete job.strand[me]; }
     if (res.ok ? !res.partial || (res.detail && res.detail.placed > 0) : (res.detail && res.detail.placed > 0)) job.lastProgress = Date.now();
     try { await clearOfPlan(plan, env); } catch (_) { /* getting out of the way is a courtesy */ }
@@ -212,6 +216,9 @@ async function runUnit0(plan, job, regionId, u, env) {
             if (res.reason === 'blocked') return { ok: true, partial: true, holdMs: 3000, detail: { ...r, waiting: todo.length, why: res.detail && res.detail.why } };        // somebody stands there: another unit meanwhile
             if (res.reason === 'missing_item') break;                                     // the next round fetches it
             if (POSITIONAL.has(res.reason)) { tried.add(sk); break; }
+            // One cell failed after others of the unit were placed (run 4, 2026-11-18: the key unit of the tower, 19 cells placed, the 20th a temporary support: the whole unit failed and nobody
+            // took it for 230 s): the unit goes back unfinished, not failed; a unit that placed nothing fails as before.
+            if (r.placed + r.poured + r.fixed > 0) return { ok: true, partial: true, holdMs: 4000, detail: { ...r, waiting: todo.length, why: `a cell failed (${res.reason}) after others were placed`, failure: last } };
             return { ok: false, reason: res.reason, detail: { ...last, ...r } };
         }
         if (r.placed + r.skipped + r.fixed + r.poured === before) { if (++idle >= 4) return { ok: false, reason: (last && last.reason) || 'stuck', detail: { ...(last || {}), why: (last && last.why) || 'no progress at the station', stage: (last && last.stage) || 'place', ...r } }; } else idle = 0;
