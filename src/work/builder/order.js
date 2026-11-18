@@ -61,6 +61,15 @@ function plan(cells, real, ground) {
         const sources = body.filter((b) => byPos.has(key(b)) && byPos.get(key(b)).fluid);
         for (const s of sources) for (const n of contain) need(byPos.get(key(s)), n);
         for (const n of covers) if (!contain.has(n)) for (const s of sources) need(byPos.get(n), key(s));
+        // A small body (a lava pit in a tower) is poured from above, through the shaft the walls leave open: everything above it that stands inside its footprint (the rest of the walls, the lid)
+        // waits for the source, or the walls close the access first (live 2026-11-18: three bots built the tower up while the lava waited for its bucket, and no standing place was left).
+        const xs = body.map((b) => b.x), zs = body.map((b) => b.z), top = Math.max(...sources.map((b) => b.y));
+        if (Math.max(...xs) - Math.min(...xs) <= 6 && Math.max(...zs) - Math.min(...zs) <= 6) {
+            for (const c of cells) {
+                if (c.waterlog || contain.has(key(c)) || c.y <= top || c.x < Math.min(...xs) - 1 || c.x > Math.max(...xs) + 1 || c.z < Math.min(...zs) - 1 || c.z > Math.max(...zs) + 1) continue;
+                for (const s of sources) need(c, key(s));
+            }
+        }
     }
     const built = new Set(), present = (x, y, z) => ground(x, y, z) || built.has(`${x},${y},${z}`);
     const solidFor = (c) => (d) => { const q = at(c, d); if (ground(q.x, q.y, q.z)) return true; const o = byPos.get(key(q)); return !!o && built.has(key(q)) && sturdy(C.bare(o.block), d, C.bare(c.block)); };

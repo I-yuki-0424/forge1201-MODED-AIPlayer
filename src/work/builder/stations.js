@@ -145,7 +145,15 @@ function chooseStation(view, cells, o = {}) {
             if (kd !== 'air') break;
         }
         const br = bridgeTo(view, T);
-        if (base || br) consider(S, 'pillar', T, base || { x: S.x, y: S.y - 2, z: S.z }, br);
+        if (!base && !br) {
+            // neither a column of its own nor a bridge at its level: NAV may climb beside it and bridge on (an arm tip over the structure's own stairs): any standable cell within six across and 14 below
+            let near = null;
+            for (let ax = -6; ax <= 6 && !near; ax++) for (let az = -6; az <= 6 && !near; az++) for (let ay = 0; ay >= -14; ay--) {
+                const f = { x: S.x + ax, y: S.y - 1 + ay, z: S.z + az };
+                if (view.solid(f.x, f.y, f.z) && view.free(f.x, f.y + 1, f.z) && view.free(f.x, f.y + 2, f.z)) { near = f; break; }
+            }
+            if (near) consider(S, 'pillar', T, { x: near.x, y: near.y, z: near.z }, { g: 6, from: near, far: true });
+        } else if (base || br) consider(S, 'pillar', T, base || { x: S.x, y: S.y - 2, z: S.z }, br);
     }
     return best;
 }
