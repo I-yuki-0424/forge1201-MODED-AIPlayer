@@ -86,4 +86,29 @@ test('a cave with a way out on foot: walked, nothing dug or placed', () => {
     assert.ok(r && !r.partial); for (const m of moveSet(r)) assert.ok(['walk', 'up', 'drop'].includes(m), m);
 });
 
+test('descend (2026-11-18): from a bridge block high above the ground the way down is placed, and from the bot\'s own pillar block too; never from natural ground', () => {
+    // a platform 12 high with nothing below it; the goal is the ground beside it
+    const w = world((x, y) => (y <= 63 ? 'solid' : x >= 0 && x <= 5 && z0(y) ? 'solid' : 'air'));
+    function z0(y) { return y === 75; }
+    const start = { x: 2, y: 76, z: 0 }, goal = P.cellGoal({ x: 9, y: 64, z: 0 }, { near: 1, nearY: 1 });
+    // standing on the platform edge (natural, not a block of the bot's): a bridge first, then the descent from that block
+    const r = P.plan(w, { ...start, ground: true }, goal, { dig: () => null, radius: 30, maxNodes: 20000 });
+    assert.ok(r && !r.partial, 'a way down exists: ' + JSON.stringify(r && r.path.slice(-3)));
+    const mv = r.path.map((n) => n.move);
+    assert.ok(mv.includes('bridge') && mv.includes('descend'), mv.join(','));
+    assert.ok(mv.lastIndexOf('bridge') < mv.indexOf('descend'), 'the descent starts from the block the bridge placed');
+    const st = steps(r.path), ds = st.filter((s) => s.kind === 'descend');
+    assert.strictEqual(ds.length, 1, 'a run of descents in one column is one step: ' + JSON.stringify(st.map((s) => s.kind)));
+    assert.ok(ds[0].cells.length >= 8, 'the descent runs down to the last three levels, which are a safe drop');
+    // standing on the bot\'s own temporary block over air (a pillar block left under the feet): descend at once
+    const r2 = P.plan(w, { x: 20, y: 70, z: 0, placed: true }, P.cellGoal({ x: 20, y: 64, z: 0 }, { near: 0, nearY: 0 }), { dig: () => null, radius: 30, maxNodes: 20000, isTemp: (x, y, z) => x === 20 && y === 69 });
+    assert.ok(r2 && !r2.partial); assert.ok(r2.path[1].move === 'descend' && !r2.path.some((n) => n.move === 'pillar' || n.move === 'bridge'), r2.path.map((n) => n.move).join(','));
+    // not from a natural block: nothing is placed under a bot that stands on the platform with the way down only through the air
+    const r3 = P.plan(w, { ...start, ground: true }, P.cellGoal({ x: 2, y: 64, z: 0 }, { near: 0, nearY: 0 }), { dig: () => null, radius: 30, maxNodes: 20000, noPlace: true });
+    assert.ok(!r3 || r3.partial, 'noPlace: no descent');
+    // the structure's own cells are never filled by a temporary block (keep)
+    const r4 = P.plan(w, { x: 20, y: 70, z: 0, placed: true }, P.cellGoal({ x: 20, y: 64, z: 0 }, { near: 0, nearY: 0 }), { dig: () => null, radius: 30, maxNodes: 20000, isTemp: (x, y, z) => x === 20 && y === 69, keep: (x, y, z) => y === 67 });
+    assert.ok(!r4 || r4.partial || !r4.path.some((n) => n.place && n.place.y === 67), 'a cell of the structure is not used for a temporary block');
+});
+
 console.log('nav plan tests passed');

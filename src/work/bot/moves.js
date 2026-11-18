@@ -332,6 +332,35 @@ async function depositMany(ctx, { items, x, y, z }) {
 }
 
 /**
+ * take_many {items: [{item, count}], x, y, z}: take several kinds of items out of the container at x y z through ONE open window (the builder's supply trip: a plain `withdraw` opens
+ * and closes the chest per kind, about 1.5 s each; the iron golem trap has 20 kinds). Each kind: what the container holds up to `count`, free pack slots permitting; a kind the container
+ * does not hold is reported (`missing_item`), not an error. Returns { got: [{item, moved}], missing: [{item, want}] }.
+ */
+async function takeMany(ctx, { items, x, y, z }) {
+    const bot = ctx.bot;
+    if (!Array.isArray(items) || !items.length || items.length > 60) throw new SkillError('invalid_args', { why: 'items: 1 to 60 of {item, count}' });
+    for (const o of items) if (!o || !/^[a-z0-9_]+(:[a-z0-9_]+)?$/.test(o.item) || !Number.isInteger(o.count) || o.count < 1 || o.count > 2304) throw new SkillError('invalid_args', { why: 'each item: {item: name, count: 1..2304}' });
+    const win = await openAt(ctx, station(ctx, CONTAINERS, { x, y, z }, 'container'), (b) => openBox(bot, b));
+    const got = [], missing = [];
+    try {
+        await ctx.until(() => win.containerItems().length > 0, 20, 'not_confirmed').catch(() => null);               // the contents arrive a moment after the window opens
+        for (const o of items) {
+            const it = bot.registry.itemsByName[o.item];
+            if (!it) { missing.push({ item: o.item, want: o.count, why: 'unknown item' }); continue; }
+            const there = inContainer(win, it.id), n = Math.min(o.count, there);
+            if (n < 1) { missing.push({ item: o.item, want: o.count }); continue; }
+            const before = inPlayer(win, it.id);
+            ctx.phase('take_many', { item: o.item, count: n });
+            try { await ctx.during(win.withdraw(it.id, null, n), 60); await ctx.until(() => inPlayer(win, it.id) > before, 20); } catch (e) { if (!(e instanceof SkillError) && !/full|destination/i.test(String(e && e.message))) throw e; missing.push({ item: o.item, want: o.count, why: 'pack full' }); break; }
+            const moved = inPlayer(win, it.id) - before;
+            got.push({ item: o.item, moved });
+            if (moved < o.count) missing.push({ item: o.item, want: o.count - moved });
+        }
+    } finally { bot.closeWindow(win); }
+    return { got, missing };
+}
+
+/**
  * stash_worn {item, damage, x, y, z}: put ONE exact stack (the item with exactly this much wear) into the container at x y z (owner 2026-11-09: a diamond tool that is
  * stopped before it breaks is kept, not thrown away). `deposit` takes the first stack of a name, which may be the good one, so the slot is picked here and shift-clicked.
  */
@@ -356,7 +385,7 @@ const mineHand = (ctx, a) => mine(ctx, { x: a.x, y: a.y, z: a.z, collect: false,
 // harvest: one stackable block out of the undug part of the pit beside the bot (for the water rule when the pack holds nothing to seal with: a chest tagged `any` is insert-only, so there is
 // nothing to fetch back). `within` is the pit box (the environment adds it), `items` what is wanted.
 const harvest = async (ctx, a) => harvestBlock(ctx, feetCell(ctx.bot.entity.position), a.within, a.items || []);
-const MOVES = { descend: { fn: descend, ticks: (a) => 200 + 200 * (a.levels || 1) }, mine_hand: { fn: mineHand, ticks: () => 400 }, harvest: { fn: harvest, ticks: () => 700 }, pillar: { fn: pillar, ticks: (a) => 200 + 260 * (a.levels || 1) }, take_usable: { fn: takeUsable, ticks: () => 800 }, deposit_many: { fn: depositMany, ticks: (a) => 400 + 120 * ((a.items && a.items.length) || 1) }, stash_worn: { fn: stashWorn, ticks: () => 800 } };
+const MOVES = { descend: { fn: descend, ticks: (a) => 200 + 200 * (a.levels || 1) }, mine_hand: { fn: mineHand, ticks: () => 400 }, harvest: { fn: harvest, ticks: () => 700 }, pillar: { fn: pillar, ticks: (a) => 200 + 260 * (a.levels || 1) }, take_usable: { fn: takeUsable, ticks: () => 800 }, deposit_many: { fn: depositMany, ticks: (a) => 400 + 120 * ((a.items && a.items.length) || 1) }, stash_worn: { fn: stashWorn, ticks: () => 800 }, take_many: { fn: takeMany, ticks: (a) => 400 + 120 * ((a.items && a.items.length) || 1) } };
 Object.assign(MOVES, require('./bridge').MOVES);          // bridge, sneak_walk: work over an abyss (bridge.js; no circular import: it does not need this file)
 
 /** Run one of the work layer's own movements on `bot` (same result shape as skills.execute). */
@@ -366,4 +395,4 @@ function runMove(bot, name, args = {}, opts = {}) {
     return run(bot, m.fn, args, { ...opts, maxTicks: opts.maxTicks || m.ticks(args) });
 }
 
-module.exports = { pillar, descend, descendStep, harvestBlock, finishPillar, climbTo, cleanTemp, runMove, takeUsable, depositMany, stashWorn, pickUsable, wornOut, MOVES, TEMP_ITEMS };
+module.exports = { pillar, descend, descendStep, harvestBlock, finishPillar, climbTo, cleanTemp, runMove, takeUsable, takeMany, depositMany, stashWorn, pickUsable, wornOut, MOVES, TEMP_ITEMS };

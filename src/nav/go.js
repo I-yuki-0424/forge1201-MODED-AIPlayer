@@ -93,6 +93,12 @@ function protectedFor(env) {
     };
 }
 
+/** Is the block at (x, y, z) a movement block this bot placed (pillar, bridge, scaffold, descent)? */
+function ownTemp(env) {
+    const bot = env.bot, T = bot && bot.__temps, dim = fixtures.dimOf(bot), me = bot && bot.username;
+    return (x, y, z) => { if (!T) return false; const r = T.get(dim, { x, y, z }); return !!r && r.by === me && ['pillar', 'bridge', 'scaffold', 'reflex'].includes(r.kind); };
+}
+
 /** Break the movement blocks of this bot within reach (never the one under its feet, never walking for it). Returns {removed, left: [cells out of reach]}. */
 async function tidy(env, { reach = 4.2 } = {}) {
     const bot = env.bot, T = bot && bot.__temps, out = { removed: 0, left: [] };
@@ -134,6 +140,7 @@ function steps(path) {
         const n = path[i], last = out[out.length - 1];
         if (WALKS.has(n.move) && !(n.dig && n.dig.length)) { if (last && last.kind === 'walk' && last.cells.length < 16) last.cells.push(n); else out.push({ kind: 'walk', cells: [n] }); continue; }
         if (n.move === 'pillar') { if (last && last.kind === 'pillar' && last.cells[last.cells.length - 1].x === n.x && last.cells[last.cells.length - 1].z === n.z) last.cells.push(n); else out.push({ kind: 'pillar', cells: [n] }); continue; }
+        if (n.move === 'descend') { const e = last && last.kind === 'descend' && last.cells[last.cells.length - 1]; if (e && e.x === n.x && e.z === n.z && e.y === n.y + 1) last.cells.push(n); else out.push({ kind: 'descend', cells: [n] }); continue; }
         if (n.move === 'bridge') { if (last && last.kind === 'bridge' && last.cells[last.cells.length - 1].y === n.y && last.cells.length < 32) last.cells.push(n); else out.push({ kind: 'bridge', cells: [n] }); continue; }
         out.push({ kind: n.move === 'digdown' ? 'digdown' : 'dig', cells: [n] });
     }
@@ -188,6 +195,7 @@ async function perform(env, s) {
             for (const n of s.cells) for (const c of n.dig) { /* the pillar move clears the head room itself */ void c; }
             return env.run('pillar', { levels: s.cells.length });
         }
+        case 'descend': return env.run('descend', { levels: s.cells.length });
         case 'bridge': {
             const f = env.here();
             return env.run('bridge', { y: f.y, cells: s.cells.map((c) => ({ x: c.x, z: c.z })) });
@@ -251,8 +259,9 @@ async function walk(W, env0, target, o) {
             bot.setControlState('jump', false);
             if (P.nodeKindOf(P.view(env.w), env.here().x, env.here().y, env.here().z, false)) continue;
         }
-        const start = { ...here, ...(bot && bot.entity && bot.entity.onGround && !bot.entity.isInWater ? { ground: true } : {}) };           // on a slab, a fence top, a bed: a start the grid would not call a node
-        const plan = await P.planAsync(env.w, start, goal, { dig: digCostFor(bot), protectedCell: protectedFor(env), noPlace: !!o.noPlace, noDig: !!o.noDig, maxNodes: o.maxNodes || 14000, score, blocks: packBlocks(bot) });
+        const own = ownTemp(env), underTemp = !!own(here.x, here.y - 1, here.z);
+        const start = { ...here, ...(bot && bot.entity && bot.entity.onGround && !bot.entity.isInWater ? { ground: true } : {}), ...(underTemp ? { placed: true } : {}) };           // on a slab, a fence top, a bed: a start the grid would not call a node; on its own temporary block: a descent is possible
+        const plan = await P.planAsync(env.w, start, goal, { dig: digCostFor(bot), protectedCell: protectedFor(env), noPlace: !!o.noPlace, noDig: !!o.noDig, maxNodes: o.maxNodes || 14000, score, blocks: packBlocks(bot), keep: bot && bot.__keep ? bot.__keep : null, isTemp: own });
         info.segments++;
         if (!plan) {
             // not on a node (in a bush, half in a wall, mid-air): let the body settle, then the action layer's walk to the nearest cell
@@ -315,4 +324,4 @@ async function sweep(env, { max = 60 } = {}) {
     return out;
 }
 
-module.exports = { go, tidy, sweep, steps, digCostFor, protectedFor, perform };
+module.exports = { go, tidy, sweep, steps, digCostFor, protectedFor, perform, ownTemp };

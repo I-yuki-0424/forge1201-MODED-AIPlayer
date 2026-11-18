@@ -181,7 +181,7 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         return cand[0] || null;
     };
     const viaStack = (name) => !!stackJobs && stackJobs() && require('../../stack/router').ROUTED.has(name);       // setting stackJobs: the jobs go through the router too
-    const CHEST_OPS = new Set(['deposit', 'withdraw']), CHEST_MOVES = new Set(['take_usable', 'stash_worn', 'deposit_many']);
+    const CHEST_OPS = new Set(['deposit', 'withdraw']), CHEST_MOVES = new Set(['take_usable', 'stash_worn', 'deposit_many', 'take_many']);
     const envObj = {
         w, bot, now: Date.now, cancelled: () => !!cancel.cancelled, recover, stockMiss, act: null, sub: null,
         temps: bot.__temps || null,                                   // the registry of blocks the bots placed, shared by every bot (temps.js)
@@ -481,6 +481,7 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         // (live 2026-11-09: every swim and fill came back `cancelled` at once, the worker claimed the next unit, which was cancelled at once too: 99,639 failures in a loop that never yielded and froze all 20 bots).
         execFree: (name, args) => (CHEST_OPS.has(name) ? queued(args, cancel, (c) => execute(bot, name, args, { cancel: c })) : execute(bot, name, args, { cancel })),
         have,
+        others: () => (others ? others() : []),                    // where the other bots stand: {name, x, y, z}
         hp: () => (typeof bot.health === 'number' ? bot.health : 20),
         // A block to seal, stack or bridge with: any placeable, non-falling, low-value kind in the pack (tempblocks.js), `min` of it at least; null when there is none.
         reserved: (n) => require('./tempblocks').reservedOf(bot, n),
