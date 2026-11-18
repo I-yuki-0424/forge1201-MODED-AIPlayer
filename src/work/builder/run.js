@@ -121,12 +121,13 @@ async function runUnit0(plan, job, regionId, u, env) {
     }
     const cells = plan.units[u.unit], tried = new Set();
     if (!job.waits) job.waits = {};
+    if (!job.noStation) job.noStation = {};
     let idle = 0, last = null, down = 0;
     for (let round = 0; round < 18; round++) {
         if (env.cancelled && env.cancelled()) return { ok: false, reason: 'cancelled', detail: { ...r } };
         const todo = cells.filter((c) => !right(c, env.w));
         if (!todo.length) {
-            delete job.waits[u.unit];
+            delete job.waits[u.unit]; delete job.noStation[u.unit];
             // polish: right-click what stands in the wrong open / delay state (a few tries per unit, never a failure)
             let tries = 0;
             for (const c of cells) { if (tries >= 4 || (env.cancelled && env.cancelled())) break; const b = env.w.blockAt ? env.w.blockAt(c.x, c.y, c.z) : null; if (b && !c.waterlog && C.stateMatches(b, c) && C.useMismatch(b, c)) { tries++; await fixUse(c, env, r); } }
@@ -154,6 +155,8 @@ async function runUnit0(plan, job, regionId, u, env) {
             for (let d = 3; d <= 9 && !g; d++) for (let dx = -d; dx <= d && !g; dx++) for (let dz = -d; dz <= d && !g; dz++) { if (Math.max(Math.abs(dx), Math.abs(dz)) !== d) continue; const x = c0.x + dx, z = c0.z + dz; if (view.solid(x, plan.origin.y - 1, z) && view.free(x, plan.origin.y, z) && view.free(x, plan.origin.y + 1, z) && !plan.cellSet.has(`${x},${plan.origin.y},${z}`)) g = { x, y: plan.origin.y, z }; }
             if (g) { const t = await env.travel(g, { near: 1, nearY: 1, maxSegments: 16, stuckAfter: 3, footNodes: 3000, why: 'back to the ground' }); if (t.ok || t.reason === 'stuck' || t.reason === 'unreachable') continue; }
         }
+        // No place this bot can stand at (it is in a compartment of the platform, far from the cells): another bot, or this one from somewhere else, may. Not a failure of the unit until it has happened six times.
+        if (!stUse && (job.noStation[u.unit] = (job.noStation[u.unit] || 0) + 1) <= 6) return { ok: true, partial: true, holdMs: 6000, detail: { ...r, waiting: todo.length, why: 'no standing place from where this bot is', diag: dg } };
         if (!stUse) return { ok: false, reason: 'unreachable', detail: { why: 'no standing place within reach of the next cells', diag: dg, c0: { x: todo[0].x, y: todo[0].y, z: todo[0].z, block: todo[0].block }, from: env.here(), cell: ready[0], stage: 'station', tried: tried.size, ...r } };
         const st2 = stUse;
         const sk = `${stUse.S.x},${stUse.S.y},${stUse.S.z}`;
@@ -191,6 +194,7 @@ async function buildWithTemp(plan, sv, env, r) {
     const w = env.w, T = sv.temp, c = sv.cell;
     const item = env.tempItem ? env.tempItem(1) : null;
     if (!item) return bad('missing_item', { item: 'cobblestone', why: 'no block for a temporary support' }, 'support');
+    if (!C.REPLACEABLE.test(nm(w, T.x, T.y, T.z)) && nm(w, T.x, T.y, T.z) === C.bare(item)) await env.exec('mine', { x: T.x, y: T.y, z: T.z, collect: false, blind: true }, { raw: true, maxTicks: 200 });          // a leftover temporary block (another bot's): out of the way first
     let p = await env.exec('place', { x: T.x, y: T.y, z: T.z, item, temp: 'scaffold' }, { raw: true, maxTicks: 220 });
     if (!p.ok && env.command && ['unreachable', 'not_visible', 'stuck', 'precondition_failed'].includes(p.reason)) p = await env.command('place', { x: T.x, y: T.y, z: T.z, item, temp: 'scaffold' });
     if (!p.ok) return { ...p, stage: 'support' };
