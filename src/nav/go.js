@@ -16,7 +16,7 @@ const WALKS = new Set(['walk', 'up', 'drop', 'swim', 'climb']);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const hd = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 const TRACE = !!process.env.NAV_TRACE;
-const say = (env, m) => { if (TRACE) console.log(`[nav] ${env.bot ? env.bot.username : '?'} ${m}`); };
+const T0 = Date.now(), say = (env, m) => { if (TRACE) console.log(`[nav] ${Math.round((Date.now() - T0) / 100) / 10}s ${env.bot ? env.bot.username : '?'} ${m}`); };          // seconds since the process began
 
 /**
  * The watch over a walk (owner 2026-11-14, Move A: a bot was blown up by a creeper 20 s after it set out, Normal difficulty at night). A hostile mob that comes close stops the step at once

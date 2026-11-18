@@ -99,8 +99,26 @@ async function clearOfPlan(plan, env) {
     if (best) await env.travel({ x: best.x, y: best.y, z: best.z }, { near: 0, nearY: 0, maxSegments: 8, stuckAfter: 2, footNodes: 2000, why: 'out of the way of the structure' });
 }
 
+/**
+ * A bot that cannot leave where it stands (run 3, 2026-11-18: one bot stood on a wall 13 levels up for 12 minutes, "no move from here", every unit handed back as `partial` or failed in the
+ * supply trip, so the worker's own recovery never ran): after a unit that placed nothing and could not walk, at the same place again, the escape ladder of the worker (jump, sidestep, step
+ * back, wait, descend) is run, one rung per time.
+ */
+async function unstrand(job, me, env) {
+    const s = job.strand && job.strand[me]; if (!s || !env.recover) return;
+    const f = env.here();
+    if (f.x !== s.x || f.y !== s.y || f.z !== s.z) { delete job.strand[me]; return; }
+    if (++s.n < 2) return;
+    if (TRACE) console.log(`[build] ${Math.round((Date.now() - T0) / 1000)}s ${me} stranded at ${f.x},${f.y},${f.z} (${s.n}): escape`);
+    try { await env.recover(Math.min(6, s.n + 1), { reason: 'unreachable', detail: { why: 'stranded' } }); } catch (_) { /* a failed fix is tried again with the next */ }
+}
+
 async function runUnit(plan, job, regionId, u, env) {
+    const me = env.bot ? env.bot.username : null;
+    if (!job.strand) job.strand = {};
+    if (me) await unstrand(job, me, env);
     const t0 = Date.now(), res = await runUnit0(plan, job, regionId, u, env);
+    if (me) { const f = env.here(), d = res.detail || {}; if (d.noMove && !(d.placed > 0)) { const s = job.strand[me]; if (!s || s.x !== f.x || s.y !== f.y || s.z !== f.z) job.strand[me] = { x: f.x, y: f.y, z: f.z, n: 0 }; } else delete job.strand[me]; }
     if (res.ok ? !res.partial || (res.detail && res.detail.placed > 0) : (res.detail && res.detail.placed > 0)) job.lastProgress = Date.now();
     try { await clearOfPlan(plan, env); } catch (_) { /* getting out of the way is a courtesy */ }
     if (TRACE) console.log(`[build] ${Math.round((Date.now() - T0) / 1000)}s ${env.bot ? env.bot.username : '?'} u${u.unit} ${res.ok ? (res.partial ? 'partial' : 'ok') : 'FAILED ' + res.reason} ${Math.round((Date.now() - t0) / 100) / 10}s ${JSON.stringify(res.detail || {}).slice(0, 900)}`);
@@ -149,7 +167,7 @@ async function runUnit0(plan, job, regionId, u, env) {
         const rs = await supply.restock(env, plan, supply.batch(env.bot, plan, u.unit, env.w, unitNeed), { trigger: unitNeed, topup: false, reserve: 3 });
         if (rs.trips) r.trips += rs.trips;
         if (TRACE && (rs.trips || !rs.ok)) console.log(`[build] ${Math.round((Date.now() - T0) / 1000)}s ${me} u${u.unit} restock ${rs.ok ? 'ok' : 'SHORT'} trips=${rs.trips || 0} unit-need ${JSON.stringify(unitNeed)} have ${JSON.stringify(Object.fromEntries(Object.keys(unitNeed).map((it) => [it, env.have(it)])))} free-slots ${env.bot ? supply.emptySlots(env.bot) : '?'}${rs.ok ? '' : ' ' + JSON.stringify({ short: rs.detail && rs.detail.short, lastTravel: rs.detail && rs.detail.lastTravel, lastTake: rs.detail && rs.detail.lastTake }).slice(0, 300)}`);
-        if (!rs.ok) return { ok: false, reason: rs.reason, detail: { ...(rs.detail || {}), cell: ready[0], stage: 'stock', ...r } };
+        if (!rs.ok) return { ok: false, reason: rs.reason, detail: { ...(rs.detail || {}), cell: ready[0], stage: 'stock', ...r, ...(rs.detail && rs.detail.lastTravel ? { noMove: true } : {}) } };
         const view = S.viewOf(env.w, plan.cellSet);
         const dg = {};
         let walk = null;
@@ -165,10 +183,10 @@ async function runUnit0(plan, job, regionId, u, env) {
         if (!st && walk && env.here().y > plan.origin.y + 1 && ++down <= 2) {
             const c0 = todo[0]; let g = null;
             for (let d = 3; d <= 9 && !g; d++) for (let dx = -d; dx <= d && !g; dx++) for (let dz = -d; dz <= d && !g; dz++) { if (Math.max(Math.abs(dx), Math.abs(dz)) !== d) continue; const x = c0.x + dx, z = c0.z + dz; if (view.solid(x, plan.origin.y - 1, z) && view.free(x, plan.origin.y, z) && view.free(x, plan.origin.y + 1, z) && !plan.cellSet.has(`${x},${plan.origin.y},${z}`)) g = { x, y: plan.origin.y, z }; }
-            if (g) { const t = await env.travel(g, { near: 1, nearY: 1, maxSegments: 16, stuckAfter: 3, footNodes: 3000, why: 'back to the ground' }); if (t.ok || t.reason === 'stuck' || t.reason === 'unreachable') continue; }
+            if (g) { const t = await env.travel(g, { near: 1, nearY: 1, maxSegments: 16, stuckAfter: 3, footNodes: 3000, why: 'back to the ground' }); if (!t.ok) r.noMove = true; if (t.ok || t.reason === 'stuck' || t.reason === 'unreachable') continue; }
         }
         // No place this bot can stand at (it is in a compartment of the platform, far from the cells): another bot, or this one from somewhere else, may. Not a failure of the unit until it has happened six times.
-        if (!stUse && (job.noStation[u.unit] = (job.noStation[u.unit] || 0) + 1) <= 6) return { ok: true, partial: true, holdMs: 6000, detail: { ...r, waiting: todo.length, why: 'no standing place from where this bot is', diag: dg } };
+        if (!stUse && (job.noStation[u.unit] = (job.noStation[u.unit] || 0) + 1) <= 6) return { ok: true, partial: true, holdMs: 6000, detail: { ...r, noMove: true, waiting: todo.length, why: 'no standing place from where this bot is', diag: dg } };
         if (!stUse) return { ok: false, reason: 'unreachable', detail: { why: 'no standing place within reach of the next cells', diag: dg, c0: { x: todo[0].x, y: todo[0].y, z: todo[0].z, block: todo[0].block }, from: env.here(), cell: ready[0], stage: 'station', tried: tried.size, ...r } };
         const st2 = stUse;
         const sk = `${stUse.S.x},${stUse.S.y},${stUse.S.z}`;
@@ -180,7 +198,7 @@ async function runUnit0(plan, job, regionId, u, env) {
             const g = env.here();
             if (!t.ok || g.x !== stUse.S.x || g.y !== stUse.S.y || g.z !== stUse.S.z) {
                 if (t.reason && FATAL.has(t.reason)) return { ok: false, reason: t.reason, detail: { ...r } };
-                tried.add(sk); last = { reason: t.reason || 'unreachable', why: `walk to the station ${sk} (${stUse.kind}): ${(t.detail && (t.detail.why || (t.detail.nav && 'nav'))) || ''}`, station: sk, nav: t.detail && t.detail.nav };
+                r.noMove = true; tried.add(sk); last = { reason: t.reason || 'unreachable', why: `walk to the station ${sk} (${stUse.kind}): ${(t.detail && (t.detail.why || (t.detail.nav && 'nav'))) || ''}`, station: sk, nav: t.detail && t.detail.nav };
                 if (++idle >= 5) return { ok: false, reason: last.reason, detail: { ...last, cell: ready[0], stage: 'station', ...r } };
                 continue;
             }
