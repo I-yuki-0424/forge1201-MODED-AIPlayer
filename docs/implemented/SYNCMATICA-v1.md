@@ -80,6 +80,18 @@ The owner watched the builds and named four causes; each is a rule now (`TASK:20
 
 Simulation (`tests/test_build_plan_pure.js`, the iron farm, one simulated builder per area, blocks walked plus 2 per level): one area 185 stations / 2401 walked; three areas 224 stations in all, the busiest area 91 stations / 1509 walked, so a bot walks 40 % less than one builder alone; areas hold 475 / 353 / 460 cells. Offline only: the live result is below.
 
+### Live results of the areas (T26 world 7, 3 bots, no teleport, 20 minutes, cells right as the bots see them)
+
+| run | 2 min | 4 min | 8 min | 12 min | 16 min | 18 min | what it showed |
+| :-- | --: | --: | --: | --: | --: | --: | :-- |
+| 1 (areas, window as before) | 46 | 63 | 88 | 143 | 414 | 497 | bots took floating pieces (seeds) at once; one bot 495 s on a gate at the top; idle 30-57 % |
+| 2 (seeds last, help after 6 s, unit budget) | 111 | 217 | 435 | 533 | 786 | 831 | a bot with a full pack failed `missing_item` for 10 minutes |
+| 3 (+ surplus back to the chest, idle prefetch) | 157 | 391 | 536 | 609 | 780 | 851 | a bot stranded on a wall for 12 minutes (no move from its cell) |
+| 4 (+ escape ladder) | 14 | 34 | 474 | 538 | 739 | 817 | the key unit of the tower failed at 17 s and nobody took it for 230 s |
+| 5 (+ noShun, partial instead of failed, step off) | 225 | 406 | 594 | 817 | 900 | 918 | the tail: 18 pours into a flowing-water cell, floating pieces whose temporary support has no standing place |
+
+Old typical: 650-860 at 20 minutes, best 965 (18 minutes). The acceptance (the whole structure, strict or static, within 20 minutes) is **not met**: no run finished; the best is 918 of 1288 at 18 minutes. What the four observations explain, and what is left: the early phase is 3 to 5 times faster than before (the trunk and the first platform layers in 4 to 8 minutes), no bot is frozen any more (full pack, stranded cell, shunned key unit were three separate freezes); what is left is the tail (stone-brick walls and glass at +13 to +21 levels, dirt columns that hang from a top arm tip, water cells that are flowing water, floating pieces inside walls) and a per-cell cost of about 3.5 s of bot time, which is 25 minutes for three bots even with no idle time. Run 6 is in the commit history of this file.
+
 ## The test `place_c` (rewritten)
 
 `scripts/t26/run.sh N place_c.js [BOTS=3] [LIMIT_MIN=20 = 60 / BOTS] [TRIALS=1]` (`BUILD_TRACE=1 NAV_TRACE=1` for the per-unit and per-walk trace). The owner's bar: 80 % of the trials match AND the build takes at most one hour / bots. Offline: `tests/test_build_plan_pure.js` walks the plan with a simulated builder (1288 cells, about 170 stations); `scripts/t26/view_probe*.js` compare a bot's view with the server.
