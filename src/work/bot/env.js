@@ -411,13 +411,13 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         }),
         // Walk to the nearest standable cell that no other bot stands in or next to (two bots in one cell blocked each other's pillar for ten minutes).
         // Off the top of a wall or a block the planner cannot start from (a bot on a 1.5 high wall of a build, run 3 and 4, 2026-11-18: "start cell not standable", no move for 12 minutes): walk over
-        // the edge onto a floor at most three blocks down (a fall of 2 hearts at worst), the way a player gets off a wall. Not for liquids, hazards or an unknown cell.
-        stepOff: async () => {
+        // the edge onto a floor at most `maxDrop` (3, in the end 8) blocks down (3: no damage, 8: five hearts of twenty), the way a player gets off a wall. Not for liquids, hazards or an unknown cell.
+        stepOff: async ({ maxDrop = 3 } = {}) => {
             const f = feetCell(bot.entity.position), dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]].sort(() => Math.random() - 0.5);
             for (const [dx, dz] of dirs) {
                 const x = f.x + dx, z = f.z + dz, k = (y) => w.kindAt(x, y, z);
                 if (k(f.y) !== 'air' || k(f.y + 1) !== 'air') continue;
-                let floor = null; for (let d = 1; d <= 3; d++) { const kk = k(f.y - d); if (kk === 'solid') { floor = f.y - d; break; } if (kk !== 'air') break; }
+                let floor = null; for (let d = 1; d <= maxDrop; d++) { const kk = k(f.y - d); if (kk === 'solid') { floor = f.y - d; break; } if (kk !== 'air') break; }
                 if (floor === null || ['danger', 'liquid', 'water'].includes(k(floor + 1))) continue;
                 await bot.look(Math.atan2(-dx, -dz), 0, true); await hold('forward', 650); await sleep(600);
                 const g = feetCell(bot.entity.position);

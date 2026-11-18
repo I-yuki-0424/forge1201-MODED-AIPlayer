@@ -7,6 +7,7 @@
 // `chooseStation` scores every candidate by how many of the next cells it serves minus what it costs to get there, so that a bot stands still while it places a dozen blocks and moves when
 // nothing more is in reach. Pure: the world comes in as a `view`, which the planner's simulation and the live world both provide.
 const O = require('../jobs/orient');
+const { PARTIAL } = require('./order');
 const D = O.DIR, DIRS = ['down', 'north', 'south', 'east', 'west', 'up'];
 const EYE = 1.62, REACH = 4.2, REACH_FLUID = 3.4;                      // eye height; the reach to the nearest point of the support block (motion.js AIM_REACH)
 const at = (c, d) => ({ x: c.x + D[d][0], y: c.y + D[d][1], z: c.z + D[d][2] });
@@ -111,7 +112,10 @@ function serves(view, S, cells, T = null, ok = null) {
     }
     // The cell at the feet itself, last: the bot jumps and places it under its feet (a column or a tube built upward: no neighbour cell to step to, owner 2026-11-18). From a block under the feet
     // only (not a temporary one), with room for the jump, a block that goes on the top face of what is under it, and everything it waits for in place.
-    if (self && !T && !self.fluid && !self.waterlog && (self.dirs || DIRS).includes('down') && view.solid(S.x, S.y - 1, S.z) && view.free(S.x, S.y + 2, S.z) && (!ok || ok(self, done))) out.push({ cell: self, sup: 'down', jump: true });
+    // Only a full cube: the bot lands on the block it places, and a wall (1.5 high), a slab, a stair or a fence under its feet is a place the planner cannot start from (runs 3 to 6, 2026-11-18:
+    // bots stood on their own walls for minutes).
+    const cube = (n) => { const b = String(n).replace(/^minecraft:/, ''); return !PARTIAL.test(b) && !/(_wall|_fence|_pane|snow)$/.test(b); };
+    if (self && !T && !self.fluid && !self.waterlog && cube(self.block) && (self.dirs || DIRS).includes('down') && view.solid(S.x, S.y - 1, S.z) && view.free(S.x, S.y + 2, S.z) && (!ok || ok(self, done))) out.push({ cell: self, sup: 'down', jump: true });
     return out;
 }
 
