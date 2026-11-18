@@ -102,7 +102,7 @@ function serves(view, S, cells, T = null, ok = null) {
             for (const d of (c.dirs || DIRS)) {
                 const T = at(c, d);
                 if (!view.free(T.x, T.y, T.z) || view.cellSet.has(key(T.x, T.y, T.z)) || (T.x === S.x && T.z === S.z && (T.y === S.y || T.y === S.y + 1)) || reachTo(S, T) > REACH) continue;
-                const U = DIRS.map((e) => at(T, e)).find((q) => !(q.x === c.x && q.y === c.y && q.z === c.z) && present(q) && reachTo(S, q) <= REACH);
+                const U = DIRS.map((e) => at(T, e)).find((q) => !(q.x === c.x && q.y === c.y && q.z === c.z) && present(q) && (view.solid(q.x, q.y, q.z) || local.has(key(q.x, q.y, q.z))) && reachTo(S, q) <= REACH);          // a solid block: the plain `place` clicks only those
                 if (U) { pick = d; tmp = { x: T.x, y: T.y, z: T.z }; break; }
             }
         }
@@ -131,7 +131,7 @@ function bridgeTo(view, T, maxGap = 5) {
 function chooseStation(view, cells, o = {}) {
     if (!cells.length) return null;
     const from = o.from || cells[0], avoid = o.avoid || [], skip = o.skip || new Set(), ok = o.ok || null, look = cells.slice(0, o.lookahead || 40);
-    const c0 = look.find((c) => !ok || ok(c, new Set())) || look[0], R = 5;
+    const c0 = look.find((c) => (!ok || ok(c, new Set())) && (!o.first || o.first(c))) || look[0], R = 5;          // the first cell that can go NOW (what it waits for and its support stand), not the first of the list
     let best = null;
     const dg = o.diag || null;
     const consider = (S, kind, T, base, br = null) => {

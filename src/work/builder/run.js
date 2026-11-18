@@ -142,11 +142,11 @@ async function runUnit0(plan, job, regionId, u, env) {
         const dg = {};
         let walk = null;
         if (env.bot && env.here().y > plan.origin.y + 1) { try { const rs = await require('../../skills/planner').reachableAsync(env.w, env.here(), { maxNodes: 9000, radius: 40 }); walk = (x, y, z) => rs.has(x, y, z); } catch (_) { walk = null; } }          // only from the structure: from the ground NAV can climb to any place          // where the bot can walk from here (3000 cells): native stations outside it are not offered
-        const st = S.chooseStation(view, todo, { diag: dg, reach: walk, from: env.here(), avoid: env.others ? env.others() : [], skip: tried, ok: (c, local) => readyLocal(plan, c, env.w, local) });
+        const st = S.chooseStation(view, todo, { diag: dg, reach: walk, first: (c) => cellReady(plan, c, env.w), from: env.here(), avoid: env.others ? env.others() : [], skip: tried, ok: (c, local) => readyLocal(plan, c, env.w, local) });
         let stUse = st;
         if (!stUse && env.others && env.others().length) {
             // the only places are taken by other bots: wait twice (they move on), then use them anyway (a bot that has stopped for good stood on the key spot of the tower for ten minutes and everyone waited)
-            const free = S.chooseStation(view, todo, { from: env.here(), avoid: [], skip: tried, reach: walk, ok: (c, local) => readyLocal(plan, c, env.w, local) });
+            const free = S.chooseStation(view, todo, { from: env.here(), avoid: [], skip: tried, reach: walk, first: (c) => cellReady(plan, c, env.w), ok: (c, local) => readyLocal(plan, c, env.w, local) });
             if (free) { const k = (job.waits[u.unit] = (job.waits[u.unit] || 0) + 1); if (k <= 2) return { ok: true, partial: true, holdMs: 4000, detail: { ...r, waiting: todo.length, why: 'the only standing places are taken by other bots' } }; stUse = free; }
         }
         // nowhere to stand that this bot can walk, bridge or climb to from where it is (it is on the platform, the cells are in another compartment): back to the ground by NAV, then again
