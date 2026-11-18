@@ -148,7 +148,12 @@ function chooseStation(view, cells, o = {}) {
             if (kd === 'solid') { base = { x: S.x, y, z: S.z }; break; }
             if (kd !== 'air') break;
         }
-        const br = bridgeTo(view, T);
+        let br = bridgeTo(view, T);
+        // a column to climb from, or a floor to bridge from, that the bot cannot walk to is no way there (the platform's walls cut it into compartments)
+        const walkable = (c) => !o.reach || (c.x === from.x && c.y + 1 === from.y && c.z === from.z) || o.reach(c.x, c.y + 1, c.z);
+        if (base && !walkable(base)) { if (dg) dg.noBase = (dg.noBase || 0) + 1; base = null; }
+        if (br && !walkable(br.from)) br = null;
+        if (!base && !br && o.reach) continue;
         if (!base && !br) {
             // neither a column of its own nor a bridge at its level: NAV may climb beside it and bridge on (an arm tip over the structure's own stairs): any standable cell within six across and 14 below
             let near = null;

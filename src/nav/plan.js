@@ -101,7 +101,7 @@ function moves(V0, n, o) {
                     if (d <= V.maxDrop && solid(V, X, y - d - 1, Z) && passable(kk)) { add({ x: X, y: y - d, z: Z, kind: 'stand', move: 'drop', cost: 1 + 0.3 * d, dig }); landed = true; break; }
                     if (!passable(kk)) { landed = !(kk === 'solid' && d - 1 > V.maxDrop); break; }          // ground more than a drop below is no landing: a bridge (a builder on a tower top, ground 5 to 8 below, had no move at all)
                 }
-                if (!landed && k === 'air' && (here === 'stand' || here === 'bridge' || n.placed) && !o.noPlace) add({ x: X, y, z: Z, kind: 'stand', move: 'bridge', cost: BRIDGE, dig: [], place: { x: X, y: y - 1, z: Z }, placed: true });
+                if (!landed && k === 'air' && (n.placed || (here === 'stand' && solid(V, x, y - 1, z))) && !o.noPlace) add({ x: X, y, z: Z, kind: 'stand', move: 'bridge', cost: BRIDGE, dig: [], place: { x: X, y: y - 1, z: Z }, placed: true });
             }
         }
         // one up (jump onto the next cell's top), digging the head room and the two body cells if needed

@@ -118,7 +118,7 @@ async function runUnit0(plan, job, regionId, u, env) {
         bot.__noCollect = true;                                                  // the drops of its temporary blocks are left where they fall (the supply holds enough)
     }
     const cells = plan.units[u.unit], tried = new Set();
-    let idle = 0, last = null;
+    let idle = 0, last = null, down = 0;
     for (let round = 0; round < 18; round++) {
         if (env.cancelled && env.cancelled()) return { ok: false, reason: 'cancelled', detail: { ...r } };
         const todo = cells.filter((c) => !right(c, env.w));
@@ -134,6 +134,12 @@ async function runUnit0(plan, job, regionId, u, env) {
         if (env.bot) { try { const rs = await require('../../skills/planner').reachableAsync(env.w, env.here(), { maxNodes: 9000, radius: 40 }); walk = (x, y, z) => rs.has(x, y, z); } catch (_) { walk = null; } }          // where the bot can walk from here (3000 cells): native stations outside it are not offered
         const st = S.chooseStation(view, todo, { diag: dg, reach: walk, from: env.here(), avoid: env.others ? env.others() : [], skip: tried, ok: (c, local) => readyLocal(plan, c, env.w, local) });
         if (!st && env.others && env.others().length && S.chooseStation(view, todo, { from: env.here(), avoid: [], skip: tried, ok: (c, local) => readyLocal(plan, c, env.w, local) })) return { ok: true, partial: true, holdMs: 4000, detail: { ...r, waiting: todo.length, why: 'the only standing places are taken by other bots' } };
+        // nowhere to stand that this bot can walk, bridge or climb to from where it is (it is on the platform, the cells are in another compartment): back to the ground by NAV, then again
+        if (!st && walk && env.here().y > plan.origin.y + 1 && ++down <= 2) {
+            const c0 = todo[0]; let g = null;
+            for (let d = 3; d <= 9 && !g; d++) for (let dx = -d; dx <= d && !g; dx++) for (let dz = -d; dz <= d && !g; dz++) { if (Math.max(Math.abs(dx), Math.abs(dz)) !== d) continue; const x = c0.x + dx, z = c0.z + dz; if (view.solid(x, plan.origin.y - 1, z) && view.free(x, plan.origin.y, z) && view.free(x, plan.origin.y + 1, z) && !plan.cellSet.has(`${x},${plan.origin.y},${z}`)) g = { x, y: plan.origin.y, z }; }
+            if (g) { const t = await env.travel(g, { near: 1, nearY: 1, maxSegments: 16, stuckAfter: 3, footNodes: 3000, why: 'back to the ground' }); if (t.ok || t.reason === 'stuck' || t.reason === 'unreachable') continue; }
+        }
         if (!st) return { ok: false, reason: 'unreachable', detail: { why: 'no standing place within reach of the next cells', diag: dg, c0: { x: todo[0].x, y: todo[0].y, z: todo[0].z, block: todo[0].block }, from: env.here(), cell: ready[0], stage: 'station', tried: tried.size, ...r } };
         const sk = `${st.S.x},${st.S.y},${st.S.z}`;
         r.stations++;
