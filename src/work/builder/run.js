@@ -116,6 +116,7 @@ async function runUnit0(plan, job, regionId, u, env) {
     if (bot) {
         bot.__reserve = new Map(Object.entries(supply.remaining(plan, env.w)));
         bot.__keep = (x, y, z) => plan.cellSet.has(`${x},${y},${z}`);
+        bot.__avoidFloor = null;                                               // a leftover block of another builder is a floor like any other (the action layer refused to start a walk from one: 'expanded 1')
         bot.__noCollect = true;                                                  // the drops of its temporary blocks are left where they fall (the supply holds enough)
     }
     const cells = plan.units[u.unit], tried = new Set();

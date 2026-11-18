@@ -87,7 +87,7 @@ async function trial(k, S, svc, seed, rep) {
     const controlOk = !(await match());
     // supply chests on the deck (tagged `free`), every item of the plan's material list
     const mats = pl && build.materialsOf(pl.bp.blocks.filter((b) => !never.has(`${b.x},${b.y},${b.z}`)).map((b) => ({ block: pl.bp.palette[b.s].name.replace(/^minecraft:/, ''), props: pl.bp.palette[b.s].props })).filter((c) => !/^(air|cave_air|void_air)$/.test(c.block)));
-    const stacks = []; for (const [it, n0] of Object.entries(mats)) { const n = /_bucket$/.test(it) ? n0 : n0 * 2, ms = STACK[it] || 64; for (let r = n; r > 0; r -= ms) stacks.push({ it, n: Math.min(ms, r) }); }      // twice the list: several builders fetch a stack each and must not starve each other (buckets and beds exactly)
+    const stacks = []; for (const [it, n0] of Object.entries(mats)) { const n = n0 * 2, ms = STACK[it] || 64; for (let r = n; r > 0; r -= ms) stacks.push({ it, n: Math.min(ms, r) }); }      // twice the list: several builders fetch a stack each and must not starve each other (buckets and beds exactly)
     for (let r = 1024; r > 0; r -= 64) stacks.push({ it: 'cobblestone', n: 64 });                        // enough temporary blocks (the bots do not pick the removed ones up again)
     const chests = []; for (let i = 0; i < stacks.length; i += 27) chests.push(stacks.slice(i, i + 27));
     const sup = chests.map((_, i) => ({ x: M.x - 3, y: M.y, z: M.z + 2 * i }));
@@ -140,6 +140,16 @@ async function trial(k, S, svc, seed, rep) {
             if (state === 'control') state = 'timeout';
         } catch (e) { err = e.message; state = 'error'; console.error(e); }
     }
+    // which units are left and why (2026-11-18): state, attempts, whether the gate lets a bot take it, its first cell
+    try {
+        const j = svc.jobs.get(got && got.job), L = j.impl.ledger, r = L.regions.get('b0'), R = require('../../src/work/builder/run'), pl = j.impl.plan, left = [];
+        for (let u = 0; u < pl.units.length; u++) {
+            if (r.state[u] === 2) continue;
+            const c = pl.units[u][0], undone = pl.units[u].filter((q) => !R.right(q, require('../../src/skills/world').fromBot(svc.bots.get(name).bot))).length;
+            left.push(`u${u}[${['pending', 'leased', 'done', 'stuck'][r.state[u]]} att${r.attempts[u]} gate=${R.gateOf(pl, j.impl, u)} ${undone}/${pl.units[u].length} ${c.block}@${c.x - M.x},${c.y - M.y},${c.z - M.z}]`);
+        }
+        console.log(`[units left ${left.length}] ${left.slice(0, 60).join(' ')}`);
+    } catch (e) { console.log('[units left] failed:', e.message); }
     await sleep(25000);                                                                                       // let the fluids and the circuit settle before judging
     const strict = await match();
     let wrong = [];

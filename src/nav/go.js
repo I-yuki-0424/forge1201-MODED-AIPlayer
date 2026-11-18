@@ -212,8 +212,10 @@ async function perform(env, s) {
  * Returns {ok, reason?, detail: {segments, steps, pillars, bridges, digs, removed, left, at}}.
  */
 async function go(env0, target, o = {}) {
-    const W = watch(env0);
-    try { return await walk(W, env0, target, o); } finally { W.dispose(); }
+    const W = watch(env0), bot = env0.bot, keep = bot && bot.__keep;
+    // `digStructure` (a builder walled in by its own work): the cells of the structure may be dug on this walk; the unit that owns a dug cell places it again
+    if (o.digStructure && bot) bot.__keep = null;
+    try { return await walk(W, env0, target, o); } finally { W.dispose(); if (o.digStructure && bot) bot.__keep = keep; }
 }
 
 async function walk(W, env0, target, o) {
