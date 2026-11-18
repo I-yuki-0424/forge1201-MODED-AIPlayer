@@ -62,7 +62,7 @@ function gateOf(plan, job, u) {
         let f = job.first || 0;
         while (f < plan.units.length && (r.state[f] === 2 || r.state[f] === 3 || r.attempts[f] > 0)) f++;          // a unit that failed is not waited for: the window moves on
         if (f > (job.first || 0)) job.first = f;
-        if (u > f + WINDOW) return false;
+        if (u > f + WINDOW && Date.now() - (job.lastProgress || 0) < 15000) return false;          // the window yields when nothing has been placed for 15 s (the unit at its front may wait for cells of a failed one)
     }
     if (!w) return !r || plan.deps[u].every((d) => r.state[d] === 2 || r.state[d] === 3);
     let any = false;
@@ -103,6 +103,7 @@ async function clearOfPlan(plan, env) {
 
 async function runUnit(plan, job, regionId, u, env) {
     const t0 = Date.now(), res = await runUnit0(plan, job, regionId, u, env);
+    if (res.ok ? !res.partial || (res.detail && res.detail.placed > 0) : (res.detail && res.detail.placed > 0)) job.lastProgress = Date.now();
     try { await clearOfPlan(plan, env); } catch (_) { /* getting out of the way is a courtesy */ }
     if (TRACE) console.log(`[build] ${env.bot ? env.bot.username : '?'} u${u.unit} ${res.ok ? (res.partial ? 'partial' : 'ok') : 'FAILED ' + res.reason} ${Math.round((Date.now() - t0) / 100) / 10}s ${JSON.stringify(res.detail || {}).slice(0, 900)}`);
     return res;
