@@ -51,7 +51,7 @@ function diffBuild(plan, w) {
     const missing = [];
     for (const list of plan.units) for (const c of list) {
         const b = w.blockAt ? w.blockAt(c.x, c.y, c.z) : null;
-        if (c.waterlog) { if (!b || !b.getProperties || b.getProperties().waterlogged !== 'true') missing.push(c); continue; }
+        if (c.waterlog) { if (!b || !b.getProperties || String(b.getProperties().waterlogged) !== 'true') missing.push(c); continue; }
         if (b) { if (!C.stateMatches(b, c) || C.useMismatch(b, c)) missing.push(c); continue; }
         if (w.nameAt(c.x, c.y, c.z) !== c.block) missing.push(c);
     }

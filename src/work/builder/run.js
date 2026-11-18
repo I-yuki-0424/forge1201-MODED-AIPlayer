@@ -25,7 +25,7 @@ function presentAt(w, p) { const k = w.kindAt(p.x, p.y, p.z), n = nm(w, p.x, p.y
 /** Is the cell done: the block with the placement-decided properties (and nothing left to right-click), a source of the fluid, or the water in a waterlogged block? */
 function right(c, w) {
     const b = w.blockAt ? w.blockAt(c.x, c.y, c.z) : null;
-    if (c.waterlog) return !!b && !!b.getProperties && b.getProperties().waterlogged === 'true';
+    if (c.waterlog) return !!b && !!b.getProperties && String(b.getProperties().waterlogged) === 'true';
     if (C.kindOf(c) === 'fluid') return !!b && b.name === c.block && (!b.getProperties || (b.getProperties().level || '0') === '0');
     return b ? C.stateMatches(b, c) && !C.useMismatch(b, c) : nm(w, c.x, c.y, c.z) === c.block;
 }
@@ -109,6 +109,7 @@ async function runUnit0(plan, job, regionId, u, env) {
         if (!rs.ok) return { ok: false, reason: rs.reason, detail: { ...(rs.detail || {}), cell: ready[0], stage: 'stock', ...r } };
         const view = S.viewOf(env.w, plan.cellSet);
         const st = S.chooseStation(view, todo, { from: env.here(), avoid: env.others ? env.others() : [], skip: tried, ok: (c, local) => readyLocal(plan, c, env.w, local) });
+        if (!st && env.others && env.others().length && S.chooseStation(view, todo, { from: env.here(), avoid: [], skip: tried, ok: (c, local) => readyLocal(plan, c, env.w, local) })) return { ok: true, partial: true, holdMs: 4000, detail: { ...r, waiting: todo.length, why: 'the only standing places are taken by other bots' } };
         if (!st) return { ok: false, reason: 'unreachable', detail: { why: 'no standing place within reach of the next cells', cell: ready[0], stage: 'station', tried: tried.size, ...r } };
         const sk = `${st.S.x},${st.S.y},${st.S.z}`;
         r.stations++;

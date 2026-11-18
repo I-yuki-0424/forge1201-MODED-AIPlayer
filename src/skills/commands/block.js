@@ -277,7 +277,7 @@ async function pour(ctx, { x, y, z, item, waterlog = false }) {
     if (!cur) throw new SkillError('unreachable', { why: 'target chunk not loaded' });
     if (count(bot, item) < 1) throw new SkillError('missing_item', { item });
     const fluid = item.startsWith('lava') ? 'lava' : 'water';
-    const done = () => { const b = w.blockAt(x, y, z); return !!b && (waterlog ? !!b.getProperties && b.getProperties().waterlogged === 'true' : b.name === fluid); };
+    const done = () => { const b = w.blockAt(x, y, z); return !!b && (waterlog ? !!b.getProperties && String(b.getProperties().waterlogged) === 'true' : b.name === fluid); };
     if (done()) return { already: true };
     if (waterlog) {
         if (!cur.getProperties || !('waterlogged' in cur.getProperties())) throw new SkillError('invalid_target', { why: `${cur.name} cannot be waterlogged`, target: cell });
