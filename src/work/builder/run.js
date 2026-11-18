@@ -112,7 +112,7 @@ async function unstrand(job, me, env) {
     if (TRACE && s.n === 2 && env.w) { const g = (dy) => [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => `${env.w.nameAt(f.x + dx, f.y + dy, f.z + dz) || '?'}/${env.w.kindAt(f.x + dx, f.y + dy, f.z + dz)}`).join(' '); console.log(`[build] ${me} strand view at ${f.x},${f.y},${f.z}: y+1 ${g(1)} | y ${g(0)} | y-1 ${g(-1)} | y-2 ${g(-2)}`); }
     if (TRACE) console.log(`[build] ${Math.round((Date.now() - T0) / 1000)}s ${me} stranded at ${f.x},${f.y},${f.z} (${s.n}): escape`);
     try {
-        if (env.stepOff && s.n % 2 === 0) { const o = await env.stepOff({ maxDrop: s.n >= 6 ? 8 : 3 }); if (TRACE) console.log(`[build] ${me} step off: ${o.ok ? 'to ' + JSON.stringify(o.to) : 'no edge'}`); if (o.ok) return; }          // every other time: over the edge of what it stands on
+        if (env.stepOff && s.n % 2 === 0) { const o = await env.stepOff({ maxDrop: s.n >= 4 ? 8 : 3 }); if (TRACE) console.log(`[build] ${me} step off: ${o.ok ? 'to ' + JSON.stringify(o.to) : 'no edge'}`); if (o.ok) return; }          // every other time: over the edge of what it stands on
         await env.recover(Math.min(6, s.n + 1), { reason: 'unreachable', detail: { why: 'stranded' } });
     } catch (_) { /* a failed fix is tried again with the next */ }
 }
