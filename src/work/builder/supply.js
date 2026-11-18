@@ -22,7 +22,7 @@ function remaining(plan, w) {
  * What to take. `need`: what the next cells need. First every shortage is made good; then the free slots (less a few for pickups) are filled with the items the plan still needs most,
  * up to `maxStacks` stacks each: the bot comes back as rarely as the pack allows. Returns [{ item, count }].
  */
-function wishes(bot, need, left, { reserve = 10, maxStacks = 2 } = {}) {
+function wishes(bot, need, left, { reserve = 10, maxStacks = 2, share = 3 } = {}) {
     const have = (it) => bot.inventory.items().reduce((n, i) => n + (i.name === it ? i.count : 0), 0);
     const out = new Map(); let slots = Math.max(0, emptySlots(bot) - reserve);
     const slotsFor = (it, n) => Math.ceil(n / stackOf(bot, it));
@@ -34,7 +34,9 @@ function wishes(bot, need, left, { reserve = 10, maxStacks = 2 } = {}) {
     const more = Object.entries(left).filter(([it]) => stackOf(bot, it) > 1).sort((a, b) => b[1] - a[1]);
     for (const [it, n] of more) {
         if (slots <= 0) break;
-        const want = Math.min(n, maxStacks * stackOf(bot, it)) - have(it) - (out.get(it) || 0); if (want <= 0) continue;
+        // a share of what is left (the other builders need some too: three bots each took all 24 stairs and the others starved), and only for items in bulk
+        if (n < 48) continue;
+        const want = Math.min(Math.ceil(n / share), maxStacks * stackOf(bot, it)) - have(it) - (out.get(it) || 0); if (want <= 0) continue;
         const ss = Math.min(slots, slotsFor(it, want)), add = Math.min(want, ss * stackOf(bot, it));
         out.set(it, (out.get(it) || 0) + add); slots -= slotsFor(it, add);
     }

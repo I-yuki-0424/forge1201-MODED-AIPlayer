@@ -14,7 +14,7 @@ const AUDIT_ROUNDS = 3;
 
 function createBuildJob(cells, origin, ledgerOpts = {}, planOpts = {}) {
     const plan = P.planBuild(cells, origin, planOpts), ledger = new Ledger({ holdMs: 2000, ...ledgerOpts });
-    const job = { kind: 'build', ledger, plan, world: null, auditRound: 0, auditAt: 0 };
+    const job = { kind: 'build', ledger, plan, world: null, auditRound: 0, auditAt: 0, waits: {} };
     for (const r of plan.regions) ledger.addRegion({ ...r, gate: (u) => R.gateOf(plan, job, u), pick: (cands, o) => R.pickNear(plan, cands, o) });
     job.runUnit = (regionId, unit, env) => R.runUnit(plan, job, regionId, unit, env);
     job.cleanup = async (env) => { if (env && env.bot) { env.bot.__reserve = null; } };
