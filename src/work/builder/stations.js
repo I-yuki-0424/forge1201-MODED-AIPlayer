@@ -8,7 +8,7 @@
 // nothing more is in reach. Pure: the world comes in as a `view`, which the planner's simulation and the live world both provide.
 const O = require('../jobs/orient');
 const D = O.DIR, DIRS = ['down', 'north', 'south', 'east', 'west', 'up'];
-const EYE = 1.62, REACH = 4.2;                      // eye height; the reach to the nearest point of the support block (motion.js AIM_REACH)
+const EYE = 1.62, REACH = 4.2, REACH_FLUID = 3.4;                      // eye height; the reach to the nearest point of the support block (motion.js AIM_REACH)
 const at = (c, d) => ({ x: c.x + D[d][0], y: c.y + D[d][1], z: c.z + D[d][2] });
 const key = (x, y, z) => `${x},${y},${z}`;
 const REPLACEABLE = /^(air|cave_air|void_air|grass|tall_grass|short_grass|fern|large_fern|snow|dead_bush|seagrass|tall_seagrass|vine|glow_lichen)$/;
@@ -55,6 +55,16 @@ function bodyFits(view, S, avoid) {
     return true;
 }
 
+/** A native station is worth walking to only when it connects to something: a neighbour a body can stand in at its level, one step up or one step down (a spot walled in by the structure is not reachable on foot). */
+function hasExit(view, S) {
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const x = S.x + dx, z = S.z + dz;
+        if (view.free(x, S.y, z) && view.free(x, S.y + 1, z) && (view.solid(x, S.y - 1, z) || (view.free(x, S.y - 1, z) && view.solid(x, S.y - 2, z)))) return true;      // level, or one down
+        if (view.solid(x, S.y, z) && view.free(x, S.y + 1, z) && view.free(x, S.y + 2, z) && view.free(S.x, S.y + 2, S.z)) return true;                                     // one up
+    }
+    return false;
+}
+
 /**
  * The cells of `cells` (in order) that a bot at S can place, given the supports that exist (`view.present`, the floor block T of a pillar station, and the cells placed on the way).
  * `cells`: { x, y, z, sup?, fluid?, waterlog?, seed? }. Returns [{ cell, sup }] (sup = the support direction to click).
@@ -66,12 +76,12 @@ function serves(view, S, cells, T = null, ok = null) {
         if ((c.x === S.x && c.z === S.z && (c.y === S.y || c.y === S.y + 1))) continue;           // the cell the body stands in
         if (ok && !ok(c, done)) continue;                                                        // it waits for something (a fluid for what holds it) that is neither there nor placed from here
         let pick = null;
-        if (c.waterlog) { if (reachTo(S, c) <= REACH && view.present(c.x, c.y, c.z)) pick = 'self'; }
+        if (c.waterlog) { if (reachTo(S, c) <= REACH_FLUID && view.present(c.x, c.y, c.z)) pick = 'self'; }
         else {
             const dirs = c.dirs || DIRS, order = c.sup && dirs.includes(c.sup) ? [c.sup, ...dirs.filter((d) => d !== c.sup)] : dirs;
             for (const d of order) {
                 const p = at(c, d);
-                if (!present(p) || reachTo(S, p) > REACH) continue;
+                if (!present(p) || reachTo(S, p) > (c.fluid ? REACH_FLUID : REACH)) continue;                // a bucket takes its target from the real look ray: closer than a blind click
                 if (c.fluid && !lineClear(view, S, p, O.OPP[d])) continue;                        // a bucket needs a ray to the face it aims at
                 pick = d; break;
             }
@@ -117,7 +127,7 @@ function chooseStation(view, cells, o = {}) {
     for (let dx = -R; dx <= R; dx++) for (let dz = -R; dz <= R; dz++) for (let dy = -5; dy <= 4; dy++) {
         const S = { x: c0.x + dx, y: c0.y + dy, z: c0.z + dz };
         if (skip.has(key(S.x, S.y, S.z)) || !bodyFits(view, S, avoid)) continue;
-        if (view.solid(S.x, S.y - 1, S.z)) { consider(S, 'native', null, null); continue; }
+        if (view.solid(S.x, S.y - 1, S.z)) { if (hasExit(view, S)) consider(S, 'native', null, null); continue; }
         // a temporary block goes under the feet: the cell must be free, not a cell of the structure, and a column of free cells must lead down to something to climb from
         const T = { x: S.x, y: S.y - 1, z: S.z };
         if (!view.free(T.x, T.y, T.z) || view.cellSet.has(key(T.x, T.y, T.z))) continue;

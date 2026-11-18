@@ -111,4 +111,10 @@ test('descend (2026-11-18): from a bridge block high above the ground the way do
     assert.ok(!r4 || r4.partial || !r4.path.some((n) => n.place && n.place.y === 67), 'a cell of the structure is not used for a temporary block');
 });
 
+test('ground five to eight below the edge: not a drop, a bridge (and then a descent) is planned, not nothing', () => {
+    const w = world((x, y) => (y <= 63 ? 'solid' : x <= 0 && y === 69 ? 'solid' : 'air'));      // a platform at y 69 (feet 70), the ground 6 below its edge
+    const r = P.plan(w, { x: 0, y: 70, z: 0, ground: true }, P.cellGoal({ x: 4, y: 64, z: 0 }), { dig: () => null, radius: 30, maxNodes: 20000 });
+    assert.ok(r && !r.partial, 'there is a way down'); assert.ok(r.path.some((n) => n.move === 'bridge') && r.path.some((n) => n.move === 'descend'), r.path.map((n) => n.move).join(','));
+});
+
 console.log('nav plan tests passed');

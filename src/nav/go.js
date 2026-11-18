@@ -114,7 +114,8 @@ async function tidy(env, { reach = 4.2 } = {}) {
         if (under) { out.left.push(r); continue; }           // standing on it, the feet cell or the edge of the body (a bot on a wall's edge fell when its pillar block went: a loop of pillar, step, fall)
         const p = bot.entity.position, d = Math.hypot(r.x + 0.5 - p.x, r.y + 0.5 - (p.y + 1.62), r.z + 0.5 - p.z);
         if (d > reach + 0.6) { out.left.push(r); continue; }
-        let m = await env.exec('mine', { x: r.x, y: r.y, z: r.z, collect: true }, { raw: true, maxTicks: 200 });
+        // a builder (bot.__keepTemps off) has blocks to spare and does not walk after the drop of a temporary block (collect_drop was a tenth of its time)
+        let m = await env.exec('mine', { x: r.x, y: r.y, z: r.z, collect: !bot.__noCollect }, { raw: true, maxTicks: 200 });
         if (!m.ok && env.w.kindAt(r.x, r.y, r.z) === 'solid') m = await env.exec('mine', { x: r.x, y: r.y, z: r.z, collect: false, blind: true }, { raw: true, maxTicks: 200 });
         if (m.ok || env.w.kindAt(r.x, r.y, r.z) !== 'solid') { T.remove(dim, r); out.removed++; } else out.left.push(r);
     }
@@ -261,7 +262,7 @@ async function walk(W, env0, target, o) {
         }
         const own = ownTemp(env), underTemp = !!own(here.x, here.y - 1, here.z);
         const start = { ...here, ...(bot && bot.entity && bot.entity.onGround && !bot.entity.isInWater ? { ground: true } : {}), ...(underTemp ? { placed: true } : {}) };           // on a slab, a fence top, a bed: a start the grid would not call a node; on its own temporary block: a descent is possible
-        const plan = await P.planAsync(env.w, start, goal, { dig: digCostFor(bot), protectedCell: protectedFor(env), noPlace: !!o.noPlace, noDig: !!o.noDig, maxNodes: o.maxNodes || 14000, score, blocks: packBlocks(bot), keep: bot && bot.__keep ? bot.__keep : null, isTemp: own });
+        const plan = await P.planAsync(env.w, start, goal, { dig: digCostFor(bot), protectedCell: protectedFor(env), noPlace: !!o.noPlace, noDig: !!o.noDig, maxNodes: o.maxNodes || 14000, footNodes: o.footNodes, score, blocks: packBlocks(bot), keep: bot && bot.__keep ? bot.__keep : null, isTemp: own });
         info.segments++;
         if (!plan) {
             // not on a node (in a bush, half in a wall, mid-air): let the body settle, then the action layer's walk to the nearest cell

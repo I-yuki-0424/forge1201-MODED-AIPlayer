@@ -99,7 +99,7 @@ function moves(V0, n, o) {
                     const kk = V.kind(X, y - d, Z);
                     if (kk === 'water') { if (swimmable({ kindAt: V.kind }, X, y - d, Z)) { add({ x: X, y: y - d, z: Z, kind: 'swim', move: 'drop', cost: 1 + 0.2 * d, dig }); } landed = true; break; }
                     if (d <= V.maxDrop && solid(V, X, y - d - 1, Z) && passable(kk)) { add({ x: X, y: y - d, z: Z, kind: 'stand', move: 'drop', cost: 1 + 0.3 * d, dig }); landed = true; break; }
-                    if (!passable(kk)) { landed = true; break; }
+                    if (!passable(kk)) { landed = !(kk === 'solid' && d - 1 > V.maxDrop); break; }          // ground more than a drop below is no landing: a bridge (a builder on a tower top, ground 5 to 8 below, had no move at all)
                 }
                 if (!landed && k === 'air' && (here === 'stand' || here === 'bridge' || n.placed) && !o.noPlace) add({ x: X, y, z: Z, kind: 'stand', move: 'bridge', cost: BRIDGE, dig: [], place: { x: X, y: y - 1, z: Z }, placed: true });
             }
@@ -209,7 +209,7 @@ async function searchAsync(w, start, goal, o = {}) { const it = searchSteps(w, s
  * works; the full search with its inflated estimates would otherwise prefer a pillar in a cave that has a way out on foot.
  */
 async function planAsync(w, start, goal, o = {}) {
-    const foot = await searchAsync(w, start, goal, { ...o, noDig: true, noPlace: true, weight: 1, maxNodes: Math.min(o.maxNodes || 16000, 9000) });
+    const foot = await searchAsync(w, start, goal, { ...o, noDig: true, noPlace: true, weight: 1, maxNodes: Math.min(o.maxNodes || 16000, o.footNodes || 9000) });
     if (foot && !foot.partial) return { ...foot, foot: true };
     if (o.noDig && o.noPlace) return foot;
     const all = await searchAsync(w, start, goal, o);
