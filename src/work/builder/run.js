@@ -27,7 +27,7 @@ function right(c, w) {
     const b = w.blockAt ? w.blockAt(c.x, c.y, c.z) : null;
     if (c.waterlog) return !!b && !!b.getProperties && String(b.getProperties().waterlogged) === 'true';
     if (C.kindOf(c) === 'fluid') return !!b && b.name === c.block && (!b.getProperties || (b.getProperties().level || '0') === '0');
-    return b ? C.stateMatches(b, c) && !C.useMismatch(b, c) : nm(w, c.x, c.y, c.z) === c.block;
+    return b ? C.stateMatches(b, c) : nm(w, c.x, c.y, c.z) === c.block;                // placement-decided state only: open / delay are a polish pass (right-click) that may fail without holding anything up
 }
 /** Cheap form for the gate (a name, no block object): is something of the cell's block there? */
 const placedName = (c, w) => (c.waterlog ? false : nm(w, c.x, c.y, c.z) === c.block);
@@ -125,7 +125,13 @@ async function runUnit0(plan, job, regionId, u, env) {
     for (let round = 0; round < 18; round++) {
         if (env.cancelled && env.cancelled()) return { ok: false, reason: 'cancelled', detail: { ...r } };
         const todo = cells.filter((c) => !right(c, env.w));
-        if (!todo.length) { delete job.waits[u.unit]; return { ok: true, reason: null, detail: r }; }
+        if (!todo.length) {
+            delete job.waits[u.unit];
+            // polish: right-click what stands in the wrong open / delay state (a few tries per unit, never a failure)
+            let tries = 0;
+            for (const c of cells) { if (tries >= 4 || (env.cancelled && env.cancelled())) break; const b = env.w.blockAt ? env.w.blockAt(c.x, c.y, c.z) : null; if (b && !c.waterlog && C.stateMatches(b, c) && C.useMismatch(b, c)) { tries++; await fixUse(c, env, r); } }
+            return { ok: true, reason: null, detail: r };
+        }
         const ready = todo.filter((c) => cellReady(plan, c, env.w));
         if (!ready.length) return { ok: true, partial: true, holdMs: 6000, detail: { ...r, waiting: todo.length } };
         const rs = await supply.restock(env, plan, P.needsOf(todo, env.w));            // the whole unit's items at once: a trip for the cells that are ready now and another for the rest cost more than they save
@@ -254,9 +260,10 @@ async function fixUse(c, env, r) {
         const b = env.w.blockAt ? env.w.blockAt(c.x, c.y, c.z) : null, um = C.useMismatch(b, c);
         if (!um) { r.fixed++; return ok; }
         const a = await env.exec('activate', { x: c.x, y: c.y, z: c.z }, { raw: true, maxTicks: 160 });
-        if (!a.ok) return { ...a, stage: 'use' };
+        if (!a.ok) { r.useFailed = (r.useFailed || 0) + 1; return ok; }                          // the block stands; only its open / delay is wrong (not compared by the static verdict): the unit is not failed for it, and what hangs on it is not held up
     }
-    return bad('not_confirmed', { why: 'the block would not take the wanted state by right-clicking', block: c.block, props: c.props }, 'use');
+    r.useFailed = (r.useFailed || 0) + 1;
+    return ok;
 }
 
 /** A water or lava source (a bucket on the cell) or the water of a waterlogged block (a bucket on the block itself). */
