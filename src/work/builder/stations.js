@@ -32,6 +32,13 @@ function lineClear(view, S, p, face) {
     return true;
 }
 
+/** A clear line from the eye at S to the centre of the cell c (a bucket used on a block aims at the block itself): nothing but the cell is in the way. */
+function sees(view, S, c) {
+    const ex = S.x + 0.5, ey = S.y + EYE, ez = S.z + 0.5, tx = c.x + 0.5, ty = c.y + 0.5, tz = c.z + 0.5, n = Math.max(1, Math.ceil(Math.hypot(tx - ex, ty - ey, tz - ez) / 0.2));
+    for (let i = 1; i < n; i++) { const t = i / n, x = Math.floor(ex + (tx - ex) * t), y = Math.floor(ey + (ty - ey) * t), z = Math.floor(ez + (tz - ez) * t); if (x === c.x && y === c.y && z === c.z) continue; if (view.opaque(x, y, z)) return false; }
+    return true;
+}
+
 /**
  * The view of a world a station search needs. `w`: world.js's interface (kindAt, nameAt). `cellSet`: every cell the structure owns (a temporary block never goes there, a body is not
  * put in it). Returns { kind, present, opaque, free, floor }.
@@ -77,7 +84,7 @@ function serves(view, S, cells, T = null, ok = null) {
         if ((c.x === S.x && c.z === S.z && (c.y === S.y || c.y === S.y + 1))) continue;           // the cell the body stands in
         if (ok && !ok(c, done)) continue;                                                        // it waits for something (a fluid for what holds it) that is neither there nor placed from here
         let pick = null;
-        if (c.waterlog) { if (reachTo(S, c) <= REACH_FLUID && view.present(c.x, c.y, c.z)) pick = 'self'; }
+        if (c.waterlog) { if (reachTo(S, c) <= REACH_FLUID && view.present(c.x, c.y, c.z) && sees(view, S, c)) pick = 'self'; }
         else {
             const dirs = c.dirs || DIRS, order = c.sup && dirs.includes(c.sup) ? [c.sup, ...dirs.filter((d) => d !== c.sup)] : dirs;
             for (const d of order) {

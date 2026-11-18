@@ -134,7 +134,7 @@ async function runUnit0(plan, job, regionId, u, env) {
         const view = S.viewOf(env.w, plan.cellSet);
         const dg = {};
         let walk = null;
-        if (env.bot) { try { const rs = await require('../../skills/planner').reachableAsync(env.w, env.here(), { maxNodes: 9000, radius: 40 }); walk = (x, y, z) => rs.has(x, y, z); } catch (_) { walk = null; } }          // where the bot can walk from here (3000 cells): native stations outside it are not offered
+        if (env.bot && env.here().y > plan.origin.y + 1) { try { const rs = await require('../../skills/planner').reachableAsync(env.w, env.here(), { maxNodes: 9000, radius: 40 }); walk = (x, y, z) => rs.has(x, y, z); } catch (_) { walk = null; } }          // only from the structure: from the ground NAV can climb to any place          // where the bot can walk from here (3000 cells): native stations outside it are not offered
         const st = S.chooseStation(view, todo, { diag: dg, reach: walk, from: env.here(), avoid: env.others ? env.others() : [], skip: tried, ok: (c, local) => readyLocal(plan, c, env.w, local) });
         let stUse = st;
         if (!stUse && env.others && env.others().length) {
