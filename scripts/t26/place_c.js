@@ -124,6 +124,10 @@ async function trial(k, S, svc, seed, rep) {
                     try {
                         const bot = svc.bots.get(name).bot, miss = j.impl.diff(require('../../src/skills/world').fromBot(bot)), by = {};
                         for (const c of miss) by[c.waterlog ? 'waterlog' : c.block] = (by[c.waterlog ? 'waterlog' : c.block] || 0) + 1;
+                        // is the bots' view behind the server? (2026-11-18: builders kept failing `not_confirmed` on cells the server held)
+                        let stale = 0, probed = 0;
+                        for (const c of miss.filter((q) => !q.waterlog).slice(0, 10)) { probed++; if (/^Test passed/.test(strip(await S.cmd(`execute if block ${c.x} ${c.y} ${c.z} minecraft:${c.block}`)))) stale++; }
+                        console.log(`[stale view] ${stale} of ${probed} cells the bots call missing exist on the server`);
                         console.log(`[progress ${Math.round((Date.now() - t0) / 60000)} min] ${j.impl.plan.count - miss.length}/${j.impl.plan.count} cells right; missing by block: ${JSON.stringify(Object.entries(by).sort((a, b) => b[1] - a[1]).slice(0, 8))}`);
                         const all = j.impl.ledger.stuck || [], cnt = {};
                         for (const x of all) { const k = `${x.reason}/${(x.detail && x.detail.stage) || ''}`; cnt[k] = (cnt[k] || 0) + 1; }

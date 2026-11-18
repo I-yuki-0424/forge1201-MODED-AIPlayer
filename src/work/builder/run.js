@@ -197,6 +197,11 @@ async function placeOriented(c, item, sup, env, r) {
         let p = await env.exec('place', args, { raw: true, maxTicks: 220 });
         // a precondition the station did not foresee (the body in the cell, an entity in the way, a support out of reach): the router's remedy, once (it moves the bot, then places)
         if (!p.ok && ['unreachable', 'not_visible', 'stuck', 'precondition_failed'].includes(p.reason) && env.command) p = await env.command('place', args);
+        if (!p.ok && p.reason === 'not_confirmed') {
+            // the block may have gone in and the confirmation be late (the update packet): look again for up to 2 s before trying another recipe
+            for (let k = 0; k < 8 && !(w.blockAt && C.stateMatches(w.blockAt(c.x, c.y, c.z), c)); k++) await new Promise((res) => setTimeout(res, 250));
+            if (w.blockAt && C.stateMatches(w.blockAt(c.x, c.y, c.z), c)) { r.late = (r.late || 0) + 1; p = { ok: true }; }
+        }
         if (!p.ok) { if (p.reason === 'not_confirmed') { if (botIn(env, c)) return bad('blocked', { why: 'another bot stands in the cell', block: c.block }, 'entity'); tried.add(q); lastNc = p.detail; continue; } return { ...p, stage: 'place' }; }
         const now = w.blockAt ? w.blockAt(c.x, c.y, c.z) : null;
         if (now && !C.stateMatches(now, c)) {
