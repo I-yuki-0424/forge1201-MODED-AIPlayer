@@ -176,3 +176,14 @@ and when the bot breaks the stone the sign pops (air). No ordinary placement ord
 **Resolved 2026-11-18 (owner): a plain right-click on a sign opens its text editor; Shift-click places the sign on it. The probe clicked without sneaking, so the server never saw a placement. `isInteractive` has signs, the plan builds all nine. Lesson: before calling a blueprint impossible, check that the probe does what a player does (sneak included) and ask.**
 - Also measured: a click on the TOP of a block gives the standing sign or torch whatever the look; a side face gives the wall variant (orient.js had the older "nearest looking direction" rule: wrong).
 - A rule that matches a name suffix (`door$` for "needs a support") must not match another block (`trapdoor`): the simulated-server test caught it.
+
+## L21 — the build was not on the layers of the pit (owner 2026-11-18) and what the live runs of the rewrite found
+
+The first build had its own scaffolds, its own temporary chains, and no way down: it was a parallel system to NAV / pit, and it teleported when it failed. The rewrite uses NAV, `place`, `mine`, `pour`, `take_many`; the findings, each from a live run (docs/implemented/SYNCMATICA-v1.md, table of runs):
+- A planner that cannot go DOWN is not a planner for a builder: NAV needed `descend`, a bridge for ground 4-8 below an edge, and a bridge needs a solid block to place against.
+- Mineflayer gives boolean block properties (`waterlogged`: `true`), not strings: `=== 'true'` was false for ever; compare `String(x) === 'true'`.
+- Water sources of any kind (waterlogged stairs included) flow into the air beside them: they wait for every solid cell around the body; lava in a tower is poured BEFORE the walls above it close (everything above a small body waits for its source).
+- Bots are obstacles: a bot in a cell of the plan blocks the placement there (`not_confirmed`), a bot on another's temporary block cannot pillar, a stopped bot holds a standing place. Rules: step out of unplaced cells of the plan, wait twice for a taken place then use it, never pillar from a foreign block.
+- Walls (1.5 high) cut a platform into compartments: a "native" standing place is offered only when the bot can walk to it (flood from its feet), a climb or bridge base only when walkable.
+- Supply: a share, not the whole remaining stock (three bots each took all 24 stairs); one `take_many` per chest.
+- Look at the server, not the bot: RCON `data get entity`, `execute if block` found the idle bot in the cell and the waterlogged stairs the bot did not see.

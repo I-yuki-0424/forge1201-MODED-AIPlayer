@@ -52,7 +52,39 @@ A block's state after placement is a function of the clicked face, the height of
 
 `scripts/t26/place_c.js` (`scripts/t26/run.sh N place_c.js [LIMIT_MIN=90] [TRIALS=5]`): the owner's iron golem trap (`tests/fixtures/easy-ironfarm-fixd.litematic`, the owner's `E:\Minecraft JAVA\instances\fabric 26.3\instance\schematics\iron-farm\easy-ironfarm-fixd.litematic`) is shared through Syncmatica by one bot, the builder bot receives it from the server, builds it in the sky (box minimum at y 200 on a stone deck), from chests that hold every item of the plan's material list; survival, keep inventory, peaceful. The server compares the box with a reference copy that the harness makes by commands (`execute if blocks ... all`, air included); the empty site must not match. The report gives the strict verdict and a "static" one (same blocks and placement-decided properties; power, `lit` and similar may differ).
 
-## Results (2026-11-17, T26 world 7, Fabric 26.1.2 with Syncmatica 0.3.20)
+## The rewrite of 2026-11-18 (owner: "None of the know-how of my other mechanisms was reused": the build is a user of the same layers as the pit)
+
+The first build (`build.js` with scaffolds, temporary chains, ledger layers, `place` walking by itself, supply by recovery script, server moves for supply trips) reached 445 of 1288 cells in 58 minutes. It is replaced by `src/work/builder/` (the old module `jobs/build.js` is a thin facade with the old API):
+
+| file | job |
+| :-- | :-- |
+| `cells.js` | item, kind (block / attached / fluid / flow / derived), support, material list, state match (moved from the old file) |
+| `order.js` | the order of placement: lowest first, nearest next; a cell goes when one of its recipe supports stands; a floating piece (seed) starts with a plain block of its own piece; fluids wait for what holds their body (waterlogged blocks are sources too), and everything above a small body (the lava pit) waits for the source; then chunks of at most 24 nearby cells = units, and the units each waits for |
+| `stations.js` | where a bot stands: `chooseStation` scores every feet cell within 5 of the next cell by the cells it serves (support face within 4.2 of the eye, a bucket within 3.4 with a clear ray to a solid face, from above) minus the cost of getting there (native: a walkable block under the feet; pillar / bridge: NAV leaves exactly one temporary block under the feet, which is also the support of a floating piece) |
+| `run.js` | one unit: supply -> station -> `env.travel` (NAV) -> blind `place` with the recipe (the router once on a positional failure) -> state read back; `gateOf` (a unit is claimable when the cells it hangs on stand in the world, inside a start window of 14 units), `pickNear` (bottom-up window, then nearest) |
+| `supply.js` | one `take_many` visit per chest: what the unit needs and a share of what the plan still needs, all chests tried |
+
+NAV got what it lacked: `descend` (place one under the temporary block, break the one under the feet: the reverse of a pillar; also from a bridge block placed at an edge, so a builder can always come down), a bridge when the ground is 4 to 8 below an edge (it was neither a drop nor a bridge: no move at all), never a temporary block into a cell of the structure (`keep`), never landing on a floor the action layer refuses (another bot's block), no pillar from another bot's block, a cheaper search (upward heuristic, foot-only pass of 3000 nodes) and `stuckAfter`. `moves.js` has `take_many`. The ledger has `gate`, `pick` and `release` (a unit that placed what it could is handed back, not failed). **No teleport**: `place_c` runs `TELEPORT=off` and fails a trial with any server move.
+
+## The test `place_c` (rewritten)
+
+`scripts/t26/run.sh N place_c.js [BOTS=3] [LIMIT_MIN=20 = 60 / BOTS] [TRIALS=1]` (`BUILD_TRACE=1 NAV_TRACE=1` for the per-unit and per-walk trace). The owner's bar: 80 % of the trials match AND the build takes at most one hour / bots. Offline: `tests/test_build_plan_pure.js` walks the plan with a simulated builder (1288 cells, about 170 stations); `scripts/t26/view_probe*.js` compare a bot's view with the server.
+
+## Results of the rewrite (2026-11-18, T26 world 7, three bots, no teleport; run = 20 minutes)
+
+| run | cells right at the end | what stopped it |
+| :-- | --: | :-- |
+| nb3 | 116 (4 min) | tower top: no move at all (ground 4-8 below the edge) |
+| nb7 | 225 | waterlog pours "not confirmed": the bot compared a boolean property to the string `'true'` (the stairs were waterlogged on the server) |
+| nb10-nb11 | 91-115 | an idle bot stood inside a cell of the ring: three others failed there; units that failed held the start window |
+| nb12-nb13 | 268 / 236 | waterlogged stairs flooded the cells of walls built later (no containment); native stations in another compartment of the platform |
+| nb15 | 589 (14 min) | bridges planned from a stair, a bot stood on another bot's leftover block |
+| nb16 | 395 | livelock: 600 zero-second "wait" cycles for a place held by a stopped bot; three bots each took all 24 stairs |
+| nb17 | 619 (12 min, 50 cells a minute at the best) | bots standing on each other's leftover temporary blocks; stations walled off |
+
+(The old best: 445 cells in 58 minutes.)
+
+## Results of the first build (2026-11-17, superseded by the rewrite above)
 
 **The acceptance (five builds of the iron golem trap, 50 % must match) is NOT met: no build was finished. Best state: 62 of 1282 cells right after 4 minutes with two builders, then a stall (below).** What was verified and what was not:
 
