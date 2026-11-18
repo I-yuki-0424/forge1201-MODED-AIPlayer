@@ -115,7 +115,7 @@ async function runUnit0(plan, job, regionId, u, env) {
         if (TRACE) console.log(`[build] ${bot ? bot.username : '?'} u${u.unit} round ${round}: station ${st.kind} ${sk} serves ${st.serves.length}/${todo.length}${st.bridge ? ' (bridge ' + st.bridge.g + ')' : ''} from ${JSON.stringify(env.here())}`);
         const f = env.here(), real = !!env.bot;                                          // (a test environment without a bot has no position to check)
         if (real && (f.x !== st.S.x || f.y !== st.S.y || f.z !== st.S.z)) {
-            const t = await env.travel({ x: st.S.x, y: st.S.y, z: st.S.z }, { near: 0, nearY: 0, maxSegments: 16, footNodes: 3000, why: `build station (${st.kind})` });
+            const t = await env.travel({ x: st.S.x, y: st.S.y, z: st.S.z }, { near: 0, nearY: 0, maxSegments: 16, stuckAfter: 3, footNodes: 3000, why: `build station (${st.kind})` });
             const g = env.here();
             if (!t.ok || g.x !== st.S.x || g.y !== st.S.y || g.z !== st.S.z) {
                 if (t.reason && FATAL.has(t.reason)) return { ok: false, reason: t.reason, detail: { ...r } };

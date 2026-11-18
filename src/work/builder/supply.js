@@ -58,7 +58,7 @@ async function restock(env, plan, need, opt = {}) {
         const c = chests[0]; tried.add(`${c.x},${c.y},${c.z}`);
         if (env.cancelled && env.cancelled()) return { ok: false, reason: 'cancelled' };
         const items = wishes(env.bot, need, remaining(plan, env.w), opt);
-        const t = await env.travel({ x: c.x, y: c.y, z: c.z }, { near: 2, nearY: 2, maxSegments: 16, footNodes: 3000, why: 'supply' });
+        const t = await env.travel({ x: c.x, y: c.y, z: c.z }, { near: 2, nearY: 2, maxSegments: 16, stuckAfter: 3, footNodes: 3000, why: 'supply' });
         if (!t.ok) { log.lastTravel = { reason: t.reason, why: t.detail && (t.detail.why || t.detail.nav) }; if (['cancelled', 'died', 'disconnected'].includes(t.reason)) return t; continue; }
         const r = await env.run('take_many', { items, x: c.x, y: c.y, z: c.z });
         log.trips++;

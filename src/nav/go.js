@@ -260,7 +260,11 @@ async function walk(W, env0, target, o) {
             bot.setControlState('jump', false);
             if (P.nodeKindOf(P.view(env.w), env.here().x, env.here().y, env.here().z, false)) continue;
         }
-        const own = ownTemp(env), underTemp = !!own(here.x, here.y - 1, here.z);
+        // the block under the bot's feet counts as a temporary block of its own when anybody's registered block is there (the action layer refuses to start a walk from another bot's block, and a bot
+        // that stood on one for good was stuck 'eight segments' in the builds: it breaks it and comes down)
+        const own0 = ownTemp(env), T0 = bot && bot.__temps, dim0 = fixtures.dimOf(bot);
+        const foreign = !!(T0 && T0.get(dim0, { x: here.x, y: here.y - 1, z: here.z }));
+        const own = (x, y, z) => own0(x, y, z) || (foreign && x === here.x && y === here.y - 1 && z === here.z), underTemp = !!own(here.x, here.y - 1, here.z);
         const start = { ...here, ...(bot && bot.entity && bot.entity.onGround && !bot.entity.isInWater ? { ground: true } : {}), ...(underTemp ? { placed: true } : {}) };           // on a slab, a fence top, a bed: a start the grid would not call a node; on its own temporary block: a descent is possible
         const plan = await P.planAsync(env.w, start, goal, { dig: digCostFor(bot), protectedCell: protectedFor(env), noPlace: !!o.noPlace, noDig: !!o.noDig, maxNodes: o.maxNodes || 14000, footNodes: o.footNodes, score, blocks: packBlocks(bot), keep: bot && bot.__keep ? bot.__keep : null, isTemp: own });
         info.segments++;
@@ -295,7 +299,7 @@ async function walk(W, env0, target, o) {
             await sleep(Math.min(4000, 250 * 2 ** Math.min(4, failsHere)));
         }
         const now = env.here(), d = surface ? 0 : hd(now, t);
-        if (!surface && !(failed && failed.reason === 'interrupted')) { if (d < bestD - 2) { bestD = d; still = 0; } else if (++still >= 8) return done({ ok: false, reason: 'stuck', detail: { why: `eight segments without getting closer (${Math.round(d)} blocks left)`, failed } }); }
+        if (!surface && !(failed && failed.reason === 'interrupted')) { if (d < bestD - 2) { bestD = d; still = 0; } else if (++still >= (o.stuckAfter || 8)) return done({ ok: false, reason: 'stuck', detail: { why: `${o.stuckAfter || 8} segments without getting closer (${Math.round(d)} blocks left)`, failed } }); }
     }
     return done({ ok: false, reason: 'timeout', detail: { why: `more than ${maxSeg} segments` } });
 }

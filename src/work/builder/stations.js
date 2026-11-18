@@ -22,6 +22,7 @@ function reachTo(S, p) {
 /** A line from the eye at S to the centre of the face of block `p` toward `S` is clear of blocks (a bucket takes its target from the real look ray). Samples every 0.2. */
 function lineClear(view, S, p, face) {
     const ex = S.x + 0.5, ey = S.y + EYE, ez = S.z + 0.5, v = D[face], tx = p.x + 0.5 + v[0] * 0.5, ty = p.y + 0.5 + v[1] * 0.5, tz = p.z + 0.5 + v[2] * 0.5;
+    if ((ex - tx) * v[0] + (ey - ty) * v[1] + (ez - tz) * v[2] <= 0.05) return false;           // the eye is behind the face (the ray would run through the block itself)
     const len = Math.hypot(tx - ex, ty - ey, tz - ez), n = Math.max(1, Math.ceil(len / 0.2));
     for (let i = 1; i < n; i++) {
         const t = i / n, x = Math.floor(ex + (tx - ex) * t), y = Math.floor(ey + (ty - ey) * t), z = Math.floor(ez + (tz - ez) * t);
