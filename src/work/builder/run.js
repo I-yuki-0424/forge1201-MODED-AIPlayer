@@ -130,7 +130,9 @@ async function runUnit0(plan, job, regionId, u, env) {
         if (!rs.ok) return { ok: false, reason: rs.reason, detail: { ...(rs.detail || {}), cell: ready[0], stage: 'stock', ...r } };
         const view = S.viewOf(env.w, plan.cellSet);
         const dg = {};
-        const st = S.chooseStation(view, todo, { diag: dg, from: env.here(), avoid: env.others ? env.others() : [], skip: tried, ok: (c, local) => readyLocal(plan, c, env.w, local) });
+        let walk = null;
+        if (env.bot) { try { const rs = await require('../../skills/planner').reachableAsync(env.w, env.here(), { maxNodes: 9000, radius: 40 }); walk = (x, y, z) => rs.has(x, y, z); } catch (_) { walk = null; } }          // where the bot can walk from here (3000 cells): native stations outside it are not offered
+        const st = S.chooseStation(view, todo, { diag: dg, reach: walk, from: env.here(), avoid: env.others ? env.others() : [], skip: tried, ok: (c, local) => readyLocal(plan, c, env.w, local) });
         if (!st && env.others && env.others().length && S.chooseStation(view, todo, { from: env.here(), avoid: [], skip: tried, ok: (c, local) => readyLocal(plan, c, env.w, local) })) return { ok: true, partial: true, holdMs: 4000, detail: { ...r, waiting: todo.length, why: 'the only standing places are taken by other bots' } };
         if (!st) return { ok: false, reason: 'unreachable', detail: { why: 'no standing place within reach of the next cells', diag: dg, c0: { x: todo[0].x, y: todo[0].y, z: todo[0].z, block: todo[0].block }, from: env.here(), cell: ready[0], stage: 'station', tried: tried.size, ...r } };
         const sk = `${st.S.x},${st.S.y},${st.S.z}`;

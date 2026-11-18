@@ -134,7 +134,11 @@ function chooseStation(view, cells, o = {}) {
         if (dg) dg.tested = (dg.tested || 0) + 1;
         if (skip.has(key(S.x, S.y, S.z))) { if (dg) dg.skipped = (dg.skipped || 0) + 1; continue; }
         if (!bodyFits(view, S, avoid)) { if (dg) dg.body = (dg.body || 0) + 1; continue; }
-        if (view.solid(S.x, S.y - 1, S.z)) { if (hasExit(view, S)) consider(S, 'native', null, null); else if (dg) dg.noExit = (dg.noExit || 0) + 1; continue; }
+        if (view.solid(S.x, S.y - 1, S.z)) {
+            if (!hasExit(view, S)) { if (dg) dg.noExit = (dg.noExit || 0) + 1; continue; }
+            if (o.reach && !(S.x === from.x && S.y === from.y && S.z === from.z) && !o.reach(S.x, S.y, S.z)) { if (dg) dg.noWalk = (dg.noWalk || 0) + 1; continue; }          // a spot the bot cannot walk to from where it stands (walled off by what is built)
+            consider(S, 'native', null, null); continue;
+        }
         // a temporary block goes under the feet: the cell must be free, not a cell of the structure, and a column of free cells must lead down to something to climb from
         const T = { x: S.x, y: S.y - 1, z: S.z };
         if (!view.free(T.x, T.y, T.z) || view.cellSet.has(key(T.x, T.y, T.z))) continue;
