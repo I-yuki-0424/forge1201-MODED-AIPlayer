@@ -166,7 +166,7 @@ async function runUnit0(plan, job, regionId, u, env) {
         }
         const before = r.placed + r.skipped + r.fixed + r.poured;
         for (const sv of stUse.serves) {
-            const res = await buildCell(plan, sv.cell, sv.sup, env, r);
+            const res = sv.temp ? await buildWithTemp(plan, sv, env, r) : await buildCell(plan, sv.cell, sv.sup, env, r);
             if (res.ok) continue;
             if (FATAL.has(res.reason)) return { ok: false, reason: res.reason, detail: { ...(res.detail || {}), ...r } };
             last = { reason: res.reason, ...(res.detail || {}), stage: res.stage, cell: sv.cell, station: sk };
@@ -178,6 +178,19 @@ async function runUnit0(plan, job, regionId, u, env) {
         if (r.placed + r.skipped + r.fixed + r.poured === before) { if (++idle >= 4) return { ok: false, reason: (last && last.reason) || 'stuck', detail: { ...(last || {}), why: (last && last.why) || 'no progress at the station', stage: (last && last.stage) || 'place', ...r } }; } else idle = 0;
     }
     return { ok: false, reason: 'timeout', detail: { why: 'more than 18 rounds in one unit', ...(last || {}), ...r } };
+}
+
+/** A cell whose support is a temporary block placed beside it first (taken away afterwards): the block, the cell, then the block is mined again (blind, not collected). */
+async function buildWithTemp(plan, sv, env, r) {
+    const w = env.w, T = sv.temp, c = sv.cell;
+    const item = env.tempItem ? env.tempItem(1) : null;
+    if (!item) return bad('missing_item', { item: 'cobblestone', why: 'no block for a temporary support' }, 'support');
+    let p = await env.exec('place', { x: T.x, y: T.y, z: T.z, item, temp: 'scaffold' }, { raw: true, maxTicks: 220 });
+    if (!p.ok && env.command && ['unreachable', 'not_visible', 'stuck', 'precondition_failed'].includes(p.reason)) p = await env.command('place', { x: T.x, y: T.y, z: T.z, item, temp: 'scaffold' });
+    if (!p.ok) return { ...p, stage: 'support' };
+    const res = await buildCell(plan, c, sv.sup, env, r);
+    if (w.kindAt(T.x, T.y, T.z) === 'solid' && nm(w, T.x, T.y, T.z) === C.bare(item)) await env.exec('mine', { x: T.x, y: T.y, z: T.z, collect: false, blind: true }, { raw: true, maxTicks: 200 });
+    return res;
 }
 
 /** One cell: skip it when it is right, dig out what is wrong, place it with the recipe that gives its state, read the state back, right-click what needs it. */

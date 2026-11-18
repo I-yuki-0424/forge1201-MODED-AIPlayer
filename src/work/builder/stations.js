@@ -96,7 +96,17 @@ function serves(view, S, cells, T = null, ok = null) {
                 pick = d; break;
             }
         }
-        if (pick) { out.push({ cell: c, sup: pick }); done.add(c.k || key(c.x, c.y, c.z)); if (!c.waterlog) local.add(key(c.x, c.y, c.z)); }
+        let tmp = null;
+        // no support stands next to the cell: a temporary block is put there first, against something that does stand (a floating piece, an arm tip), the cell is placed against it, and it is taken away again
+        if (!pick && !c.fluid && !c.waterlog && !(c.dirs || DIRS).some((d) => present(at(c, d)))) {          // only a cell with no support anywhere next to it (not one whose support is out of reach: another station)
+            for (const d of (c.dirs || DIRS)) {
+                const T = at(c, d);
+                if (!view.free(T.x, T.y, T.z) || view.cellSet.has(key(T.x, T.y, T.z)) || (T.x === S.x && T.z === S.z && (T.y === S.y || T.y === S.y + 1)) || reachTo(S, T) > REACH) continue;
+                const U = DIRS.map((e) => at(T, e)).find((q) => !(q.x === c.x && q.y === c.y && q.z === c.z) && present(q) && reachTo(S, q) <= REACH);
+                if (U) { pick = d; tmp = { x: T.x, y: T.y, z: T.z }; break; }
+            }
+        }
+        if (pick) { out.push({ cell: c, sup: pick, ...(tmp ? { temp: tmp } : {}) }); done.add(c.k || key(c.x, c.y, c.z)); if (!c.waterlog) local.add(key(c.x, c.y, c.z)); }
     }
     return out;
 }
