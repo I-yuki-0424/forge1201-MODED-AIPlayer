@@ -22,7 +22,7 @@ function remaining(plan, w) {
  * What to take. `need`: what the next cells need. First every shortage is made good; then the free slots (less a few for pickups) are filled with the items the plan still needs most,
  * up to `maxStacks` stacks each: the bot comes back as rarely as the pack allows. Returns [{ item, count }].
  */
-function wishes(bot, need, left, { reserve = 10, maxStacks = 2, share = 3 } = {}) {
+function wishes(bot, need, left, { reserve = 10, maxStacks = 2, share = 3, topup = true } = {}) {
     const have = (it) => bot.inventory.items().reduce((n, i) => n + (i.name === it ? i.count : 0), 0);
     const out = new Map(); let slots = Math.max(0, emptySlots(bot) - reserve);
     const slotsFor = (it, n) => Math.ceil(n / stackOf(bot, it));
@@ -31,7 +31,7 @@ function wishes(bot, need, left, { reserve = 10, maxStacks = 2, share = 3 } = {}
         out.set(it, lack); slots -= slotsFor(it, lack);
     }
     // top up with what the plan still needs, the biggest demand first, stackable items only (a bucket or a bed takes a slot each)
-    const more = Object.entries(left).filter(([it]) => stackOf(bot, it) > 1).sort((a, b) => b[1] - a[1]);
+    const more = topup ? Object.entries(left).filter(([it]) => stackOf(bot, it) > 1).sort((a, b) => b[1] - a[1]) : [];
     for (const [it, n] of more) {
         if (slots <= 0) break;
         // a share of what is left (the other builders need some too: three bots each took all 24 stairs and the others starved), and only for items in bulk
@@ -43,12 +43,37 @@ function wishes(bot, need, left, { reserve = 10, maxStacks = 2, share = 3 } = {}
     return [...out].map(([item, count]) => ({ item, count: Math.min(2304, Math.max(1, count)) }));
 }
 
+/** Slots the items take (a stack each, a bucket or a bed one slot per piece). */
+const slotsOf = (bot, need) => Object.entries(need).reduce((n, [it, c]) => n + Math.ceil(c / stackOf(bot, it)), 0);
+
+/**
+ * What a bot takes along for its WHOLE RUN of work (owner 2026-11-18: build one small component, fetch materials, build the next: 5 s of placing, 30 s of walking): the items of unit `u` and of the
+ * units that follow it in the same area, as many as fit in the pack (whole units, in order), counting the cells that do not hold their block yet. `unitNeed`: what `u` needs (always included, even
+ * when it alone is more than the pack holds). Without a bot (a test environment) it is `unitNeed`.
+ */
+function batch(bot, plan, u, w, unitNeed) {
+    if (!bot || !bot.inventory) return unitNeed;
+    const P = require('./plan'), z = plan.zones.ofUnit[u], [a, b] = plan.zones.units[z], mats = plan.materials || {};
+    let others = 0, total = 0;
+    for (let s = bot.inventory.inventoryStart; s < bot.inventory.inventoryEnd; s++) { total++; const it = bot.inventory.slots[s]; if (it && !(it.name in mats)) others++; }
+    const cap = Math.max(1, total - others - 3), need = { ...unitNeed };
+    for (let i = a; i < b; i++) {
+        if (i === u) continue;
+        const add = P.needsOf(plan.units[i], w), next = { ...need };
+        for (const [it, n] of Object.entries(add)) next[it] = (next[it] || 0) + n;
+        if (Object.keys(add).length && slotsOf(bot, next) > cap) break;
+        Object.assign(need, next);
+    }
+    return need;
+}
+
 /**
  * Fetch `need` for the cells at hand: containers nearest first, one `take_many` each, until nothing is short. `env`: have, here, pos, travel, run, sites, bot, w. Returns { ok } or
  * { ok:false, reason:'missing_item', detail:{ item, ... } }. Never gives up the job: a short bot reports what it lacks and the worker's own scripts take over.
  */
 async function restock(env, plan, need, opt = {}) {
-    const lacking = () => Object.entries(need).filter(([it, n]) => env.have(it) < n);
+    // `opt.trigger`: the items that decide whether a trip is made at all (what the unit at hand needs); `need` may be more (the materials of the run of units that fit in the pack)
+    const trig = opt.trigger || need, lacking = () => Object.entries(trig).filter(([it, n]) => env.have(it) < n);
     if (!lacking().length) return { ok: true, trips: 0 };
     const sites = env.sites;
     if (!sites) return { ok: false, reason: 'missing_item', detail: { item: lacking()[0][0], why: 'this environment has no list of containers' } };
@@ -72,4 +97,4 @@ async function restock(env, plan, need, opt = {}) {
     return l.length ? { ok: false, reason: 'missing_item', detail: { item: l[0][0], short: Object.fromEntries(l.map(([it, n]) => [it, n - env.have(it)])), ...log } } : { ok: true, ...log };
 }
 
-module.exports = { restock, wishes, remaining, emptySlots, stackOf };
+module.exports = { restock, wishes, batch, slotsOf, remaining, emptySlots, stackOf };

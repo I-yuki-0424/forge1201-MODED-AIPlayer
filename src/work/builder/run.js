@@ -9,6 +9,7 @@ const C = require('./cells');
 const S = require('./stations');
 const P = require('./plan');
 const supply = require('./supply');
+const posts = require('./posts');
 const { sturdy } = require('./order');
 
 const D = O.DIR;
@@ -54,14 +55,17 @@ function readyLocal(plan, c, w, local) {
     return true;
 }
 
-/** Gate of the ledger: may unit u be claimed now? Before any bot has looked at the world: when the units it hangs on are settled. */
-const WINDOW = 14;                                        // units ahead of the first unfinished one that may be started: the order stays bottom-up (a floating piece high up is not begun before the floor around it)
-function gateOf(plan, job, u) {
+/** Gate of the ledger: may unit u be claimed now (by bot `id` at `pos`)? Before any bot has looked at the world: when the units it hangs on are settled. */
+const WINDOW = 14;                                        // units ahead of the first unfinished one OF ITS AREA that may be started: the order stays bottom-up (a floating piece high up is not begun before the floor around it)
+function gateOf(plan, job, u, id = null, pos = null) {
+    if (id !== null && !posts.allows(plan, job, u, id, pos, Date.now())) return false;           // another bot's area (posts.js)
     const w = job.world, r = job.ledger.regions.get('b0');
     if (r) {
-        let f = job.first || 0;
-        while (f < plan.units.length && (r.state[f] === 2 || r.state[f] === 3 || r.attempts[f] > 0)) f++;          // a unit that failed is not waited for: the window moves on
-        if (f > (job.first || 0)) job.first = f;
+        const z = plan.zones.ofUnit[u], [a, b] = plan.zones.units[z];
+        if (!job.first) job.first = [];
+        let f = Math.max(job.first[z] || a, a);
+        while (f < b && (r.state[f] === 2 || r.state[f] === 3 || r.attempts[f] > 0)) f++;          // a unit that failed is not waited for: the window moves on
+        job.first[z] = f;
         if (u > f + WINDOW && Date.now() - (job.lastProgress || 0) < 15000) return false;          // the window yields when nothing has been placed for 15 s (the unit at its front may wait for cells of a failed one)
     }
     if (!w) return !r || plan.deps[u].every((d) => r.state[d] === 2 || r.state[d] === 3);
@@ -70,15 +74,8 @@ function gateOf(plan, job, u) {
     return !any;                                                              // nothing left in it: let a bot close it
 }
 
-/**
- * The order a bot is offered claimable units: bottom-up first (the plan's order), and among the first few of them the nearest to where it stands (a bot keeps to its corner and does not
- * walk across the site). A floating piece 20 levels up is ready from the start but is not the first thing to do: the first live run began with it.
- */
-function pickNear(plan, cands, { pos }) {
-    const byIdx = cands.slice().sort((a, b) => a - b), W = 8, head = byIdx.slice(0, W), rest = byIdx.slice(W);
-    head.sort((a, b) => Math.hypot(plan.centre[a].x - pos.x, plan.centre[a].z - pos.z) - Math.hypot(plan.centre[b].x - pos.x, plan.centre[b].z - pos.z));
-    return [...head, ...rest];
-}
+/** The order a bot is offered claimable units: its own area first, bottom-up (posts.js), then other areas. */
+function pickNear(plan, job, cands, o) { return posts.order(plan, job, cands, o); }
 
 const TRACE = !!process.env.BUILD_TRACE;
 /**
@@ -119,7 +116,8 @@ async function runUnit0(plan, job, regionId, u, env) {
         bot.__avoidFloor = null;                                               // a leftover block of another builder is a floor like any other (the action layer refused to start a walk from one: 'expanded 1')
         bot.__noCollect = true;                                                  // the drops of its temporary blocks are left where they fall (the supply holds enough)
     }
-    const cells = plan.units[u.unit], tried = new Set();
+    const cells = plan.units[u.unit], tried = new Set(), me = bot ? bot.username : null;
+    if (me && job.posts) posts.working(plan, job, me, u.unit);
     if (!job.waits) job.waits = {};
     if (!job.noStation) job.noStation = {};
     let idle = 0, last = null, down = 0;
@@ -135,7 +133,10 @@ async function runUnit0(plan, job, regionId, u, env) {
         }
         const ready = todo.filter((c) => cellReady(plan, c, env.w));
         if (!ready.length) return { ok: true, partial: true, holdMs: 6000, detail: { ...r, waiting: todo.length } };
-        const rs = await supply.restock(env, plan, P.needsOf(todo, env.w));            // the whole unit's items at once: a trip for the cells that are ready now and another for the rest cost more than they save
+        // One trip fetches the materials for the whole RUN of units of this bot's area that fit in its pack, not only for this unit (owner 2026-11-18: "build one small component, then fetch
+        // materials: 5 s of placing, 30 s of walking"). A trip is made only when this unit lacks something.
+        const unitNeed = P.needsOf(todo, env.w);
+        const rs = await supply.restock(env, plan, supply.batch(env.bot, plan, u.unit, env.w, unitNeed), { trigger: unitNeed, topup: false, reserve: 3 });
         if (rs.trips) r.trips += rs.trips;
         if (!rs.ok) return { ok: false, reason: rs.reason, detail: { ...(rs.detail || {}), cell: ready[0], stage: 'stock', ...r } };
         const view = S.viewOf(env.w, plan.cellSet);
@@ -175,7 +176,7 @@ async function runUnit0(plan, job, regionId, u, env) {
         }
         const before = r.placed + r.skipped + r.fixed + r.poured;
         for (const sv of stUse.serves) {
-            const res = sv.temp ? await buildWithTemp(plan, sv, env, r) : await buildCell(plan, sv.cell, sv.sup, env, r);
+            const res = sv.temp ? await buildWithTemp(plan, sv, env, r) : await buildCell(plan, sv.cell, sv.sup, env, r, sv.jump);
             if (res.ok) continue;
             if (FATAL.has(res.reason)) return { ok: false, reason: res.reason, detail: { ...(res.detail || {}), ...r } };
             last = { reason: res.reason, ...(res.detail || {}), stage: res.stage, cell: sv.cell, station: sk };
@@ -204,7 +205,7 @@ async function buildWithTemp(plan, sv, env, r) {
 }
 
 /** One cell: skip it when it is right, dig out what is wrong, place it with the recipe that gives its state, read the state back, right-click what needs it. */
-async function buildCell(plan, c, sup, env, r) {
+async function buildCell(plan, c, sup, env, r, jump = false) {
     const w = env.w;
     if (c.waterlog || C.kindOf(c) === 'fluid') return pourCell(c, env, r);
     const item = C.itemFor(c.block), cur = w.blockAt ? w.blockAt(c.x, c.y, c.z) : null;
@@ -215,15 +216,16 @@ async function buildCell(plan, c, sup, env, r) {
         if (!m.ok) return { ...m, stage: 'clear' };
     }
     if (env.have(item) < 1) return bad('missing_item', { item }, 'stock');
-    return placeOriented(c, item, sup, env, r);
+    return placeOriented(c, item, sup, env, r, jump);
 }
 
 /** Another bot's body in the cell (the server refuses a block placed into a player). */
 const botIn = (env, c) => !!env.others && env.others().some((o) => Math.floor(o.x) === c.x && Math.floor(o.z) === c.z && (Math.floor(o.y) === c.y || Math.floor(o.y) + 1 === c.y));
-async function placeOriented(c, item, sup, env, r) {
+async function placeOriented(c, item, sup, env, r, jump = false) {
     let lastNc = null;
-    // the bot's own body in the cell (a station inside a cell of the plan, which is then the next to place): one step aside first
-    { const f = env.here(); if (env.bot && f.x === c.x && f.z === c.z && (c.y === f.y || c.y === f.y + 1) && env.stepAside) await env.stepAside(); }
+    // the bot's own body in the cell (a station inside a cell of the plan, which is then the next to place): one step aside first, unless the block goes under its feet: then the bot jumps and
+    // places it (`jump`, the last cell of a station, or any cell at the feet with the floor under it: the place command does it, block.js `jumpPlace`)
+    { const f = env.here(); if (env.bot && f.x === c.x && f.z === c.z && (c.y === f.y || c.y === f.y + 1) && env.stepAside && !(jump && c.y === f.y)) await env.stepAside(); }
     if (botIn(env, c)) return bad('blocked', { why: 'another bot stands in the cell', block: c.block }, 'entity');
     const w = env.w, blockArg = c.block !== item ? { block: c.block } : {}, tried = new Set();
     const solidAt = (d) => { const q = at(c, d); return presentAt(w, q) && sturdy(nm(w, q.x, q.y, q.z), d, C.bare(c.block)); };

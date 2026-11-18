@@ -142,7 +142,7 @@ function fakeBot(name) {
         await rejects(svc.createBuild({ structure: 'cogs', origin: { x: 0, y: 101, z: 0 } }), 400, /nothing the bots can place/);      // not in this registry
         const v = await svc.createBuild({ structure: 'house7', origin: { x: 300, y: 101, z: 300 }, ops: [{ op: 'rotate', turns: 1 }], bots: ['Work1', 'Work2'], start: true });
         assert.ok(v.summary.count > 100 && v.summary.materials.oak_planks > 0);
-        await until(() => svc.jobs.get(v.id).state === 'finished');
+        await until(() => svc.jobs.get(v.id).state === 'finished', 30000);    // the end of a job (the final look of the build, 8 s apart per bot) takes 14 to 17 s with the fake bots
         assert.strictEqual(svc.jobs.get(v.id).diff, null, 'diff needs a real bot world: fakes have none');
         assert.strictEqual(world.nameAt(300, 101, 300), 'cobblestone');
         const miss = svc.jobs.get(v.id).impl.diff(world);

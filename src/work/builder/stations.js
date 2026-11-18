@@ -80,8 +80,9 @@ function hasExit(view, S) {
 function serves(view, S, cells, T = null, ok = null) {
     const out = [], local = new Set(), done = new Set();
     const present = (p) => view.present(p.x, p.y, p.z) || local.has(key(p.x, p.y, p.z)) || (T && p.x === T.x && p.y === T.y && p.z === T.z);
+    let self = null;
     for (const c of cells) {
-        if ((c.x === S.x && c.z === S.z && (c.y === S.y || c.y === S.y + 1))) continue;           // the cell the body stands in
+        if ((c.x === S.x && c.z === S.z && (c.y === S.y || c.y === S.y + 1))) { if (!self && c.y === S.y) self = c; continue; }           // the cell the body stands in (the one at the feet may be placed last, by a jump)
         if (ok && !ok(c, done)) continue;                                                        // it waits for something (a fluid for what holds it) that is neither there nor placed from here
         let pick = null;
         if (c.waterlog) { if (reachTo(S, c) <= REACH_FLUID && view.present(c.x, c.y, c.z) && sees(view, S, c)) pick = 'self'; }
@@ -108,6 +109,9 @@ function serves(view, S, cells, T = null, ok = null) {
         }
         if (pick) { out.push({ cell: c, sup: pick, ...(tmp ? { temp: tmp } : {}) }); done.add(c.k || key(c.x, c.y, c.z)); if (!c.waterlog) local.add(key(c.x, c.y, c.z)); }
     }
+    // The cell at the feet itself, last: the bot jumps and places it under its feet (a column or a tube built upward: no neighbour cell to step to, owner 2026-11-18). From a block under the feet
+    // only (not a temporary one), with room for the jump, a block that goes on the top face of what is under it, and everything it waits for in place.
+    if (self && !T && !self.fluid && !self.waterlog && (self.dirs || DIRS).includes('down') && view.solid(S.x, S.y - 1, S.z) && view.free(S.x, S.y + 2, S.z) && (!ok || ok(self, done))) out.push({ cell: self, sup: 'down', jump: true });
     return out;
 }
 
@@ -143,7 +147,7 @@ function chooseStation(view, cells, o = {}) {
         const here = S.x === from.x && S.y === from.y && S.z === from.z, flat = Math.abs(S.x - from.x) + Math.abs(S.z - from.z), dy = Math.abs(S.y - from.y);
         let cost = 0;
         if (!here) cost = kind === 'native' ? 20 + 2.5 * flat + 5 * dy : Math.min(40 + 26 * Math.max(0, S.y - 1 - base.y) + flat, br ? 45 + 20 * br.g + flat : Infinity);
-        const score = 12 * sv.length - cost;
+        const score = 12 * sv.length - cost - (sv.some((q) => q.jump) ? 3 : 0);         // a jump placement is the last resort of a station: standing beside is cheaper
         if (!best || score > best.score) best = { S, floor: { x: S.x, y: S.y - 1, z: S.z }, kind, serves: sv, base, bridge: br, score };
     };
     for (let dx = -R; dx <= R; dx++) for (let dz = -R; dz <= R; dz++) for (let dy = -5; dy <= 4; dy++) {
@@ -152,8 +156,9 @@ function chooseStation(view, cells, o = {}) {
         if (skip.has(key(S.x, S.y, S.z))) { if (dg) dg.skipped = (dg.skipped || 0) + 1; continue; }
         if (!bodyFits(view, S, avoid)) { if (dg) dg.body = (dg.body || 0) + 1; continue; }
         if (view.solid(S.x, S.y - 1, S.z)) {
-            if (!hasExit(view, S)) { if (dg) dg.noExit = (dg.noExit || 0) + 1; continue; }
-            if (o.reach && !(S.x === from.x && S.y === from.y && S.z === from.z) && !o.reach(S.x, S.y, S.z)) { if (dg) dg.noWalk = (dg.noWalk || 0) + 1; continue; }          // a spot the bot cannot walk to from where it stands (walled off by what is built)
+            const stay = S.x === from.x && S.y === from.y && S.z === from.z;                              // where the bot already stands needs no way in (it is in a tube it has stacked up)
+            if (!stay && !hasExit(view, S)) { if (dg) dg.noExit = (dg.noExit || 0) + 1; continue; }
+            if (o.reach && !stay && !o.reach(S.x, S.y, S.z)) { if (dg) dg.noWalk = (dg.noWalk || 0) + 1; continue; }          // a spot the bot cannot walk to from where it stands (walled off by what is built)
             consider(S, 'native', null, null); continue;
         }
         // a temporary block goes under the feet: the cell must be free, not a cell of the structure, and a column of free cells must lead down to something to climb from

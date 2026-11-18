@@ -1,9 +1,10 @@
 'use strict';
 // The ORDER of placement and the dependencies between units (rewrite 2026-11-18). A cell is placed when (1) everything it must wait for is placed and (2) some recipe of its block
-// has its support already there (ground, or a cell placed earlier). Among the cells that can go next the LOWEST goes first and, at one height, the one NEAREST the last one placed: the result
-// is a bottom-up growth with a short walk from cell to cell. Only when nothing can go next (a floating piece of the cut-out terrain) the lowest remaining cell is a SEED: it gets a temporary
+// has its support already there (ground, or a cell placed earlier). Among the cells that can go next the LOWEST goes first and, at one height, the one NEAREST the last one placed (the first of a level: the one nearest the middle): the result
+// is a bottom-up growth from the middle with a short walk from cell to cell. Only when nothing can go next (a floating piece of the cut-out terrain) the lowest remaining cell is a SEED: it gets a temporary
 // support beside it (stations.js). Fluids follow what holds them: a source waits for every solid cell around its body of fluid (sides and below), and what covers a body (the cell above)
 // waits for the source, so that lava is poured into a tower before its lid goes on and water is never poured into a channel with no walls (owner 2026-11-18).
+// Areas (zones): the structure is cut into one area per bot; each area is ordered bottom-up, every level starting at the middle of ITS area and growing from there, and its units are numbered together.
 // A cell's `sup` is the support direction the planner counted on: the cell below when there is one, then a side, then above. The units depend on the units of their supports, nothing more.
 const O = require('../jobs/orient');
 const C = require('./cells');
@@ -15,6 +16,25 @@ const PARTIAL = /(stairs|_slab|trapdoor|hopper|chest|_bed|piston|composter|fence
 
 /** Is the block a full, sturdy one a torch or a sign can hang on (a wall or a fence carries one on top, a sign hangs on a sign)? */
 const sturdy = (name, d, placing) => (/(_wall|_fence)$/.test(name) ? d === 'down' : /_sign$/.test(name) ? /_sign$/.test(placing) : !PARTIAL.test(name));
+
+/**
+ * The areas (owner 2026-11-18: "once an assignment is decided keep it"): the structure cut into `n` slabs across its longer side, each with about the same number of cells; a column of
+ * cells is never split. Returns { n, of(cell) -> zone, centre: [{x, z}] } (zones that would be empty are dropped).
+ */
+function partition(cells, n) {
+    const ax = (() => { const xs = cells.map((c) => c.x), zs = cells.map((c) => c.z); return Math.max(...xs) - Math.min(...xs) >= Math.max(...zs) - Math.min(...zs) ? 'x' : 'z'; })();
+    // the cut between two coordinates that leaves the closest to k / n of the cells on its low side
+    const sorted = cells.map((c) => c[ax]).sort((a, b) => a - b), cuts = [], vals = [...new Set(sorted)], below = (t) => { let lo = 0, hi = sorted.length; while (lo < hi) { const m = (lo + hi) >> 1; if (sorted[m] < t) lo = m + 1; else hi = m; } return lo; };
+    for (let k = 1; k < Math.max(1, n); k++) {
+        const want = (k * sorted.length) / n; let best = null;
+        for (const t of vals) if (t > vals[0] && (!best || Math.abs(below(t) - want) < Math.abs(below(best) - want))) best = t;
+        if (best !== null && (cuts.length === 0 || best > cuts[cuts.length - 1])) cuts.push(best);
+    }
+    const raw = (c) => { let z = 0; for (const t of cuts) if (c[ax] >= t) z++; return z; };
+    const used = [...new Set(cells.map(raw))].sort((a, b) => a - b), renum = new Map(used.map((z, i) => [z, i]));
+    const centre = used.map((z) => { const m = cells.filter((c) => raw(c) === z); return { x: m.reduce((a, c) => a + c.x, 0) / m.length, z: m.reduce((a, c) => a + c.z, 0) / m.length }; });
+    return { n: used.length, axis: ax, of: (c) => renum.get(raw(c)), centre };
+}
 
 const memo = new Map();
 /** Recipes for a block with a given pattern of sturdy neighbours (cached: the same block and the same neighbours give the same recipes). */
@@ -44,9 +64,12 @@ function chunk(list, { max = 24, span = 9 } = {}) {
  * @param ground  (x, y, z) => is it ground (present from the start)
  * Returns { list: the cells in placement order (each with .seq, .sup, .fluid, .seed), units: [[cell]] }, dependencies: [[unit index]] per unit }.
  */
-function plan(cells, real, ground) {
+function plan(cells, real, ground, { zones = 1 } = {}) {
     const owned = new Map(), byPos = new Map();
     for (const c of cells) { c.k = c.waterlog ? `${key(c)}w` : key(c); c.fluid = c.waterlog || C.kindOf(c) === 'fluid'; owned.set(c.k, c); if (!c.waterlog) byPos.set(key(c), c); }
+    // the areas (one per bot); every cell knows its own
+    const part = partition(cells, zones);
+    for (const c of cells) c.zone = part.of(c);
     const pre = new Map(), later = new Map();                        // cell key -> keys that must be placed first; key -> the cells waiting for it
     const need = (c, k) => { if (!owned.has(k) || k === c.k) return; (pre.get(c.k) || pre.set(c.k, new Set()).get(c.k)).add(k); (later.get(k) || later.set(k, []).get(k)).push(c); };
     for (const c of cells) if (c.waterlog) need(c, key(c));                              // the water of a waterlogged block comes after the block
@@ -94,12 +117,15 @@ function plan(cells, real, ground) {
     const cand = new Map(), left = new Set(owned.keys());
     const eval1 = (c) => { if (!left.has(c.k)) { cand.delete(c.k); return; } const s = isReady(c) ? supOf(c) : null; if (s) cand.set(c.k, { c, sup: s }); else cand.delete(c.k); };
     for (const c of cells) eval1(c);
-    const list = []; let last = null;
+    const list = [], lastZ = new Array(part.n).fill(null);
     while (left.size) {
-        let best = null, bd = Infinity;
+        let best = null, bk = null;
+        // Lowest first. The first cell of a level is the one nearest the MIDDLE of the cell's area (owner 2026-11-18: "start from the bottom and from the middle"; a plain nearest-next order
+        // began wherever the iteration did, at the outermost part), the next is the one nearest the last placed in that area: a compact piece that grows, not separate islands.
+        // (Tried: rings of 3 or 6 blocks around the middle at each level, which keeps the middle first on the whole level: 30 % more walking in the simulation.)
         for (const e of cand.values()) {
-            const c = e.c, d = last ? (c.x - last.x) ** 2 + (c.z - last.z) ** 2 + 4 * (c.y - last.y) ** 2 : 0;
-            if (!best || c.y < best.c.y || (c.y === best.c.y && d < bd)) { best = e; bd = d; }
+            const c = e.c, l0 = lastZ[c.zone], l = !l0 || l0.y !== c.y ? { ...part.centre[c.zone], y: c.y } : l0, d = (c.x - l.x) ** 2 + (c.z - l.z) ** 2 + 4 * (c.y - l.y) ** 2;
+            if (!best || c.y < bk[0] || (c.y === bk[0] && d < bk[1])) { best = e; bk = [c.y, d]; }
         }
         let seed = false;
         if (!best) {                                                                      // nothing has its support: a floating piece starts here (or a cycle of waits is broken)
@@ -117,15 +143,19 @@ function plan(cells, real, ground) {
             best = { c: b, sup: null }; seed = true;
         }
         const c = best.c; c.sup = best.sup; c.seed = seed; c.seq = list.length;
-        list.push(c); left.delete(c.k); cand.delete(c.k); wasBuilt.add(c.k); if (!c.waterlog) built.add(key(c)); last = c;
+        list.push(c); left.delete(c.k); cand.delete(c.k); wasBuilt.add(c.k); if (!c.waterlog) built.add(key(c)); lastZ[c.zone] = c;
         for (const [, v] of NB) { const q = byPos.get(`${c.x + v[0]},${c.y + v[1]},${c.z + v[2]}`); if (q) eval1(q); }
         for (const q of later.get(c.k) || []) eval1(q);
         if (!c.waterlog) { const w = owned.get(`${key(c)}w`); if (w) eval1(w); }
     }
     // the support directions the block can be placed against at all (a top-half trapdoor facing west: only the block to the east or above), whatever stands next to it
     for (const c of list) { c.pre = pre.has(c.k) ? [...pre.get(c.k)] : []; c.dirs = c.waterlog || c.fluid ? DIRS.slice() : [...new Set(recipesFor(c, () => true).map((r) => r.support))]; }
-    const units = chunk(list), unitOf = new Map();
+    // units: the cells of one area in placement order, cut into runs of nearby cells; the units of area 0 first, then area 1 ... (`zoneUnits[z]` = [first, end))
+    const units = [], zoneUnits = [];
+    for (let z = 0; z < part.n; z++) { const from = units.length; units.push(...chunk(list.filter((c) => c.zone === z))); zoneUnits.push([from, units.length]); }
+    const unitOf = new Map(), zoneOfUnit = [];
     units.forEach((u, i) => u.forEach((c) => unitOf.set(c.k, i)));
+    zoneUnits.forEach(([a, b], z) => { for (let i = a; i < b; i++) zoneOfUnit[i] = z; });
     const deps = units.map((u, i) => {
         const s = new Set();
         for (const c of u) {
@@ -136,7 +166,7 @@ function plan(cells, real, ground) {
         s.delete(i); s.delete(undefined);
         return [...s].sort((a, b) => a - b);
     });
-    return { list, units, deps, unitOf };
+    return { list, units, deps, unitOf, zones: { n: part.n, axis: part.axis, centre: part.centre, units: zoneUnits, ofUnit: zoneOfUnit } };
 }
 
-module.exports = { plan, chunk, sturdy, recipesFor, PARTIAL, DIRS };
+module.exports = { plan, chunk, partition, sturdy, recipesFor, PARTIAL, DIRS };

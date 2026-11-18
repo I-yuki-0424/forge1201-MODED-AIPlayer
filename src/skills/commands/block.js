@@ -232,6 +232,30 @@ async function place(ctx, { x, y, z, item, fluid = false, temp = null, recipe = 
  * to the clicked block, not the line of sight (vanilla), so the click is blind (Body frame `cell`); only the walk to a spot within reach is needed.
  * `expect` is the block that must stand in the cell afterwards (an item may place another block: redstone -> redstone_wire).
  */
+/** The jump of `placeWithRecipe`: look and click as the recipe says, at the top of a jump, into the cell the feet have just left (the support is the block under it); the bot lands on the new block. */
+async function jumpPlace(ctx, { cell, sup, expect, recipe, item, temp }) {
+    const bot = ctx.bot, w = ctx.world, { x, y, z } = cell;
+    const n = FACES[recipe.face], cursor = { x: n[0] > 0 ? 1 : n[0] < 0 ? 0 : 0.5, y: n[1] > 0 ? 1 : n[1] < 0 ? 0 : (recipe.hy ?? 0.5), z: n[2] > 0 ? 1 : n[2] < 0 ? 0 : 0.5 };
+    const look = { yaw: ((180 - recipe.yRot) * Math.PI) / 180, pitch: recipe.pitch === 'up' ? Math.PI / 2 : recipe.pitch === 'down' ? -Math.PI / 2 : 0 };
+    const placed = () => w.blockAt(x, y, z)?.name === expect;
+    if (!bot.entity.onGround) await ctx.until(() => bot.entity.onGround, 40, 'stuck');
+    const mid = centre(cell);                                                        // centred first: a body 0.2 off the middle brushes the next column with its head when it jumps
+    if (hdist(bot.entity.position, mid) > 0.15) await ctx.until(() => hdist(bot.entity.position, mid) <= 0.12, 25, 'stuck', () => ({ forward: hdist(bot.entity.position, mid) > 0.1, sneak: true, yaw: Math.atan2(-(mid.x - bot.entity.position.x), -(mid.z - bot.entity.position.z)) }));
+    for (let attempt = 0; attempt < 2 && !placed(); attempt++) {
+        ctx.phase('jump_place', { cell, against: sup });
+        await ctx.tick({ ...look, jump: true });
+        await ctx.until(() => bot.entity.position.y >= y + 1.002, 14, 'stuck', { ...look, jump: true });        // the placed block no longer touches the body
+        await ctx.tick({ ...look, use: true, cell: { x: sup.x, y: sup.y, z: sup.z, face: recipe.face, cursor } });
+        await ctx.tick(look);
+        try { await ctx.until(placed, 12, 'not_confirmed', look); } catch (e) { if (!(e instanceof SkillError) || e.reason !== 'not_confirmed') throw e; await ctx.idle(10); }
+        await ctx.until(() => bot.entity.onGround, 30, 'stuck', look);
+    }
+    if (!placed()) throw new SkillError('not_confirmed', { target: cell, jump: true, now: w.blockAt(x, y, z)?.name || null });
+    fixtures.markPlaced(bot, expect, cell);
+    if (temp && bot.__temps) bot.__temps.add({ dim: fixtures.dimOf(bot), x, y, z, item, kind: temp, by: bot.username });
+    return { against: sup, face: recipe.face, recipe: true, jump: true };
+}
+
 async function placeWithRecipe(ctx, { cell, item, expect, recipe, temp }) {
     const bot = ctx.bot, w = ctx.world, { x, y, z } = cell;
     const D = { north: [0, 0, -1], south: [0, 0, 1], west: [-1, 0, 0], east: [1, 0, 0], up: [0, 1, 0], down: [0, -1, 0] }[recipe.support];
@@ -239,11 +263,16 @@ async function placeWithRecipe(ctx, { cell, item, expect, recipe, temp }) {
     const sup = { x: x + D[0], y: y + D[1], z: z + D[2] }, sb = w.blockAt(sup.x, sup.y, sup.z);
     if (!sb || REPLACEABLE.test(sb.name) || FLUID.test(sb.name)) throw new SkillError('invalid_target', { why: 'the recipe support is not a block that can be clicked', support: sup, block: sb ? sb.name : null, target: cell });
     const sneak = !!recipe.sneak || isInteractive(sb.name);
-    const free = (c) => !(c.x === x && c.z === z && (c.y === y || c.y + 1 === y));
+    // The body stands IN the cell and the block goes on what is under the feet (the next block of a column or a tube built upward, where no neighbour cell is free to step to): the bot jumps,
+    // places under its feet at the top of the jump and lands on the block, as a pillar does (owner 2026-11-18: "the bots stall because their own bodies keep them from placing").
+    const f0 = feetCell(bot.entity.position);
+    const jumpable = recipe.support === 'down' && f0.x === x && f0.y === y && f0.z === z && w.kindAt(x, y + 2, z) === 'air' && w.kindAt(x, y + 1, z) === 'air' && w.kindAt(x, y - 1, z) === 'solid';
+    const free = (c) => (jumpable && c.x === x && c.y === y && c.z === z) || !(c.x === x && c.z === z && (c.y === y || c.y + 1 === y));
     const dist = (c) => Math.hypot(c.x + 0.5 - (sup.x + 0.5), c.y + 1.62 - (sup.y + 0.5), c.z + 0.5 - (sup.z + 0.5));
     await approachUntil(ctx, (reach, ok2) => ({ isGoal: (c) => free(c) && ok2(c) && dist(c) <= reach + 0.5, h: (c) => Math.max(0, dist(c) - reach), label: 'reach placement face' }), () => true, cell);
     await holdOrFail(ctx, item, undefined, 'item_held');
     let mid = centre(feetCell(bot.entity.position));
+    if (jumpable && same(feetCell(bot.entity.position), cell)) return jumpPlace(ctx, { cell, sup, expect, recipe, item, temp });
     if (overlaps(bot.entity.position, cell)) {
         ctx.phase('clear_cell');
         const f0 = feetCell(bot.entity.position);

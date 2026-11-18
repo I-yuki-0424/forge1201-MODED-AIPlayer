@@ -56,7 +56,7 @@ class Ledger {
         this.log = [];                      // bounded event ring for reports
     }
 
-    // `gate(u)`: may unit u be claimed now (a build: the cells it hangs on are there)? `pick(candidates, {pos, bot})`: the order in which a bot is offered the claimable units (a build: the nearest first).
+    // `gate(u, botId, pos)`: may unit u be claimed now by this bot (a build: the cells it hangs on are there)? `pick(candidates, {pos, bot})`: the order in which a bot is offered the claimable units (a build: the nearest first).
     addRegion({ id, anchor = { x: 0, z: 0 }, layers, rows, deps = [], meta = {}, gate = null, pick = null }) {
         if (this.regions.has(id)) throw new Error(`region ${id} exists`);
         if (!Number.isInteger(layers) || !Number.isInteger(rows) || layers < 1 || rows < 1) throw new Error(`region ${id}: layers/rows`);
@@ -225,7 +225,7 @@ class Ledger {
             if (this.maxLead !== Infinity && r.front - minFront > this.maxLead) continue;
             const base = r.front * r.rows;
             let any = false, pending = 0;
-            for (let i = 0; i < r.rows; i++) if (r.state[base + i] === PENDING && r.avoid[base + i] !== shun && r.hold[base + i] <= now && (!r.gate || r.gate(base + i))) { any = true; pending++; }
+            for (let i = 0; i < r.rows; i++) if (r.state[base + i] === PENDING && r.avoid[base + i] !== shun && r.hold[base + i] <= now && (!r.gate || r.gate(base + i, botId, pos))) { any = true; pending++; }
             if (!any) continue;
             const others = r.lessees.size - (r.lessees.has(b.idx) ? 1 : 0);
             const d = Math.hypot(r.anchor.x - pos.x, r.anchor.z - pos.z);
@@ -239,11 +239,11 @@ class Ledger {
         const { r } = best, base = r.front * r.rows, units = [];
         const helper = r.keeper >= 0 ? r.keeper !== b.idx : best.others > 0 && !r.lessees.has(b.idx);
         let order = [...Array(r.rows).keys()]; if (helper) order.reverse();       // helpers start at the tail
-        if (r.pick) order = r.pick(order.filter((i) => r.state[base + i] === PENDING && r.avoid[base + i] !== shun && r.hold[base + i] <= now && (!r.gate || r.gate(base + i))), { pos, bot: botId });
+        if (r.pick) order = r.pick(order.filter((i) => r.state[base + i] === PENDING && r.avoid[base + i] !== shun && r.hold[base + i] <= now && (!r.gate || r.gate(base + i, botId, pos))), { pos, bot: botId });
         for (const i of order) {
             if (units.length >= batch) break;
             const u = base + i;
-            if (r.state[u] !== PENDING || r.avoid[u] === shun || r.hold[u] > now || (r.gate && !r.gate(u))) continue;
+            if (r.state[u] !== PENDING || r.avoid[u] === shun || r.hold[u] > now || (r.gate && !r.gate(u, botId, pos))) continue;
             r.state[u] = LEASED; r.owner[u] = b.idx; r.until[u] = now + this.leaseMs; r.leasedN++;
             r.lessees.set(b.idx, (r.lessees.get(b.idx) || 0) + 1);
             b.leases.add(`${r.id}\u0000${u}`);

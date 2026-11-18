@@ -76,5 +76,48 @@ function world(deckY) {
     if (missing.length) console.log('NOT PLACED', missing.length, missing.slice(0, 14).map((c) => `${rel(c)}${c.waterlog ? 'w' : ''} dirs=${(c.dirs || []).join('/')} sup=${c.sup} seed=${c.seed} props=${JSON.stringify(c.props)}`).join(' | '));
     assert.strictEqual(st.failed.length, 0, 'every unit finds a station: ' + JSON.stringify(st.failed.slice(0, 5)));
     assert.strictEqual(st.placed, plan.count, 'every cell is placed from some station (the arm-tip trapdoor ladders get a temporary support beside them)');
+
+    // ---- the areas (owner 2026-11-18): one per bot, balanced, each ordered bottom-up; a bot keeps its own, helps only when it has none or has finished; a bot that left hands its area on
+    {
+        const build = require('../src/work/jobs/build'), posts = require('../src/work/builder/posts');
+        const p3 = P.planBuild(cells, origin, { zones: 3 });
+        assert.strictEqual(p3.zones.n, 3, 'three areas for three bots');
+        assert.strictEqual(p3.count, 1288); assert.strictEqual(p3.units.flat().length, 1288, 'every cell in one unit of one area');
+        const sizes = p3.zones.units.map(([a, b]) => p3.units.slice(a, b).reduce((n, u) => n + u.length, 0));
+        assert.ok(Math.max(...sizes) <= 1.35 * (1288 / 3), 'areas of about the same size ' + sizes);
+        p3.zones.units.forEach(([a, b], z) => { const ys = p3.units.slice(a, b).flat().map((c) => c.y), first = p3.units[a][0]; assert.ok(first.y <= Math.min(...ys) + 2, `area ${z} starts at its lowest levels (a cell that hangs on another area's cell may come later)`); for (let i = a; i < b; i++) for (const c of p3.units[i]) assert.strictEqual(c.zone, z, 'a unit holds cells of one area'); });
+        // within one area a level starts at its middle: the first cell of the lowest level is among the nearest 15 % to the area's centre
+        { const z = 1, m = p3.zones.centre[z], [a, b] = p3.zones.units[z], mine = p3.units.slice(a, b).flat(), low = mine.filter((c) => c.y === mine[0].y), dc = (c) => Math.hypot(c.x - m.x, c.z - m.z), rank = low.filter((c) => dc(c) < dc(mine[0])).length; assert.ok(rank <= Math.max(2, 0.15 * low.length), `the first cell of an area's lowest level is near its middle (rank ${rank} of ${low.length})`); }
+        // the ledger: three bots, three areas, kept
+        const job = build.createBuildJob(cells, origin, { leaseMs: 45000 }, { zones: 3 }), L = job.ledger, now = Date.now();
+        const w3 = world(origin.y - 1); for (const c of p3.list) if (c.y <= origin.y + 3 && !c.fluid) w3.set(c.x, c.y, c.z, c.block, c.props);          // the base stands: every area can start
+        job.world = w3;                                                               // set by the first unit any bot runs: the gate then reads cells, not whole units
+        const zoneOfClaim = (c) => p3.zones.ofUnit[c.units[0].unit];
+        const claims = ['A', 'B', 'C'].map((id, i) => L.claim(id, { x: origin.x + 10 * i, y: origin.y, z: origin.z + 10 * i }, now, { batch: 1 }));
+        assert.ok(claims.every(Boolean), 'every bot gets a unit at the start');
+        assert.strictEqual(new Set(claims.map(zoneOfClaim)).size, 3, 'three bots, three different areas');
+        const mineOf = Object.fromEntries(['A', 'B', 'C'].map((id, i) => [id, zoneOfClaim(claims[i])]));
+        for (const id of ['A', 'B', 'C']) L.release(id, 'b0', claims[['A', 'B', 'C'].indexOf(id)].units[0].unit, now, 0);
+        for (let k = 0; k < 3; k++) for (const id of ['A', 'B', 'C']) { const c = L.claim(id, { x: origin.x, y: origin.y, z: origin.z }, now + k, { batch: 1 }); assert.ok(c); assert.strictEqual(zoneOfClaim(c), mineOf[id], 'a bot keeps its area'); L.release(id, 'b0', c.units[0].unit, now + k, 0); }
+        // a fourth bot has no area: it takes units of another area only away from its keeper
+        const dd = L.claim('D', { x: origin.x, y: origin.y, z: origin.z }, now, { batch: 1 });
+        if (dd) { const z = zoneOfClaim(dd), k = ['A', 'B', 'C'].find((id) => mineOf[id] === z), at = job.posts.at.get(k); if (at) assert.ok(Math.hypot(p3.centre[dd.units[0].unit].x - at.x, p3.centre[dd.units[0].unit].z - at.z) >= posts.APART, 'a helper keeps away from the keeper'); L.release('D', 'b0', dd.units[0].unit, now, 0); }
+        // a bot that has left and stayed away hands its area to the next that asks
+        L.leave('A', now);
+        const later = now + posts.KEEP_MS + 1000, e = L.claim('E', { x: origin.x, y: origin.y, z: origin.z }, later, { batch: 1 });
+        assert.ok(e, 'a bot takes over'); assert.strictEqual(zoneOfClaim(e), mineOf.A, 'the area of the bot that left goes to the next bot');
+    }
+    // ---- one trip for the run of units of an area: the pack holds the materials of several units, whole units, as many as fit
+    {
+        const supply = require('../src/work/builder/supply'), p3 = P.planBuild(cells, origin, { zones: 3 }), w0 = world(origin.y - 1);
+        const slots = Array.from({ length: 36 }, (_, i) => (i < 6 ? { name: i < 2 ? 'diamond_pickaxe' : 'cobblestone', count: 64 } : null));
+        const bot = { inventory: { inventoryStart: 9, inventoryEnd: 45, slots: Object.assign(new Array(45).fill(null), Object.fromEntries(slots.map((s, i) => [9 + i, s]).filter(([, s]) => s))) }, registry: { itemsByName: {} } };
+        const u0 = p3.zones.units[1][0], one = P.needsOf(p3.units[u0], w0), many = supply.batch(bot, p3, u0, w0, one);
+        const n1 = Object.values(one).reduce((a, b) => a + b, 0), n2 = Object.values(many).reduce((a, b) => a + b, 0);
+        assert.ok(n2 > 3 * n1, `the batch covers several units (${n1} -> ${n2} items)`);
+        assert.ok(supply.slotsOf(bot, many) <= 36 - 2 - 3 + 0, `and fits the pack (${supply.slotsOf(bot, many)} slots)`);
+        for (const [it, n] of Object.entries(one)) assert.ok((many[it] || 0) >= n, 'the unit at hand is always in it');
+        assert.deepStrictEqual(supply.batch(null, p3, u0, w0, one), one, 'no bot: the unit alone');
+    }
     console.log('build plan: ok');
 })().catch((e) => { console.error(e); process.exit(1); });
