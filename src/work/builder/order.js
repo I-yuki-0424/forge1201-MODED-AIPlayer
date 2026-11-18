@@ -52,22 +52,27 @@ function plan(cells, real, ground) {
     for (const c of cells) if (c.waterlog) need(c, key(c));                              // the water of a waterlogged block comes after the block
     // fluid bodies: connected fluid cells of one kind, flows included
     const fl = new Map(real.filter((c) => C.FLUID.test(C.bare(c.block))).map((c) => [key(c), c])), seen = new Set();
+    // the water of a waterlogged block is a source like any other: it flows into the air beside it, so it belongs to a body and waits for what holds the body (live 2026-11-18: stairs were
+    // waterlogged before the cells beside them were built and the water ran into the cells of the walls)
+    for (const c of real) if (String(c.props && c.props.waterlogged) === 'true' && !fl.has(key(c))) fl.set(key(c), { x: c.x, y: c.y, z: c.z, block: 'water', props: { level: '0' } });
+    const srcAt = (b) => { const o = byPos.get(key(b)); return o && o.fluid ? o : owned.get(`${key(b)}w`) || null; };
     for (const f of fl.values()) {
         if (seen.has(key(f))) continue;
         const name = C.bare(f.block), body = [], st = [f]; seen.add(key(f));
         while (st.length) { const a = st.pop(); body.push(a); for (const [, v] of NB) { const q = fl.get(`${a.x + v[0]},${a.y + v[1]},${a.z + v[2]}`); if (q && C.bare(q.block) === name && !seen.has(key(q))) { seen.add(key(q)); st.push(q); } } }
         const inBody = new Set(body.map(key)), contain = new Set(), covers = new Set();
         for (const b of body) for (const [d, v] of NB) { const n = `${b.x + v[0]},${b.y + v[1]},${b.z + v[2]}`; if (inBody.has(n) || !byPos.has(n)) continue; (d === 'up' ? covers : contain).add(n); }
-        const sources = body.filter((b) => byPos.has(key(b)) && byPos.get(key(b)).fluid);
-        for (const s of sources) for (const n of contain) need(byPos.get(key(s)), n);
-        for (const n of covers) if (!contain.has(n)) for (const s of sources) need(byPos.get(n), key(s));
+        const sources = body.map(srcAt).filter(Boolean);
+        for (const s of sources) for (const n of contain) need(s, n);
+        for (const n of covers) if (!contain.has(n)) for (const s of sources) need(byPos.get(n), s.k);
         // A small body (a lava pit in a tower) is poured from above, through the shaft the walls leave open: everything above it that stands inside its footprint (the rest of the walls, the lid)
         // waits for the source, or the walls close the access first (live 2026-11-18: three bots built the tower up while the lava waited for its bucket, and no standing place was left).
+        if (!sources.length) continue;
         const xs = body.map((b) => b.x), zs = body.map((b) => b.z), top = Math.max(...sources.map((b) => b.y));
         if (Math.max(...xs) - Math.min(...xs) <= 6 && Math.max(...zs) - Math.min(...zs) <= 6) {
             for (const c of cells) {
                 if (c.waterlog || contain.has(key(c)) || c.y <= top || c.x < Math.min(...xs) - 1 || c.x > Math.max(...xs) + 1 || c.z < Math.min(...zs) - 1 || c.z > Math.max(...zs) + 1) continue;
-                for (const s of sources) need(c, key(s));
+                for (const s of sources) need(c, s.k);
             }
         }
     }
