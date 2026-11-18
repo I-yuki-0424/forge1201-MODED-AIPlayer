@@ -60,8 +60,8 @@ function gateOf(plan, job, u) {
     const w = job.world, r = job.ledger.regions.get('b0');
     if (r) {
         let f = job.first || 0;
-        while (f < plan.units.length && (r.state[f] === 2 || r.state[f] === 3)) f++;
-        job.first = f;
+        while (f < plan.units.length && (r.state[f] === 2 || r.state[f] === 3 || r.attempts[f] > 0)) f++;          // a unit that failed is not waited for: the window moves on
+        if (f > (job.first || 0)) job.first = f;
         if (u > f + WINDOW) return false;
     }
     if (!w) return !r || plan.deps[u].every((d) => r.state[d] === 2 || r.state[d] === 3);
@@ -108,9 +108,10 @@ async function runUnit0(plan, job, regionId, u, env) {
         if (rs.trips) r.trips += rs.trips;
         if (!rs.ok) return { ok: false, reason: rs.reason, detail: { ...(rs.detail || {}), cell: ready[0], stage: 'stock', ...r } };
         const view = S.viewOf(env.w, plan.cellSet);
-        const st = S.chooseStation(view, todo, { from: env.here(), avoid: env.others ? env.others() : [], skip: tried, ok: (c, local) => readyLocal(plan, c, env.w, local) });
+        const dg = {};
+        const st = S.chooseStation(view, todo, { diag: dg, from: env.here(), avoid: env.others ? env.others() : [], skip: tried, ok: (c, local) => readyLocal(plan, c, env.w, local) });
         if (!st && env.others && env.others().length && S.chooseStation(view, todo, { from: env.here(), avoid: [], skip: tried, ok: (c, local) => readyLocal(plan, c, env.w, local) })) return { ok: true, partial: true, holdMs: 4000, detail: { ...r, waiting: todo.length, why: 'the only standing places are taken by other bots' } };
-        if (!st) return { ok: false, reason: 'unreachable', detail: { why: 'no standing place within reach of the next cells', cell: ready[0], stage: 'station', tried: tried.size, ...r } };
+        if (!st) return { ok: false, reason: 'unreachable', detail: { why: 'no standing place within reach of the next cells', diag: dg, c0: { x: todo[0].x, y: todo[0].y, z: todo[0].z, block: todo[0].block }, from: env.here(), cell: ready[0], stage: 'station', tried: tried.size, ...r } };
         const sk = `${st.S.x},${st.S.y},${st.S.z}`;
         r.stations++;
         if (TRACE) console.log(`[build] ${bot ? bot.username : '?'} u${u.unit} round ${round}: station ${st.kind} ${sk} serves ${st.serves.length}/${todo.length}${st.bridge ? ' (bridge ' + st.bridge.g + ')' : ''} from ${JSON.stringify(env.here())}`);
@@ -165,7 +166,7 @@ async function placeOriented(c, item, sup, env, r) {
         const usable = all.filter((x) => !tried.has(x) && presentAt(w, at(c, x.support)) && (!env.bot || S.reachTo(feet, at(c, x.support)) <= S.REACH + 0.3));
         usable.sort((a, b) => (a.support === sup ? 0 : 1) - (b.support === sup ? 0 : 1) || (require('../../skills/world').isInteractive(nm(w, at(c, a.support).x, at(c, a.support).y, at(c, a.support).z)) ? 1 : 0) - (require('../../skills/world').isInteractive(nm(w, at(c, b.support).x, at(c, b.support).y, at(c, b.support).z)) ? 1 : 0));
         const q = usable[0];
-        if (!q) return bad('unreachable', { why: 'no recipe whose support is present and within reach from here', block: c.block, supports: all.map((x) => x.support).filter((v, i, a) => a.indexOf(v) === i) }, 'reach');
+        if (!q) return bad('unreachable', { why: 'no recipe whose support is present and within reach from here', block: c.block, feet, present: all.map((x) => `${x.support}:${presentAt(w, at(c, x.support)) ? 'y' : 'n'}:${S.reachTo(feet, at(c, x.support)).toFixed(1)}`).filter((v, i, a) => a.indexOf(v) === i), supports: all.map((x) => x.support).filter((v, i, a) => a.indexOf(v) === i) }, 'reach');
         const args = { x: c.x, y: c.y, z: c.z, item, ...blockArg, recipe: { support: q.support, face: q.face, hy: q.hy, yRot: q.yRot, pitch: q.pitch } };
         let p = await env.exec('place', args, { raw: true, maxTicks: 220 });
         // a precondition the station did not foresee (the body in the cell, an entity in the way, a support out of reach): the router's remedy, once (it moves the bot, then places)

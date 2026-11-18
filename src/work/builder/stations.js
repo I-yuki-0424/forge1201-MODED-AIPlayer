@@ -116,8 +116,10 @@ function chooseStation(view, cells, o = {}) {
     const from = o.from || cells[0], avoid = o.avoid || [], skip = o.skip || new Set(), ok = o.ok || null, look = cells.slice(0, o.lookahead || 40);
     const c0 = look.find((c) => !ok || ok(c, new Set())) || look[0], R = 5;
     let best = null;
+    const dg = o.diag || null;
     const consider = (S, kind, T, base, br = null) => {
         const sv = serves(view, S, look, T, ok);
+        if (dg) { dg.floors = (dg.floors || 0) + 1; if (!sv.length) dg.noServe = (dg.noServe || 0) + 1; else if (!sv.some((s) => s.cell === c0)) dg.notFirst = (dg.notFirst || 0) + 1; }
         if (!sv.length || (!sv.some((s) => s.cell === c0))) return;                              // the first cell that can go now must be one of them (progress)
         // Costs in tenths of a second of bot time (a placement is ~12): a move to another station costs the plan and the walk (about 2 s and 0.25 s a block, 0.5 s a level), a pillar climb
         // 1.2 s a level up and about as much to get down again afterwards.
@@ -129,8 +131,10 @@ function chooseStation(view, cells, o = {}) {
     };
     for (let dx = -R; dx <= R; dx++) for (let dz = -R; dz <= R; dz++) for (let dy = -5; dy <= 4; dy++) {
         const S = { x: c0.x + dx, y: c0.y + dy, z: c0.z + dz };
-        if (skip.has(key(S.x, S.y, S.z)) || !bodyFits(view, S, avoid)) continue;
-        if (view.solid(S.x, S.y - 1, S.z)) { if (hasExit(view, S)) consider(S, 'native', null, null); continue; }
+        if (dg) dg.tested = (dg.tested || 0) + 1;
+        if (skip.has(key(S.x, S.y, S.z))) { if (dg) dg.skipped = (dg.skipped || 0) + 1; continue; }
+        if (!bodyFits(view, S, avoid)) { if (dg) dg.body = (dg.body || 0) + 1; continue; }
+        if (view.solid(S.x, S.y - 1, S.z)) { if (hasExit(view, S)) consider(S, 'native', null, null); else if (dg) dg.noExit = (dg.noExit || 0) + 1; continue; }
         // a temporary block goes under the feet: the cell must be free, not a cell of the structure, and a column of free cells must lead down to something to climb from
         const T = { x: S.x, y: S.y - 1, z: S.z };
         if (!view.free(T.x, T.y, T.z) || view.cellSet.has(key(T.x, T.y, T.z))) continue;
