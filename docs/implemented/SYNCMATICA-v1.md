@@ -82,6 +82,13 @@ NAV got what it lacked: `descend` (place one under the temporary block, break th
 | nb16 | 395 | livelock: 600 zero-second "wait" cycles for a place held by a stopped bot; three bots each took all 24 stairs |
 | nb17 | 619 (12 min, 50 cells a minute at the best) | bots standing on each other's leftover temporary blocks; stations walled off |
 
+| nb18-nb19 | 619 / 688 | units stuck behind a blocked start window (all bots idle); wall compartments |
+| nb20 | **965 (18 min)** | water pours from under the platform, waterlog without a ray, a few stuck units at the top |
+| nb21-nb25 | 731 / 645 / 686 / 862 / 863 | a top unit that failed (trapdoor right-click) held up the dirt columns that hang from it; no standing place from inside a compartment; temp support against a non-solid block |
+| nb26 (45 min limit) | 744 at 30 min | the same build, slower (variance 550 .. 800 cells at 16 min between runs of the same code) |
+
+**State at the end of the session: the acceptance is NOT met.** 0 of 26 full runs finished the structure; the best is 965 of 1288 cells in 18 minutes with three bots and no server move (the old best: 445 cells in 58 minutes), typically 650 to 860 cells at 20 minutes. Fluids (36 sources, 12 waterlogged blocks), the lava, the repeaters and the beds have been placed live in the tail tests (`PREFILL=980`) only in part; the strict / static verdict was never reached. What is known to cost time: stuck units hold what hangs on them (the dirt columns hang from a top arm tip), compartments of the platform, supply trips from the platform (a descent and a climb each), run-to-run variance of 40 %.
+
 (The old best: 445 cells in 58 minutes.)
 
 ## Results of the first build (2026-11-17, superseded by the rewrite above)
