@@ -85,6 +85,22 @@ async function trial(k, S, svc, seed, rep) {
     const bx = { a: M, b: ref, size: [sx, sy, sz] };
     const match = async () => /^Test passed/.test(strip(await S.cmd(`execute if blocks ${M.x} ${M.y} ${M.z} ${X1} ${Y1} ${Z1} ${ref.x} ${ref.y} ${ref.z} all`)));
     const controlOk = !(await match());
+    // PREFILL=n (2026-11-18): the first n cells of the plan are set by commands before the bots start, so that the tail of the build (the upper layers, the fluids, trapdoors, gates, torches, the dirt
+    // columns) can be tested in minutes instead of after twenty minutes of the rest. A test aid for the developer: the owner's run is PREFILL=0.
+    const PRE = Number(process.env.PREFILL || 0);
+    if (PRE > 0) {
+        const done = new Set();
+        for (const c of plan0.list.slice(0, PRE)) {
+            const ax = M.x + c.x, ay = M.y + c.y, az = M.z + c.z, props = { ...(c.props || {}) };
+            if (c.waterlog) { await S.cmd(`setblock ${ax} ${ay} ${az} ${stateStr({ name: 'minecraft:' + c.of, props: { ...(plan0.byKey.get(`${c.x},${c.y},${c.z}`) || {}).props, waterlogged: 'true' } })} replace`); continue; }
+            if (/^(water|lava)$/.test(c.block)) { await S.cmd(`setblock ${ax} ${ay} ${az} minecraft:${c.block} replace`); continue; }
+            if (c.props && 'waterlogged' in c.props) props.waterlogged = 'false';
+            await S.cmd(`setblock ${ax} ${ay} ${az} ${stateStr({ name: 'minecraft:' + c.block, props })} replace`);
+            done.add(c.k);
+        }
+        await sleep(15000);
+        console.log(`[prefill] ${PRE} cells of the plan set by commands`);
+    }
     // supply chests on the deck (tagged `free`), every item of the plan's material list
     const mats = pl && build.materialsOf(pl.bp.blocks.filter((b) => !never.has(`${b.x},${b.y},${b.z}`)).map((b) => ({ block: pl.bp.palette[b.s].name.replace(/^minecraft:/, ''), props: pl.bp.palette[b.s].props })).filter((c) => !/^(air|cave_air|void_air)$/.test(c.block)));
     const stacks = []; for (const [it, n0] of Object.entries(mats)) { const n = n0 * 2, ms = STACK[it] || 64; for (let r = n; r > 0; r -= ms) stacks.push({ it, n: Math.min(ms, r) }); }      // twice the list: several builders fetch a stack each and must not starve each other (buckets and beds exactly)
