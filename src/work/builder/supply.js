@@ -52,7 +52,7 @@ async function restock(env, plan, need, opt = {}) {
     if (!sites) return { ok: false, reason: 'missing_item', detail: { item: lacking()[0][0], why: 'this environment has no list of containers' } };
     const log = { trips: 0, took: {} };
     const tried = new Set();
-    for (let round = 0; round < 6 && lacking().length; round++) {
+    for (let round = 0; round < 14 && lacking().length; round++) {
         const chests = sites.sources(env.pos()).filter((s) => !tried.has(`${s.x},${s.y},${s.z}`));
         if (!chests.length) break;
         const c = chests[0]; tried.add(`${c.x},${c.y},${c.z}`);

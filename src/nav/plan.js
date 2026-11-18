@@ -51,10 +51,12 @@ function view(w, o = {}) {
     /** The cost of making a body cell passable: 0 when it is, the dig cost when it can be dug, null when neither. */
     const clear = (x, y, z) => { const k = kind(x, y, z); if (passable(k) || k === 'water') return 0; return digCost(x, y, z); };            // water: the body passes (swimming); whether it can be held there is the node's business
     const maxDrop = o.maxDrop || (w.maxDrop && w.maxDrop()) || MAX_DROP;        // a job that works high up (a build in the sky) raises it for its bot: bot.__maxDrop
-    return { kind, name, digCost, clear, within: box, maxDrop };
+    // a floor the action layer refuses to stand on (another bot's temporary block: w.avoidFloor): the plan must not land on it either, or the walk to the end of the run fails for ever (2026-11-18, builders)
+    const avoid = (x, y, z) => !!(w.avoidFloor && w.avoidFloor(x, y, z));
+    return { kind, name, digCost, clear, within: box, maxDrop, avoid };
 }
 
-const solid = (V, x, y, z) => V.kind(x, y, z) === 'solid';
+const solid = (V, x, y, z) => V.kind(x, y, z) === 'solid' && !(V.avoid && V.avoid(x, y, z));
 const nodeKindOf = (V, x, y, z, placed) => {
     const k = V.kind(x, y, z), h = V.kind(x, y + 1, z);
     if (passable(k) && passable(h) && (placed || solid(V, x, y - 1, z))) return 'stand';

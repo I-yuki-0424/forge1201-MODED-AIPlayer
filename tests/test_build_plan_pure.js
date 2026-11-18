@@ -70,6 +70,9 @@ function world(deckY) {
         if (!progress) break;
     }
     console.log('stations', JSON.stringify(st).slice(0, 600));
+    const missing = plan.list.filter((c) => !R.right(c, w));
+    if (missing.length) { const m0 = missing[0], u0 = plan.unitOf.get(m0.k); const tt = plan.units[u0].filter((c) => !R.right(c, w)); console.log('DBG unit', u0, 'todo', tt.length, 'station', JSON.stringify((() => { const q = S.chooseStation(view, tt, { from: feet, ok: (c, l) => R.readyLocal(plan, c, w, l) }); return q && { S: q.S, n: q.serves.length, k: q.kind }; })()), 'free body', w.kindAt(m0.x + 1, m0.y + 1, m0.z), w.kindAt(m0.x + 1, m0.y + 2, m0.z), w.nameAt(m0.x + 1, m0.y, m0.z)); }
+    if (missing.length) console.log('NOT PLACED', missing.length, missing.slice(0, 14).map((c) => `${rel(c)}${c.waterlog ? 'w' : ''} dirs=${(c.dirs || []).join('/')} sup=${c.sup} seed=${c.seed} props=${JSON.stringify(c.props)}`).join(' | '));
     assert.strictEqual(st.failed.length, 0, 'every unit finds a station: ' + JSON.stringify(st.failed.slice(0, 5)));
     assert.strictEqual(st.placed, plan.count, 'every cell is placed from some station');
     console.log('build plan: ok');

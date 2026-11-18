@@ -87,9 +87,17 @@ function plan(cells, real, ground) {
         }
         let seed = false;
         if (!best) {                                                                      // nothing has its support: a floating piece starts here (or a cycle of waits is broken)
-            let b = null;
-            for (const k of left) { const c = owned.get(k); if (isReady(c) && (!b || c.y < b.y || (c.y === b.y && (c.x < b.x || (c.x === b.x && c.z < b.z))))) b = c; }
+            // a floating piece starts with the cell that can be placed against anything (a plain block), not with a trapdoor or a torch that needs one particular neighbour to be there
+            let b = null, bn = -1;
+            const free = (c) => (c.waterlog || c.fluid ? 6 : new Set(recipesFor(c, () => true).map((r) => r.support)).size);
+            for (const k of left) { const c = owned.get(k); if (!isReady(c)) continue; const n = free(c); if (!b || c.y < b.y || (c.y === b.y && (n > bn || (n === bn && (c.x < b.x || (c.x === b.x && c.z < b.z)))))) { b = c; bn = n; } }
             if (!b) for (const k of left) { const c = owned.get(k); if (!b || c.y < b.y) b = c; }
+            // a piece that can only hang on one particular neighbour (a trapdoor, a wall torch) starts with a plain block of the same connected piece, which the others then hang on
+            if (b && free(b) < 6) {
+                const seenK = new Set([b.k]), q = [b]; let alt = null;
+                while (q.length) { const a = q.shift(); if (free(a) === 6 && (!alt || a.y < alt.y)) alt = a; for (const [, v] of NB) { const n = byPos.get(`${a.x + v[0]},${a.y + v[1]},${a.z + v[2]}`); if (n && left.has(n.k) && !seenK.has(n.k)) { seenK.add(n.k); q.push(n); } } }
+                if (alt) b = alt;
+            }
             best = { c: b, sup: null }; seed = true;
         }
         const c = best.c; c.sup = best.sup; c.seed = seed; c.seq = list.length;
@@ -98,7 +106,8 @@ function plan(cells, real, ground) {
         for (const q of later.get(c.k) || []) eval1(q);
         if (!c.waterlog) { const w = owned.get(`${key(c)}w`); if (w) eval1(w); }
     }
-    for (const c of list) c.pre = pre.has(c.k) ? [...pre.get(c.k)] : [];
+    // the support directions the block can be placed against at all (a top-half trapdoor facing west: only the block to the east or above), whatever stands next to it
+    for (const c of list) { c.pre = pre.has(c.k) ? [...pre.get(c.k)] : []; c.dirs = c.waterlog || c.fluid ? DIRS.slice() : [...new Set(recipesFor(c, () => true).map((r) => r.support))]; }
     const units = chunk(list), unitOf = new Map();
     units.forEach((u, i) => u.forEach((c) => unitOf.set(c.k, i)));
     const deps = units.map((u, i) => {

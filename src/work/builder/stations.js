@@ -68,7 +68,7 @@ function serves(view, S, cells, T = null, ok = null) {
         let pick = null;
         if (c.waterlog) { if (reachTo(S, c) <= REACH && view.present(c.x, c.y, c.z)) pick = 'self'; }
         else {
-            const order = c.sup ? [c.sup, ...DIRS.filter((d) => d !== c.sup)] : DIRS;
+            const dirs = c.dirs || DIRS, order = c.sup && dirs.includes(c.sup) ? [c.sup, ...dirs.filter((d) => d !== c.sup)] : dirs;
             for (const d of order) {
                 const p = at(c, d);
                 if (!present(p) || reachTo(S, p) > REACH) continue;

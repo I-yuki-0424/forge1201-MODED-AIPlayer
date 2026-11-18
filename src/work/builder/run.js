@@ -55,9 +55,16 @@ function readyLocal(plan, c, w, local) {
 }
 
 /** Gate of the ledger: may unit u be claimed now? Before any bot has looked at the world: when the units it hangs on are settled. */
+const WINDOW = 14;                                        // units ahead of the first unfinished one that may be started: the order stays bottom-up (a floating piece high up is not begun before the floor around it)
 function gateOf(plan, job, u) {
-    const w = job.world;
-    if (!w) { const r = job.ledger.regions.get('b0'); return !r || plan.deps[u].every((d) => r.state[d] === 2 || r.state[d] === 3); }
+    const w = job.world, r = job.ledger.regions.get('b0');
+    if (r) {
+        let f = job.first || 0;
+        while (f < plan.units.length && (r.state[f] === 2 || r.state[f] === 3)) f++;
+        job.first = f;
+        if (u > f + WINDOW) return false;
+    }
+    if (!w) return !r || plan.deps[u].every((d) => r.state[d] === 2 || r.state[d] === 3);
     let any = false;
     for (const c of plan.units[u]) { if (placedName(c, w) && right(c, w)) continue; any = true; if (cellReady(plan, c, w)) return true; }
     return !any;                                                              // nothing left in it: let a bot close it
