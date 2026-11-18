@@ -11,12 +11,30 @@ const P = require('../builder/plan');
 const R = require('../builder/run');
 
 const AUDIT_ROUNDS = 3;
+const P_needs = (cells, w) => P.needsOf(cells, w), TRACE = !!process.env.BUILD_TRACE;
 
 function createBuildJob(cells, origin, ledgerOpts = {}, planOpts = {}) {
     const plan = P.planBuild(cells, origin, planOpts), ledger = new Ledger({ holdMs: 2000, ...ledgerOpts });
     const job = { kind: 'build', ledger, plan, world: null, auditRound: 0, auditAt: 0, waits: {}, noStation: {}, lastProgress: Date.now(), posts: require('../builder/posts').makePosts() };
     for (const r of plan.regions) ledger.addRegion({ ...r, gate: (u, bot, pos) => R.gateOf(plan, job, u, bot, pos), pick: (cands, o) => R.pickNear(plan, job, cands, o) });
     job.runUnit = (regionId, unit, env) => R.runUnit(plan, job, regionId, unit, env);
+    /**
+     * A bot with an area and nothing to claim (the first minutes: the trunk of the structure is built by one bot, the others wait for what hangs on it) goes to the chests and fills its pack with the
+     * materials of the first units of its area, so that its first unit needs no trip. At most once every two minutes.
+     */
+    job.idle = async (env, id, now) => {
+        const posts = require('../builder/posts'), supply = require('../builder/supply'), P = job.posts;
+        if (!env.bot || !env.sites || !env.travel || !env.run) return;
+        const z = posts.postOf(plan, job, id, env.pos(), now);
+        if (z < 0 || now - (P.fetched.get(id) || 0) < 120000) return;
+        const st = ledger.regions.get('b0').state, [a, b] = plan.zones.units[z];
+        let u = a; while (u < b && (st[u] === 2 || st[u] === 3)) u++;
+        if (u >= b) return;
+        P.fetched.set(id, now);
+        const need = supply.batch(env.bot, plan, u, env.w, P_needs(plan.units[u], env.w));
+        const rs = await supply.restock(env, plan, need, { trigger: need, topup: false, reserve: 3 });
+        if (TRACE) console.log(`[build] ${id} idle fetch for area ${z}: ${rs.ok ? 'ok' : 'short'} trips=${rs.trips || 0} items=${Object.keys(need).length}`);
+    };
     job.cleanup = async (env) => { if (env && env.bot) { env.bot.__reserve = null; } };
     job.diff = (w) => P.diffBuild(plan, w);
     /**

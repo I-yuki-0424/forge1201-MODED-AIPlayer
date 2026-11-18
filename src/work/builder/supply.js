@@ -47,6 +47,16 @@ function wishes(bot, need, left, { reserve = 10, maxStacks = 2, share = 3, topup
 const slotsOf = (bot, need) => Object.entries(need).reduce((n, [it, c]) => n + Math.ceil(c / stackOf(bot, it)), 0);
 
 /**
+ * What the pack holds of the plan's materials beyond what the coming run needs (`need`), as [{ item, count }]: the leftovers of the batch of another area, or of the first fetch (run 2,
+ * 2026-11-18: a bot held 145 bricks and 143 wall pieces for a unit that needed 18, had no free slot for the 3 stairs it lacked, and failed on `missing_item` for ten minutes).
+ */
+function surplus(bot, plan, need) {
+    const mats = plan.materials || {}, have = {};
+    for (let s = bot.inventory.inventoryStart; s < bot.inventory.inventoryEnd; s++) { const it = bot.inventory.slots[s]; if (it && it.name in mats) have[it.name] = (have[it.name] || 0) + it.count; }
+    return Object.entries(have).map(([item, n]) => ({ item, count: n - (need[item] || 0) })).filter((o) => o.count > 0).sort((a, b) => b.count - a.count).slice(0, 40).map((o) => ({ item: o.item, count: Math.min(2304, o.count) }));
+}
+
+/**
  * What a bot takes along for its WHOLE RUN of work (owner 2026-11-18: build one small component, fetch materials, build the next: 5 s of placing, 30 s of walking): the items of unit `u` and of the
  * units that follow it in the same area, as many as fit in the pack (whole units, in order), counting the cells that do not hold their block yet. `unitNeed`: what `u` needs (always included, even
  * when it alone is more than the pack holds). Without a bot (a test environment) it is `unitNeed`.
@@ -88,6 +98,15 @@ async function restock(env, plan, need, opt = {}) {
         let t = await env.travel({ x: c.x, y: c.y, z: c.z }, { near: 2, nearY: 2, maxSegments: 16, stuckAfter: 3, footNodes: 3000, why: 'supply' });
         if (!t.ok && ['stuck', 'unreachable'].includes(t.reason)) t = await env.travel({ x: c.x, y: c.y, z: c.z }, { near: 2, nearY: 2, maxSegments: 24, stuckAfter: 3, footNodes: 3000, digStructure: true, why: 'supply (through the structure)' });
         if (!t.ok) { log.lastTravel = { reason: t.reason, why: t.detail && (t.detail.why || t.detail.nav) }; if (['cancelled', 'died', 'disconnected'].includes(t.reason)) return t; continue; }
+        // Room first: what the pack holds beyond this run goes back into the chest (it is also what the other bots lack), when the free slots do not hold what is to be taken.
+        if (env.bot && opt.makeRoom !== false) {
+            const extra = surplus(env.bot, plan, need), want = slotsOf(env.bot, Object.fromEntries(items.map((i) => [i.item, i.count])));
+            if (extra.length && emptySlots(env.bot) < want + 3) {
+                const d = await env.run('deposit_many', { items: extra, x: c.x, y: c.y, z: c.z });
+                log.deposited = (log.deposited || 0) + (d.ok && d.detail && d.detail.done ? d.detail.done.reduce((n, g) => n + g.moved, 0) : 0);
+                if (!d.ok && ['cancelled', 'died', 'disconnected'].includes(d.reason)) return d;
+            }
+        }
         const r = await env.run('take_many', { items, x: c.x, y: c.y, z: c.z });
         log.trips++;
         if (r.ok && r.detail) for (const g of r.detail.got || []) log.took[g.item] = (log.took[g.item] || 0) + g.moved;
@@ -97,4 +116,4 @@ async function restock(env, plan, need, opt = {}) {
     return l.length ? { ok: false, reason: 'missing_item', detail: { item: l[0][0], short: Object.fromEntries(l.map(([it, n]) => [it, n - env.have(it)])), ...log } } : { ok: true, ...log };
 }
 
-module.exports = { restock, wishes, batch, slotsOf, remaining, emptySlots, stackOf };
+module.exports = { restock, wishes, batch, surplus, slotsOf, remaining, emptySlots, stackOf };

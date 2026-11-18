@@ -166,6 +166,8 @@ async function trial(k, S, svc, seed, rep) {
             left.push(`u${u}[${['pending', 'leased', 'done', 'stuck'][r.state[u]]} att${r.attempts[u]} gate=${R.gateOf(pl, j.impl, u)} ${undone}/${pl.units[u].length} ${c.block}@${c.x - M.x},${c.y - M.y},${c.z - M.z}]`);
         }
         console.log(`[units left ${left.length}] ${left.slice(0, 60).join(' ')}`);
+        const lg = L.log, t00 = lg.length ? lg[0].t : 0;          // who claimed what when (the ledger keeps the last 500 events): the timeline of every bot
+        console.log(`[ledger log] ${lg.filter((e) => e.ev === 'claim' || e.ev === 'done' || e.ev === 'fail' || e.ev === 'release').map((e) => `${Math.round((e.t - t00) / 1000)}s ${e.bot || ''}${e.ev === 'claim' ? '+' + e.units.join(',') : e.ev === 'done' ? ' done u' + e.unit : e.ev === 'fail' ? ' FAIL u' + e.unit + ' ' + e.reason : ' rel u' + e.unit}`).join(' | ')}`);
     } catch (e) { console.log('[units left] failed:', e.message); }
     await sleep(25000);                                                                                       // let the fluids and the circuit settle before judging
     const strict = await match();

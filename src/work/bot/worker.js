@@ -94,6 +94,7 @@ async function runWorker(job, id, env, { cancel = { cancelled: false }, policy =
                 // The next layer waits for units other bots are still running; if nobody is running anything, nothing will change.
                 if (L.progress().leased === 0 && !L.checkBusy(now()) && ++idle > 20) { L.leave(id, now()); return { ended: 'stalled', units, failed }; }
                 act('idle');                                    // nothing claimable: the next layer waits for other bots' units, or the units left are on hold after a failure
+                if (job.idle) { try { await job.idle(env, id, now()); } catch (_) { /* waiting is not a task that can fail */ } }          // a build: fetch the materials of the bot's area while it waits
                 await sleep(pollMs);
                 continue;
             }

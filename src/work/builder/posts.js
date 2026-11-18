@@ -2,13 +2,13 @@
 // POSTS (owner 2026-11-18): "once an assignment is decided, keep it and hold the post, unless the bot leaves due to some problem; two bots should not build the same place". The plan is cut into
 // one area (zone) per bot (order.js `partition`). A bot takes a free area when it first asks for work and keeps it: it carries the materials for that area only, and builds nothing else
 // while the area has work it can do. Another bot's area is touched only when
-//   - the bot has no area (more bots than areas), or its own area is finished, or nothing in it was claimable for IDLE_MS (it waits for cells of a neighbouring area), and
+//   - the bot has no area (more bots than areas), or its own area is finished, or nothing in it was claimable for IDLE_MS (it waits for cells of a neighbouring area: run 1, 2026-11-18, idle 30 to 57 % of the time), and
 //   - the unit is at least APART blocks from where the area's keeper is working (a helper stays away from the keeper), unless the keeper has left.
 // An area whose keeper has been gone for KEEP_MS goes to the next bot that asks. Pure: the ledger (the units' states, which bots are here) and the plan come in as arguments.
-const KEEP_MS = 120000, IDLE_MS = 20000, APART = 14;
+const KEEP_MS = 120000, IDLE_MS = 6000, APART = 14;
 const DONE = 2, STUCK = 3;
 
-const makePosts = () => ({ owner: [], of: new Map(), ownAt: new Map(), at: new Map() });
+const makePosts = () => ({ owner: [], of: new Map(), ownAt: new Map(), at: new Map(), fetched: new Map() });
 
 const state = (job) => job.ledger.regions.get('b0').state;
 const zoneOf = (plan, u) => plan.zones.ofUnit[u];
@@ -62,16 +62,18 @@ function allows(plan, job, u, id, pos, now) {
     return true;
 }
 
-/** The order a bot is offered the claimable units: its own area first (bottom-up; of the first few the nearest), then other areas, the one with the most left first, the unit farthest from its keeper first. */
+/**
+ * The order a bot is offered the claimable units: its own area first, bottom-up (of the first few the nearest), then other areas, the one with the most left first, bottom-up. A unit with a
+ * floating piece (a seed: placed when nothing else could go, at the top, 20 levels of climbing) comes after the others in either (run 1: one bot spent 8 minutes on one at the very top).
+ */
 function order(plan, job, cands, { pos, bot }, now = Date.now()) {
-    const P = job.posts, mine = postOf(plan, job, bot, pos, now);
-    const own = cands.filter((u) => zoneOf(plan, u) === mine).sort((a, b) => a - b), W = 4;
+    const P = job.posts, mine = postOf(plan, job, bot, pos, now), sd = (u) => (plan.seedUnit[u] ? 1 : 0);
+    const own = cands.filter((u) => zoneOf(plan, u) === mine).sort((a, b) => sd(a) - sd(b) || a - b), W = 4;
     if (own.length) P.ownAt.set(bot, now);
-    const head = own.slice(0, W).sort((a, b) => Math.hypot(plan.centre[a].x - pos.x, plan.centre[a].z - pos.z) - Math.hypot(plan.centre[b].x - pos.x, plan.centre[b].z - pos.z));
+    const head = own.filter((u) => !sd(u)).slice(0, W).sort((a, b) => Math.hypot(plan.centre[a].x - pos.x, plan.centre[a].z - pos.z) - Math.hypot(plan.centre[b].x - pos.x, plan.centre[b].z - pos.z));
     const left = (u) => remaining(plan, job, zoneOf(plan, u));
-    const far = (u) => { const k = P.owner[zoneOf(plan, u)], at = k && k !== bot ? P.at.get(k) : null; return at ? Math.hypot(plan.centre[u].x - at.x, plan.centre[u].z - at.z) : 0; };
-    const foreign = cands.filter((u) => zoneOf(plan, u) !== mine).sort((a, b) => left(b) - left(a) || far(b) - far(a) || a - b);
-    return [...head, ...own.slice(W), ...foreign];
+    const foreign = cands.filter((u) => zoneOf(plan, u) !== mine).sort((a, b) => sd(a) - sd(b) || left(b) - left(a) || a - b);
+    return [...head, ...own.filter((u) => !head.includes(u)), ...foreign];
 }
 
 /** The bot starts working on unit u: where it is (others keep away from it). */

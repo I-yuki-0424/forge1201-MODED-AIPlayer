@@ -118,6 +118,9 @@ function world(deckY) {
         assert.ok(supply.slotsOf(bot, many) <= 36 - 2 - 3 + 0, `and fits the pack (${supply.slotsOf(bot, many)} slots)`);
         for (const [it, n] of Object.entries(one)) assert.ok((many[it] || 0) >= n, 'the unit at hand is always in it');
         assert.deepStrictEqual(supply.batch(null, p3, u0, w0, one), one, 'no bot: the unit alone');
+        // leftovers of an earlier run are surplus: they go back into the chest to make room (a full pack once left a bot without the 3 stairs it lacked for ten minutes)
+        const bot2 = { inventory: { inventoryStart: 9, inventoryEnd: 45, slots: Object.assign(new Array(45).fill(null), { 9: { name: 'stone_bricks', count: 64 }, 10: { name: 'stone_bricks', count: 64 }, 11: { name: 'glass', count: 10 }, 12: { name: 'cobblestone', count: 64 }, 13: { name: 'diamond_pickaxe', count: 1 } }) } };
+        assert.deepStrictEqual(supply.surplus(bot2, p3, { stone_bricks: 18 }), [{ item: 'stone_bricks', count: 110 }, { item: 'glass', count: 10 }], 'what the run does not need goes back; tools and temporary blocks stay');
     }
     console.log('build plan: ok');
 })().catch((e) => { console.error(e); process.exit(1); });

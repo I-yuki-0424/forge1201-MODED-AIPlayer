@@ -13,6 +13,7 @@ const posts = require('./posts');
 const { sturdy } = require('./order');
 
 const D = O.DIR;
+const UNIT_BUDGET_MS = 150000;
 const FATAL = new Set(['died', 'disconnected', 'cancelled', 'wrong_dimension']);
 const POSITIONAL = new Set(['unreachable', 'not_visible', 'stuck', 'precondition_failed', 'timeout']);
 const at = (c, d) => ({ x: c.x + D[d][0], y: c.y + D[d][1], z: c.z + D[d][2] });
@@ -66,7 +67,7 @@ function gateOf(plan, job, u, id = null, pos = null) {
         let f = Math.max(job.first[z] || a, a);
         while (f < b && (r.state[f] === 2 || r.state[f] === 3 || r.attempts[f] > 0)) f++;          // a unit that failed is not waited for: the window moves on
         job.first[z] = f;
-        if (u > f + WINDOW && Date.now() - (job.lastProgress || 0) < 15000) return false;          // the window yields when nothing has been placed for 15 s (the unit at its front may wait for cells of a failed one)
+        if (u > f + WINDOW && Date.now() - (job.lastProgress || 0) < (plan.seedUnit[u] ? 90000 : 15000)) return false;          // the window yields when nothing has been placed for 15 s (the unit at its front may wait for cells of a failed one), for a floating piece after 90 s
     }
     if (!w) return !r || plan.deps[u].every((d) => r.state[d] === 2 || r.state[d] === 3);
     let any = false;
@@ -77,7 +78,7 @@ function gateOf(plan, job, u, id = null, pos = null) {
 /** The order a bot is offered claimable units: its own area first, bottom-up (posts.js), then other areas. */
 function pickNear(plan, job, cands, o) { return posts.order(plan, job, cands, o); }
 
-const TRACE = !!process.env.BUILD_TRACE;
+const TRACE = !!process.env.BUILD_TRACE, T0 = Date.now();                // the trace lines carry the seconds since the process began
 /**
  * A bot that stands in a cell of the plan (feet or head) that is not placed yet is in the way of whoever places there (live 2026-11-18: an idle builder stood in the gap of a ring for five
  * minutes and three others failed `not_confirmed`): it steps to the nearest cell outside the plan where a body fits, on a floor.
@@ -102,7 +103,7 @@ async function runUnit(plan, job, regionId, u, env) {
     const t0 = Date.now(), res = await runUnit0(plan, job, regionId, u, env);
     if (res.ok ? !res.partial || (res.detail && res.detail.placed > 0) : (res.detail && res.detail.placed > 0)) job.lastProgress = Date.now();
     try { await clearOfPlan(plan, env); } catch (_) { /* getting out of the way is a courtesy */ }
-    if (TRACE) console.log(`[build] ${env.bot ? env.bot.username : '?'} u${u.unit} ${res.ok ? (res.partial ? 'partial' : 'ok') : 'FAILED ' + res.reason} ${Math.round((Date.now() - t0) / 100) / 10}s ${JSON.stringify(res.detail || {}).slice(0, 900)}`);
+    if (TRACE) console.log(`[build] ${Math.round((Date.now() - T0) / 1000)}s ${env.bot ? env.bot.username : '?'} u${u.unit} ${res.ok ? (res.partial ? 'partial' : 'ok') : 'FAILED ' + res.reason} ${Math.round((Date.now() - t0) / 100) / 10}s ${JSON.stringify(res.detail || {}).slice(0, 900)}`);
     return res;
 }
 async function runUnit0(plan, job, regionId, u, env) {
@@ -121,8 +122,17 @@ async function runUnit0(plan, job, regionId, u, env) {
     if (!job.waits) job.waits = {};
     if (!job.noStation) job.noStation = {};
     let idle = 0, last = null, down = 0;
+    const tStart = Date.now();
+    if (!job.budget) job.budget = {};
     for (let round = 0; round < 18; round++) {
         if (env.cancelled && env.cancelled()) return { ok: false, reason: 'cancelled', detail: { ...r } };
+        // A unit is a few nearby cells: more than UNIT_BUDGET_MS on it (a stateful block placed again and again, trips for an item that is not there) is a sink, not progress (run 1: 495 s on three
+        // cells at the top). The unit goes back unfinished and the bot works elsewhere; the third time it is a failure (the ledger parks it after a few of those).
+        if (round > 0 && Date.now() - tStart > UNIT_BUDGET_MS) {
+            const n = job.budget[u.unit] = (job.budget[u.unit] || 0) + 1, todo0 = cells.filter((c) => !right(c, env.w)).length;
+            if (n <= 3) return { ok: true, partial: true, holdMs: 20000, detail: { ...r, waiting: todo0, why: 'unit time budget used' } };
+            return { ok: false, reason: 'timeout', detail: { why: 'unit time budget used three times', ...(last || {}), ...r } };
+        }
         const todo = cells.filter((c) => !right(c, env.w));
         if (!todo.length) {
             delete job.waits[u.unit]; delete job.noStation[u.unit];
@@ -138,6 +148,7 @@ async function runUnit0(plan, job, regionId, u, env) {
         const unitNeed = P.needsOf(todo, env.w);
         const rs = await supply.restock(env, plan, supply.batch(env.bot, plan, u.unit, env.w, unitNeed), { trigger: unitNeed, topup: false, reserve: 3 });
         if (rs.trips) r.trips += rs.trips;
+        if (TRACE && (rs.trips || !rs.ok)) console.log(`[build] ${Math.round((Date.now() - T0) / 1000)}s ${me} u${u.unit} restock ${rs.ok ? 'ok' : 'SHORT'} trips=${rs.trips || 0} unit-need ${JSON.stringify(unitNeed)} have ${JSON.stringify(Object.fromEntries(Object.keys(unitNeed).map((it) => [it, env.have(it)])))} free-slots ${env.bot ? supply.emptySlots(env.bot) : '?'}${rs.ok ? '' : ' ' + JSON.stringify({ short: rs.detail && rs.detail.short, lastTravel: rs.detail && rs.detail.lastTravel, lastTake: rs.detail && rs.detail.lastTake }).slice(0, 300)}`);
         if (!rs.ok) return { ok: false, reason: rs.reason, detail: { ...(rs.detail || {}), cell: ready[0], stage: 'stock', ...r } };
         const view = S.viewOf(env.w, plan.cellSet);
         const dg = {};
@@ -162,7 +173,7 @@ async function runUnit0(plan, job, regionId, u, env) {
         const st2 = stUse;
         const sk = `${stUse.S.x},${stUse.S.y},${stUse.S.z}`;
         r.stations++;
-        if (TRACE) console.log(`[build] ${bot ? bot.username : '?'} u${u.unit} round ${round}: station ${stUse.kind} ${sk} serves ${stUse.serves.length}/${todo.length}${stUse.bridge ? ' (bridge ' + stUse.bridge.g + ')' : ''} from ${JSON.stringify(env.here())}`);
+        if (TRACE) console.log(`[build] ${Math.round((Date.now() - T0) / 1000)}s ${bot ? bot.username : '?'} u${u.unit} round ${round}: station ${stUse.kind} ${sk} serves ${stUse.serves.length}/${todo.length}${stUse.bridge ? ' (bridge ' + stUse.bridge.g + ')' : ''} from ${JSON.stringify(env.here())}`);
         const f = env.here(), real = !!env.bot;                                          // (a test environment without a bot has no position to check)
         if (real && (f.x !== stUse.S.x || f.y !== stUse.S.y || f.z !== stUse.S.z)) {
             const t = await env.travel({ x: stUse.S.x, y: stUse.S.y, z: stUse.S.z }, { near: 0, nearY: 0, maxSegments: 16, stuckAfter: 3, footNodes: 3000, why: `build station (${stUse.kind})` });

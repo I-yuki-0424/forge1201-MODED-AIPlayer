@@ -28,8 +28,9 @@ function planBuild(cells, origin, { known = null, groundTop = null, zones = 1 } 
     const footprint = new Set(placeable.map((c) => `${c.x},${c.z}`));
     const cellSet = new Set(real.map(C.ckey));                                                   // every cell the structure owns (flows and bed heads too): no temporary block goes there
     const byKey = new Map(o.list.map((c) => [c.k, c]));
+    const seedUnit = o.units.map((u) => u.some((c) => c.seed));                                 // a unit with a floating piece: begun last
     const centre = o.units.map((u) => ({ x: u.reduce((a, c) => a + c.x, 0) / u.length, y: u.reduce((a, c) => a + c.y, 0) / u.length, z: u.reduce((a, c) => a + c.z, 0) / u.length }));
-    return { origin, minY, maxY, layers: maxY - minY + 1, groundTop: gt, tiles, regions, units: o.units, deps: o.deps, unitOf: o.unitOf, zones: o.zones, list: o.list, byKey, centre, unsupported, unbuildable: [...never].map(([k, why]) => ({ at: k, why })), footprint, cellSet, want, count: all.length, skipped, materials: C.materialsOf(placeable) };
+    return { origin, minY, maxY, layers: maxY - minY + 1, groundTop: gt, tiles, regions, units: o.units, deps: o.deps, unitOf: o.unitOf, zones: o.zones, seedUnit, list: o.list, byKey, centre, unsupported, unbuildable: [...never].map(([k, why]) => ({ at: k, why })), footprint, cellSet, want, count: all.length, skipped, materials: C.materialsOf(placeable) };
 }
 
 /** Cells of one unit in placement order. */
