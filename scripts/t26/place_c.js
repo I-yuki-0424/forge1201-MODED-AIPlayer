@@ -116,6 +116,7 @@ async function trial(k, S, svc, seed, rep) {
     for (const [i, n] of names.entries()) { await S.must(`tp ${n} ${M.x - 4.5} ${M.y} ${M.z - 3.5 - i}`); await T.kit(S, n, { blocks: 320 }); }
     await sleep(4000);
     for (let i = 0; i < chests.length; i++) svc.addSite({ name: `supply${i}`, x: sup[i].x, y: sup[i].y, z: sup[i].z, purpose: 'free' });      // after the bot sees the chunk
+    console.log(`[place_c site] box minimum ${M.x} ${M.y} ${M.z}, size ${sx} x ${sy} x ${sz}; reference copy at ${ref.x} ${ref.y} ${ref.z}; supply chests at x ${M.x - 3}; /tp ${M.x + 22} ${M.y + 30} ${M.z + 22} to look down on it`);
     await T.say(S, `place_c: ${name} builds ${parsed.meta.name} (${probe.blocks.length} blocks) at ${M.x} ${M.y} ${M.z}, trial ${k + 1}/${TRIALS}`);
     const t0 = Date.now(); let state = 'control', shared = null, got = null, err = null;
     if (!T.CONTROL) {
