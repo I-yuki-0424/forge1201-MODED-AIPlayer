@@ -104,23 +104,32 @@ async function clearOfPlan(plan, env) {
  * supply trip, so the worker's own recovery never ran): after a unit that placed nothing and could not walk, at the same place again, the escape ladder of the worker (jump, sidestep, step
  * back, wait, descend) is run, one rung per time.
  */
-async function unstrand(job, me, env) {
+async function unstrand(plan, job, me, env) {
     const s = job.strand && job.strand[me]; if (!s || !env.recover) return;
     const f = env.here();
     if (f.x !== s.x || f.y !== s.y || f.z !== s.z) { delete job.strand[me]; return; }
     if (++s.n < 2) return;
     if (TRACE && s.n === 2 && env.w) { const g = (dy) => [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => `${env.w.nameAt(f.x + dx, f.y + dy, f.z + dz) || '?'}/${env.w.kindAt(f.x + dx, f.y + dy, f.z + dz)}`).join(' '); console.log(`[build] ${me} strand view at ${f.x},${f.y},${f.z}: y+1 ${g(1)} | y ${g(0)} | y-1 ${g(-1)} | y-2 ${g(-2)}`); }
     if (TRACE) console.log(`[build] ${Math.round((Date.now() - T0) / 1000)}s ${me} stranded at ${f.x},${f.y},${f.z} (${s.n}): escape`);
+    // Stranded again and again within minutes (run 8, 2026-11-18: three bots stepped from one wall compartment of the plate into the next for ten minutes; the step off moved them, so the ladder
+    // never got to its last rung): down to the deck, a block at a time, the way a player does (moves.js descend; it breaks what is under the feet, the final look of the build puts it back).
+    const now = Date.now(), hist = job.strandHist[me] = (job.strandHist[me] || []).filter((t) => now - t < 240000); hist.push(now);
     try {
-        if (env.stepOff && s.n % 2 === 0) { const o = await env.stepOff({ maxDrop: s.n >= 4 ? 8 : 3 }); if (TRACE) console.log(`[build] ${me} step off: ${o.ok ? 'to ' + JSON.stringify(o.to) : 'no edge'}`); if (o.ok) return; }          // every other time: over the edge of what it stands on
+        if (hist.length >= 3 && env.run && f.y > plan.origin.y) {
+            job.strandHist[me] = [];
+            const d = await env.run('descend', { levels: Math.min(40, f.y - plan.origin.y) });
+            if (TRACE) console.log(`[build] ${me} descend: ${d.ok ? JSON.stringify(d.detail || {}).slice(0, 120) : d.reason + ' ' + JSON.stringify(d.detail || {}).slice(0, 160)}`);
+            if (d.ok || (d.detail && d.detail.levels)) return;
+        }
+        if (env.stepOff && s.n === 2) { const o = await env.stepOff({ maxDrop: 3 }); if (TRACE) console.log(`[build] ${me} step off: ${o.ok ? 'to ' + JSON.stringify(o.to) : 'no edge'}`); if (o.ok) return; }          // once per place: over the edge of what it stands on
         await env.recover(Math.min(6, s.n + 1), { reason: 'unreachable', detail: { why: 'stranded' } });
     } catch (_) { /* a failed fix is tried again with the next */ }
 }
 
 async function runUnit(plan, job, regionId, u, env) {
     const me = env.bot ? env.bot.username : null;
-    if (!job.strand) job.strand = {};
-    if (me) await unstrand(job, me, env);
+    if (!job.strand) { job.strand = {}; job.strandHist = {}; }
+    if (me) await unstrand(plan, job, me, env);
     const t0 = Date.now(), res = await runUnit0(plan, job, regionId, u, env).finally(() => { if (me && job.posts) posts.resting(job, me); });
     if (me) { const f = env.here(), d = res.detail || {}; if (d.noMove && !(d.placed > 0)) { const s = job.strand[me]; if (!s || s.x !== f.x || s.y !== f.y || s.z !== f.z) job.strand[me] = { x: f.x, y: f.y, z: f.z, n: 0 }; } else delete job.strand[me]; }
     if (res.ok ? !res.partial || (res.detail && res.detail.placed > 0) : (res.detail && res.detail.placed > 0)) job.lastProgress = Date.now();
