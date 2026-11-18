@@ -184,6 +184,8 @@ async function buildCell(plan, c, sup, env, r) {
 const botIn = (env, c) => !!env.others && env.others().some((o) => Math.floor(o.x) === c.x && Math.floor(o.z) === c.z && (Math.floor(o.y) === c.y || Math.floor(o.y) + 1 === c.y));
 async function placeOriented(c, item, sup, env, r) {
     let lastNc = null;
+    // the bot's own body in the cell (a station inside a cell of the plan, which is then the next to place): one step aside first
+    { const f = env.here(); if (env.bot && f.x === c.x && f.z === c.z && (c.y === f.y || c.y === f.y + 1) && env.stepAside) await env.stepAside(); }
     if (botIn(env, c)) return bad('blocked', { why: 'another bot stands in the cell', block: c.block }, 'entity');
     const w = env.w, blockArg = c.block !== item ? { block: c.block } : {}, tried = new Set();
     const solidAt = (d) => { const q = at(c, d); return presentAt(w, q) && sturdy(nm(w, q.x, q.y, q.z), d, C.bare(c.block)); };
