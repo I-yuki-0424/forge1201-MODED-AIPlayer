@@ -89,8 +89,19 @@ Simulation (`tests/test_build_plan_pure.js`, the iron farm, one simulated builde
 | 3 (+ surplus back to the chest, idle prefetch) | 157 | 391 | 536 | 609 | 780 | 851 | a bot stranded on a wall for 12 minutes (no move from its cell) |
 | 4 (+ escape ladder) | 14 | 34 | 474 | 538 | 739 | 817 | the key unit of the tower failed at 17 s and nobody took it for 230 s |
 | 5 (+ noShun, partial instead of failed, step off) | 225 | 406 | 594 | 817 | 900 | 918 | the tail: 18 pours into a flowing-water cell, floating pieces whose temporary support has no standing place |
+| 6 (+ pour check) | 206 | 435 | 593 | 664 | 807 | 813 | a bot stood in a wall cell for 8 minutes, no edge within 3 below (the jump had placed a wall under its feet) |
+| 7 (+ jump for full cubes only) | 162 | 435 | 604 | 733 | 766 | 785 | bots stranded on the wall lines between the water channels of the plate |
+| 8 (+ step off onto stairs, shortest fall) | 226 | 450 | 539 | 563 | 589 | 591 | **worse**: the step off moved the three bots from one wall compartment into the next for ten minutes, so the escape ladder never reached its last rung |
+| 9 (+ third strand within 4 min: descend) | 198 | 436 | 579 | 748 | 882 | 912 | no strand logged; the tail as in run 5 |
 
-Old typical: 650-860 at 20 minutes, best 965 (18 minutes). The acceptance (the whole structure, strict or static, within 20 minutes) is **not met**: no run finished; the best is 918 of 1288 at 18 minutes. What the four observations explain, and what is left: the early phase is 3 to 5 times faster than before (the trunk and the first platform layers in 4 to 8 minutes), no bot is frozen any more (full pack, stranded cell, shunned key unit were three separate freezes); what is left is the tail (stone-brick walls and glass at +13 to +21 levels, dirt columns that hang from a top arm tip, water cells that are flowing water, floating pieces inside walls) and a per-cell cost of about 3.5 s of bot time, which is 25 minutes for three bots even with no idle time. Run 6 is in the commit history of this file.
+Old typical: 650-860 at 20 minutes, best 965 (18 minutes). The acceptance (the whole structure, strict or static, within 20 minutes) is **not met**: no run finished; the runs that held (5, 9) reach 912-918 of 1288 at 18 minutes, the others 785-851, and the variance between runs of the same code is about 10 %. What the four observations explain, and what is left:
+
+- **Early phase 3 to 5 times faster**: 400-450 cells at 4 minutes, 540-600 at 6-8 minutes (before: 589 at 14 minutes at the best). Healthy units place 18 to 24 cells in 5 to 20 seconds (about 0.8 s a cell including the walk).
+- **No bot frozen by the causes found**: a full pack (restock reported `free-slots 0`), a bot standing in a wall cell where the planner finds no move (`partial plan, 0 moves`), the key unit shunned after one failure, floating pieces taken at the start. Each of them cost one bot 8 to 12 minutes in a run.
+- **Left**: the tail, from minute 10: stone-brick walls and glass at +13 to +21 levels, dirt columns that hang from a top arm tip, floating pieces whose temporary support has no standing place inside the walls (`no standing cell within reach ... (it is inside rock)`, parked as stuck), water cells that hold flowing water (level 1) beside a source, and the compartments of the plate (walls 1.5 high). There the cost is about 3.5 s of bot time a cell, which is 25 minutes for three bots even with no idle time. These are structure-specific cases, not a rule of the four observations; whether they can be closed within the 20 minutes is open (**not proven impossible**).
+- Offline (`tests/test_build_plan_pure.js`): one builder alone walks 2401 blocks in 185 stations; with three areas the busiest area walks 1509 blocks (91 stations).
+
+Ledger and timeline of a run: `scripts/t26/place_c.js` prints `[ledger log]` (who claimed what when) and `[units left]`; `BUILD_TRACE=1 NAV_TRACE=1` give per-unit and per-walk lines with seconds.
 
 ## The test `place_c` (rewritten)
 
