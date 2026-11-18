@@ -7,7 +7,7 @@
 //   - judge: the box of the blueprint is compared with a REFERENCE copy that the harness makes by commands (every cell, air included: `execute if blocks ... all`); the empty site must NOT match.
 //     The strict comparison includes properties the game derives (power, lit, extended ...): they can differ without the structure being wrong, so the report also lists every differing cell
 //     and says whether the difference is only in such a property ("static" verdict: same block, same placement-decided properties, same fluids).
-//   scripts/t26/run.sh N place_c.js [LIMIT_MIN=90] [TRIALS=1] [CONTROL=noop] [LITEMATIC=/app/tests/fixtures/x.litematic] [ROT=CLOCKWISE_90] [MIR=LEFT_RIGHT] [KEEP_SITE=1]
+//   scripts/t26/run.sh N place_c.js [BOTS=3] [LIMIT_MIN=20 (= 60 / BOTS)] [TRIALS=1] [CONTROL=noop] [LITEMATIC=/app/tests/fixtures/x.litematic] [ROT=CLOCKWISE_90] [MIR=LEFT_RIGHT] [KEEP_SITE=1]
 const fs = require('fs'), path = require('path');
 const T = require('./lib');
 const { createBot, attachHandshake } = require('../../src/transport');
@@ -15,7 +15,8 @@ const sm = require('../../src/transport/syncmatica');
 const lit = require('../../src/work/jobs/litematic');
 const build = require('../../src/work/jobs/build');
 const O = require('../../src/work/jobs/orient');
-const LIMIT_MIN = Number(process.env.LIMIT_MIN || 90), TRIALS = Number(process.env.TRIALS || 1), BOTS = Math.min(6, Math.max(1, Number(process.env.BOTS || 1)));
+const TRIALS = Number(process.env.TRIALS || 1), BOTS = Math.min(6, Math.max(1, Number(process.env.BOTS || 3)));
+const LIMIT_MIN = Number(process.env.LIMIT_MIN || Math.round(60 / BOTS));          // the owner's bar (2026-11-18): within one hour / the number of bots (3 bots: 20 minutes)
 const names = Array.from({ length: BOTS }, (_, i) => `Fm${T.WORLD}${'abcdef'[i - 1] || ''}`), name = names[0];      // BOTS=n: n builders on one job (the crew ledger shares the units)
 const FILE = process.env.LITEMATIC || path.join(__dirname, '../../tests/fixtures/easy-ironfarm-fixd.litematic');
 const STACK = { white_bed: 1, water_bucket: 1, lava_bucket: 1, oak_sign: 16, snowball: 16 };
@@ -149,13 +150,14 @@ async function trial(k, S, svc, seed, rep) {
         }
     }
     const staticOk = strict || (wrong.length > 0 && wrong.every((q) => q.dynamicOnly));
-    rep.trial(`${name}#${k + 1}`, controlOk && state === 'finished' && staticOk, { strict, staticOk, controlOk, state, err, minutes: Math.round((Date.now() - t0) / 60000), min: M, box: [sx, sy, sz], blocks: probe.blocks.length, unbuildable: plan0.unbuildable, materials: mats, syncmatica: got, wrongCells: wrong.slice(0, 40), problems: (svc.problems && svc.problems.list || []).slice(-8).map((q) => JSON.stringify(q).slice(0, 300)), serverMoves: moves, units: (svc.jobs.get(got && got.job) || {}).progress });
+    const noTeleport = Object.keys(moves).length === 0;
+    rep.trial(`${name}#${k + 1}`, controlOk && state === 'finished' && staticOk && noTeleport, { strict, staticOk, controlOk, noTeleport, bots: BOTS, limitMin: LIMIT_MIN, state, err, minutes: Math.round((Date.now() - t0) / 60000), min: M, box: [sx, sy, sz], blocks: probe.blocks.length, unbuildable: plan0.unbuildable, materials: mats, syncmatica: got, wrongCells: wrong.slice(0, 40), problems: (svc.problems && svc.problems.list || []).slice(-8).map((q) => JSON.stringify(q).slice(0, 300)), serverMoves: moves, units: (svc.jobs.get(got && got.job) || {}).progress });
     return { strict, staticOk };
 }
 
 (async () => {
     const rep = T.reporter('place_c');
-    const { S, svc, seed } = await T.open(names, { teleport: process.env.TELEPORT || 'near' });     // 'near': the server may put a bot next to a supply chest or back on its feet (counted in the report as serverMoves); TELEPORT=off for none
+    const { S, svc, seed } = await T.open(names, { teleport: process.env.TELEPORT || 'off' });     // no server moves at all (owner 2026-11-18: "it worked around movement by teleporting"); TELEPORT=near allows them, counted as serverMoves, and fails the trial
     moves = T.countMoves(svc);
     await S.must('gamerule keep_inventory true');                                                             // owner: survival with keep inventory, peaceful
     const out = [];

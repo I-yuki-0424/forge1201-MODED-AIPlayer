@@ -56,12 +56,13 @@ class Ledger {
         this.log = [];                      // bounded event ring for reports
     }
 
-    addRegion({ id, anchor = { x: 0, z: 0 }, layers, rows, deps = [], meta = {} }) {
+    // `gate(u)`: may unit u be claimed now (a build: the cells it hangs on are there)? `pick(candidates, {pos, bot})`: the order in which a bot is offered the claimable units (a build: the nearest first).
+    addRegion({ id, anchor = { x: 0, z: 0 }, layers, rows, deps = [], meta = {}, gate = null, pick = null }) {
         if (this.regions.has(id)) throw new Error(`region ${id} exists`);
         if (!Number.isInteger(layers) || !Number.isInteger(rows) || layers < 1 || rows < 1) throw new Error(`region ${id}: layers/rows`);
         const n = layers * rows;
         this.regions.set(id, {
-            id, anchor, layers, rows, deps, meta, n,
+            id, anchor, layers, rows, deps, meta, n, gate, pick,
             state: new Uint8Array(n), attempts: new Uint8Array(n), owner: new Int32Array(n).fill(-1),
             until: new Float64Array(n), avoid: new Int32Array(n).fill(-1), hold: new Float64Array(n), sig: new Array(n).fill(null), same: new Uint8Array(n),
             settled: new Int32Array(layers), checked: new Uint8Array(layers), checking: null, front: 0, doneN: 0, stuckN: 0, leasedN: 0, lessees: new Map(), keeper: -1,
@@ -224,7 +225,7 @@ class Ledger {
             if (this.maxLead !== Infinity && r.front - minFront > this.maxLead) continue;
             const base = r.front * r.rows;
             let any = false, pending = 0;
-            for (let i = 0; i < r.rows; i++) if (r.state[base + i] === PENDING && r.avoid[base + i] !== shun && r.hold[base + i] <= now) { any = true; pending++; }
+            for (let i = 0; i < r.rows; i++) if (r.state[base + i] === PENDING && r.avoid[base + i] !== shun && r.hold[base + i] <= now && (!r.gate || r.gate(base + i))) { any = true; pending++; }
             if (!any) continue;
             const others = r.lessees.size - (r.lessees.has(b.idx) ? 1 : 0);
             const d = Math.hypot(r.anchor.x - pos.x, r.anchor.z - pos.z);
@@ -237,11 +238,12 @@ class Ledger {
         if (!best) return null;
         const { r } = best, base = r.front * r.rows, units = [];
         const helper = r.keeper >= 0 ? r.keeper !== b.idx : best.others > 0 && !r.lessees.has(b.idx);
-        const order = [...Array(r.rows).keys()]; if (helper) order.reverse();       // helpers start at the tail
+        let order = [...Array(r.rows).keys()]; if (helper) order.reverse();       // helpers start at the tail
+        if (r.pick) order = r.pick(order.filter((i) => r.state[base + i] === PENDING && r.avoid[base + i] !== shun && r.hold[base + i] <= now && (!r.gate || r.gate(base + i))), { pos, bot: botId });
         for (const i of order) {
             if (units.length >= batch) break;
             const u = base + i;
-            if (r.state[u] !== PENDING || r.avoid[u] === shun || r.hold[u] > now) continue;
+            if (r.state[u] !== PENDING || r.avoid[u] === shun || r.hold[u] > now || (r.gate && !r.gate(u))) continue;
             r.state[u] = LEASED; r.owner[u] = b.idx; r.until[u] = now + this.leaseMs; r.leasedN++;
             r.lessees.set(b.idx, (r.lessees.get(b.idx) || 0) + 1);
             b.leases.add(`${r.id}\u0000${u}`);
@@ -252,6 +254,14 @@ class Ledger {
         if (b.home === null && !helper) { b.home = r.id; r.keeper = b.idx; }
         this._ev({ t: now, ev: 'claim', bot: botId, region: r.id, units: units.map((x) => x.unit), helper });
         return { region: r.id, meta: r.meta, units, role: helper ? 'helper' : 'owner' };
+    }
+
+    /** The bot hands a unit back unfinished (it placed what it could, the rest waits for other cells): pending again, no attempt counted, not claimable for `holdMs`. */
+    release(botId, regionId, u, now, holdMs = 0) {
+        const r = this.regions.get(regionId), b = this.bot(botId);
+        if (!r || r.state[u] !== LEASED || r.owner[u] !== b.idx) return false;
+        this._release(r, u, now); r.hold[u] = now + holdMs;
+        return true;
     }
 
     /** The unit is done (accepted also after the lease expired or went to another bot: units are idempotent). */

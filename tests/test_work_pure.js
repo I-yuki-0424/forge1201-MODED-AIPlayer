@@ -341,21 +341,18 @@ function fakeWorld(ground = 0, init = {}) {
         assert.deepStrictEqual(janitor.plan([{ name: 'gravel', count: 64 }], 30, pol), [], 'plenty of room: nothing to do');
     });
 
-    await test('build: a house blueprint, tiles, unit order, scaffold height, idempotent run, repair diff', async () => {
+    await test('build: a house blueprint becomes units bottom-up, the crew places it, the run is idempotent, the diff is the repair list', async () => {
         const cells = build.house({ w: 7, d: 7, h: 4 });
         assert.strictEqual(cells.length, 49 + 4 * 24 + 49);
         const job = build.createBuildJob(cells, { x: 100, y: 64, z: 200 });
         assert.strictEqual(job.plan.layers, 6); assert.deepStrictEqual(job.plan.unsupported, []);
+        assert.strictEqual(job.plan.list.length, job.plan.count);
         const w = fakeWorld(63);
         const placed = [], inv = { cobblestone: 99, oak_planks: 99, glass: 99, oak_door: 2 };
         const env = {
             w, have: (i) => inv[i] || 0, here: () => ({ x: 99, y: 64, z: 200 }), pos: () => ({ x: 100, z: 200 }), inv: () => ({ items: [], slotsFree: 30 }),
             exec: async (name, a) => {
-                if (name === 'place') {
-                    if (a.y > 64 + 3 && !w.cells.has(`${a.x - 1},${a.y - 1},${a.z}`) && a.item !== 'cobblestone' && a.y >= 68 && !env.up) return { ok: false, reason: 'unreachable' };
-                    w.set(a.x, a.y, a.z, a.item); placed.push([a.x, a.y, a.z, a.item]); return { ok: true };
-                }
-                if (name === 'move_to') { env.up = true; return { ok: true }; }
+                if (name === 'place') { w.set(a.x, a.y, a.z, a.item); placed.push([a.x, a.y, a.z, a.item]); return { ok: true }; }
                 if (name === 'mine') { w.set(a.x, a.y, a.z, 'air'); return { ok: true }; }
                 throw new Error(name);
             },
@@ -363,52 +360,29 @@ function fakeWorld(ground = 0, init = {}) {
         const res = await runWorker(job, 'b', env, { pollMs: 1, backoff: () => 1 });
         assert.strictEqual(res.ended, 'finished');
         assert.deepStrictEqual(job.diff(w), [], 'every cell of the blueprint is in the world');
+        assert.strictEqual(placed.length, job.plan.count, 'each cell is placed once');
         assert.ok(placed.findIndex((p) => p[1] === 65) > placed.findIndex((p) => p[1] === 64), 'bottom-up');
-        const doorAt = placed.findIndex((p) => p[3] === 'oak_door'), lastWall = placed.map((p) => p[1] === 65 && p[3] === 'oak_planks').lastIndexOf(true);
-        assert.ok(doorAt > lastWall - 100, 'attached blocks are placed after the structure of their layer');
-        assert.ok(placed.some((p) => p[3] === 'cobblestone' && p[1] > 64 && !job.plan.footprint.has(`${p[0]},${p[2]}`)), 'the roof needed a scaffold');
-        assert.ok(![...w.cells].some(([k, n]) => { const [x, y, z] = k.split(',').map(Number); return n === 'cobblestone' && !job.plan.footprint.has(`${x},${z}`); }), 'scaffold blocks removed again');
         w.set(103, 66, 200, 'air'); w.set(100, 64, 205, 'air');
-        assert.strictEqual(job.diff(w).length, 2, 'a hole in the wall and one in the floor are the repair list');
+        const holes = job.diff(w);
+        assert.strictEqual(holes.length, 2, 'a hole in the wall and one in the floor are the repair list');
+        // a second crew on the same plan finds nothing to do
+        const again = build.createBuildJob(cells, { x: 100, y: 64, z: 200 }), n0 = placed.length;
+        for (const h of holes) w.set(h.x, h.y, h.z, h.block);
+        assert.strictEqual((await runWorker(again, 'b', env, { pollMs: 1, backoff: () => 1 })).ended, 'finished');
+        assert.strictEqual(placed.length, n0, 'idempotent: nothing is placed twice');
     });
 
-    await test('build: a failed walk to the placement face (stuck, goal reach placement face) also gets a scaffold; other stuck reasons do not', async () => {
-        const run = async (detail) => {
-            const job = build.createBuildJob(build.house({ w: 7, d: 7, h: 4 }), { x: 100, y: 64, z: 200 });
-            const w = fakeWorld(63), inv = { cobblestone: 99, oak_planks: 99, glass: 99, oak_door: 2 }, placed = [];
-            const env = {
-                w, have: (i) => inv[i] || 0, here: () => ({ x: 99, y: 64, z: 200 }), pos: () => ({ x: 100, z: 200 }), inv: () => ({ items: [], slotsFree: 30 }),
-                exec: async (name, a) => {
-                    if (name === 'place') {
-                        if (a.y >= 68 && a.item !== 'cobblestone' && !env.up) return { ok: false, reason: 'stuck', detail };
-                        w.set(a.x, a.y, a.z, a.item); placed.push(a); return { ok: true };
-                    }
-                    if (name === 'move_to') { env.up = true; return { ok: true }; }
-                    if (name === 'mine') { w.set(a.x, a.y, a.z, 'air'); return { ok: true }; }
-                    throw new Error(name);
-                },
-            };
-            return { res: await runWorker(job, 'b', env, { pollMs: 1, backoff: () => 1 }), job, w, placed };
-        };
-        const good = await run({ goal: 'reach placement face', why: 'end of partial path' });
-        assert.strictEqual(good.res.ended, 'finished'); assert.deepStrictEqual(good.job.diff(good.w), []);
-        assert.ok(good.placed.some((p) => p.item === 'cobblestone' && p.y > 64 && !good.job.plan.footprint.has(`${p.x},${p.z}`)), 'scaffold built');
-        const bad = await run({ goal: 'somewhere else' });
-        assert.notStrictEqual(bad.res.ended, 'finished'); assert.ok(!bad.placed.some((p) => p.item === 'cobblestone' && !bad.job.plan.footprint.has(`${p.x},${p.z}`)), 'no scaffold for the bot\'s own trouble');
-    });
-
-    await test('scaffold: a stair outside the footprint, column j is K-j high, placed outer column first; none when in reach; null when boxed in', () => {
-        const cells = build.house({ w: 7, d: 7, h: 4 }), plan = build.planBuild(cells, { x: 100, y: 64, z: 200 }), w = fakeWorld(63);
-        assert.deepStrictEqual(build.scaffoldFor(plan, w, { x: 103, y: 65, z: 203 }, 64), { top: null, cells: [] }, 'wall base needs nothing');
-        const roof = { x: 103, y: 69, z: 203 };
-        const sc = build.scaffoldFor(plan, w, roof, 64);
-        assert.ok(sc && sc.top.y === 68, JSON.stringify(sc && sc.top));
-        const K = 4, cols = {}; for (const c of sc.cells) cols[c.j] = (cols[c.j] || 0) + 1;
-        assert.deepStrictEqual(cols, { 0: 4, 1: 3, 2: 2, 3: 1 });
-        assert.ok(sc.cells.every((c) => c.temp && !plan.footprint.has(`${c.x},${c.z}`)), 'never inside the footprint');
-        assert.strictEqual(sc.cells[0].j, K - 1, 'outer column first');
-        for (let i = 1; i < sc.cells.length; i++) if (sc.cells[i].j === sc.cells[i - 1].j) assert.ok(sc.cells[i].y > sc.cells[i - 1].y, 'bottom up inside a column');
-        assert.strictEqual(build.scaffoldFor(plan, w, { x: 103, y: 80, z: 203 }, 64), null, 'too high for a stair');
+    await test('build: a unit waits for the cells it hangs on (the gate), and a unit with its cells in the world is closed without a placement', async () => {
+        const job = build.createBuildJob(build.house({ w: 7, d: 7, h: 4 }), { x: 100, y: 64, z: 200 }), L = job.ledger, w = fakeWorld(63);
+        const top = job.plan.units.length - 1;
+        L.join('b'); job.world = null;
+        const claim = L.claim('b', { x: 100, z: 200 }, Date.now(), { batch: 50 });
+        assert.ok(claim && claim.units.every((u) => job.plan.deps[u.unit].length === 0), 'before the world is known only units that wait for nothing are claimable');
+        for (const u of claim.units) L.release('b', claim.region, u.unit, Date.now());
+        job.world = w;                                                  // an empty site: only what stands on the ground is ready
+        const c2 = L.claim('b', { x: 100, z: 200 }, Date.now(), { batch: 50 });
+        assert.ok(c2.units.length >= 1 && c2.units.length < top + 1, 'not every unit is ready on an empty site');
+        assert.ok(c2.units.every((u) => job.plan.units[u.unit].some((c) => c.y === 64)), 'the ready ones are the ground floor');
     });
 
     await test('structure .nbt (the game format) round-trips into cells; air and structure_void are skipped; mod blocks are reported', async () => {

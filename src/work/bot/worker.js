@@ -122,6 +122,8 @@ async function runWorker(job, id, env, { cancel = { cancelled: false }, policy =
                 const r = await job.runUnit(claim.region, u, env);
                 onEvent('unit', { id, region: claim.region, unit: u.unit, role: claim.role, ok: r.ok, reason: r.reason, ms: now() - t0, detail: r.reason === 'cancelled' && env.takeCancelCause ? { ...(r.detail || {}), cause: env.takeCancelCause() || 'unknown' } : r.detail });
                 sinceAudit++;
+                // A build unit that placed what it could and waits for cells other units place: handed back, not done (idempotent), not a failure.
+                if (r.ok && r.partial) { L.release(id, claim.region, u.unit, now(), r.holdMs || 5000); units++; streak = 0; if (env.rememberGood) env.rememberGood(); await sleep(300); continue; }
                 if (!r.ok && (r.reason === 'wrong_dimension' || (env.wrongDim && env.wrongDim()))) {           // it left the job's dimension during the unit (or was never in it): nothing is the unit's fault
                     L.fail(id, claim.region, u.unit, 'wrong_dimension', now());
                     for (const rest of claim.units) if (rest.unit > u.unit) L.fail(id, claim.region, rest.unit, 'cancelled', now());
