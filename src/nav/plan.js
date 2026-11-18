@@ -9,14 +9,14 @@
 //   dig           a body cell in the way is broken first (tunnel, step up through rock, a staircase down)   per block: 3 + hardness (unsafe cells: never)
 //   digdown       break the floor and drop onto the cell below (no deeper fall than 3)                       1.5 + hardness
 //   pillar        place a block in the feet cell and stand on it, in open air only                          PILLAR (10; through rock the staircase is the way up)
-//   bridge        place a block under the next cell (no ground within 3 below) and step on                   BRIDGE (8)
-//   descend       on a block this bot placed (a pillar's last block, a bridge block): put one under it, break the one under the feet, drop  DESCEND (3 a level)
+//   bridge        place a block under the next cell (no ground within 3 below) and step on                   BRIDGE (12)
+//   descend       on a block this bot placed (a pillar's last block, a bridge block): put one under it, break the one under the feet, drop  DESCEND (5 a level)
 //                 (2026-11-18: with no way down a builder on a high temporary block stayed there; the reverse of a pillar, moves.js `descend`)
 // Pure: the world comes in as world.js's interface (kindAt, nameAt); `o.dig(name)` says whether and how hard a block is to break with the pack the bot has (null = never).
 // The plan does not model its own changes beyond the node it makes (a pillar or bridge node stands on its placed block), the way Baritone's movements do; the walker replans every segment.
 const { passable, swimmable, climbable } = require('../skills/world');
 
-const PILLAR = 10, BRIDGE = 8, DESCEND = 3, SWIM = 2.5, CLIMB = 1.5, MAX_DROP = 3;
+const PILLAR = 10, BRIDGE = 12, DESCEND = 5, SWIM = 2.5, CLIMB = 1.5, MAX_DROP = 3;
 const CARD = [[1, 0], [-1, 0], [0, 1], [0, -1]], DIAG = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
 const FLUIDS = new Set(['water', 'liquid', 'danger']);
 const FALLING = /^(sand|red_sand|gravel|suspicious_sand|suspicious_gravel|[a-z_]+_concrete_powder|pointed_dripstone|anvil|chipped_anvil|damaged_anvil|scaffolding|dragon_egg)$/;
@@ -243,7 +243,7 @@ function cellGoal(t, { near = 1, nearY = 1 } = {}) {
     const hasY = Number.isInteger(t.y);
     return {
         is: (n) => Math.abs(n.x - t.x) <= near && Math.abs(n.z - t.z) <= near && (!hasY || Math.abs(n.y - t.y) <= nearY) && n.kind !== 'climb',
-        h: (n) => Math.max(0, Math.hypot(n.x - t.x, n.z - t.z) - near) + (hasY ? Math.max(0, Math.abs(n.y - t.y) - nearY) : 0),
+        h: (n) => Math.max(0, Math.hypot(n.x - t.x, n.z - t.z) - near) + (hasY ? Math.max(0, Math.abs(n.y - t.y) - nearY) + 3 * Math.max(0, t.y - n.y - nearY) : 0),          // a level up costs more than a level down (a pillar, a step): the search goes up first and does not fan out over the whole deck
     };
 }
 /** The lowest level at which the column (x, z) sees the sky, from `y` up (the surface over a cave), or null when the column is not loaded that far. */

@@ -63,13 +63,23 @@ function gateOf(plan, job, u) {
     return !any;                                                              // nothing left in it: let a bot close it
 }
 
-/** The order a bot is offered claimable units: the nearest to where it stands first, the earlier in the plan on a tie. */
+/**
+ * The order a bot is offered claimable units: bottom-up first (the plan's order), and among the first few of them the nearest to where it stands (a bot keeps to its corner and does not
+ * walk across the site). A floating piece 20 levels up is ready from the start but is not the first thing to do: the first live run began with it.
+ */
 function pickNear(plan, cands, { pos }) {
-    const d = (i) => Math.hypot(plan.centre[i].x - pos.x, plan.centre[i].z - pos.z) + 0.25 * i;
-    return cands.slice().sort((a, b) => d(a) - d(b));
+    const byIdx = cands.slice().sort((a, b) => a - b), W = 8, head = byIdx.slice(0, W), rest = byIdx.slice(W);
+    head.sort((a, b) => Math.hypot(plan.centre[a].x - pos.x, plan.centre[a].z - pos.z) - Math.hypot(plan.centre[b].x - pos.x, plan.centre[b].z - pos.z));
+    return [...head, ...rest];
 }
 
+const TRACE = !!process.env.BUILD_TRACE;
 async function runUnit(plan, job, regionId, u, env) {
+    const t0 = Date.now(), res = await runUnit0(plan, job, regionId, u, env);
+    if (TRACE) console.log(`[build] ${env.bot ? env.bot.username : '?'} u${u.unit} ${res.ok ? (res.partial ? 'partial' : 'ok') : 'FAILED ' + res.reason} ${Math.round((Date.now() - t0) / 100) / 10}s ${JSON.stringify(res.detail || {}).slice(0, 300)}`);
+    return res;
+}
+async function runUnit0(plan, job, regionId, u, env) {
     const bot = env.bot || null;
     job.world = env.w;
     const r = { placed: 0, skipped: 0, fixed: 0, poured: 0, stations: 0, trips: 0 };
@@ -86,7 +96,7 @@ async function runUnit(plan, job, regionId, u, env) {
         if (!todo.length) return { ok: true, reason: null, detail: r };
         const ready = todo.filter((c) => cellReady(plan, c, env.w));
         if (!ready.length) return { ok: true, partial: true, holdMs: 6000, detail: { ...r, waiting: todo.length } };
-        const rs = await supply.restock(env, plan, P.needsOf(ready, env.w));
+        const rs = await supply.restock(env, plan, P.needsOf(todo, env.w));            // the whole unit's items at once: a trip for the cells that are ready now and another for the rest cost more than they save
         if (rs.trips) r.trips += rs.trips;
         if (!rs.ok) return { ok: false, reason: rs.reason, detail: { ...(rs.detail || {}), cell: ready[0], stage: 'stock', ...r } };
         const view = S.viewOf(env.w, plan.cellSet);
@@ -94,6 +104,7 @@ async function runUnit(plan, job, regionId, u, env) {
         if (!st) return { ok: false, reason: 'unreachable', detail: { why: 'no standing place within reach of the next cells', cell: ready[0], stage: 'station', tried: tried.size, ...r } };
         const sk = `${st.S.x},${st.S.y},${st.S.z}`;
         r.stations++;
+        if (TRACE) console.log(`[build] ${bot ? bot.username : '?'} u${u.unit} round ${round}: station ${st.kind} ${sk} serves ${st.serves.length}/${todo.length}${st.bridge ? ' (bridge ' + st.bridge.g + ')' : ''} from ${JSON.stringify(env.here())}`);
         const f = env.here(), real = !!env.bot;                                          // (a test environment without a bot has no position to check)
         if (real && (f.x !== st.S.x || f.y !== st.S.y || f.z !== st.S.z)) {
             const t = await env.travel({ x: st.S.x, y: st.S.y, z: st.S.z }, { near: 0, nearY: 0, why: `build station (${st.kind})` });

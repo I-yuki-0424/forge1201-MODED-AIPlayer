@@ -135,7 +135,7 @@ async function descend(ctx, { levels }) {
         ctx.phase('descend_break', { cell: under });
         const r = await mine(ctx, { ...under, collect: false, blind: true, hand: true }).then(() => null, (e) => e);
         if (r && !(r instanceof SkillError && r.reason === 'invalid_target')) throw r;
-        await ctx.until(() => bot.entity.onGround && feetCell(bot.entity.position).y === f.y - 1, 40, 'stuck');
+        await ctx.until(() => bot.entity.onGround && feetCell(bot.entity.position).y === f.y - 1, 100, 'stuck');          // (a slow dig, a server that lags: 2 s was too short once in a run of ten levels)
         done++;
         if (step.act === 'break') break;                                                                    // on the ground
     }
