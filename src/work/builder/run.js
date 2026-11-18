@@ -81,9 +81,30 @@ function pickNear(plan, cands, { pos }) {
 }
 
 const TRACE = !!process.env.BUILD_TRACE;
+/**
+ * A bot that stands in a cell of the plan (feet or head) that is not placed yet is in the way of whoever places there (live 2026-11-18: an idle builder stood in the gap of a ring for five
+ * minutes and three others failed `not_confirmed`): it steps to the nearest cell outside the plan where a body fits, on a floor.
+ */
+async function clearOfPlan(plan, env) {
+    if (!env.bot || !env.travel) return;
+    const w = env.w, f = env.here(), inPlan = (x, y, z) => plan.cellSet.has(`${x},${y},${z}`) && !placedName(plan.byKey.get(`${x},${y},${z}`) || {}, w);
+    if (!inPlan(f.x, f.y, f.z) && !inPlan(f.x, f.y + 1, f.z)) return;
+    const view = S.viewOf(w, plan.cellSet);
+    let best = null;
+    for (let dx = -4; dx <= 4; dx++) for (let dz = -4; dz <= 4; dz++) for (let dy = -2; dy <= 2; dy++) {
+        const c = { x: f.x + dx, y: f.y + dy, z: f.z + dz };
+        if (!view.solid(c.x, c.y - 1, c.z) || !view.free(c.x, c.y, c.z) || !view.free(c.x, c.y + 1, c.z) || plan.cellSet.has(`${c.x},${c.y},${c.z}`) || plan.cellSet.has(`${c.x},${c.y + 1},${c.z}`)) continue;
+        if (env.others && env.others().some((o) => Math.abs(o.x - (c.x + 0.5)) < 1.2 && Math.abs(o.z - (c.z + 0.5)) < 1.2)) continue;
+        const d = Math.abs(dx) + Math.abs(dz) + 2 * Math.abs(dy);
+        if (!best || d < best.d) best = { ...c, d };
+    }
+    if (best) await env.travel({ x: best.x, y: best.y, z: best.z }, { near: 0, nearY: 0, maxSegments: 8, stuckAfter: 2, footNodes: 2000, why: 'out of the way of the structure' });
+}
+
 async function runUnit(plan, job, regionId, u, env) {
     const t0 = Date.now(), res = await runUnit0(plan, job, regionId, u, env);
-    if (TRACE) console.log(`[build] ${env.bot ? env.bot.username : '?'} u${u.unit} ${res.ok ? (res.partial ? 'partial' : 'ok') : 'FAILED ' + res.reason} ${Math.round((Date.now() - t0) / 100) / 10}s ${JSON.stringify(res.detail || {}).slice(0, 300)}`);
+    try { await clearOfPlan(plan, env); } catch (_) { /* getting out of the way is a courtesy */ }
+    if (TRACE) console.log(`[build] ${env.bot ? env.bot.username : '?'} u${u.unit} ${res.ok ? (res.partial ? 'partial' : 'ok') : 'FAILED ' + res.reason} ${Math.round((Date.now() - t0) / 100) / 10}s ${JSON.stringify(res.detail || {}).slice(0, 900)}`);
     return res;
 }
 async function runUnit0(plan, job, regionId, u, env) {
@@ -132,6 +153,7 @@ async function runUnit0(plan, job, regionId, u, env) {
             if (res.ok) continue;
             if (FATAL.has(res.reason)) return { ok: false, reason: res.reason, detail: { ...(res.detail || {}), ...r } };
             last = { reason: res.reason, ...(res.detail || {}), stage: res.stage, cell: sv.cell, station: sk };
+            if (res.reason === 'blocked') return { ok: true, partial: true, holdMs: 3000, detail: { ...r, waiting: todo.length, why: res.detail && res.detail.why } };        // somebody stands there: another unit meanwhile
             if (res.reason === 'missing_item') break;                                     // the next round fetches it
             if (POSITIONAL.has(res.reason)) { tried.add(sk); break; }
             return { ok: false, reason: res.reason, detail: { ...last, ...r } };
@@ -156,7 +178,11 @@ async function buildCell(plan, c, sup, env, r) {
     return placeOriented(c, item, sup, env, r);
 }
 
+/** Another bot's body in the cell (the server refuses a block placed into a player). */
+const botIn = (env, c) => !!env.others && env.others().some((o) => Math.floor(o.x) === c.x && Math.floor(o.z) === c.z && (Math.floor(o.y) === c.y || Math.floor(o.y) + 1 === c.y));
 async function placeOriented(c, item, sup, env, r) {
+    let lastNc = null;
+    if (botIn(env, c)) return bad('blocked', { why: 'another bot stands in the cell', block: c.block }, 'entity');
     const w = env.w, blockArg = c.block !== item ? { block: c.block } : {}, tried = new Set();
     const solidAt = (d) => { const q = at(c, d); return presentAt(w, q) && sturdy(nm(w, q.x, q.y, q.z), d, C.bare(c.block)); };
     const all = O.recipes(c.block, c.props, solidAt);
@@ -166,12 +192,12 @@ async function placeOriented(c, item, sup, env, r) {
         const usable = all.filter((x) => !tried.has(x) && presentAt(w, at(c, x.support)) && (!env.bot || S.reachTo(feet, at(c, x.support)) <= S.REACH + 0.3));
         usable.sort((a, b) => (a.support === sup ? 0 : 1) - (b.support === sup ? 0 : 1) || (require('../../skills/world').isInteractive(nm(w, at(c, a.support).x, at(c, a.support).y, at(c, a.support).z)) ? 1 : 0) - (require('../../skills/world').isInteractive(nm(w, at(c, b.support).x, at(c, b.support).y, at(c, b.support).z)) ? 1 : 0));
         const q = usable[0];
-        if (!q) return bad('unreachable', { why: 'no recipe whose support is present and within reach from here', block: c.block, feet, present: all.map((x) => `${x.support}:${presentAt(w, at(c, x.support)) ? 'y' : 'n'}:${S.reachTo(feet, at(c, x.support)).toFixed(1)}`).filter((v, i, a) => a.indexOf(v) === i), supports: all.map((x) => x.support).filter((v, i, a) => a.indexOf(v) === i) }, 'reach');
+        if (!q) return bad('unreachable', { why: 'no recipe whose support is present and within reach from here', block: c.block, lastNotConfirmed: lastNc, feet, present: all.map((x) => `${x.support}:${presentAt(w, at(c, x.support)) ? 'y' : 'n'}:${S.reachTo(feet, at(c, x.support)).toFixed(1)}`).filter((v, i, a) => a.indexOf(v) === i), supports: all.map((x) => x.support).filter((v, i, a) => a.indexOf(v) === i) }, 'reach');
         const args = { x: c.x, y: c.y, z: c.z, item, ...blockArg, recipe: { support: q.support, face: q.face, hy: q.hy, yRot: q.yRot, pitch: q.pitch } };
         let p = await env.exec('place', args, { raw: true, maxTicks: 220 });
         // a precondition the station did not foresee (the body in the cell, an entity in the way, a support out of reach): the router's remedy, once (it moves the bot, then places)
         if (!p.ok && ['unreachable', 'not_visible', 'stuck', 'precondition_failed'].includes(p.reason) && env.command) p = await env.command('place', args);
-        if (!p.ok) { if (p.reason === 'not_confirmed') { tried.add(q); continue; } return { ...p, stage: 'place' }; }
+        if (!p.ok) { if (p.reason === 'not_confirmed') { if (botIn(env, c)) return bad('blocked', { why: 'another bot stands in the cell', block: c.block }, 'entity'); tried.add(q); lastNc = p.detail; continue; } return { ...p, stage: 'place' }; }
         const now = w.blockAt ? w.blockAt(c.x, c.y, c.z) : null;
         if (now && !C.stateMatches(now, c)) {
             r.fixed++; tried.add(q);
