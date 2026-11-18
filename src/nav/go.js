@@ -266,7 +266,7 @@ async function walk(W, env0, target, o) {
         const foreign = !!(T0 && T0.get(dim0, { x: here.x, y: here.y - 1, z: here.z }));
         const own = (x, y, z) => own0(x, y, z) || (foreign && x === here.x && y === here.y - 1 && z === here.z), underTemp = !!own(here.x, here.y - 1, here.z);
         const start = { ...here, ...(bot && bot.entity && bot.entity.onGround && !bot.entity.isInWater ? { ground: true } : {}), ...(underTemp ? { placed: true } : {}) };           // on a slab, a fence top, a bed: a start the grid would not call a node; on its own temporary block: a descent is possible
-        const plan = await P.planAsync(env.w, start, goal, { dig: digCostFor(bot), protectedCell: protectedFor(env), noPlace: !!o.noPlace, noDig: !!o.noDig, maxNodes: o.maxNodes || 14000, footNodes: o.footNodes, score, blocks: packBlocks(bot), keep: bot && bot.__keep ? bot.__keep : null, isTemp: own });
+        const plan = await P.planAsync(env.w, start, goal, { dig: digCostFor(bot), protectedCell: protectedFor(env), noPlace: !!o.noPlace, noDig: !!o.noDig, maxNodes: o.maxNodes || 14000, footNodes: o.footNodes, score, blocks: packBlocks(bot), keep: bot && bot.__keep ? bot.__keep : null, isTemp: own, foreignFloor: foreign && !own0(here.x, here.y - 1, here.z) });
         info.segments++;
         if (!plan) {
             // not on a node (in a bush, half in a wall, mid-air): let the body settle, then the action layer's walk to the nearest cell

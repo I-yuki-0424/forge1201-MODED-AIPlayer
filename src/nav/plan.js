@@ -132,7 +132,7 @@ function moves(V0, n, o) {
     // straight up on a placed block (pillar), digging the cell over the head if needed
     // only in open air (the head room free) and only from a full block or the last pillar block: through rock the staircase is the way up (T26 move_b: pillars "stuck" and "nothing solid
     // under the feet" in caves, where the start stood on a partial block or the head room had to be dug at every level)
-    if (here === 'stand' && !o.noPlace && (n.placed || solid(V, x, y - 1, z))) {
+    if (here === 'stand' && !o.noPlace && !(o.foreignFloor && n.move === 'start') && (n.placed || solid(V, x, y - 1, z))) {          // not from another bot's block: the pillar refuses to ride it
         const h = V.clear(x, y + 2, z);
         if (h === 0) add({ x, y: y + 1, z, kind: 'stand', move: 'pillar', cost: PILLAR, dig: [], place: { x, y, z }, placed: true });
     }
