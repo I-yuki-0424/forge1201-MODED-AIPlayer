@@ -63,7 +63,9 @@ function plan(cells, real, ground) {
         const inBody = new Set(body.map(key)), contain = new Set(), covers = new Set();
         for (const b of body) for (const [d, v] of NB) { const n = `${b.x + v[0]},${b.y + v[1]},${b.z + v[2]}`; if (inBody.has(n) || !byPos.has(n)) continue; (d === 'up' ? covers : contain).add(n); }
         const sources = body.map(srcAt).filter(Boolean);
-        for (const s of sources) for (const n of contain) need(s, n);
+        // A source waits for what holds the water that can reach from IT: the solid cells within the reach of a flow (seven across) and not the whole network of channels (the water then came last,
+        // when no builder was left in the trenches and nobody could get in over the walls)
+        for (const s of sources) for (const n of contain) { const q = byPos.get(n); if (Math.max(Math.abs(q.x - s.x), Math.abs(q.z - s.z)) <= 8 && q.y <= s.y + 2) need(s, n); }
         for (const n of covers) if (!contain.has(n)) for (const s of sources) need(byPos.get(n), s.k);
         // A small body (a lava pit in a tower) is poured from above, through the shaft the walls leave open: everything above it that stands inside its footprint (the rest of the walls, the lid)
         // waits for the source, or the walls close the access first (live 2026-11-18: three bots built the tower up while the lava waited for its bucket, and no standing place was left).
