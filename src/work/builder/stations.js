@@ -170,13 +170,12 @@ function chooseStation(view, cells, o = {}) {
         const walkable = (c) => !o.reach || (c.x === from.x && c.y + 1 === from.y && c.z === from.z) || o.reach(c.x, c.y + 1, c.z);
         if (base && !walkable(base)) { if (dg) dg.noBase = (dg.noBase || 0) + 1; base = null; }
         if (br && !walkable(br.from)) br = null;
-        if (!base && !br && o.reach) continue;
         if (!base && !br) {
             // neither a column of its own nor a bridge at its level: NAV may climb beside it and bridge on (an arm tip over the structure's own stairs): any standable cell within six across and 14 below
             let near = null;
             for (let ax = -6; ax <= 6 && !near; ax++) for (let az = -6; az <= 6 && !near; az++) for (let ay = 0; ay >= -14; ay--) {
                 const f = { x: S.x + ax, y: S.y - 1 + ay, z: S.z + az };
-                if (view.solid(f.x, f.y, f.z) && view.free(f.x, f.y + 1, f.z) && view.free(f.x, f.y + 2, f.z)) { near = f; break; }
+                if (view.solid(f.x, f.y, f.z) && view.free(f.x, f.y + 1, f.z) && view.free(f.x, f.y + 2, f.z) && walkable(f)) { near = f; break; }          // a cell the bot can walk to, from where NAV climbs or bridges on
             }
             if (near) consider(S, 'pillar', T, { x: near.x, y: near.y, z: near.z }, { g: 6, from: near, far: true });
         } else if (base || br) consider(S, 'pillar', T, base || { x: S.x, y: S.y - 2, z: S.z }, br);
