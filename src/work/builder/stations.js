@@ -82,6 +82,7 @@ function serves(view, S, cells, T = null, ok = null) {
             for (const d of order) {
                 const p = at(c, d);
                 if (!present(p) || reachTo(S, p) > (c.fluid ? REACH_FLUID : REACH)) continue;                // a bucket takes its target from the real look ray: closer than a blind click
+                if (c.fluid && d === 'down' && S.y + EYE < p.y + 1.3) continue;                    // the top face of the floor is aimed at from above it, not from the ground beside the tower
                 if (c.fluid && !lineClear(view, S, p, O.OPP[d])) continue;                        // a bucket needs a ray to the face it aims at
                 pick = d; break;
             }

@@ -22,7 +22,7 @@ function remaining(plan, w) {
  * What to take. `need`: what the next cells need. First every shortage is made good; then the free slots (less a few for pickups) are filled with the items the plan still needs most,
  * up to `maxStacks` stacks each: the bot comes back as rarely as the pack allows. Returns [{ item, count }].
  */
-function wishes(bot, need, left, { reserve = 5, maxStacks = 3 } = {}) {
+function wishes(bot, need, left, { reserve = 10, maxStacks = 2 } = {}) {
     const have = (it) => bot.inventory.items().reduce((n, i) => n + (i.name === it ? i.count : 0), 0);
     const out = new Map(); let slots = Math.max(0, emptySlots(bot) - reserve);
     const slotsFor = (it, n) => Math.ceil(n / stackOf(bot, it));

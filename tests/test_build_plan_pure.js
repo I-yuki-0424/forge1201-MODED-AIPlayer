@@ -60,6 +60,7 @@ function world(deckY) {
                 if (!s) { if (pass === 7) st.failed.push({ unit: u, cell: rel(ready[0]), n: ready.length }); break; }
                 st.stations++; st[s.kind]++; if (s.kind === 'pillar') { if (s.bridge && 45 + 20 * s.bridge.g < 40 + 26 * (s.S.y - 1 - s.base.y)) st.bridged++; else st.climb += s.S.y - 1 - s.base.y; }
                 feet = s.S;
+                if (s.serves.some((v) => v.cell.block === 'lava')) console.log('LAVA station', s.kind, rel({ block: 'S', ...s.S }), 'floor', w.nameAt(s.S.x, s.S.y - 1, s.S.z), 'sup', s.serves.find((v) => v.cell.block === 'lava').sup, 'lava at', rel(plan.list.find((c) => c.block === 'lava')));
                 for (const sv of s.serves) {
                     const c = sv.cell;
                     if (c.waterlog) w.waterlog(c.x, c.y, c.z); else { const pr = { ...c.props }; delete pr.waterlogged; w.set(c.x, c.y, c.z, c.block, pr); }
