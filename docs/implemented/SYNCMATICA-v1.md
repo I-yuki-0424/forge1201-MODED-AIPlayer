@@ -121,6 +121,26 @@ The three servers below were each started once with `/dev run` at the same time 
 
 What the runs say: the hypothesis is **right about the tail** (support-stage failures 8-10 -> 0-1, pillar stations 146 -> 103-143, no failed unit in the late phase of the strict run, the best 18-minute count ever in run A) and **the barrier is what costs**: a thin level lets one bot work, one parked unit holds every level above it, and the three runs with the same code gave 1127, 425 and 656 cells (area mode, the five runs with the escape fixes: 591-918, typically 790-915). Over all layer runs (619, 1127, 425, 656, 533, 494: mean about 650) against area mode (591-1100, mean about 850) layer mode is **not better on average**: it removes the support failures but the barrier costs more than that gains. Not reached: the whole structure in 20 minutes (best 1127 + 112 cells in 32 units at 20 minutes). What would combine the two: a barrier that only waits for units that can still finish (a parked unit whose dependants are blocked is reopened or its dependants released at once, not after the final look), and the thin first levels worked in area mode.
 
+## Update 2026-11-19 (evening): the owner's list, nested layers and two one-hour trials
+
+The owner's causes (current, crowding, areas then layers, placement from outside, a bot that broke glass and fell, scaffolds left behind) became changes (`TASK:20261117-070`): the bot is not replanned off its path in a current and pushes on with forward, jump and sprint (`motion.js`); no station within 2.2 blocks of another bot and no cell another bot stands in; stations that place from at or above their level score higher; the jump at the feet is the standard for everything lower than a wall, fence or gate; **`zlayer`** = areas first, then levels inside each area (one barrier per area, window `BUILD_WINDOW`); the strand descent never breaks a cell of the plan (that was the glass: `moves.descend` breaks what is under the feet; the owner saw it in `place_c_window`); units whose cells a supply walk dug through the structure are reopened; a block goes in over water that has flowed into its cell; when nothing is missing the bots take away blocks of a kind the plan never uses left in the box (`plan.extrasOf`, `job.sweep`); `place_c` sets a spawn point at the site (a bot that dies came back at the world spawn, 250 blocks away and 90 below, and never returned: no teleport).
+
+**Trials, 3 bots, 60 minutes, `BUILD_MODE=zlayer BUILD_WINDOW=2`, T26 world 9** (a first attempt began while the host was busy and two bots were lost in the first minute: discarded):
+
+| run | 4 min | 10 min | 20 min | 30 min | 40 min | 50 min | 58 min | deaths | what it showed |
+| :-- | --: | --: | --: | --: | --: | --: | --: | --: | :-- |
+| 60b | 351 | 705 | 1105 | 1193 | 1199 | 1201 | 1201 | 2 (lava) | one bot died twice, respawned at the world spawn and never came back; the other two stood at 1201 from minute 40 |
+| 60c (spawn point at the site) | 278 | 575 | 949 | 1018 | 1020 | 1186 | 1186 | 2 (lava) | 19 units left, 9 parked |
+
+Neither run finished (best 1201 of 1288, 93 %): the first 20 minutes are now 1100 cells, the rest is the tail. What the 19 units of run 60c wait for, from the log and the world:
+- **7 units parked `no standing place within reach of the next cells`** (stone-brick walls and glass at the plate's edge, the dirt ramp's snow, a gate and trapdoor at the top): the station search finds no place the bot can stand and reach from, and a scaffold there needs a temporary block on a temporary block.
+- **Water that does not become a source** (2 parked, more waiting): the cell holds flowing water (`water{level:1}`) beside a source and a bucket poured at it leaves it flowing (checked on the server: level 1 next to a level-0 source).
+- **A fence gate that never gets its state** (`no placement recipe gave the wanted state`, 4 tries of 20 s, 100 s a unit). The model is right on a floor (`scripts/t26/gate_probe.js`: all four facings come out as wanted); inside the structure something else differs, and the failure now reports what the server held (`lastGot`).
+- **Dependants of parked units** (torches, the water behind the walls): they wait for cells the parked units did not place.
+- **Lava** killed a bot twice (`reflex lava` six times, then dead; both times one bot, on the plate beside the tower, after water pours near it): not explained; the spawn point at the site makes it cost a minute instead of the bot.
+- **Scaffolds**: 10 cells hold a cobblestone the blueprint calls air at the limit; the tidy runs only when the job reaches "nothing is missing", so it did not run. It is tested offline (`tests/test_build_plan_pure.js`), not yet seen live.
+- **A bot that climbs high, does nothing and comes back** (owner, middle phase): the cause is in `runUnit0`: when no standing place is found and the bot is above the ground it goes **back to the ground** (twice) and searches again, which looks exactly like that. It is the price of a search that cannot see which compartment of the plate the bot is in.
+
 ## Servers to compare the methods by eye (2026-11-19)
 
 Three fresh T26 worlds, tailnet only, one method each; in the game `/dev run <test>` starts the build (three bots `Fm<world>`, `Fm<world>a`, `Fm<world>b`, 20 minutes, no teleport); chat tells the site (`/tp` to look down on it), the cells right every 2 minutes and the verdict; `/dev follow <bot>` watches a bot; the finished structure and its reference copy (86 blocks south) stay in the world.
@@ -129,7 +149,7 @@ Three fresh T26 worlds, tailnet only, one method each; in the game `/dev run <te
 | :-- | :-- | :-- | :-- |
 | 7 | `100.77.246.23:25597` | `/dev run place_c_area` | areas per bot (the default builder) |
 | 8 | `100.77.246.23:25598` | `/dev run place_c_layer` | layer by layer, strict barrier |
-| 9 | `100.77.246.23:25599` | `/dev run place_c_window` | layer by layer, three levels open above the lowest |
+| 9 | `100.77.246.23:25599` | `/dev run place_c_window` | layer by layer, three levels open above the lowest; **holds the finished one-hour trial 60c (areas, then levels in each area), 1186 cells** |
 
 ## The test `place_c` (rewritten)
 
