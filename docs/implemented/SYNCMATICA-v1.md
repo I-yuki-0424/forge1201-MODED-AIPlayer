@@ -103,6 +103,32 @@ Old typical: 650-860 at 20 minutes, best 965 (18 minutes). The acceptance (the w
 
 Ledger and timeline of a run: `scripts/t26/place_c.js` prints `[ledger log]` (who claimed what when) and `[units left]`; `BUILD_TRACE=1 NAV_TRACE=1` give per-unit and per-walk lines with seconds.
 
+## Update 2026-11-19: layer by layer (owner's hypothesis) and the three methods
+
+The owner's guess: the late stage is slow not only for the height but because the bots build the relatively complex parts module by module, which needs temporary blocks that stand on temporary blocks; placing purely bottom-up, one layer at a time, would make every layer a simple structure.
+
+**Layer mode** (`planBuild(..., { mode: 'layer', window })`, harness `BUILD_MODE=layer [BUILD_WINDOW=n]`, commits `TASK:20261117-070`): the order is the same as in area mode (lowest first); the *level* of a cell is the highest y placed up to and including it (a floating piece placed early lifts what follows, so the barrier cannot deadlock; for the iron farm 21 levels, the 19th holds 462 cells); a unit holds one level; the ledger gate opens a level only when every unit of the levels below is done or parked; `window` = how many levels above the lowest unsettled one are open already; the barrier is off after 60 s without a placement. Offline (one simulated builder per area) the plan costs the same as area mode: 188 against 186 stations, 2395 against 2403 blocks walked, 11 temporary supports in both.
+
+| run (T26 world 7, 3 bots, 20 min) | 2 min | 4 min | 8 min | 12 min | 16 min | 18 min | support-stage failures | pillar stations | what it showed |
+| :-- | --: | --: | --: | --: | --: | --: | --: | --: | :-- |
+| area mode, run 9 | 198 | 436 | 579 | 748 | 882 | 912 | 8 | 146 | the tail: failures on temporary supports |
+| layer, strict barrier | 79 | 121 | 330 | 554 | 599 | 619 | 1 | 103 | the first levels are thin (11, 3, 30 cells): two bots idle for 4 minutes; the late phase has **no failed unit** |
+| layer, window 3 (run A) | 171 | 382 | 648 | 892 | 1086 | **1127** | 0 | 143 | best of all runs so far: 32 units left at 20 minutes (torches, water, floating gates and trapdoors, 112 cells) |
+| layer, window 3 (run B) | 123 | 219 | 360 | 396 | 425 | 425 | - | - | a bot stranded 519 s inside one unit, then no claim for 10 minutes: a cell waited for one that a parked unit had not placed, and every level above waited for that unit (fixed: the barrier is off after 60 s without a placement) |
+| layer, window 3 (run C, with that fix) | 98 | 227 | 524 | 591 | 624 | 656 | - | - | all 60 units left had no claimable cell from minute 10: the cells wait for cells of parked units |
+
+What the runs say: the hypothesis is **right about the tail** (support-stage failures 8-10 -> 0-1, pillar stations 146 -> 103-143, no failed unit in the late phase of the strict run, the best 18-minute count ever in run A) and **the barrier is what costs**: a thin level lets one bot work, one parked unit holds every level above it, and the three runs with the same code gave 1127, 425 and 656 cells (area mode, five runs: 585-918, typically 810-915). Not established: that layer mode is better on average (n = 3); not reached: the whole structure in 20 minutes (best 1127 + 112 cells in 32 units at 20 minutes). What would combine the two: a barrier that only waits for units that can still finish (a parked unit whose dependants are blocked is reopened or its dependants released at once, not after the final look), and the thin first levels worked in area mode.
+
+## Servers to compare the methods by eye (2026-11-19)
+
+Three fresh T26 worlds, tailnet only, one method each; in the game `/dev run <test>` starts the build (three bots `Fm<world>`, `Fm<world>a`, `Fm<world>b`, 20 minutes, no teleport); chat tells the site (`/tp` to look down on it), the cells right every 2 minutes and the verdict; `/dev follow <bot>` watches a bot; the finished structure and its reference copy (86 blocks south) stay in the world.
+
+| World | Join | Test | Method |
+| :-- | :-- | :-- | :-- |
+| 7 | `100.77.246.23:25597` | `/dev run place_c_area` | areas per bot (the default builder) |
+| 8 | `100.77.246.23:25598` | `/dev run place_c_layer` | layer by layer, strict barrier |
+| 9 | `100.77.246.23:25599` | `/dev run place_c_window` | layer by layer, three levels open above the lowest |
+
 ## The test `place_c` (rewritten)
 
 `scripts/t26/run.sh N place_c.js [BOTS=3] [LIMIT_MIN=20 = 60 / BOTS] [TRIALS=1]` (`BUILD_TRACE=1 NAV_TRACE=1` for the per-unit and per-walk trace). The owner's bar: 80 % of the trials match AND the build takes at most one hour / bots. Offline: `tests/test_build_plan_pure.js` walks the plan with a simulated builder (1288 cells, about 170 stations); `scripts/t26/view_probe*.js` compare a bot's view with the server.

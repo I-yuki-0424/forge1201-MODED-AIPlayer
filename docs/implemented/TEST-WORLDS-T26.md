@@ -19,6 +19,7 @@ exactly that set. Not available for 26.1.2 on Modrinth: modernfix, EssentialClie
 | :-- | :-- |
 | Join world N | Minecraft 26.3 client, server address **`100.77.246.23:2559N`** (world 1 = `100.77.246.23:25591` ... world 9 = `25599`), tailnet only. Operator: `Seia_Y` |
 | Start a test from inside the game | `/dev run <test> [reps]` with `<test>` one of `move_a move_b mine_a mine_b place_a place_b`; `/dev status`, `/dev stop` |
+| The Litematica build (2026-11-19) | `/dev run place_c_area`, `/dev run place_c_layer`, `/dev run place_c_window`: the iron farm by three bots in 20 minutes, by the three methods of the builder (docs/implemented/SYNCMATICA-v1.md); chat gives the site, the progress every 2 minutes, the verdict |
 | Watch a bot | `/dev bots` (names, positions, health), `/dev follow <bot>` (spectator on the bot; sneak to leave), `/dev back` (survival again at the spawn) |
 | Results | in chat as they come (PASS/FAIL per bot), and `/mnt/data/forgeaip-play/t26/out/<run>/` (one JSON per world, `verdict.txt` for a suite) |
 
