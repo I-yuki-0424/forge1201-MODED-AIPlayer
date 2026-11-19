@@ -6,7 +6,10 @@ const { spawn } = require('child_process');
 const { Rcon } = require('../../src/rl/rcon');
 
 const FILE = '/mcdata/world/scripts/dev.data/requests.txt', WORLD = process.env.T26_WORLD || '?';
-const TESTS = new Set(['move_a', 'move_b', 'mine_a', 'mine_b', 'place_a', 'place_b']);
+const TESTS = new Set(['move_a', 'move_b', 'mine_a', 'mine_b', 'place_a', 'place_b', 'place_c_area', 'place_c_layer']);
+// place_c_area / place_c_layer: the Litematica build of the iron farm by three bots in 20 minutes (scripts/t26/place_c.js), by the two methods of the builder (docs/implemented/SYNCMATICA-v1.md):
+// area = one area per bot, units of a few levels; layer = the same with a barrier between levels (a level opens when the levels below are settled).
+const SCRIPT = (t) => (t.startsWith('place_c_') ? 'place_c' : t), EXTRA = (t) => (t === 'place_c_layer' ? { BUILD_MODE: 'layer', BUILD_TRACE: '1' } : t === 'place_c_area' ? { BUILD_MODE: 'area', BUILD_TRACE: '1' } : {});
 let rc = null, child = null, current = null, last = null, offset = 0, queue = 0;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -22,12 +25,14 @@ const tell = (text, color = 'aqua') => rcon(`tellraw @a ${JSON.stringify({ text:
 function start(test, reps) {
     const run = `dev-${test}-${new Date().toISOString().replace(/[-:T]/g, '').slice(4, 12)}`;
     current = { test, reps, run, started: Date.now(), pass: 0, fail: 0 };
-    child = spawn('node', [`scripts/t26/${test}.js`], { env: { ...process.env, RUN: run }, stdio: ['ignore', 'pipe', 'pipe'] });
+    child = spawn('node', [`scripts/t26/${SCRIPT(test)}.js`], { env: { ...process.env, RUN: run, BOTS: '3', ...EXTRA(test) }, stdio: ['ignore', 'pipe', 'pipe'] });
     tell(`${test} started (run ${run}${reps > 1 ? `, ${queue + 1} of ${reps}` : ''}). Watch: /dev bots, then /dev follow <name>. Results: /mnt/data/forgeaip-play/t26/out/${run}/`);
     const onLine = (line) => {
         process.stdout.write(line + '\n');
         const m = /\] (PASS|FAIL) (\S+) (.*)$/.exec(line);
         if (m) { current[m[1] === 'PASS' ? 'pass' : 'fail']++; tell(`${m[1]} ${m[2]} ${m[3].slice(0, 160)}`, m[1] === 'PASS' ? 'green' : 'red'); }
+        else if (/^\[place_c site\]/.test(line)) tell(line.replace(/^\[place_c site\] /, 'site: ').replace(/; reference copy.*?; /, '; ').slice(0, 230), 'gold');
+        else if (/^\[progress \d+ min\]/.test(line)) tell(line.replace(/; missing by block.*$/, ''));
         else if (/trials passed|^\[test\]|starts|strip-mines|builds/.test(line)) tell(line.replace(/^\[[^\]]*\] /, ''));
     };
     for (const s of [child.stdout, child.stderr]) { let buf = ''; s.on('data', (d) => { buf += d; let i; while ((i = buf.indexOf('\n')) >= 0) { onLine(buf.slice(0, i)); buf = buf.slice(i + 1); } }); }

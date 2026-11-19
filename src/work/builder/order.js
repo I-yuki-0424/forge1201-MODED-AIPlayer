@@ -48,11 +48,11 @@ function recipesFor(c, solid) {
 /**
  * Group the cells in `order` into units: consecutive cells at most `max` (24), at most 3 levels apart, inside a box of 9 x 9, all fluids or none. Returns [[cells]].
  */
-function chunk(list, { max = 24, span = 9 } = {}) {
+function chunk(list, { max = 24, span = 9, layered = false } = {}) {
     const units = []; let cur = null;
-    const fits = (c) => cur && cur.cells.length < max && !!c.fluid === cur.fluid && Math.max(cur.y1, c.y) - Math.min(cur.y0, c.y) <= 2 && Math.max(cur.x1, c.x) - Math.min(cur.x0, c.x) < span && Math.max(cur.z1, c.z) - Math.min(cur.z0, c.z) < span;
+    const fits = (c) => cur && cur.cells.length < max && !!c.fluid === cur.fluid && (!layered || c.layer === cur.layer) && Math.max(cur.y1, c.y) - Math.min(cur.y0, c.y) <= 2 && Math.max(cur.x1, c.x) - Math.min(cur.x0, c.x) < span && Math.max(cur.z1, c.z) - Math.min(cur.z0, c.z) < span;
     for (const c of list) {
-        if (!fits(c)) { cur = { cells: [], fluid: !!c.fluid, x0: c.x, x1: c.x, y0: c.y, y1: c.y, z0: c.z, z1: c.z }; units.push(cur); }
+        if (!fits(c)) { cur = { cells: [], layer: c.layer, fluid: !!c.fluid, x0: c.x, x1: c.x, y0: c.y, y1: c.y, z0: c.z, z1: c.z }; units.push(cur); }
         cur.cells.push(c); cur.x0 = Math.min(cur.x0, c.x); cur.x1 = Math.max(cur.x1, c.x); cur.y0 = Math.min(cur.y0, c.y); cur.y1 = Math.max(cur.y1, c.y); cur.z0 = Math.min(cur.z0, c.z); cur.z1 = Math.max(cur.z1, c.z);
     }
     return units.map((u) => u.cells);
@@ -64,7 +64,8 @@ function chunk(list, { max = 24, span = 9 } = {}) {
  * @param ground  (x, y, z) => is it ground (present from the start)
  * Returns { list: the cells in placement order (each with .seq, .sup, .fluid, .seed), units: [[cell]] }, dependencies: [[unit index]] per unit }.
  */
-function plan(cells, real, ground, { zones = 1 } = {}) {
+function plan(cells, real, ground, { zones = 1, mode = 'area' } = {}) {
+    const layered = mode === 'layer';
     const owned = new Map(), byPos = new Map();
     for (const c of cells) { c.k = c.waterlog ? `${key(c)}w` : key(c); c.fluid = c.waterlog || C.kindOf(c) === 'fluid'; owned.set(c.k, c); if (!c.waterlog) byPos.set(key(c), c); }
     // the areas (one per bot); every cell knows its own
@@ -131,9 +132,10 @@ function plan(cells, real, ground, { zones = 1 } = {}) {
         if (!best) {                                                                      // nothing has its support: a floating piece starts here (or a cycle of waits is broken)
             // a floating piece starts with the cell that can be placed against anything (a plain block), not with a trapdoor or a torch that needs one particular neighbour to be there
             let b = null, bn = -1;
+            const ly = (c) => c.y;
             const free = (c) => (c.waterlog || c.fluid ? 6 : new Set(recipesFor(c, () => true).map((r) => r.support)).size);
-            for (const k of left) { const c = owned.get(k); if (!isReady(c)) continue; const n = free(c); if (!b || c.y < b.y || (c.y === b.y && (n > bn || (n === bn && (c.x < b.x || (c.x === b.x && c.z < b.z)))))) { b = c; bn = n; } }
-            if (!b) for (const k of left) { const c = owned.get(k); if (!b || c.y < b.y) b = c; }
+            for (const k of left) { const c = owned.get(k); if (!isReady(c)) continue; const n = free(c); if (!b || ly(c) < ly(b) || (ly(c) === ly(b) && (n > bn || (n === bn && (c.x < b.x || (c.x === b.x && c.z < b.z)))))) { b = c; bn = n; } }
+            if (!b) for (const k of left) { const c = owned.get(k); if (!b || ly(c) < ly(b)) b = c; }
             // a piece that can only hang on one particular neighbour (a trapdoor, a wall torch) starts with a plain block of the same connected piece, which the others then hang on
             if (b && free(b) < 6) {
                 const seenK = new Set([b.k]), q = [b]; let alt = null;
@@ -148,11 +150,15 @@ function plan(cells, real, ground, { zones = 1 } = {}) {
         for (const q of later.get(c.k) || []) eval1(q);
         if (!c.waterlog) { const w = owned.get(`${key(c)}w`); if (w) eval1(w); }
     }
+    // Layer mode (owner 2026-11-19: "split the work by layer, bottom up, each layer a simple structure"): the order above is already lowest first; the LEVEL of a cell is the highest y placed up to
+    // and including it, so a floating piece placed early (a seed) lifts what follows it to its level and every cell waits only for cells of its own level or a lower one: the barrier between levels
+    // cannot deadlock. Units are cut so that a unit holds one level. Without layer mode the level is y.
+    { let top = -Infinity; for (const c of list) { top = Math.max(top, c.y); c.layer = layered ? top : c.y; } }
     // the support directions the block can be placed against at all (a top-half trapdoor facing west: only the block to the east or above), whatever stands next to it
     for (const c of list) { c.pre = pre.has(c.k) ? [...pre.get(c.k)] : []; c.dirs = c.waterlog || c.fluid ? DIRS.slice() : [...new Set(recipesFor(c, () => true).map((r) => r.support))]; }
     // units: the cells of one area in placement order, cut into runs of nearby cells; the units of area 0 first, then area 1 ... (`zoneUnits[z]` = [first, end))
     const units = [], zoneUnits = [];
-    for (let z = 0; z < part.n; z++) { const from = units.length; units.push(...chunk(list.filter((c) => c.zone === z))); zoneUnits.push([from, units.length]); }
+    for (let z = 0; z < part.n; z++) { const from = units.length; units.push(...chunk(list.filter((c) => c.zone === z), { layered })); zoneUnits.push([from, units.length]); }
     const unitOf = new Map(), zoneOfUnit = [];
     units.forEach((u, i) => u.forEach((c) => unitOf.set(c.k, i)));
     zoneUnits.forEach(([a, b], z) => { for (let i = a; i < b; i++) zoneOfUnit[i] = z; });
@@ -166,7 +172,8 @@ function plan(cells, real, ground, { zones = 1 } = {}) {
         s.delete(i); s.delete(undefined);
         return [...s].sort((a, b) => a - b);
     });
-    return { list, units, deps, unitOf, zones: { n: part.n, axis: part.axis, centre: part.centre, units: zoneUnits, ofUnit: zoneOfUnit } };
+    const unitLayer = units.map((u) => u[0].layer);
+    return { list, units, deps, unitOf, mode, unitLayer, zones: { n: part.n, axis: part.axis, centre: part.centre, units: zoneUnits, ofUnit: zoneOfUnit } };
 }
 
 module.exports = { plan, chunk, partition, sturdy, recipesFor, PARTIAL, DIRS };

@@ -7,7 +7,7 @@
 //   - judge: the box of the blueprint is compared with a REFERENCE copy that the harness makes by commands (every cell, air included: `execute if blocks ... all`); the empty site must NOT match.
 //     The strict comparison includes properties the game derives (power, lit, extended ...): they can differ without the structure being wrong, so the report also lists every differing cell
 //     and says whether the difference is only in such a property ("static" verdict: same block, same placement-decided properties, same fluids).
-//   scripts/t26/run.sh N place_c.js [BOTS=3] [LIMIT_MIN=20 (= 60 / BOTS)] [TRIALS=1] [CONTROL=noop] [LITEMATIC=/app/tests/fixtures/x.litematic] [ROT=CLOCKWISE_90] [MIR=LEFT_RIGHT] [KEEP_SITE=1]
+//   scripts/t26/run.sh N place_c.js [BOTS=3] [BUILD_MODE=area|layer] [LIMIT_MIN=20 (= 60 / BOTS)] [TRIALS=1] [CONTROL=noop] [LITEMATIC=/app/tests/fixtures/x.litematic] [ROT=CLOCKWISE_90] [MIR=LEFT_RIGHT] [KEEP_SITE=1]
 const fs = require('fs'), path = require('path');
 const T = require('./lib');
 const { createBot, attachHandshake } = require('../../src/transport');
@@ -131,7 +131,7 @@ async function trial(k, S, svc, seed, rep) {
             const f = await c.fetch(found.id);
             got = { id: found.id, bytes: f.length, pos: found.pos, hashOk: sm.hashOf(f) === found.hash, rotation: found.rotation, mirror: found.mirror };
             const pp = lit.place(lit.parse(f), found, { keepAir: false });
-            const job = await svc._buildFrom(pp.bp, pp.origin, { name: 'iron-farm', bots: names, start: true, tile: 64 }, null, { dim: 'overworld' });
+            const job = await svc._buildFrom(pp.bp, pp.origin, { name: 'iron-farm', bots: names, start: true, tile: 64, mode: process.env.BUILD_MODE === 'layer' ? 'layer' : 'area' }, null, { dim: 'overworld' });
             got.origin = pp.origin; got.job = job.id;
             let lastLog = 0;
             while (Date.now() - t0 < LIMIT_MIN * 60000) {

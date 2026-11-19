@@ -61,7 +61,12 @@ const WINDOW = 14;                                        // units ahead of the 
 function gateOf(plan, job, u, id = null, pos = null) {
     if (id !== null && !posts.allows(plan, job, u, id, pos, Date.now())) return false;           // another bot's area (posts.js)
     const w = job.world, r = job.ledger.regions.get('b0');
-    if (r) {
+    // Layer mode: a level opens when every unit of the levels below is done or parked (a barrier across the areas: the bots finish a level together, then go up)
+    if (r && plan.mode === 'layer') {
+        const L = plan.unitLayer[u];
+        for (const l of plan.levels.list) { if (l >= L) break; for (const v of plan.levels.of.get(l)) if (r.state[v] !== 2 && r.state[v] !== 3) return false; }
+    }
+    if (r && plan.mode !== 'layer') {
         const z = plan.zones.ofUnit[u], [a, b] = plan.zones.units[z];
         if (!job.first) job.first = [];
         let f = Math.max(job.first[z] || a, a);

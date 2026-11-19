@@ -122,5 +122,28 @@ function world(deckY) {
         const bot2 = { inventory: { inventoryStart: 9, inventoryEnd: 45, slots: Object.assign(new Array(45).fill(null), { 9: { name: 'stone_bricks', count: 64 }, 10: { name: 'stone_bricks', count: 64 }, 11: { name: 'glass', count: 10 }, 12: { name: 'cobblestone', count: 64 }, 13: { name: 'diamond_pickaxe', count: 1 } }) } };
         assert.deepStrictEqual(supply.surplus(bot2, p3, { stone_bricks: 18 }), [{ item: 'stone_bricks', count: 110 }, { item: 'glass', count: 10 }], 'what the run does not need goes back; tools and temporary blocks stay');
     }
+
+    // ---- layer mode (owner 2026-11-19): every unit is one level, a level opens when the levels below are settled, fluids and what depends on them come last
+    {
+        const build = require('../src/work/jobs/build'), R2 = require('../src/work/builder/run');
+        const pl = P.planBuild(cells, origin, { zones: 3, mode: 'layer' });
+        assert.strictEqual(pl.mode, 'layer'); assert.strictEqual(pl.units.flat().length, 1288, 'every cell once');
+        pl.units.forEach((u, i) => { assert.ok(u.every((c) => c.layer === u[0].layer), 'a unit holds one level'); assert.strictEqual(pl.unitLayer[i], u[0].layer); });
+        // the level of a cell is at least its y, and at least the level of everything it waits for and of the support it rests on: a level never waits for a higher one
+        pl.list.forEach((c) => { assert.ok(c.layer >= c.y, 'level >= y'); for (const k of c.pre || []) assert.ok(pl.byKey.get(k).layer <= c.layer, 'a cell is not on a lower level than what it waits for'); });
+        assert.ok(pl.list.every((c, i) => i === 0 || c.layer >= pl.list[i - 1].layer), 'the level never goes down along the order of placement (no deadlock at the barrier)');
+        assert.ok(pl.list.filter((c) => c.layer !== c.y).length < 0.5 * pl.count, 'most cells keep their own level');
+        // within one area the levels never go down, except for floating pieces that wait on another area
+        pl.zones.units.forEach(([a, b], z) => { let prev = -1, drops = 0; for (let i = a; i < b; i++) { if (pl.unitLayer[i] < prev) drops++; prev = Math.max(prev, pl.unitLayer[i]); } assert.ok(drops <= 3, `area ${z}: levels rise (${drops} drops)`); });
+        // the gate: nothing of level L is claimable while a unit of a level below is pending
+        const job = build.createBuildJob(cells, origin, { leaseMs: 45000 }, { zones: 3, mode: 'layer' }), w4 = world(origin.y - 1);
+        job.world = w4; for (const c of job.plan.list) if (c.y <= origin.y + 3 && !c.fluid && c.layer < 1000) w4.set(c.x, c.y, c.z, c.block, c.props);
+        const lowest = Math.min(...job.plan.unitLayer), top = Math.max(...job.plan.unitLayer);
+        const unitsAt = (l) => job.plan.levels.of.get(l) || [];
+        const open = job.plan.unitLayer.map((l, i) => i).filter((i) => R2.gateOf(job.plan, job, i));
+        assert.ok(open.length && open.every((i) => job.plan.unitLayer[i] === lowest || unitsAt(job.plan.unitLayer[i]).length), 'something opens');
+        assert.ok(open.every((i) => job.plan.unitLayer[i] <= lowest + 3), 'only the lowest levels are open at the start (' + [...new Set(open.map((i) => job.plan.unitLayer[i]))] + ')');
+        void top;
+    }
     console.log('build plan: ok');
 })().catch((e) => { console.error(e); process.exit(1); });

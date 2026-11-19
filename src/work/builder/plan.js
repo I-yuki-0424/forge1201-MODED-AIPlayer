@@ -5,7 +5,7 @@ const C = require('./cells');
 const ord = require('./order');
 
 /** Cut a blueprint into the plan. `zones`: the number of areas (one per bot: each bot keeps its own, see posts.js). `origin` is the world cell of the blueprint's (0, 0, 0); ground is every cell below `groundTop` (default: the layer under the origin). */
-function planBuild(cells, origin, { known = null, groundTop = null, zones = 1 } = {}) {
+function planBuild(cells, origin, { known = null, groundTop = null, zones = 1, mode = 'area' } = {}) {
     if (!cells.length) throw new Error('blueprint is empty');
     const abs = cells.map((c) => ({ x: origin.x + c.x, y: origin.y + c.y, z: origin.z + c.z, block: C.bare(c.block), props: c.props || {} }));
     const cannot = (b) => C.itemFor(b) === null || (known && !known(b));
@@ -19,7 +19,7 @@ function planBuild(cells, origin, { known = null, groundTop = null, zones = 1 } 
     const waterlog = placeable.filter((c) => c.props.waterlogged === 'true' && C.kindOf(c) !== 'fluid').map((c) => ({ x: c.x, y: c.y, z: c.z, block: 'water', props: { level: '0' }, waterlog: true, of: c.block }));
     const all = [...placeable, ...waterlog];
     const minY = Math.min(...all.map((c) => c.y)), maxY = Math.max(...all.map((c) => c.y)), gt = groundTop === null ? origin.y - 1 : groundTop;
-    const o = ord.plan(all, real, (x, y, z) => y <= gt, { zones: Math.max(1, Math.floor(zones) || 1) });
+    const o = ord.plan(all, real, (x, y, z) => y <= gt, { zones: Math.max(1, Math.floor(zones) || 1), mode: mode === 'layer' ? 'layer' : 'area' });
     const x0 = Math.min(...all.map((c) => c.x)), x1 = Math.max(...all.map((c) => c.x)), z0 = Math.min(...all.map((c) => c.z)), z1 = Math.max(...all.map((c) => c.z));
     const cellsOf = new Map(o.units.map((u, i) => [i, u]));
     const tiles = new Map([['b0', { id: 'b0', x0, x1, z0, z1, cells: cellsOf }]]);
@@ -30,7 +30,7 @@ function planBuild(cells, origin, { known = null, groundTop = null, zones = 1 } 
     const byKey = new Map(o.list.map((c) => [c.k, c]));
     const seedUnit = o.units.map((u) => u.some((c) => c.seed));                                 // a unit with a floating piece: begun last
     const centre = o.units.map((u) => ({ x: u.reduce((a, c) => a + c.x, 0) / u.length, y: u.reduce((a, c) => a + c.y, 0) / u.length, z: u.reduce((a, c) => a + c.z, 0) / u.length }));
-    return { origin, minY, maxY, layers: maxY - minY + 1, groundTop: gt, tiles, regions, units: o.units, deps: o.deps, unitOf: o.unitOf, zones: o.zones, seedUnit, list: o.list, byKey, centre, unsupported, unbuildable: [...never].map(([k, why]) => ({ at: k, why })), footprint, cellSet, want, count: all.length, skipped, materials: C.materialsOf(placeable) };
+    return { origin, minY, maxY, layers: maxY - minY + 1, groundTop: gt, tiles, regions, units: o.units, deps: o.deps, unitOf: o.unitOf, zones: o.zones, seedUnit, mode: o.mode, unitLayer: o.unitLayer, levels: { list: [...new Set(o.unitLayer)].sort((a, b) => a - b), of: o.unitLayer.reduce((m, l, i) => { (m.get(l) || m.set(l, []).get(l)).push(i); return m; }, new Map()) }, list: o.list, byKey, centre, unsupported, unbuildable: [...never].map(([k, why]) => ({ at: k, why })), footprint, cellSet, want, count: all.length, skipped, materials: C.materialsOf(placeable) };
 }
 
 /** Cells of one unit in placement order. */
