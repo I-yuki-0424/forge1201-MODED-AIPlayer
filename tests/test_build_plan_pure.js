@@ -144,6 +144,11 @@ function world(deckY) {
         assert.ok(open.length && open.every((i) => job.plan.unitLayer[i] === lowest || unitsAt(job.plan.unitLayer[i]).length), 'something opens');
         assert.ok(open.every((i) => job.plan.unitLayer[i] <= lowest + 3), 'only the lowest levels are open at the start (' + [...new Set(open.map((i) => job.plan.unitLayer[i]))] + ')');
         void top;
+        // with a window of 3 levels the first four levels (not only the lowest) are open at the start
+        const jobW = build.createBuildJob(cells, origin, { leaseMs: 45000 }, { zones: 3, mode: 'layer', window: 3 }); jobW.world = w4;
+        const lv = jobW.plan.levels.list, openW = jobW.plan.unitLayer.map((l, i) => i).filter((i) => R2.gateOf(jobW.plan, jobW, i)), idxs = new Set(openW.map((i) => lv.indexOf(jobW.plan.unitLayer[i])));
+        assert.ok(openW.every((i) => lv.indexOf(jobW.plan.unitLayer[i]) <= 3), 'a window of 3: no unit above the fourth level');
+        assert.ok(idxs.size > new Set(open.map((i) => lv.indexOf(job.plan.unitLayer[i]))).size, 'more levels are open with a window than without');
     }
     console.log('build plan: ok');
 })().catch((e) => { console.error(e); process.exit(1); });

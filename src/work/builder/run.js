@@ -63,8 +63,12 @@ function gateOf(plan, job, u, id = null, pos = null) {
     const w = job.world, r = job.ledger.regions.get('b0');
     // Layer mode: a level opens when every unit of the levels below is done or parked (a barrier across the areas: the bots finish a level together, then go up)
     if (r && plan.mode === 'layer') {
-        const L = plan.unitLayer[u];
-        for (const l of plan.levels.list) { if (l >= L) break; for (const v of plan.levels.of.get(l)) if (r.state[v] !== 2 && r.state[v] !== 3) return false; }
+        const L = plan.unitLayer[u], list = plan.levels.list;
+        // `levelWindow` (0 = strict): levels above the lowest unsettled one that may already be worked (the first levels are thin: one bot builds them and the others wait)
+        let low = 0; while (low < list.length && plan.levels.of.get(list[low]).every((v) => r.state[v] === 2 || r.state[v] === 3)) low++;
+        const mine = list.indexOf(L);
+        if (mine > low + plan.levelWindow) return false;
+        if (plan.levelWindow === 0) for (let i = 0; i < mine; i++) for (const v of plan.levels.of.get(list[i])) if (r.state[v] !== 2 && r.state[v] !== 3) return false;
     }
     if (r && plan.mode !== 'layer') {
         const z = plan.zones.ofUnit[u], [a, b] = plan.zones.units[z];
