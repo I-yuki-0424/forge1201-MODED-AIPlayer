@@ -62,7 +62,8 @@ function gateOf(plan, job, u, id = null, pos = null) {
     if (id !== null && !posts.allows(plan, job, u, id, pos, Date.now())) return false;           // another bot's area (posts.js)
     const w = job.world, r = job.ledger.regions.get('b0');
     // Layer mode: a level opens when every unit of the levels below is done or parked (a barrier across the areas: the bots finish a level together, then go up)
-    if (r && plan.mode === 'layer') {
+    // (When nothing has been placed for 60 s the barrier is off: a cell that waits for one a parked unit did not place would hold every level above it for ever; layer run 3, 2026-11-19: 425 cells, no claim after 12 minutes.)
+    if (r && plan.mode === 'layer' && Date.now() - (job.lastProgress || 0) < 60000) {
         const L = plan.unitLayer[u], list = plan.levels.list;
         // `levelWindow` (0 = strict): levels above the lowest unsettled one that may already be worked (the first levels are thin: one bot builds them and the others wait)
         let low = 0; while (low < list.length && plan.levels.of.get(list[low]).every((v) => r.state[v] === 2 || r.state[v] === 3)) low++;
