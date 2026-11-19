@@ -61,17 +61,17 @@ const WINDOW = 14;                                        // units ahead of the 
 function gateOf(plan, job, u, id = null, pos = null) {
     if (id !== null && !posts.allows(plan, job, u, id, pos, Date.now())) return false;           // another bot's area (posts.js)
     const w = job.world, r = job.ledger.regions.get('b0');
-    // Layer mode: a level opens when every unit of the levels below is done or parked (a barrier across the areas: the bots finish a level together, then go up)
+    // Layer mode: a level opens when every unit of the levels below is done or parked. 'layer': one barrier across all the areas; 'zlayer' (owner 2026-11-19: "divide into areas first, then split
+    // each area into layers"): one barrier per area, so a bot never waits for another area's level (cells that hang on another area wait on their own).
     // (When nothing has been placed for 60 s the barrier is off: a cell that waits for one a parked unit did not place would hold every level above it for ever; layer run 3, 2026-11-19: 425 cells, no claim after 12 minutes.)
-    if (r && plan.mode === 'layer' && Date.now() - (job.lastProgress || 0) < 60000) {
-        const L = plan.unitLayer[u], list = plan.levels.list;
+    if (r && (plan.mode === 'layer' || plan.mode === 'zlayer') && Date.now() - (job.lastProgress || 0) < 60000) {
+        const L = plan.unitLayer[u], lv = plan.mode === 'zlayer' ? plan.zoneLevels[plan.zones.ofUnit[u]] : plan.levels, list = lv.list;
         // `levelWindow` (0 = strict): levels above the lowest unsettled one that may already be worked (the first levels are thin: one bot builds them and the others wait)
-        let low = 0; while (low < list.length && plan.levels.of.get(list[low]).every((v) => r.state[v] === 2 || r.state[v] === 3)) low++;
+        let low = 0; while (low < list.length && lv.of.get(list[low]).every((v) => r.state[v] === 2 || r.state[v] === 3)) low++;
         const mine = list.indexOf(L);
         if (mine > low + plan.levelWindow) return false;
-        if (plan.levelWindow === 0) for (let i = 0; i < mine; i++) for (const v of plan.levels.of.get(list[i])) if (r.state[v] !== 2 && r.state[v] !== 3) return false;
     }
-    if (r && plan.mode !== 'layer') {
+    if (r && plan.mode === 'area') {
         const z = plan.zones.ofUnit[u], [a, b] = plan.zones.units[z];
         if (!job.first) job.first = [];
         let f = Math.max(job.first[z] || a, a);
@@ -125,15 +125,25 @@ async function unstrand(plan, job, me, env) {
     // never got to its last rung): down to the deck, a block at a time, the way a player does (moves.js descend; it breaks what is under the feet, the final look of the build puts it back).
     const now = Date.now(), hist = job.strandHist[me] = (job.strandHist[me] || []).filter((t) => now - t < 240000); hist.push(now);
     try {
-        if (hist.length >= 3 && env.run && f.y > plan.origin.y) {
+        // never through the structure (owner 2026-11-19: a bot broke a glass cell and dropped through it): only when the block under the feet is not a cell of the plan
+        if (hist.length >= 3 && env.run && f.y > plan.origin.y && !plan.cellSet.has(`${f.x},${f.y - 1},${f.z}`)) {
             job.strandHist[me] = [];
             const d = await env.run('descend', { levels: Math.min(40, f.y - plan.origin.y) });
             if (TRACE) console.log(`[build] ${me} descend: ${d.ok ? JSON.stringify(d.detail || {}).slice(0, 120) : d.reason + ' ' + JSON.stringify(d.detail || {}).slice(0, 160)}`);
             if (d.ok || (d.detail && d.detail.levels)) return;
         }
-        if (env.stepOff && s.n === 2) { const o = await env.stepOff({ maxDrop: 3 }); if (TRACE) console.log(`[build] ${me} step off: ${o.ok ? 'to ' + JSON.stringify(o.to) : 'no edge'}`); if (o.ok) return; }          // once per place: over the edge of what it stands on
+        if (env.stepOff && (s.n === 2 || s.n === 4)) { const o = await env.stepOff({ maxDrop: s.n >= 4 ? 8 : 3 }); if (TRACE) console.log(`[build] ${me} step off: ${o.ok ? 'to ' + JSON.stringify(o.to) : 'no edge'}`); if (o.ok) return; }          // once per place: over the edge of what it stands on
         await env.recover(Math.min(6, s.n + 1), { reason: 'unreachable', detail: { why: 'stranded' } });
     } catch (_) { /* a failed fix is tried again with the next */ }
+}
+
+/** Units that are done but whose cells no longer hold their block (a walk through the structure dug them) go back to pending. */
+function reopenDamaged(plan, job, env) {
+    const r = job.ledger.regions.get('b0'), now = Date.now(); let n = 0;
+    if (!r) return 0;
+    for (let u = 0; u < plan.units.length; u++) if (r.state[u] === 2 && plan.units[u].some((c) => !right(c, env.w)) && job.ledger.requeueUnit('b0', u, now)) n++;
+    if (TRACE && n) console.log(`[build] ${Math.round((Date.now() - T0) / 1000)}s ${n} unit(s) reopened: a walk dug cells of the structure`);
+    return n;
 }
 
 async function runUnit(plan, job, regionId, u, env) {
@@ -189,6 +199,7 @@ async function runUnit0(plan, job, regionId, u, env) {
         const unitNeed = P.needsOf(todo, env.w);
         const rs = await supply.restock(env, plan, supply.batch(env.bot, plan, u.unit, env.w, unitNeed), { trigger: unitNeed, topup: false, reserve: 3 });
         if (rs.trips) r.trips += rs.trips;
+        if (rs.dug) reopenDamaged(plan, job, env);                                   // a supply walk through the structure dug cells: the units that own them place them again
         if (TRACE && (rs.trips || !rs.ok)) console.log(`[build] ${Math.round((Date.now() - T0) / 1000)}s ${me} u${u.unit} restock ${rs.ok ? 'ok' : 'SHORT'} trips=${rs.trips || 0} unit-need ${JSON.stringify(unitNeed)} have ${JSON.stringify(Object.fromEntries(Object.keys(unitNeed).map((it) => [it, env.have(it)])))} free-slots ${env.bot ? supply.emptySlots(env.bot) : '?'}${rs.ok ? '' : ' ' + JSON.stringify({ short: rs.detail && rs.detail.short, lastTravel: rs.detail && rs.detail.lastTravel, lastTake: rs.detail && rs.detail.lastTake }).slice(0, 300)}`);
         if (!rs.ok) return { ok: false, reason: rs.reason, detail: { ...(rs.detail || {}), cell: ready[0], stage: 'stock', ...r, ...(rs.detail && rs.detail.lastTravel ? { noMove: true } : {}) } };
         const view = S.viewOf(env.w, plan.cellSet);

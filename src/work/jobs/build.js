@@ -15,7 +15,7 @@ const P_needs = (cells, w) => P.needsOf(cells, w), TRACE = !!process.env.BUILD_T
 
 function createBuildJob(cells, origin, ledgerOpts = {}, planOpts = {}) {
     const plan = P.planBuild(cells, origin, planOpts), ledger = new Ledger({ holdMs: 2000, noShun: true, ...ledgerOpts });
-    const job = { kind: 'build', ledger, plan, world: null, auditRound: 0, auditAt: 0, waits: {}, noStation: {}, lastProgress: Date.now(), posts: require('../builder/posts').makePosts() };
+    const job = { kind: 'build', ledger, plan, world: null, auditRound: 0, auditAt: 0, waits: {}, noStation: {}, lastProgress: Date.now(), posts: require('../builder/posts').makePosts(), tidyRounds: 0 };
     for (const r of plan.regions) ledger.addRegion({ ...r, gate: (u, bot, pos) => R.gateOf(plan, job, u, bot, pos), pick: (cands, o) => R.pickNear(plan, job, cands, o) });
     job.runUnit = (regionId, unit, env) => R.runUnit(plan, job, regionId, unit, env);
     /**
@@ -43,10 +43,26 @@ function createBuildJob(cells, origin, ledgerOpts = {}, planOpts = {}) {
      */
     job.sweep = async (env, now) => {
         if (now - job.auditAt < 8000) return { busy: true };
-        if (job.auditRound >= AUDIT_ROUNDS) return {};
+        const rounds = job.auditRound >= AUDIT_ROUNDS;                                // the rounds of repair are used up: the tidy still runs
         job.auditAt = now;
-        const missing = job.diff(env.w);
-        if (!missing.length) return {};
+        const missing = rounds ? [] : job.diff(env.w);
+        if (!missing.length) {
+            // Nothing is missing: what the bots left behind in the box (scaffolds) is taken away, a few rounds at most (owner 2026-11-19: temporary blocks are often not destroyed)
+            if (job.tidyRounds < 6 && env.travel && env.exec) {
+                job.tidyRounds++;
+                const ex = P.extrasOf(plan, env.w).sort((a, b) => Math.hypot(a.x - env.pos().x, a.z - env.pos().z) - Math.hypot(b.x - env.pos().x, b.z - env.pos().z)), done = [];
+                for (const c of ex.slice(0, 16)) {
+                    if (env.cancelled && env.cancelled()) break;
+                    const t = await env.travel({ x: c.x, y: c.y, z: c.z }, { near: 3, nearY: 3, maxSegments: 12, stuckAfter: 3, footNodes: 3000, why: 'tidy' });
+                    if (!t.ok) continue;
+                    const m = await env.exec('mine', { x: c.x, y: c.y, z: c.z, collect: false }, { raw: true, maxTicks: 300 });
+                    if (m.ok) done.push(`${c.block}@${c.x},${c.y},${c.z}`);
+                }
+                if (TRACE) console.log(`[build] tidy round ${job.tidyRounds}: ${ex.length} left behind, ${done.length} taken away`);
+                if (done.length) return { region: 'b0', round: job.auditRound, checked: plan.count, reopened: 0, gaveUp: 0, tidy: done.length };
+            }
+            return {};
+        }
         const units = new Set(missing.map((c) => plan.unitOf.get(c.k)).filter((u) => u !== undefined));
         let reopened = 0;
         for (const u of units) if (ledger.requeueUnit('b0', u, now)) reopened++;

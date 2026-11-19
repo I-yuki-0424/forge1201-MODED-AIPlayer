@@ -7,7 +7,6 @@
 // `chooseStation` scores every candidate by how many of the next cells it serves minus what it costs to get there, so that a bot stands still while it places a dozen blocks and moves when
 // nothing more is in reach. Pure: the world comes in as a `view`, which the planner's simulation and the live world both provide.
 const O = require('../jobs/orient');
-const { PARTIAL } = require('./order');
 const D = O.DIR, DIRS = ['down', 'north', 'south', 'east', 'west', 'up'];
 const EYE = 1.62, REACH = 4.2, REACH_FLUID = 3.4;                      // eye height; the reach to the nearest point of the support block (motion.js AIM_REACH)
 const at = (c, d) => ({ x: c.x + D[d][0], y: c.y + D[d][1], z: c.z + D[d][2] });
@@ -59,7 +58,7 @@ function viewOf(w, cellSet = new Set()) {
 /** Can the body stand at feet cell S (room above, no hazard beside it, nobody there)? Does not look at the floor. */
 function bodyFits(view, S, avoid) {
     if (!view.free(S.x, S.y, S.z) || !view.free(S.x, S.y + 1, S.z)) return false;
-    for (const o of avoid) if (Math.abs(o.x - (S.x + 0.5)) < 1.2 && Math.abs(o.z - (S.z + 0.5)) < 1.2 && Math.abs(o.y - S.y) < 3) return false;
+    for (const o of avoid) if (Math.abs(o.x - (S.x + 0.5)) < 2.2 && Math.abs(o.z - (S.z + 0.5)) < 2.2 && Math.abs(o.y - S.y) < 3) return false;          // not next to another bot (owner 2026-11-19: crowded in the small tubes, a body in the cell stops the placement)
     for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const k = view.kind(S.x + dx, S.y, S.z + dz); if (k === 'danger' || k === 'liquid') return false; }
     return true;
 }
@@ -84,6 +83,7 @@ function serves(view, S, cells, T = null, ok = null) {
     let self = null;
     for (const c of cells) {
         if ((c.x === S.x && c.z === S.z && (c.y === S.y || c.y === S.y + 1))) { if (!self && c.y === S.y) self = c; continue; }           // the cell the body stands in (the one at the feet may be placed last, by a jump)
+        if (view.others && view.others.some((o) => Math.floor(o.x) === c.x && Math.floor(o.z) === c.z && Math.abs(Math.floor(o.y) - c.y) <= 1)) continue;          // another bot stands in it
         if (ok && !ok(c, done)) continue;                                                        // it waits for something (a fluid for what holds it) that is neither there nor placed from here
         let pick = null;
         if (c.waterlog) { if (reachTo(S, c) <= REACH_FLUID && view.present(c.x, c.y, c.z) && sees(view, S, c)) pick = 'self'; }
@@ -114,7 +114,7 @@ function serves(view, S, cells, T = null, ok = null) {
     // only (not a temporary one), with room for the jump, a block that goes on the top face of what is under it, and everything it waits for in place.
     // Only a full cube: the bot lands on the block it places, and a wall (1.5 high), a slab, a stair or a fence under its feet is a place the planner cannot start from (runs 3 to 6, 2026-11-18:
     // bots stood on their own walls for minutes).
-    const cube = (n) => { const b = String(n).replace(/^minecraft:/, ''); return !PARTIAL.test(b) && !/(_wall|_fence|_pane|snow)$/.test(b); };
+    const cube = (n) => !/(_wall|_fence|_fence_gate|snow)$/.test(String(n).replace(/^minecraft:/, ''));          // the jump is the standard way to place at the feet (owner 2026-11-19); only what is higher than a block is out
     if (self && !T && !self.fluid && !self.waterlog && cube(self.block) && (self.dirs || DIRS).includes('down') && view.solid(S.x, S.y - 1, S.z) && view.free(S.x, S.y + 2, S.z) && (!ok || ok(self, done))) out.push({ cell: self, sup: 'down', jump: true });
     return out;
 }
@@ -138,6 +138,7 @@ function bridgeTo(view, T, maxGap = 5) {
  */
 function chooseStation(view, cells, o = {}) {
     if (!cells.length) return null;
+    view.others = o.avoid || [];
     const from = o.from || cells[0], avoid = o.avoid || [], skip = o.skip || new Set(), ok = o.ok || null, look = cells.slice(0, o.lookahead || 40);
     const c0 = look.find((c) => (!ok || ok(c, new Set())) && (!o.first || o.first(c))) || look[0], R = 5;          // the first cell that can go NOW (what it waits for and its support stand), not the first of the list
     let best = null;
@@ -151,7 +152,9 @@ function chooseStation(view, cells, o = {}) {
         const here = S.x === from.x && S.y === from.y && S.z === from.z, flat = Math.abs(S.x - from.x) + Math.abs(S.z - from.z), dy = Math.abs(S.y - from.y);
         let cost = 0;
         if (!here) cost = kind === 'native' ? 20 + 2.5 * flat + 5 * dy : Math.min(40 + 26 * Math.max(0, S.y - 1 - base.y) + flat, br ? 45 + 20 * br.g + flat : Infinity);
-        const score = 12 * sv.length - cost - (sv.some((q) => q.jump) ? 3 : 0);         // a jump placement is the last resort of a station: standing beside is cheaper
+        // standing at or above what is placed leaves the cells below free of the bot and needs no scaffold beside them (owner 2026-11-19: approach from above, from a place that does not interfere)
+        const above = sv.reduce((n, q) => n + (S.y + 1 >= q.cell.y ? 1 : 0), 0);
+        const score = 12 * sv.length + 3 * above - cost - (sv.some((q) => q.jump) ? 3 : 0);         // a jump placement is the last resort of a station: standing beside is cheaper
         if (!best || score > best.score) best = { S, floor: { x: S.x, y: S.y - 1, z: S.z }, kind, serves: sv, base, bridge: br, score };
     };
     for (let dx = -R; dx <= R; dx++) for (let dz = -R; dz <= R; dz++) for (let dy = -5; dy <= 4; dy++) {

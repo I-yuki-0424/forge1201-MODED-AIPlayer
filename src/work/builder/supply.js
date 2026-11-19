@@ -96,7 +96,7 @@ async function restock(env, plan, need, opt = {}) {
         if (env.cancelled && env.cancelled()) return { ok: false, reason: 'cancelled' };
         const items = wishes(env.bot, need, remaining(plan, env.w), opt);
         let t = await env.travel({ x: c.x, y: c.y, z: c.z }, { near: 2, nearY: 2, maxSegments: 16, stuckAfter: 3, footNodes: 3000, why: 'supply' });
-        if (!t.ok && ['stuck', 'unreachable'].includes(t.reason)) t = await env.travel({ x: c.x, y: c.y, z: c.z }, { near: 2, nearY: 2, maxSegments: 24, stuckAfter: 3, footNodes: 3000, digStructure: true, why: 'supply (through the structure)' });
+        if (!t.ok && ['stuck', 'unreachable'].includes(t.reason)) { t = await env.travel({ x: c.x, y: c.y, z: c.z }, { near: 2, nearY: 2, maxSegments: 24, stuckAfter: 3, footNodes: 3000, digStructure: true, why: 'supply (through the structure)' }); log.dug = true; }
         if (!t.ok) { log.lastTravel = { reason: t.reason, why: t.detail && (t.detail.why || t.detail.nav) }; if (['cancelled', 'died', 'disconnected'].includes(t.reason)) return t; continue; }
         // Room first: what the pack holds beyond this run goes back into the chest (it is also what the other bots lack), when the free slots do not hold what is to be taken.
         if (env.bot && opt.makeRoom !== false) {

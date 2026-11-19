@@ -65,7 +65,7 @@ function chunk(list, { max = 24, span = 9, layered = false } = {}) {
  * Returns { list: the cells in placement order (each with .seq, .sup, .fluid, .seed), units: [[cell]] }, dependencies: [[unit index]] per unit }.
  */
 function plan(cells, real, ground, { zones = 1, mode = 'area' } = {}) {
-    const layered = mode === 'layer';
+    const layered = mode === 'layer' || mode === 'zlayer';
     const owned = new Map(), byPos = new Map();
     for (const c of cells) { c.k = c.waterlog ? `${key(c)}w` : key(c); c.fluid = c.waterlog || C.kindOf(c) === 'fluid'; owned.set(c.k, c); if (!c.waterlog) byPos.set(key(c), c); }
     // the areas (one per bot); every cell knows its own

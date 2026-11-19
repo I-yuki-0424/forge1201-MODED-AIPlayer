@@ -19,7 +19,7 @@ function planBuild(cells, origin, { known = null, groundTop = null, zones = 1, m
     const waterlog = placeable.filter((c) => c.props.waterlogged === 'true' && C.kindOf(c) !== 'fluid').map((c) => ({ x: c.x, y: c.y, z: c.z, block: 'water', props: { level: '0' }, waterlog: true, of: c.block }));
     const all = [...placeable, ...waterlog];
     const minY = Math.min(...all.map((c) => c.y)), maxY = Math.max(...all.map((c) => c.y)), gt = groundTop === null ? origin.y - 1 : groundTop;
-    const o = ord.plan(all, real, (x, y, z) => y <= gt, { zones: Math.max(1, Math.floor(zones) || 1), mode: mode === 'layer' ? 'layer' : 'area' });
+    const o = ord.plan(all, real, (x, y, z) => y <= gt, { zones: Math.max(1, Math.floor(zones) || 1), mode: mode === 'layer' || mode === 'zlayer' ? mode : 'area' });
     const x0 = Math.min(...all.map((c) => c.x)), x1 = Math.max(...all.map((c) => c.x)), z0 = Math.min(...all.map((c) => c.z)), z1 = Math.max(...all.map((c) => c.z));
     const cellsOf = new Map(o.units.map((u, i) => [i, u]));
     const tiles = new Map([['b0', { id: 'b0', x0, x1, z0, z1, cells: cellsOf }]]);
@@ -30,7 +30,8 @@ function planBuild(cells, origin, { known = null, groundTop = null, zones = 1, m
     const byKey = new Map(o.list.map((c) => [c.k, c]));
     const seedUnit = o.units.map((u) => u.some((c) => c.seed));                                 // a unit with a floating piece: begun last
     const centre = o.units.map((u) => ({ x: u.reduce((a, c) => a + c.x, 0) / u.length, y: u.reduce((a, c) => a + c.y, 0) / u.length, z: u.reduce((a, c) => a + c.z, 0) / u.length }));
-    return { origin, minY, maxY, layers: maxY - minY + 1, groundTop: gt, tiles, regions, units: o.units, deps: o.deps, unitOf: o.unitOf, zones: o.zones, seedUnit, mode: o.mode, levelWindow: Math.max(0, Math.floor(window) || 0), unitLayer: o.unitLayer, levels: { list: [...new Set(o.unitLayer)].sort((a, b) => a - b), of: o.unitLayer.reduce((m, l, i) => { (m.get(l) || m.set(l, []).get(l)).push(i); return m; }, new Map()) }, list: o.list, byKey, centre, unsupported, unbuildable: [...never].map(([k, why]) => ({ at: k, why })), footprint, cellSet, want, count: all.length, skipped, materials: C.materialsOf(placeable) };
+    const blockNames = new Set(real.map((c) => c.block));
+    return { box: { x0, x1, z0, z1, y0: Math.max(minY, gt + 1), y1: maxY }, blockNames, origin, minY, maxY, layers: maxY - minY + 1, groundTop: gt, tiles, regions, units: o.units, deps: o.deps, unitOf: o.unitOf, zones: o.zones, seedUnit, mode: o.mode, levelWindow: Math.max(0, Math.floor(window) || 0), unitLayer: o.unitLayer, zoneLevels: o.zones.units.map(([a, b]) => { const ls = o.unitLayer.slice(a, b), list = [...new Set(ls)].sort((x, y) => x - y); return { list, of: ls.reduce((m, l, i) => { (m.get(l) || m.set(l, []).get(l)).push(a + i); return m; }, new Map()) }; }), levels: { list: [...new Set(o.unitLayer)].sort((a, b) => a - b), of: o.unitLayer.reduce((m, l, i) => { (m.get(l) || m.set(l, []).get(l)).push(i); return m; }, new Map()) }, list: o.list, byKey, centre, unsupported, unbuildable: [...never].map(([k, why]) => ({ at: k, why })), footprint, cellSet, want, count: all.length, skipped, materials: C.materialsOf(placeable) };
 }
 
 /** Cells of one unit in placement order. */
@@ -47,6 +48,23 @@ function needsOf(cells, w = null) {
     return m;
 }
 
+/**
+ * Blocks inside the structure's box that no cell of the plan owns and that are of a kind the plan never uses: what a bot left behind (a temporary scaffold, a block of a pillar), as [{ x, y, z }].
+ * A kind the plan uses (dirt) cannot be told from a cell of the structure that is wrong, so it is not touched; nor are containers (the supply chests).
+ */
+function extrasOf(plan, w) {
+    const out = [], b = plan.box;
+    for (let y = b.y0; y <= b.y1; y++) for (let x = b.x0; x <= b.x1; x++) for (let z = b.z0; z <= b.z1; z++) {
+        if (plan.cellSet.has(`${x},${y},${z}`)) continue;
+        const k = w.kindAt(x, y, z);
+        if (k !== 'solid' && k !== 'partial') continue;
+        const n = String(w.nameAt(x, y, z) || '').replace(/^minecraft:/, '');
+        if (!n || plan.blockNames.has(n) || /(chest|barrel|shulker)/.test(n)) continue;
+        out.push({ x, y, z, block: n });
+    }
+    return out;
+}
+
 /** What differs between the blueprint and the world: cells whose block (or state) is not the wanted one. */
 function diffBuild(plan, w) {
     const missing = [];
@@ -59,4 +77,4 @@ function diffBuild(plan, w) {
     return missing;
 }
 
-module.exports = { planBuild, unitCells, needsOf, diffBuild };
+module.exports = { planBuild, unitCells, needsOf, diffBuild, extrasOf };

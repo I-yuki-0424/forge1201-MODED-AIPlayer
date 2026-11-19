@@ -126,7 +126,10 @@ async function walk(ctx, goal, { sprint = true } = {}) {
         let k = -1;
         for (let j = idx; j < Math.min(path.length, idx + 4); j++) if (onNode(path[j], cell)) k = j;
         if (k >= 0) idx = k;
-        else if (!path.slice(idx, idx + 3).some((n) => Math.abs(n.x - cell.x) <= 1 && Math.abs(n.z - cell.z) <= 1 && Math.abs(n.y - cell.y) <= 1)) { replan('off path'); continue; }
+        else if (!path.slice(idx, idx + 3).some((n) => Math.abs(n.x - cell.x) <= 1 && Math.abs(n.z - cell.z) <= 1 && Math.abs(n.y - cell.y) <= 1)) {
+            // Swept by a current (owner 2026-11-19: the bots were carried away by the flow of the water they had just placed and could not resist it, a player does): not a reason to plan again, push on toward the next node
+            if (e.isInWater && path.length && hdist(pos, centre(path[Math.min(idx + 1, path.length - 1)])) < 5) { /* keep steering below */ } else { replan('off path'); continue; }
+        }
         if (idx === path.length - 1) {
             // End of a partial path, or a goal cell we passed through without stopping: plan again from here.
             if (!goal.isGoal(cell)) { replan('end of partial path'); continue; }
@@ -158,7 +161,7 @@ async function walk(ctx, goal, { sprint = true } = {}) {
         const jump = wet || (onClimb && up) || (up && (hdist(pos, centre(next)) < 1.3 || e.isCollidedHorizontally) && Math.abs(angleDiff(yaw, e.yaw)) < 0.6);
         const straight = j - idx >= 4 && !path.slice(idx + 1, j + 3).some((n) => n.move !== 'walk');
         const last = j === path.length - 1;
-        await ctx.tick({ forward: !(last && d < 0.3), jump, sprint: sprint && straight && !last && !wet && bot.food > 6, yaw });
+        await ctx.tick({ forward: !(last && d < 0.3), jump, sprint: (sprint && straight && !last && !wet && bot.food > 6) || (e.isInWater && bot.food > 6), yaw });          // in a current: forward, jump and sprint the whole time, the way a player swims against it
     }
 }
 

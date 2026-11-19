@@ -150,5 +150,22 @@ function world(deckY) {
         assert.ok(openW.every((i) => lv.indexOf(jobW.plan.unitLayer[i]) <= 3), 'a window of 3: no unit above the fourth level');
         assert.ok(idxs.size > new Set(open.map((i) => lv.indexOf(job.plan.unitLayer[i]))).size, 'more levels are open with a window than without');
     }
+
+    // ---- nested layers in areas (zlayer), the tidy of what the bots left behind
+    {
+        const build = require('../src/work/jobs/build'), R2 = require('../src/work/builder/run');
+        const pz = P.planBuild(cells, origin, { zones: 3, mode: 'zlayer', window: 1 });
+        assert.strictEqual(pz.mode, 'zlayer'); assert.strictEqual(pz.zoneLevels.length, 3, 'levels per area');
+        pz.zoneLevels.forEach((lv, z) => { for (const [l, us] of lv.of) us.forEach((u) => { assert.strictEqual(pz.unitLayer[u], l); assert.strictEqual(pz.zones.ofUnit[u], z, 'the levels of an area hold units of that area'); }); });
+        const jz = build.createBuildJob(cells, origin, { leaseMs: 45000 }, { zones: 3, mode: 'zlayer' }), w5 = world(origin.y - 1);
+        jz.world = w5; for (const c of jz.plan.list) if (c.y <= origin.y + 3 && !c.fluid) w5.set(c.x, c.y, c.z, c.block, c.props);
+        // one area's lowest level does not wait for another area's levels: the open units of every area are on that area's lowest unsettled levels
+        const openZ = jz.plan.unitLayer.map((l, i) => i).filter((i) => R2.gateOf(jz.plan, jz, i));
+        for (const i of openZ) { const z = jz.plan.zones.ofUnit[i], lv = jz.plan.zoneLevels[z]; assert.ok(lv.list.indexOf(jz.plan.unitLayer[i]) <= 1, 'strict per area: at most the lowest unsettled level (and a settled one)'); }
+        // left behind: a cobblestone in the box that the plan never uses is an extra; dirt (the plan uses it) and a chest are not
+        const w6 = world(origin.y - 1); const b = pz.box; w6.set(b.x0 + 1, b.y0 + 1, b.z0 + 1, 'cobblestone'); w6.set(b.x0 + 2, b.y0 + 1, b.z0 + 1, 'dirt'); w6.set(b.x0 + 3, b.y0 + 1, b.z0 + 1, 'chest');
+        const ex = P.extrasOf(pz, w6);
+        assert.ok(ex.some((e) => e.block === 'cobblestone') && !ex.some((e) => /dirt|chest/.test(e.block)), 'only what the plan never uses is taken away: ' + JSON.stringify(ex.slice(0, 3)));
+    }
     console.log('build plan: ok');
 })().catch((e) => { console.error(e); process.exit(1); });
