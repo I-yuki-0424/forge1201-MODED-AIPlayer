@@ -303,7 +303,9 @@ async function placeOriented(c, item, sup, env, r, jump = false) {
         usable.sort((a, b) => (a.support === sup ? 0 : 1) - (b.support === sup ? 0 : 1) || (require('../../skills/world').isInteractive(nm(w, at(c, a.support).x, at(c, a.support).y, at(c, a.support).z)) ? 1 : 0) - (require('../../skills/world').isInteractive(nm(w, at(c, b.support).x, at(c, b.support).y, at(c, b.support).z)) ? 1 : 0));
         const q = usable[0];
         if (!q) return bad('unreachable', { why: 'no recipe whose support is present and within reach from here', block: c.block, lastNotConfirmed: lastNc, feet, present: all.map((x) => `${x.support}:${presentAt(w, at(c, x.support)) ? 'y' : 'n'}:${S.reachTo(feet, at(c, x.support)).toFixed(1)}`).filter((v, i, a) => a.indexOf(v) === i), supports: all.map((x) => x.support).filter((v, i, a) => a.indexOf(v) === i) }, 'reach');
-        const args = { x: c.x, y: c.y, z: c.z, item, ...blockArg, recipe: { support: q.support, face: q.face, hy: q.hy, yRot: q.yRot, pitch: q.pitch } };
+        // a cell that water has flowed into (run 60a, 2026-11-19: `cell holds water`, a unit failed for it): the block goes in over the water, as in the game
+        const wet = /^(water|lava)$/.test(nm(w, c.x, c.y, c.z));
+        const args = { x: c.x, y: c.y, z: c.z, item, ...blockArg, ...(wet ? { fluid: true } : {}), recipe: { support: q.support, face: q.face, hy: q.hy, yRot: q.yRot, pitch: q.pitch } };
         let p = await env.exec('place', args, { raw: true, maxTicks: 220 });
         // a precondition the station did not foresee (the body in the cell, an entity in the way, a support out of reach): the router's remedy, once (it moves the bot, then places)
         if (!p.ok && ['unreachable', 'not_visible', 'stuck', 'precondition_failed'].includes(p.reason) && env.command) p = await env.command('place', args);
