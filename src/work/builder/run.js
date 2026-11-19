@@ -288,7 +288,7 @@ async function buildCell(plan, c, sup, env, r, jump = false) {
 /** Another bot's body in the cell (the server refuses a block placed into a player). */
 const botIn = (env, c) => !!env.others && env.others().some((o) => Math.floor(o.x) === c.x && Math.floor(o.z) === c.z && (Math.floor(o.y) === c.y || Math.floor(o.y) + 1 === c.y));
 async function placeOriented(c, item, sup, env, r, jump = false) {
-    let lastNc = null;
+    let lastNc = null, lastGot = null;
     // the bot's own body in the cell (a station inside a cell of the plan, which is then the next to place): one step aside first, unless the block goes under its feet: then the bot jumps and
     // places it (`jump`, the last cell of a station, or any cell at the feet with the floor under it: the place command does it, block.js `jumpPlace`)
     { const f = env.here(); if (env.bot && f.x === c.x && f.z === c.z && (c.y === f.y || c.y === f.y + 1) && env.stepAside && !(jump && c.y === f.y)) await env.stepAside(); }
@@ -317,7 +317,7 @@ async function placeOriented(c, item, sup, env, r, jump = false) {
         if (!p.ok) { if (p.reason === 'not_confirmed') { if (botIn(env, c)) return bad('blocked', { why: 'another bot stands in the cell', block: c.block }, 'entity'); tried.add(q); lastNc = p.detail; continue; } return { ...p, stage: 'place' }; }
         const now = w.blockAt ? w.blockAt(c.x, c.y, c.z) : null;
         if (now && !C.stateMatches(now, c)) {
-            r.fixed++; tried.add(q);
+            r.fixed++; tried.add(q); lastGot = { name: now.name, props: now.getProperties ? now.getProperties() : {}, recipe: { support: q.support, face: q.face, hy: q.hy, yRot: q.yRot, pitch: q.pitch } };
             const m = await env.exec('mine', { x: c.x, y: c.y, z: c.z }, { raw: true, maxTicks: 300 });
             if (!m.ok) return { ...m, stage: 'redo' };
             continue;
@@ -325,7 +325,7 @@ async function placeOriented(c, item, sup, env, r, jump = false) {
         r.placed++;
         return now && C.useMismatch(now, c) ? fixUse(c, env, r) : ok;
     }
-    return bad('not_confirmed', { why: 'no placement recipe gave the wanted state', block: c.block, props: c.props, tried: tried.size }, 'state');
+    return bad('not_confirmed', { why: 'no placement recipe gave the wanted state', block: c.block, props: c.props, tried: tried.size, lastGot }, 'state');
 }
 
 /** open / delay: right-click until the state is the wanted one (a trapdoor toggles once, a repeater steps its delay 1..4). */
