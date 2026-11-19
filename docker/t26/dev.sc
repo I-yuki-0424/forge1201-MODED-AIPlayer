@@ -2,7 +2,7 @@
 // The command only writes a request line to world/scripts/dev.data/requests.txt; scripts/t26/dev_watch.js (container forgeaip-t26-dev-N) runs the test and answers in chat.
 // Watching needs nothing from the watcher: /dev follow <bot> puts the caller in spectator mode on the bot, /dev back returns to survival at the world spawn.
 
-global_tests = ['move_a', 'move_b', 'mine_a', 'mine_b', 'place_a', 'place_b', 'place_c_area', 'place_c_layer', 'temps'];
+global_tests = ['move_a', 'move_b', 'mine_a', 'mine_b', 'place_a', 'place_b', 'place_c_area', 'place_c_layer', 'place_c_window', 'temps'];
 
 __config() -> {
     'scope' -> 'global',
@@ -27,7 +27,7 @@ __config() -> {
 help() -> (
     print('/dev run <test> [reps]  start a test on this world: move_a (4 bots, 2000 blocks N/E/S/W), move_b (cave floor to surface), mine_a (4 bots: log, cobblestone, coal, raw iron, raw gold x8),');
     print('                        mine_b (strip-mine the spawn chunk, nothing may be left), place_a (30-block bridges 40 above ground), place_b (a structure, checked block by block), temps (temp blocks left by a pillar/descend run)');
-    print('                        place_c_area / place_c_layer (the Litematica iron farm, 3 bots, 20 min: one area per bot / the same with a barrier between levels; the line "site:" gives the /tp to look down on it)');
+    print('                        place_c_area / place_c_layer / place_c_window (the Litematica iron farm, 3 bots, 20 min: one area per bot / the same with a barrier between levels / with 3 levels open above the lowest; the line "site:" gives the /tp to look down on it)');
     print('/dev stop | status      stop the running test | what runs, the last result');
     print('/dev follow <bot>       watch a bot in spectator mode;  /dev back  survival again at the spawn;  /dev bots  where every bot is');
 );

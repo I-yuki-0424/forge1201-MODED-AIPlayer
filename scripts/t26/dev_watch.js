@@ -6,10 +6,11 @@ const { spawn } = require('child_process');
 const { Rcon } = require('../../src/rl/rcon');
 
 const FILE = '/mcdata/world/scripts/dev.data/requests.txt', WORLD = process.env.T26_WORLD || '?';
-const TESTS = new Set(['move_a', 'move_b', 'mine_a', 'mine_b', 'place_a', 'place_b', 'place_c_area', 'place_c_layer']);
+const TESTS = new Set(['move_a', 'move_b', 'mine_a', 'mine_b', 'place_a', 'place_b', 'place_c_area', 'place_c_layer', 'place_c_window']);
 // place_c_area / place_c_layer: the Litematica build of the iron farm by three bots in 20 minutes (scripts/t26/place_c.js), by the two methods of the builder (docs/implemented/SYNCMATICA-v1.md):
-// area = one area per bot, units of a few levels; layer = the same with a barrier between levels (a level opens when the levels below are settled).
-const SCRIPT = (t) => (t.startsWith('place_c_') ? 'place_c' : t), EXTRA = (t) => (t === 'place_c_layer' ? { BUILD_MODE: 'layer', BUILD_TRACE: '1' } : t === 'place_c_area' ? { BUILD_MODE: 'area', BUILD_TRACE: '1' } : {});
+// area = one area per bot, units of a few levels; layer = the same with a barrier between levels (a level opens when the levels below are settled); window = layer with three levels
+// above the lowest unsettled one open already.
+const SCRIPT = (t) => (t.startsWith('place_c_') ? 'place_c' : t), EXTRA = (t) => (t === 'place_c_layer' ? { BUILD_MODE: 'layer', BUILD_TRACE: '1' } : t === 'place_c_window' ? { BUILD_MODE: 'layer', BUILD_WINDOW: '3', BUILD_TRACE: '1' } : t === 'place_c_area' ? { BUILD_MODE: 'area', BUILD_TRACE: '1' } : {});
 let rc = null, child = null, current = null, last = null, offset = 0, queue = 0;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
