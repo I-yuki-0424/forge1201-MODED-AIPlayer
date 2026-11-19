@@ -113,7 +113,8 @@ async function trial(k, S, svc, seed, rep) {
         await S.must(`data merge block ${sup[i].x} ${sup[i].y} ${sup[i].z} {Items:[${items}]}`);
     }
     // the builders stand on the deck (it reaches 6 beyond the box; the third bot used to stand outside it and fell 136 blocks)
-    for (const [i, n] of names.entries()) { await S.must(`tp ${n} ${M.x - 4.5} ${M.y} ${M.z - 3.5 - i}`); await S.must(`spawnpoint ${n} ${M.x - 4} ${M.y} ${M.z - 4 - i}`);          // a bot that dies comes back on the deck (a bed beside the site), not at the world spawn 250 blocks away with no way up await T.kit(S, n, { blocks: 320 }); }
+    // a bot that dies comes back on the deck (a bed beside the site), not at the world spawn 250 blocks away with no way up
+    for (const [i, n] of names.entries()) { await S.must(`tp ${n} ${M.x - 4.5} ${M.y} ${M.z - 3.5 - i}`); await S.must(`spawnpoint ${n} ${M.x - 4} ${M.y} ${M.z - 4 - i}`); await T.kit(S, n, { blocks: 320 }); }
     await sleep(4000);
     for (let i = 0; i < chests.length; i++) svc.addSite({ name: `supply${i}`, x: sup[i].x, y: sup[i].y, z: sup[i].z, purpose: 'free' });      // after the bot sees the chunk
     console.log(`[place_c site] box minimum ${M.x} ${M.y} ${M.z}, size ${sx} x ${sy} x ${sz}; reference copy at ${ref.x} ${ref.y} ${ref.z}; supply chests at x ${M.x - 3}; /tp ${M.x + 22} ${M.y + 30} ${M.z + 22} to look down on it`);
