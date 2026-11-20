@@ -129,8 +129,14 @@ async function trial(k, S0, svc, seed, rep) {
     const mats = plan0.materials;                                                                             // the plan's own list: lightings count as flint and steel, derived cells not at all
     const stacks = []; for (const [it, n0] of Object.entries(mats)) { const n = ONE.has(it) ? n0 + Math.ceil(n0 * (SURPLUS - 1)) + 2 : Math.ceil(n0 * SURPLUS), ms = STACK[it] || 64; for (let r = n; r > 0; r -= ms) stacks.push({ it, n: Math.min(ms, r) }); }      // SURPLUS 2 = the old default (several builders fetch a stack each and must not starve each other); the owner's run: 1.1
     for (let r = Number(process.env.TEMP_STOCK || 1024); r > 0; r -= 64) stacks.push({ it: TEMP, n: 64 });  // temporary blocks (pumpkins: the bots' drops come back to them, see scripts/t26/vacuum.sh)
-    const chests = []; for (let i = 0; i < stacks.length; i += 27) chests.push(stacks.slice(i, i + 27));
-    const sup = chests.map((_, i) => ({ x: M.x - 3, y: M.y, z: M.z + 2 * i }));
+    // The chests: the items with few stacks (lever, pistons, comparators ... ) together in the first chests, next to where the builders start; the bulk (glass, stone, beds, pumpkins) spread over all of them, so
+    // that one visit to the nearest chest gives a bit of everything (the bots do not know what a chest holds: the first live run walked past 13 chests for one redstone).
+    const byItem = new Map(); for (const st of stacks) (byItem.get(st.it) || byItem.set(st.it, []).get(st.it)).push(st);
+    const rare = [], bulk = []; for (const [, list] of byItem) (list.length <= 6 ? rare : bulk).push(...list);
+    const nCh = Math.ceil(stacks.length / 27) + 1, chests0 = Array.from({ length: nCh }, () => []);
+    { let ci = 0; for (const st of rare) { while (chests0[ci].length >= 27) ci++; chests0[ci].push(st); } let cj = 0; for (const st of bulk) { let n = 0; while (chests0[cj % nCh].length >= 27 && n++ < nCh) cj++; chests0[cj % nCh].push(st); cj++; } }
+    const chests = chests0.filter((c) => c.length);
+    const sup = chests.map((_, i) => ({ x: M.x - 3, y: M.y, z: M.z + 3 * i }));
     for (let i = 0; i < chests.length; i++) {
         await S.must(`setblock ${sup[i].x} ${sup[i].y} ${sup[i].z} minecraft:chest[facing=east] replace`);
         const items = chests[i].map((s, j) => `{Slot:${j}b,id:"minecraft:${s.it}",count:${s.n}}`).join(',');

@@ -8,6 +8,7 @@
 // A cell's `sup` is the support direction the planner counted on: the cell below when there is one, then a side, then above. The units depend on the units of their supports, nothing more.
 const O = require('../jobs/orient');
 const C = require('./cells');
+const POLICY = require('./policy');
 const D = O.DIR, DIRS = ['down', 'north', 'south', 'east', 'west', 'up'];          // the order of preference of a support
 const NB = DIRS.map((d) => [d, D[d]]);
 const at = (c, d) => ({ x: c.x + D[d][0], y: c.y + D[d][1], z: c.z + D[d][2] });
@@ -64,7 +65,7 @@ function chunk(list, { max = 24, span = 9, layered = false } = {}) {
  * @param ground  (x, y, z) => is it ground (present from the start)
  * Returns { list: the cells in placement order (each with .seq, .sup, .fluid, .seed), units: [[cell]] }, dependencies: [[unit index]] per unit }.
  */
-function plan(cells, real, ground, { zones = 1, mode = 'area' } = {}) {
+function plan(cells, real, ground, { zones = 1, mode = 'area', weights = null } = {}) {
     const layered = mode === 'layer' || mode === 'zlayer';
     const owned = new Map(), byPos = new Map();
     for (const c of cells) { c.k = c.waterlog ? `${key(c)}w` : key(c); c.fluid = c.waterlog || C.kindOf(c) === 'fluid'; owned.set(c.k, c); if (!c.waterlog) byPos.set(key(c), c); }
@@ -120,13 +121,22 @@ function plan(cells, real, ground, { zones = 1, mode = 'area' } = {}) {
     const cand = new Map(), left = new Set(owned.keys());
     const eval1 = (c) => { if (!left.has(c.k)) { cand.delete(c.k); return; } const s = isReady(c) ? supOf(c) : null; if (s) cand.set(c.k, { c, sup: s }); else cand.delete(c.k); };
     for (const c of cells) eval1(c);
+    // cells that wait for c (explicitly, or as the neighbours that have no support yet): what placing c lets go on
+    const unlocksOf = (c) => { let n = (later.get(c.k) || []).length; for (const [, v] of NB) { const q = byPos.get(`${c.x + v[0]},${c.y + v[1]},${c.z + v[2]}`); if (q && left.has(q.k) && !cand.has(q.k)) n++; } return n; };
     const list = [], lastZ = new Array(part.n).fill(null);
     while (left.size) {
         let best = null, bk = null;
         // Lowest first. The first cell of a level is the one nearest the MIDDLE of the cell's area (owner 2026-11-18: "start from the bottom and from the middle"; a plain nearest-next order
         // began wherever the iteration did, at the outermost part), the next is the one nearest the last placed in that area: a compact piece that grows, not separate islands.
         // (Tried: rings of 3 or 6 blocks around the middle at each level, which keeps the middle first on the whole level: 30 % more walking in the simulation.)
-        for (const e of cand.values()) {
+        if (weights) {
+            // The order EXPERT (policy.js, TASK-20261121-071): the next cell is the candidate with the lowest learned score. With the default weights it is the rule below (height first, then the nearest).
+            const lows = new Array(part.n).fill(Infinity); for (const e of cand.values()) lows[e.c.zone] = Math.min(lows[e.c.zone], e.c.y);
+            for (const e of cand.values()) {
+                const c = e.c, sc = POLICY.score(weights, POLICY.features(c, { last: lastZ[c.zone], centre: part.centre[c.zone], low: lows[c.zone], sup: e.sup, unlocks: unlocksOf(c), attached: C.kindOf(c) === 'attached' || C.NEEDS_SUPPORT.test(c.block) }));
+                if (!best || sc < bk[0]) { best = e; bk = [sc]; }
+            }
+        } else for (const e of cand.values()) {
             const c = e.c, l0 = lastZ[c.zone], l = !l0 || l0.y !== c.y ? { ...part.centre[c.zone], y: c.y } : l0, d = (c.x - l.x) ** 2 + (c.z - l.z) ** 2 + 4 * (c.y - l.y) ** 2;
             if (!best || c.y < bk[0] || (c.y === bk[0] && d < bk[1])) { best = e; bk = [c.y, d]; }
         }

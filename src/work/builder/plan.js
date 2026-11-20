@@ -5,7 +5,7 @@ const C = require('./cells');
 const ord = require('./order');
 
 /** Cut a blueprint into the plan. `zones`: the number of areas (one per bot: each bot keeps its own, see posts.js). `origin` is the world cell of the blueprint's (0, 0, 0); ground is every cell below `groundTop` (default: the layer under the origin). */
-function planBuild(cells, origin, { known = null, groundTop = null, zones = 1, mode = 'area', window = 0 } = {}) {
+function planBuild(cells, origin, { known = null, groundTop = null, zones = 1, mode = 'area', window = 0, weights = undefined } = {}) {
     if (!cells.length) throw new Error('blueprint is empty');
     const abs = cells.map((c) => ({ x: origin.x + c.x, y: origin.y + c.y, z: origin.z + c.z, block: C.bare(c.block), props: c.props || {} }));
     const cannot = (b) => C.itemFor(b) === null || (known && !known(b));
@@ -21,7 +21,7 @@ function planBuild(cells, origin, { known = null, groundTop = null, zones = 1, m
     const waterlog = placeable.filter((c) => c.props.waterlogged === 'true' && C.kindOf(c) !== 'fluid').map((c) => ({ x: c.x, y: c.y, z: c.z, block: 'water', props: { level: '0' }, waterlog: true, of: c.block }));
     const all = [...placeable, ...waterlog];
     const minY = Math.min(...all.map((c) => c.y)), maxY = Math.max(...all.map((c) => c.y)), gt = groundTop === null ? origin.y - 1 : groundTop;
-    const o = ord.plan(all, real, (x, y, z) => y <= gt, { zones: Math.max(1, Math.floor(zones) || 1), mode: mode === 'layer' || mode === 'zlayer' ? mode : 'area' });
+    const o = ord.plan(all, real, (x, y, z) => y <= gt, { zones: Math.max(1, Math.floor(zones) || 1), mode: mode === 'layer' || mode === 'zlayer' ? mode : 'area', weights: weights === undefined ? require('./policy').fromEnv() : weights });
     const x0 = Math.min(...all.map((c) => c.x)), x1 = Math.max(...all.map((c) => c.x)), z0 = Math.min(...all.map((c) => c.z)), z1 = Math.max(...all.map((c) => c.z));
     const cellsOf = new Map(o.units.map((u, i) => [i, u]));
     const tiles = new Map([['b0', { id: 'b0', x0, x1, z0, z1, cells: cellsOf }]]);

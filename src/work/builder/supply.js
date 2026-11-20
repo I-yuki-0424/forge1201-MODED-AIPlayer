@@ -90,8 +90,11 @@ async function restock(env, plan, need, opt = {}) {
     if (!sites) return { ok: false, reason: 'missing_item', detail: { item: lacking()[0][0], why: 'this environment has no list of containers' } };
     const log = { trips: 0, took: {} };
     const tried = new Set();
+    // What each chest held when somebody last took from it (shared by the crew, on the plan): the next trip goes first to the chests known to hold what is lacking, the nearest of them, then the rest.
+    const mem = plan.supplyMem || (plan.supplyMem = new Map()), kOf = (c) => `${c.x},${c.y},${c.z}`;
     for (let round = 0; round < 14 && lacking().length; round++) {
-        const chests = sites.sources(env.pos()).filter((s) => !tried.has(`${s.x},${s.y},${s.z}`));
+        const lack = lacking().map(([it]) => it), known = new Set(); for (const it of lack) for (const k of mem.get(it) || []) known.add(k);
+        const all = sites.sources(env.pos()).filter((s) => !tried.has(kOf(s))), chests = [...all.filter((s) => known.has(kOf(s))), ...all.filter((s) => !known.has(kOf(s)))];
         if (!chests.length) break;
         const c = chests[0]; tried.add(`${c.x},${c.y},${c.z}`);
         if (env.cancelled && env.cancelled()) return { ok: false, reason: 'cancelled' };
@@ -110,7 +113,8 @@ async function restock(env, plan, need, opt = {}) {
         }
         const r = await env.run('take_many', { items, x: c.x, y: c.y, z: c.z });
         log.trips++;
-        if (r.ok && r.detail) for (const g of r.detail.got || []) log.took[g.item] = (log.took[g.item] || 0) + g.moved;
+        if (r.ok && r.detail) for (const g of r.detail.got || []) { log.took[g.item] = (log.took[g.item] || 0) + g.moved; if (g.moved > 0) (mem.get(g.item) || mem.set(g.item, new Set()).get(g.item)).add(kOf(c)); }
+        for (const it of lack) if (known.has(kOf(c)) && !(log.took[it] > 0)) mem.get(it) && mem.get(it).delete(kOf(c));          // it was said to hold the item and did not (emptied since): forgotten
         if (!r.ok) { log.lastTake = { reason: r.reason, why: r.detail && r.detail.why }; if (['cancelled', 'died', 'disconnected'].includes(r.reason)) return r; }
     }
     const l = lacking();

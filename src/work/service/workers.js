@@ -208,6 +208,9 @@ class WorkersPart {
             else if (res.ended === 'unhealthy') {
                 const missing = res.last === 'missing_item' || res.last === 'missing_tool';
                 if (missing && this.settings.autoKit && this.o.rcon && (rec.fixes = (rec.fixes || 0) + 1) <= 5) { this._restock(job, rec, res.last).catch((e) => { rec.retired = `retired: ${res.last} (restock failed: ${String(e.message).slice(0, 80)})`; this._dirty(); }); return; }
+                // A build crew gets its materials from chests: a failed trip (a chest not in sight, another bot in the way, a chest being emptied) is a reason to try again in a moment, not to wait for the operator
+                // for ever (TASK-20261121-071, live: two of six builders "waiting for redstone" while the chests held 400).
+                if (missing && job.kind === 'build' && (() => { try { return this.sites.sources(null).length > 0; } catch (_) { return false; } })()) { rec.waitFor = null; res.last = 'supply'; }          // (only where the crew has chests to fetch from: without any, the operator is the supply)
                 if (res.last === 'missing_tool' && rec.missingTool) {
                     const cls = this._toolClass(rec, rec.missingTool);
                     rec.waitFor = { tool: rec.missingTool };

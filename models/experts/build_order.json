@@ -1,0 +1,66 @@
+{
+ "model": "build-order-v1",
+ "names": [
+  "height",
+  "dist",
+  "dy",
+  "unlocks",
+  "supports",
+  "attached",
+  "centre",
+  "level"
+ ],
+ "weights": [
+  3.583,
+  2.05,
+  -0.988,
+  0.099,
+  -0.232,
+  1.074,
+  -0.359,
+  -0.274
+ ],
+ "fitness": 0.9800460801481234,
+ "baseline": [
+  {
+   "set": "nether-side",
+   "cost": 20804,
+   "temps": 86,
+   "span": 19514
+  },
+  {
+   "set": "golem-trap",
+   "cost": 26846,
+   "temps": 134,
+   "span": 24836
+  },
+  {
+   "set": "farm-floor",
+   "cost": 54088,
+   "temps": 617,
+   "span": 44833
+  }
+ ],
+ "best": [
+  {
+   "set": "nether-side",
+   "cost": 20692,
+   "temps": 99,
+   "span": 19207
+  },
+  {
+   "set": "golem-trap",
+   "cost": 25415,
+   "temps": 125,
+   "span": 23540
+  },
+  {
+   "set": "farm-floor",
+   "cost": 54026,
+   "temps": 628,
+   "span": 44606
+  }
+ ],
+ "generations": 1,
+ "trained": "2026-11-20T15:52:15.724Z"
+}
