@@ -332,7 +332,9 @@ async function buildCell(plan, c, sup, env, r, jump = false) {
     if (c.ignite && c.bodyCells) for (const q of c.bodyCells) {
         const n = nm(w, q.x, q.y, q.z);
         if (!n || /^(air|cave_air|void_air|nether_portal)$/.test(n) || (q.x === c.x && q.y === c.y && q.z === c.z && n === 'fire')) continue;
-        const m = await env.exec('mine', { x: q.x, y: q.y, z: q.z, collect: false }, { raw: true, maxTicks: 300 });
+        await nearFor(plan, q, env);                                                                      // within reach of the leftover (the body of a portal is 14 long)
+        let m = await env.exec('mine', { x: q.x, y: q.y, z: q.z, collect: false, blind: true }, { raw: true, maxTicks: 300 });
+        if (!m.ok) m = await env.exec('mine', { x: q.x, y: q.y, z: q.z, collect: false }, { raw: true, maxTicks: 300 });
         if (TRACE) console.log(`[build] cleared ${n} out of the portal at ${q.x},${q.y},${q.z}: ${m.ok ? 'ok' : m.reason}`);
         if (!m.ok && !/^(fire|soul_fire)$/.test(n)) return { ...m, stage: 'clear-portal' };
     }
