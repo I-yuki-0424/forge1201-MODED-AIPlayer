@@ -91,7 +91,7 @@ function ignitions(abs) {
         const pick = low[0], inBody = new Set(body.map(ckey)), axis = (pick.props || {}).axis || 'x', plane = axis === 'x' ? [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0]] : [[0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]], frame = new Set();
         for (const b of body) for (const d of plane) { const k = `${b.x + d[0]},${b.y + d[1]},${b.z + d[2]}`; if (!inBody.has(k) && at.has(k) && bare(at.get(k).block) === 'obsidian') frame.add(k); }
         for (const b of body) if (b !== pick) drop.add(ckey(b));
-        cells.push({ x: pick.x, y: pick.y, z: pick.z, block: 'nether_portal', props: { axis }, ignite: true, frame: [...frame], body: body.length });
+        cells.push({ x: pick.x, y: pick.y, z: pick.z, block: 'nether_portal', props: { axis }, ignite: true, frame: [...frame], body: body.length, bodyCells: body.map((b) => ({ x: b.x, y: b.y, z: b.z })) });
     }
     return { cells, drop };
 }

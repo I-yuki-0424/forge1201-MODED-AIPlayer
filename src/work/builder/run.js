@@ -319,6 +319,15 @@ async function buildWithTemp(plan, sv, env, r) {
 async function buildCell(plan, c, sup, env, r, jump = false) {
     const w = env.w;
     if (c.waterlog || C.kindOf(c) === 'fluid') return pourCell(c, env, r);
+    // A portal forms only in an EMPTY frame: whatever a scaffold or a walk left inside it (a pumpkin, fire of an earlier try) is taken out first (live 2026-11-21: two pumpkins inside the first
+    // portal, the lighting failed "cell holds fire", and the end-of-build tidy never ran because the unlit portal counted as missing).
+    if (c.ignite && c.bodyCells) for (const q of c.bodyCells) {
+        const n = nm(w, q.x, q.y, q.z);
+        if (!n || /^(air|cave_air|void_air|nether_portal)$/.test(n) || (q.x === c.x && q.y === c.y && q.z === c.z && n === 'fire')) continue;
+        const m = await env.exec('mine', { x: q.x, y: q.y, z: q.z, collect: false }, { raw: true, maxTicks: 300 });
+        if (TRACE) console.log(`[build] cleared ${n} out of the portal at ${q.x},${q.y},${q.z}: ${m.ok ? 'ok' : m.reason}`);
+        if (!m.ok && !/^(fire|soul_fire)$/.test(n)) return { ...m, stage: 'clear-portal' };
+    }
     const item = C.itemFor(c.block), cur = w.blockAt ? w.blockAt(c.x, c.y, c.z) : null;
     if (cur ? C.stateMatches(cur, c) : nm(w, c.x, c.y, c.z) === c.block) { if (!C.useMismatch(cur, c)) { r.skipped++; return ok; } return fixUse(c, env, r); }
     const curName = cur ? cur.name : nm(w, c.x, c.y, c.z);
