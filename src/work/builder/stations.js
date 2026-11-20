@@ -114,7 +114,7 @@ function serves(view, S, cells, T = null, ok = null) {
     // only (not a temporary one), with room for the jump, a block that goes on the top face of what is under it, and everything it waits for in place.
     // Only a full cube: the bot lands on the block it places, and a wall (1.5 high), a slab, a stair or a fence under its feet is a place the planner cannot start from (runs 3 to 6, 2026-11-18:
     // bots stood on their own walls for minutes).
-    const cube = (n) => !/(_wall|_fence|_fence_gate|snow)$/.test(String(n).replace(/^minecraft:/, ''));          // the jump is the standard way to place at the feet (owner 2026-11-19); only what is higher than a block is out
+    const cube = (n) => !/(_wall|_fence|_fence_gate|snow)$/.test(String(n).replace(/^minecraft:/, '')) && !require('./order').PARTIAL.test(String(n).replace(/^minecraft:/, ''));          // (a bed, a slab, a hopper, a trapdoor: the bot would land on top of a block it cannot walk off from, 2026-11-21)          // the jump is the standard way to place at the feet (owner 2026-11-19); only what is higher than a block is out
     if (self && !T && !self.fluid && !self.waterlog && cube(self.block) && (self.dirs || DIRS).includes('down') && view.solid(S.x, S.y - 1, S.z) && view.free(S.x, S.y + 2, S.z) && (!ok || ok(self, done))) out.push({ cell: self, sup: 'down', jump: true });
     return out;
 }
