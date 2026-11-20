@@ -209,6 +209,8 @@ async function runUnit0(plan, job, regionId, u, env) {
         bot.__reserve = new Map(Object.entries(supply.remaining(plan, env.w)));
         bot.__keep = (x, y, z) => plan.cellSet.has(`${x},${y},${z}`);
         bot.__avoidFloor = null;                                               // a leftover block of another builder is a floor like any other (the action layer refused to start a walk from one: 'expanded 1')
+        // the beds of the plan (foot and head) are the crew's own work, also those a run before this one placed: they may be mined again (fixtures.js protects every other bed)
+        if (bot.__bedsOwn !== plan) { bot.__bedsOwn = plan; const ps = require('../../skills/fixtures').placedSet(bot); for (const c of plan.list) if (/_bed$/.test(c.block)) { ps.add(`${c.x},${c.y},${c.z}`); const d = D[(c.props || {}).facing]; if (d) ps.add(`${c.x + d[0]},${c.y},${c.z + d[2]}`); } }
         bot.__noCollect = true;                                                  // the drops of its temporary blocks are left where they fall (the supply holds enough)
     }
     const cells = plan.units[u.unit], tried = new Set(), me = bot ? bot.username : null;
