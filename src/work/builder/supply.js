@@ -13,6 +13,7 @@ function remaining(plan, w) {
     for (const list of plan.units) for (const c of list) {
         if (!c.waterlog && w.nameAt(c.x, c.y, c.z) === c.block) continue;
         const it = c.waterlog ? 'water_bucket' : C.itemFor(c.block);
+        if (c.ignite) { if (it) m[it] = 1; continue; }
         if (it) m[it] = (m[it] || 0) + (/_slab$/.test(c.block) && c.props.type === 'double' ? 2 : 1);
     }
     return m;

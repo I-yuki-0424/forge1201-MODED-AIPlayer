@@ -330,9 +330,10 @@ async function placeOriented(c, item, sup, env, r, jump = false) {
 
 /** open / delay: right-click until the state is the wanted one (a trapdoor toggles once, a repeater steps its delay 1..4). */
 async function fixUse(c, env, r) {
-    for (let k = 0; k < 5; k++) {
+    for (let k = 0; k < 27; k++) {
         const b = env.w.blockAt ? env.w.blockAt(c.x, c.y, c.z) : null, um = C.useMismatch(b, c);
         if (!um) { r.fixed++; return ok; }
+        if (k >= 5 && um[0] !== 'note') break;                                              // a note block takes up to 24 clicks, the others at most a few
         const a = await env.exec('activate', { x: c.x, y: c.y, z: c.z }, { raw: true, maxTicks: 160 });
         if (!a.ok) { r.useFailed = (r.useFailed || 0) + 1; return ok; }                          // the block stands; only its open / delay is wrong (not compared by the static verdict): the unit is not failed for it, and what hangs on it is not held up
     }

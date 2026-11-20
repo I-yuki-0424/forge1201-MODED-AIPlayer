@@ -12,7 +12,7 @@ const D = O.DIR, DIRS = ['down', 'north', 'south', 'east', 'west', 'up'];       
 const NB = DIRS.map((d) => [d, D[d]]);
 const at = (c, d) => ({ x: c.x + D[d][0], y: c.y + D[d][1], z: c.z + D[d][2] });
 const key = (c) => `${c.x},${c.y},${c.z}`;
-const PARTIAL = /(stairs|_slab|trapdoor|hopper|chest|_bed|piston|composter|fence|gate|torch|sign|wire|repeater|comparator|lantern|ladder|pane|bars|door|button|lever|carpet|snow|chain|water|lava|cauldron|head|skull)$/;
+const PARTIAL = /(stairs|_slab|trapdoor|hopper|chest|_bed|piston|composter|fence|gate|torch|sign|wire|repeater|comparator|lantern|ladder|pane|bars|door|button|lever|carpet|snow|chain|water|lava|cauldron|head|skull|nether_portal|soul_fire|fire)$/;
 
 /** Is the block a full, sturdy one a torch or a sign can hang on (a wall or a fence carries one on top, a sign hangs on a sign)? */
 const sturdy = (name, d, placing) => (/(_wall|_fence)$/.test(name) ? d === 'down' : /_sign$/.test(name) ? /_sign$/.test(placing) : !PARTIAL.test(name));
@@ -74,6 +74,7 @@ function plan(cells, real, ground, { zones = 1, mode = 'area' } = {}) {
     const pre = new Map(), later = new Map();                        // cell key -> keys that must be placed first; key -> the cells waiting for it
     const need = (c, k) => { if (!owned.has(k) || k === c.k) return; (pre.get(c.k) || pre.set(c.k, new Set()).get(c.k)).add(k); (later.get(k) || later.set(k, []).get(k)).push(c); };
     for (const c of cells) if (c.waterlog) need(c, key(c));                              // the water of a waterlogged block comes after the block
+    for (const c of cells) if (c.ignite) for (const k of c.frame || []) need(c, k);       // a portal is lit when its frame stands (and, below, when nothing else is left to build: a lit portal is no place to stand)
     // fluid bodies: connected fluid cells of one kind, flows included
     const fl = new Map(real.filter((c) => C.FLUID.test(C.bare(c.block))).map((c) => [key(c), c])), seen = new Set();
     // the water of a waterlogged block is a source like any other: it flows into the air beside it, so it belongs to a body and waits for what holds the body (live 2026-11-18: stairs were
@@ -114,7 +115,8 @@ function plan(cells, real, ground, { zones = 1, mode = 'area' } = {}) {
     };
     const wasBuilt = new Set();                                                           // keys placed (waterlog keys end in w)
     const done = (k) => wasBuilt.has(k);
-    const isReady = (c) => { const p = pre.get(c.k); if (!p) return true; for (const k of p) if (!done(k)) return false; return true; };
+    let plain = cells.filter((c) => !c.ignite).length;                                    // cells that are not lightings: the lightings come last
+    const isReady = (c) => { if (c.ignite && plain > 0) return false; const p = pre.get(c.k); if (!p) return true; for (const k of p) if (!done(k)) return false; return true; };
     const cand = new Map(), left = new Set(owned.keys());
     const eval1 = (c) => { if (!left.has(c.k)) { cand.delete(c.k); return; } const s = isReady(c) ? supOf(c) : null; if (s) cand.set(c.k, { c, sup: s }); else cand.delete(c.k); };
     for (const c of cells) eval1(c);
@@ -134,7 +136,10 @@ function plan(cells, real, ground, { zones = 1, mode = 'area' } = {}) {
             let b = null, bn = -1;
             const ly = (c) => c.y;
             const free = (c) => (c.waterlog || c.fluid ? 6 : new Set(recipesFor(c, () => true).map((r) => r.support)).size);
-            for (const k of left) { const c = owned.get(k); if (!isReady(c)) continue; const n = free(c); if (!b || ly(c) < ly(b) || (ly(c) === ly(b) && (n > bn || (n === bn && (c.x < b.x || (c.x === b.x && c.z < b.z)))))) { b = c; bn = n; } }
+            // (a piece whose only support cell is itself a cell of the structure cannot get a temporary block there: a chain of hoppers that each face the next starts at the END that faces the empty cell, 2026-11-21)
+            const tempOk = (c) => c.waterlog || c.fluid || recipesFor(c, () => true).some((r) => !byPos.has(key(at(c, r.support)))), tOf = new Map();
+            const tk = (c) => { let t = tOf.get(c.k); if (t === undefined) { t = tempOk(c) ? 1 : 0; tOf.set(c.k, t); } return t; };
+            for (const k of left) { const c = owned.get(k); if (!isReady(c)) continue; const n = free(c); if (!b || tk(c) > tk(b) || (tk(c) === tk(b) && (ly(c) < ly(b) || (ly(c) === ly(b) && (n > bn || (n === bn && (c.x < b.x || (c.x === b.x && c.z < b.z)))))))) { b = c; bn = n; } }
             if (!b) for (const k of left) { const c = owned.get(k); if (!b || ly(c) < ly(b)) b = c; }
             // a piece that can only hang on one particular neighbour (a trapdoor, a wall torch) starts with a plain block of the same connected piece, which the others then hang on
             if (b && free(b) < 6) {
@@ -142,10 +147,12 @@ function plan(cells, real, ground, { zones = 1, mode = 'area' } = {}) {
                 while (q.length) { const a = q.shift(); if (free(a) === 6 && (!alt || a.y < alt.y)) alt = a; for (const [, v] of NB) { const n = byPos.get(`${a.x + v[0]},${a.y + v[1]},${a.z + v[2]}`); if (n && left.has(n.k) && !seenK.has(n.k)) { seenK.add(n.k); q.push(n); } } }
                 if (alt) b = alt;
             }
+            if (b && !tempOk(b)) b.tempInStruct = true;                                   // two pieces that each hang only on the other (a pair of hoppers): the temporary block goes into the other's cell and is mined before it is placed
             best = { c: b, sup: null }; seed = true;
         }
         const c = best.c; c.sup = best.sup; c.seed = seed; c.seq = list.length;
         list.push(c); left.delete(c.k); cand.delete(c.k); wasBuilt.add(c.k); if (!c.waterlog) built.add(key(c)); lastZ[c.zone] = c;
+        if (!c.ignite && --plain === 0) for (const k of left) eval1(owned.get(k));         // only lightings left: they can go now
         for (const [, v] of NB) { const q = byPos.get(`${c.x + v[0]},${c.y + v[1]},${c.z + v[2]}`); if (q) eval1(q); }
         for (const q of later.get(c.k) || []) eval1(q);
         if (!c.waterlog) { const w = owned.get(`${key(c)}w`); if (w) eval1(w); }

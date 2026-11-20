@@ -21,7 +21,7 @@ const lookOf = (r) => ({ yaw: ((180 - r.yRot) * Math.PI) / 180, pitch: r.pitch =
 // ---------------------------------------------------------------------------------------------------------------- families
 
 const FAMILY = [
-    [/(^|_)stairs$/, 'stairs'], [/_slab$/, 'slab'], [/_trapdoor$/, 'trapdoor'], [/^(repeater|comparator)$/, 'diode'], [/^hopper$/, 'hopper'],
+    [/(^|_)stairs$/, 'stairs'], [/_slab$/, 'slab'], [/_trapdoor$/, 'trapdoor'], [/^(repeater|comparator)$/, 'diode'], [/^hopper$/, 'hopper'], [/^note_block$/, 'note'],
     [/^(chest|trapped_chest)$/, 'chest'], [/^(piston|sticky_piston|observer|dispenser|dropper|barrel)$/, 'nearest'], [/^(furnace|blast_furnace|smoker|loom|stonecutter|lectern|anvil|chipped_anvil|damaged_anvil|grindstone_floor|carved_pumpkin|jack_o_lantern|ender_chest|bell_floor)$/, 'facing_opposite'],
     [/_fence_gate$/, 'gate'], [/_bed$/, 'bed'], [/_door$/, 'door'], [/^(torch|soul_torch|redstone_torch)$/, 'torch'], [/^(wall_torch|soul_wall_torch|redstone_wall_torch)$/, 'wall_torch'],
     [/_sign$/, 'sign'], [/_wall_sign$/, 'wall_sign'], [/^redstone_wire$/, 'wire'], [/^(ladder)$/, 'ladder'],
@@ -53,7 +53,7 @@ const STATIC = {
     stairs: ['facing', 'half'], slab: ['type'], trapdoor: ['facing', 'half'], diode: ['facing'], hopper: ['facing'], chest: ['facing'], nearest: ['facing'], facing_opposite: ['facing'],
     gate: ['facing'], bed: ['facing'], door: ['facing'], wall_torch: ['facing'], wall_sign: ['facing'], sign: ['rotation'], ladder: ['facing'], pillar: ['axis'],
 };
-const USE = { trapdoor: ['open'], gate: ['open'], door: ['open'], diode: ['delay'] };
+const USE = { trapdoor: ['open'], gate: ['open'], door: ['open'], diode: ['delay', 'mode'], note: ['note'] };      // right-click until it matches: a repeater steps its delay, a comparator toggles its mode, a note block steps its note (0..24)
 const staticProps = (name, props) => Object.fromEntries((STATIC[family(name)] || []).filter((k) => k in (props || {})).map((k) => [k, String(props[k])]));
 const useProps = (name, props) => Object.fromEntries((USE[family(name)] || []).filter((k) => k in (props || {})).map((k) => [k, String(props[k])]));
 
@@ -68,7 +68,7 @@ function model(name, ctx, solid = () => true) {
     const fam = family(name), n = bare(name), { clicked, hy, pitch } = ctx, facing = dirOfYRot(ctx.yRot), look = pitch === 'up' ? 'up' : pitch === 'down' ? 'down' : facing;
     const top = (clicked === 'down') || (horizontal(clicked) && hy > 0.5);
     switch (fam) {
-        case 'plain': return { name: n, props: {} };
+        case 'plain': case 'note': return { name: n, props: {} };
         case 'stairs': return { name: n, props: { facing, half: top ? 'top' : 'bottom' } };
         case 'slab': return { name: n, props: { type: clicked === 'up' ? 'bottom' : clicked === 'down' ? 'top' : top ? 'top' : 'bottom' } };
         case 'trapdoor': return horizontal(clicked)
@@ -114,7 +114,7 @@ function recipes(name, props, solid = () => true) {
     const yRots = fam === 'sign' && 'rotation' in (props || {}) && !/wall/.test(bare(name)) ? Array.from({ length: 16 }, (_, k) => ((k * 22.5 - 180) % 360 + 360) % 360) : HORIZ.map((d) => YROT[d]);
     for (const clicked of ['up', 'north', 'south', 'east', 'west', 'down']) for (const hy of [0.25, 0.75]) for (const pitch of ['level', 'down', 'up']) for (const yRot of yRots) {
         if (!horizontal(clicked) && hy !== 0.25) continue;                       // the height of the click matters on side faces only
-        if (fam === 'plain' && (hy !== 0.25 || pitch !== 'level' || yRot !== 0)) continue;     // nothing depends on the look: one recipe per clicked face
+        if ((fam === 'plain' || fam === 'note') && (hy !== 0.25 || pitch !== 'level' || yRot !== 0)) continue;     // nothing depends on the look: one recipe per clicked face
         const ctx = { clicked, hy, yRot, pitch }, r = model(fam === 'torch' || fam === 'sign' ? itemOf(name) : name, ctx, solid);
         if (!r || r.name !== bare(name) || !eq(r.props, want)) continue;
         out.push({ ...ctx, sneak: false, support: OPP[clicked], face: faceIndex[clicked], name: r.name, props: r.props });

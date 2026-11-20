@@ -12,8 +12,10 @@ function planBuild(cells, origin, { known = null, groundTop = null, zones = 1, m
     const unsupported = [...new Set(abs.map((c) => c.block).filter((b) => !C.SKIP.test(b) && cannot(b)))];
     const real = abs.filter((c) => !C.SKIP.test(c.block));
     const never = C.unbuildable(real);                                                           // cells the survival game cannot hold: reported, not tried
-    const skipped = { flow: real.filter((c) => C.kindOf(c) === 'flow').length, derived: real.filter((c) => C.kindOf(c) === 'derived').length, unbuildable: never.size };
-    const placeable = real.filter((c) => !cannot(c.block) && C.kindOf(c) !== 'flow' && C.kindOf(c) !== 'derived' && !never.has(C.ckey(c)));
+    const ign = C.ignitions(real);                                                               // portals / soul fire: one cell of lighting per body (cells.js)
+    const skipped = { flow: real.filter((c) => C.kindOf(c) === 'flow').length, derived: real.filter((c) => C.kindOf(c) === 'derived').length, unbuildable: never.size, portalCells: ign.drop.size };
+    const isIgn = (c) => C.IGNITE.test(c.block);
+    const placeable = [...real.filter((c) => !cannot(c.block) && C.kindOf(c) !== 'flow' && C.kindOf(c) !== 'derived' && !never.has(C.ckey(c)) && !isIgn(c)), ...ign.cells];
     if (!placeable.length) throw new Error('nothing the bots can place (every block is unsupported)');
     // a waterlogged block is placed dry and filled afterwards (a bucket used on the block itself: no flow, no race)
     const waterlog = placeable.filter((c) => c.props.waterlogged === 'true' && C.kindOf(c) !== 'fluid').map((c) => ({ x: c.x, y: c.y, z: c.z, block: 'water', props: { level: '0' }, waterlog: true, of: c.block }));
@@ -43,6 +45,7 @@ function needsOf(cells, w = null) {
     for (const c of cells) {
         if (w && (c.waterlog ? false : w.nameAt(c.x, c.y, c.z) === c.block)) continue;
         const it = c.waterlog ? 'water_bucket' : C.itemFor(c.block);
+        if (c.ignite) { m[it] = 1; continue; }                                                // one flint and steel does many cells
         if (it) m[it] = (m[it] || 0) + 1;
     }
     return m;

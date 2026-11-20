@@ -103,7 +103,7 @@ function serves(view, S, cells, T = null, ok = null) {
         if (!pick && !c.fluid && !c.waterlog && !(c.dirs || DIRS).some((d) => present(at(c, d)))) {          // only a cell with no support anywhere next to it (not one whose support is out of reach: another station)
             for (const d of (c.dirs || DIRS)) {
                 const T = at(c, d);
-                if (!view.free(T.x, T.y, T.z) || view.cellSet.has(key(T.x, T.y, T.z)) || (T.x === S.x && T.z === S.z && (T.y === S.y || T.y === S.y + 1)) || reachTo(S, T) > REACH) continue;
+                if (!view.free(T.x, T.y, T.z) || (view.cellSet.has(key(T.x, T.y, T.z)) && !c.tempInStruct) || (T.x === S.x && T.z === S.z && (T.y === S.y || T.y === S.y + 1)) || reachTo(S, T) > REACH) continue;
                 const U = DIRS.map((e) => at(T, e)).find((q) => !(q.x === c.x && q.y === c.y && q.z === c.z) && present(q) && (view.solid(q.x, q.y, q.z) || local.has(key(q.x, q.y, q.z))) && reachTo(S, q) <= REACH);          // a solid block: the plain `place` clicks only those
                 if (U) { pick = d; tmp = { x: T.x, y: T.y, z: T.z }; break; }
             }

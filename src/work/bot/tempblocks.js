@@ -16,8 +16,10 @@ const GRAVITY = /(^|_)(sand|gravel)$|concrete_powder|(^|_)anvil$|dragon_egg|scaf
 const SHAPE = /(_slab|_stairs|_wall|_fence|_fence_gate|_button|_pressure_plate|_trapdoor|_door|_sign|_carpet|_pane|_bars|_layer|_head|_skull|_banner|_bed|candle|lantern|chain|torch|rail|ladder|vine|snow|sapling|flower|leaves|glass)$|^snow$|^glass$/;
 
 // The families a pit, a cave or an End island produce in bulk (and the Create stones of the play world's mod set). Crafted forms (polished, bricks, smooth) are NOT in it: they cost work.
+// TEMP_BLOCK=pumpkin[,...] (owner 2026-11-21: "to make temporary blocks easy to see, use pumpkins for this run"): those names are temporary blocks too and come first.
+const EXTRA = String(process.env.TEMP_BLOCK || '').split(',').map((x) => x.trim().replace(/^minecraft:/, '')).filter(Boolean);
 const LOW_NAME = new RegExp('^(?:minecraft:|create:)?(?:'
-    + ['dirt', 'coarse_dirt', 'rooted_dirt', 'grass_block', 'podzol', 'mycelium', 'mud', 'packed_mud',
+    + [...EXTRA, 'dirt', 'coarse_dirt', 'rooted_dirt', 'grass_block', 'podzol', 'mycelium', 'mud', 'packed_mud',
         'cobblestone', 'mossy_cobblestone', 'cobbled_deepslate', 'stone', 'deepslate', 'andesite', 'diorite', 'granite', 'tuff', 'calcite', 'dripstone_block', 'smooth_basalt', 'basalt',
         'netherrack', 'blackstone', 'end_stone', 'sandstone', 'red_sandstone', 'terracotta', 'clay', 'moss_block',
         'limestone', 'scoria', 'scorchia', 'ochrum', 'crimsite', 'veridium', 'asurine', 'weathered_limestone', 'gabbro', 'dolomite'].join('|')
@@ -42,7 +44,7 @@ function isTemp(name, registry = null, valueOf = null) {
 }
 
 /** Preference: what a pit yields first (cobblestone, deepslate), the rest by how many the pack holds. */
-const BASE = ['cobblestone', 'cobbled_deepslate', 'dirt', 'netherrack', 'stone', 'andesite', 'diorite', 'granite', 'tuff', 'deepslate'];
+const BASE = [...EXTRA, 'cobblestone', 'cobbled_deepslate', 'dirt', 'netherrack', 'stone', 'andesite', 'diorite', 'granite', 'tuff', 'deepslate'];
 const HAND = ['dirt', 'coarse_dirt', 'grass_block'];                                // break without a tool (and do not fall)
 
 /** `held`: [{name, count}] (or a Map name -> count). Returns the qualifying kinds, best first. */
