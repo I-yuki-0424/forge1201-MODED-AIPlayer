@@ -273,7 +273,14 @@ async function runUnit0(plan, job, regionId, u, env) {
         if (TRACE) console.log(`[build] ${Math.round((Date.now() - T0) / 1000)}s ${bot ? bot.username : '?'} u${u.unit} round ${round}: station ${stUse.kind} ${sk} serves ${stUse.serves.length}/${todo.length}${stUse.bridge ? ' (bridge ' + stUse.bridge.g + ')' : ''} from ${JSON.stringify(env.here())}`);
         const f = env.here(), real = !!env.bot;                                          // (a test environment without a bot has no position to check)
         if (real && (f.x !== stUse.S.x || f.y !== stUse.S.y || f.z !== stUse.S.z)) {
-            const t = await env.travel({ x: stUse.S.x, y: stUse.S.y, z: stUse.S.z }, { near: 0, nearY: 0, maxSegments: 16, stuckAfter: 3, footNodes: 3000, why: `build station (${stUse.kind})` });
+            let t = await env.travel({ x: stUse.S.x, y: stUse.S.y, z: stUse.S.z }, { near: 0, nearY: 0, maxSegments: 16, stuckAfter: 3, footNodes: 3000, why: `build station (${stUse.kind})` });
+            // The way to a station high in the structure runs through the structure itself (live 2026-11-21: six builders pillared up under the first floor's plate again and again, "3 segments
+            // without getting closer", 60 s each): the second time a walk to the same station fails, NAV may dig through the structure; the units that own the dug cells place them again.
+            if (!t.ok && ['stuck', 'unreachable'].includes(t.reason) && (job.digWalk = job.digWalk || {}, job.digWalk[sk] = (job.digWalk[sk] || 0) + 1) >= 2) {
+                t = await env.travel({ x: stUse.S.x, y: stUse.S.y, z: stUse.S.z }, { near: 0, nearY: 0, maxSegments: 24, stuckAfter: 3, footNodes: 3000, digStructure: true, why: `build station (${stUse.kind}), through the structure` });
+                reopenDamaged(plan, job, env);
+                if (TRACE) console.log(`[build] ${me} walk to ${sk} through the structure: ${t.ok ? 'ok' : t.reason}`);
+            }
             const g = env.here();
             if (!t.ok || g.x !== stUse.S.x || g.y !== stUse.S.y || g.z !== stUse.S.z) {
                 if (t.reason && FATAL.has(t.reason)) return { ok: false, reason: t.reason, detail: { ...r } };
