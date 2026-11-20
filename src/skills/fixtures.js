@@ -19,8 +19,8 @@ const keyOf = (c) => `${c.x},${c.y},${c.z}`;
 const isBox = (name) => BOX.test(String(name || ''));
 const placedSet = (bot) => bot.__placed || (bot.__placed = new Set());
 const isOwn = (bot, cell) => !!bot.__placed && bot.__placed.has(keyOf(cell));
-/** A block the bot just placed from its pack: remembered while it is a box. */
-const markPlaced = (bot, name, cell) => { if (isBox(name)) placedSet(bot).add(keyOf(cell)); };
+/** A block the bot just placed from its pack: remembered while it is a box or a bed. */
+const markPlaced = (bot, name, cell) => { if (isBox(name) || isBed(name)) placedSet(bot).add(keyOf(cell)); };          // (a bed a builder placed is its own work: it may be taken away again, 2026-11-21; a bed it did not place stays a fixture)
 /** The block is gone (broken, picked up): forget it. */
 const unmark = (bot, cell) => { if (bot.__placed) bot.__placed.delete(keyOf(cell)); };
 
