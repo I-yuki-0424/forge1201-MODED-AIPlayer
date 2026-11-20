@@ -235,7 +235,7 @@ async function runUnit0(plan, job, regionId, u, env) {
             delete job.waits[u.unit]; delete job.noStation[u.unit];
             // polish: right-click what stands in the wrong open / delay state (a few tries per unit, never a failure)
             let tries = 0;
-            for (const c of cells) { if (tries >= 4 || (env.cancelled && env.cancelled())) break; const b = env.w.blockAt ? env.w.blockAt(c.x, c.y, c.z) : null; if (b && !c.waterlog && C.stateMatches(b, c) && C.useMismatch(b, c)) { tries++; await fixUse(c, env, r); } }
+            for (const c of cells) { if (tries >= 4 || (env.cancelled && env.cancelled())) break; const b = env.w.blockAt ? env.w.blockAt(c.x, c.y, c.z) : null; if (b && !c.waterlog && C.stateMatches(b, c) && C.useMismatch(b, c)) { tries++; await nearFor(plan, c, env); await fixUse(c, env, r); } }
             return { ok: true, reason: null, detail: r };
         }
         const ready = todo.filter((c) => cellReady(plan, c, env.w));
@@ -391,6 +391,24 @@ async function placeOriented(c, item, sup, env, r, jump = false) {
         return now && C.useMismatch(now, c) ? fixUse(c, env, r) : ok;
     }
     return bad('not_confirmed', { why: 'no placement recipe gave the wanted state', block: c.block, props: c.props, tried: tried.size, lastGot }, 'state');
+}
+
+/**
+ * Stand within reach of a block that is to be right-clicked (live 2026-11-21: four birch trapdoors above the lava tower stood placed but closed, for the whole run: the polish clicked from wherever the bot
+ * happened to be). Nothing to do when the eye is within 4.4 of the block; else the nearest cell with a floor and room for the body within 4 of it, walked to by NAV.
+ */
+async function nearFor(plan, c, env) {
+    if (!env.bot || !env.travel || !env.w) return;
+    const f = env.here();
+    if (S.reachTo(f, c) <= 4.4) return;
+    const view = S.viewOf(env.w, plan.cellSet); let best = null;
+    for (let dx = -4; dx <= 4; dx++) for (let dz = -4; dz <= 4; dz++) for (let dy = -4; dy <= 2; dy++) {
+        const q = { x: c.x + dx, y: c.y + dy, z: c.z + dz };
+        if (!view.solid(q.x, q.y - 1, q.z) || !S.bodyFits(view, q, env.others ? env.others() : []) || plan.cellSet.has(`${q.x},${q.y},${q.z}`) || plan.cellSet.has(`${q.x},${q.y + 1},${q.z}`) || S.reachTo(q, c) > 4.3) continue;
+        const d = Math.abs(q.x - f.x) + Math.abs(q.z - f.z) + 2 * Math.abs(q.y - f.y);
+        if (!best || d < best.d) best = { ...q, d };
+    }
+    if (best) await env.travel({ x: best.x, y: best.y, z: best.z }, { near: 0, nearY: 0, maxSegments: 16, stuckAfter: 3, footNodes: 3000, maxNodes: 60000, why: 'next to a block to right-click' });
 }
 
 /** open / delay: right-click until the state is the wanted one (a trapdoor toggles once, a repeater steps its delay 1..4). */
