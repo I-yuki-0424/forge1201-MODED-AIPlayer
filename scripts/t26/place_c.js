@@ -84,6 +84,15 @@ async function trial(k, S0, svc, seed, rep) {
                 await S.must(`fill ${xa} ${y} ${za} ${Math.min(xa + 23, x1)} ${Math.min(y + 7, Y1 + 6)} ${Math.min(za + 23, z1)} minecraft:air`);
         }
         await S.must(`fill ${M.x - 6} ${M.y - 1} ${M.z - 6} ${X1 + 6} ${M.y - 1} ${Z1 + 6} minecraft:stone`);
+        // The Nether (live 2026-11-21: three bots "tried to swim in lava" in the first minute, lava ran onto the cleared deck): the cleared space is walled in with stone, sides and roof, the box and its
+        // reference copy each; the bots work inside. Nothing can flow in; the walls are 1 beyond the cleared margin.
+        if (NETHER) for (const [x0, z0, x1, z1] of [[M.x - 6, M.z - 6, X1 + 6, Z1 + 6], [ref.x - 3, ref.z - 3, ref.x + sx + 2, ref.z + sz + 2]]) {
+            const top = Y1 + 7, a = x0 - 1, b = x1 + 1, c = z0 - 1, d = z1 + 1;
+            await S.must(`fill ${a} ${M.y - 2} ${c} ${b} ${M.y - 2} ${d} minecraft:stone`);                      // under the deck
+            await S.must(`fill ${a} ${M.y - 1} ${c} ${a} ${top} ${d} minecraft:stone`); await S.must(`fill ${b} ${M.y - 1} ${c} ${b} ${top} ${d} minecraft:stone`);
+            await S.must(`fill ${a} ${M.y - 1} ${c} ${b} ${top} ${c} minecraft:stone`); await S.must(`fill ${a} ${M.y - 1} ${d} ${b} ${top} ${d} minecraft:stone`);
+            for (let xa = a; xa <= b; xa += 40) await S.must(`fill ${xa} ${top} ${c} ${Math.min(xa + 39, b)} ${top} ${d} minecraft:stone`);   // the roof
+        }
     }
     // the reference copy, from the same blueprint with every state (dynamic ones included), then settle
     const pl = lit.place(parsed, { pos, ...placement0 }, { keepAir: false });
