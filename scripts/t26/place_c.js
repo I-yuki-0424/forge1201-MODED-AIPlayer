@@ -26,6 +26,8 @@ const FILE = process.env.LITEMATIC || path.join(__dirname, '../../tests/fixtures
 const STACK = { white_bed: 1, water_bucket: 1, lava_bucket: 1, oak_sign: 16, snowball: 16, flint_and_steel: 1, white_shulker_box: 1 };
 const ONE = new Set(['white_bed', 'water_bucket', 'lava_bucket', 'flint_and_steel', 'white_shulker_box']);     // not stackable: a few spare, not a percentage
 const sleep = T.sleep, strip = T.strip;
+/** The bot whose view of the world the harness reads (progress, diagnostics): one that is online in the dimension of the build (a bot that died in the Nether respawns in the Overworld). */
+const viewer = (svc) => { for (const n of names) { const r = svc.bots.get(n), d = r && r.bot && r.bot.game ? String(r.bot.game.dimension || '') : ''; if (r && r.bot && r.bot.entity && (NETHER ? /nether/.test(d) : !/nether|end/.test(d))) return r.bot; } return viewer(svc); };
 let moves = {};
 
 /** Upload the file as a Syncmatica placement with a throw-away bot (what the owner's Litematica does with "share"); resolves the placement the server lists. */
@@ -163,7 +165,7 @@ async function trial(k, S0, svc, seed, rep) {
         try {
             shared = await shareFile(file, pos, placement0.rotation, placement0.mirror);
             // the builder bot has been in the world since before the upload: the server announces the new placement to it (register_metadata)
-            const c = svc.bots.get(name).bot.syncmatica;
+            const c = viewer(svc).syncmatica;
             if (!c || !c.ready) throw new Error('the builder bot has no Syncmatica list (is the mod on this server?)');
             for (let i = 0; i < 40 && !c.placements.has(shared.id); i++) await sleep(500);
             const found = c.placements.get(shared.id);
@@ -179,7 +181,7 @@ async function trial(k, S0, svc, seed, rep) {
                 if (Date.now() - lastLog > 120000) {          // progress, read from the bot's own view of the world (a diagnostic, never the verdict)
                     lastLog = Date.now();
                     try {
-                        const bot = svc.bots.get(name).bot, miss = j.impl.diff(require('../../src/skills/world').fromBot(bot)), by = {};
+                        const bot = viewer(svc), miss = j.impl.diff(require('../../src/skills/world').fromBot(bot)), by = {};
                         for (const c of miss) by[c.waterlog ? 'waterlog' : c.block] = (by[c.waterlog ? 'waterlog' : c.block] || 0) + 1;
                         // is the bots' view behind the server? (2026-11-18: builders kept failing `not_confirmed` on cells the server held)
                         let stale = 0, probed = 0;
@@ -207,7 +209,7 @@ async function trial(k, S0, svc, seed, rep) {
         const j = svc.jobs.get(got && got.job), L = j.impl.ledger, r = L.regions.get('b0'), R = require('../../src/work/builder/run'), pl = j.impl.plan, left = [];
         for (let u = 0; u < pl.units.length; u++) {
             if (r.state[u] === 2) continue;
-            const c = pl.units[u][0], undone = pl.units[u].filter((q) => !R.right(q, require('../../src/skills/world').fromBot(svc.bots.get(name).bot))).length;
+            const c = pl.units[u][0], undone = pl.units[u].filter((q) => !R.right(q, require('../../src/skills/world').fromBot(viewer(svc)))).length;
             left.push(`u${u}[${['pending', 'leased', 'done', 'stuck'][r.state[u]]} att${r.attempts[u]} gate=${R.gateOf(pl, j.impl, u)} ${undone}/${pl.units[u].length} ${c.block}@${c.x - M.x},${c.y - M.y},${c.z - M.z}]`);
         }
         console.log(`[units left ${left.length}] ${left.slice(0, 60).join(' ')}`);
