@@ -122,7 +122,24 @@ async function restock(env, plan, need, opt = {}) {
         if (!r.ok) { log.lastTake = { reason: r.reason, why: r.detail && r.detail.why }; if (['cancelled', 'died', 'disconnected'].includes(r.reason)) return r; }
     }
     const l = lacking();
+    if (l.length) { const wanted = plan.wanted || (plan.wanted = {}); for (const [it] of l) wanted[it] = Date.now(); }          // the crew is told: whoever holds more of it than its unit needs gives it back (giveBack)
     return l.length ? { ok: false, reason: 'missing_item', detail: { item: l[0][0], short: Object.fromEntries(l.map(([it, n]) => [it, n - env.have(it)])), ...log } } : { ok: true, ...log };
 }
 
-module.exports = { restock, wishes, batch, surplus, slotsOf, remaining, emptySlots, stackOf };
+/**
+ * Give back what other builders are waiting for (live 2026-11-21, the Nether side: one bot carried 7 of 9 iron trapdoors from a unit it had handed back, three others failed `missing_item` on the
+ * same unit for 15 minutes). Items posted on `plan.wanted` in the last two minutes that the pack holds beyond what `unitNeed` needs now are put into the nearest chest. Returns the number of items given.
+ */
+async function giveBack(env, plan, unitNeed) {
+    const wanted = plan.wanted; if (!wanted || !env.bot || !env.sites || !env.travel || !env.run) return 0;
+    const now = Date.now(), give = [];
+    for (const [it, t] of Object.entries(wanted)) { if (now - t > 120000) { delete wanted[it]; continue; } const extra = env.have(it) - (unitNeed[it] || 0); if (extra > 0) give.push({ item: it, count: extra }); }
+    if (!give.length) return 0;
+    const c = env.sites.sources(env.pos())[0]; if (!c) return 0;
+    const t = await env.travel({ x: c.x, y: c.y, z: c.z }, { near: 2, nearY: 2, maxSegments: 16, stuckAfter: 3, footNodes: 3000, why: 'give back what the crew waits for' });
+    if (!t.ok) return 0;
+    const d = await env.run('deposit_many', { items: give, x: c.x, y: c.y, z: c.z });
+    return d.ok && d.detail && d.detail.done ? d.detail.done.reduce((n, g) => n + g.moved, 0) : 0;
+}
+
+module.exports = { giveBack, restock, wishes, batch, surplus, slotsOf, remaining, emptySlots, stackOf };

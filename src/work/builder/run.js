@@ -214,6 +214,7 @@ async function runUnit0(plan, job, regionId, u, env) {
         bot.__noCollect = true;                                                  // the drops of its temporary blocks are left where they fall (the supply holds enough)
     }
     const cells = plan.units[u.unit], tried = new Set(), me = bot ? bot.username : null;
+    if (bot && plan.wanted && Object.keys(plan.wanted).length) { try { const g = await supply.giveBack(env, plan, P.needsOf(cells.filter((c) => !right(c, env.w)), env.w)); if (TRACE && g) console.log(`[build] ${me} gave back ${g} items the crew waits for`); } catch (_) { /* a courtesy */ } }
     if (me && job.posts) posts.working(plan, job, me, u.unit);
     if (!job.waits) job.waits = {};
     if (!job.noStation) job.noStation = {};
