@@ -11,16 +11,16 @@
   "level"
  ],
  "weights": [
-  4.066,
-  2.645,
-  -0.452,
-  0.642,
-  -0.233,
-  0.261,
-  -1.119,
-  -0.631
+  3.106,
+  4.862,
+  -1.845,
+  1.112,
+  1.003,
+  0.39,
+  1.738,
+  0.691
  ],
- "fitness": 0.9732881730427086,
+ "fitness": 0.9558671830181321,
  "baseline": [
   {
    "set": "nether-side",
@@ -44,23 +44,23 @@
  "best": [
   {
    "set": "nether-side",
-   "cost": 20768,
-   "temps": 98,
-   "span": 19298
+   "cost": 20161,
+   "temps": 82,
+   "span": 18931
   },
   {
    "set": "golem-trap",
-   "cost": 24848,
-   "temps": 115,
-   "span": 23123
+   "cost": 24545,
+   "temps": 114,
+   "span": 22835
   },
   {
    "set": "farm-floor",
-   "cost": 53874,
-   "temps": 623,
-   "span": 44529
+   "cost": 53235,
+   "temps": 630,
+   "span": 43785
   }
  ],
- "generations": 5,
- "trained": "2026-11-20T15:59:35.538Z"
+ "generations": 18,
+ "trained": "2026-11-20T16:23:03.096Z"
 }

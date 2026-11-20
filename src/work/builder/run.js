@@ -77,12 +77,28 @@ function gateOf(plan, job, u, id = null, pos = null) {
         let f = Math.max(job.first[z] || a, a);
         while (f < b && (r.state[f] === 2 || r.state[f] === 3 || r.attempts[f] > 0)) f++;          // a unit that failed is not waited for: the window moves on
         job.first[z] = f;
-        if (u > f + WINDOW && Date.now() - (job.lastProgress || 0) < (plan.seedUnit[u] ? 90000 : 15000)) return false;          // the window yields when nothing has been placed for 15 s (the unit at its front may wait for cells of a failed one), for a floating piece after 90 s
+        // A floating piece (a seed) waits for the plain units around it, but not for ever: as soon as no plain unit of its area can be started any more it is open (live 2026-11-21: 600 units hung on
+        // floating pieces, the gate said "open now 0" and the crew stood idle until 90 s had passed without a single placement, again and again).
+        if (u > f + WINDOW && Date.now() - (job.lastProgress || 0) < (plan.seedUnit[u] ? 90000 : 15000) && !(plan.seedUnit[u] && !plainOpen(plan, job, z, r))) return false;          // the window yields when nothing has been placed for 15 s (the unit at its front may wait for cells of a failed one), for a floating piece after 90 s
     }
     if (!w) return !r || plan.deps[u].every((d) => r.state[d] === 2 || r.state[d] === 3);
     let any = false;
     for (const c of plan.units[u]) { if (placedName(c, w) && right(c, w)) continue; any = true; if (cellReady(plan, c, w)) return true; }
     return !any;                                                              // nothing left in it: let a bot close it
+}
+
+/** Is some unit of area z without a floating piece still pending and ready to go (a cell whose support and waits stand)? Cached for a second: the gate asks for every unit. */
+function plainOpen(plan, job, z, r) {
+    const now = Date.now(), c = job.plainCache || (job.plainCache = []);
+    if (c[z] && now - c[z].t < 1000) return c[z].v;
+    const w = job.world, [a, b] = plan.zones.units[z]; let v = false;
+    for (let u = a; u < b && !v; u++) {
+        if (r.state[u] !== 0 || plan.seedUnit[u]) continue;
+        if (!w) { v = plan.deps[u].every((d) => r.state[d] === 2 || r.state[d] === 3); continue; }
+        for (const q of plan.units[u]) if (!(placedName(q, w) && right(q, w)) && cellReady(plan, q, w)) { v = true; break; }
+    }
+    c[z] = { t: now, v };
+    return v;
 }
 
 /** The order a bot is offered claimable units: its own area first, bottom-up (posts.js), then other areas. */
