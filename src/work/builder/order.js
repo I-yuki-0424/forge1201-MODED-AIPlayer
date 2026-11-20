@@ -116,8 +116,12 @@ function plan(cells, real, ground, { zones = 1, mode = 'area', weights = null } 
     };
     const wasBuilt = new Set();                                                           // keys placed (waterlog keys end in w)
     const done = (k) => wasBuilt.has(k);
-    let plain = cells.filter((c) => !c.ignite).length;                                    // cells that are not lightings: the lightings come last
-    const isReady = (c) => { if (c.ignite && plain > 0) return false; const p = pre.get(c.k); if (!p) return true; for (const k of p) if (!done(k)) return false; return true; };
+    // The power sources of a circuit come last, with the lightings (live 2026-11-21, the Nether side is a piston machine: a redstone block placed early started the circuit, the pistons pushed iron
+    // trapdoors two cells away from where they were placed and the crew waited for trapdoors that were no longer there): nothing runs while the machine is being built.
+    const LATE = /^(redstone_block|redstone_torch|redstone_wall_torch|lever)$/;
+    for (const c of cells) if (LATE.test(c.block)) c.late = true;
+    let plain = cells.filter((c) => !c.ignite && !c.late).length;                          // cells that are neither lightings nor power sources
+    const isReady = (c) => { if ((c.ignite || c.late) && plain > 0) return false; const p = pre.get(c.k); if (!p) return true; for (const k of p) if (!done(k)) return false; return true; };
     const cand = new Map(), left = new Set(owned.keys());
     const eval1 = (c) => { if (!left.has(c.k)) { cand.delete(c.k); return; } const s = isReady(c) ? supOf(c) : null; if (s) cand.set(c.k, { c, sup: s }); else cand.delete(c.k); };
     for (const c of cells) eval1(c);
@@ -162,7 +166,7 @@ function plan(cells, real, ground, { zones = 1, mode = 'area', weights = null } 
         }
         const c = best.c; c.sup = best.sup; c.seed = seed; c.seq = list.length;
         list.push(c); left.delete(c.k); cand.delete(c.k); wasBuilt.add(c.k); if (!c.waterlog) built.add(key(c)); lastZ[c.zone] = c;
-        if (!c.ignite && --plain === 0) for (const k of left) eval1(owned.get(k));         // only lightings left: they can go now
+        if (!c.ignite && !c.late && --plain === 0) for (const k of left) eval1(owned.get(k));         // only lightings and power sources left: they can go now
         for (const [, v] of NB) { const q = byPos.get(`${c.x + v[0]},${c.y + v[1]},${c.z + v[2]}`); if (q) eval1(q); }
         for (const q of later.get(c.k) || []) eval1(q);
         if (!c.waterlog) { const w = owned.get(`${key(c)}w`); if (w) eval1(w); }
