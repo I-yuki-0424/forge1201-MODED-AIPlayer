@@ -154,7 +154,7 @@ async function unstrand(plan, job, me, env) {
             // the nearest free cell of the ground outside the structure (not the cell straight below: that is a cell of the plan)
             const view = env.w ? S.viewOf(env.w, plan.cellSet) : null; let g = null;
             if (view) for (let d = 2; d <= 24 && !g; d++) for (let dx = -d; dx <= d && !g; dx++) for (let dz = -d; dz <= d && !g; dz++) { if (Math.max(Math.abs(dx), Math.abs(dz)) !== d) continue; const x = f.x + dx, z = f.z + dz; if (view.solid(x, plan.origin.y - 1, z) && view.free(x, plan.origin.y, z) && view.free(x, plan.origin.y + 1, z) && !plan.cellSet.has(`${x},${plan.origin.y},${z}`) && !plan.cellSet.has(`${x},${plan.origin.y + 1},${z}`)) g = { x, y: plan.origin.y, z }; }
-            const t = await env.travel(g || { x: f.x, y: plan.origin.y, z: f.z }, { near: 1, nearY: 1, maxSegments: 24, stuckAfter: 3, footNodes: 3000, digStructure: true, why: 'dig out of the structure' });
+            const t = await env.travel(g || { x: f.x, y: plan.origin.y, z: f.z }, { near: 1, nearY: 1, maxSegments: 24, stuckAfter: 3, footNodes: 3000, maxNodes: 60000, digStructure: true, why: 'dig out of the structure' });
             if (TRACE) console.log(`[build] ${me} dig out: ${t.ok ? 'ok' : t.reason}`);
             reopenDamaged(plan, job, env);
             if (t.ok) return;
@@ -263,7 +263,7 @@ async function runUnit0(plan, job, regionId, u, env) {
         if (!st && walk && env.here().y > plan.origin.y + 1 && ++down <= 2) {
             const c0 = todo[0]; let g = null;
             for (let d = 3; d <= 9 && !g; d++) for (let dx = -d; dx <= d && !g; dx++) for (let dz = -d; dz <= d && !g; dz++) { if (Math.max(Math.abs(dx), Math.abs(dz)) !== d) continue; const x = c0.x + dx, z = c0.z + dz; if (view.solid(x, plan.origin.y - 1, z) && view.free(x, plan.origin.y, z) && view.free(x, plan.origin.y + 1, z) && !plan.cellSet.has(`${x},${plan.origin.y},${z}`)) g = { x, y: plan.origin.y, z }; }
-            if (g) { let t = await env.travel(g, { near: 1, nearY: 1, maxSegments: 16, stuckAfter: 3, footNodes: 3000, why: 'back to the ground' }); if (!t.ok && ['unreachable', 'stuck'].includes(t.reason) && down >= 2) { t = await env.travel(g, { near: 1, nearY: 1, maxSegments: 24, stuckAfter: 3, footNodes: 3000, digStructure: true, why: 'back to the ground (through the structure)' }); reopenDamaged(plan, job, env); } if (!t.ok) r.noMove = true; if (t.ok || t.reason === 'stuck' || t.reason === 'unreachable') continue; }
+            if (g) { let t = await env.travel(g, { near: 1, nearY: 1, maxSegments: 16, stuckAfter: 3, footNodes: 3000, maxNodes: 60000, why: 'back to the ground' }); if (!t.ok && ['unreachable', 'stuck'].includes(t.reason) && down >= 2) { t = await env.travel(g, { near: 1, nearY: 1, maxSegments: 24, stuckAfter: 3, footNodes: 3000, maxNodes: 60000, digStructure: true, why: 'back to the ground (through the structure)' }); reopenDamaged(plan, job, env); } if (!t.ok) r.noMove = true; if (t.ok || t.reason === 'stuck' || t.reason === 'unreachable') continue; }
         }
         // No place this bot can stand at (it is in a compartment of the platform, far from the cells): another bot, or this one from somewhere else, may. Not a failure of the unit until it has happened six times.
         if (!stUse && (job.noStation[u.unit] = (job.noStation[u.unit] || 0) + 1) <= 6) return { ok: true, partial: true, holdMs: 6000, detail: { ...r, noMove: true, waiting: todo.length, why: 'no standing place from where this bot is', diag: dg } };
@@ -274,11 +274,11 @@ async function runUnit0(plan, job, regionId, u, env) {
         if (TRACE) console.log(`[build] ${Math.round((Date.now() - T0) / 1000)}s ${bot ? bot.username : '?'} u${u.unit} round ${round}: station ${stUse.kind} ${sk} serves ${stUse.serves.length}/${todo.length}${stUse.bridge ? ' (bridge ' + stUse.bridge.g + ')' : ''} from ${JSON.stringify(env.here())}`);
         const f = env.here(), real = !!env.bot;                                          // (a test environment without a bot has no position to check)
         if (real && (f.x !== stUse.S.x || f.y !== stUse.S.y || f.z !== stUse.S.z)) {
-            let t = await env.travel({ x: stUse.S.x, y: stUse.S.y, z: stUse.S.z }, { near: 0, nearY: 0, maxSegments: 16, stuckAfter: 3, footNodes: 3000, why: `build station (${stUse.kind})` });
+            let t = await env.travel({ x: stUse.S.x, y: stUse.S.y, z: stUse.S.z }, { near: 0, nearY: 0, maxSegments: 16, stuckAfter: 3, footNodes: 3000, maxNodes: 60000, why: `build station (${stUse.kind})` });
             // The way to a station high in the structure runs through the structure itself (live 2026-11-21: six builders pillared up under the first floor's plate again and again, "3 segments
             // without getting closer", 60 s each): the second time a walk to the same station fails, NAV may dig through the structure; the units that own the dug cells place them again.
             if (!t.ok && ['stuck', 'unreachable'].includes(t.reason) && (job.digWalk = job.digWalk || {}, job.digWalk[sk] = (job.digWalk[sk] || 0) + 1) >= 2) {
-                t = await env.travel({ x: stUse.S.x, y: stUse.S.y, z: stUse.S.z }, { near: 0, nearY: 0, maxSegments: 24, stuckAfter: 3, footNodes: 3000, digStructure: true, why: `build station (${stUse.kind}), through the structure` });
+                t = await env.travel({ x: stUse.S.x, y: stUse.S.y, z: stUse.S.z }, { near: 0, nearY: 0, maxSegments: 24, stuckAfter: 3, footNodes: 3000, maxNodes: 60000, digStructure: true, why: `build station (${stUse.kind}), through the structure` });
                 reopenDamaged(plan, job, env);
                 if (TRACE) console.log(`[build] ${me} walk to ${sk} through the structure: ${t.ok ? 'ok' : t.reason}`);
             }

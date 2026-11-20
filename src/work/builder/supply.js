@@ -103,8 +103,8 @@ async function restock(env, plan, need, opt = {}) {
         const c = chests[0]; tried.add(`${c.x},${c.y},${c.z}`);
         if (env.cancelled && env.cancelled()) return { ok: false, reason: 'cancelled' };
         const items = wishes(env.bot, need, remaining(plan, env.w), opt);
-        let t = await env.travel({ x: c.x, y: c.y, z: c.z }, { near: 2, nearY: 2, maxSegments: 16, stuckAfter: 3, footNodes: 3000, why: 'supply' });
-        if (!t.ok && ['stuck', 'unreachable'].includes(t.reason)) { t = await env.travel({ x: c.x, y: c.y, z: c.z }, { near: 2, nearY: 2, maxSegments: 24, stuckAfter: 3, footNodes: 3000, digStructure: true, why: 'supply (through the structure)' }); log.dug = true; }
+        let t = await env.travel({ x: c.x, y: c.y, z: c.z }, { near: 2, nearY: 2, maxSegments: 16, stuckAfter: 3, footNodes: 3000, maxNodes: 60000, why: 'supply' });
+        if (!t.ok && ['stuck', 'unreachable'].includes(t.reason)) { t = await env.travel({ x: c.x, y: c.y, z: c.z }, { near: 2, nearY: 2, maxSegments: 24, stuckAfter: 3, footNodes: 3000, maxNodes: 60000, digStructure: true, why: 'supply (through the structure)' }); log.dug = true; }
         if (!t.ok) { log.lastTravel = { reason: t.reason, why: t.detail && (t.detail.why || t.detail.nav) }; if (['cancelled', 'died', 'disconnected'].includes(t.reason)) return t; continue; }
         // Room first: what the pack holds beyond this run goes back into the chest (it is also what the other bots lack), when the free slots do not hold what is to be taken.
         if (env.bot && opt.makeRoom !== false) {
@@ -136,7 +136,7 @@ async function giveBack(env, plan, unitNeed) {
     for (const [it, t] of Object.entries(wanted)) { if (now - t > 120000) { delete wanted[it]; continue; } const extra = env.have(it) - (unitNeed[it] || 0); if (extra > 0) give.push({ item: it, count: extra }); }
     if (!give.length) return 0;
     const c = env.sites.sources(env.pos())[0]; if (!c) return 0;
-    const t = await env.travel({ x: c.x, y: c.y, z: c.z }, { near: 2, nearY: 2, maxSegments: 16, stuckAfter: 3, footNodes: 3000, why: 'give back what the crew waits for' });
+    const t = await env.travel({ x: c.x, y: c.y, z: c.z }, { near: 2, nearY: 2, maxSegments: 16, stuckAfter: 3, footNodes: 3000, maxNodes: 60000, why: 'give back what the crew waits for' });
     if (!t.ok) return 0;
     const d = await env.run('deposit_many', { items: give, x: c.x, y: c.y, z: c.z });
     return d.ok && d.detail && d.detail.done ? d.detail.done.reduce((n, g) => n + g.moved, 0) : 0;
