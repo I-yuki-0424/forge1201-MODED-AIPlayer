@@ -346,12 +346,24 @@ async function pour(ctx, { x, y, z, item, waterlog = false }) {
  * activate {x, y, z, item?, sneak?}: right-click an interactive block (lever, door, trapdoor, gate, chest, ...), optionally
  * holding `item` (a mod tool such as create:wrench) and sneaking. Success = the block's state changed or a screen opened.
  */
-async function activate(ctx, { x, y, z, item, sneak = false }) {
+async function activate(ctx, { x, y, z, item, sneak = false, blind = false }) {
     const bot = ctx.bot, cell = { x, y, z };
     const b0 = ctx.world.blockAt(x, y, z);
     if (!b0) throw new SkillError('unreachable', { why: 'target chunk not loaded' });
     // A held tool can act on any block (a wrench rotates or picks up mod blocks); without one only interactive blocks react.
     if (!item && !isInteractive(b0.name)) throw new SkillError('invalid_target', { block: b0.name, why: 'not an interactive block (give item to use a tool on it)' });
+    if (blind) {
+        // The server checks the reach to the clicked block, not the line of sight (as in `place`): a trapdoor or a repeater inside the structure is opened or stepped from where the bot stands (work layer, polish pass).
+        const eye = ctx.body.eye(), d = Math.hypot(eye.x - (x + 0.5), eye.y - (y + 0.5), eye.z - (z + 0.5));
+        if (d > BLIND_REACH) throw new SkillError('not_visible', { target: cell, why: 'too far to use without a line of sight', dist: Math.round(d * 100) / 100 });
+        const face = faceToward(eye, cell);
+        ctx.phase('use_blind', { block: b0.name, face });
+        await ctx.tick({ yaw: bot.entity.yaw, pitch: bot.entity.pitch, sneak: false });
+        await ctx.tick({ yaw: bot.entity.yaw, pitch: bot.entity.pitch, sneak: false, use: true, cell: { x, y, z, face, cursor: { x: 0.5, y: 0.5, z: 0.5 } } });
+        await ctx.until(() => ctx.world.blockAt(x, y, z)?.stateId !== b0.stateId, 12, 'not_confirmed', { yaw: bot.entity.yaw, pitch: bot.entity.pitch });
+        const b1 = ctx.world.blockAt(x, y, z);
+        return { block: b0.name, now: b1.name, from: b0.getProperties(), to: b1.getProperties(), window: null, blind: true };
+    }
     await approachBlock(ctx, cell);
     if (item) await holdOrFail(ctx, resolveItemName(bot, item), undefined, 'item_held');
     const hit = await aimAtBlock(ctx, cell, { frame: { sneak } });
