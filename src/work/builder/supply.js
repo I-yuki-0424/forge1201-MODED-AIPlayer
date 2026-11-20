@@ -75,6 +75,10 @@ function batch(bot, plan, u, w, unitNeed) {
         if (Object.keys(add).length && slotsOf(bot, next) > cap) break;
         Object.assign(need, next);
     }
+    // The crew shares what the chests hold (live 2026-11-21, the Nether side with 1.1 x the materials: one bot carried 35 of the 92 smooth stone for units far ahead, the others stood with missing_item
+    // for ten minutes): a bot's batch holds no more of an item than its fair share of what is left, 1.3 x, unless the unit at hand itself needs more.
+    const left = remaining(plan, w), n = Math.max(1, plan.zones.n);
+    for (const it of Object.keys(need)) { const cap = Math.max(unitNeed[it] || 0, Math.ceil(((left[it] || 0) / n) * 1.3)); if (need[it] > cap) need[it] = cap; }
     return need;
 }
 
