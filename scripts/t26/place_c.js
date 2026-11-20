@@ -138,7 +138,7 @@ async function trial(k, S0, svc, seed, rep) {
     }
     // supply chests on the deck (tagged `free`), every item of the plan's material list
     const mats = plan0.materials;                                                                             // the plan's own list: lightings count as flint and steel, derived cells not at all
-    const stacks = []; for (const [it, n0] of Object.entries(mats)) { const n = ONE.has(it) ? n0 + Math.ceil(n0 * (SURPLUS - 1)) + 2 : Math.ceil(n0 * SURPLUS), ms = STACK[it] || 64; for (let r = n; r > 0; r -= ms) stacks.push({ it, n: Math.min(ms, r) }); }      // SURPLUS 2 = the old default (several builders fetch a stack each and must not starve each other); the owner's run: 1.1
+    const stacks = []; for (const [it, n0] of Object.entries(mats)) { const n = ONE.has(it) ? n0 + Math.ceil(n0 * (SURPLUS - 1)) + 2 : Math.ceil(n0 * SURPLUS) + (n0 <= 64 && SURPLUS < 2 ? 3 : 0), ms = STACK[it] || 64; for (let r = n; r > 0; r -= ms) stacks.push({ it, n: Math.min(ms, r) }); }      // SURPLUS 2 = the old default (several builders fetch a stack each and must not starve each other); the owner's run: 1.1
     for (let r = Number(process.env.TEMP_STOCK || 1024); r > 0; r -= 64) stacks.push({ it: TEMP, n: 64 });  // temporary blocks (pumpkins: the bots' drops come back to them, see scripts/t26/vacuum.sh)
     // The chests: the items with few stacks (lever, pistons, comparators ... ) together in the first chests, next to where the builders start; the bulk (glass, stone, beds, pumpkins) spread over all of them, so
     // that one visit to the nearest chest gives a bit of everything (the bots do not know what a chest holds: the first live run walked past 13 chests for one redstone).
