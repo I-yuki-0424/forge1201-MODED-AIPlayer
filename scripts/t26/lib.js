@@ -18,10 +18,10 @@ function toolItems(best) {
 }
 
 /** Give the kit: the pack is emptied first, then tools, `blocks` cobblestone (temporary blocks), food. */
-async function kit(S, name, { blocks = 64, best = false, food = 32 } = {}) {
+async function kit(S, name, { blocks = 64, block = 'cobblestone', best = false, food = 32 } = {}) {
     await S.cmd(`clear ${name}`);
     for (const it of toolItems(best)) await S.must(`give ${name} ${it}`);
-    for (let n = blocks; n > 0; n -= 64) await S.must(`give ${name} minecraft:cobblestone ${Math.min(64, n)}`);
+    for (let n = blocks; n > 0; n -= 64) await S.must(`give ${name} minecraft:${block} ${Math.min(64, n)}`);
     if (food) await S.must(`give ${name} minecraft:cooked_beef ${food}`);
     await S.cmd(`effect clear ${name}`);
 }

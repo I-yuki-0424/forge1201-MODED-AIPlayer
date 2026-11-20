@@ -7,6 +7,9 @@
 //   - judge: the box of the blueprint is compared with a REFERENCE copy that the harness makes by commands (every cell, air included: `execute if blocks ... all`); the empty site must NOT match.
 //     The strict comparison includes properties the game derives (power, lit, extended ...): they can differ without the structure being wrong, so the report also lists every differing cell
 //     and says whether the difference is only in such a property ("static" verdict: same block, same placement-decided properties, same fluids).
+//   2026-11-21 (TASK-20261121-071, the owner's iron-farm-34 and its Nether side): DIM=nether builds in the Nether (every coordinate command runs `execute in minecraft:the_nether`), SITE_X / SITE_Z / SITE_Y place the box
+//   (the old iron golem trap's site stays untouched), TEMP_BLOCK=pumpkin (temporary blocks you can see; the kit and the chests hold them; the bots' scripts use them: src/work/bot/tempblocks.js), SURPLUS=1.1 (material
+//   list x 1.1 + a few), RESUME=1 (the site, the reference copy and the chests are left as they are: a run continues what stands, the judge is the same), LITEMATIC=<file>. Entities of a blueprint are ignored.
 //   scripts/t26/run.sh N place_c.js [BOTS=3] [BUILD_MODE=area|layer|zlayer] [BUILD_WINDOW=n] [LIMIT_MIN=20 (= 60 / BOTS)] [TRIALS=1] [CONTROL=noop] [LITEMATIC=/app/tests/fixtures/x.litematic] [ROT=CLOCKWISE_90] [MIR=LEFT_RIGHT] [KEEP_SITE=1]
 const fs = require('fs'), path = require('path');
 const T = require('./lib');
@@ -15,11 +18,13 @@ const sm = require('../../src/transport/syncmatica');
 const lit = require('../../src/work/jobs/litematic');
 const build = require('../../src/work/jobs/build');
 const O = require('../../src/work/jobs/orient');
-const TRIALS = Number(process.env.TRIALS || 1), BOTS = Math.min(6, Math.max(1, Number(process.env.BOTS || 3)));
+const TRIALS = Number(process.env.TRIALS || 1), BOTS = Math.min(8, Math.max(1, Number(process.env.BOTS || 3)));
+const NETHER = (process.env.DIM || 'overworld') === 'nether', RESUME = process.env.RESUME === '1', SURPLUS = Number(process.env.SURPLUS || 2), TEMP = process.env.TEMP_BLOCK || 'cobblestone', SITE_Y = Number(process.env.SITE_Y || (NETHER ? 64 : 200));
 const LIMIT_MIN = Number(process.env.LIMIT_MIN || Math.round(60 / BOTS));          // the owner's bar (2026-11-18): within one hour / the number of bots (3 bots: 20 minutes)
-const names = Array.from({ length: BOTS }, (_, i) => `Fm${T.WORLD}${'abcdef'[i - 1] || ''}`), name = names[0];      // BOTS=n: n builders on one job (the crew ledger shares the units)
+const names = Array.from({ length: BOTS }, (_, i) => `Fm${T.WORLD}${'abcdefgh'[i - 1] || ''}`), name = names[0];      // BOTS=n: n builders on one job (the crew ledger shares the units)
 const FILE = process.env.LITEMATIC || path.join(__dirname, '../../tests/fixtures/easy-ironfarm-fixd.litematic');
-const STACK = { white_bed: 1, water_bucket: 1, lava_bucket: 1, oak_sign: 16, snowball: 16 };
+const STACK = { white_bed: 1, water_bucket: 1, lava_bucket: 1, oak_sign: 16, snowball: 16, flint_and_steel: 1, white_shulker_box: 1 };
+const ONE = new Set(['white_bed', 'water_bucket', 'lava_bucket', 'flint_and_steel', 'white_shulker_box']);     // not stackable: a few spare, not a percentage
 const sleep = T.sleep, strip = T.strip;
 let moves = {};
 
@@ -51,44 +56,63 @@ async function differing(S, a, b, size, max = 60) {
     return out;
 }
 
-async function trial(k, S, svc, seed, rep) {
+/** In the Nether every command that has a place runs in that dimension; commands without one (give, clear, tellraw, gamerule ...) are left alone. */
+function inDim(S0) {
+    if (!NETHER) return S0;
+    const wrap = (c) => (/^(give|clear|effect|tellraw|gamemode|scoreboard|gamerule|difficulty|seed|kill|time|weather|script|say)\b/.test(c) ? c : /^execute /.test(c) ? c.replace(/^execute /, 'execute in minecraft:the_nether ') : `execute in minecraft:the_nether run ${c}`);
+    return { ...S0, cmd: (c, ...a) => S0.cmd(wrap(c), ...a), must: (c, ...a) => S0.must(wrap(c), ...a) };
+}
+
+async function trial(k, S0, svc, seed, rep) {
+    const S = inDim(S0);
     const file = fs.readFileSync(FILE), parsed = lit.parse(file), probe = lit.toBlueprint(parsed, { keepAir: false });
     const placement0 = { rotation: process.env.ROT || 'NONE', mirror: process.env.MIR || 'NONE' };
     const p0 = await T.posOf(S, name);
-    // the site: the box's minimum corner M at height 200, 100 blocks apart for the trials, around the spawn
-    const base = { x: Math.floor(p0.x) + 60 + k * 100, z: Math.floor(p0.z) - 20 };
+    // the site: the box's minimum corner M at height 200 (Nether 64), 100 blocks apart for the trials, around the spawn; SITE_X / SITE_Z put it elsewhere (the older sites of a world are not touched)
+    const base = { x: process.env.SITE_X !== undefined ? Number(process.env.SITE_X) + k * 100 : Math.floor(p0.x) + 60 + k * 100, z: process.env.SITE_Z !== undefined ? Number(process.env.SITE_Z) : Math.floor(p0.z) - 20 };
     const placed = lit.place(parsed, { pos: { x: 0, y: 0, z: 0 }, ...placement0 }, { keepAir: true });
     const [sx, sy, sz] = placed.bp.size;
-    const M = { x: base.x, y: 200, z: base.z };
+    const M = { x: base.x, y: SITE_Y, z: base.z };
     const pos = { x: M.x - placed.origin.x, y: M.y - placed.origin.y, z: M.z - placed.origin.z };       // the Syncmatica placement origin that puts the box's corner at M
     const X1 = M.x + sx - 1, Y1 = M.y + sy - 1, Z1 = M.z + sz - 1;
     const ref = { x: M.x, y: M.y, z: M.z + sz + 40 };
     await S.must(`forceload add ${M.x - 8} ${M.z - 8} ${X1 + 8} ${ref.z + sz + 8}`);
-    // clear (air) the box and the margin, lay the deck: one layer of stone under the box, 4 wide margin around
-    for (const [x0, z0, x1, z1] of [[M.x - 6, M.z - 6, X1 + 6, Z1 + 6], [ref.x - 3, ref.z - 3, ref.x + sx + 2, ref.z + sz + 2]]) {
-        for (let xa = x0; xa <= x1; xa += 24) for (let za = z0; za <= z1; za += 24) for (let y = M.y - 2; y <= Y1 + 6; y += 8)
-            await S.must(`fill ${xa} ${y} ${za} ${Math.min(xa + 23, x1)} ${Math.min(y + 7, Y1 + 6)} ${Math.min(za + 23, z1)} minecraft:air`);
+    // clear (air) the box and the margin, lay the deck: one layer of stone under the box, 4 wide margin around (RESUME=1: what stands is kept)
+    if (!RESUME) {
+        for (const [x0, z0, x1, z1] of [[M.x - 6, M.z - 6, X1 + 6, Z1 + 6], [ref.x - 3, ref.z - 3, ref.x + sx + 2, ref.z + sz + 2]]) {
+            for (let xa = x0; xa <= x1; xa += 24) for (let za = z0; za <= z1; za += 24) for (let y = M.y - 2; y <= Y1 + 6; y += 8)
+                await S.must(`fill ${xa} ${y} ${za} ${Math.min(xa + 23, x1)} ${Math.min(y + 7, Y1 + 6)} ${Math.min(za + 23, z1)} minecraft:air`);
+        }
+        await S.must(`fill ${M.x - 6} ${M.y - 1} ${M.z - 6} ${X1 + 6} ${M.y - 1} ${Z1 + 6} minecraft:stone`);
     }
-    await S.must(`fill ${M.x - 6} ${M.y - 1} ${M.z - 6} ${X1 + 6} ${M.y - 1} ${Z1 + 6} minecraft:stone`);
     // the reference copy, from the same blueprint with every state (dynamic ones included), then settle
     const pl = lit.place(parsed, { pos, ...placement0 }, { keepAir: false });
     // cells the survival game cannot hold (a wall sign hung on a wall sign: pasted by commands): not part of the reference, reported
     const plan0 = build.planBuild(require('../../src/work/jobs/blueprint').cells(pl.bp), { x: 0, y: 0, z: 0 }, { tile: 64 }), never = new Set(plan0.unbuildable.map((u) => u.at));
-    const fluids = [], solids = [];
-    for (const b of pl.bp.blocks) { if (never.has(`${b.x},${b.y},${b.z}`)) continue; const p = pl.bp.palette[b.s], st = build.kindOf({ block: p.name, props: p.props }); (st === 'flow' || st === 'fluid' ? fluids : solids).push({ b, p }); }
+    const fluids = [], solids = [], portals = [];
+    for (const b of pl.bp.blocks) {
+        if (never.has(`${b.x},${b.y},${b.z}`)) continue;
+        const p = pl.bp.palette[b.s], st = build.kindOf({ block: p.name, props: p.props });
+        if (/^minecraft:(piston_head|moving_piston)$/.test(p.name)) continue;                              // made by the circuit (power), not placed; a piston is set retracted and extends itself when powered
+        if (p.name === 'minecraft:nether_portal') { portals.push({ b, p }); continue; }                     // the portal blocks go in last, when the frame stands
+        (st === 'flow' || st === 'fluid' ? fluids : solids).push({ b, p });
+    }
     const stateStr = (p) => `${p.name}${Object.keys(p.props).length ? '[' + Object.entries(p.props).map(([a, v]) => `${a}=${v}`).join(',') + ']' : ''}`;
-    for (const { b, p } of solids) { if (O.derivedCell(p.name, p.props) && /_bed$/.test(p.name) && p.props.part === 'head') continue; await S.cmd(`setblock ${ref.x + b.x} ${ref.y + b.y} ${ref.z + b.z} ${stateStr({ name: p.name, props: { ...p.props, ...(p.props.waterlogged ? { waterlogged: 'false' } : {}) } })} replace`); }
-    for (const { b, p } of fluids) if (p.props.level === '0' || !p.props.level) await S.cmd(`setblock ${ref.x + b.x} ${ref.y + b.y} ${ref.z + b.z} ${p.name} replace`);
-    for (const { b, p } of solids) if (p.props.waterlogged === 'true') await S.cmd(`setblock ${ref.x + b.x} ${ref.y + b.y} ${ref.z + b.z} ${stateStr(p)} replace`);
-    // (the head half of a bed was placed by the foot's setblock)
-    await sleep(20000);                                                                                       // water and lava flow, redstone settles
+    if (!RESUME) {
+        for (const { b, p } of solids) { if (O.derivedCell(p.name, p.props) && /_bed$/.test(p.name) && p.props.part === 'head') continue; await S.cmd(`setblock ${ref.x + b.x} ${ref.y + b.y} ${ref.z + b.z} ${stateStr({ name: p.name, props: { ...p.props, ...(p.props.waterlogged ? { waterlogged: 'false' } : {}), ...(/piston$/.test(p.name) ? { extended: 'false' } : {}) } })} replace`); }
+        for (const { b, p } of fluids) if (p.props.level === '0' || !p.props.level) await S.cmd(`setblock ${ref.x + b.x} ${ref.y + b.y} ${ref.z + b.z} ${p.name} replace`);
+        for (const { b, p } of solids) if (p.props.waterlogged === 'true') await S.cmd(`setblock ${ref.x + b.x} ${ref.y + b.y} ${ref.z + b.z} ${stateStr(p)} replace`);
+        for (const { b, p } of portals) await S.cmd(`setblock ${ref.x + b.x} ${ref.y + b.y} ${ref.z + b.z} ${stateStr(p)} replace`);
+        // (the head half of a bed was placed by the foot's setblock)
+        await sleep(20000);                                                                                   // water and lava flow, redstone settles
+    }
     const bx = { a: M, b: ref, size: [sx, sy, sz] };
     const match = async () => /^Test passed/.test(strip(await S.cmd(`execute if blocks ${M.x} ${M.y} ${M.z} ${X1} ${Y1} ${Z1} ${ref.x} ${ref.y} ${ref.z} all`)));
-    const controlOk = !(await match());
+    const controlOk = RESUME ? true : !(await match());
     // PREFILL=n (2026-11-18): the first n cells of the plan are set by commands before the bots start, so that the tail of the build (the upper layers, the fluids, trapdoors, gates, torches, the dirt
     // columns) can be tested in minutes instead of after twenty minutes of the rest. A test aid for the developer: the owner's run is PREFILL=0.
     const PRE = Number(process.env.PREFILL || 0);
-    if (PRE > 0) {
+    if (PRE > 0 && !RESUME) {
         const done = new Set();
         for (const c of plan0.list.slice(0, PRE)) {
             const ax = M.x + c.x, ay = M.y + c.y, az = M.z + c.z, props = { ...(c.props || {}) };
@@ -102,9 +126,9 @@ async function trial(k, S, svc, seed, rep) {
         console.log(`[prefill] ${PRE} cells of the plan set by commands`);
     }
     // supply chests on the deck (tagged `free`), every item of the plan's material list
-    const mats = pl && build.materialsOf(pl.bp.blocks.filter((b) => !never.has(`${b.x},${b.y},${b.z}`)).map((b) => ({ block: pl.bp.palette[b.s].name.replace(/^minecraft:/, ''), props: pl.bp.palette[b.s].props })).filter((c) => !/^(air|cave_air|void_air)$/.test(c.block)));
-    const stacks = []; for (const [it, n0] of Object.entries(mats)) { const n = n0 * 2, ms = STACK[it] || 64; for (let r = n; r > 0; r -= ms) stacks.push({ it, n: Math.min(ms, r) }); }      // twice the list: several builders fetch a stack each and must not starve each other (buckets and beds exactly)
-    for (let r = 1024; r > 0; r -= 64) stacks.push({ it: 'cobblestone', n: 64 });                        // enough temporary blocks (the bots do not pick the removed ones up again)
+    const mats = plan0.materials;                                                                             // the plan's own list: lightings count as flint and steel, derived cells not at all
+    const stacks = []; for (const [it, n0] of Object.entries(mats)) { const n = ONE.has(it) ? n0 + Math.ceil(n0 * (SURPLUS - 1)) + 2 : Math.ceil(n0 * SURPLUS), ms = STACK[it] || 64; for (let r = n; r > 0; r -= ms) stacks.push({ it, n: Math.min(ms, r) }); }      // SURPLUS 2 = the old default (several builders fetch a stack each and must not starve each other); the owner's run: 1.1
+    for (let r = Number(process.env.TEMP_STOCK || 1024); r > 0; r -= 64) stacks.push({ it: TEMP, n: 64 });  // temporary blocks (pumpkins: the bots' drops come back to them, see scripts/t26/vacuum.sh)
     const chests = []; for (let i = 0; i < stacks.length; i += 27) chests.push(stacks.slice(i, i + 27));
     const sup = chests.map((_, i) => ({ x: M.x - 3, y: M.y, z: M.z + 2 * i }));
     for (let i = 0; i < chests.length; i++) {
@@ -114,7 +138,7 @@ async function trial(k, S, svc, seed, rep) {
     }
     // the builders stand on the deck (it reaches 6 beyond the box; the third bot used to stand outside it and fell 136 blocks)
     // a bot that dies comes back on the deck (a bed beside the site), not at the world spawn 250 blocks away with no way up
-    for (const [i, n] of names.entries()) { await S.must(`tp ${n} ${M.x - 4.5} ${M.y} ${M.z - 3.5 - i}`); await S.must(`spawnpoint ${n} ${M.x - 4} ${M.y} ${M.z - 4 - i}`); await T.kit(S, n, { blocks: 320 }); }
+    for (const [i, n] of names.entries()) { await S.must(`tp ${n} ${M.x - 4.5} ${M.y} ${M.z - 3.5 - i}`); await S.must(`spawnpoint ${n} ${M.x - 4} ${M.y} ${M.z - 4 - i}`); await T.kit(S, n, { blocks: 320, block: TEMP }); }
     await sleep(4000);
     for (let i = 0; i < chests.length; i++) svc.addSite({ name: `supply${i}`, x: sup[i].x, y: sup[i].y, z: sup[i].z, purpose: 'free' });      // after the bot sees the chunk
     console.log(`[place_c site] box minimum ${M.x} ${M.y} ${M.z}, size ${sx} x ${sy} x ${sz}; reference copy at ${ref.x} ${ref.y} ${ref.z}; supply chests at x ${M.x - 3}; /tp ${M.x + 22} ${M.y + 30} ${M.z + 22} to look down on it`);
@@ -132,7 +156,7 @@ async function trial(k, S, svc, seed, rep) {
             const f = await c.fetch(found.id);
             got = { id: found.id, bytes: f.length, pos: found.pos, hashOk: sm.hashOf(f) === found.hash, rotation: found.rotation, mirror: found.mirror };
             const pp = lit.place(lit.parse(f), found, { keepAir: false });
-            const job = await svc._buildFrom(pp.bp, pp.origin, { name: 'iron-farm', bots: names, start: true, tile: 64, mode: ['layer', 'zlayer'].includes(process.env.BUILD_MODE) ? process.env.BUILD_MODE : 'area', window: Number(process.env.BUILD_WINDOW || 0) }, null, { dim: 'overworld' });
+            const job = await svc._buildFrom(pp.bp, pp.origin, { name: 'iron-farm', bots: names, start: true, tile: 64, mode: ['layer', 'zlayer'].includes(process.env.BUILD_MODE) ? process.env.BUILD_MODE : 'area', window: Number(process.env.BUILD_WINDOW || 0) }, null, { dim: NETHER ? 'nether' : 'overworld' });
             got.origin = pp.origin; got.job = job.id;
             let lastLog = 0;
             while (Date.now() - t0 < LIMIT_MIN * 60000) {
@@ -174,19 +198,29 @@ async function trial(k, S, svc, seed, rep) {
     const strict = await match();
     let wrong = [];
     if (!strict) {
-        const cellsDiff = await differing(S, M, ref, [sx, sy, sz]);
-        const bot = svc.bots.get(name).bot, Vec3 = require('vec3');
+        // Every cell where the build differs from the reference copy (the halving walk), each judged by the SERVER against the BLUEPRINT: the block with the properties placement decides and the ones a right-click
+        // sets (open, delay, mode, note) is "static"; what the circuit decides (power, lit, extended, a piston's head, flowing water) is dynamic and does not count. A cell where the blueprint has air and the build
+        // has something (a temporary block left behind) is wrong.
+        const cellsDiff = await differing(S, M, ref, [sx, sy, sz], 8000);
+        const props = (wp) => { const o = { ...O.staticProps(wp.name, wp.props), ...O.useProps(wp.name, wp.props) }; return Object.keys(o).length ? '[' + Object.entries(o).map(([a, v]) => `${a}=${v}`).join(',') + ']' : ''; };
+        const derived = (wp) => !!wp && (/^minecraft:(piston_head|moving_piston)$/.test(wp.name) || (/^minecraft:(water|lava)$/.test(wp.name) && wp.props.level && wp.props.level !== '0'));
+        const at0 = new Map(pl.bp.blocks.map((q) => [`${q.x},${q.y},${q.z}`, pl.bp.palette[q.s]]));
         for (const o of cellsDiff) {
-            const x = M.x + o[0], y = M.y + o[1], z = M.z + o[2], b = bot ? bot.blockAt(new Vec3(x, y, z), false) : null;
-            const want = pl.bp.blocks.find((q) => q.x === o[0] && q.y === o[1] && q.z === o[2]), wp = want ? pl.bp.palette[want.s] : null;
-            const got = b ? { name: b.name, props: b.getProperties ? b.getProperties() : {} } : null;
-            const sameStatic = !!(wp && got && `minecraft:${got.name}` === wp.name && JSON.stringify(O.staticProps(wp.name, got.props)) === JSON.stringify(O.staticProps(wp.name, wp.props)) && !/^(water|lava)$/.test(got.name));
-            wrong.push({ at: o, want: wp ? stateStr(wp) : 'air', got: got ? `${got.name}${Object.keys(got.props).length ? JSON.stringify(got.props) : ''}` : null, dynamicOnly: sameStatic });
+            const x = M.x + o[0], y = M.y + o[1], z = M.z + o[2], wp = at0.get(`${o[0]},${o[1]},${o[2]}`) || null;
+            let sameStatic = false;
+            if (derived(wp)) sameStatic = true;
+            else if (wp && wp.name === 'minecraft:nether_portal') sameStatic = /^Test passed/.test(strip(await S.cmd(`execute if block ${x} ${y} ${z} minecraft:nether_portal`)));
+            else if (wp) sameStatic = /^Test passed/.test(strip(await S.cmd(`execute if block ${x} ${y} ${z} ${wp.name}${props(wp)}${/^minecraft:(water|lava)$/.test(wp.name) ? '[level=0]' : ''}`)));
+            else sameStatic = /^Test passed/.test(strip(await S.cmd(`execute if block ${x} ${y} ${z} minecraft:air`)));
+            wrong.push({ at: o, want: wp ? stateStr(wp) : 'air', dynamicOnly: sameStatic });
         }
     }
-    const staticOk = strict || (wrong.length > 0 && wrong.every((q) => q.dynamicOnly));
+    const staticOk = strict || wrong.every((q) => q.dynamicOnly);
+    const hard = wrong.filter((q) => !q.dynamicOnly), hardBy = {}; for (const q of hard) hardBy[q.want.replace(/\[.*$/, '')] = (hardBy[q.want.replace(/\[.*$/, '')] || 0) + 1;
+    console.log(`[judge] strict ${strict}; ${wrong.length} cells differ from the reference, ${wrong.length - hard.length} of them only in what the circuit decides; WRONG ${hard.length} ${JSON.stringify(hardBy)}`);
+    wrong = [...hard.slice(0, 60), ...wrong.filter((q) => q.dynamicOnly).slice(0, 20)];
     const noTeleport = Object.keys(moves).length === 0;
-    rep.trial(`${name}#${k + 1}`, controlOk && state === 'finished' && staticOk && noTeleport, { strict, staticOk, controlOk, noTeleport, bots: BOTS, limitMin: LIMIT_MIN, state, err, minutes: Math.round((Date.now() - t0) / 60000), min: M, box: [sx, sy, sz], blocks: probe.blocks.length, unbuildable: plan0.unbuildable, materials: mats, syncmatica: got, wrongCells: wrong.slice(0, 40), problems: (svc.problems && svc.problems.list || []).slice(-8).map((q) => JSON.stringify(q).slice(0, 300)), serverMoves: moves, units: (svc.jobs.get(got && got.job) || {}).progress });
+    rep.trial(`${name}#${k + 1}`, controlOk && state === 'finished' && staticOk && noTeleport, { strict, staticOk, controlOk, noTeleport, bots: BOTS, limitMin: LIMIT_MIN, state, err, minutes: Math.round((Date.now() - t0) / 60000), min: M, box: [sx, sy, sz], blocks: probe.blocks.length, unbuildable: plan0.unbuildable, materials: mats, syncmatica: got, wrongCells: wrong, wrongBy: hardBy, problems: (svc.problems && svc.problems.list || []).slice(-8).map((q) => JSON.stringify(q).slice(0, 300)), serverMoves: moves, units: (svc.jobs.get(got && got.job) || {}).progress });
     return { strict, staticOk };
 }
 
