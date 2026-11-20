@@ -158,6 +158,16 @@ async function unstrand(plan, job, me, env) {
             if (TRACE) console.log(`[build] ${me} dig out: ${t.ok ? 'ok' : t.reason}`);
             reopenDamaged(plan, job, env);
             if (t.ok) return;
+            // NAV plans nothing from a cell whose floor is a partial block (live 2026-11-21: three builders stood on beds they had placed, "partial plan, 0 moves", 40 minutes each): the block under the
+            // feet (or the one in the feet cell, a bed or a slab the bot stands on top of) is mined; the bot drops onto what is below, and the unit that owns the cell places it again.
+            if (env.exec && env.w) for (const c of [{ x: f.x, y: f.y, z: f.z }, { x: f.x, y: f.y - 1, z: f.z }]) {
+                const k = env.w.kindAt(c.x, c.y, c.z);
+                if (k !== 'partial' && k !== 'solid') continue;
+                const m = await env.exec('mine', { x: c.x, y: c.y, z: c.z, collect: false }, { raw: true, maxTicks: 300 });
+                if (TRACE) console.log(`[build] ${me} mined the ${env.w.nameAt(c.x, c.y, c.z) || 'block'} it stood on at ${c.x},${c.y},${c.z}: ${m.ok ? 'ok' : m.reason}`);
+                reopenDamaged(plan, job, env);
+                if (m.ok) return;
+            }
         }
         if (env.stepOff && (s.n === 2 || s.n === 4)) { const o = await env.stepOff({ maxDrop: s.n >= 4 ? 8 : 3 }); if (TRACE) console.log(`[build] ${me} step off: ${o.ok ? 'to ' + JSON.stringify(o.to) : 'no edge'}`); if (o.ok) return; }          // once per place: over the edge of what it stands on
         await env.recover(Math.min(6, s.n + 1), { reason: 'unreachable', detail: { why: 'stranded' } });
