@@ -169,7 +169,7 @@ async function unstrand(plan, job, me, env) {
             if (env.exec && env.w) for (const c of [...under, { x: f.x, y: f.y, z: f.z }, { x: f.x, y: f.y - 1, z: f.z }]) {
                 const k = env.w.kindAt(c.x, c.y, c.z);
                 if (k !== 'partial' && k !== 'solid') continue;
-                const m = await env.exec('mine', { x: c.x, y: c.y, z: c.z, collect: false }, { raw: true, maxTicks: 300 });
+                const m = await env.exec('mine', { x: c.x, y: c.y, z: c.z, collect: false, blind: true }, { raw: true, maxTicks: 300 });          // blind: no approach (NAV plans nothing from here)
                 if (TRACE) console.log(`[build] ${me} mined the ${env.w.nameAt(c.x, c.y, c.z) || 'block'} it stood on at ${c.x},${c.y},${c.z}: ${m.ok ? 'ok' : m.reason}`);
                 reopenDamaged(plan, job, env);
                 if (m.ok) return;
