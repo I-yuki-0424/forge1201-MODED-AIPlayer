@@ -151,7 +151,10 @@ async function unstrand(plan, job, me, env) {
         // Walled in by its own work (live 2026-11-21: a bot on a pumpkin between beds and trapdoors on the first floor, no step, no edge, 40 minutes): dig out through the structure; what it digs is placed
         // again by the unit that owns the cell (reopenDamaged), and the final look catches the rest.
         if (s.n >= 4 && env.travel && f.y > plan.origin.y + 1) {
-            const t = await env.travel({ x: f.x, y: plan.origin.y, z: f.z }, { near: 2, nearY: 2, maxSegments: 24, stuckAfter: 3, footNodes: 3000, digStructure: true, why: 'dig out of the structure' });
+            // the nearest free cell of the ground outside the structure (not the cell straight below: that is a cell of the plan)
+            const view = env.w ? S.viewOf(env.w, plan.cellSet) : null; let g = null;
+            if (view) for (let d = 2; d <= 24 && !g; d++) for (let dx = -d; dx <= d && !g; dx++) for (let dz = -d; dz <= d && !g; dz++) { if (Math.max(Math.abs(dx), Math.abs(dz)) !== d) continue; const x = f.x + dx, z = f.z + dz; if (view.solid(x, plan.origin.y - 1, z) && view.free(x, plan.origin.y, z) && view.free(x, plan.origin.y + 1, z) && !plan.cellSet.has(`${x},${plan.origin.y},${z}`) && !plan.cellSet.has(`${x},${plan.origin.y + 1},${z}`)) g = { x, y: plan.origin.y, z }; }
+            const t = await env.travel(g || { x: f.x, y: plan.origin.y, z: f.z }, { near: 1, nearY: 1, maxSegments: 24, stuckAfter: 3, footNodes: 3000, digStructure: true, why: 'dig out of the structure' });
             if (TRACE) console.log(`[build] ${me} dig out: ${t.ok ? 'ok' : t.reason}`);
             reopenDamaged(plan, job, env);
             if (t.ok) return;
