@@ -43,9 +43,12 @@ function createBuildJob(cells, origin, ledgerOpts = {}, planOpts = {}) {
      */
     job.sweep = async (env, now) => {
         if (now - job.auditAt < 8000) return { busy: true };
-        const rounds = job.auditRound >= AUDIT_ROUNDS;                                // the rounds of repair are used up: the tidy still runs
+        // Repair rounds go on while they make progress (live 2026-11-21: three rounds were not enough for a build that dug through itself on the way to its upper floors; 17 cells were left wrong): the
+        // job gives up after four rounds in a row that did not lower the number of missing cells, or thirty rounds. The tidy still runs afterwards.
         job.auditAt = now;
-        const missing = rounds ? [] : job.diff(env.w);
+        let missing = job.auditGaveUp ? [] : job.diff(env.w);
+        if (!job.auditGaveUp) { if (missing.length < (job.auditBest === undefined ? Infinity : job.auditBest)) { job.auditBest = missing.length; job.auditStale = 0; } else job.auditStale = (job.auditStale || 0) + 1; if (job.auditRound >= 30 || job.auditStale >= 4) { job.auditGaveUp = true; missing = []; } }
+        const rounds = !!job.auditGaveUp;
         if (!missing.length) {
             // Nothing is missing: what the bots left behind in the box (scaffolds) is taken away, a few rounds at most (owner 2026-11-19: temporary blocks are often not destroyed)
             if (job.tidyRounds < 20 && env.travel && env.exec) {
