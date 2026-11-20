@@ -340,7 +340,9 @@ async function buildCell(plan, c, sup, env, r, jump = false) {
     if (cur ? C.stateMatches(cur, c) : nm(w, c.x, c.y, c.z) === c.block) { if (!C.useMismatch(cur, c)) { r.skipped++; return ok; } return fixUse(c, env, r); }
     const curName = cur ? cur.name : nm(w, c.x, c.y, c.z);
     if (curName && !C.REPLACEABLE.test(curName) && !(/^(water|lava)$/.test(curName) && w.kindAt(c.x, c.y, c.z) !== 'solid')) {
-        const m = await env.exec('mine', { x: c.x, y: c.y, z: c.z }, { raw: true, maxTicks: 400 });
+        // From the station of the cell the block is in reach: a blind dig needs no standing place with a line of sight (a wrong block inside the structure had none: "goal reach block, expanded 6000")
+        let m = await env.exec('mine', { x: c.x, y: c.y, z: c.z, blind: true, collect: false }, { raw: true, maxTicks: 400 });
+        if (!m.ok) m = await env.exec('mine', { x: c.x, y: c.y, z: c.z }, { raw: true, maxTicks: 400 });
         if (!m.ok) return { ...m, stage: 'clear' };
     }
     if (env.have(item) < 1) return bad('missing_item', { item }, 'stock');
@@ -380,7 +382,8 @@ async function placeOriented(c, item, sup, env, r, jump = false) {
         const now = w.blockAt ? w.blockAt(c.x, c.y, c.z) : null;
         if (now && !C.stateMatches(now, c)) {
             r.fixed++; tried.add(q); lastGot = { name: now.name, props: now.getProperties ? now.getProperties() : {}, recipe: { support: q.support, face: q.face, hy: q.hy, yRot: q.yRot, pitch: q.pitch } };
-            const m = await env.exec('mine', { x: c.x, y: c.y, z: c.z }, { raw: true, maxTicks: 300 });
+            let m = await env.exec('mine', { x: c.x, y: c.y, z: c.z, blind: true, collect: false }, { raw: true, maxTicks: 300 });
+            if (!m.ok) m = await env.exec('mine', { x: c.x, y: c.y, z: c.z }, { raw: true, maxTicks: 300 });
             if (!m.ok) return { ...m, stage: 'redo' };
             continue;
         }
