@@ -160,7 +160,13 @@ async function unstrand(plan, job, me, env) {
             if (t.ok) return;
             // NAV plans nothing from a cell whose floor is a partial block (live 2026-11-21: three builders stood on beds they had placed, "partial plan, 0 moves", 40 minutes each): the block under the
             // feet (or the one in the feet cell, a bed or a slab the bot stands on top of) is mined; the bot drops onto what is below, and the unit that owns the cell places it again.
-            if (env.exec && env.w) for (const c of [{ x: f.x, y: f.y, z: f.z }, { x: f.x, y: f.y - 1, z: f.z }]) {
+            // (the cells the bot's FOOTPRINT rests on, not only its own column: live 2026-11-21 a bot stood at y 210.5 on the edge of a slab in the next cell, with air under its own cell)
+            const pp = env.bot && env.bot.entity ? env.bot.entity.position : null, under = [];
+            if (pp) for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) for (const yy of [Math.floor(pp.y - 0.001), Math.floor(pp.y - 0.001) - 1, Math.floor(pp.y)]) {
+                const cx = Math.floor(pp.x) + dx, cz = Math.floor(pp.z) + dz;
+                if (pp.x + 0.31 > cx && pp.x - 0.31 < cx + 1 && pp.z + 0.31 > cz && pp.z - 0.31 < cz + 1) under.push({ x: cx, y: yy, z: cz });
+            }
+            if (env.exec && env.w) for (const c of [...under, { x: f.x, y: f.y, z: f.z }, { x: f.x, y: f.y - 1, z: f.z }]) {
                 const k = env.w.kindAt(c.x, c.y, c.z);
                 if (k !== 'partial' && k !== 'solid') continue;
                 const m = await env.exec('mine', { x: c.x, y: c.y, z: c.z, collect: false }, { raw: true, maxTicks: 300 });

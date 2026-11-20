@@ -1,0 +1,2 @@
+fixed rule: span 42109 (70.2 min of the slowest bot) total 208911 temps 3670 seeds 412 stations 896 failed 0
+expert: span 42199 (70.3 min of the slowest bot) total 207306 temps 3648 seeds 412 stations 789 failed 0
