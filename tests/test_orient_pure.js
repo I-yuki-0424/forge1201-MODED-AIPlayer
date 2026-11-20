@@ -58,4 +58,8 @@ const has = (name, props, pred, solid = solidAll) => { const r = O.recipes(name,
     assert.ok(Math.abs(O.lookOf({ yRot: 180, pitch: 'level' }).yaw) < 1e-9); assert.ok(Math.abs(O.lookOf({ yRot: 90, pitch: 'level' }).yaw - Math.PI / 2) < 1e-9);
     assert.ok(Math.abs(O.lookOf({ yRot: 0, pitch: 'down' }).pitch + Math.PI / 2) < 1e-9);
 }
+// an observer faces the way the player looks (measured on the live server 2026-11-21), a piston / dropper the opposite
+{ const O2 = require('../src/work/jobs/orient'), ro = O2.recipes('observer', { facing: 'north' })[0], rp = O2.recipes('piston', { facing: 'north' })[0];
+  assert.strictEqual(O2.dirOfYRot(ro.yRot), 'north', 'an observer facing north is placed looking north'); assert.strictEqual(O2.dirOfYRot(rp.yRot), 'south', 'a piston facing north is placed looking south');
+  assert.strictEqual(O2.recipes('observer', { facing: 'up' })[0].pitch, 'up', 'an observer facing up is placed looking up'); }
 console.log('orient: ok');

@@ -22,7 +22,7 @@ const lookOf = (r) => ({ yaw: ((180 - r.yRot) * Math.PI) / 180, pitch: r.pitch =
 
 const FAMILY = [
     [/(^|_)stairs$/, 'stairs'], [/_slab$/, 'slab'], [/_trapdoor$/, 'trapdoor'], [/^(repeater|comparator)$/, 'diode'], [/^hopper$/, 'hopper'], [/^note_block$/, 'note'],
-    [/^(chest|trapped_chest)$/, 'chest'], [/^(piston|sticky_piston|observer|dispenser|dropper|barrel)$/, 'nearest'], [/^(furnace|blast_furnace|smoker|loom|stonecutter|lectern|anvil|chipped_anvil|damaged_anvil|grindstone_floor|carved_pumpkin|jack_o_lantern|ender_chest|bell_floor)$/, 'facing_opposite'],
+    [/^(chest|trapped_chest)$/, 'chest'], [/^(piston|sticky_piston|dispenser|dropper|barrel)$/, 'nearest'], [/^observer$/, 'observer'], [/^(furnace|blast_furnace|smoker|loom|stonecutter|lectern|anvil|chipped_anvil|damaged_anvil|grindstone_floor|carved_pumpkin|jack_o_lantern|ender_chest|bell_floor)$/, 'facing_opposite'],
     [/_fence_gate$/, 'gate'], [/_bed$/, 'bed'], [/_door$/, 'door'], [/^(torch|soul_torch|redstone_torch)$/, 'torch'], [/^(wall_torch|soul_wall_torch|redstone_wall_torch)$/, 'wall_torch'],
     [/_sign$/, 'sign'], [/_wall_sign$/, 'wall_sign'], [/^redstone_wire$/, 'wire'], [/^(ladder)$/, 'ladder'],
     [/(_log|_wood|_stem|_hyphae|basalt|bone_block|hay_block|chain|_pillar|purpur_pillar|quartz_pillar)$/, 'pillar'],
@@ -50,7 +50,7 @@ function derivedCell(name, props) {
  * (`use`: right-click until it matches). Everything else a state carries is derived by the game from its neighbours or from power and is not compared.
  */
 const STATIC = {
-    stairs: ['facing', 'half'], slab: ['type'], trapdoor: ['facing', 'half'], diode: ['facing'], hopper: ['facing'], chest: ['facing'], nearest: ['facing'], facing_opposite: ['facing'],
+    stairs: ['facing', 'half'], slab: ['type'], trapdoor: ['facing', 'half'], diode: ['facing'], hopper: ['facing'], chest: ['facing'], nearest: ['facing'], observer: ['facing'], facing_opposite: ['facing'],
     gate: ['facing'], bed: ['facing'], door: ['facing'], wall_torch: ['facing'], wall_sign: ['facing'], sign: ['rotation'], ladder: ['facing'], pillar: ['axis'],
 };
 const USE = { trapdoor: ['open'], gate: ['open'], door: ['open'], diode: ['delay', 'mode'], note: ['note'] };      // right-click until it matches: a repeater steps its delay, a comparator toggles its mode, a note block steps its note (0..24)
@@ -78,6 +78,7 @@ function model(name, ctx, solid = () => true) {
         case 'hopper': return { name: n, props: { facing: horizontal(clicked) ? OPP[clicked] : 'down' } };
         case 'chest': return { name: n, props: { facing: OPP[facing] } };
         case 'nearest': return { name: n, props: { facing: OPP[look] } };
+        case 'observer': return { name: n, props: { facing: look } };                // measured on 26.1.2 (scripts/t26/orient_probe.js, 2026-11-21): an observer faces the way the player looks, unlike a piston or a dropper
         case 'facing_opposite': return { name: n, props: { facing: OPP[facing] } };
         case 'gate': return { name: n, props: { facing } };
         case 'door': return clicked === 'down' ? null : { name: n, props: { facing } };
