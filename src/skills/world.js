@@ -12,7 +12,7 @@ const WATER = new Set(['water', 'seagrass', 'tall_seagrass', 'kelp', 'kelp_plant
 // What the client physics climbs (prismarine-physics isOnLadder: ladders and vines; holding jump climbs since 1.14).
 const CLIMB = new Set(['ladder', 'vine']);
 // Blocks the use key acts on (vanilla opens or toggles them instead of placing the held block against them).
-const INTERACTIVE = /(^|_)(chest|barrel|crafting_table|furnace|smoker|door|trapdoor|fence_gate|lever|button|bed|anvil|shulker_box|hopper|dispenser|dropper|brewing_stand|enchanting_table|loom|grindstone|stonecutter|cartography_table|smithing_table|note_block|repeater|comparator|daylight_detector|bell|lectern|composter|cake|beacon|sign|hanging_sign)$/;
+const INTERACTIVE = /(^|_)(chest|barrel|crafting_table|furnace|smoker|door|trapdoor|fence_gate|lever|button|bed|anvil|shulker_box|hopper|dispenser|dropper|brewing_stand|enchanting_table|loom|grindstone|stonecutter|cartography_table|smithing_table|note_block|redstone_wire|repeater|comparator|daylight_detector|bell|lectern|composter|cake|beacon|sign|hanging_sign)$/;
 
 /**
  * Walking kind of a block: 'air' (walk through), 'solid' (full or near-full collision box: stand on it), 'water' (swim
