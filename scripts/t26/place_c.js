@@ -231,6 +231,7 @@ async function trial(k, S0, svc, seed, rep) {
             const x = M.x + o[0], y = M.y + o[1], z = M.z + o[2], wp = at0.get(`${o[0]},${o[1]},${o[2]}`) || null;
             let sameStatic = false;
             if (derived(wp)) sameStatic = true;
+            else if (wp && /^minecraft:(redstone_block|slime_block|honey_block|observer|sticky_piston|piston)$/.test(wp.name) && /^Test passed/.test(strip(await S.cmd(`execute if block ${x} ${y} ${z} minecraft:piston_head`)))) sameStatic = true;          // a piston of the running circuit has extended into the cell: its head, not a mistake of the builders
             else if (wp && wp.name === 'minecraft:nether_portal') sameStatic = /^Test passed/.test(strip(await S.cmd(`execute if block ${x} ${y} ${z} minecraft:nether_portal`)));
             else if (wp) sameStatic = /^Test passed/.test(strip(await S.cmd(`execute if block ${x} ${y} ${z} ${wp.name}${props(wp)}${/^minecraft:(water|lava)$/.test(wp.name) ? '[level=0]' : ''}`)));
             else sameStatic = /^Test passed/.test(strip(await S.cmd(`execute if block ${x} ${y} ${z} minecraft:air`)));

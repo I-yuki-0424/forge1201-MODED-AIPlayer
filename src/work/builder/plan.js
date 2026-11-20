@@ -58,7 +58,7 @@ function needsOf(cells, w = null) {
 function extrasOf(plan, w) {
     const out = [], b = plan.box;
     // (not only the plan's own box: the temporary blocks lie on the deck under the structure, above its top and round it, 2026-11-21)
-    for (let y = plan.groundTop + 1; y <= b.y1 + 3; y++) for (let x = b.x0 - 4; x <= b.x1 + 4; x++) for (let z = b.z0 - 4; z <= b.z1 + 4; z++) {
+    for (let y = plan.groundTop + 1; y <= b.y1 + 6; y++) for (let x = b.x0 - 6; x <= b.x1 + 6; x++) for (let z = b.z0 - 6; z <= b.z1 + 6; z++) {
         if (plan.cellSet.has(`${x},${y},${z}`)) continue;
         const k = w.kindAt(x, y, z);
         if (k !== 'solid' && k !== 'partial') continue;
