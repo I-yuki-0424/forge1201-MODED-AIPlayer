@@ -148,6 +148,14 @@ async function unstrand(plan, job, me, env) {
             if (TRACE) console.log(`[build] ${me} descend: ${d.ok ? JSON.stringify(d.detail || {}).slice(0, 120) : d.reason + ' ' + JSON.stringify(d.detail || {}).slice(0, 160)}`);
             if (d.ok || (d.detail && d.detail.levels)) return;
         }
+        // Walled in by its own work (live 2026-11-21: a bot on a pumpkin between beds and trapdoors on the first floor, no step, no edge, 40 minutes): dig out through the structure; what it digs is placed
+        // again by the unit that owns the cell (reopenDamaged), and the final look catches the rest.
+        if (s.n >= 4 && env.travel && f.y > plan.origin.y + 1) {
+            const t = await env.travel({ x: f.x, y: plan.origin.y, z: f.z }, { near: 2, nearY: 2, maxSegments: 24, stuckAfter: 3, footNodes: 3000, digStructure: true, why: 'dig out of the structure' });
+            if (TRACE) console.log(`[build] ${me} dig out: ${t.ok ? 'ok' : t.reason}`);
+            reopenDamaged(plan, job, env);
+            if (t.ok) return;
+        }
         if (env.stepOff && (s.n === 2 || s.n === 4)) { const o = await env.stepOff({ maxDrop: s.n >= 4 ? 8 : 3 }); if (TRACE) console.log(`[build] ${me} step off: ${o.ok ? 'to ' + JSON.stringify(o.to) : 'no edge'}`); if (o.ok) return; }          // once per place: over the edge of what it stands on
         await env.recover(Math.min(6, s.n + 1), { reason: 'unreachable', detail: { why: 'stranded' } });
     } catch (_) { /* a failed fix is tried again with the next */ }
@@ -233,7 +241,7 @@ async function runUnit0(plan, job, regionId, u, env) {
         if (!st && walk && env.here().y > plan.origin.y + 1 && ++down <= 2) {
             const c0 = todo[0]; let g = null;
             for (let d = 3; d <= 9 && !g; d++) for (let dx = -d; dx <= d && !g; dx++) for (let dz = -d; dz <= d && !g; dz++) { if (Math.max(Math.abs(dx), Math.abs(dz)) !== d) continue; const x = c0.x + dx, z = c0.z + dz; if (view.solid(x, plan.origin.y - 1, z) && view.free(x, plan.origin.y, z) && view.free(x, plan.origin.y + 1, z) && !plan.cellSet.has(`${x},${plan.origin.y},${z}`)) g = { x, y: plan.origin.y, z }; }
-            if (g) { const t = await env.travel(g, { near: 1, nearY: 1, maxSegments: 16, stuckAfter: 3, footNodes: 3000, why: 'back to the ground' }); if (!t.ok) r.noMove = true; if (t.ok || t.reason === 'stuck' || t.reason === 'unreachable') continue; }
+            if (g) { let t = await env.travel(g, { near: 1, nearY: 1, maxSegments: 16, stuckAfter: 3, footNodes: 3000, why: 'back to the ground' }); if (!t.ok && ['unreachable', 'stuck'].includes(t.reason) && down >= 2) { t = await env.travel(g, { near: 1, nearY: 1, maxSegments: 24, stuckAfter: 3, footNodes: 3000, digStructure: true, why: 'back to the ground (through the structure)' }); reopenDamaged(plan, job, env); } if (!t.ok) r.noMove = true; if (t.ok || t.reason === 'stuck' || t.reason === 'unreachable') continue; }
         }
         // No place this bot can stand at (it is in a compartment of the platform, far from the cells): another bot, or this one from somewhere else, may. Not a failure of the unit until it has happened six times.
         if (!stUse && (job.noStation[u.unit] = (job.noStation[u.unit] || 0) + 1) <= 6) return { ok: true, partial: true, holdMs: 6000, detail: { ...r, noMove: true, waiting: todo.length, why: 'no standing place from where this bot is', diag: dg } };
