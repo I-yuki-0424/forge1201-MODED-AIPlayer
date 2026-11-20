@@ -48,14 +48,15 @@ function createBuildJob(cells, origin, ledgerOpts = {}, planOpts = {}) {
         const missing = rounds ? [] : job.diff(env.w);
         if (!missing.length) {
             // Nothing is missing: what the bots left behind in the box (scaffolds) is taken away, a few rounds at most (owner 2026-11-19: temporary blocks are often not destroyed)
-            if (job.tidyRounds < 6 && env.travel && env.exec) {
+            if (job.tidyRounds < 20 && env.travel && env.exec) {
                 job.tidyRounds++;
                 const ex = P.extrasOf(plan, env.w).sort((a, b) => Math.hypot(a.x - env.pos().x, a.z - env.pos().z) - Math.hypot(b.x - env.pos().x, b.z - env.pos().z)), done = [];
-                for (const c of ex.slice(0, 16)) {
+                for (const c of ex.slice(0, 40)) {
                     if (env.cancelled && env.cancelled()) break;
                     const t = await env.travel({ x: c.x, y: c.y, z: c.z }, { near: 3, nearY: 3, maxSegments: 12, stuckAfter: 3, footNodes: 3000, why: 'tidy' });
                     if (!t.ok) continue;
-                    const m = await env.exec('mine', { x: c.x, y: c.y, z: c.z, collect: false }, { raw: true, maxTicks: 300 });
+                    let m = await env.exec('mine', { x: c.x, y: c.y, z: c.z, collect: false, blind: true }, { raw: true, maxTicks: 300 });          // within reach after the walk: no line of sight needed
+                    if (!m.ok) m = await env.exec('mine', { x: c.x, y: c.y, z: c.z, collect: false }, { raw: true, maxTicks: 300 });
                     if (m.ok) done.push(`${c.block}@${c.x},${c.y},${c.z}`);
                 }
                 if (TRACE) console.log(`[build] tidy round ${job.tidyRounds}: ${ex.length} left behind, ${done.length} taken away`);
