@@ -89,7 +89,7 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
         if ((best.get(key(c.x, c.y, c.z)) ?? Infinity) < c.g) continue;
         const add = (x, y, z, cost, move, extra = {}) => {
             if (!inBox(x, y, z)) return;
-            cost += view.nearLava(x, y, z) ? COST.lava : 0;                 // a cell beside lava (a slip, a flow): only when there is no other way (live 2026-11-22: six bots 'tried to swim in lava')
+            if (view.nearLava(x, y, z)) return;                             // never a cell beside or over lava (a slip, a flow, a push: a cost was not enough, bots died in the Nether's lava sea, live 2026-11-22)
             const t = c.t + (extra.place ? 1 : 0);
             if (t > temps) return;
             const g = c.g + cost, k = key(x, y, z);
