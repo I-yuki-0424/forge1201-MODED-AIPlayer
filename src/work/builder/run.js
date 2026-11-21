@@ -274,6 +274,14 @@ async function runUnit0(plan, job, regionId, u, env) {
         if (TRACE) console.log(`[build] ${Math.round((Date.now() - T0) / 1000)}s ${bot ? bot.username : '?'} u${u.unit} round ${round}: station ${stUse.kind} ${sk} serves ${stUse.serves.length}/${todo.length}${stUse.bridge ? ' (bridge ' + stUse.bridge.g + ')' : ''} from ${JSON.stringify(env.here())}`);
         const f = env.here(), real = !!env.bot;                                          // (a test environment without a bot has no position to check)
         if (real && (f.x !== stUse.S.x || f.y !== stUse.S.y || f.z !== stUse.S.z)) {
+            // A station deep inside the structure and far above the bot (live 2026-11-21: the clean Overworld run stuck 58 times on the upper floors, "3 segments without getting closer"): the climb is
+            // made in two easy legs, straight up in the free air outside the footprint to the height of the station, then across to it (bridging), instead of one search for both.
+            { const b = plan.box, S0 = stUse.S, fh = env.here(), m = 4;
+              if (S0.y > fh.y + 8 && S0.x > b.x0 + m && S0.x < b.x1 - m && S0.z > b.z0 + m && S0.z < b.z1 - m) {
+                  const c = [{ x: b.x0 - 2, z: S0.z, d: S0.x - b.x0 }, { x: b.x1 + 2, z: S0.z, d: b.x1 - S0.x }, { x: S0.x, z: b.z0 - 2, d: S0.z - b.z0 }, { x: S0.x, z: b.z1 + 2, d: b.z1 - S0.z }].sort((a, q) => a.d - q.d)[0];
+                  const t1 = await env.travel({ x: c.x, y: S0.y, z: c.z }, { near: 1, nearY: 1, maxSegments: 24, stuckAfter: 3, footNodes: 3000, maxNodes: 60000, why: 'up outside the structure' });
+                  if (TRACE) console.log(`[build] ${me} exterior leg to ${c.x},${S0.y},${c.z} for station ${S0.x},${S0.y},${S0.z}: ${t1.ok ? 'ok' : t1.reason}`);
+              } }
             let t = await env.travel({ x: stUse.S.x, y: stUse.S.y, z: stUse.S.z }, { near: 0, nearY: 0, maxSegments: 16, stuckAfter: 3, footNodes: 3000, maxNodes: 60000, why: `build station (${stUse.kind})` });
             // The way to a station high in the structure runs through the structure itself (live 2026-11-21: six builders pillared up under the first floor's plate again and again, "3 segments
             // without getting closer", 60 s each): the second time a walk to the same station fails, NAV may dig through the structure; the units that own the dug cells place them again.
