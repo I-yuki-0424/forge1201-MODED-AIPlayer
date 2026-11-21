@@ -173,6 +173,16 @@ class BuildJob {
         return true;
     }
 
+    /** Is the cell of task tk already what the task would make it? */
+    _already(tk, bot) {
+        const h = seen(bot, tk);
+        if (!h) return false;
+        if (tk.kind === 'clear' || tk.kind === 'untemp') return S.AIR.has(h.name);
+        if (tk.kind === 'seal' || tk.kind === 'fill') return h.name !== 'water' && h.name !== 'lava' && h.props.waterlogged !== 'true' && !/^(seagrass|tall_seagrass|kelp|kelp_plant|bubble_column)$/.test(h.name);
+        if (tk.kind === 'place' && tk.i >= 0) { const w = this.t.wantOf(tk); return S.matches(w, h); }
+        return false;
+    }
+
     /** No clearing, filling or sealing left in the cell, its neighbours and the three layers above them (then it can be built while the rest is still cleared). */
     _clearAround(tk) {
         for (let dy = -1; dy <= 3; dy++) for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
@@ -230,7 +240,13 @@ class BuildJob {
         for (const { k } of keys) {
             const [, by] = k.split(',').map(Number);
             if (by * G > hi || by * G + G - 1 < lo) continue;
-            for (const tk of this.buckets.get(k)) { scanned++; if (this.tasks.has(tk.k) && !this.claims.has(tk.k) && this.ready(tk, bot, now)) ready.push(tk); }
+            for (const tk of this.buckets.get(k)) {
+                scanned++;
+                if (!this.tasks.has(tk.k) || this.claims.has(tk.k)) continue;
+                // already as it should be (dug on someone's way, leaves that decayed, a block another bot put there): done, not offered (a clear task on air found no stance and was parked, live 2026-11-22)
+                if (this._already(tk, bot)) { this.tasks.delete(tk.k); this._lowered(tk); continue; }
+                if (this.ready(tk, bot, now)) ready.push(tk);
+            }
             if (ready.length >= 300 || scanned >= 6000) break;
         }
         if (!ready.length) {
