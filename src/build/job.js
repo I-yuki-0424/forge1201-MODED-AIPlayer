@@ -257,9 +257,12 @@ class BuildJob {
             const cands = [];
             for (const f of stationsAround(seed, this.o.reach, down)) {
                 if (cands.length >= 40) break;
-                if (blocked(f.x, f.y, f.z) || blocked(f.x, f.y + 1, f.z) || !view.fits(f.x, f.y, f.z) || bodyCovers(f, seed)) continue;
+                if (blocked(f.x, f.y, f.z) || blocked(f.x, f.y + 1, f.z) || bodyCovers(f, seed)) continue;
+                // clearing: a stance may be inside rock that is to be cleared anyway (a box sunk in rock has no open cell near its top layer); the walk digs its way in
+                const dug = !view.fits(f.x, f.y, f.z);
+                if (dug && !(down && [f.y, f.y + 1].every((y) => view.free(f.x, y, f.z) || (this.tasks.get(key(f.x, y, f.z)) || {}).kind === 'clear'))) continue;
                 const wet = view.kind(f.x, f.y, f.z) === 'water';
-                const standing = wet || view.stands(f.x, f.y - 1, f.z);
+                const standing = wet || dug || view.stands(f.x, f.y - 1, f.z);
                 let h = 0;
                 if (!standing) {
                     h = 1; while (h <= 13 && view.free(f.x, f.y - 1 - h, f.z) && !view.stands(f.x, f.y - 1 - h, f.z)) h++;
@@ -273,11 +276,11 @@ class BuildJob {
                 const eye = eyeOf({ x: f.x + 0.5, y: f.y, z: f.z + 0.5 });
                 if (boxDist(eye, seed) > this.o.reach) continue;
                 const reach = near(eye).filter((tk) => !bodyCovers(f, tk));
-                cands.push({ f, standing, reach, score: reach.length - Math.hypot(f.x - me.x, f.y - me.y, f.z - me.z) * 0.08 - (standing ? 0 : 10 + 3 * h) });
+                cands.push({ f, standing, dug, reach, score: reach.length - Math.hypot(f.x - me.x, f.y - me.y, f.z - me.z) * 0.08 - (standing ? 0 : 10 + 3 * h) - (dug ? 4 : 0) });
             }
             cands.sort((a, b) => b.score - a.score);
             for (const c of cands.slice(0, 5)) {
-                const world = this._world(bot, c.standing ? null : c.f);
+                const world = this._world(bot, c.standing ? null : c.f, c.dug ? c.f : null);
                 const way = this._way(world, seed, c.f);
                 if (!way) continue;
                 const batch = [{ ...seed, way }];
@@ -317,8 +320,9 @@ class BuildJob {
     }
 
     /** The world for click search: the bot's view, plus a pillar's top block under a stance that stands on nothing yet. */
-    _world(bot, pillarAt) {
+    _world(bot, pillarAt, bodyAt = null) {
         const over = new Map();
+        if (bodyAt) { over.set(`${bodyAt.x},${bodyAt.y},${bodyAt.z}`, P.AIR); over.set(`${bodyAt.x},${bodyAt.y + 1},${bodyAt.z}`, P.AIR); }
         if (pillarAt) over.set(`${pillarAt.x},${pillarAt.y - 1},${pillarAt.z}`, { name: this.tempItem || 'dirt', props: {}, shapes: [[0, 0, 0, 1, 1, 1]] });
         return P.botWorld(bot, over);
     }

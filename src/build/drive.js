@@ -25,7 +25,8 @@ function rules(job, bot) {
             for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) if (FLUID(seen(bot, { x: x + dx, y: y + dy, z: z + dz }))) return false;
             return true;
         },
-        temp: () => (job.tempItem && bot.inventory.items().some((i) => i.name === job.tempItem) ? job.tempItem : null),
+        // the temporary block: the supply's, or rubble the bot dug up (dirt, cobblestone, netherrack: what a player builds scaffolds with)
+        temp: () => { const inv = bot.inventory.items(); if (job.tempItem && inv.some((i) => i.name === job.tempItem)) return job.tempItem; const r = SUP.TEMPS.find((t) => !job.t.items.has(t) && inv.some((i) => i.name === t)); return r || null; },
         onTemp: (c) => { if (!job.t.inside(c.x, c.y, c.z)) job.temps.add(key(c.x, c.y, c.z)); },
     };
 }
@@ -68,7 +69,7 @@ async function work(job, name, bot, mv, cl, cancel) {
         if (!h || !way) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
         { const me = feet(bot); if ((tk.kind === 'clear' || tk.kind === 'untemp') && tk.x === me.x && tk.z === me.z && tk.y === me.y - 1) { results.push({ tk, ok: false, why: 'skipped' }); continue; } }
         if (tk.kind === 'clear' || tk.kind === 'untemp') { if (S.AIR.has(h.name)) { results.push({ tk, ok: true }); continue; } await mv.dig(tk); done.push(tk); continue; }
-        if (tk.kind === 'seal' || tk.kind === 'fill') { if (!(await mv.hold(job.tempItem))) { results.push({ tk, ok: false, why: 'skipped' }); continue; } await click(mv, way); done.push(tk); continue; }
+        if (tk.kind === 'seal' || tk.kind === 'fill') { if (!(await mv.hold(mv.rules.temp() || job.tempItem))) { results.push({ tk, ok: false, why: 'skipped' }); continue; } await click(mv, way); done.push(tk); continue; }
         if (tk.kind === 'fix') { await mv.holdNothing(); await mv.click([tk.x, tk.y, tk.z], way.click.face, way.click.hit); for (let k = 1; k < tk.clicks; k++) await mv.click([tk.x, tk.y, tk.z], way.click.face, way.click.hit); done.push(tk); continue; }
         if (tk.kind === 'ignite') { if (!(await mv.hold('flint_and_steel'))) { results.push({ tk, ok: false, why: 'skipped' }); continue; } await mv.click([way.light.x, way.light.y, way.light.z], 'up', way.click.hit); await sleep(300); done.push(tk); continue; }
         if (tk.kind === 'pour') { const ok = await pour(job, bot, mv, tk); results.push(ok ? holds(job, bot, tk) : { ok: false, why: 'no ray into the cell' }); continue; }
@@ -124,7 +125,9 @@ async function escape(job, name, bot, mv, cancel) {
 function needsFor(job, bot, need) {
     const have = SUP.carried(bot), out = {};
     for (const [it, n] of Object.entries(need)) { const want = Math.min(n, 64 * 6) - (have[it] || 0); if (want > 0) out[it] = want; }
-    if (job.tempItem && (have[job.tempItem] || 0) < 96) out[job.tempItem] = 192 - (have[job.tempItem] || 0);
+    const temps = SUP.TEMPS.filter((t) => !job.t.items.has(t)).reduce((a, t) => a + (have[t] || 0), 0);
+    if (job.tempItem && temps < 64) out[job.tempItem] = 192 - temps;
+    for (const k of Object.keys(out)) if ((job.outOf && job.outOf.get(k) || 0) > Date.now()) delete out[k];          // the chest ran out of it a while ago: not fetched again yet
     for (const tool of ['pickaxe', 'shovel', 'axe']) if (!bot.inventory.items().some((i) => i.name.endsWith('_' + tool) && !worn(bot, i))) { const best = job.supply && Object.keys(job.supply.totals).find((k) => k.endsWith('_' + tool)); if (best) out[best] = 1; }
     return out;
 }
@@ -148,6 +151,7 @@ async function supplyTrip(job, name, bot, mv, need, cancel) {
         const res = await SUP.fetch(bot, site, needsFor(job, bot, need), mv, spot, { log: job.log });
         job.stats.trips++;
         job.log(`${name}: supply trip: got ${JSON.stringify(res.got).slice(0, 200)}${Object.keys(res.short).length ? `; short ${JSON.stringify(res.short).slice(0, 200)}` : ''}`);
+        for (const k of Object.keys(res.short)) (job.outOf = job.outOf || new Map()).set(k, Date.now() + 600000);          // the chest has none left: not asked again for ten minutes
         return Object.keys(res.got).length > 0;
     } catch (e) { job.log(`${name}: supply trip failed: ${e.message}`); return false; }
     finally { job.chestBusy = null; }
@@ -204,7 +208,7 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
                 await job.supplyReading; await sleep(200); continue;
             }
             if (job.exhausted()) { await job.resurvey(bot, `${name}: stage ${job.stage} done`); continue; }
-            await SUP.dropRubble(bot, (n) => job.available.has(n) || n === job.tempItem);
+            await SUP.dropRubble(bot, (n) => job.available.has(n) || n === job.tempItem || (SUP.TEMPS.includes(n) && SUP.carried(bot)[n] <= 192));
             // tools and temporary blocks before the work needs them
             const base = needsFor(job, bot, {});
             if (Object.keys(base).length && job.stage !== 'settle' && !(job.lastTrip && Date.now() - job.lastTrip.get(name) < 60000)) { (job.lastTrip = job.lastTrip || new Map()).set(name, Date.now()); await supplyTrip(job, name, bot, mv, {}, cancel); continue; }
