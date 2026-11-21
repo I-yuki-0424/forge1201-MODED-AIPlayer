@@ -143,10 +143,12 @@ class JobsPart {
         need(p, `no placement ${String(spec.placement).slice(0, 40)} in the list`, 404);
         let file; try { file = await c.fetch(p.id); } catch (e) { throw new Problem(`the download failed: ${e.message}`); }
         let placed; try { placed = require('../jobs/litematic').place(require('../jobs/litematic').parse(file), p, { keepAir: false }); } catch (e) { throw new Problem(`not a usable litematic: ${e.message}`); }
-        const o = spec.origin, origin = o ? { x: int(o.x, 'origin.x'), y: int(o.y, 'origin.y'), z: int(o.z, 'origin.z') } : placed.origin;
-        const D = this._dimSpec({ dim: String(p.dimension || 'minecraft:overworld').replace(/^minecraft:/, '').replace('the_', '') });
+        const dim = String(p.dimension || 'minecraft:overworld').replace(/^minecraft:/, '').replace('the_', '');
         const name = String(spec.name || p.name || p.fileName).replace(/[^\w .-]/g, '').slice(0, 40) || 'litematic';
-        return this._buildFrom(placed.bp, origin, { ...spec, name, tile: spec.tile || 64 }, null, { dim: D.dim, syncmatica: { id: p.id, hash: p.hash, ignoredSubRegions: placed.ignored } });
+        // the new builder (src/build/, TASK-20261121-073): the file and the placement as Syncmatica shares them; an `origin` moves the placement so that the box's corner is there
+        let pos = { ...p.pos };
+        if (spec.origin) { const o = spec.origin, at = { x: int(o.x, 'origin.x'), y: int(o.y, 'origin.y'), z: int(o.z, 'origin.z') }; pos = { x: pos.x + at.x - placed.origin.x, y: pos.y + at.y - placed.origin.y, z: pos.z + at.z - placed.origin.z }; }
+        return this.createConstruct({ ...spec, file, name, dim, placement: { pos, rotation: p.rotation, mirror: p.mirror }, syncmatica: { id: p.id, hash: p.hash, ignoredSubRegions: placed.ignored } });
     }
 
     /** Build job. spec: { name?, structure, origin: {x,y,z}, ops?: [...], bots?, start?, force? } */
@@ -219,6 +221,7 @@ class JobsPart {
     }
 
     async _rebuild(j) {
+        if (j.kind === 'construct') { const job = this._rebuildConstruct(j); job.created = j.created; return job; }
         const base = { id: j.id, kind: j.kind, name: j.name, spec: j.spec, created: j.created };
         let impl;
         if (j.kind === 'pit') impl = pit.createPitJob(normalizeBox(j.spec.box, j.spec.dim || 'overworld', j.spec.limits || null), PIT_LEDGER, { lanes: j.spec.lanes || 0, method: j.spec.method || 'rows', road: j.spec.road === undefined ? true : !!j.spec.road });
@@ -295,7 +298,7 @@ class JobsPart {
         need(!ACTIVE.has(job.state) || job.state === 'ready', `job is ${job.state}: cancel it first`, 409);
         this._release(job);
         this.jobs.delete(id);
-        if (job.kind === 'build') fs.rmSync(path.join(this.o.dataDir, 'jobs', path.basename(job.spec.file)), { force: true });
+        if (job.kind === 'build' || job.kind === 'construct') fs.rmSync(path.join(this.o.dataDir, 'jobs', path.basename(job.spec.file)), { force: true });
         this._dirty();
     }
 

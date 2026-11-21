@@ -59,7 +59,11 @@ function matches(want, have) {
     }
     if (wn !== hn) return false;
     const wp = decidedProps(wn, want.props), hp = props(have.props);
-    for (const [k, v] of Object.entries(wp)) if (hp[k] !== undefined && hp[k] !== v) return false;
+    for (const [k, v] of Object.entries(wp)) {
+        if (hp[k] === undefined || hp[k] === v) continue;
+        if (k === 'type' && /chest$/.test(wn) && v === 'right' && hp[k] === 'single') continue;         // the first half of a double chest stands alone until its partner joins it (the partner's own cell is checked)
+        return false;
+    }
     return true;
 }
 

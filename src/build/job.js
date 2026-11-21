@@ -16,6 +16,8 @@ const REACH = 4.8;                 // eye to the cell's box (the server allows <
 const WINDOW = 3;                  // layers above the lowest open one that may be placed at the same time
 const MAX_FAILS = 8;               // tries of one cell before it is parked (reported, not tried again until the next round)
 const BATCH = 96;                  // tasks per claim
+const ROUNDS = 3;                  // extra rounds for parked cells before the build ends with them reported
+const STALL_MS = 40000;            // nothing ready for anybody this long while work is left: the ordering rules are relaxed (a dependency that cannot be met)
 const STAGE_OF = { seal: 'prepare', fill: 'prepare', clear: 'prepare', place: 'place', fix: 'place', pour: 'late', ignite: 'late' };
 const ORDER = ['prepare', 'place', 'late'];
 const key = (x, y, z) => `${x},${y},${z}`;
@@ -65,6 +67,7 @@ class BuildJob {
             }
             this.tasks = tasks;
             this.claims.clear();
+            this.relaxed = false; this.stallSince = 0;
             const by = {}; for (const tk of tasks.values()) by[tk.kind] = (by[tk.kind] || 0) + 1;
             let stage = 'settle';
             for (const st of ORDER) if ([...tasks.values()].some((tk) => STAGE_OF[tk.kind] === st)) { stage = st; break; }
@@ -85,6 +88,14 @@ class BuildJob {
     _itemOk(tk) { if (tk.kind === 'clear' || tk.kind === 'fix') return true; const it = this._itemOf(tk); return !it || this.available.has(it); }
 
     _finish(sv) {
+        // parked cells get more rounds (a neighbour that was missing may stand now, a mob may have moved): every cell is tried again, up to ROUNDS times
+        if (this.parked.size && this.rounds < ROUNDS) {
+            this.rounds++;
+            this.log(`round ${this.rounds + 1}: ${this.parked.size} parked cells are tried again`);
+            this.parked.clear(); this.fails.clear(); this.cool.clear();
+            this.stage = 'survey';
+            return;
+        }
         this.done = true;
         const parked = [...this.parked.entries()].map(([k, why]) => ({ k, why }));
         this.result = { ok: parked.length === 0, right: sv.right, dynamic: sv.dynamic, parked, minutes: Math.round((Date.now() - this.started) / 6000) / 10, stats: { ...this.stats } };
@@ -104,6 +115,7 @@ class BuildJob {
     ready(tk, bot, now, pending = null) {
         if (this.parked.has(tk.k) || (this.cool.get(tk.k) || 0) > now) return false;
         if (STAGE_OF[tk.kind] !== this.stage) return false;
+        if (this.relaxed) return true;
         if (tk.kind === 'clear') {
             // top-down: not under a cell that still has to be cleared; never next to a fluid (it would run in)
             if (this.tasks.has(key(tk.x, tk.y + 1, tk.z)) && this.tasks.get(key(tk.x, tk.y + 1, tk.z)).kind === 'clear') return false;
@@ -151,7 +163,15 @@ class BuildJob {
         const me = fly.feet(bot), others = [...this.bots.entries()].filter(([n, b]) => n !== name && b.station).map(([, b]) => b.station[0]);
         const ready = [];
         for (const tk of this.tasks.values()) if (!this.claims.has(tk.k) && this.ready(tk, bot, now)) ready.push(tk);
-        if (!ready.length) return null;
+        if (!ready.length) {
+            // a stall: work is left, nobody holds any, nothing is ready (a support that cannot stand, a fluid that keeps a cell wet): the rules give way until the next survey
+            if (!this.claims.size && this.tasks.size && !this.relaxed) {
+                if (!this.stallSince) this.stallSince = now;
+                else if (now - this.stallSince > STALL_MS) { this.relaxed = true; this.log(`stall in ${this.stage} (${this.tasks.size} tasks, none ready for ${Math.round((now - this.stallSince) / 1000)} s): order rules relaxed until the next survey`); }
+            }
+            return null;
+        }
+        this.stallSince = 0;
         const down = this.stage === 'prepare';
         const crowd = (tk) => others.reduce((s, o) => s + (Math.hypot(o.x - tk.x, o.z - tk.z, (o.y - tk.y) / 2) < 7 ? 1 : 0), 0);
         const seedScore = (tk) => (down ? -tk.y : tk.y) * 3 + Math.hypot(tk.x - me.x, tk.y - me.y, tk.z - me.z) * 0.25 + crowd(tk) * 25 + (tk.kind === 'seal' || tk.kind === 'fill' ? -1000 : 0);

@@ -41,6 +41,7 @@ class WorkersPart {
                 const to = await this._enterDim(rec, cancel, job, want);
                 if (!to.ok) { if (rec.worker && rec.worker.cancel === cancel) rec.worker = null; this.note('warn', `bot ${rec.name}: could not get into ${want} for job ${job.id} (${to.reason}${to.detail && to.detail.why ? ': ' + to.detail.why : ''})`); this._dirty(); return; }
             }
+            if (job.kind === 'construct') { this._driveConstruct(job, rec, cancel); return; }          // the new builder drives its bots itself (src/build/drive.js)
             env = this.envFactory(rec.bot, cancel, { worker: true });
             if (env) env.sites = this.sites;                                                           // the builder fetches its materials from the tagged containers in one visit (build/supply.js)
             if (env) env.jobDim = job.spec.dim ? dimensions.canon(job.spec.dim) : null;                 // the worker stops when the bot is anywhere else (env.wrongDim)

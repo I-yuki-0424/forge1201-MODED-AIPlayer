@@ -17,14 +17,14 @@ class Target {
         this.box = { x: origin.x, y: origin.y, z: origin.z, sx, sy, sz };
         this.n = sx * sy * sz;
         this.palette = [{ name: 'air', props: {} }];
-        const pk = new Map([['air', 0]]);
+        const pk = new Map([[S.str('air', {}), 0]]);
         const idOf = (st) => { const k = S.str(st.name, st.props); let i = pk.get(k); if (i === undefined) { i = this.palette.length; this.palette.push(st); pk.set(k, i); } return i; };
         this.t = new Uint16Array(this.n);                     // palette index per cell (0 = air)
         for (const b of bp.blocks) {
             const p = bp.palette[b.s];
             let te = null;
             if (b.nbt) { try { te = nbt.simplify(b.nbt); } catch (_) { te = null; } }
-            this.t[this.idx(b.x, b.y, b.z)] = idOf(S.normalise(p.name, p.props, te));
+            this.t[this.idx(origin.x + b.x, origin.y + b.y, origin.z + b.z)] = idOf(S.normalise(p.name, p.props, te));
         }
         // recipes per cell (they look at neighbours: chest partners, the cell an observer watches)
         this.recipe = new Array(this.n).fill(null);
@@ -34,11 +34,11 @@ class Target {
             const c = this.cell(i);
             const r = R.recipe(this.palette[this.t[i]], (dx, dy, dz) => this.at(c.x + dx, c.y + dy, c.z + dz));
             this.recipe[i] = r;
-            if (r && r.item) this.items.set(r.item, (this.items.get(r.item) || 0) + 1 + (r.repeat || 0) + (r.again ? 1 : 0));
         }
         this.portals = this._portals();
         for (const p of this.portals) for (const i of p.cells) this.recipe[i] = null;        // the lighting stands for every portal cell
-        if (this.portals.length) this.items.set('flint_and_steel', (this.items.get('flint_and_steel') || 0));
+        for (let i = 0; i < this.n; i++) { const r = this.recipe[i]; if (r && r.item) this.items.set(r.item, (this.items.get(r.item) || 0) + 1 + (r.repeat || 0) + (r.again ? 1 : 0)); }
+        if (this.portals.length) this.items.set('flint_and_steel', (this.items.get('flint_and_steel') || 0) + this.portals.length);
     }
 
     idx(x, y, z) { const b = this.box; return ((y - b.y) * b.sz + (z - b.z)) * b.sx + (x - b.x); }
