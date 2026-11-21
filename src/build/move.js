@@ -172,10 +172,10 @@ class Mover {
     }
 
     /** Place item `name` into cell c from where the bot stands (a face it sees; any orientation). Returns true, or a string: why not. */
-    async placeItem(name, c) {
+    async placeItem(name, c, props = {}) {
         if (!(await this.hold(name))) return `cannot hold ${name}`;
         const world = P.botWorld(this.bot), me = feet(this.bot);
-        const w = P.ways(world, c, { name, props: {} }, name, [me], { max: 1 })[0] || P.ways(world, c, { name, props: {} }, name, [me], { max: 1, sneakAlways: true })[0];
+        const w = P.ways(world, c, { name, props }, name, [me], { max: 1 })[0] || P.ways(world, c, { name, props }, name, [me], { max: 1, sneakAlways: true })[0];
         if (!w) return `no face in sight from ${me.x},${me.y},${me.z}`;
         await this.click(w.n, w.face, w.hit, { sneak: w.sneak });
         for (let i = 0; i < 10; i++) { const bb = this.bot.blockAt(new Vec3(c.x, c.y, c.z), false); if (bb && bb.name === name) return true; await sleep(50); }

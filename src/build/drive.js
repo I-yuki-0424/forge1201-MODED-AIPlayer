@@ -180,7 +180,7 @@ function boxSpot(job, bot, c) {
     out.sort((a, b) => a.d - b.d);
     // only where a face is in sight from where the bot stands (the chest itself hides some)
     const P = require('./place'), world = P.botWorld(bot), name = (bot.inventory.items().find((i) => /shulker_box$/.test(i.name)) || {}).name || 'white_shulker_box';
-    for (const { s: c2 } of out) if (P.ways(world, c2, { name, props: {} }, name, [me], { max: 1 }).length || P.ways(world, c2, { name, props: {} }, name, [me], { max: 1, sneakAlways: true }).length) return c2;
+    for (const { s: c2 } of out) if (P.ways(world, c2, { name, props: { facing: 'up' } }, name, [me], { max: 1 }).length || P.ways(world, c2, { name, props: { facing: 'up' } }, name, [me], { max: 1, sneakAlways: true }).length) return c2;
     return null;
 }
 

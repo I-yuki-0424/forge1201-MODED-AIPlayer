@@ -86,7 +86,7 @@ async function fetch(bot, site, needs, mover, spot, { log = () => {}, depot = []
         try { await shift(bot, bx.slot); } finally { bot.closeWindow(win); await sleep(250); }
         const box = boxes(bot)[0];
         if (!box || boxes(bot).length <= n0) { log(`supply: the box in slot ${bx.slot} did not come out`); continue; }
-        const at = spot(), pr = at ? await mover.placeItem(box.name, at) : 'no free cell for the depot';
+        const at = spot(), pr = at ? await mover.placeItem(box.name, at, { facing: 'up' }) : 'no free cell for the depot';          // facing up: a box opens toward its facing (one set down sideways against rock never opened, live 2026-11-22)
         if (pr !== true) { log(`supply: could not set a box down${at ? ` at ${at.x},${at.y},${at.z}` : ''}: ${pr}`); await putBack(bot, site); break; }
         depot.push(at);
         try { await takeFrom(at); } catch (e) { log(`supply: the box at ${at.x},${at.y},${at.z} did not open: ${e.message}`); }
