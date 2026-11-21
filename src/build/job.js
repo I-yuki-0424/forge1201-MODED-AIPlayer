@@ -240,6 +240,9 @@ class BuildJob {
         floors.add(key(me.x, me.y - 1, me.z));
         const doable = ready.filter((tk) => { if ((tk.kind === 'clear' || tk.kind === 'untemp') && floors.has(tk.k)) return false; const it = item(tk); return !it || tk.kind === 'clear' || tk.kind === 'fix' || tk.kind === 'untemp' || has(it) > 0; });
         if (!doable.length) {
+            // the work left is under bots' feet: the one standing on it steps off (idle bots stood on the last cells to clear for half an hour, live 2026-11-22 sI w2)
+            if (ready.some((tk) => (tk.kind === 'clear' || tk.kind === 'untemp') && tk.k === key(me.x, me.y - 1, me.z))) return { moveOff: true };
+            if (ready.every((tk) => tk.kind === 'clear' || tk.kind === 'untemp')) return null;
             const need = {}; for (const tk of ready.slice(0, 200)) { if (tk.kind === 'fix' || tk.kind === 'clear') continue; const it = item(tk); if (it) need[it] = (need[it] || 0) + 1; }
             return { need };
         }

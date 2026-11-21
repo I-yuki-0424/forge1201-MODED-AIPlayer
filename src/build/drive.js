@@ -229,10 +229,15 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
             if (Object.keys(base).length && job.stage !== 'settle' && !(job.lastTrip && Date.now() - job.lastTrip.get(name) < 60000)) { (job.lastTrip = job.lastTrip || new Map()).set(name, Date.now()); const tt = Date.now(); await supplyTrip(job, name, bot, mv, {}, cancel); job.time.trip += Date.now() - tt; continue; }
             const have = SUP.carried(bot);
             const tc = Date.now(); const cl = job.claim(bot, name, Date.now(), (it) => have[it] || 0); job.time.claim += Date.now() - tc;
+            if (cl && cl.moveOff) {
+                const f = feet(bot), floor = (x, y, z) => job.tasks.get(`${x},${y - 1},${z}`);
+                await mv.goto(f, { goal: (x, y, z) => Math.hypot(x - f.x, z - f.z) >= 2 && !(floor(x, y, z) && ['clear', 'untemp'].includes(floor(x, y, z).kind)), cancel, maxNodes: 4000 });
+                continue;
+            }
             if (cl && cl.need) {
                 // a trip that brought nothing is not repeated at once (the supply is short of it, or the chest is out of reach): a pause, other bots go meanwhile
                 const back = (job.tripBack = job.tripBack || new Map()).get(name) || 0;
-                if (Date.now() < back) { await sleep(1000); continue; }
+                if (Date.now() < back) { const ti = Date.now(); await sleep(1000); job.time.idle += Date.now() - ti; continue; }
                 const tt = Date.now(); const got = await supplyTrip(job, name, bot, mv, cl.need, cancel); job.time.trip += Date.now() - tt;
                 if (!got) job.tripBack.set(name, Date.now() + 30000);
                 continue;
