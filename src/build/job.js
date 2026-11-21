@@ -203,14 +203,14 @@ class BuildJob {
     claim(bot, name, now = Date.now()) {
         const me = fly.feet(bot), others = [...this.bots.entries()].filter(([n, b]) => n !== name && b.station).map(([, b]) => b.station[0]);
         // ready tasks, nearest buckets first, until enough are found (a full scan of 20 000 clear tasks every claim blocked the process for over a second)
-        const ready = [], G = 8;
+        const ready = [], G = 8; let scanned = 0;
         const keys = [...this.buckets.keys()].map((k) => { const [x, y, z] = k.split(',').map(Number); return { k, d: Math.hypot(x * G + G / 2 - me.x, (y * G + G / 2 - me.y) * 1.5, z * G + G / 2 - me.z) }; }).sort((a, b) => a.d - b.d);
         const lo = this.stage === 'place' ? this.frontier : -Infinity, hi = this.stage === 'place' ? this.frontier + this.o.window : Infinity;
         for (const { k } of keys) {
             const [, by] = k.split(',').map(Number);
             if (by * G > hi || by * G + G - 1 < lo) continue;
-            for (const tk of this.buckets.get(k)) if (this.tasks.has(tk.k) && !this.claims.has(tk.k) && this.ready(tk, bot, now)) ready.push(tk);
-            if (ready.length >= 400) break;
+            for (const tk of this.buckets.get(k)) { scanned++; if (this.tasks.has(tk.k) && !this.claims.has(tk.k) && this.ready(tk, bot, now)) ready.push(tk); }
+            if (ready.length >= 400 || scanned >= 6000) break;
         }
         if (!ready.length) {
             // a stall: work is left, nobody holds any, nothing is ready (a support that cannot stand, a fluid that keeps a cell wet): the rules give way until the next survey
@@ -246,7 +246,9 @@ class BuildJob {
             let best = null, tried = 0;
             for (const f of stationsAround(seed, this.o.reach, down)) {
                 if (tried >= 120) break;
-                if (!fly.fits(bot, f.x, f.y, f.z, blocked)) continue;
+                // clearing: a station may be inside what is to be cleared (a box in solid rock has no free cell within reach of its work: live 2026-11-21 rep1, the crew stood still);
+                // the flight tunnels there (drive.js) and breaks the body's two cells
+                if (!fly.fits(bot, f.x, f.y, f.z, blocked) && !(down && this._clearable(bot, f.x, f.y, f.z, blocked) && this._clearable(bot, f.x, f.y + 1, f.z, blocked))) continue;
                 tried++;
                 const eye = eyeOf({ x: f.x + 0.5, y: f.y, z: f.z + 0.5 });
                 if (boxDist(eye, seed) > this.o.reach) continue;
@@ -262,6 +264,16 @@ class BuildJob {
             return { station: best.f, tasks };
         }
         return null;
+    }
+
+    /** A cell a station may take while clearing: free, or a clear task of the box (not next to a fluid). */
+    _clearable(bot, x, y, z, blocked) {
+        if (blocked && blocked(x, y, z)) return false;
+        if (fly.free(bot, x, y, z)) return true;
+        const tk = this.tasks.get(key(x, y, z));
+        if (!tk || tk.kind !== 'clear') return false;
+        for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]]) { const h = seen(bot, { x: x + dx, y: y + dy, z: z + dz }); if (h && (h.name === 'water' || h.name === 'lava')) return false; }
+        return true;
     }
 
     /** The bot is done with its claim: what held, what did not. */
