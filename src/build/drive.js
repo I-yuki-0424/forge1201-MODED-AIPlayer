@@ -149,13 +149,19 @@ async function supplyTrip(job, name, bot, mv, need, cancel) {
 const nearContainer = (c) => (x, y, z) => Math.abs(x + 0.5 - (c.x + 0.5)) <= 2.5 && Math.abs(z + 0.5 - (c.z + 0.5)) <= 2.5 && y >= c.y - 1 && y <= c.y + 1 && !(x === c.x && z === c.z);
 /** A free cell beside the container (air, on something solid, not the bot's own cells, outside the box) for a shulker box to stand in while it is unpacked. */
 function boxSpot(job, bot, c) {
-    const v = new View(bot, { canDig: () => false }), me = feet(bot);
-    for (const [dx, dz] of [[0, -2], [0, 2], [-2, 0], [2, 0], [-1, -1], [1, 1], [-1, 1], [1, -1], [0, -3], [-3, 0], [3, 0], [0, 3]]) {
-        const s = { x: c.x + dx, y: c.y, z: c.z + dz };
-        if (job.t.inside(s.x, s.y, s.z) || (s.x === me.x && s.z === me.z && (s.y === me.y || s.y === me.y + 1))) continue;
-        if (v.free(s.x, s.y, s.z) && v.free(s.x, s.y + 1, s.z) && v.stands(s.x, s.y - 1, s.z)) return s;
+    const v = new View(bot, { canDig: () => false }), me = feet(bot), out = [];
+    for (let r = 1; r <= 3; r++) for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) for (const dy of [0, 1, -1]) {
+        if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+        const s = { x: c.x + dx, y: c.y + dy, z: c.z + dz };
+        if (job.t.inside(s.x, s.y, s.z) || (s.x === me.x && s.z === me.z)) continue;
+        if (job.sites.some((q) => Math.abs(q.x - s.x) <= 1 && q.z === s.z && q.y === s.y - 1)) continue;        // not on top of a chest (bots stand there)
+        // air for the box and over it (a box opens upward), something solid under it, within reach of the bot
+        if (!(v.free(s.x, s.y, s.z) && v.free(s.x, s.y + 1, s.z) && v.stands(s.x, s.y - 1, s.z))) continue;
+        const d = Math.hypot(s.x + 0.5 - bot.entity.position.x, s.y + 0.5 - (bot.entity.position.y + 1.62), s.z + 0.5 - bot.entity.position.z);
+        if (d <= 4) out.push({ s, d });
     }
-    return null;
+    out.sort((a, b) => a.d - b.d);
+    return out.length ? out[0].s : null;
 }
 
 /**
