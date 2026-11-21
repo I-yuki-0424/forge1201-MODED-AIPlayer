@@ -112,15 +112,15 @@ test('the click search: a face the eye sees first, the state vanilla gives, with
 });
 
 console.log('survival movement');
-test('a plan walks, steps up, drops, and pillars only with temporary blocks', () => {
+test('a plan walks, steps up, drops, and pillars only with temporary blocks', async () => {
     const w = new Map(); for (let x = -10; x <= 30; x++) for (let z = -5; z <= 5; z++) w.set(`${x},-1,${z}`, { name: 'stone' });
     for (let z = -5; z <= 5; z++) { w.set(`5,0,${z}`, { name: 'stone' }); w.set(`10,-1,${z}`, { name: 'air' }); w.set(`10,-2,${z}`, { name: 'stone' }); }
     const bot = fakeBot(w), view = new M.View(bot, { canDig: () => false });
-    const r = M.plan(view, { x: 0, y: 0, z: 0 }, (x, y, z) => x === 20 && z === 0, { x: 20, y: 0, z: 0 }, { temps: 0 });
+    const r = await M.plan(view, { x: 0, y: 0, z: 0 }, (x, y, z) => x === 20 && z === 0, { x: 20, y: 0, z: 0 }, { temps: 0 });
     assert(r, 'a plan'); const moves = r.map((q) => q.move);
     assert(moves.includes('up') && moves.includes('drop'), moves.join(' '));
-    assert(!M.plan(view, { x: 0, y: 0, z: 0 }, (x, y, z) => y >= 4, { x: 0, y: 4, z: 0 }, { temps: 0 }), 'no climbing without blocks');
-    const up = M.plan(view, { x: 0, y: 0, z: 0 }, (x, y, z) => y >= 4, { x: 0, y: 4, z: 0 }, { temps: 8 });
+    assert(!(await M.plan(view, { x: 0, y: 0, z: 0 }, (x, y, z) => y >= 4, { x: 0, y: 4, z: 0 }, { temps: 0 })), 'no climbing without blocks');
+    const up = await M.plan(view, { x: 0, y: 0, z: 0 }, (x, y, z) => y >= 4, { x: 0, y: 4, z: 0 }, { temps: 8 });
     assert(up && up.filter((q) => q.move === 'pillar').length === 4, 'four pillar steps');
 });
 

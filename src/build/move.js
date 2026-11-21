@@ -74,14 +74,16 @@ class View {
  * A plan from the bot's feet cell to a cell `goal(x, y, z)` accepts (h: a heuristic point). Returns [{ x, y, z, move, dig: [cells], place: cell | null }] (the first entry is the start) or null.
  * `temps`: how many temporary blocks the plan may use.
  */
-function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = null } = {}) {
+async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = null, budgetMs = 1500 } = {}) {
     const open = new Heap(), best = new Map();
     const hh = (x, y, z) => (Math.abs(x - h.x) + Math.abs(z - h.z)) * COST.walk * 0.9 + Math.abs(y - h.y) * COST.up * 0.7;
     open.push({ x: start.x, y: start.y, z: start.z, g: 0, f: hh(start.x, start.y, start.z), t: 0, p: null, move: 'start' });
     best.set(key(start.x, start.y, start.z), 0);
     const inBox = (x, y, z) => !box || (x >= box.x0 && x <= box.x1 && y >= box.y0 && y <= box.y1 && z >= box.z0 && z <= box.z1);
-    let n = 0;
+    let n = 0, spent = 0, slice = Date.now();
     while (open.size && n++ < maxNodes) {
+        // a long search gives the event loop back every 1500 nodes and ends after `budgetMs` of its own time (a synchronous search froze the work console for 25 s, live 2026-11-22)
+        if (n % 1500 === 0) { spent += Date.now() - slice; if (spent > budgetMs) return null; await new Promise((r) => setImmediate(r)); slice = Date.now(); }
         const c = open.pop();
         if (goal(c.x, c.y, c.z)) { const out = []; for (let q = c; q; q = q.p) out.push({ x: q.x, y: q.y, z: q.z, move: q.move, dig: q.dig || null, place: q.place || null }); return out.reverse(); }
         if ((best.get(key(c.x, c.y, c.z)) ?? Infinity) < c.g) continue;
@@ -344,7 +346,7 @@ class Mover {
             const start = feet(this.bot);
             if (g(start.x, start.y, start.z)) return { ok: true, steps };
             const view = new View(this.bot, this.rules), temps = this.rules.temp() ? this.bot.inventory.items().filter((i) => i.name === this.rules.temp()).reduce((a, i) => a + i.count, 0) : 0;
-            const route = plan(view, start, g, to, { maxNodes, temps, box });
+            const route = await plan(view, start, g, to, { maxNodes, temps, box });
             if (!route) return { ok: false, why: 'no plan', from: start, steps };
             let i = 1, broke = false;
             while (i < route.length && !cancel.cancelled) {
