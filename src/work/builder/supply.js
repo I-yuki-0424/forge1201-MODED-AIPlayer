@@ -153,7 +153,7 @@ async function unpack(env, plan, c, lack, log) {
     if (!env.exec || !env.here || !env.w || !env.run) return null;
     const t = await env.run('take_shulker', { items: lack, x: c.x, y: c.y, z: c.z });
     if (!t.ok || !t.detail || !t.detail.took) return null;
-    const J = require('../bot/janitor'), f = env.here(), spots = [J.shulkerSpot(env.w, f), ...J.freeSpots(env.w, f)].filter(Boolean).slice(0, 4);
+    const J = require('../bot/janitor'), f = env.here(), spots = [J.shulkerSpot(env.w, f), ...J.freeSpots(env.w, f, 6)].filter(Boolean).slice(0, 8);          // a crew unpacks many boxes (36 on the creative server): they stand in a field beside the chest, not in a ring of four cells
     for (const sp of spots) {
         const p = await env.exec('place', { x: sp.x, y: sp.y, z: sp.z, item: t.detail.took });
         if (!p.ok) { if (['cancelled', 'died', 'disconnected'].includes(p.reason)) return null; continue; }
