@@ -104,7 +104,7 @@ async function restock(env, plan, need, opt = {}) {
     if (!lacking().length) return { ok: true, trips: 0 };
     const sites = env.sites;
     if (!sites) return { ok: false, reason: 'missing_item', detail: { item: lacking()[0][0], why: 'this environment has no list of containers' } };
-    const log = { trips: 0, took: {} };
+    const log = { trips: 0, took: {} }, tr = (m) => { (log.tries || (log.tries = [])).length < 14 && log.tries.push(m); if (process.env.BUILD_TRACE) console.log(`[supply] ${env.bot && env.bot.username} ${m}`); };
     const tried = new Set();
     // What each chest held when somebody last took from it (shared by the crew, on the plan): the next trip goes first to the chests known to hold what is lacking, the nearest of them, then the rest.
     const mem = plan.supplyMem || (plan.supplyMem = new Map()), kOf = (c) => `${c.x},${c.y},${c.z}`;
@@ -129,20 +129,44 @@ async function restock(env, plan, need, opt = {}) {
         }
         const account = (r, at) => { if (r.ok && r.detail) for (const g of r.detail.got || []) { log.took[g.item] = (log.took[g.item] || 0) + g.moved; if (g.moved > 0) (mem.get(g.item) || mem.set(g.item, new Set()).get(g.item)).add(kOf(at)); } };
         const r = await env.run('take_many', { items, x: c.x, y: c.y, z: c.z });
-        log.trips++; account(r, c);
+        log.trips++; account(r, c); tr(`take_many ${c.shulker ? 'box' : 'chest'} ${c.x},${c.y},${c.z}: ${r.ok ? 'ok got ' + ((r.detail && r.detail.got) || []).map((g) => g.item + ' ' + g.moved).join(',') + ((r.detail && r.detail.shulkers || []).length ? ' (shulkers hold: ' + r.detail.shulkers.length + ')' : '') : r.reason + ' ' + ((r.detail && (r.detail.why || r.detail.error)) || '').toString().slice(0, 80)}`);
         // What is still lacking may lie in shulker boxes of this container: one is lifted out and set down, then taken from like a chest, and it stays as a source for the rest of the run.
         for (let k = 0; k < 8 && r.ok && r.detail && (r.detail.shulkers || []).length && lacking().length; k++) {
             const box = await unpack(env, plan, c, lacking().map(([it]) => it), log); if (!box) break;
             const rb = await env.run('take_many', { items: wishes(env.bot, need, remaining(plan, env.w), opt), x: box.x, y: box.y, z: box.z });
-            log.trips++; account(rb, box);
+            log.trips++; account(rb, box); tr(`take_many box ${box.x},${box.y},${box.z}: ${rb.ok ? 'ok got ' + ((rb.detail && rb.detail.got) || []).map((g) => g.item + ' ' + g.moved).join(',') : rb.reason + ' ' + ((rb.detail && (rb.detail.why || rb.detail.error)) || '').toString().slice(0, 80)}`);
             if (!rb.ok && ['cancelled', 'died', 'disconnected'].includes(rb.reason)) return rb;
         }
         for (const it of lack) if (known.has(kOf(c)) && !(log.took[it] > 0)) mem.get(it) && mem.get(it).delete(kOf(c));          // it was said to hold the item and did not (emptied since): forgotten
-        if (!r.ok) { log.lastTake = { reason: r.reason, why: r.detail && r.detail.why }; if (['cancelled', 'died', 'disconnected'].includes(r.reason)) return r; }
+        if (!r.ok) { log.lastTake = { reason: r.reason, why: r.detail && r.detail.why, ...(r.detail && r.detail.error ? { error: String(r.detail.error).slice(0, 600) } : {}) }; if (['cancelled', 'died', 'disconnected'].includes(r.reason)) return r; }
     }
     const l = hard();
     if (l.length) { const wanted = plan.wanted || (plan.wanted = {}); for (const [it] of l) wanted[it] = Date.now(); }          // the crew is told: whoever holds more of it than its unit needs gives it back (giveBack)
     return l.length ? { ok: false, reason: 'missing_item', detail: { item: l[0][0], short: Object.fromEntries(l.map(([it, n]) => [it, n - env.have(it)])), ...log } } : { ok: true, ...log };
+}
+
+/**
+ * Where the next shulker box goes (live 2026-11-21: boxes set down in a ring around the chest ended in a dense cluster: the middle ones could not be seen or opened, bots stood on them, and a
+ * box on top of another was refused as "would cover a container"). Two columns of cells two apart, running away from the chest, each with air above (the lid) and on every side, a plain
+ * floor, not inside the structure. One cell per box, reserved when it is handed out (`plan.boxSlots`: a slot is never given twice), the direction with the most free cells chosen once.
+ */
+function boxSpot(env, plan, c) {
+    const w = env.w, free = (x, y, z) => w.kindAt(x, y, z) === 'air' && w.kindAt(x, y + 1, z) === 'air' && w.kindAt(x, y + 2, z) === 'air';
+    const plainFloor = (x, y, z) => w.kindAt(x, y - 1, z) === 'solid' && !/(chest|barrel|shulker_box)$/.test(String(w.nameAt(x, y - 1, z) || ''));
+    const inside = (x, y, z) => !!(plan.cellSet && plan.cellSet.has(`${x},${y},${z}`));
+    const cellAt = (d, k) => {
+        const [dx, dz] = d, along = 3 + 2 * (k >> 1), lat = (k & 1) * 3;
+        const x = c.x + dx * along + (dz ? lat : 0), z = c.z + dz * along + (dx ? lat : 0);
+        for (const y of [c.y, c.y + 1, c.y - 1]) if (free(x, y, z) && plainFloor(x, y, z) && !inside(x, y, z)) return { x, y, z };
+        return null;
+    };
+    const L = plan.boxLine || (plan.boxLine = (() => {
+        let best = null;
+        for (const d of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { let n = 0; for (let k = 0; k < 12; k++) if (cellAt(d, k)) n++; if (!best || n > best.n) best = { d, n }; }
+        return { d: best.d, next: 0 };
+    })());
+    for (let guard = 0; guard < 80; guard++) { const k = L.next++, s = cellAt(L.d, k); if (s) return s; }
+    return null;
 }
 
 /**
@@ -152,10 +176,13 @@ async function restock(env, plan, need, opt = {}) {
 async function unpack(env, plan, c, lack, log) {
     if (!env.exec || !env.here || !env.w || !env.run) return null;
     const t = await env.run('take_shulker', { items: lack, x: c.x, y: c.y, z: c.z });
-    if (!t.ok || !t.detail || !t.detail.took) return null;
-    const J = require('../bot/janitor'), f = env.here(), spots = [J.shulkerSpot(env.w, f), ...J.freeSpots(env.w, f, 6)].filter(Boolean).slice(0, 8);          // a crew unpacks many boxes (36 on the creative server): they stand in a field beside the chest, not in a ring of four cells
-    for (const sp of spots) {
+    if (!t.ok || !t.detail || !t.detail.took) { if (log.tries && log.tries.length < 14) log.tries.push(`take_shulker ${lack.join(',')}: ${t.ok ? 'no box' : t.reason + ' ' + ((t.detail && (t.detail.why || t.detail.error)) || '').toString().slice(0, 80)}`); if (process.env.BUILD_TRACE) console.log(`[supply] take_shulker ${lack.join(',')}: ${t.ok ? 'no box' : t.reason}`); return null; }
+    for (let tries = 0; tries < 4; tries++) {
+        const sp = boxSpot(env, plan, c); if (!sp) break;
+        const near = await env.travel({ x: sp.x, y: sp.y, z: sp.z }, { near: 3, nearY: 3, maxSegments: 8, stuckAfter: 3, footNodes: 2000, why: 'to set a shulker box down' });
+        if (!near.ok && ['cancelled', 'died', 'disconnected'].includes(near.reason)) return null;
         const p = await env.exec('place', { x: sp.x, y: sp.y, z: sp.z, item: t.detail.took });
+        if (process.env.BUILD_TRACE) console.log(`[supply] place ${t.detail.took} at ${sp.x},${sp.y},${sp.z}: ${p.ok ? 'ok' : p.reason + ' ' + ((p.detail && p.detail.why) || '')}`);
         if (!p.ok) { if (['cancelled', 'died', 'disconnected'].includes(p.reason)) return null; continue; }
         const box = { x: sp.x, y: sp.y, z: sp.z, shulker: true }, mem = plan.supplyMem || (plan.supplyMem = new Map());
         (plan.boxes || (plan.boxes = [])).push(box);
@@ -183,4 +210,4 @@ async function giveBack(env, plan, unitNeed) {
     return d.ok && d.detail && d.detail.done ? d.detail.done.reduce((n, g) => n + g.moved, 0) : 0;
 }
 
-module.exports = { giveBack, tempWish, restock, wishes, batch, surplus, slotsOf, remaining, emptySlots, stackOf };
+module.exports = { giveBack, tempWish, unpack, boxSpot, restock, wishes, batch, surplus, slotsOf, remaining, emptySlots, stackOf };

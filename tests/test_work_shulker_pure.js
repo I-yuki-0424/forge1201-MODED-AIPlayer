@@ -15,6 +15,8 @@ assert.deepStrictEqual(moves.shulkerHolds(bot, box(0, [stack(1087, 1), stack(108
 assert.deepStrictEqual(moves.shulkerHolds(bot, { name: 'stone', components: [] }), {});
 assert.deepStrictEqual(moves.shulkerHolds(bot, { name: 'white_shulker_box' }), {}, 'no components at all');
 assert.deepStrictEqual(moves.shulkerHolds(bot, box(0, [stack(99999, 3)])), {}, 'an id the registry does not know is ignored');
+// a box with gaps between its stacks (slots 0, 1, 2, 9 ...) has empty entries in the contents list: live 2026-11-21 that was a TypeError inside take_many and no take from the owner's chest worked
+assert.deepStrictEqual(moves.shulkerHolds(bot, box(0, [stack(36, 64), undefined, null, stack(733, 64)])), { oak_planks: 64, lever: 64 }, 'empty entries are skipped');
 console.log('[OK]');
 
 console.log('--- test: the purpose `materials` exists, is a container the bots take from, and ranks before the rest ---');
@@ -27,7 +29,7 @@ console.log('--- test: restock lifts a shulker box out of the chest, sets it dow
     const plan = { units: [[{ x: 1, y: 70, z: 1, block: 'white_bed', props: {} }]], materials: { white_bed: 1 } };
     const fake = { inventory: { items: () => [], inventoryStart: 9, inventoryEnd: 45, slots: [] }, registry: bot.registry };
     const env = {
-        bot: fake, w: { nameAt: () => 'air', kindAt: (x, y, z) => (y < 0 ? 'solid' : 'air') }, here: () => ({ x: 0, y: 0, z: 0 }), pos: () => ({ x: 0, y: 0, z: 0 }), have: (it) => inv[it] || 0, cancelled: () => false,
+        bot: fake, w: { nameAt: () => 'air', kindAt: (x, y, z) => (y < 73 ? 'solid' : 'air') }, here: () => ({ x: 0, y: 0, z: 0 }), pos: () => ({ x: 0, y: 0, z: 0 }), have: (it) => inv[it] || 0, cancelled: () => false,
         sites: { sources: (from, prefer) => { calls.push(['sources', prefer]); return [chest]; } },
         travel: async () => ({ ok: true }),
         exec: async (name, a) => { calls.push([name, a.item, a.x, a.y, a.z]); return { ok: true }; },
@@ -43,15 +45,15 @@ console.log('--- test: restock lifts a shulker box out of the chest, sets it dow
     assert.strictEqual(r.ok, true, JSON.stringify(r));
     assert.strictEqual(r.unpacked, 1);
     assert.deepStrictEqual(calls.filter((c) => c[0] === 'sources')[0], ['sources', 'materials'], 'materials chests are asked for first');
-    assert.deepStrictEqual(plan.boxes, [{ x: 1, y: 0, z: 0, shulker: true }]);
-    assert.ok(calls.some((c) => c[0] === 'place' && c[1] === 'white_shulker_box' && c[2] === 1), 'the box is set down beside the bot');
+    assert.deepStrictEqual(plan.boxes, [{ x: 901, y: 73, z: 723, shulker: true }], 'the first cell of the layout: three away from the chest');
+    assert.ok(calls.some((c) => c[0] === 'place' && c[1] === 'white_shulker_box' && c[2] === 901), 'the box is set down in its reserved cell');
     const takes = calls.filter((c) => c[0] === 'take_many');
-    assert.deepStrictEqual(takes.map((c) => c[1]), [898, 1], 'first the chest, then the placed box');
+    assert.deepStrictEqual(takes.map((c) => c[1]), [898, 901], 'first the chest, then the placed box');
     // the next trip goes to the placed box first (it is known to hold the item)
     inv.white_bed = 0; calls.length = 0;
     env.run = async (name, a) => { calls.push([name, a.x]); inv.white_bed = 1; return { ok: true, detail: { got: [{ item: 'white_bed', moved: 1 }], missing: [] } }; };
     const r2 = await supply.restock(env, plan, { white_bed: 1 }, { topup: false, reserve: 3 });
-    assert.strictEqual(r2.ok, true); assert.deepStrictEqual(calls.filter((c) => c[0] === 'take_many')[0], ['take_many', 1], 'the placed box is visited first');
+    assert.strictEqual(r2.ok, true); assert.deepStrictEqual(calls.filter((c) => c[0] === 'take_many')[0], ['take_many', 901], 'the placed box is visited first');
     console.log('[OK]');
 
     console.log('--- test: no free cell: the box goes back into the chest and the trip reports what is short ---');
@@ -103,5 +105,21 @@ console.log('--- test: the stock reader walks the stacks one request at a time (
     assert.deepStrictEqual(await read.call({ rcon: async () => 'Found no elements matching Items[0]' }, 1, 2, 3), { loose: {}, boxed: {}, boxes: 0 }, 'an empty container');
     await assert.rejects(read.call({ rcon: async () => { throw new Error('rcon: connection closed'); } }, 1, 2, 3), /reading the container at 1 2 3/);
     await assert.rejects(read.call({ rcon: async () => head + '{Slot: 0b, id: "minecraft:stone", count: 3' }, 1, 2, 3), /stack 0/);
+    console.log('[OK]');
+})().catch((e) => { console.error(e); process.exit(1); });
+
+console.log('--- test: shulker boxes get distinct cells, spaced apart, never on top of a container or inside the structure ---');
+(async () => {
+    const calls = [], chest = { x: 10, y: 5, z: 10 }, placed = new Set();
+    const w = { nameAt: (x, y, z) => (placed.has(`${x},${y},${z}`) ? 'white_shulker_box' : y === 4 ? 'stone' : 'air'), kindAt: (x, y, z) => (placed.has(`${x},${y},${z}`) ? 'solid' : y <= 4 ? 'solid' : 'air') };
+    const plan = { units: [[{ x: 1, y: 70, z: 1, block: 'white_bed', props: {} }]], materials: { white_bed: 1 }, cellSet: new Set(['13,5,10']) };
+    const env = { bot: { inventory: { items: () => [], inventoryStart: 9, inventoryEnd: 45, slots: [] }, registry: bot.registry }, w, here: () => chest, pos: () => chest, have: () => 0, cancelled: () => false,
+        travel: async () => ({ ok: true }), exec: async (n, a) => { calls.push([a.x, a.y, a.z]); placed.add(`${a.x},${a.y},${a.z}`); return { ok: true }; },
+        run: async (n) => (n === 'take_shulker' ? { ok: true, detail: { took: 'white_shulker_box', has: { white_bed: 27 } } } : { ok: true, detail: {} }) };
+    const out = []; for (let i = 0; i < 6; i++) out.push(await supply.unpack(env, plan, chest, ['white_bed'], {}));
+    const keys = out.map((b) => b && `${b.x},${b.y},${b.z}`);
+    assert.ok(keys.every(Boolean) && new Set(keys).size === 6, `six distinct cells: ${keys}`);
+    assert.ok(!keys.includes('13,5,10'), 'a cell of the structure is never used');
+    for (const a of out) for (const b of out) if (a !== b) assert.ok(Math.abs(a.x - b.x) + Math.abs(a.z - b.z) >= 2, 'no two boxes touch');
     console.log('[OK]');
 })().catch((e) => { console.error(e); process.exit(1); });

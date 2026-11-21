@@ -146,7 +146,7 @@ async function trial(k, S0, svc, seed, rep) {
     const rare = [], bulk = []; for (const [, list] of byItem) (list.length <= 6 ? rare : bulk).push(...list);
     const nCh = Math.ceil(stacks.length / 27) + 1, chests0 = Array.from({ length: nCh }, () => []);
     { let ci = 0; for (const st of rare) { while (chests0[ci].length >= 27) ci++; chests0[ci].push(st); } let cj = 0; for (const st of bulk) { let n = 0; while (chests0[cj % nCh].length >= 27 && n++ < nCh) cj++; chests0[cj % nCh].push(st); cj++; } }
-    const chests = chests0.filter((c) => c.length);
+    const chests = process.env.CHEST_JSON ? [] : chests0.filter((c) => c.length);          // CHEST_JSON: the supply is ONE double chest copied from a real one (below), not generated chests
     const sup = chests.map((_, i) => ({ x: M.x - 3, y: M.y, z: M.z + 3 * i }));
     for (let i = 0; i < chests.length; i++) {
         await S.must(`setblock ${sup[i].x} ${sup[i].y} ${sup[i].z} minecraft:chest[facing=east] replace`);
@@ -163,10 +163,26 @@ async function trial(k, S0, svc, seed, rep) {
         const items = chests[i].map((s, j) => `{Slot:${j}b,id:"minecraft:${s.it}",count:${s.n}}`).join(',');
         await S.must(`data merge block ${sup[i].x} ${sup[i].y} ${sup[i].z} {Items:[${items}]}`);
     }
+    // CHEST_JSON=/out/realchest.json (owner 2026-11-21, creative server): a double chest facing south with its shulker boxes (a copy of the owner's), tagged `anyitem` (purpose tools, label all) like theirs
+    if (process.env.CHEST_JSON) {
+        const J = JSON.parse(fs.readFileSync(process.env.CHEST_JSON, 'utf8')), A = { x: M.x - 3, y: M.y, z: M.z }, B = { x: M.x - 2, y: M.y, z: M.z };
+        await S.must(`setblock ${A.x} ${A.y} ${A.z} minecraft:chest[facing=south,type=right] replace`); await S.must(`setblock ${B.x} ${B.y} ${B.z} minecraft:chest[facing=south,type=left] replace`);
+        const T0 = { x: A.x, y: A.y + 1, z: A.z };
+        for (const [pos, list] of [[A, J.left], [B, J.right]]) for (const it of list) {
+            if (it.inner.length) {
+                await S.must(`setblock ${T0.x} ${T0.y} ${T0.z} minecraft:${it.id} replace`);
+                for (const [sl, id, n] of it.inner) await S.must(`item replace block ${T0.x} ${T0.y} ${T0.z} container.${sl} with minecraft:${id} ${n}`);
+                await S.must(`loot replace block ${pos.x} ${pos.y} ${pos.z} container.${it.slot % 27} mine ${T0.x} ${T0.y} ${T0.z} minecraft:iron_pickaxe`);
+                await S.must(`setblock ${T0.x} ${T0.y} ${T0.z} minecraft:air replace`);
+            } else await S.must(`item replace block ${pos.x} ${pos.y} ${pos.z} container.${it.slot % 27} with minecraft:${it.id} ${it.count}`);
+        }
+        console.log(`[place_c chest] double chest at ${A.x} ${A.y} ${A.z}: ${J.left.length + J.right.length} stacks, merged right=${/passed/i.test(strip(await S.cmd(`execute if block ${A.x} ${A.y} ${A.z} minecraft:chest[type=right]`)))}`);
+    }
     // the builders stand on the deck (it reaches 6 beyond the box; the third bot used to stand outside it and fell 136 blocks)
     // a bot that dies comes back on the deck (a bed beside the site), not at the world spawn 250 blocks away with no way up
-    for (const [i, n] of names.entries()) { const bx0 = M.x - 5.5, bz0 = M.z - 3.5 + i; await S.must(`tp ${n} ${bx0} ${M.y} ${bz0}`); await S.must(`spawnpoint ${n} ${Math.floor(bx0)} ${M.y} ${Math.floor(bz0)}`); await T.kit(S, n, { blocks: 320, block: TEMP }); }
+    for (const [i, n] of names.entries()) { const bx0 = M.x - 5.5, bz0 = M.z - 3.5 + i; await S.must(`tp ${n} ${bx0} ${M.y} ${bz0}`); await S.must(`spawnpoint ${n} ${Math.floor(bx0)} ${M.y} ${Math.floor(bz0)}`); await T.kit(S, n, { blocks: process.env.CHEST_JSON ? 0 : 320, block: TEMP }); if (process.env.GM) await S.must(`gamemode ${process.env.GM} ${n}`); }
     await sleep(4000);
+    if (process.env.CHEST_JSON) svc.addSite({ name: 'anyitem', x: M.x - 3, y: M.y, z: M.z, purpose: 'tools', label: 'all' });
     for (let i = 0; i < chests.length; i++) svc.addSite({ name: `supply${i}`, x: sup[i].x, y: sup[i].y, z: sup[i].z, purpose: process.env.SHULKER === '1' ? 'materials' : 'free' });      // after the bot sees the chunk
     console.log(`[place_c site] box minimum ${M.x} ${M.y} ${M.z}, size ${sx} x ${sy} x ${sz}; reference copy at ${ref.x} ${ref.y} ${ref.z}; supply chests at x ${M.x - 3}; /tp ${M.x + 22} ${M.y + 30} ${M.z + 22} to look down on it`);
     await T.say(S, `place_c: ${name} builds ${parsed.meta.name} (${probe.blocks.length} blocks) at ${M.x} ${M.y} ${M.z}, trial ${k + 1}/${TRIALS}`);

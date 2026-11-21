@@ -358,7 +358,7 @@ async function takeMany(ctx, { items, x, y, z }) {
         }
         // What is still missing may lie in a shulker box of this container (owner 2026-11-21: the materials of the creative server are kept in shulker boxes inside the chest): reported, so that
         // the supply (builder/supply.js unpack) can lift one out, set it down and take from it.
-        if (missing.length) shulkers = shulkersHolding(bot, win, missing.map((m) => m.item));
+        if (missing.length) { try { shulkers = shulkersHolding(bot, win, missing.map((m) => m.item)); } catch (_) { shulkers = []; } }          // never lets the shulker lookup fail a plain take
     } finally { bot.closeWindow(win); }
     return { got, missing, ...(shulkers.length ? { shulkers } : {}) };
 }
@@ -367,13 +367,13 @@ const SHULKER = /(^|_)shulker_box$/;
 /** What a shulker box STACK holds, read from its `container` component (26.1 item components): { item name: count }. Empty for anything else. */
 function shulkerHolds(bot, it) {
     const c = (it.components || []).find((k) => k && k.type === 'container'), out = {};
-    for (const s of (c && c.data && c.data.contents) || []) { const r = bot.registry.items[s.itemId]; if (r) out[r.name] = (out[r.name] || 0) + (s.itemCount || 1); }
+    for (const s of (c && c.data && c.data.contents) || []) { if (!s || typeof s !== 'object') continue; const r = bot.registry.items[s.itemId]; if (r) out[r.name] = (out[r.name] || 0) + (s.itemCount || 1); }          // a box with gaps between its stacks has empty entries (live 2026-11-21: a TypeError here failed every take of the owner's chest)
     return out;
 }
 /** The shulker boxes in the open container's slots that hold any of `want`: [{ slot, name, has: { item: n } }], the one with the most of them first. */
 function shulkersHolding(bot, win, want) {
     const out = [];
-    for (const it of win.containerItems()) { if (!SHULKER.test(it.name)) continue; const has = shulkerHolds(bot, it); if (want.some((n) => has[n])) out.push({ slot: it.slot, name: it.name, has }); }
+    for (const it of win.containerItems()) { if (!it || !SHULKER.test(it.name)) continue; const has = shulkerHolds(bot, it); if (want.some((n) => has[n])) out.push({ slot: it.slot, name: it.name, has }); }
     const score = (o) => want.reduce((n, k) => n + (o.has[k] || 0), 0);
     return out.sort((a, b) => score(b) - score(a));
 }
