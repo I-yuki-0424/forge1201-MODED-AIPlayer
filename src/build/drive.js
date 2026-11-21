@@ -256,6 +256,7 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
     const hand = new Hand(bot);
     fly.takeOff(bot);
     freeHotbar(bot, hand);
+    if (!job.bots.has(name)) job.bots.set(name, { station: null, pos: fly.feet(bot) });         // on the roster from the start (the supply read rotates over it)
     let idle = 0;
     try {
         while (!cancel.cancelled) {
@@ -263,9 +264,13 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
             if (!bot.entity || bot._client.ended) return { ended: 'disconnected' };
             if (bot.game && bot.game.gameMode !== 'creative') return { ended: 'not_creative' };
             if (job.available === null) {
+                // one bot reads; after a failed read the next one that has not tried yet does (a bot that cannot get there must not hold the crew)
+                job.supplyTried = job.supplyTried || new Set();
+                if (!job.supplyReading && job.supplyTried.has(name) && [...job.bots.keys()].some((n) => !job.supplyTried.has(n))) { await sleep(500); continue; }
                 if (!job.supplyReading) {
+                    job.supplyTried.add(name);
                     job.supplyReading = readSupply(bot, supplySites, { cancel, log: job.log, fly: flight(job, bot, hand) }).then(async (s) => {
-                        if (!s.read.length) { job.log(`supply: no container could be read (${JSON.stringify(s.failed).slice(0, 300)}); again in 10 s`); await sleep(10000); job.supplyReading = null; return; }
+                        if (!s.read.length) { job.log(`supply: ${name} could not read any container (${JSON.stringify(s.failed).slice(0, 500)}); another bot tries`); if ([...job.bots.keys()].every((n) => job.supplyTried.has(n))) { await sleep(10000); job.supplyTried.clear(); } job.supplyReading = null; return; }
                         job.supply = s; job.available = new Set(Object.keys(s.totals).filter((k) => s.totals[k] > 0));
                         job.sealItem = sealFrom(s.totals) || job.sealItem;
                         job.log(`supply read by ${name}: ${Object.keys(s.totals).length} item types (${s.boxes} shulker boxes)${s.failed.length ? `, failed: ${JSON.stringify(s.failed)}` : ''}; seal block ${job.sealItem}`);

@@ -32,7 +32,7 @@ async function readSupply(bot, sites, { cancel, log = () => {}, fly: flyOpts = {
         if (cancel && cancel.cancelled) break;
         const f = nearCell(bot, s) || { x: s.x, y: s.y + 1, z: s.z - 2 };          // none free: the flight tunnels to one
         const fr = await fly.flyTo(bot, f, { cancel, ...flyOpts });
-        if (!fr.ok) { failed.push({ at: s, why: `flight ${fr.reason}` }); continue; }
+        if (!fr.ok) { failed.push({ at: s, why: `flight ${fr.reason}${fr.why ? ': ' + fr.why : ''}` }); continue; }
         await sleep(150);
         const block = bot.blockAt(new (require('vec3').Vec3)(s.x, s.y, s.z));
         if (!block) { failed.push({ at: s, why: 'not loaded' }); continue; }

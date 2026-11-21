@@ -109,8 +109,8 @@ function land(bot) {
  */
 async function along(bot, cells, cancel = { cancelled: false }, dig = null) {
     takeOff(bot);
-    let corrected = false;
-    const onForced = () => { corrected = true; };
+    let corrected = false, want = null;
+    const onForced = () => { corrected = { to: bot.entity.position.clone(), want }; };
     bot.on('forcedMove', onForced);
     try {
         for (const c of cells) {
@@ -122,17 +122,18 @@ async function along(bot, cells, cancel = { cancelled: false }, dig = null) {
             const target = center(c);
             for (;;) {
                 if (cancel.cancelled) return { ok: false, reason: 'cancelled' };
-                if (corrected) return { ok: false, reason: 'corrected', at: bot.entity.position.clone() };
+                if (corrected) return { ok: false, reason: 'corrected', at: bot.entity.position.clone(), detail: corrected };
                 const p = bot.entity.position, d = target.minus(p), n = d.norm();
                 if (n < 1e-6) break;
                 const step = Math.min(SPEED, n);
-                bot.entity.position = p.plus(d.scaled(step / n));
+                want = p.plus(d.scaled(step / n));
+                bot.entity.position = want;
                 bot.entity.velocity.set(0, 0, 0);
                 await sleep(50);
             }
         }
         await sleep(60);
-        if (corrected) return { ok: false, reason: 'corrected', at: bot.entity.position.clone() };
+        if (corrected) return { ok: false, reason: 'corrected', at: bot.entity.position.clone(), detail: corrected };
         return { ok: true };
     } finally { bot.removeListener('forcedMove', onForced); }
 }
@@ -145,6 +146,7 @@ const feet = (bot) => { const p = bot.entity.position; return { x: Math.floor(p.
  * Returns {ok, reason, cells}.
  */
 async function flyTo(bot, to, { blocked = null, goal = null, cancel, tries = 4, maxNodes, dig = null, canDig = null } = {}) {
+    let last = null;
     for (let t = 0; t < tries; t++) {
         const a = feet(bot);
         // a body inside blocks (put there, or a block placed into it): up into a cell where it fits, else the blocks of its own cells are broken (when allowed)
@@ -160,9 +162,11 @@ async function flyTo(bot, to, { blocked = null, goal = null, cancel, tries = 4, 
         const r = await along(bot, tunnel ? route : simplify(route), cancel, tunnel ? dig : null);
         if (r.ok) return { ok: true, cells: route.length };
         if (r.reason === 'cancelled') return r;
+        last = r;
         await sleep(150);
     }
-    return { ok: false, reason: 'corrected_repeatedly' };
+    const d = last && last.detail, blk = (v) => { if (!v) return '?'; const b = bot.blockAt(v.floored ? v.floored() : v); return b ? b.name : 'unloaded'; };
+    return { ok: false, reason: 'corrected_repeatedly', why: d ? `server put the bot at ${d.to.x.toFixed(2)},${d.to.y.toFixed(2)},${d.to.z.toFixed(2)} (${blk(d.to)}), it moved to ${d.want ? `${d.want.x.toFixed(2)},${d.want.y.toFixed(2)},${d.want.z.toFixed(2)} (${blk(d.want)}, head ${blk(d.want.offset(0, 1, 0))})` : '?'}` : null };
 }
 
 module.exports = { free, fits, path, simplify, along, flyTo, feet, takeOff, land, AVOID };
