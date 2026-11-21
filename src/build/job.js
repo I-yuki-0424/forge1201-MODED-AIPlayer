@@ -268,6 +268,7 @@ class BuildJob {
             this.claims.delete(tk.k);
             if (ok) { this.tasks.delete(tk.k); this.stats[{ seal: 'sealed', fill: 'filled', clear: 'cleared', place: 'placed', fix: 'fixed', pour: 'poured', ignite: 'lit' }[tk.kind]]++; if (tk.kind === 'place' || tk.kind === 'fix') this._lowered(tk); continue; }
             if (why === 'skipped') { this.cool.set(tk.k, now + 1500); continue; }
+            if (STAGE_OF[tk.kind] === 'late') this.log(`${name}: ${tk.kind} ${tk.k} failed: ${why}`);
             const n = (this.fails.get(tk.k) || 0) + 1; this.fails.set(tk.k, n); this.stats.failed++;
             this.cool.set(tk.k, now + 2000 * Math.min(n, 5));
             if (n >= MAX_FAILS) { this.parked.set(tk.k, why || 'failed'); this.tasks.delete(tk.k); this.log(`parked ${tk.kind} ${tk.k} after ${n} tries: ${why}`); this._frontier(); }

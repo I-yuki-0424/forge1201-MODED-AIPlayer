@@ -200,7 +200,16 @@ async function late(job, name, bot, hand, cl, cancel) {
         const r = tk.i >= 0 ? job.t.recipeOf(tk) : null;
         if (tk.kind === 'pour') {
             const st = pourStation(bot, tk, job.standBlocked(name), job.o.reach);
-            if (!st) { results.push({ tk, ok: false, why: 'no ray into the cell' }); continue; }
+            if (!st) {
+                // the basin is closed all round: the block above is taken out so that a ray can reach the cell; the next survey puts it back once the fluid is in
+                const up = { x: tk.x, y: tk.y + 1, z: tk.z }, h = seen(bot, up);
+                if (h && !S.AIR.has(h.name) && job.t.inside(up.x, up.y, up.z)) {
+                    const f = { x: tk.x, y: tk.y + 3, z: tk.z };
+                    const fr = await fly.flyTo(bot, f, { cancel, ...flight(job, bot, hand, { anything: true }) }); hand.moved();
+                    if (fr.ok) { hand.dig(up); await sleep(200); job.log(`${name}: opened ${up.x},${up.y},${up.z} (${h.name}) to pour into ${tk.k}`); }
+                }
+                results.push({ tk, ok: false, why: 'no ray into the cell' }); continue;
+            }
             const fr = await fly.flyTo(bot, st.f, { cancel, ...flight(job, bot, hand) }); hand.moved();
             if (!fr.ok) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
             await sleep(80);
