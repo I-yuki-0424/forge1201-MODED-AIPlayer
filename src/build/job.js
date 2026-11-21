@@ -255,7 +255,15 @@ class BuildJob {
                 const wet = view.kind(f.x, f.y, f.z) === 'water';
                 const standing = wet || view.stands(f.x, f.y - 1, f.z);
                 let h = 0;
-                if (!standing) { h = 1; while (h <= 13 && view.free(f.x, f.y - 1 - h, f.z) && !view.stands(f.x, f.y - 1 - h, f.z)) h++; if (h > 12 || !view.stands(f.x, f.y - 1 - h, f.z)) continue; }
+                if (!standing) {
+                    h = 1; while (h <= 13 && view.free(f.x, f.y - 1 - h, f.z) && !view.stands(f.x, f.y - 1 - h, f.z)) h++;
+                    if (h > 12 || !view.stands(f.x, f.y - 1 - h, f.z)) {
+                        // nothing to pillar from (a box over a cavern, over the Nether's lava sea): a bridge of temporary blocks from ground at the same height, at most 24 cells away
+                        const br = this._bridgeFrom(view, f);
+                        if (!br) continue;
+                        h = 4 + br;
+                    }
+                }
                 const eye = eyeOf({ x: f.x + 0.5, y: f.y, z: f.z + 0.5 });
                 if (boxDist(eye, seed) > this.o.reach) continue;
                 const reach = near(eye).filter((tk) => !bodyCovers(f, tk));
@@ -286,6 +294,19 @@ class BuildJob {
             return { station: best.f, tasks };
         }
         if (now - (this.diagAt || 0) > 30000) { this.diagAt = now; this.log(`claim by ${name}: ${ready.length} ready, ${doable.length} doable with what it carries, no stance for the first ${Math.min(3, doable.length)} (${doable.slice(0, 3).map((t) => `${t.kind} ${t.k}`).join(', ')})`); }
+        return null;
+    }
+
+    /** How far (cells) a stance in the air is from ground at its own height that a bridge can start from, in a straight line over free cells; null when none within 24. */
+    _bridgeFrom(view, f) {
+        for (let k = 1; k <= 24; k++) for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            const x = f.x + dx * k, z = f.z + dz * k;
+            if (view.stands(x, f.y - 1, z) && view.fits(x, f.y, z)) {
+                let ok = true;
+                for (let j = 1; j < k && ok; j++) { const xx = f.x + dx * j, zz = f.z + dz * j; if (!view.fits(xx, f.y, zz) || view.kind(xx, f.y - 1, zz) !== 'free') ok = false; }
+                if (ok) return k;
+            }
+        }
         return null;
     }
 

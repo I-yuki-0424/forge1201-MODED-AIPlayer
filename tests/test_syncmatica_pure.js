@@ -85,19 +85,19 @@ const CONFIRM_USER = '1773796e636d61746963613a636f6e6669726d5f757365720000000184
     const svc = Object.assign(Object.create(JobsPart.prototype), { bots: new Map([['B', { bot: { syncmatica: c } }]]), _dimSpec: () => ({ dim: 'overworld' }), _buildFrom: async (bp, origin, spec, st, extra) => { got = { bp, origin, spec, extra }; return { id: 'j1' }; } });
     const list = svc.syncPlacements('B'); assert.strictEqual(list.length, 1); assert.strictEqual(list[0].owner, 'Seia_Y');
     assert.throws(() => svc.syncPlacements('nobody'), /no Syncmatica list/);
-    await svc.createBuildFromPlacement({ placement: 'p1', bots: ['B'], start: true });
+    await svc.createBuildFromPlacement({ placement: 'p1', bots: ['B'], start: true, builder: 'legacy' });
     assert.deepStrictEqual(got.origin, { x: 100 - 22, y: 70 - 1, z: 200 - 20 }, 'the box minimum is the placement origin plus the region offset');
     assert.strictEqual(got.spec.tile, 64); assert.deepStrictEqual(got.bp.size, [45, 23, 46]);
     await assert.rejects(svc.createBuildFromPlacement({ placement: 'nope' }), /no placement/);
     // the new builder (construct) for a creative crew: the file and the placement go through unchanged; its target box starts at the same corner
     let cons = null;
     svc.createConstruct = (sp) => { cons = sp; return { id: 'j2' }; };
-    await svc.createBuildFromPlacement({ placement: 'p1', bots: ['B'], start: true, builder: 'construct' });
+    await svc.createBuildFromPlacement({ placement: 'p1', bots: ['B'], start: true });
     assert.deepStrictEqual(cons.placement, { pos: { x: 100, y: 70, z: 200 }, rotation: 'NONE', mirror: 'NONE' });
     const { targetOf } = require('../src/work/service/construct');
     const tb = targetOf(cons.file, cons.placement).target.box;
     assert.deepStrictEqual({ x: tb.x, y: tb.y, z: tb.z }, { x: 100 - 22, y: 70 - 1, z: 200 - 20 });
-    svc.bots.get('B').bot.game = { gameMode: 'creative' }; assert.strictEqual(svc._builderFor({ bots: ['B'] }), 'construct');
-    svc.bots.get('B').bot.game = { gameMode: 'survival' }; assert.strictEqual(svc._builderFor({ bots: ['B'] }), 'legacy');
+    assert.strictEqual(svc._builderFor({ bots: ['B'] }), 'construct', 'the new (survival) builder by default');
+    assert.strictEqual(svc._builderFor({ builder: 'legacy' }), 'legacy');
     console.log('syncmatica service: ok');
 })().catch((e) => { console.error(e); process.exit(1); });
