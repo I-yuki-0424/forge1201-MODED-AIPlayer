@@ -83,8 +83,15 @@ async function fetch(bot, site, needs, mover, spot, { log = () => {} } = {}) {
             try { for (const it of bw.containerItems()) { if (freeSlots(bot) <= 1) break; if (want[it.name] > 0) { await shift(bot, it.slot); took(it.name, it.count); } } }
             finally { bot.closeWindow(bw); }
         } catch (e) { log(`supply: the box at ${at.x},${at.y},${at.z} did not open: ${e.message}`); }
-        // broken, it drops itself with what is left; picked up, it goes back into the chest
+        // broken, it drops itself with what is left; picked up, it goes back into the chest. The bot steps next to it first: the drop lands inside its pick-up reach (a bot two
+        // cells away lost boxes to whoever passed by, live 2026-11-21)
         const n1 = boxes(bot).length;
+        const p = bot.entity.position;
+        if (Math.hypot(at.x + 0.5 - p.x, at.z + 0.5 - p.z) > 1.3 && mover.view) {
+            const v = mover.view();
+            const adj = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => ({ x: at.x + dx, y: at.y, z: at.z + dz })).filter((c) => v.fits(c.x, c.y, c.z) && v.stands(c.x, c.y - 1, c.z)).sort((a, b) => Math.hypot(a.x + 0.5 - p.x, a.z + 0.5 - p.z) - Math.hypot(b.x + 0.5 - p.x, b.z + 0.5 - p.z))[0];
+            if (adj) await mover.goto(adj, { maxNodes: 3000 });
+        }
         await mover.dig(at);
         for (let i = 0; i < 40 && boxes(bot).length <= n1; i++) {
             if (i === 6 || i === 20) { const it = Object.values(bot.entities).filter((e) => e.name === 'item' && e.position.distanceTo(new Vec3(at.x + 0.5, at.y, at.z + 0.5)) < 3).sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))[0]; await mover.walkTo(it ? { x: Math.floor(it.position.x), y: Math.floor(it.position.y + 0.2), z: Math.floor(it.position.z) } : at, { timeout: 2000 }); }

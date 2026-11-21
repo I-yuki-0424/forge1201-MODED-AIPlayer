@@ -135,6 +135,7 @@ function feet(bot) { const p = bot.entity.position; return { x: Math.floor(p.x),
 /** The mover of one bot. */
 class Mover {
     constructor(bot, rules, { log = () => {} } = {}) { this.bot = bot; this.rules = rules; this.log = log; this.trace = []; }
+    view() { return new View(this.bot, this.rules); }
 
     /** Look along (yaw, pitch) and let the server have it (it applies a look a tick after it arrives). */
     async look(yaw, pitch) { await this.bot.look(yaw, pitch, true); await sleep(110); }

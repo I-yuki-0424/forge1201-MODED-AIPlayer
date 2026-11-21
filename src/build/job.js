@@ -227,7 +227,10 @@ class BuildJob {
         this.stallSince = 0;
         // what the bot can do with what it carries; the rest says what to fetch
         const item = (tk) => this._itemOf(tk);
-        const doable = ready.filter((tk) => { const it = item(tk); return !it || tk.kind === 'clear' || tk.kind === 'fix' || tk.kind === 'untemp' || has(it) > 0; });
+        // never the block a bot stands on (in the Nether a bot fell into the lava when another cleared its floor, live 2026-11-21)
+        const floors = new Set([...this.bots.values()].map((b) => b.pos && key(b.pos.x, b.pos.y - 1, b.pos.z)).concat([...this.bots.values()].filter((b) => b.station).map((b) => key(b.station[0].x, b.station[0].y - 1, b.station[0].z))));
+        floors.add(key(me.x, me.y - 1, me.z));
+        const doable = ready.filter((tk) => { if ((tk.kind === 'clear' || tk.kind === 'untemp') && floors.has(tk.k)) return false; const it = item(tk); return !it || tk.kind === 'clear' || tk.kind === 'fix' || tk.kind === 'untemp' || has(it) > 0; });
         if (!doable.length) {
             const need = {}; for (const tk of ready.slice(0, 200)) { if (tk.kind === 'fix' || tk.kind === 'clear') continue; const it = item(tk); if (it) need[it] = (need[it] || 0) + 1; }
             return { need };
@@ -270,6 +273,7 @@ class BuildJob {
             const tasks = best.batch.sort((a, b) => (down ? b.y - a.y : a.y - b.y) || a.x - b.x || a.z - b.z);
             for (const tk of tasks) this.claims.set(tk.k, name);
             this.bots.set(name, { station: [best.f, { x: best.f.x, y: best.f.y + 1, z: best.f.z }], pos: me });
+            for (const tk of tasks) if ((tk.kind === 'clear' || tk.kind === 'untemp') && tk.x === best.f.x && tk.z === best.f.z && tk.y === best.f.y - 1) tk.way = null;      // its own floor: not from there
             return { station: best.f, tasks };
         }
         return null;

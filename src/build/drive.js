@@ -66,6 +66,7 @@ async function work(job, name, bot, mv, cl, cancel) {
         if (here.x !== cl.station.x || here.y !== cl.station.y || here.z !== cl.station.z) way = job._way(require('./place').botWorld(bot), tk, here);
         const h = seen(bot, tk);
         if (!h || !way) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
+        { const me = feet(bot); if ((tk.kind === 'clear' || tk.kind === 'untemp') && tk.x === me.x && tk.z === me.z && tk.y === me.y - 1) { results.push({ tk, ok: false, why: 'skipped' }); continue; } }
         if (tk.kind === 'clear' || tk.kind === 'untemp') { if (S.AIR.has(h.name)) { results.push({ tk, ok: true }); continue; } await mv.dig(tk); done.push(tk); continue; }
         if (tk.kind === 'seal' || tk.kind === 'fill') { if (!(await mv.hold(job.tempItem))) { results.push({ tk, ok: false, why: 'skipped' }); continue; } await click(mv, way); done.push(tk); continue; }
         if (tk.kind === 'fix') { await mv.holdNothing(); await mv.click([tk.x, tk.y, tk.z], way.click.face, way.click.hit); for (let k = 1; k < tk.clicks; k++) await mv.click([tk.x, tk.y, tk.z], way.click.face, way.click.hit); done.push(tk); continue; }
@@ -207,7 +208,14 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
             if (Object.keys(base).length && job.stage !== 'settle' && !(job.lastTrip && Date.now() - job.lastTrip.get(name) < 60000)) { (job.lastTrip = job.lastTrip || new Map()).set(name, Date.now()); await supplyTrip(job, name, bot, mv, {}, cancel); continue; }
             const have = SUP.carried(bot);
             const cl = job.claim(bot, name, Date.now(), (it) => have[it] || 0);
-            if (cl && cl.need) { await supplyTrip(job, name, bot, mv, cl.need, cancel); continue; }
+            if (cl && cl.need) {
+                // a trip that brought nothing is not repeated at once (the supply is short of it, or the chest is out of reach): a pause, other bots go meanwhile
+                const back = (job.tripBack = job.tripBack || new Map()).get(name) || 0;
+                if (Date.now() < back) { await sleep(1000); continue; }
+                const got = await supplyTrip(job, name, bot, mv, cl.need, cancel);
+                if (!got) job.tripBack.set(name, Date.now() + 30000);
+                continue;
+            }
             if (!cl) { idle++; await sleep(job.stage === 'settle' ? 1000 : 400); continue; }
             idle = 0;
             const res = await work(job, name, bot, mv, cl, cancel);

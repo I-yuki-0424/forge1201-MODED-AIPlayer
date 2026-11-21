@@ -32,13 +32,23 @@ async function main() {
     const placed0 = lit.place(parsed, { pos: { x: 0, y: 0, z: 0 }, rotation: 'NONE', mirror: 'NONE' }, { keepAir: true });
     const [sx, sy, sz] = placed0.bp.size;
     // ---- the site: natural terrain near the spawn (Nether: near the spawn's Nether coordinates), a random direction and distance ----
-    const sp = bot0().spawnPoint || bot0().entity.position, ang = rnd() * Math.PI * 2, dist = 40 + rnd() * 60;
-    const cx = Math.floor((NETHER ? sp.x / 8 : sp.x) + Math.cos(ang) * dist), cz = Math.floor((NETHER ? sp.z / 8 : sp.z) + Math.sin(ang) * dist);
+    const sp = bot0().spawnPoint || bot0().entity.position;
     const scout = svc.bots.get(names[0]).bot;
     await S0.must(`gamemode spectator ${names[0]}`);                                                   // the site is looked at from above (setup only: no fall)
-    await srv.must(`tp ${names[0]} ${cx + 0.5} ${NETHER ? 100 : 250} ${cz + 0.5}`);
-    await sleep(NETHER ? 6000 : 9000);
     const at = (x, y, z) => { const b = scout.blockAt(new Vec3(x, y, z)); return b ? b.name : null; };
+    // a site on land (Overworld: a farm is not built in the sea; at most a tenth of the footprint's surface water), up to twelve draws
+    let cx, cz;
+    for (let draw = 0; draw < 12; draw++) {
+        const ang = rnd() * Math.PI * 2, dist = 40 + rnd() * 60 + draw * 30;
+        cx = Math.floor((NETHER ? sp.x / 8 : sp.x) + Math.cos(ang) * dist); cz = Math.floor((NETHER ? sp.z / 8 : sp.z) + Math.sin(ang) * dist);
+        await srv.must(`tp ${names[0]} ${cx + 0.5} ${NETHER ? 100 : 250} ${cz + 0.5}`);
+        await sleep(NETHER ? 6000 : 9000);
+        if (NETHER) break;
+        let wet = 0, n = 0;
+        for (let x = cx - Math.floor(sx / 2); x < cx + sx / 2; x += 4) for (let z = cz - Math.floor(sz / 2); z < cz + sz / 2; z += 4) { for (let y = 200; y > -60; y--) { const b = at(x, y, z); if (b && b !== 'air' && !/leaves|log/.test(b)) { n++; if (/water|ice|kelp|seagrass/.test(b)) wet++; break; } } }
+        console.log(`[build_t] site draw ${draw}: ${cx} ${cz}, ${wet}/${n} of the surface is water`);
+        if (n && wet / n <= 0.1) break;
+    }
     const GROUNDLESS = /^(air|cave_air|void_air|.*_leaves|.*_log|.*_wood|vine|short_grass|tall_grass|fern|large_fern|.*_flower|dandelion|poppy|snow|water|lava|bamboo|sugar_cane)$/;
     const groundY = (x, z, top) => { for (let y = top; y > (NETHER ? 32 : -60); y--) { const n = at(x, y, z); if (n && !GROUNDLESS.test(n)) return y; } return null; };
     let y0;
