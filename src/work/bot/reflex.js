@@ -178,7 +178,7 @@ function attach(bot, { world, enabled = () => true, onEvent = () => {} } = {}) {
     const inLava = () => { const f = feet(); return bot.blockAt && (bot.blockAt(bot.entity.position.floored()) || {}).name === 'lava'; };
     const tick = () => {
         if (st.active || !enabled() || !bot.entity || !bot.entity.position) return;
-        if (bot.game && bot.game.gameMode === 'creative') return;                                 // nothing hurts a creative player (and the builder flies it: src/build/fly.js)
+        if (bot.game && bot.game.gameMode === 'creative') return;                                 // nothing hurts a creative player
         if (bot.__noReflexUntil && Date.now() < bot.__noReflexUntil) return;                       // a forced fall (service/force.js): the bot is meant to drop
         const e = bot.entity;
         if (!e.isInWater) wet = 0;

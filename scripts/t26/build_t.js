@@ -1,6 +1,6 @@
 'use strict';
-// T26 test BUILD T (owner 2026-11-21, TASK-20261121-073): a creative crew builds a Litematica blueprint on NATURAL terrain of a new random world, Peaceful. The only setup: the materials
-// in shulker boxes inside a chest (a double chest) on the ground beside the site, and the bots put beside it in creative mode. The job is created and run by the work console's own service
+// T26 test BUILD T (owner 2026-11-21, TASK-20261121-073): a SURVIVAL crew (keep inventory off) builds a Litematica blueprint on NATURAL terrain of a new random world, Peaceful. The only setup:
+// the materials in shulker boxes inside a chest (double chests) on the ground beside the site: the blueprint's items by count (+5 %), temporary blocks (dirt) and tools; the bots put beside it. The job is created and run by the work console's own service
 // (createConstruct: the same code as the Litematica page). Judged by the SERVER, cell by cell (`execute if block`): the block and the properties the builder decides must be the blueprint's
 // (power, connections, lit, extended, occupied, flowing fluid levels are the world's and are reported apart); a trial passes when the job ends by itself and no cell is wrong. The untouched site
 // must fail the same judge (the negative control). (Before 2026-11-21 20:00 a reference copy made by commands was compared: its own lava ran over the sky and made thousands of false differences.)
@@ -19,14 +19,15 @@ const names = Array.from({ length: BOTS }, (_, i) => `Bd${T.WORLD}${'abcdefghijk
 const sleep = T.sleep, strip = T.strip;
 const rnd = T.rng(Number(process.env.SEED_SITE || Date.now() % 1e9));
 const dimCmd = (c) => (NETHER ? (/^execute /.test(c) ? c.replace(/^execute /, 'execute in minecraft:the_nether ') : `execute in minecraft:the_nether run ${c}`) : c);
-const STACK = (it) => (/(_bed|_bucket|flint_and_steel|shulker_box|_sword|_pickaxe)$/.test(it) ? 1 : /(_sign|snowball|egg|ender_pearl)$/.test(it) ? 16 : 64);
+const STACK = (it) => (/(_bed|_bucket|flint_and_steel|shulker_box|_sword|_pickaxe|_shovel|_axe)$/.test(it) ? 1 : /(_sign|snowball|egg|ender_pearl)$/.test(it) ? 16 : 64);
 
 async function main() {
     const rep = T.reporter(NETHER ? 'build_t_nether' : 'build_t');
     const { S: S0, svc, seed } = await T.open(names, { teleport: 'off', autoKit: false });
     const srv = { cmd: (c) => S0.cmd(dimCmd(c)), must: (c) => S0.must(dimCmd(c)) };
     const bot0 = () => svc.bots.get(names[0]).bot;
-    for (const n of names) { await S0.must(`gamemode creative ${n}`); await S0.cmd(`clear ${n}`); }
+    await S0.cmd('gamerule keep_inventory false');
+    for (const n of names) { await S0.must(`gamemode survival ${n}`); await S0.cmd(`clear ${n}`); }
     const file = fs.readFileSync(FILE), parsed = lit.parse(file);
     const placed0 = lit.place(parsed, { pos: { x: 0, y: 0, z: 0 }, rotation: 'NONE', mirror: 'NONE' }, { keepAir: true });
     const [sx, sy, sz] = placed0.bp.size;
@@ -34,6 +35,7 @@ async function main() {
     const sp = bot0().spawnPoint || bot0().entity.position, ang = rnd() * Math.PI * 2, dist = 40 + rnd() * 60;
     const cx = Math.floor((NETHER ? sp.x / 8 : sp.x) + Math.cos(ang) * dist), cz = Math.floor((NETHER ? sp.z / 8 : sp.z) + Math.sin(ang) * dist);
     const scout = svc.bots.get(names[0]).bot;
+    await S0.must(`gamemode spectator ${names[0]}`);                                                   // the site is looked at from above (setup only: no fall)
     await srv.must(`tp ${names[0]} ${cx + 0.5} ${NETHER ? 100 : 250} ${cz + 0.5}`);
     await sleep(NETHER ? 6000 : 9000);
     const at = (x, y, z) => { const b = scout.blockAt(new Vec3(x, y, z)); return b ? b.name : null; };
@@ -62,7 +64,10 @@ async function main() {
     }
     if (!C) throw new Error('no place for the chest');
     // materials: the blueprint's items plus the lighter and the buckets, in shulker boxes of 27 stacks, the boxes in a double chest (54 slots, a second double chest if needed)
-    const items = new Map(target.items); if (target.portals.length) items.set('flint_and_steel', 1);
+    const items = new Map([...target.items].map(([k, n]) => [k, Math.ceil(n * 1.05)]));
+    if (target.portals.length) items.set('flint_and_steel', Math.max(items.get('flint_and_steel') || 0, 2 + Math.ceil(target.portals.length / 20)));
+    items.set('dirt', Number(process.env.TEMPS || 64 * 24));                                                              // temporary blocks (pillars, bridges, supports, fluid fills)
+    for (const [tool, n] of [['diamond_pickaxe', BOTS * 3], ['diamond_shovel', BOTS * 2], ['diamond_axe', BOTS]]) items.set(tool, n);
     const stacks = []; for (const [it, n] of items) { const st = STACK(it); for (let r = Math.max(1, n); r > 0; r -= st) stacks.push({ it, n: Math.min(st, r) }); }
     const boxes = []; for (let i = 0; i < stacks.length; i += 27) boxes.push(stacks.slice(i, i + 27));
     const chests = []; for (let i = 0; i < Math.ceil(boxes.length / 54); i++) chests.push({ x: C.x, y: C.y, z: C.z + i * 2 });
@@ -80,8 +85,9 @@ async function main() {
         await srv.must(`setblock ${tmp.x} ${tmp.y} ${tmp.z} minecraft:air replace`);
     }
     console.log(`[build_t] chest at ${C.x} ${C.y} ${C.z}: ${boxes.length} shulker boxes, ${stacks.length} stacks, ${items.size} item types`);
-    // ---- the crew: beside the chest, creative; the materials chest tagged for the console ----
-    for (const [i, n] of names.entries()) await srv.must(`tp ${n} ${C.x + 0.3 + (i % 2) * 0.9} ${C.y + 1} ${C.z + 0.5}`);          // on top of the chest (two cells of air were checked there); players do not collide
+    // ---- the crew: beside the chest, survival; the materials chest tagged for the console ----
+    for (const [i, n] of names.entries()) await srv.must(`tp ${n} ${C.x + 0.3 + (i % 2) * 0.9} ${C.y + 1} ${C.z + 0.5}`);
+    await S0.must(`gamemode survival ${names[0]}`);          // on top of the chest (two cells of air were checked there); players do not collide
     await sleep(5000);
     for (const [i, ch] of chests.entries()) svc.addSite({ name: `mats${i}`, x: ch.x, y: ch.y, z: ch.z, purpose: 'materials', ...(NETHER ? { dim: 'nether' } : {}) });
     const control = await judge(srv, target), controlFails = control.wrong.length > 0;

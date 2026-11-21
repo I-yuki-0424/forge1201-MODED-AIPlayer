@@ -139,6 +139,26 @@ class Mover {
         return !!(b.heldItem && b.heldItem.name === item);
     }
 
+    /** An empty hand (clicks on blocks: a note block, a repeater, a gate). */
+    async holdNothing() {
+        const b = this.bot;
+        if (!b.heldItem) return true;
+        for (let i = 0; i < 9; i++) if (!b.inventory.slots[36 + i]) { b.setQuickBarSlot(i); await sleep(60); return true; }
+        try { await b.unequip('hand'); } catch (_) { /* a full pack: the click goes with the item */ }
+        return !b.heldItem;
+    }
+
+    /** Place item `name` into cell c from where the bot stands (a face it sees; any orientation). */
+    async placeItem(name, c) {
+        if (!(await this.hold(name))) return false;
+        const world = P.botWorld(this.bot), me = feet(this.bot);
+        const w = P.ways(world, c, { name, props: {} }, name, [me], { max: 1 })[0] || P.ways(world, c, { name, props: {} }, name, [me], { max: 1, sneakAlways: true })[0];
+        if (!w) return false;
+        await this.click(w.n, w.face, w.hit, { sneak: w.sneak });
+        for (let i = 0; i < 10; i++) { const bb = this.bot.blockAt(new Vec3(c.x, c.y, c.z), false); if (bb && bb.name === name) return true; await sleep(50); }
+        return false;
+    }
+
     /** Break the block at c with the best tool the bot carries (mineflayer's dig: look, swing, the survival time). */
     async dig(c) {
         const b = this.bot, block = b.blockAt(new Vec3(c.x, c.y, c.z), false);

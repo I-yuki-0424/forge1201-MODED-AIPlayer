@@ -1,329 +1,206 @@
 'use strict';
-// One bot of the crew: claim a station and its tasks, fly there, do them (grouped by the look they need: a change of look costs a tick), read every cell back, report. Also the
-// first look into the materials containers, and the late work (pouring a fluid along a ray the server traces itself, lighting portals and fires).
+// One SURVIVAL bot of the crew: fetch what it needs from the materials containers (shulker boxes unpacked by hand), claim a stance and the tasks it can do from there, walk
+// (or pillar, bridge, dig) to it, do them with a vanilla client's inputs (a dig at survival speed with the right tool, a click on a face it sees, a bucket, flint and steel),
+// read every cell back, report. Nothing is made from nothing, nothing is moved by the server.
 const { Vec3 } = require('vec3');
 const S = require('./state');
-const R = require('./rules');
-const fly = require('./fly');
-const { Hand, seen, eyeOf, boxDist, sleep } = require('./act');
-const { readSupply, sealFrom } = require('./supply');
-const { REPLACEABLE, clicksFor } = require('./survey');
+const V = require('./vanilla');
+const { Mover, View, feet } = require('./move');
+const { seen } = require('./world');
+const { clicksFor, REPLACEABLE } = require('./survey');
+const SUP = require('./supply');
 
-const PACE_MS = 30;                 // between two actions of one bot
-const READ_MS = 300;
-const POUR_REACH = 4.5;              // a bucket's ray is the server's own and ends at the block interaction range (5 in creative): a pour aimed 5.2 away hit nothing                // after a batch, before the read-back
-const NON_BLOCKING = /^(item|experience_orb|arrow|spectral_arrow|trident|snowball|egg|ender_pearl|potion|splash_potion|lingering_potion|fireball|small_fireball|dragon_fireball|wither_skull|area_effect_cloud|marker|interaction|block_display|item_display|text_display|lightning_bolt|falling_block|eye_of_ender|firework_rocket|fishing_bobber|leash_knot|painting|item_frame|glow_item_frame)$/;
-const key = (x, y, z) => `${x},${y},${z}`;
-
-/** Entities (other bots, animals) whose box overlaps cell c: a block cannot be placed there. */
-function inCell(bot, c) {
-    const out = [];
-    for (const e of Object.values(bot.entities)) {
-        if (!e || e === bot.entity || !e.position || NON_BLOCKING.test(e.name || '')) continue;
-        const w = (e.width || 0.6) / 2, h = e.height || 1.8, p = e.position;
-        if (p.x + w > c.x && p.x - w < c.x + 1 && p.z + w > c.z && p.z - w < c.z + 1 && p.y + h > c.y && p.y < c.y + 1) out.push(e);
-    }
-    const me = bot.entity.position;
-    if (me.x + 0.3 > c.x && me.x - 0.3 < c.x + 1 && me.z + 0.3 > c.z && me.z - 0.3 < c.z + 1 && me.y + 1.8 > c.y && me.y < c.y + 1) out.push(bot.entity);
-    return out;
-}
-
-/** Walk the ray from `a` to `b` cell by cell; returns the first cell holding something a bucket's ray stops at (not air, not a fluid) and the cell before it. */
-function rayHit(bot, a, b) {
-    const d = b.minus(a), len = d.norm(), dir = d.scaled(1 / len);
-    let x = Math.floor(a.x), y = Math.floor(a.y), z = Math.floor(a.z), prev = null;
-    const step = [Math.sign(dir.x), Math.sign(dir.y), Math.sign(dir.z)];
-    const tDelta = [Math.abs(1 / dir.x), Math.abs(1 / dir.y), Math.abs(1 / dir.z)];
-    const frac = (v, s) => (s > 0 ? Math.floor(v) + 1 - v : v - Math.floor(v));
-    const tMax = [step[0] ? frac(a.x, step[0]) * tDelta[0] : Infinity, step[1] ? frac(a.y, step[1]) * tDelta[1] : Infinity, step[2] ? frac(a.z, step[2]) * tDelta[2] : Infinity];
-    for (let t = 0; t <= len + 1e-6;) {
-        const h = seen(bot, { x, y, z });
-        if (h && !S.AIR.has(h.name) && h.name !== 'water' && h.name !== 'lava' && h.name !== 'bubble_column') return { cell: { x, y, z }, prev };
-        prev = { x, y, z };
-        const k = tMax[0] < tMax[1] ? (tMax[0] < tMax[2] ? 0 : 2) : (tMax[1] < tMax[2] ? 1 : 2);
-        t = tMax[k]; tMax[k] += tDelta[k];
-        if (k === 0) x += step[0]; else if (k === 1) y += step[1]; else z += step[2];
-    }
-    return null;
-}
-
-/** A pour of fluid into cell L from an eye at `eye`: aim at the face of a solid neighbour that faces L, the ray entering L first. Returns {yaw, pitch} or null. */
-function pourAim(bot, eye, L, reach) {
-    for (const v of Object.values(R.VEC)) {
-        const n = { x: L.x + v[0], y: L.y + v[1], z: L.z + v[2] }, b = bot.blockAt(new Vec3(n.x, n.y, n.z), false);
-        // only a full cube: the server's ray stops at a block's outline, and a hopper, a rail or a trapdoor leaves room around the face's centre (live 2026-11-21 rep3: pours landed nowhere)
-        if (!b || b.boundingBox !== 'block' || !Array.isArray(b.shapes) || b.shapes.length !== 1 || b.shapes[0].join(',') !== '0,0,0,1,1,1') continue;
-        // points on the face of n toward L, a hair inside n: the centre first, then nearer the edges
-        const axis = v[0] ? 0 : v[1] ? 1 : 2;
-        for (const [u, w] of [[0.5, 0.5], [0.3, 0.3], [0.7, 0.3], [0.3, 0.7], [0.7, 0.7]]) {
-            const q = [0, 0, 0]; let k = 0; for (let a = 0; a < 3; a++) q[a] = a === axis ? 0.5 - v[a] * 0.499 : (k++ === 0 ? u : w);
-            const pt = new Vec3(n.x + q[0], n.y + q[1], n.z + q[2]);
-            if (pt.distanceTo(eye) > reach) continue;
-            const hit = rayHit(bot, eye, pt);
-            if (!hit || hit.cell.x !== n.x || hit.cell.y !== n.y || hit.cell.z !== n.z || !hit.prev || hit.prev.x !== L.x || hit.prev.y !== L.y || hit.prev.z !== L.z) continue;
-            const dx = pt.x - eye.x, dy = pt.y - eye.y, dz = pt.z - eye.z;
-            return { yaw: Math.atan2(-dx, -dz), pitch: Math.atan2(dy, Math.hypot(dx, dz)) };
-        }
-    }
-    return null;
-}
-
-/** A station (feet cell) from which a pour into L works, near the bot. */
-function pourStation(bot, L, blocked, reach) {
-    for (let r = 0; r <= 4; r++) for (let dy = 4; dy >= -2; dy--) for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) {
-        if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
-        const f = { x: L.x + dx, y: L.y + dy, z: L.z + dz };
-        if (!fly.fits(bot, f.x, f.y, f.z, blocked)) continue;
-        const eye = eyeOf({ x: f.x + 0.5, y: f.y, z: f.z + 0.5 });
-        const aim = pourAim(bot, eye, L, reach);
-        if (aim) return { f, aim };
-    }
-    return null;
-}
-
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const UNBREAKABLE = /^(bedrock|barrier|end_portal_frame|end_portal|end_gateway|nether_portal|command_block|chain_command_block|repeating_command_block|structure_block|jigsaw|reinforced_deepslate|light)$/;
 const CONTAINER = /(chest|barrel|shulker_box|hopper|dropper|dispenser|furnace|smoker|crafter|_bed|lectern|brewing_stand|decorated_pot)$/;
-/**
- * How a bot may fly through terrain (a tunnel): which cells it may break on the way and how. Never a block that belongs where it stands (a built cell of the box), never a container
- * or something unbreakable, never next to a fluid (it would run into the tunnel).
- */
-function flight(job, bot, hand, { anything = false, wet = false } = {}) {
+const FLUID = (h) => h && (h.name === 'water' || h.name === 'lava' || h.props.waterlogged === 'true');
+const key = (x, y, z) => `${x},${y},${z}`;
+
+/** The mover's rules for this job: what may be broken on the way (never a built cell of the box, a container, a supply site, next to a fluid), the temporary block. */
+function rules(job, bot) {
     return {
-        dig: async (c) => { hand.dig(c); await sleep(60); },
-        canDig: (x, y, z) => {
-            const h = seen(bot, { x, y, z });
-            if (!h || S.AIR.has(h.name) || UNBREAKABLE.test(h.name) || CONTAINER.test(h.name) || h.name === 'water' || h.name === 'lava') return false;
-            if (!anything && job.t.inside(x, y, z)) { const want = job.t.at(x, y, z); if (S.matches(want, h)) return false; }
-            if (!wet) for (const v of Object.values(R.VEC)) { const n = seen(bot, { x: x + v[0], y: y + v[1], z: z + v[2] }); if (n && (n.name === 'water' || n.name === 'lava' || n.props.waterlogged === 'true')) return false; }
+        canDig: (x, y, z, b) => {
+            if (UNBREAKABLE.test(b.name) || CONTAINER.test(b.name)) return false;
+            if (job.t.inside(x, y, z)) { const want = job.t.at(x, y, z), h = seen(bot, { x, y, z }); if (h && S.matches(want, h)) return false; }
+            for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) if (FLUID(seen(bot, { x: x + dx, y: y + dy, z: z + dz }))) return false;
             return true;
         },
+        temp: () => (job.tempItem && bot.inventory.items().some((i) => i.name === job.tempItem) ? job.tempItem : null),
+        onTemp: (c) => { if (!job.t.inside(c.x, c.y, c.z)) job.temps.add(key(c.x, c.y, c.z)); },
     };
 }
 
-/** Is cell c (task tk) right now? */
+/** Is task tk's cell right now? */
 function holds(job, bot, tk) {
     const h = seen(bot, tk);
     if (!h) return { ok: false, why: 'not loaded' };
-    if (tk.kind === 'seal' || tk.kind === 'fill') return h.name !== 'water' && h.name !== 'lava' && h.props.waterlogged !== 'true' && !/^(seagrass|tall_seagrass|kelp|kelp_plant|bubble_column)$/.test(h.name) ? { ok: true } : { ok: false, why: `still ${h.name}` };
-    if (tk.kind === 'clear') return S.AIR.has(h.name) ? { ok: true } : { ok: false, why: `still ${h.name}` };
+    if (tk.kind === 'seal' || tk.kind === 'fill') return !FLUID(h) && !/^(seagrass|tall_seagrass|kelp|kelp_plant|bubble_column)$/.test(h.name) ? { ok: true } : { ok: false, why: `still ${h.name}` };
+    if (tk.kind === 'clear' || tk.kind === 'untemp') return S.AIR.has(h.name) ? { ok: true } : { ok: false, why: `still ${h.name}` };
     if (tk.kind === 'ignite' && tk.portal) { const p = seen(bot, tk.portal.at); return p && p.name === 'nether_portal' ? { ok: true } : { ok: false, why: `portal not lit (${p && p.name})` }; }
     const want = job.t.wantOf(tk);
     if (S.matches(want, h) || S.dynamicPair(want, h)) return { ok: true };
     return { ok: false, why: `got ${S.str(h.name, S.decidedProps(h.name, h.props))}` };
 }
 
-/** Do one claim. Returns the results for job.report. */
-async function work(job, name, bot, hand, cl, cancel) {
-    const results = [], done = new Set();
-    const fr = await fly.flyTo(bot, cl.station, { cancel, ...flight(job, bot, hand) });
-    hand.moved();
-    if (!fr.ok) {
+/** A click with the held item: look at the hit point (the server applies a look a tick after it arrives), then the use packet. */
+async function click(mv, way) { await mv.click(way.n || way.at, way.face, way.hit, { sneak: !!way.sneak }); }
+
+/** Do one claim from its stance. Returns results for job.report. */
+async function work(job, name, bot, mv, cl, cancel) {
+    const results = [];
+    const r = await mv.goto(cl.station, { cancel, maxNodes: 30000 });
+    if (!r.ok) {
         for (const tk of cl.tasks) results.push({ tk, ok: false, why: 'skipped' });
         const n = (job.noPath.get(name) || 0) + 1; job.noPath.set(name, n);
-        job.log(`${name}: no flight to ${cl.station.x} ${cl.station.y} ${cl.station.z} (${fr.reason}, ${n} in a row)`);
-        if (n >= 3) await escape(job, name, bot, hand, cancel);
+        job.log(`${name}: no way to ${cl.station.x} ${cl.station.y} ${cl.station.z} (${r.why}, ${n} in a row)`);
+        if (n >= 4) { job.noPath.set(name, 0); await escape(job, name, bot, mv, cancel); }
         return results;
     }
     job.noPath.set(name, 0);
-    await sleep(60);
-    const sent = new Set(), clicks = [], executed = [];
-    let actions = 0;
-    const pace = async () => { if (++actions % 2 === 0) await sleep(PACE_MS); };
-    const left = new Set(cl.tasks);
-    const now = Date.now();
-    for (let round = 0; round < 8 && left.size && !cancel.cancelled; round++) {
-        // what can go now (its dependencies stand or were just sent), grouped by aim
-        const groups = new Map();
-        for (const tk of left) {
-            if (!job.ready(tk, bot, now, sent)) continue;
-            const r = tk.kind === 'place' ? job.t.recipeOf(tk) : null;
-            const aim = r ? Hand.aimKey(r) : 'any';
-            (groups.get(aim) || groups.set(aim, []).get(aim)).push(tk);
-        }
-        if (!groups.size) break;
-        for (const [aim, list] of groups) {
-            if (cancel.cancelled) break;
-            const r0 = list[0].kind === 'place' ? job.t.recipeOf(list[0]) : null;
-            if (r0) await hand.aim(r0.look, r0.sneak);
-            else if (aim === 'any' && hand.sneaking) await hand.aim(null, false);
-            for (const tk of list) {
-                left.delete(tk);
-                const h = seen(bot, tk);
-                if (!h) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
-                if (boxDist(eyeOf(bot.entity.position), tk) > job.o.reach + 0.5) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
-                if (tk.kind === 'clear') {
-                    if (S.AIR.has(h.name)) { results.push({ tk, ok: true }); continue; }
-                    hand.dig(tk); executed.push(tk); await pace(); continue;
-                }
-                if (tk.kind === 'seal' || tk.kind === 'fill') {
-                    if (inCell(bot, tk).length) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
-                    hand.hold(job.sealItem); hand.use(tk, 1, [0.5, 0.5, 0.5]); executed.push(tk); await pace(); continue;
-                }
-                if (tk.kind === 'fix') { clicks.push({ tk, n: tk.clicks, look: tk.look }); executed.push(tk); continue; }
-                if (tk.kind === 'place') {
-                    const r = job.t.recipeOf(tk);
-                    if (!r) { results.push({ tk, ok: false, why: 'no recipe' }); continue; }
-                    if (S.matches(job.t.wantOf(tk), h)) { results.push({ tk, ok: true }); continue; }
-                    const blockers = inCell(bot, tk);
-                    if (blockers.length) { if (blockers.some((e) => e.type !== 'player')) await shoo(bot, hand, blockers); results.push({ tk, ok: false, why: 'skipped' }); continue; }
-                    if (!(S.AIR.has(h.name) || REPLACEABLE.test(h.name) || h.name === 'water' || h.name === 'lava')) { hand.dig(tk); await sleep(PACE_MS); hand.hold(r.item); }
-                    hand.place(tk, r);
-                    sent.add(tk.k); executed.push(tk); await pace();
-                    if (r.clicks) clicks.push({ tk, n: r.clicks, look: r.clickLook });
-                }
-            }
-        }
-    }
-    for (const tk of left) results.push({ tk, ok: false, why: 'skipped' });
-    // clicks after every placement of the batch (an empty hand, no sneak; a fence gate opens away from the look)
-    // how many: from what the cell holds now (power may have opened a trapdoor already, a note block may stand on its note), not from the recipe
-    if (clicks.length) {
-        await sleep(150);
-        for (const c of clicks.sort((a, b) => String(a.look && a.look.h).localeCompare(String(b.look && b.look.h)))) {
-            const h = seen(bot, c.tk), fx = h ? clicksFor(job.t.wantOf(c.tk), h) : null;
-            if (!fx) continue;
-            await hand.aim(fx.look || c.look || null, false);
-            hand.click(c.tk, fx.clicks); await pace();
-        }
-    }
-    await sleep(READ_MS);
-    for (const tk of executed) { if (done.has(tk.k)) continue; done.add(tk.k); const h = holds(job, bot, tk); results.push({ tk, ok: h.ok, why: h.why }); }
-    return results;
-}
-
-/** Animals in the way of a block: pushed away by hits (creative: a hit is a hit). */
-async function shoo(bot, hand, ents) {
-    hand.hold('diamond_sword');
-    for (const e of ents) { if (e.type === 'player') continue; try { bot.attack(e); } catch (_) { /* gone */ } await sleep(60); }
-}
-
-/** The late work of one claim: pours and lightings, one at a time, each with its own station. */
-async function late(job, name, bot, hand, cl, cancel) {
-    const results = [];
+    const here = feet(bot), at = (tk) => tk.way;
+    const done = [];
     for (const tk of cl.tasks) {
         if (cancel.cancelled) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
-        const r = tk.i >= 0 ? job.t.recipeOf(tk) : null;
-        if (tk.kind === 'pour') {
-            const st = pourStation(bot, tk, job.standBlocked(name), POUR_REACH);
-            if (!st) {
-                // the basin is closed all round: the block above is taken out so that a ray can reach the cell; the next survey puts it back once the fluid is in
-                const up = { x: tk.x, y: tk.y + 1, z: tk.z }, h = seen(bot, up);
-                if (h && !S.AIR.has(h.name) && job.t.inside(up.x, up.y, up.z)) {
-                    const f = { x: tk.x, y: tk.y + 3, z: tk.z };
-                    const fr = await fly.flyTo(bot, f, { cancel, ...flight(job, bot, hand, { anything: true }) }); hand.moved();
-                    if (fr.ok) { hand.dig(up); await sleep(200); job.log(`${name}: opened ${up.x},${up.y},${up.z} (${h.name}) to pour into ${tk.k}`); }
-                }
-                results.push({ tk, ok: false, why: 'no ray into the cell' }); continue;
-            }
-            const fr = await fly.flyTo(bot, st.f, { cancel, ...flight(job, bot, hand) }); hand.moved();
-            if (!fr.ok) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
-            await sleep(80);
-            const aim = pourAim(bot, eyeOf(bot.entity.position), tk, POUR_REACH) || st.aim;
-            hand.hold(r.item);
-            await hand.useItem(aim.yaw, aim.pitch);
-            await sleep(400);
-            const h = holds(job, bot, tk); results.push({ tk, ok: h.ok, why: h.why });
-            continue;
-        }
-        if (tk.kind === 'ignite') {
-            const at = tk.portal ? tk.portal.light : { x: tk.x, y: tk.y - 1, z: tk.z };
-            const fr = await fly.flyTo(bot, cl.station, { cancel, ...flight(job, bot, hand) }); hand.moved();
-            if (!fr.ok) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
-            await hand.aim({ h: 'north', v: 'down' }, false);
-            hand.hold('flint_and_steel');
-            hand.use(at, 1, [0.5, 0.99, 0.5]);
-            await sleep(500);
-            const h = holds(job, bot, tk); results.push({ tk, ok: h.ok, why: h.why });
+        // the stance moved (a pillar ends a cell off): the way is found again from where the bot stands
+        let way = at(tk);
+        if (here.x !== cl.station.x || here.y !== cl.station.y || here.z !== cl.station.z) way = job._way(require('./place').botWorld(bot), tk, here);
+        const h = seen(bot, tk);
+        if (!h || !way) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
+        if (tk.kind === 'clear' || tk.kind === 'untemp') { if (S.AIR.has(h.name)) { results.push({ tk, ok: true }); continue; } await mv.dig(tk); done.push(tk); continue; }
+        if (tk.kind === 'seal' || tk.kind === 'fill') { if (!(await mv.hold(job.tempItem))) { results.push({ tk, ok: false, why: 'skipped' }); continue; } await click(mv, way); done.push(tk); continue; }
+        if (tk.kind === 'fix') { await mv.holdNothing(); await mv.click([tk.x, tk.y, tk.z], way.click.face, way.click.hit); for (let k = 1; k < tk.clicks; k++) await mv.click([tk.x, tk.y, tk.z], way.click.face, way.click.hit); done.push(tk); continue; }
+        if (tk.kind === 'ignite') { if (!(await mv.hold('flint_and_steel'))) { results.push({ tk, ok: false, why: 'skipped' }); continue; } await mv.click([way.light.x, way.light.y, way.light.z], 'up', way.click.hit); await sleep(300); done.push(tk); continue; }
+        if (tk.kind === 'pour') { const ok = await pour(job, bot, mv, tk); results.push(ok ? holds(job, bot, tk) : { ok: false, why: 'no ray into the cell' }); continue; }
+        if (tk.kind === 'place') {
+            const rr = job.t.recipeOf(tk);
+            if (S.matches(job.t.wantOf(tk), h)) { results.push({ tk, ok: true }); continue; }
+            if (!(S.AIR.has(h.name) || REPLACEABLE.test(h.name) || h.name === 'water' || h.name === 'lava')) { await mv.dig(tk); }
+            if (!(await mv.hold(rr.item))) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
+            await click(mv, way);
+            // clicks after the placement (note, delay, mode, open), counted from what the cell holds now
+            await sleep(120);
+            const now = seen(bot, tk), fx = now ? clicksFor(job.t.wantOf(tk), now) : null;
+            if (fx) { const c = require('./place').clickable(require('./place').botWorld(bot), tk, feet(bot)); if (c) { await mv.holdNothing(); for (let k = 0; k < fx.clicks; k++) await mv.click([tk.x, tk.y, tk.z], c.face, c.hit); } }
+            done.push(tk);
         }
     }
+    await sleep(250);
+    for (const tk of done) { const h = holds(job, bot, tk); results.push({ tk, ok: h.ok, why: h.why }); }
     return results;
 }
 
-/** Hotbar items the bot brought (tools of a kit) go into free slots of the pack: the hand needs the hotbar. Creative slot packets, nothing is lost. */
-function freeHotbar(bot, hand) {
-    const inv = bot.inventory.slots;
-    for (let i = 0; i < 9; i++) {
-        const it = inv[36 + i]; if (!it) continue;
-        let j = 9; while (j < 36 && inv[j]) j++;
-        if (j >= 36) break;
-        bot._client.write('set_creative_slot', { slot: j, item: hand.Item.toNotch(it) });
-        bot._client.write('set_creative_slot', { slot: 36 + i, item: hand.Item.toNotch(null) });
-        inv[j] = it; inv[36 + i] = null; hand.slots[i] = null;
+/** Pour the lava (or water) bucket into cell L: aim at a full neighbour's face that the ray reaches through L (the server traces the bucket's ray itself). */
+async function pour(job, bot, mv, L) {
+    const r = job.t.recipeOf(L);
+    if (!r || !(await mv.hold(r.item))) return false;
+    const P = require('./place'), world = P.botWorld(bot), b = bot.entity.position, eye = [b.x, b.y + 1.62, b.z];
+    for (const v of Object.values(V.VEC)) {
+        const n = [L.x + v[0], L.y + v[1], L.z + v[2]], nb = world.block(...n);
+        if (!P.full(nb)) continue;
+        const hit = [n[0] + 0.5 - v[0] * 0.499, n[1] + 0.5 - v[1] * 0.499, n[2] + 0.5 - v[2] * 0.499];
+        if (Math.hypot(hit[0] - eye[0], hit[1] - eye[1], hit[2] - eye[2]) > 4.4) continue;
+        const ray = P.rayFirst(world, eye, hit);
+        if (!ray || ray.unknown || ray.cell.join() !== n.join() || !ray.prev || ray.prev.join() !== [L.x, L.y, L.z].join()) continue;
+        await mv.lookAtPoint(new Vec3(...hit));
+        bot.activateItem(); await sleep(80); bot.deactivateItem();
+        await sleep(400);
+        return true;
     }
+    return false;
+}
+
+/** A bot that cannot walk anywhere (closed in) breaks its way up and out, through whatever is in the way; the next survey puts built cells back. */
+async function escape(job, name, bot, mv, cancel) {
+    const f = feet(bot), b = job.t.box, loose = { canDig: (x, y, z, blk) => !UNBREAKABLE.test(blk.name) && !CONTAINER.test(blk.name), temp: mv.rules.temp, onTemp: mv.rules.onTemp };
+    const m2 = new Mover(bot, loose);
+    const top = Math.max(f.y + 2, b.y + b.sy + 1);
+    job.stats.escapes++;
+    const r = await m2.goto({ x: f.x, y: top, z: f.z }, { goal: (x, y, z) => y >= top || !job.t.inside(x, y - 1, z) && Math.hypot(x - f.x, z - f.z) > 3, cancel, maxNodes: 20000 });
+    job.log(`${name}: closed in at ${f.x} ${f.y} ${f.z}: ${r.ok ? 'out' : 'no way out (' + r.why + ')'}`);
+}
+
+/** The crew's items: what the box needs (counted down by what stands), the temporary block, tools. */
+function needsFor(job, bot, need) {
+    const have = SUP.carried(bot), out = {};
+    for (const [it, n] of Object.entries(need)) { const want = Math.min(n, 64 * 6) - (have[it] || 0); if (want > 0) out[it] = want; }
+    if (job.tempItem && (have[job.tempItem] || 0) < 96) out[job.tempItem] = 192 - (have[job.tempItem] || 0);
+    for (const tool of ['pickaxe', 'shovel', 'axe']) if (!bot.inventory.items().some((i) => i.name.endsWith('_' + tool) && !worn(bot, i))) { const best = job.supply && Object.keys(job.supply.totals).find((k) => k.endsWith('_' + tool)); if (best) out[best] = 1; }
+    return out;
+}
+function worn(bot, it) { const max = (bot.registry.itemsByName[it.name] || {}).maxDurability; if (!max) return false; const dmg = (it.components || []).find((c) => c && c.type === 'damage'); const d = dmg ? Number(dmg.data) : (it.durabilityUsed || 0); return max - d < 12; }
+
+/** One trip to the materials containers (one bot at a container at a time). */
+async function supplyTrip(job, name, bot, mv, need, cancel) {
+    const site = job.sites[0];
+    if (!site) return false;
+    while (job.chestBusy && job.chestBusy !== name && !cancel.cancelled) await sleep(500);
+    job.chestBusy = name;
+    try {
+        const r = await mv.goto(site, { goal: nearContainer(site), cancel, maxNodes: 40000 });
+        if (!r.ok) { job.log(`${name}: no way to the materials at ${site.x} ${site.y} ${site.z} (${r.why})`); return false; }
+        const spot = () => boxSpot(job, bot, site);
+        const res = await SUP.fetch(bot, site, needsFor(job, bot, need), mv, spot, { log: job.log });
+        job.stats.trips++;
+        job.log(`${name}: supply trip: got ${JSON.stringify(res.got).slice(0, 200)}${Object.keys(res.short).length ? `; short ${JSON.stringify(res.short).slice(0, 200)}` : ''}`);
+        return Object.keys(res.got).length > 0;
+    } catch (e) { job.log(`${name}: supply trip failed: ${e.message}`); return false; }
+    finally { job.chestBusy = null; }
+}
+const nearContainer = (c) => (x, y, z) => Math.abs(x + 0.5 - (c.x + 0.5)) <= 2.5 && Math.abs(z + 0.5 - (c.z + 0.5)) <= 2.5 && y >= c.y - 1 && y <= c.y + 1 && !(x === c.x && z === c.z);
+/** A free cell beside the container (air, on something solid, not the bot's own cells, outside the box) for a shulker box to stand in while it is unpacked. */
+function boxSpot(job, bot, c) {
+    const v = new View(bot, { canDig: () => false }), me = feet(bot);
+    for (const [dx, dz] of [[0, -2], [0, 2], [-2, 0], [2, 0], [-1, -1], [1, 1], [-1, 1], [1, -1], [0, -3], [-3, 0], [3, 0], [0, 3]]) {
+        const s = { x: c.x + dx, y: c.y, z: c.z + dz };
+        if (job.t.inside(s.x, s.y, s.z) || (s.x === me.x && s.z === me.z && (s.y === me.y || s.y === me.y + 1))) continue;
+        if (v.free(s.x, s.y, s.z) && v.free(s.x, s.y + 1, s.z) && v.stands(s.x, s.y - 1, s.z)) return s;
+    }
+    return null;
 }
 
 /**
- * The loop of one bot until the build is done, the bot is gone or `cancel`. `supplySites`: the materials containers ([{x,y,z}]).
- * Returns { ended: 'finished' | 'cancelled' | 'disconnected' | 'not_creative' }.
+ * The loop of one bot until the build is done, the bot is gone or `cancel`. Returns { ended: 'finished' | 'cancelled' | 'disconnected' | 'wrong_mode' }.
  */
 async function drive(job, name, bot, { cancel = { cancelled: false }, supplySites = [] } = {}) {
-    if (bot.game && bot.game.gameMode !== 'creative') return { ended: 'not_creative' };
-    const hand = new Hand(bot);
-    fly.takeOff(bot);
-    freeHotbar(bot, hand);
-    if (!job.bots.has(name)) job.bots.set(name, { station: null, pos: fly.feet(bot) });         // on the roster from the start (the supply read rotates over it)
+    if (bot.game && !['survival', 'creative'].includes(bot.game.gameMode)) return { ended: 'wrong_mode' };
+    job.sites = supplySites;
+    if (!job.bots.has(name)) job.bots.set(name, { station: null, pos: feet(bot) });
+    const mv = new Mover(bot, rules(job, bot), { log: job.log });
     let idle = 0;
     try {
         while (!cancel.cancelled) {
             if (job.done) return { ended: 'finished' };
             if (!bot.entity || bot._client.ended) return { ended: 'disconnected' };
-            if (bot.game && bot.game.gameMode !== 'creative') return { ended: 'not_creative' };
+            // the supply: read once by one bot (the next one tries when a read fails)
             if (job.available === null) {
-                // one bot reads; after a failed read the next one that has not tried yet does (a bot that cannot get there must not hold the crew)
                 job.supplyTried = job.supplyTried || new Set();
                 if (!job.supplyReading && job.supplyTried.has(name) && [...job.bots.keys()].some((n) => !job.supplyTried.has(n))) { await sleep(500); continue; }
                 if (!job.supplyReading) {
                     job.supplyTried.add(name);
-                    job.supplyReading = readSupply(bot, supplySites, { cancel, log: job.log, fly: flight(job, bot, hand) }).then(async (s) => {
-                        if (!s.read.length) { job.log(`supply: ${name} could not read any container (${JSON.stringify(s.failed).slice(0, 500)}); another bot tries`); if ([...job.bots.keys()].every((n) => job.supplyTried.has(n))) { await sleep(10000); job.supplyTried.clear(); } job.supplyReading = null; return; }
+                    job.supplyReading = SUP.readSupply(bot, supplySites, (s) => mv.goto(s, { goal: nearContainer(s), cancel, maxNodes: 40000 }), { log: job.log }).then((s) => {
+                        if (!s.read.length) { job.log(`supply: ${name} could not read any container (${JSON.stringify(s.failed).slice(0, 300)})`); if ([...job.bots.keys()].every((n) => job.supplyTried.has(n))) job.supplyTried.clear(); job.supplyReading = null; return; }
                         job.supply = s; job.available = new Set(Object.keys(s.totals).filter((k) => s.totals[k] > 0));
-                        job.sealItem = sealFrom(s.totals) || job.sealItem;
-                        job.log(`supply read by ${name}: ${Object.keys(s.totals).length} item types (${s.boxes} shulker boxes)${s.failed.length ? `, failed: ${JSON.stringify(s.failed)}` : ''}; seal block ${job.sealItem}`);
+                        job.tempItem = SUP.tempFrom(s.totals, new Set(job.t.items.keys()));
+                        job.log(`supply read by ${name}: ${Object.keys(s.totals).length} item types; temporary block ${job.tempItem || 'NONE (pillars and bridges impossible)'}`);
                     }, (e) => { job.log(`supply read failed: ${e.message}`); job.supplyReading = null; });
                 }
                 await job.supplyReading; await sleep(200); continue;
             }
             if (job.exhausted()) { await job.resurvey(bot, `${name}: stage ${job.stage} done`); continue; }
-            const cl = job.claim(bot, name);
-            if (!cl) {
-                idle++;
-                if (idle % 20 === 0) await stepAside(job, name, bot, hand, cancel);
-                await sleep(job.stage === 'settle' ? 1000 : 250);
-                continue;
-            }
+            await SUP.dropRubble(bot, (n) => job.available.has(n) || n === job.tempItem);
+            // tools and temporary blocks before the work needs them
+            const base = needsFor(job, bot, {});
+            if (Object.keys(base).length && job.stage !== 'settle' && !(job.lastTrip && Date.now() - job.lastTrip.get(name) < 60000)) { (job.lastTrip = job.lastTrip || new Map()).set(name, Date.now()); await supplyTrip(job, name, bot, mv, {}, cancel); continue; }
+            const have = SUP.carried(bot);
+            const cl = job.claim(bot, name, Date.now(), (it) => have[it] || 0);
+            if (cl && cl.need) { await supplyTrip(job, name, bot, mv, cl.need, cancel); continue; }
+            if (!cl) { idle++; await sleep(job.stage === 'settle' ? 1000 : 400); continue; }
             idle = 0;
-            const res = job.stage === 'late' ? await late(job, name, bot, hand, cl, cancel) : await work(job, name, bot, hand, cl, cancel);
+            const res = await work(job, name, bot, mv, cl, cancel);
             job.report(name, res);
         }
         return { ended: 'cancelled' };
-    } finally { job.leave(name); if (hand.sneaking) bot.setControlState('sneak', false); fly.land(bot); }
+    } finally { job.leave(name); for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sneak', 'sprint']) bot.setControlState(k, false); }
 }
 
-/**
- * A bot that cannot fly anywhere (closed in: a block went into its cell, a room was finished around it) breaks its way to the nearest free cell above the work, through whatever is in
- * the way (built cells too: the next survey puts them back). The last resort; counted and logged.
- */
-async function escape(job, name, bot, hand, cancel) {
-    const blocked = job.standBlocked(name), f = fly.feet(bot), fl = flight(job, bot, hand, { anything: true, wet: true }), b = job.t.box;
-    // the way out ends above the work (or above the box when nothing is placed yet): a free cell next to the start is no way out (live 2026-11-21 rep1: a bot walled in by seal
-    // blocks under a lake "escaped" into its own cell a hundred times)
-    const above = Math.max(f.y + 3, Number.isFinite(job.frontier) ? job.frontier + job.o.window + 2 : b.y + b.sy);
-    const goal = (x, y, z) => y >= above && !blocked(x, y, z) && !blocked(x, y + 1, z) && fly.fits(bot, x, y, z);
-    const route = fly.path(bot, f, { x: f.x, y: above, z: f.z }, { goal, dig: fl.canDig, maxNodes: 40000 });
-    job.stats.escapes = (job.stats.escapes || 0) + 1;
-    job.log(`${name}: closed in at ${f.x} ${f.y} ${f.z}: ${route ? `breaking out to y ${route[route.length - 1].y} (${route.length} cells)` : 'no way out found'}`);
-    if (!route) return;
-    for (const y of [f.y, f.y + 1]) if (!fly.free(bot, f.x, y, f.z) && fl.canDig(f.x, y, f.z)) await fl.dig({ x: f.x, y, z: f.z });
-    await fly.along(bot, route, cancel, fl.dig);
-    hand.moved();
-    job.noPath.set(name, 0);
-}
-
-/** An idle bot standing where blocks go soon moves up out of the way. */
-async function stepAside(job, name, bot, hand, cancel) {
-    const blocked = job.standBlocked(name), f = fly.feet(bot);
-    if (!blocked(f.x, f.y, f.z) && !blocked(f.x, f.y + 1, f.z)) return;
-    for (let dy = 1; dy <= 8; dy++) if (fly.fits(bot, f.x, f.y + dy, f.z, blocked)) { await fly.flyTo(bot, { x: f.x, y: f.y + dy, z: f.z }, { cancel, ...flight(job, bot, hand) }); hand.moved(); return; }
-}
-
-module.exports = { drive, work, late, holds, inCell, rayHit, pourAim, pourStation, flight };
+module.exports = { drive, work, holds, rules, pour, escape, needsFor, boxSpot };

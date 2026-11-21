@@ -156,15 +156,8 @@ class JobsPart {
         return this._buildFrom(placed.bp, origin, { ...spec, name, tile: spec.tile || 64 }, null, { dim: D.dim, syncmatica: { id: p.id, hash: p.hash, ignoredSubRegions: placed.ignored } });
     }
 
-    /**
-     * Which builder a Litematica build gets: `spec.builder` ('construct' | 'legacy'), else the new one (construct: flight, placement into the air) when every bot of the crew (the bots named, or
-     * every online bot) is in creative mode, else the old survival builder (jobs/build.js).
-     */
-    _builderFor(spec) {
-        if (spec.builder === 'construct' || spec.builder === 'legacy') return spec.builder;
-        const recs = (Array.isArray(spec.bots) && spec.bots.length ? spec.bots.map((n) => this.bots.get(n)) : [...this.bots.values()].filter((r) => r && !r.removed && r.state === 'online')).filter(Boolean);
-        return recs.length && recs.every((r) => r.bot && r.bot.game && r.bot.game.gameMode === 'creative') ? 'construct' : 'legacy';
-    }
+    /** Which builder a Litematica build gets: the new one (construct, src/build/: survival players), unless `spec.builder` is 'legacy' (the old builder, jobs/build.js, kept for comparison). */
+    _builderFor(spec) { return spec.builder === 'legacy' ? 'legacy' : 'construct'; }
 
     /** Build job. spec: { name?, structure, origin: {x,y,z}, ops?: [...], bots?, start?, force? } */
     async createBuild(spec) {

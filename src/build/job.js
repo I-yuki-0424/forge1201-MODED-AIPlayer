@@ -9,17 +9,18 @@
 //   settle    a few seconds for the circuit, then one more survey: nothing left = done
 const S = require('./state');
 const { survey } = require('./survey');
-const { seen, eyeOf, boxDist } = require('./act');
-const fly = require('./fly');
+const { seen, eyeOf, boxDist } = require('./world');
+const { View, feet } = require('./move');
+const P = require('./place');
 
-const REACH = 5.2;                 // eye to the cell's box (the server allows < 6 in creative; the margin covers the server's view of the position)
-const WINDOW = 1;                  // layers above the lowest open one that may be placed at the same time (the crew stands above them: see standBlocked)
+const REACH = 4.4;                 // eye to the cell's box (a vanilla client picks within 4.5)
+const WINDOW = 2;                  // layers above the lowest open one that may be placed at the same time
 const MAX_FAILS = 8;               // tries of one cell before it is parked (reported, not tried again until the next round)
 const BATCH = 96;                  // tasks per claim
 const ROUNDS = 3;                  // extra rounds for parked cells before the build ends with them reported
 const STALL_MS = 40000;            // nothing ready for anybody this long while work is left: the ordering rules are relaxed (a dependency that cannot be met)
-const STAGE_OF = { seal: 'prepare', fill: 'prepare', clear: 'prepare', place: 'place', fix: 'place', pour: 'late', ignite: 'late' };
-const ORDER = ['prepare', 'place', 'late'];
+const STAGE_OF = { seal: 'prepare', fill: 'prepare', clear: 'prepare', place: 'place', fix: 'place', pour: 'late', ignite: 'late', untemp: 'cleanup' };
+const ORDER = ['prepare', 'place', 'late', 'cleanup'];
 const key = (x, y, z) => `${x},${y},${z}`;
 
 class BuildJob {
@@ -49,7 +50,9 @@ class BuildJob {
         this.available = opts.available || null;
         this.sealItem = opts.sealItem || 'smooth_stone';
         this.lit = new Set();
-        this.stats = { placed: 0, cleared: 0, sealed: 0, filled: 0, fixed: 0, poured: 0, lit: 0, failed: 0, surveys: 0, escapes: 0 };
+        this.temps = new Set();            // temporary blocks placed outside the box ('x,y,z')
+        this.tempItem = opts.tempItem || null;
+        this.stats = { placed: 0, cleared: 0, sealed: 0, filled: 0, fixed: 0, poured: 0, lit: 0, untemp: 0, failed: 0, surveys: 0, escapes: 0, trips: 0 };
     }
 
     // ---- surveys ---------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -66,6 +69,8 @@ class BuildJob {
             // has it, as the world made it) is filled, or it runs into every cell that is opened next to it (live 2026-11-21 run n5: clearing next to natural lava waited for ever)
             // (once the late stage has poured, fluids stay: a block put back afterwards next to them is placed into a finished basin)
             if (!this.pouredOnce && sv.tasks.some((tk) => STAGE_OF[tk.kind] === 'prepare' || STAGE_OF[tk.kind] === 'place')) for (const tk of sv.kept) sv.tasks.push(tk);
+            // temporary blocks outside the box (pillars, bridges) that still stand: taken away at the end
+            for (const k of this.temps) { const [x, y, z] = k.split(',').map(Number); if (this.t.inside(x, y, z)) { this.temps.delete(k); continue; } const h = seen(bot, { x, y, z }); if (!h) continue; if (h.name !== this.tempItem) { this.temps.delete(k); continue; } sv.tasks.push({ k, kind: 'untemp', i: -1, x, y, z }); }
             for (const tk of sv.tasks) {
                 if (this.parked.has(tk.k)) continue;
                 if (tk.kind !== 'seal' && tk.kind !== 'ignite' && this.available && !this._itemOk(tk)) { this.parked.set(tk.k, `missing_item ${this._itemOf(tk)}`); continue; }
@@ -95,7 +100,7 @@ class BuildJob {
         try { await this.surveying; } finally { this.surveying = null; }
     }
 
-    _itemOf(tk) { if (tk.kind === 'fill' || tk.kind === 'seal') return this.sealItem; if (tk.kind === 'ignite') return 'flint_and_steel'; const r = tk.i >= 0 ? this.t.recipeOf(tk) : null; return r && r.item; }
+    _itemOf(tk) { if (tk.kind === 'fill' || tk.kind === 'seal') return this.tempItem || this.sealItem; if (tk.kind === 'ignite') return 'flint_and_steel'; const r = tk.i >= 0 ? this.t.recipeOf(tk) : null; return r && r.item; }
     _itemOk(tk) { if (tk.kind === 'clear' || tk.kind === 'fix') return true; const it = this._itemOf(tk); return !it || this.available.has(it); }
 
     _finish(sv) {
@@ -174,35 +179,30 @@ class BuildJob {
         return 'ready';
     }
 
-    /**
-     * Cells a station must not take: the bodies of the other bots, and while placing every cell of the box's footprint at or below the top of the window. Nothing is ever placed above a
-     * bot then, so no bot can be closed in by the work (live 2026-11-21, run o1: stations below the layer being placed; a floor went in over four bots and they could not get out).
-     * In the late stage the cells that will hold a block.
-     */
+    /** Cells a station must not take: the bodies of the other bots, and cells that will hold a block soon (a body in a cell blocks its placement). */
     standBlocked(name) {
         const bodies = new Set();
         for (const [n, b] of this.bots) if (n !== name && b.station) for (const c of b.station) bodies.add(key(c.x, c.y, c.z));
-        const top = this.frontier + this.o.window, t = this.t, b = t.box, stage = this.stage, relaxed = this.relaxed;
+        const top = this.frontier + this.o.window + 1, t = this.t, stage = this.stage;
         return (x, y, z) => {
             if (bodies.has(key(x, y, z))) return true;
-            const over = x >= b.x && z >= b.z && x < b.x + b.sx && z < b.z + b.sz;
-            if (stage === 'place' && over && !relaxed) return y <= top + 1;          // feet and head both above the window
             if (!t.inside(x, y, z)) return false;
             const i = t.idx(x, y, z);
             if (t.isAir(i)) return false;
-            return stage === 'place' || stage === 'late';
+            return stage === 'late' || (stage === 'place' && y <= top);
         };
     }
 
     // ---- claims --------------------------------------------------------------------------------------------------------------------------------------------------------------
 
     /**
-     * A station and the tasks `bot` can do from it. Returns { station: {x,y,z} (feet cell), tasks: [...] } or null (nothing ready for this bot now).
-     * The seed is the lowest (placing) / highest (clearing) ready task near the bot and away from the others; the station around it that reaches the most ready tasks wins.
+     * A station and the tasks `bot` can do from it: { station: {x,y,z} (feet cell; the mover gets there, on a pillar when nothing is under it), tasks: [{...tk, way}] }, or
+     * { need: {item: n} } when the ready work near the bot needs items it does not carry, or null (nothing ready). `has(item)`: the count the bot carries.
+     * The seed is the lowest (placing) / highest (clearing) ready task near the bot and away from the others; the station is one from which a survival player's click (place.js)
+     * or dig reaches the seed, the one that reaches the most other ready tasks wins.
      */
-    claim(bot, name, now = Date.now()) {
-        const me = fly.feet(bot), others = [...this.bots.entries()].filter(([n, b]) => n !== name && b.station).map(([, b]) => b.station[0]);
-        // ready tasks, nearest buckets first, until enough are found (a full scan of 20 000 clear tasks every claim blocked the process for over a second)
+    claim(bot, name, now = Date.now(), has = () => Infinity) {
+        const me = feet(bot), others = [...this.bots.entries()].filter(([n, b]) => n !== name && b.station).map(([, b]) => b.station[0]);
         const ready = [], G = 8; let scanned = 0;
         const keys = [...this.buckets.keys()].map((k) => { const [x, y, z] = k.split(',').map(Number); return { k, d: Math.hypot(x * G + G / 2 - me.x, (y * G + G / 2 - me.y) * 1.5, z * G + G / 2 - me.z) }; }).sort((a, b) => a.d - b.d);
         const lo = this.stage === 'place' ? this.frontier : -Infinity, hi = this.stage === 'place' ? this.frontier + this.o.window : Infinity;
@@ -210,15 +210,14 @@ class BuildJob {
             const [, by] = k.split(',').map(Number);
             if (by * G > hi || by * G + G - 1 < lo) continue;
             for (const tk of this.buckets.get(k)) { scanned++; if (this.tasks.has(tk.k) && !this.claims.has(tk.k) && this.ready(tk, bot, now)) ready.push(tk); }
-            if (ready.length >= 400 || scanned >= 6000) break;
+            if (ready.length >= 300 || scanned >= 6000) break;
         }
         if (!ready.length) {
-            // a stall: work is left, nobody holds any, nothing is ready (a support that cannot stand, a fluid that keeps a cell wet): the rules give way until the next survey
             if (!this.claims.size && this.tasks.size && !this.relaxed) {
                 if (!this.stallSince) this.stallSince = now;
                 else if (now - this.stallSince > STALL_MS) {
                     this.relaxed = true;
-                    const why = {}; let ex = [];
+                    const why = {}; const ex = [];
                     for (const tk of this.tasks.values()) { const w = this.whyNot(tk, bot, now); const k = w.replace(/ \d.*$/, '').replace(/waits for .*/, 'waits'); why[k] = (why[k] || 0) + 1; if (ex.length < 6 && /waits/.test(w)) ex.push(`${tk.k} ${S.bare(this.t.wantOf(tk).name)} ${w}`); }
                     this.log(`stall in ${this.stage} (${this.tasks.size} tasks, none ready for ${Math.round((now - this.stallSince) / 1000)} s): order rules relaxed until the next survey; why ${JSON.stringify(why)}; e.g. ${ex.join(' | ')}`);
                 }
@@ -226,39 +225,43 @@ class BuildJob {
             return null;
         }
         this.stallSince = 0;
+        // what the bot can do with what it carries; the rest says what to fetch
+        const item = (tk) => this._itemOf(tk);
+        const doable = ready.filter((tk) => { const it = item(tk); return !it || tk.kind === 'clear' || tk.kind === 'fix' || tk.kind === 'untemp' || has(it) > 0; });
+        if (!doable.length) {
+            const need = {}; for (const tk of ready.slice(0, 200)) { if (tk.kind === 'fix' || tk.kind === 'clear') continue; const it = item(tk); if (it) need[it] = (need[it] || 0) + 1; }
+            return { need };
+        }
         const down = this.stage === 'prepare';
-        const crowd = (tk) => others.reduce((s, o) => s + (Math.hypot(o.x - tk.x, o.z - tk.z, (o.y - tk.y) / 2) < 7 ? 1 : 0), 0);
+        const crowd = (tk) => others.reduce((s, o) => s + (Math.hypot(o.x - tk.x, o.z - tk.z, (o.y - tk.y) / 2) < 6 ? 1 : 0), 0);
         const seedScore = (tk) => (down ? -tk.y : tk.y) * 3 + Math.hypot(tk.x - me.x, tk.y - me.y, tk.z - me.z) * 0.25 + crowd(tk) * 25 + (tk.kind === 'seal' || tk.kind === 'fill' ? -1000 : 0);
-        ready.sort((a, b) => seedScore(a) - seedScore(b));
-        // a spatial index of the ready tasks, for counting what a station reaches
-        const grid = new Map(), g = (v) => Math.floor(v / 4);
-        for (const tk of ready) { const k = `${g(tk.x)},${g(tk.y)},${g(tk.z)}`; (grid.get(k) || grid.set(k, []).get(k)).push(tk); }
-        const within = (eye) => {
-            const out = [];
-            for (let gx = g(eye.x - 6); gx <= g(eye.x + 6); gx++) for (let gy = g(eye.y - 6); gy <= g(eye.y + 6); gy++) for (let gz = g(eye.z - 6); gz <= g(eye.z + 6); gz++) {
-                const l = grid.get(`${gx},${gy},${gz}`); if (!l) continue;
-                for (const tk of l) if (boxDist(eye, tk) <= this.o.reach) out.push(tk);
-            }
-            return out;
-        };
-        const blocked = this.standBlocked(name);
-        for (const seed of ready.slice(0, 4)) {
+        doable.sort((a, b) => seedScore(a) - seedScore(b));
+        const view = new View(bot, { canDig: () => false }), blocked = this.standBlocked(name);
+        for (const seed of doable.slice(0, 4)) {
             let best = null, tried = 0;
             for (const f of stationsAround(seed, this.o.reach, down)) {
-                if (tried >= 120) break;
-                // clearing: a station may be inside what is to be cleared (a box in solid rock has no free cell within reach of its work: live 2026-11-21 rep1, the crew stood still);
-                // the flight tunnels there (drive.js) and breaks the body's two cells
-                if (!fly.fits(bot, f.x, f.y, f.z, blocked) && !(down && this._clearable(bot, f.x, f.y, f.z, blocked) && this._clearable(bot, f.x, f.y + 1, f.z, blocked))) continue;
-                tried++;
-                const eye = eyeOf({ x: f.x + 0.5, y: f.y, z: f.z + 0.5 });
-                if (boxDist(eye, seed) > this.o.reach) continue;
+                if (tried >= 60) break;
+                if (blocked(f.x, f.y, f.z) || blocked(f.x, f.y + 1, f.z) || !view.fits(f.x, f.y, f.z)) continue;
                 if (bodyCovers(f, seed)) continue;
-                const reach = within(eye).filter((tk) => !bodyCovers(f, tk));
-                const score = reach.length - Math.hypot(f.x - me.x, f.y - me.y, f.z - me.z) * 0.05;
-                if (!best || score > best.score) best = { f, reach, score };
+                const standing = view.stands(f.x, f.y - 1, f.z);
+                // not standing on anything: the mover pillars up to it, the pillar's top block is under the feet (and is a support for clicks)
+                const world = this._world(bot, standing ? null : f);
+                const way = this._way(world, seed, f);
+                tried++;
+                if (!way) continue;
+                // the other ready tasks this stance reaches (each checked by the same rules), the seed first
+                const eye = eyeOf({ x: f.x + 0.5, y: f.y, z: f.z + 0.5 }), batch = [{ ...seed, way }];
+                for (const tk of doable) {
+                    if (tk === seed || batch.length >= BATCH || bodyCovers(f, tk) || boxDist(eye, tk) > this.o.reach) continue;
+                    const w = this._way(world, tk, f);
+                    if (w) batch.push({ ...tk, way: w });
+                }
+                const score = batch.length - Math.hypot(f.x - me.x, f.y - me.y, f.z - me.z) * 0.08 - (standing ? 0 : 3);
+                if (!best || score > best.score) best = { f, batch, score };
+                if (batch.length >= 12) break;
             }
-            if (!best) { this.cool.set(seed.k, now + 5000); continue; }
-            const tasks = best.reach.sort((a, b) => (down ? b.y - a.y : a.y - b.y) || a.x - b.x || a.z - b.z).slice(0, BATCH);
+            if (!best) { this.cool.set(seed.k, now + 6000); this.noWay = (this.noWay || 0) + 1; continue; }
+            const tasks = best.batch.sort((a, b) => (down ? b.y - a.y : a.y - b.y) || a.x - b.x || a.z - b.z);
             for (const tk of tasks) this.claims.set(tk.k, name);
             this.bots.set(name, { station: [best.f, { x: best.f.x, y: best.f.y + 1, z: best.f.z }], pos: me });
             return { station: best.f, tasks };
@@ -266,21 +269,33 @@ class BuildJob {
         return null;
     }
 
-    /** A cell a station may take while clearing: free, or a clear task of the box (not next to a fluid). */
-    _clearable(bot, x, y, z, blocked) {
-        if (blocked && blocked(x, y, z)) return false;
-        if (fly.free(bot, x, y, z)) return true;
-        const tk = this.tasks.get(key(x, y, z));
-        if (!tk || tk.kind !== 'clear') return false;
-        for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]]) { const h = seen(bot, { x: x + dx, y: y + dy, z: z + dz }); if (h && (h.name === 'water' || h.name === 'lava')) return false; }
-        return true;
+    /** The world for click search: the bot's view, plus a pillar's top block under a stance that stands on nothing yet. */
+    _world(bot, pillarAt) {
+        const over = new Map();
+        if (pillarAt) over.set(`${pillarAt.x},${pillarAt.y - 1},${pillarAt.z}`, { name: this.tempItem || 'dirt', props: {}, shapes: [[0, 0, 0, 1, 1, 1]] });
+        return P.botWorld(bot, over);
+    }
+
+    /** How a task is done from stance f: a click (place.ways) for blocks, a face in sight for digging, or true for work that brings its own aim. Null: not from here. */
+    _way(world, tk, f) {
+        const k = tk.kind;
+        if (k === 'clear' || k === 'untemp') { const c = P.clickable(world, tk, f); return c || null; }
+        if (k === 'fix') { const c = P.clickable(world, tk, f); return c ? { click: c } : null; }
+        if (k === 'seal' || k === 'fill') { const it = this.tempItem; if (!it) return null; return P.ways(world, tk, { name: it, props: {} }, it, [f], { max: 1 })[0] || null; }
+        if (k === 'place') {
+            const r = this.t.recipeOf(tk); if (!r || !r.item) return null;
+            return P.ways(world, tk, this.t.wantOf(tk), r.item, [f], { max: 1 })[0] || null;
+        }
+        if (k === 'ignite') { const at = tk.portal ? tk.portal.light : { x: tk.x, y: tk.y - 1, z: tk.z }; const c = P.clickable(world, at, f, { faces: ['up'] }); return c ? { light: at, click: c } : null; }
+        if (k === 'pour') return true;
+        return null;
     }
 
     /** The bot is done with its claim: what held, what did not. */
     report(name, results, now = Date.now()) {
         for (const { tk, ok, why } of results) {
             this.claims.delete(tk.k);
-            if (ok) { this.tasks.delete(tk.k); this.stats[{ seal: 'sealed', fill: 'filled', clear: 'cleared', place: 'placed', fix: 'fixed', pour: 'poured', ignite: 'lit' }[tk.kind]]++; if (tk.kind === 'place' || tk.kind === 'fix') this._lowered(tk); continue; }
+            if (ok) { this.tasks.delete(tk.k); this.stats[{ seal: 'sealed', fill: 'filled', clear: 'cleared', place: 'placed', fix: 'fixed', pour: 'poured', ignite: 'lit', untemp: 'untemp' }[tk.kind]]++; if (tk.kind === 'untemp') this.temps.delete(tk.k); if (tk.kind === 'place' || tk.kind === 'fix') this._lowered(tk); continue; }
             if (why === 'skipped') { this.cool.set(tk.k, now + 1500); continue; }
             if (STAGE_OF[tk.kind] === 'late') this.log(`${name}: ${tk.kind} ${tk.k} failed: ${why}`);
             const n = (this.fails.get(tk.k) || 0) + 1; this.fails.set(tk.k, n); this.stats.failed++;

@@ -116,11 +116,11 @@ function ways(world, T, want, item, stations, { max = 1, reach = REACH, sneakAlw
 }
 
 /** A face of cell T's own block the eye at station s sees first (for clicks on a placed block: notes, delays, opening), or null. */
-function clickable(world, T, s, { reach = REACH } = {}) {
+function clickable(world, T, s, { reach = REACH, faces = null } = {}) {
     const blk = world.block(T.x, T.y, T.z);
     if (isAir(blk)) return null;
     const eye = [s.x + 0.5, s.y + EYE, s.z + 0.5];
-    for (const F of V.DIRS) {
+    for (const F of faces || V.DIRS) {
         const face = faceOf(blk, F); if (!face) continue;
         const v = V.VEC[F], p = [0, 0, 0];
         p[face.axis] = [T.x, T.y, T.z][face.axis] + face.plane - v[face.axis] * 1e-4;

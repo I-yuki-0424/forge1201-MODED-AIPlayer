@@ -1,7 +1,7 @@
 'use strict';
 // Litematica builds by the new builder (src/build/, TASK-20261121-073): the job kind `construct`. A part of WorkService (index.js copies these methods onto it).
-// The job keeps the .litematic file and its placement (origin, rotation, mirror) and rebuilds the target from them after a restart; the crew are creative bots (flight, placement
-// into the air, items as the creative inventory gives them, only item types the tagged materials containers hold). The old builder (jobs/build.js) stays for survival builds.
+// The job keeps the .litematic file and its placement (origin, rotation, mirror) and rebuilds the target from them after a restart; the crew are survival players (walking,
+// pillars and bridges of temporary blocks, survival digging, clicks a vanilla client can make, materials from the tagged containers by count, shulker boxes unpacked by hand).
 const fs = require('fs');
 const path = require('path');
 const lit = require('../jobs/litematic');
@@ -84,7 +84,7 @@ class ConstructPart {
         const build = job.impl.build;
         this._dirty();
         drive(build, rec.name, rec.bot, { cancel, supplySites: this._supplySites(job) }).then((res) => {
-            if (res.ended === 'not_creative') { rec.retired = 'not in creative mode: the builder flies and takes items like a creative player (switch the bot to creative)'; this.note('warn', `bot ${rec.name}: ${rec.retired}`, { job: job.id }); }
+            if (res.ended === 'wrong_mode') { rec.retired = `game mode ${rec.bot && rec.bot.game && rec.bot.game.gameMode}: a builder works in survival (or creative)`; this.note('warn', `bot ${rec.name}: ${rec.retired}`, { job: job.id }); }
             this._workerEnded(job, rec, res, cancel);
         }, (e) => this._workerEnded(job, rec, { ended: 'error', error: String(e && e.stack || e).slice(0, 300) }, cancel));
     }

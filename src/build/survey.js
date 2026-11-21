@@ -2,7 +2,7 @@
 // The difference between the box and its target, read from a bot's view of the world, as work: what has to be sealed (a fluid outside the box next to it), filled (a fluid inside
 // that must go), cleared (a block that must go), placed, clicked (a note, a delay: the block is right, a click-set property is not), poured or lit. Pure apart from the reads.
 const S = require('./state');
-const { seen } = require('./act');
+const { seen } = require('./world');
 const P = require('./pistons');
 
 // Blocks a placement replaces by itself (vanilla canBeReplaced), apart from fluids.
