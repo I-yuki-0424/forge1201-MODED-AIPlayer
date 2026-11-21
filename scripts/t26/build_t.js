@@ -1,8 +1,9 @@
 'use strict';
 // T26 test BUILD T (owner 2026-11-21, TASK-20261121-073): a creative crew builds a Litematica blueprint on NATURAL terrain of a new random world, Peaceful. The only setup: the materials
 // in shulker boxes inside a chest (a double chest) on the ground beside the site, and the bots put beside it in creative mode. The job is created and run by the work console's own service
-// (createConstruct: the same code as the Litematica page). Judged by the SERVER: the box against a reference copy made by commands from the blueprint, every differing cell tested for the
-// block and the properties the builder decides (power, connections, lit, extended, occupied, flowing fluid levels are the world's); a trial passes when the job ends by itself and no cell is wrong.
+// (createConstruct: the same code as the Litematica page). Judged by the SERVER, cell by cell (`execute if block`): the block and the properties the builder decides must be the blueprint's
+// (power, connections, lit, extended, occupied, flowing fluid levels are the world's and are reported apart); a trial passes when the job ends by itself and no cell is wrong. The untouched site
+// must fail the same judge (the negative control). (Before 2026-11-21 20:00 a reference copy made by commands was compared: its own lava ran over the sky and made thousands of false differences.)
 //   scripts/t26/run.sh N build_t.js LITEMATIC=/app/tests/fixtures/iron-farm-34.litematic [DIM=nether] [BOTS=8] [LIMIT_MIN=120] [SEED_SITE=n] [CONTROL=noop]
 const fs = require('fs');
 const T = require('./lib');
@@ -78,26 +79,12 @@ async function main() {
         await srv.must(`setblock ${tmp.x} ${tmp.y} ${tmp.z} minecraft:air replace`);
     }
     console.log(`[build_t] chest at ${C.x} ${C.y} ${C.z}: ${boxes.length} shulker boxes, ${stacks.length} stacks, ${items.size} item types`);
-    // the reference copy: the target by commands, far from the site (Overworld: in the sky 300 blocks east; Nether: above the bedrock roof)
-    const ref = NETHER ? { x: M.x, y: 140, z: M.z } : { x: M.x + 300, y: Math.min(319 - sy, 250), z: M.z };
-    await srv.must(`forceload add ${ref.x - 2} ${ref.z - 2} ${ref.x + sx + 2} ${ref.z + sz + 2}`);
-    for (let xa = ref.x; xa < ref.x + sx; xa += 32) for (let ya = ref.y; ya < ref.y + sy; ya += 16) await srv.cmd(`fill ${xa} ${ya} ${ref.z} ${Math.min(xa + 31, ref.x + sx - 1)} ${Math.min(ya + 15, ref.y + sy - 1)} ${ref.z + sz - 1} minecraft:air`);
-    const fluids = [], portals = [];
-    for (let i = 0; i < target.n; i++) {
-        if (target.isAir(i)) continue;
-        const st = target.stateOf(i), c = target.cell(i), r = { x: ref.x + c.x - M.x, y: ref.y + c.y - M.y, z: ref.z + c.z - M.z };
-        if (S.FLUIDS.has(st.name)) { fluids.push([r, st]); continue; }
-        if (st.name === 'nether_portal') { portals.push([r, st]); continue; }
-        await srv.cmd(`setblock ${r.x} ${r.y} ${r.z} ${S.str(st.name, st.props)} strict`);
-    }
-    for (const [r, st] of [...fluids, ...portals]) await srv.cmd(`setblock ${r.x} ${r.y} ${r.z} ${S.str(st.name, st.props)} strict`);
     // ---- the crew: beside the chest, creative; the materials chest tagged for the console ----
     for (const [i, n] of names.entries()) await srv.must(`tp ${n} ${C.x + 0.3 + (i % 2) * 0.9} ${C.y + 1} ${C.z + 0.5}`);          // on top of the chest (two cells of air were checked there); players do not collide
     await sleep(5000);
     for (const [i, ch] of chests.entries()) svc.addSite({ name: `mats${i}`, x: ch.x, y: ch.y, z: ch.z, purpose: 'materials', ...(NETHER ? { dim: 'nether' } : {}) });
-    const box = { a: M, b: ref, size: [sx, sy, sz] };
-    const matchAll = async () => /^Test passed/.test(strip(await diffQuery(srv, box, [0, 0, 0], [sx, sy, sz])));
-    const controlFails = !(await matchAll());
+    const control = await judge(srv, target), controlFails = control.wrong.length > 0;
+    console.log(`[build_t] negative control: the untouched site has ${control.wrong.length} wrong cells`);
     await T.say(S0, `build_t: ${BOTS} bots build ${parsed.meta.name} at ${M.x} ${M.y} ${M.z}${NETHER ? ' (nether)' : ''}`);
     const t0 = Date.now(); let state = 'control', job = null, err = null;
     if (!T.CONTROL) {
@@ -115,53 +102,43 @@ async function main() {
     }
     for (const l of svc.log.filter((e) => /job j/.test(e.msg || e.message || '')).slice(-40)) console.log(`[log] ${l.msg || l.message}`);
     await sleep(8000);                                                                                     // the circuit and the fluids settle
-    // ---- the judge ----
-    const strict = await matchAll();
-    const diffs = strict ? [] : await differing(srv, box, 20000);
-    const wrong = [], dynamic = [];
-    for (const o of diffs) {
-        const x = M.x + o[0], y = M.y + o[1], z = M.z + o[2], want = target.at(x, y, z), wn = want.name;
-        const is = async (st) => /^Test passed/.test(strip(await srv.cmd(`execute if block ${x} ${y} ${z} ${st}`)));
-        let ok;
-        if (S.AIR.has(wn)) ok = (await is('minecraft:air')) || (await is('minecraft:cave_air')) || (await is('minecraft:piston_head')) || (await is('minecraft:moving_piston'));
-        else if (S.FLUIDS.has(wn)) ok = Number(want.props.level || 0) > 0 ? (await is(`minecraft:${wn}`)) || (await is('minecraft:air')) : await is(`minecraft:${wn}[level=0]`);
-        else if (wn === 'piston_head' || wn === 'moving_piston') ok = (await is('minecraft:air')) || (await is('minecraft:piston_head')) || (await is('minecraft:moving_piston'));
-        else ok = await is(S.str(wn, S.decidedProps(wn, want.props)));
-        (ok ? dynamic : wrong).push({ at: o, want: S.str(wn, want.props) });
-    }
+    // ---- the judge: every cell of the box, asked of the server ----
+    const J = await judge(srv, target), wrong = J.wrong, dynamic = J.dynamic, strict = J.wrong.length === 0 && J.dynamic.length === 0;
     const wrongBy = {}; for (const w of wrong) { const k = w.want.replace(/\[.*$/, ''); wrongBy[k] = (wrongBy[k] || 0) + 1; }
+    const dynBy = {}; for (const w of dynamic) { const k = w.want.replace(/\[.*$/, ''); dynBy[k] = (dynBy[k] || 0) + 1; }
     const res = job ? job.impl.build.result : null, st = job ? job.impl.build.status() : null;
-    console.log(`[judge] strict ${strict}; ${diffs.length} cells differ from the reference, ${dynamic.length} only in what the world decides; WRONG ${wrong.length} ${JSON.stringify(wrongBy)}`);
+    console.log(`[judge] ${J.checked} cells checked; WRONG ${wrong.length} ${JSON.stringify(wrongBy)}; right in what the builder decides but not in what the world decides (power, connections, pistons, flows): ${dynamic.length} ${JSON.stringify(dynBy)}`);
     for (const w of wrong.slice(0, 40)) console.log(`  wrong ${w.at.join(',')} want ${w.want}`);
     const pass = controlFails && state === 'finished' && wrong.length === 0;
-    rep.trial(`${parsed.meta.name}${NETHER ? '@nether' : ''}`, pass, { state, err, minutes: Math.round((Date.now() - t0) / 6000) / 10, strict, wrong: wrong.length, wrongBy, wrongCells: wrong.slice(0, 80), dynamic: dynamic.length, controlFails, box: M, size: [sx, sy, sz], chest: C, boxes: boxes.length, result: res, status: st, history: job ? job.impl.build.history : null, seed });
+    rep.trial(`${parsed.meta.name}${NETHER ? '@nether' : ''}`, pass, { state, err, minutes: Math.round((Date.now() - t0) / 6000) / 10, strict, wrong: wrong.length, wrongBy, wrongCells: wrong.slice(0, 80), dynamic: dynamic.length, dynamicBy: dynBy, dynamicCells: dynamic.slice(0, 40), controlFails, box: M, size: [sx, sy, sz], chest: C, boxes: boxes.length, result: res, status: st, history: job ? job.impl.build.history : null, seed });
     rep.write({ seed, file: FILE, required: '100 %' });
     await srv.cmd(`forceload remove ${M.x - 16} ${M.z - 16} ${M.x + sx + 16} ${M.z + sz + 16}`);
     await svc.stop(); process.exit(pass ? 0 : 1);
 }
 
-/** `execute if blocks` of the sub-box at offset o, size s (the server allows 32768 cells per query: larger boxes are split). */
-async function diffQuery(srv, box, o, s) {
-    const { a, b } = box;
-    if (s[0] * s[1] * s[2] > 32768) {
-        const k = s[0] >= s[1] && s[0] >= s[2] ? 0 : s[1] >= s[2] ? 1 : 2, h = Math.floor(s[k] / 2), s1 = [...s], s2 = [...s], o2 = [...o]; s1[k] = h; s2[k] = s[k] - h; o2[k] += h;
-        const r1 = await diffQuery(srv, box, o, s1); if (!/^Test passed/.test(strip(r1))) return r1;
-        return diffQuery(srv, box, o2, s2);
-    }
-    return srv.cmd(`execute if blocks ${a.x + o[0]} ${a.y + o[1]} ${a.z + o[2]} ${a.x + o[0] + s[0] - 1} ${a.y + o[1] + s[1] - 1} ${a.z + o[2] + s[2] - 1} ${b.x + o[0]} ${b.y + o[1]} ${b.z + o[2]} all`);
-}
-/** Every cell where the box differs from the reference (halving), at most `max`. */
-async function differing(srv, box, max) {
-    const out = [];
-    const walk = async (o, s) => {
-        if (out.length >= max) return;
-        if (/^Test passed/.test(strip(await diffQuery(srv, box, o, s)))) return;
-        if (s[0] * s[1] * s[2] === 1) { out.push(o); return; }
-        const k = s[0] >= s[1] && s[0] >= s[2] ? 0 : s[1] >= s[2] ? 1 : 2, h = Math.floor(s[k] / 2), s1 = [...s], s2 = [...s], o2 = [...o]; s1[k] = h; s2[k] = s[k] - h; o2[k] += h;
-        await walk(o, s1); await walk(o2, s2);
+/**
+ * Every cell of the box against the target, by the server (`execute if block`): wrong = the block or a property the builder decides differs (a fluid where air belongs, a flow outside its
+ * place, a block left behind); dynamic = right in what the builder decides, different in what the world decides (power, connections, an extended piston and its head, a flow's level).
+ */
+async function judge(srv, target) {
+    const wrong = [], dynamic = [];
+    const is = async (c, st) => /^Test passed/.test(strip(await srv.cmd(`execute if block ${c.x} ${c.y} ${c.z} ${st}`)));
+    const jobs = [];
+    for (let i = 0; i < target.n; i++) jobs.push(i);
+    const one = async (i) => {
+        const c = target.cell(i), want = target.stateOf(i), wn = want.name, rel = [c.x - target.box.x, c.y - target.box.y, c.z - target.box.z];
+        let ok, exact = true;
+        if (S.AIR.has(wn)) { ok = (await is(c, 'minecraft:air')) || (await is(c, 'minecraft:cave_air')) || (await is(c, 'minecraft:void_air')); if (!ok && ((await is(c, 'minecraft:piston_head')) || (await is(c, 'minecraft:moving_piston')))) { ok = true; exact = false; } }
+        else if (S.FLUIDS.has(wn)) {
+            if (Number(want.props.level || 0) > 0) { ok = (await is(c, `minecraft:${wn}`)) || (await is(c, 'minecraft:air')); exact = ok && (await is(c, S.str(wn, want.props))); }
+            else ok = await is(c, `minecraft:${wn}[level=0]`);
+        } else if (wn === 'piston_head') { ok = (await is(c, 'minecraft:piston_head')) || (await is(c, 'minecraft:air')) || (await is(c, 'minecraft:moving_piston')); exact = ok && (await is(c, S.str(wn, want.props))); }
+        else { ok = await is(c, S.str(wn, S.decidedProps(wn, want.props))); if (ok && Object.keys(want.props).length) exact = await is(c, S.str(wn, want.props)); }
+        if (!ok) wrong.push({ at: rel, want: S.str(wn, want.props) });
+        else if (!exact) dynamic.push({ at: rel, want: S.str(wn, want.props) });
     };
-    await walk([0, 0, 0], box.size);
-    return out;
+    for (let k = 0; k < jobs.length; k += 64) await Promise.all(jobs.slice(k, k + 64).map(one));
+    return { wrong, dynamic, checked: jobs.length };
 }
 
 main().catch((e) => { console.error(e); process.exit(2); });
