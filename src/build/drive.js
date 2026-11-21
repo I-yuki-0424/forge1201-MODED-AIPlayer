@@ -49,17 +49,21 @@ function rayHit(bot, a, b) {
 
 /** A pour of fluid into cell L from an eye at `eye`: aim at the face of a solid neighbour that faces L, the ray entering L first. Returns {yaw, pitch} or null. */
 function pourAim(bot, eye, L, reach) {
-    for (const [d, v] of Object.entries(R.VEC)) {
-        const n = { x: L.x + v[0], y: L.y + v[1], z: L.z + v[2] }, h = seen(bot, n);
-        if (!h || S.AIR.has(h.name) || h.name === 'water' || h.name === 'lava' || h.shape === 'empty') continue;
-        // the face of n toward L: its centre, a hair inside n
-        const pt = new Vec3(n.x + 0.5 - v[0] * 0.499, n.y + 0.5 - v[1] * 0.499, n.z + 0.5 - v[2] * 0.499);
-        if (pt.distanceTo(eye) > reach) continue;
-        const hit = rayHit(bot, eye, pt);
-        if (!hit || hit.cell.x !== n.x || hit.cell.y !== n.y || hit.cell.z !== n.z || !hit.prev || hit.prev.x !== L.x || hit.prev.y !== L.y || hit.prev.z !== L.z) continue;
-        const dx = pt.x - eye.x, dy = pt.y - eye.y, dz = pt.z - eye.z;
-        void d;
-        return { yaw: Math.atan2(-dx, -dz), pitch: Math.atan2(dy, Math.hypot(dx, dz)) };
+    for (const v of Object.values(R.VEC)) {
+        const n = { x: L.x + v[0], y: L.y + v[1], z: L.z + v[2] }, b = bot.blockAt(new Vec3(n.x, n.y, n.z), false);
+        // only a full cube: the server's ray stops at a block's outline, and a hopper, a rail or a trapdoor leaves room around the face's centre (live 2026-11-21 rep3: pours landed nowhere)
+        if (!b || b.boundingBox !== 'block' || !Array.isArray(b.shapes) || b.shapes.length !== 1 || b.shapes[0].join(',') !== '0,0,0,1,1,1') continue;
+        // points on the face of n toward L, a hair inside n: the centre first, then nearer the edges
+        const axis = v[0] ? 0 : v[1] ? 1 : 2;
+        for (const [u, w] of [[0.5, 0.5], [0.3, 0.3], [0.7, 0.3], [0.3, 0.7], [0.7, 0.7]]) {
+            const q = [0, 0, 0]; let k = 0; for (let a = 0; a < 3; a++) q[a] = a === axis ? 0.5 - v[a] * 0.499 : (k++ === 0 ? u : w);
+            const pt = new Vec3(n.x + q[0], n.y + q[1], n.z + q[2]);
+            if (pt.distanceTo(eye) > reach) continue;
+            const hit = rayHit(bot, eye, pt);
+            if (!hit || hit.cell.x !== n.x || hit.cell.y !== n.y || hit.cell.z !== n.z || !hit.prev || hit.prev.x !== L.x || hit.prev.y !== L.y || hit.prev.z !== L.z) continue;
+            const dx = pt.x - eye.x, dy = pt.y - eye.y, dz = pt.z - eye.z;
+            return { yaw: Math.atan2(-dx, -dz), pitch: Math.atan2(dy, Math.hypot(dx, dz)) };
+        }
     }
     return null;
 }
