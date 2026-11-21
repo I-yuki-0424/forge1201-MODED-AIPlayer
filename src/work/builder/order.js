@@ -154,6 +154,7 @@ function plan(cells, real, ground, { zones = 1, mode = 'area', weights = null } 
             const tempOk = (c) => c.waterlog || c.fluid || recipesFor(c, () => true).some((r) => !byPos.has(key(at(c, r.support)))), tOf = new Map();
             const tk = (c) => { let t = tOf.get(c.k); if (t === undefined) { t = tempOk(c) ? 1 : 0; tOf.set(c.k, t); } return t; };
             for (const k of left) { const c = owned.get(k); if (!isReady(c)) continue; const n = free(c); if (!b || tk(c) > tk(b) || (tk(c) === tk(b) && (ly(c) < ly(b) || (ly(c) === ly(b) && (n > bn || (n === bn && (c.x < b.x || (c.x === b.x && c.z < b.z)))))))) { b = c; bn = n; } }
+            if (!b) for (const k of left) { const c = owned.get(k); if ((c.late || c.ignite) && plain > 0) continue; if (!b || ly(c) < ly(b)) b = c; }          // (never a power source or a lighting while plain cells are left: as a seed it would be built first, 2026-11-21)
             if (!b) for (const k of left) { const c = owned.get(k); if (!b || ly(c) < ly(b)) b = c; }
             // a piece that can only hang on one particular neighbour (a trapdoor, a wall torch) starts with a plain block of the same connected piece, which the others then hang on
             if (b && free(b) < 6) {

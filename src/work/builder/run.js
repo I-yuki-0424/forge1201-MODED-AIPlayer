@@ -41,8 +41,22 @@ function cellReady(plan, c, w) {
         if (!q) continue;
         if (q.waterlog ? !right(q, w) : nm(w, q.x, q.y, q.z) !== q.block) return false;
     }
+    if ((c.late || c.ignite) && plan.lateOk === false) return false;                 // power sources and lightings wait until the rest stands (see refreshLate)
     if (c.waterlog || c.seed || !c.sup) return true;
     return presentAt(w, at(c, c.sup));
+}
+
+/**
+ * Open the late cells (redstone blocks, torches, levers, lightings) when the other cells stand: at most 1 % of them (and 3) are left, or nothing has been placed for 3 minutes (a plain unit that can
+ * never be built must not hold the power sources for ever). Counted at most every 3 s. Live 2026-11-21 (clean Nether run): a power source chosen as a seed was built at minute 12 and never reachable again.
+ */
+function refreshLate(plan, job, w) {
+    const now = Date.now();
+    if (job.lateAt && now - job.lateAt < 3000) return;
+    job.lateAt = now;
+    let left = 0, plain = 0;
+    for (const c of plan.list) { if (c.late || c.ignite) continue; plain++; if (!right(c, w)) left++; }
+    plan.lateOk = left <= Math.max(3, 0.01 * plain) || now - (job.lastProgress || now) > 180000;
 }
 
 /** `cellReady` for the cells a station serves one after the other: what a cell waits for may be placed from the same station a moment before (`local`: keys placed so far). */
@@ -61,6 +75,7 @@ const WINDOW = 14;                                        // units ahead of the 
 function gateOf(plan, job, u, id = null, pos = null) {
     if (id !== null && !posts.allows(plan, job, u, id, pos, Date.now())) return false;           // another bot's area (posts.js)
     const w = job.world, r = job.ledger.regions.get('b0');
+    if (w) refreshLate(plan, job, w);
     // Layer mode: a level opens when every unit of the levels below is done or parked. 'layer': one barrier across all the areas; 'zlayer' (owner 2026-11-19: "divide into areas first, then split
     // each area into layers"): one barrier per area, so a bot never waits for another area's level (cells that hang on another area wait on their own).
     // (When nothing has been placed for 60 s the barrier is off: a cell that waits for one a parked unit did not place would hold every level above it for ever; layer run 3, 2026-11-19: 425 cells, no claim after 12 minutes.)

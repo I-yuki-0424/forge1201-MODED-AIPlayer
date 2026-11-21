@@ -15,6 +15,7 @@ const P_needs = (cells, w) => P.needsOf(cells, w), TRACE = !!process.env.BUILD_T
 
 function createBuildJob(cells, origin, ledgerOpts = {}, planOpts = {}) {
     const plan = P.planBuild(cells, origin, planOpts), ledger = new Ledger({ holdMs: 2000, noShun: true, ...ledgerOpts });
+    plan.lateOk = false;                                                                 // power sources and lightings wait for the rest (run.js refreshLate); the simulations that plan without a job leave them open
     const job = { kind: 'build', ledger, plan, world: null, auditRound: 0, auditAt: 0, waits: {}, noStation: {}, lastProgress: Date.now(), posts: require('../builder/posts').makePosts(), tidyRounds: 0 };
     for (const r of plan.regions) ledger.addRegion({ ...r, gate: (u, bot, pos) => R.gateOf(plan, job, u, bot, pos), pick: (cands, o) => R.pickNear(plan, job, cands, o) });
     job.runUnit = (regionId, unit, env) => R.runUnit(plan, job, regionId, unit, env);

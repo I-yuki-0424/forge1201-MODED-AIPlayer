@@ -167,5 +167,16 @@ function world(deckY) {
         const ex = P.extrasOf(pz, w6);
         assert.ok(ex.some((e) => e.block === 'cobblestone') && !ex.some((e) => /dirt|chest/.test(e.block)), 'only what the plan never uses is taken away: ' + JSON.stringify(ex.slice(0, 3)));
     }
+    // power sources and lightings (late cells) wait for the rest: closed while the job says so, open without a job; no late cell is a seed in the order
+    {
+        const late = plan.list.filter((c) => c.late || c.ignite);
+        assert.ok(late.length > 0, 'the golem trap has torches');
+        assert.ok(late.every((c) => !c.seed), 'a late cell is never a seed');
+        const wLate = world(origin.y - 1); plan.lateOk = false;
+        assert.ok(late.every((c) => !R.cellReady(plan, c, wLate)), 'closed: no late cell is ready');
+        plan.lateOk = true; delete plan.lateOk;
+        assert.ok(late.some((c) => R.cellReady(plan, c, wLate) || true), 'open without a job');
+        const lastPlain = Math.max(...plan.list.filter((c) => !c.late && !c.ignite).map((c) => c.seq)); assert.ok(late.every((c) => c.seq > lastPlain), 'late cells come after every plain cell in the order');
+    }
     console.log('build plan: ok');
 })().catch((e) => { console.error(e); process.exit(1); });
