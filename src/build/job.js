@@ -33,6 +33,7 @@ class BuildJob {
         this.log = opts.log || (() => {});
         this.stage = 'survey';
         this.tasks = new Map();            // k -> task
+        this.buckets = new Map();          // 'bx,by,bz' (8-cell buckets) -> tasks, for claims near the bot
         this.claims = new Map();           // k -> bot name
         this.fails = new Map();            // k -> tries that did not hold
         this.parked = new Map();           // k -> reason
@@ -70,6 +71,8 @@ class BuildJob {
                 tasks.set(tk.k, tk);
             }
             this.tasks = tasks;
+            this.buckets = new Map();
+            for (const tk of tasks.values()) { const k = `${Math.floor(tk.x / 8)},${Math.floor(tk.y / 8)},${Math.floor(tk.z / 8)}`; (this.buckets.get(k) || this.buckets.set(k, []).get(k)).push(tk); }
             this.claims.clear();
             this.relaxed = false; this.stallSince = 0;
             const by = {}; for (const tk of tasks.values()) by[tk.kind] = (by[tk.kind] || 0) + 1;
@@ -192,8 +195,16 @@ class BuildJob {
      */
     claim(bot, name, now = Date.now()) {
         const me = fly.feet(bot), others = [...this.bots.entries()].filter(([n, b]) => n !== name && b.station).map(([, b]) => b.station[0]);
-        const ready = [];
-        for (const tk of this.tasks.values()) if (!this.claims.has(tk.k) && this.ready(tk, bot, now)) ready.push(tk);
+        // ready tasks, nearest buckets first, until enough are found (a full scan of 20 000 clear tasks every claim blocked the process for over a second)
+        const ready = [], G = 8;
+        const keys = [...this.buckets.keys()].map((k) => { const [x, y, z] = k.split(',').map(Number); return { k, d: Math.hypot(x * G + G / 2 - me.x, (y * G + G / 2 - me.y) * 1.5, z * G + G / 2 - me.z) }; }).sort((a, b) => a.d - b.d);
+        const lo = this.stage === 'place' ? this.frontier : -Infinity, hi = this.stage === 'place' ? this.frontier + this.o.window : Infinity;
+        for (const { k } of keys) {
+            const [, by] = k.split(',').map(Number);
+            if (by * G > hi || by * G + G - 1 < lo) continue;
+            for (const tk of this.buckets.get(k)) if (this.tasks.has(tk.k) && !this.claims.has(tk.k) && this.ready(tk, bot, now)) ready.push(tk);
+            if (ready.length >= 400) break;
+        }
         if (!ready.length) {
             // a stall: work is left, nobody holds any, nothing is ready (a support that cannot stand, a fluid that keeps a cell wet): the rules give way until the next survey
             if (!this.claims.size && this.tasks.size && !this.relaxed) {
