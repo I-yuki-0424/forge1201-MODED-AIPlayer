@@ -50,13 +50,24 @@ async function putBack(bot, site) {
 }
 
 /**
- * Fill the pack from the container at `site` with `needs` ({item: count}, as much as fits). `mover`: the bot's Mover (placeItem, dig, walkTo); `spot()`: a free cell beside the chest
- * where a box may stand. Returns { got: {item: n}, short: {item: n} }.
+ * Fill the pack from the container at `site` with `needs` ({item: count}, as much as fits). Shulker boxes are set down beside the chest as a DEPOT and stay there while the build
+ * runs (`depot`: the cells of boxes already standing, shared by the crew); the bots take from them like from a chest. Nothing is dropped, so nothing can be lost (a box broken
+ * beside the chest fell into the Nether's lava with what was left in it, live 2026-11-22). The boxes go back into the chest at the end (`repack`).
+ * `mover`: the bot's Mover; `spot()`: a free cell for the next depot box. Returns { got: {item: n}, short: {item: n} }.
  */
-async function fetch(bot, site, needs, mover, spot, { log = () => {} } = {}) {
+async function fetch(bot, site, needs, mover, spot, { log = () => {}, depot = [] } = {}) {
     const got = {}, want = { ...needs };
     const still = () => Object.entries(want).filter(([, n]) => n > 0);
     const took = (name, n) => { got[name] = (got[name] || 0) + n; if (want[name] !== undefined) want[name] = Math.max(0, want[name] - n); };
+    const takeFrom = async (c) => {
+        const w = await open(bot, c);
+        try { for (const it of w.containerItems()) { if (freeSlots(bot) <= 1 || !still().length) break; if (want[it.name] > 0 && !SHULKER.test(it.name)) { await shift(bot, it.slot); took(it.name, it.count); } } }
+        finally { bot.closeWindow(w); await sleep(250); }
+    };
+    // 1. the depot boxes already standing
+    for (const c of depot) { if (!still().length || freeSlots(bot) <= 1) break; const b = bot.blockAt(new Vec3(c.x, c.y, c.z)); if (!b || !SHULKER.test(b.name)) continue; try { await takeFrom(c); } catch (e) { log(`supply: depot box at ${c.x},${c.y},${c.z}: ${e.message}`); } }
+    if (!still().length) return { got, short: {} };
+    // 2. loose stacks in the chest, and which boxes hold the rest
     let win = await open(bot, site);
     const useful = [];
     try {
@@ -65,42 +76,42 @@ async function fetch(bot, site, needs, mover, spot, { log = () => {} } = {}) {
             if (SHULKER.test(it.name)) { const h = boxHolds(bot, it), score = still().reduce((a, [k, n]) => a + Math.min(n, h[k] || 0), 0); if (score > 0) useful.push({ slot: it.slot, h, score }); }
             else if (want[it.name] > 0) { await shift(bot, it.slot); took(it.name, it.count); }
         }
-    } finally { bot.closeWindow(win); }
+    } finally { bot.closeWindow(win); await sleep(250); }
+    // 3. a box out of the chest into the depot, then taken from
     useful.sort((a, b) => b.score - a.score);
     for (const bx of useful) {
         if (!still().length || freeSlots(bot) <= 2) break;
-        if (!still().some(([k]) => bx.h[k] > 0)) continue;
         const n0 = boxes(bot).length;
         win = await open(bot, site);
-        try { await shift(bot, bx.slot); } finally { bot.closeWindow(win); }
-        await sleep(150);
+        try { await shift(bot, bx.slot); } finally { bot.closeWindow(win); await sleep(250); }
         const box = boxes(bot)[0];
         if (!box || boxes(bot).length <= n0) { log(`supply: the box in slot ${bx.slot} did not come out`); continue; }
-        const at = spot(), pr = at ? await mover.placeItem(box.name, at) : 'no free cell beside the chest';
+        const at = spot(), pr = at ? await mover.placeItem(box.name, at) : 'no free cell for the depot';
         if (pr !== true) { log(`supply: could not set a box down${at ? ` at ${at.x},${at.y},${at.z}` : ''}: ${pr}`); await putBack(bot, site); break; }
-        try {
-            const bw = await open(bot, at);
-            try { for (const it of bw.containerItems()) { if (freeSlots(bot) <= 1) break; if (want[it.name] > 0) { await shift(bot, it.slot); took(it.name, it.count); } } }
-            finally { bot.closeWindow(bw); }
-        } catch (e) { log(`supply: the box at ${at.x},${at.y},${at.z} did not open: ${e.message}`); }
-        // broken, it drops itself with what is left; picked up, it goes back into the chest. The bot steps next to it first: the drop lands inside its pick-up reach (a bot two
-        // cells away lost boxes to whoever passed by, live 2026-11-21)
-        const n1 = boxes(bot).length;
-        const p = bot.entity.position;
-        if (Math.hypot(at.x + 0.5 - p.x, at.z + 0.5 - p.z) > 1.3 && mover.view) {
-            const v = mover.view();
-            const adj = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => ({ x: at.x + dx, y: at.y, z: at.z + dz })).filter((c) => v.fits(c.x, c.y, c.z) && v.stands(c.x, c.y - 1, c.z)).sort((a, b) => Math.hypot(a.x + 0.5 - p.x, a.z + 0.5 - p.z) - Math.hypot(b.x + 0.5 - p.x, b.z + 0.5 - p.z))[0];
-            if (adj) await mover.goto(adj, { maxNodes: 3000 });
-        }
-        await mover.dig(at);
-        for (let i = 0; i < 40 && boxes(bot).length <= n1; i++) {
-            if (i === 6 || i === 20) { const it = Object.values(bot.entities).filter((e) => e.name === 'item' && e.position.distanceTo(new Vec3(at.x + 0.5, at.y, at.z + 0.5)) < 3).sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))[0]; await mover.walkTo(it ? { x: Math.floor(it.position.x), y: Math.floor(it.position.y + 0.2), z: Math.floor(it.position.z) } : at, { timeout: 2000 }); }
-            await sleep(100);
-        }
-        if (boxes(bot).length > n1 || boxes(bot).length) await putBack(bot, site);
-        else log(`supply: the box from ${at.x},${at.y},${at.z} was not picked up`);
+        depot.push(at);
+        try { await takeFrom(at); } catch (e) { log(`supply: the box at ${at.x},${at.y},${at.z} did not open: ${e.message}`); }
     }
     return { got, short: Object.fromEntries(still()) };
+}
+
+/** The end of a build: every depot box broken (the bot next to it: the drop lands in its reach) and put back into the chest. Returns the boxes not brought back. */
+async function repack(bot, site, depot, mover, { log = () => {} } = {}) {
+    let lost = 0;
+    for (const c of [...depot]) {
+        const b = bot.blockAt(new Vec3(c.x, c.y, c.z));
+        if (!b || !SHULKER.test(b.name)) { depot.splice(depot.indexOf(c), 1); continue; }
+        const v = mover.view(), p = bot.entity.position;
+        const adj = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => ({ x: c.x + dx, y: c.y, z: c.z + dz })).filter((q) => v.fits(q.x, q.y, q.z) && v.stands(q.x, q.y - 1, q.z)).sort((a, q) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(q.x - p.x, q.z - p.z))[0];
+        if (adj) await mover.goto(adj, { maxNodes: 5000 });
+        const n0 = boxes(bot).length;
+        await mover.dig(c);
+        for (let i = 0; i < 30 && boxes(bot).length <= n0; i++) await sleep(100);
+        if (boxes(bot).length <= n0) { lost++; log(`supply: the depot box from ${c.x},${c.y},${c.z} was not picked up`); }
+        depot.splice(depot.indexOf(c), 1);
+        if (boxes(bot).length >= 6 || !depot.length) await putBack(bot, site);
+    }
+    if (boxes(bot).length) await putBack(bot, site);
+    return lost;
 }
 
 /** Throw away what the job has no use for (rubble of clearing) when the pack is getting full; keeps `keep(name)`, tools and boxes. Thrown items despawn after five minutes. */
@@ -115,4 +126,4 @@ async function dropRubble(bot, keep, { minFree = 6 } = {}) {
 const TEMPS = ['dirt', 'cobblestone', 'pumpkin', 'netherrack', 'cobbled_deepslate', 'stone', 'andesite', 'diorite', 'granite', 'oak_planks', 'spruce_planks', 'birch_planks'];
 const tempFrom = (totals, used) => TEMPS.find((s) => totals[s] > 0 && !used.has(s)) || null;
 
-module.exports = { readSupply, fetch, putBack, dropRubble, boxHolds, carried, freeSlots, tempFrom, TEMPS, SHULKER, TOOL };
+module.exports = { readSupply, fetch, repack, putBack, dropRubble, boxHolds, carried, freeSlots, tempFrom, TEMPS, SHULKER, TOOL };

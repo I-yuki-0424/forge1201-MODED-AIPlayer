@@ -152,7 +152,8 @@ async function supplyTrip(job, name, bot, mv, need, cancel) {
         if (bot.inventory.items().some((i) => /shulker_box$/.test(i.name))) await SUP.putBack(bot, site);          // boxes it carries (picked up somewhere) go back first
         const spot = () => boxSpot(job, bot, site);
         const wants = needsFor(job, bot, need);
-        const res = await SUP.fetch(bot, site, wants, mv, spot, { log: job.log });
+        job.depot = job.depot || [];
+        const res = await SUP.fetch(bot, site, wants, mv, spot, { log: job.log, depot: job.depot });
         job.stats.trips++;
         job.log(`${name}: supply trip for ${JSON.stringify(wants).slice(0, 160)}: got ${JSON.stringify(res.got).slice(0, 200)}${Object.keys(res.short).length ? `; short ${JSON.stringify(res.short).slice(0, 200)}` : ''}`);
         // what it came back without, the chest has none of (left): not asked for again for ten minutes (a crew went every minute for nothing, live 2026-11-22 sF w3)
@@ -165,7 +166,8 @@ const nearContainer = (c) => (x, y, z) => Math.abs(x - c.x) <= 2 && Math.abs(z -
 /** A free cell beside the container (air, on something solid, not the bot's own cells, outside the box) for a shulker box to stand in while it is unpacked. */
 function boxSpot(job, bot, c) {
     const v = new View(bot, { canDig: () => false }), me = feet(bot), out = [];
-    for (let r = 1; r <= 3; r++) for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) for (const dy of [0, 1, -1]) {
+    // the depot: two to four cells from the chest (the ring next to it stays free for the bots that open the chest), never next to another depot box's top
+    for (let r = 2; r <= 4; r++) for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) for (const dy of [0, 1, -1]) {
         if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
         const s = { x: c.x + dx, y: c.y + dy, z: c.z + dz };
         if (job.t.inside(s.x, s.y, s.z) || (s.x === me.x && s.z === me.z)) continue;
@@ -195,7 +197,15 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
     let idle = 0;
     try {
         while (!cancel.cancelled) {
-            if (job.done) return { ended: 'finished' };
+            if (job.done) {
+                // the depot's boxes back into the chest, by one bot (alone at the chest: a box it breaks drops into its own reach)
+                if (job.depot && job.depot.length && !job.repacking && job.sites[0]) {
+                    job.repacking = name;
+                    try { await mv.goto(job.sites[0], { goal: nearContainer(job.sites[0]), cancel, maxNodes: 40000 }); const lost = await SUP.repack(bot, job.sites[0], job.depot, mv, { log: job.log }); job.log(`${name}: depot boxes put back into the chest${lost ? `, ${lost} not picked up` : ''}`); }
+                    catch (e) { job.log(`${name}: repacking failed: ${e.message}`); }
+                }
+                return { ended: 'finished' };
+            }
             if (!bot.entity || bot._client.ended) return { ended: 'disconnected' };
             // the supply: read once by one bot (the next one tries when a read fails)
             if (job.available === null) {

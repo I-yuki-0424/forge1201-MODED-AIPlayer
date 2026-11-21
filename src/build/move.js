@@ -183,19 +183,19 @@ class Mover {
         return `clicked face ${w.face} of ${w.n.join(',')}, the cell holds ${bb && bb.name}`;
     }
 
-    /** Break the block at c with the best tool the bot carries (mineflayer's dig: look, swing, the survival time). */
+    /** Break the block at c with the tool its material asks for (mineable/pickaxe, shovel, axe, hoe; the best tier the bot carries; shears for leaves and wool). */
     async dig(c) {
         const b = this.bot, block = b.blockAt(new Vec3(c.x, c.y, c.z), false);
         if (!block || block.boundingBox === 'empty' && block.name !== 'fire') return true;
-        let best = null, bestT = Infinity;
-        for (const it of [null, ...b.inventory.items()]) {
-            if (it && !/(_pickaxe|_axe|_shovel|_hoe|shears|_sword)$/.test(it.name)) continue;
-            let t; try { const held = b.heldItem; if (it) b.heldItem = it; t = b.digTime(block); b.heldItem = held; } catch (_) { t = Infinity; }
-            if (t < bestT) { bestT = t; best = it; }
-        }
-        if (best && (!b.heldItem || b.heldItem.slot !== best.slot)) { try { await b.equip(best, 'hand'); } catch (_) { /* the hand it has */ } }
+        const m = String(block.material || ''), cls = /pickaxe/.test(m) ? 'pickaxe' : /shovel/.test(m) ? 'shovel' : /axe/.test(m) ? 'axe' : /hoe/.test(m) ? 'hoe' : /leaves|wool|cobweb/.test(block.name) ? 'shears' : null;
+        const TIER = ['netherite', 'diamond', 'iron', 'golden', 'stone', 'wooden'];
+        let tool = null;
+        if (cls) { const cand = b.inventory.items().filter((i) => (cls === 'shears' ? i.name === 'shears' : i.name.endsWith('_' + cls))); cand.sort((x, y) => TIER.indexOf(x.name.split('_')[0]) - TIER.indexOf(y.name.split('_')[0])); tool = cand[0] || null; }
+        if (tool && (!b.heldItem || b.heldItem.name !== tool.name)) { try { await b.equip(tool, 'hand'); } catch (_) { /* the hand it has */ } }
+        else if (!tool && b.heldItem && /(_sword|_pickaxe|_axe|_shovel|_hoe)$/.test(b.heldItem.name) === false) { /* any item: breaking by hand is the same */ }
         try { await b.dig(block, true); } catch (e) { return false; }
-        return !b.blockAt(new Vec3(c.x, c.y, c.z), false) || b.blockAt(new Vec3(c.x, c.y, c.z), false).boundingBox === 'empty';
+        const after = b.blockAt(new Vec3(c.x, c.y, c.z), false);
+        return !after || after.boundingBox === 'empty';
     }
 
     /** A click on face `face` of block n at point `hit` (a vanilla use packet), looking at the point first. */
