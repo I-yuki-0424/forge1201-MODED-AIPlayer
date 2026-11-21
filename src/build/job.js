@@ -271,13 +271,13 @@ class BuildJob {
         const near = (eye) => { const out = []; for (let gx = g(eye.x - 5); gx <= g(eye.x + 5); gx++) for (let gy = g(eye.y - 5); gy <= g(eye.y + 5); gy++) for (let gz = g(eye.z - 5); gz <= g(eye.z + 5); gz++) { const l = grid.get(`${gx},${gy},${gz}`); if (l) for (const tk of l) if (boxDist(eye, tk) <= this.o.reach) out.push(tk); } return out; };
         for (const seed of doable.slice(0, 3)) {
             let best = null;
-            const cands = [];
+            const cands = [], rej = { blocked: 0, solid: 0, unsupported: 0, far: 0, way: 0 };
             for (const f of stationsAround(seed, this.o.reach, down)) {
                 if (cands.length >= 40) break;
-                if (blocked(f.x, f.y, f.z) || blocked(f.x, f.y + 1, f.z) || bodyCovers(f, seed)) continue;
+                if (blocked(f.x, f.y, f.z) || blocked(f.x, f.y + 1, f.z) || bodyCovers(f, seed)) { rej.blocked++; continue; }
                 // clearing: a stance may be inside rock that is to be cleared anyway (a box sunk in rock has no open cell near its top layer); the walk digs its way in
                 const dug = !view.fits(f.x, f.y, f.z);
-                if (dug && !(down && [f.y, f.y + 1].every((y) => view.free(f.x, y, f.z) || (this.tasks.get(key(f.x, y, f.z)) || {}).kind === 'clear'))) continue;
+                if (dug && !(down && [f.y, f.y + 1].every((y) => view.free(f.x, y, f.z) || (this.tasks.get(key(f.x, y, f.z)) || {}).kind === 'clear'))) { rej.solid++; continue; }
                 const wet = view.kind(f.x, f.y, f.z) === 'water';
                 const standing = wet || dug || view.stands(f.x, f.y - 1, f.z);
                 let h = 0;
@@ -286,12 +286,12 @@ class BuildJob {
                     if (h > 64 || !view.stands(f.x, f.y - 1 - h, f.z)) {
                         // nothing to pillar from (a box over a cavern, over the Nether's lava sea): a bridge of temporary blocks from ground at the same height, at most 24 cells away
                         const br = this._bridgeFrom(view, f);
-                        if (!br) continue;
+                        if (!br) { rej.unsupported++; continue; }
                         h = 4 + br;
                     }
                 }
                 const eye = eyeOf({ x: f.x + 0.5, y: f.y, z: f.z + 0.5 });
-                if (boxDist(eye, seed) > this.o.reach) continue;
+                if (boxDist(eye, seed) > this.o.reach) { rej.far++; continue; }
                 const reach = near(eye).filter((tk) => !bodyCovers(f, tk));
                 cands.push({ f, standing, dug, reach, score: reach.length - Math.hypot(f.x - me.x, f.y - me.y, f.z - me.z) * 0.08 - (standing ? 0 : 10 + 3 * h) - (dug ? 4 : 0) });
             }
@@ -299,7 +299,7 @@ class BuildJob {
             for (const c of cands.slice(0, 5)) {
                 const world = this._world(bot, c.standing ? null : c.f, c.dug ? c.f : null);
                 const way = this._way(world, seed, c.f);
-                if (!way) continue;
+                if (!way) { rej.way++; continue; }
                 const batch = [{ ...seed, way }];
                 for (const tk of c.reach) { if (tk === seed || batch.length >= BATCH) continue; const w = this._way(world, tk, c.f); if (w) batch.push({ ...tk, way: w }); }
                 best = { f: c.f, batch };
@@ -310,7 +310,7 @@ class BuildJob {
                 // a task no stance reaches is parked after a few looks (it waits for the next round, when the build has changed what can be reached): a handful of hidden cells
                 // held the whole build in the prepare stage (live 2026-11-22 sv8)
                 const ns = this.noStance.get(seed.k) || now; this.noStance.set(seed.k, ns);
-                if (now - ns > 120000) { this.parked.set(seed.k, `no stance (${cands.length} in range)`); this.tasks.delete(seed.k); this.log(`parked ${seed.kind} ${seed.k} (${seed.i >= 0 ? S.bare(this.t.wantOf(seed).name) : 'outside'}): no stance reaches it (${cands.length} stances in range)`); this._frontier(); }
+                if (now - ns > 120000) { this.parked.set(seed.k, `no stance (${cands.length} in range)`); this.tasks.delete(seed.k); this.log(`parked ${seed.kind} ${seed.k} (${seed.i >= 0 ? S.bare(this.t.wantOf(seed).name) : 'outside'}): no stance reaches it (${cands.length} stances in range; rejected ${JSON.stringify(rej)}; the cell holds ${(seen(bot, seed) || {}).name})`); this._frontier(); }
                 continue;
             }
             const tasks = best.batch.sort((a, b) => ((a.kind === 'clear') !== (b.kind === 'clear') ? (a.kind === 'clear' ? -1 : 1) : 0) || (a.kind === 'clear' ? b.y - a.y : a.y - b.y) || a.x - b.x || a.z - b.z);
