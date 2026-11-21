@@ -8,6 +8,7 @@ jdk-*/
 aux_mod/build/
 aux_mod/.gradle/
 build/
+!src/build/
 out/
 .gradle/
 run/
