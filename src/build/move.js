@@ -13,7 +13,7 @@ const key = (x, y, z) => `${x},${y},${z}`;
 const AVOID_IN = /^(lava|fire|soul_fire|nether_portal|end_portal|end_gateway|cobweb|sweet_berry_bush|powder_snow|bubble_column|wither_rose|magma_block|campfire|soul_campfire|pointed_dripstone|cactus|moving_piston)$/;
 const NO_STAND = /^(magma_block|campfire|soul_campfire|cactus|.*_fence|.*_wall|.*_fence_gate|pointed_dripstone|honey_block|slime_block|powder_snow|scaffolding|.*_bed|hopper|composter)$/;
 const H = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
-const COST = { walk: 4.6, diag: 6.5, up: 9, drop: 5, pillar: 14, bridge: 40, temp: 6, swim: 8 };
+const COST = { walk: 4.6, diag: 6.5, up: 9, drop: 5, pillar: 14, bridge: 40, temp: 6, swim: 8, lava: 60 };
 
 class Heap {
     constructor() { this.a = []; }
@@ -53,6 +53,15 @@ class View {
         const top = Math.max(...(b.shapes || []).map((s) => s[4]));
         return top >= 0.85 && top <= 1 + 1e-6;                    // a full top, or nearly (soul sand, mud, a dirt path, farmland, a chest)
     }
+    /** Lava beside the body's cells or under the feet (two down). */
+    nearLava(x, y, z) {
+        const k = key(x, y, z); let v = this.lavaNear && this.lavaNear.get(k);
+        if (v !== undefined) return v;
+        v = false;
+        for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [1, 1, 0], [-1, 1, 0], [0, 1, 1], [0, 1, -1], [0, -1, 0], [0, -2, 0], [1, -1, 0], [-1, -1, 0], [0, -1, 1], [0, -1, -1]]) { const b = this.raw(x + dx, y + dy, z + dz); if (b && (b.name === 'lava' || b.name === 'fire')) { v = true; break; } }
+        (this.lavaNear = this.lavaNear || new Map()).set(k, v);
+        return v;
+    }
     diggable(x, y, z) {
         if (this.kind(x, y, z) !== 'solid') return false;
         const b = this.raw(x, y, z);
@@ -78,6 +87,7 @@ function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = null } 
         if ((best.get(key(c.x, c.y, c.z)) ?? Infinity) < c.g) continue;
         const add = (x, y, z, cost, move, extra = {}) => {
             if (!inBox(x, y, z)) return;
+            cost += view.nearLava(x, y, z) ? COST.lava : 0;                 // a cell beside lava (a slip, a flow): only when there is no other way (live 2026-11-22: six bots 'tried to swim in lava')
             const t = c.t + (extra.place ? 1 : 0);
             if (t > temps) return;
             const g = c.g + cost, k = key(x, y, z);

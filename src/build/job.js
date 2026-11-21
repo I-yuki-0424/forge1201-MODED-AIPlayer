@@ -219,7 +219,7 @@ class BuildJob {
                 else if (now - this.stallSince > STALL_MS) {
                     this.relaxed = true;
                     const why = {}; const ex = [];
-                    for (const tk of this.tasks.values()) { const w = this.whyNot(tk, bot, now); const k = w.replace(/ \d.*$/, '').replace(/waits for .*/, 'waits'); why[k] = (why[k] || 0) + 1; if (ex.length < 6 && /waits/.test(w)) ex.push(`${tk.k} ${S.bare(this.t.wantOf(tk).name)} ${w}`); }
+                    for (const tk of this.tasks.values()) { const w = this.whyNot(tk, bot, now); const k = w.replace(/ \d.*$/, '').replace(/waits for .*/, 'waits'); why[k] = (why[k] || 0) + 1; if (ex.length < 6 && /waits/.test(w)) ex.push(`${tk.k} ${tk.i >= 0 ? S.bare(this.t.wantOf(tk).name) : tk.kind} ${w}`); }
                     this.log(`stall in ${this.stage} (${this.tasks.size} tasks, none ready for ${Math.round((now - this.stallSince) / 1000)} s): order rules relaxed until the next survey; why ${JSON.stringify(why)}; e.g. ${ex.join(' | ')}`);
                 }
             }
@@ -276,7 +276,7 @@ class BuildJob {
                 // a task no stance reaches is parked after a few looks (it waits for the next round, when the build has changed what can be reached): a handful of hidden cells
                 // held the whole build in the prepare stage (live 2026-11-22 sv8)
                 const ns = (this.noStance.get(seed.k) || 0) + 1; this.noStance.set(seed.k, ns);
-                if (ns >= 6) { this.parked.set(seed.k, `no stance (${cands.length} in range)`); this.tasks.delete(seed.k); this.log(`parked ${seed.kind} ${seed.k} (${S.bare(this.t.wantOf(seed).name)}): no stance reaches it (${cands.length} stances in range)`); this._frontier(); }
+                if (ns >= 6) { this.parked.set(seed.k, `no stance (${cands.length} in range)`); this.tasks.delete(seed.k); this.log(`parked ${seed.kind} ${seed.k} (${seed.i >= 0 ? S.bare(this.t.wantOf(seed).name) : 'outside'}): no stance reaches it (${cands.length} stances in range)`); this._frontier(); }
                 continue;
             }
             const tasks = best.batch.sort((a, b) => (down ? b.y - a.y : a.y - b.y) || a.x - b.x || a.z - b.z);

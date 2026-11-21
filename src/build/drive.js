@@ -181,6 +181,8 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
     job.sites = supplySites;
     if (!job.bots.has(name)) job.bots.set(name, { station: null, pos: feet(bot) });
     const mv = new Mover(bot, rules(job, bot), { log: job.log });
+    const onDeath = () => { const p = bot.entity && bot.entity.position, f = p ? feet(bot) : null, around = f ? [-1, 0, 1].map((dy) => (seen(bot, { x: f.x, y: f.y + dy, z: f.z }) || {}).name).join('/') : '?'; job.stats.deaths = (job.stats.deaths || 0) + 1; job.log(`${name} died at ${f ? `${f.x},${f.y},${f.z}` : '?'} (${around}), stage ${job.stage}`); };
+    bot.on('death', onDeath);
     let idle = 0;
     try {
         while (!cancel.cancelled) {
@@ -222,7 +224,7 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
             job.report(name, res);
         }
         return { ended: 'cancelled' };
-    } finally { job.leave(name); for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sneak', 'sprint']) bot.setControlState(k, false); }
+    } finally { bot.removeListener('death', onDeath); job.leave(name); for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sneak', 'sprint']) bot.setControlState(k, false); }
 }
 
 module.exports = { drive, work, holds, rules, pour, escape, needsFor, boxSpot };
