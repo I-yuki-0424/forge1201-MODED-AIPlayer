@@ -265,8 +265,8 @@ class BuildJob {
                 const standing = wet || dug || view.stands(f.x, f.y - 1, f.z);
                 let h = 0;
                 if (!standing) {
-                    h = 1; while (h <= 13 && view.free(f.x, f.y - 1 - h, f.z) && !view.stands(f.x, f.y - 1 - h, f.z)) h++;
-                    if (h > 12 || !view.stands(f.x, f.y - 1 - h, f.z)) {
+                    h = 1; while (h <= 31 && view.free(f.x, f.y - 1 - h, f.z) && !view.stands(f.x, f.y - 1 - h, f.z)) h++;
+                    if (h > 30 || !view.stands(f.x, f.y - 1 - h, f.z)) {
                         // nothing to pillar from (a box over a cavern, over the Nether's lava sea): a bridge of temporary blocks from ground at the same height, at most 24 cells away
                         const br = this._bridgeFrom(view, f);
                         if (!br) continue;
