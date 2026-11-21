@@ -220,3 +220,16 @@ Results (server-graded; "wrong" = cells that differ from the blueprint in what p
 | Overworld farm (7642 cells, 6-8 bots) | resumed ow16 (several processes) | 7430 of 7642 cells (97 %); 36 portals: 30 lit; stuck: the top floor (y 238-258) stations. Clean runs of1 (8 bots) 2507, of3 (8 bots) 3826 after 144 min, both stalled on the upper floors. **No full run, no judge on the whole structure.** |
 
 What is still open, in the order it costs most: (1) walks to stations on the upper floors of the Overworld farm and to the top glass of the Nether side (NAV: "3 segments without getting closer"; the exterior leg helps two thirds of the climbs); (2) a clean run needs the job to END by itself (the tidy and the repair rounds run only then; a timeout ends the harness without them); (3) hoppers that face each other (`tempInStruct`) have no station live although the simulator places them; (4) deaths by falling (a dead bot respawns at the site only in the Nether when the spawn point is set there); (5) speed: 24-70 cells/min with 6-8 bots, 40 % walking, 30 % digging temporary blocks.
+
+## Update 2026-11-21 (afternoon): the Litematica page and materials in shulker boxes (`TASK-20261121-072`)
+
+The owner runs the build on the creative server (Fabric 26.1.2, console `127.0.0.1:3031` / tailnet 3031, 8 bots) and found three gaps: no tab to build from Litematica, no way to say where the materials are, and materials that lie in shulker boxes.
+
+| What | Where |
+| :-- | :-- |
+| Routes | `GET /api/litematic/placements`, `POST /api/litematic/preview` (what a placement needs, no job), `GET /api/litematic/stock` (what the tagged containers hold, loose and inside shulker boxes, double chests read as one), `POST /api/litematic/check` (need vs stock per material), `POST /api/jobs/litematic` (the job: `placement`, `origin?`, `bots?`, `range?`, `tile?`, `start?`). Service: `src/work/service/litematic.js`, `createBuildFromPlacement` in `jobs.js` |
+| Page | **Litematica** tab (`public/work/page_litematic.js`): the shared placements, the material table (needed / in chests / in shulker boxes / short), bots by name or number, Create (paused) / Create and start, and the containers the bots may take from |
+| Tag | purpose **`materials`** on the Tags page (a container bots take building materials from; nothing is stored there). `tools` and `free` chests are sources too; `any` is insert-only |
+| Shulker boxes | `take_many` reports the boxes of the container that hold what is still lacking (it reads the `container` component of the item stack); `take_shulker` lifts one into the pack; `supply.unpack` sets it down beside the bot (`place`), takes from it and keeps it in `plan.boxes`: a source for the rest of the run, visited first. No free cell: the box goes back into the chest. The box is NOT broken and carried (in creative a broken box drops nothing) |
+
+Tests: `tests/test_work_shulker_pure.js`, the Litematica routes in `tests/test_work_console_pure.js`; live: `scripts/t26/run.sh N place_c.js SHULKER=1` (the chests hold one shulker box each, tagged `materials`), probe `scripts/t26/shulker_probe.js`. A deploy of the console is a restart of its container (it mounts this repo read-only): `docker compose -f /mnt/data/fabric26-worlds/compose.yaml restart console-creative` after checking that `console-data/creative/state.json` has no running job.
