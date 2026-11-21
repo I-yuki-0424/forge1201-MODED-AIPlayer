@@ -316,7 +316,7 @@ class Mover {
                 const up = c.y > f.y && route[i].move === 'up', wet = b.entity.isInWater;
                 // in water: up (jump) to rise or to stay at the surface, nothing to sink
                 b.setControlState('jump', wet ? c.y >= f.y : ((up && d < 1.4 && b.entity.onGround) || (stuck > 6 && b.entity.onGround && c.y >= f.y)));
-                b.setControlState('sneak', last && d < 0.6);
+                b.setControlState('sneak', last && d < 0.6 && route[i].move !== 'drop' && c.y >= f.y);          // a careful last step, but never before a drop (sneak stops at the edge)
                 await sleep(50);
             }
         } finally { for (const k of ['forward', 'jump', 'sneak', 'sprint']) b.setControlState(k, false); }

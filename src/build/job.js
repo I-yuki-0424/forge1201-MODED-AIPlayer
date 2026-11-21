@@ -253,11 +253,12 @@ class BuildJob {
                 if (blocked(f.x, f.y, f.z) || blocked(f.x, f.y + 1, f.z) || !view.fits(f.x, f.y, f.z) || bodyCovers(f, seed)) continue;
                 const wet = view.kind(f.x, f.y, f.z) === 'water';
                 const standing = wet || view.stands(f.x, f.y - 1, f.z);
-                if (!standing) { let h = 1; while (h <= 5 && view.free(f.x, f.y - 1 - h, f.z) && !view.stands(f.x, f.y - 1 - h, f.z)) h++; if (h > 4 || !view.stands(f.x, f.y - 1 - h, f.z)) continue; }
+                let h = 0;
+                if (!standing) { h = 1; while (h <= 13 && view.free(f.x, f.y - 1 - h, f.z) && !view.stands(f.x, f.y - 1 - h, f.z)) h++; if (h > 12 || !view.stands(f.x, f.y - 1 - h, f.z)) continue; }
                 const eye = eyeOf({ x: f.x + 0.5, y: f.y, z: f.z + 0.5 });
                 if (boxDist(eye, seed) > this.o.reach) continue;
                 const reach = near(eye).filter((tk) => !bodyCovers(f, tk));
-                cands.push({ f, standing, reach, score: reach.length - Math.hypot(f.x - me.x, f.y - me.y, f.z - me.z) * 0.08 - (standing ? 0 : 15) });
+                cands.push({ f, standing, reach, score: reach.length - Math.hypot(f.x - me.x, f.y - me.y, f.z - me.z) * 0.08 - (standing ? 0 : 10 + 3 * h) });
             }
             cands.sort((a, b) => b.score - a.score);
             for (const c of cands.slice(0, 5)) {
@@ -269,7 +270,7 @@ class BuildJob {
                 best = { f: c.f, batch };
                 break;
             }
-            if (!best) { this.cool.set(seed.k, now + 6000); this.noWay = (this.noWay || 0) + 1; continue; }
+            if (!best) { this.cool.set(seed.k, now + 6000); this.noWay = (this.noWay || 0) + 1; if (this.noWay % 200 === 1) this.log(`no stance for ${seed.kind} ${seed.k} (${S.bare(this.t.wantOf(seed).name)}); ${cands.length} stances in range`); continue; }
             const tasks = best.batch.sort((a, b) => (down ? b.y - a.y : a.y - b.y) || a.x - b.x || a.z - b.z);
             for (const tk of tasks) this.claims.set(tk.k, name);
             this.bots.set(name, { station: [best.f, { x: best.f.x, y: best.f.y + 1, z: best.f.z }], pos: me });
