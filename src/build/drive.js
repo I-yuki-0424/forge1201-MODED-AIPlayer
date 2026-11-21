@@ -7,7 +7,7 @@ const R = require('./rules');
 const fly = require('./fly');
 const { Hand, seen, eyeOf, boxDist, sleep } = require('./act');
 const { readSupply, sealFrom } = require('./supply');
-const { REPLACEABLE } = require('./survey');
+const { REPLACEABLE, clicksFor } = require('./survey');
 
 const PACE_MS = 30;                 // between two actions of one bot
 const READ_MS = 300;                // after a batch, before the read-back
@@ -171,11 +171,14 @@ async function work(job, name, bot, hand, cl, cancel) {
     }
     for (const tk of left) results.push({ tk, ok: false, why: 'skipped' });
     // clicks after every placement of the batch (an empty hand, no sneak; a fence gate opens away from the look)
+    // how many: from what the cell holds now (power may have opened a trapdoor already, a note block may stand on its note), not from the recipe
     if (clicks.length) {
-        await sleep(120);
+        await sleep(150);
         for (const c of clicks.sort((a, b) => String(a.look && a.look.h).localeCompare(String(b.look && b.look.h)))) {
-            await hand.aim(c.look || null, false);
-            hand.click(c.tk, c.n); await pace();
+            const h = seen(bot, c.tk), fx = h ? clicksFor(job.t.wantOf(c.tk), h) : null;
+            if (!fx) continue;
+            await hand.aim(fx.look || c.look || null, false);
+            hand.click(c.tk, fx.clicks); await pace();
         }
     }
     await sleep(READ_MS);
