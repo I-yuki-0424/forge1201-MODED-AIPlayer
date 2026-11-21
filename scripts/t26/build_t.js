@@ -38,8 +38,8 @@ async function main() {
     const at = (x, y, z) => { const b = scout.blockAt(new Vec3(x, y, z)); return b ? b.name : null; };
     // a site on land (Overworld: a farm is not built in the sea; at most a tenth of the footprint's surface water), up to twelve draws
     let cx, cz;
-    for (let draw = 0; draw < 12; draw++) {
-        const ang = rnd() * Math.PI * 2, dist = 40 + rnd() * 60 + draw * 30;
+    for (let draw = 0; draw < 30; draw++) {
+        const ang = rnd() * Math.PI * 2, dist = 40 + rnd() * 60 + draw * 60;
         cx = Math.floor((NETHER ? sp.x / 8 : sp.x) + Math.cos(ang) * dist); cz = Math.floor((NETHER ? sp.z / 8 : sp.z) + Math.sin(ang) * dist);
         await srv.must(`tp ${names[0]} ${cx + 0.5} ${NETHER ? 100 : 250} ${cz + 0.5}`);
         await sleep(NETHER ? 6000 : 9000);

@@ -151,13 +151,14 @@ async function supplyTrip(job, name, bot, mv, need, cancel) {
         if (!r.ok) { job.log(`${name}: no way to the materials at ${site.x} ${site.y} ${site.z} (${r.why})`); return false; }
         if (bot.inventory.items().some((i) => /shulker_box$/.test(i.name))) await SUP.putBack(bot, site);          // boxes it carries (picked up somewhere) go back first
         const spot = () => boxSpot(job, bot, site);
+        await SUP.dropRubble(bot, (n) => job.available.has(n) || n === job.tempItem || (SUP.TEMPS.includes(n) && SUP.carried(bot)[n] <= 128), { minFree: 12 });          // room in the pack first (a pack full of rubble brought nothing back)
         const wants = needsFor(job, bot, need);
         job.depot = job.depot || [];
         const res = await SUP.fetch(bot, site, wants, mv, spot, { log: job.log, depot: job.depot });
         job.stats.trips++;
         job.log(`${name}: supply trip for ${JSON.stringify(wants).slice(0, 160)}: got ${JSON.stringify(res.got).slice(0, 200)}${Object.keys(res.short).length ? `; short ${JSON.stringify(res.short).slice(0, 200)}` : ''}`);
         // what it came back without, the chest has none of (left): not asked for again for ten minutes (a crew went every minute for nothing, live 2026-11-22 sF w3)
-        for (const k of Object.keys(wants)) if (!res.got[k]) (job.outOf = job.outOf || new Map()).set(k, Date.now() + 600000);
+        for (const k of res.absent || []) (job.outOf = job.outOf || new Map()).set(k, Date.now() + 600000);
         return Object.keys(res.got).length > 0;
     } catch (e) { job.log(`${name}: supply trip failed: ${e.message}`); return false; }
     finally { job.chestBusy = null; }
