@@ -216,17 +216,20 @@ class BuildJob {
         return 'ready';
     }
 
-    /** Cells a station must not take: the bodies of the other bots, and cells that will hold a block soon (a body in a cell blocks its placement). */
+    /**
+     * Cells a station must not take: the bodies of the other bots, the cells of tasks other bots hold now (they are about to be filled), and in the late stage the cells that will hold
+     * a block. A target cell that is not claimed yet may be stood in: a player stands on the floor it builds (forbidding every target cell of the window left the inside of a 48x48
+     * floor out of reach for good, live 2026-11-22); a block whose cell a body occupies waits until it moves.
+     */
     standBlocked(name) {
-        const bodies = new Set();
-        for (const [n, b] of this.bots) if (n !== name && b.station) for (const c of b.station) bodies.add(key(c.x, c.y, c.z));
-        const top = this.frontier + this.o.window + 1, t = this.t, stage = this.stage;
+        const busy = new Set();
+        for (const [n, b] of this.bots) if (n !== name && b.station) for (const c of b.station) busy.add(key(c.x, c.y, c.z));
+        for (const [k, n] of this.claims) if (n !== name) busy.add(k);
+        const t = this.t, stage = this.stage;
         return (x, y, z) => {
-            if (bodies.has(key(x, y, z))) return true;
-            if (!t.inside(x, y, z)) return false;
-            const i = t.idx(x, y, z);
-            if (t.isAir(i)) return false;
-            return stage === 'late' || (stage === 'place' && y <= top);
+            if (busy.has(key(x, y, z))) return true;
+            if (stage !== 'late' || !t.inside(x, y, z)) return false;
+            return !t.isAir(t.idx(x, y, z));
         };
     }
 
