@@ -13,7 +13,7 @@ const key = (x, y, z) => `${x},${y},${z}`;
 const AVOID_IN = /^(lava|fire|soul_fire|nether_portal|end_portal|end_gateway|cobweb|sweet_berry_bush|powder_snow|bubble_column|wither_rose|magma_block|campfire|soul_campfire|pointed_dripstone|cactus|moving_piston)$/;
 const NO_STAND = /^(magma_block|campfire|soul_campfire|cactus|.*_fence|.*_wall|.*_fence_gate|pointed_dripstone|honey_block|slime_block|powder_snow|scaffolding|.*_bed|hopper|composter)$/;
 const H = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
-const COST = { walk: 4.6, diag: 6.5, up: 9, drop: 5, pillar: 14, bridge: 40, temp: 6 };
+const COST = { walk: 4.6, diag: 6.5, up: 9, drop: 5, pillar: 14, bridge: 40, temp: 6, swim: 8 };
 
 class Heap {
     constructor() { this.a = []; }
@@ -86,6 +86,16 @@ function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = null } 
             open.push({ x, y, z, g, f: g + hh(x, y, z), t, p: c, move, ...extra });
         };
         const headFree = view.free(c.x, c.y + 2, c.z);
+        // swimming: from a cell in water (or into water, or out of it onto something to stand on) in the six directions
+        const wetHere = view.kind(c.x, c.y, c.z) === 'water';
+        for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]]) {
+            const x = c.x + dx, y = c.y + dy, z = c.z + dz;
+            if (!view.fits(x, y, z)) continue;
+            const wetThere = view.kind(x, y, z) === 'water';
+            if (!(wetHere || wetThere)) continue;
+            if (!wetThere && !view.stands(x, y - 1, z)) continue;
+            add(x, y, z, COST.swim, 'swim');
+        }
         for (const [dx, dz] of H) {
             const x = c.x + dx, z = c.z + dz, diag = dx && dz;
             if (diag && !(view.fits(c.x + dx, c.y, c.z) && view.fits(c.x, c.y, c.z + dz))) continue;
@@ -295,15 +305,16 @@ class Mover {
                 const c = route[i], last = i === i1, p = b.entity.position, dx = c.x + 0.5 - p.x, dz = c.z + 0.5 - p.z, d = Math.hypot(dx, dz);
                 const f = feet(b);
                 if (b.entity.onGround && !cells.has(key(f.x, f.y, f.z)) && !cells.has(key(f.x, f.y - 1, f.z)) && ![...cells].some((k) => { const [x, y, z] = k.split(',').map(Number); return Math.abs(x - f.x) <= 1 && Math.abs(z - f.z) <= 1 && Math.abs(y - f.y) <= 1; })) return { i, why: `off the route at ${f.x},${f.y},${f.z}` };
-                if (d < (last ? 0.15 : 0.35) && Math.abs(p.y - c.y) < 0.6) { i++; t0 = Date.now(); stuck = 0; lastD = Infinity; continue; }
+                if (d < (last ? 0.15 : 0.35) && (Math.abs(p.y - c.y) < 0.6 || (b.entity.isInWater && route[i].move === 'swim' && Math.abs(p.y - c.y) < 1.0))) { i++; t0 = Date.now(); stuck = 0; lastD = Infinity; continue; }
                 if (Date.now() - t0 > 4000) { const nm = (dy) => { const q = b.blockAt(new Vec3(c.x, c.y + dy, c.z), false); return q ? q.name : '?'; }; return { i, why: `no progress toward ${c.x},${c.y},${c.z} (${route[i].move}; there ${nm(-1)}/${nm(0)}/${nm(1)}; bot at ${p.x.toFixed(1)},${p.y.toFixed(1)},${p.z.toFixed(1)} ground ${b.entity.onGround})` }; }
                 if (d > lastD - 0.005) stuck++; else stuck = 0;
                 lastD = d;
                 b.look(Math.atan2(-dx, -dz), 0, true);
                 b.setControlState('forward', true);
                 b.setControlState('sprint', false);
-                const up = c.y > f.y && route[i].move === 'up';
-                b.setControlState('jump', (up && d < 1.4 && b.entity.onGround) || (stuck > 6 && b.entity.onGround && c.y >= f.y));
+                const up = c.y > f.y && route[i].move === 'up', wet = b.entity.isInWater;
+                // in water: up (jump) to rise or to stay at the surface, nothing to sink
+                b.setControlState('jump', wet ? c.y >= f.y : ((up && d < 1.4 && b.entity.onGround) || (stuck > 6 && b.entity.onGround && c.y >= f.y)));
                 b.setControlState('sneak', last && d < 0.6);
                 await sleep(50);
             }
@@ -327,8 +338,8 @@ class Mover {
             let i = 1, broke = false;
             while (i < route.length && !cancel.cancelled) {
                 const s = route[i];
-                if ((s.move === 'walk' || s.move === 'up' || s.move === 'drop') && !(s.dig && s.dig.length)) {
-                    let j = i; while (j + 1 < route.length && ['walk', 'up', 'drop'].includes(route[j + 1].move) && !(route[j + 1].dig && route[j + 1].dig.length)) j++;
+                if (['walk', 'up', 'drop', 'swim'].includes(s.move) && !(s.dig && s.dig.length)) {
+                    let j = i; while (j + 1 < route.length && ['walk', 'up', 'drop', 'swim'].includes(route[j + 1].move) && !(route[j + 1].dig && route[j + 1].dig.length)) j++;
                     const r = await this.follow(route, i, j, cancel);
                     steps += r.i - i;
                     if (r.i <= j) { last = r.why; broke = true; break; }

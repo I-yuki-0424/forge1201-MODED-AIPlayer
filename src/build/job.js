@@ -237,30 +237,34 @@ class BuildJob {
         const seedScore = (tk) => (down ? -tk.y : tk.y) * 3 + Math.hypot(tk.x - me.x, tk.y - me.y, tk.z - me.z) * 0.25 + crowd(tk) * 25 + (tk.kind === 'seal' || tk.kind === 'fill' ? -1000 : 0);
         doable.sort((a, b) => seedScore(a) - seedScore(b));
         const view = new View(bot, { canDig: () => false }), blocked = this.standBlocked(name);
-        for (const seed of doable.slice(0, 4)) {
-            let best = null, tried = 0;
+        // a spatial index of the doable tasks: a stance is first ranked by how many it has within reach (cheap); the click search (place.ways: rays and the vanilla model) runs only for
+        // the best few (live 2026-11-21 sv5: the search for every stance and task blocked the process 4.5 s per claim)
+        const grid = new Map(), g = (v) => Math.floor(v / 4);
+        for (const tk of doable) { const kk = `${g(tk.x)},${g(tk.y)},${g(tk.z)}`; (grid.get(kk) || grid.set(kk, []).get(kk)).push(tk); }
+        const near = (eye) => { const out = []; for (let gx = g(eye.x - 5); gx <= g(eye.x + 5); gx++) for (let gy = g(eye.y - 5); gy <= g(eye.y + 5); gy++) for (let gz = g(eye.z - 5); gz <= g(eye.z + 5); gz++) { const l = grid.get(`${gx},${gy},${gz}`); if (l) for (const tk of l) if (boxDist(eye, tk) <= this.o.reach) out.push(tk); } return out; };
+        for (const seed of doable.slice(0, 3)) {
+            let best = null;
+            const cands = [];
             for (const f of stationsAround(seed, this.o.reach, down)) {
-                if (tried >= 60) break;
-                if (blocked(f.x, f.y, f.z) || blocked(f.x, f.y + 1, f.z) || !view.fits(f.x, f.y, f.z)) continue;
-                if (bodyCovers(f, seed)) continue;
-                const standing = view.stands(f.x, f.y - 1, f.z);
-                // a stance in the air is reached by a pillar: only a short one (four blocks at most down to something to stand on)
+                if (cands.length >= 40) break;
+                if (blocked(f.x, f.y, f.z) || blocked(f.x, f.y + 1, f.z) || !view.fits(f.x, f.y, f.z) || bodyCovers(f, seed)) continue;
+                const wet = view.kind(f.x, f.y, f.z) === 'water';
+                const standing = wet || view.stands(f.x, f.y - 1, f.z);
                 if (!standing) { let h = 1; while (h <= 5 && view.free(f.x, f.y - 1 - h, f.z) && !view.stands(f.x, f.y - 1 - h, f.z)) h++; if (h > 4 || !view.stands(f.x, f.y - 1 - h, f.z)) continue; }
-                // not standing on anything: the mover pillars up to it, the pillar's top block is under the feet (and is a support for clicks)
-                const world = this._world(bot, standing ? null : f);
-                const way = this._way(world, seed, f);
-                tried++;
+                const eye = eyeOf({ x: f.x + 0.5, y: f.y, z: f.z + 0.5 });
+                if (boxDist(eye, seed) > this.o.reach) continue;
+                const reach = near(eye).filter((tk) => !bodyCovers(f, tk));
+                cands.push({ f, standing, reach, score: reach.length - Math.hypot(f.x - me.x, f.y - me.y, f.z - me.z) * 0.08 - (standing ? 0 : 15) });
+            }
+            cands.sort((a, b) => b.score - a.score);
+            for (const c of cands.slice(0, 5)) {
+                const world = this._world(bot, c.standing ? null : c.f);
+                const way = this._way(world, seed, c.f);
                 if (!way) continue;
-                // the other ready tasks this stance reaches (each checked by the same rules), the seed first
-                const eye = eyeOf({ x: f.x + 0.5, y: f.y, z: f.z + 0.5 }), batch = [{ ...seed, way }];
-                for (const tk of doable) {
-                    if (tk === seed || batch.length >= BATCH || bodyCovers(f, tk) || boxDist(eye, tk) > this.o.reach) continue;
-                    const w = this._way(world, tk, f);
-                    if (w) batch.push({ ...tk, way: w });
-                }
-                const score = batch.length - Math.hypot(f.x - me.x, f.y - me.y, f.z - me.z) * 0.08 - (standing ? 0 : 15);
-                if (!best || score > best.score) best = { f, batch, score };
-                if (batch.length >= 12) break;
+                const batch = [{ ...seed, way }];
+                for (const tk of c.reach) { if (tk === seed || batch.length >= 24) continue; const w = this._way(world, tk, c.f); if (w) batch.push({ ...tk, way: w }); }
+                best = { f: c.f, batch };
+                break;
             }
             if (!best) { this.cool.set(seed.k, now + 6000); this.noWay = (this.noWay || 0) + 1; continue; }
             const tasks = best.batch.sort((a, b) => (down ? b.y - a.y : a.y - b.y) || a.x - b.x || a.z - b.z);
