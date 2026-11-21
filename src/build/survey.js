@@ -3,6 +3,7 @@
 // that must go), cleared (a block that must go), placed, clicked (a note, a delay: the block is right, a click-set property is not), poured or lit. Pure apart from the reads.
 const S = require('./state');
 const { seen } = require('./act');
+const P = require('./pistons');
 
 // Blocks a placement replaces by itself (vanilla canBeReplaced), apart from fluids.
 const REPLACEABLE = /^(air|cave_air|void_air|short_grass|tall_grass|fern|large_fern|dead_bush|bush|short_dry_grass|tall_dry_grass|vine|glow_lichen|snow|seagrass|tall_seagrass|crimson_roots|warped_roots|nether_sprouts|hanging_roots|fire|soul_fire|light|structure_void|leaf_litter|resin_clump|sculk_vein)$/;
@@ -50,12 +51,22 @@ function survey(target, bot, { lit = new Set() } = {}) {
         if (h.name === 'water' || h.name === 'lava' || WATERY.test(h.name)) fluidAt[i] = 1;
     }
     const portalCells = new Map(); for (const p of target.portals) for (const i of p.cells) portalCells.set(i, p);
+    // a piston the world holds in the other phase than the blueprint's (its machine rests elsewhere): the cells in front are built as that phase leaves them (pistons.js)
+    const over = new Map(), kept = []; let phased = 0;
+    for (const p of target.pistons) {
+        const h = have[p.i]; if (!h || S.bare(h.name) !== S.bare(target.stateOf(p.i).name)) continue;
+        if ((String(h.props.extended) === 'true') === p.extended) continue;
+        const cells = P.otherPhase(target, p); if (!cells) continue;
+        phased++;
+        for (const c of cells) if (target.inside(c.x, c.y, c.z)) over.set(target.idx(c.x, c.y, c.z), c.state || { name: 'air', props: {} });
+    }
     for (let i = 0; i < target.n; i++) {
         const h = have[i]; if (!h) continue;
-        const want = target.stateOf(i), c = target.cell(i), wn = S.bare(want.name);
+        const want = over.has(i) ? over.get(i) : target.stateOf(i), c = target.cell(i), wn = S.bare(want.name);
+        if (fluidAt[i] && S.FLUIDS.has(wn) && wn === h.name) kept.push({ k: `${c.x},${c.y},${c.z}`, i, ...c, kind: 'fill' });     // a fluid where the blueprint has one: kept only when no block is left to place (job.js)
         if (S.matches(want, h)) { right++; continue; }
         if (S.dynamicPair(want, h)) { dynamic++; continue; }
-        const base = { k: `${c.x},${c.y},${c.z}`, i, ...c };
+        const base = { k: `${c.x},${c.y},${c.z}`, i, ...c, ...(over.has(i) ? { want } : {}) };
         if (portalCells.has(i)) {
             const p = portalCells.get(i);
             if (S.AIR.has(h.name) || h.name === 'fire') { if (!lit.has(p)) { lit.add(p); tasks.push({ ...base, kind: 'ignite', portal: p, k: `portal@${p.light.x},${p.light.y},${p.light.z}`, x: p.light.x, y: p.light.y, z: p.light.z }); } continue; }
@@ -63,13 +74,13 @@ function survey(target, bot, { lit = new Set() } = {}) {
         }
         if (fluidAt[i] && !(S.FLUIDS.has(wn) && wn === h.name)) {
             // a fluid where something else belongs: into a block that holds no water (not waterloggable) the block itself goes straight in; otherwise the fluid is filled first
-            const r = target.recipe[i];
+            const r = target.recipeOf(base);
             if (r && r.op === 'place' && !('waterlogged' in want.props) && h.name !== 'bubble_column' && !WATERY.test(h.name)) tasks.push({ ...base, kind: 'place' });
             else tasks.push({ ...base, kind: 'fill' });
             continue;
         }
         if (S.AIR.has(wn)) { tasks.push({ ...base, kind: 'clear' }); continue; }
-        const r = target.recipe[i];
+        const r = target.recipeOf(base);
         if (!r) { if (!S.AIR.has(h.name) && !REPLACEABLE.test(h.name)) tasks.push({ ...base, kind: 'clear' }); continue; }       // nothing to place here (a piston's head): only make room
         const fx = clicksFor(want, h);
         if (fx) { tasks.push({ ...base, kind: 'fix', ...fx }); continue; }
@@ -87,7 +98,7 @@ function survey(target, bot, { lit = new Set() } = {}) {
     for (let y = b.y; y < b.y + b.sy; y++) for (let z = b.z; z < b.z + b.sz; z++) { outside(b.x - 1, y, z); outside(b.x + b.sx, y, z); }
     for (let y = b.y; y < b.y + b.sy; y++) for (let x = b.x; x < b.x + b.sx; x++) { outside(x, y, b.z - 1); outside(x, y, b.z + b.sz); }
     for (let z = b.z; z < b.z + b.sz; z++) for (let x = b.x; x < b.x + b.sx; x++) { outside(x, b.y + b.sy, z); outside(x, b.y - 1, z); }
-    return { tasks, unknown, right, dynamic, have };
+    return { tasks, unknown, right, dynamic, have, phased, kept };
 }
 
 module.exports = { survey, clicksFor, REPLACEABLE, WATERY, FLUID, CLICKS };

@@ -102,7 +102,7 @@ function holds(job, bot, tk) {
     if (tk.kind === 'seal' || tk.kind === 'fill') return h.name !== 'water' && h.name !== 'lava' && h.props.waterlogged !== 'true' && !/^(seagrass|tall_seagrass|kelp|kelp_plant|bubble_column)$/.test(h.name) ? { ok: true } : { ok: false, why: `still ${h.name}` };
     if (tk.kind === 'clear') return S.AIR.has(h.name) ? { ok: true } : { ok: false, why: `still ${h.name}` };
     if (tk.kind === 'ignite' && tk.portal) { const p = seen(bot, tk.portal.at); return p && p.name === 'nether_portal' ? { ok: true } : { ok: false, why: `portal not lit (${p && p.name})` }; }
-    const want = job.t.stateOf(tk.i);
+    const want = job.t.wantOf(tk);
     if (S.matches(want, h) || S.dynamicPair(want, h)) return { ok: true };
     return { ok: false, why: `got ${S.str(h.name, S.decidedProps(h.name, h.props))}` };
 }
@@ -131,14 +131,14 @@ async function work(job, name, bot, hand, cl, cancel) {
         const groups = new Map();
         for (const tk of left) {
             if (!job.ready(tk, bot, now, sent)) continue;
-            const r = tk.kind === 'place' ? job.t.recipe[tk.i] : null;
+            const r = tk.kind === 'place' ? job.t.recipeOf(tk) : null;
             const aim = r ? Hand.aimKey(r) : 'any';
             (groups.get(aim) || groups.set(aim, []).get(aim)).push(tk);
         }
         if (!groups.size) break;
         for (const [aim, list] of groups) {
             if (cancel.cancelled) break;
-            const r0 = list[0].kind === 'place' ? job.t.recipe[list[0].i] : null;
+            const r0 = list[0].kind === 'place' ? job.t.recipeOf(list[0]) : null;
             if (r0) await hand.aim(r0.look, r0.sneak);
             else if (aim === 'any' && hand.sneaking) await hand.aim(null, false);
             for (const tk of list) {
@@ -156,8 +156,9 @@ async function work(job, name, bot, hand, cl, cancel) {
                 }
                 if (tk.kind === 'fix') { clicks.push({ tk, n: tk.clicks, look: tk.look }); executed.push(tk); continue; }
                 if (tk.kind === 'place') {
-                    const r = job.t.recipe[tk.i];
-                    if (S.matches(job.t.stateOf(tk.i), h)) { results.push({ tk, ok: true }); continue; }
+                    const r = job.t.recipeOf(tk);
+                    if (!r) { results.push({ tk, ok: false, why: 'no recipe' }); continue; }
+                    if (S.matches(job.t.wantOf(tk), h)) { results.push({ tk, ok: true }); continue; }
                     const blockers = inCell(bot, tk);
                     if (blockers.length) { if (blockers.some((e) => e.type !== 'player')) await shoo(bot, hand, blockers); results.push({ tk, ok: false, why: 'skipped' }); continue; }
                     if (!(S.AIR.has(h.name) || REPLACEABLE.test(h.name) || h.name === 'water' || h.name === 'lava')) { hand.dig(tk); await sleep(PACE_MS); hand.hold(r.item); }
@@ -193,7 +194,7 @@ async function late(job, name, bot, hand, cl, cancel) {
     const results = [];
     for (const tk of cl.tasks) {
         if (cancel.cancelled) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
-        const r = tk.i >= 0 ? job.t.recipe[tk.i] : null;
+        const r = tk.i >= 0 ? job.t.recipeOf(tk) : null;
         if (tk.kind === 'pour') {
             const st = pourStation(bot, tk, job.standBlocked(name), job.o.reach);
             if (!st) { results.push({ tk, ok: false, why: 'no ray into the cell' }); continue; }

@@ -11,6 +11,7 @@ const { Vec3 } = require('vec3');
 const lit = require('../../src/work/jobs/litematic');
 const S = require('../../src/build/state');
 const { Target } = require('../../src/build/target');
+const P = require('../../src/build/pistons');
 
 const NETHER = (process.env.DIM || 'overworld') === 'nether', BOTS = Math.min(12, Math.max(1, Number(process.env.BOTS || 8))), LIMIT_MIN = Number(process.env.LIMIT_MIN || 120);
 const FILE = process.env.LITEMATIC || '/app/tests/fixtures/iron-farm-34.litematic';
@@ -107,10 +108,10 @@ async function main() {
     const wrongBy = {}; for (const w of wrong) { const k = w.want.replace(/\[.*$/, ''); wrongBy[k] = (wrongBy[k] || 0) + 1; }
     const dynBy = {}; for (const w of dynamic) { const k = w.want.replace(/\[.*$/, ''); dynBy[k] = (dynBy[k] || 0) + 1; }
     const res = job ? job.impl.build.result : null, st = job ? job.impl.build.status() : null;
-    console.log(`[judge] ${J.checked} cells checked; WRONG ${wrong.length} ${JSON.stringify(wrongBy)}; right in what the builder decides but not in what the world decides (power, connections, pistons, flows): ${dynamic.length} ${JSON.stringify(dynBy)}`);
+    console.log(`[judge] ${J.checked} cells checked; WRONG ${wrong.length} ${JSON.stringify(wrongBy)}; right in what the builder decides but not in what the world decides (power, connections, flows): ${dynamic.length} ${JSON.stringify(dynBy)}; cells in front of pistons in the other phase: ${J.phase.length}`);
     for (const w of wrong.slice(0, 40)) console.log(`  wrong ${w.at.join(',')} want ${w.want}`);
     const pass = controlFails && state === 'finished' && wrong.length === 0;
-    rep.trial(`${parsed.meta.name}${NETHER ? '@nether' : ''}`, pass, { state, err, minutes: Math.round((Date.now() - t0) / 6000) / 10, strict, wrong: wrong.length, wrongBy, wrongCells: wrong.slice(0, 80), dynamic: dynamic.length, dynamicBy: dynBy, dynamicCells: dynamic.slice(0, 40), controlFails, box: M, size: [sx, sy, sz], chest: C, boxes: boxes.length, result: res, status: st, history: job ? job.impl.build.history : null, seed });
+    rep.trial(`${parsed.meta.name}${NETHER ? '@nether' : ''}`, pass, { state, err, minutes: Math.round((Date.now() - t0) / 6000) / 10, strict, wrong: wrong.length, wrongBy, wrongCells: wrong.slice(0, 80), dynamic: dynamic.length, dynamicBy: dynBy, dynamicCells: dynamic.slice(0, 40), phaseCells: J.phase.length, controlFails, box: M, size: [sx, sy, sz], chest: C, boxes: boxes.length, result: res, status: st, history: job ? job.impl.build.history : null, seed });
     rep.write({ seed, file: FILE, required: '100 %' });
     await srv.cmd(`forceload remove ${M.x - 16} ${M.z - 16} ${M.x + sx + 16} ${M.z + sz + 16}`);
     await svc.stop(); process.exit(pass ? 0 : 1);
@@ -121,12 +122,20 @@ async function main() {
  * place, a block left behind); dynamic = right in what the builder decides, different in what the world decides (power, connections, an extended piston and its head, a flow's level).
  */
 async function judge(srv, target) {
-    const wrong = [], dynamic = [];
+    const wrong = [], dynamic = [], phase = [];
     const is = async (c, st) => /^Test passed/.test(strip(await srv.cmd(`execute if block ${c.x} ${c.y} ${c.z} ${st}`)));
+    // pistons the world holds in the other phase than the blueprint's: the cells in front are judged as that phase leaves them (src/build/pistons.js), and counted apart
+    const over = new Map();
+    for (const p of target.pistons) {
+        const st = target.stateOf(p.i);
+        if (!(await is(p.at, `minecraft:${st.name}[facing=${st.props.facing},extended=${!p.extended}]`))) continue;
+        const cells = P.otherPhase(target, p); if (!cells) continue;
+        for (const c of cells) if (target.inside(c.x, c.y, c.z)) over.set(target.idx(c.x, c.y, c.z), c.state || { name: 'air', props: {} });
+    }
     const jobs = [];
     for (let i = 0; i < target.n; i++) jobs.push(i);
     const one = async (i) => {
-        const c = target.cell(i), want = target.stateOf(i), wn = want.name, rel = [c.x - target.box.x, c.y - target.box.y, c.z - target.box.z];
+        const c = target.cell(i), want = over.has(i) ? over.get(i) : target.stateOf(i), wn = want.name, rel = [c.x - target.box.x, c.y - target.box.y, c.z - target.box.z];
         let ok, exact = true;
         if (S.AIR.has(wn)) { ok = (await is(c, 'minecraft:air')) || (await is(c, 'minecraft:cave_air')) || (await is(c, 'minecraft:void_air')); if (!ok && ((await is(c, 'minecraft:piston_head')) || (await is(c, 'minecraft:moving_piston')))) { ok = true; exact = false; } }
         else if (S.FLUIDS.has(wn)) {
@@ -134,11 +143,12 @@ async function judge(srv, target) {
             else ok = await is(c, `minecraft:${wn}[level=0]`);
         } else if (wn === 'piston_head') { ok = (await is(c, 'minecraft:piston_head')) || (await is(c, 'minecraft:air')) || (await is(c, 'minecraft:moving_piston')); exact = ok && (await is(c, S.str(wn, want.props))); }
         else { ok = await is(c, S.str(wn, S.decidedProps(wn, want.props))); if (ok && Object.keys(want.props).length) exact = await is(c, S.str(wn, want.props)); }
-        if (!ok) wrong.push({ at: rel, want: S.str(wn, want.props) });
+        if (!ok) wrong.push({ at: rel, want: S.str(wn, want.props), ...(over.has(i) ? { phase: true } : {}) });
+        else if (over.has(i)) phase.push({ at: rel, want: S.str(wn, want.props) });
         else if (!exact) dynamic.push({ at: rel, want: S.str(wn, want.props) });
     };
     for (let k = 0; k < jobs.length; k += 64) await Promise.all(jobs.slice(k, k + 64).map(one));
-    return { wrong, dynamic, checked: jobs.length };
+    return { wrong, dynamic, phase, checked: jobs.length, phasedPistons: [...new Set([...over.keys()])].length };
 }
 
 main().catch((e) => { console.error(e); process.exit(2); });

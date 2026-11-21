@@ -4,6 +4,7 @@
 const nbt = require('prismarine-nbt');
 const S = require('./state');
 const R = require('./rules');
+const P = require('./pistons');
 
 const AIR_ID = 0;
 
@@ -39,6 +40,7 @@ class Target {
         for (const p of this.portals) for (const i of p.cells) this.recipe[i] = null;        // the lighting stands for every portal cell
         for (let i = 0; i < this.n; i++) { const r = this.recipe[i]; if (r && r.item) this.items.set(r.item, (this.items.get(r.item) || 0) + 1 + (r.repeat || 0) + (r.again ? 1 : 0)); }
         if (this.portals.length) this.items.set('flint_and_steel', (this.items.get('flint_and_steel') || 0) + this.portals.length);
+        this.pistons = P.pistonsOf(this);
     }
 
     idx(x, y, z) { const b = this.box; return ((y - b.y) * b.sz + (z - b.z)) * b.sx + (x - b.x); }
@@ -47,6 +49,9 @@ class Target {
     /** Target state at a world cell (null outside the box). */
     at(x, y, z) { return this.inside(x, y, z) ? this.palette[this.t[this.idx(x, y, z)]] : null; }
     stateOf(i) { return this.palette[this.t[i]]; }
+    /** What a task must make of its cell: the blueprint's state, or the other phase of a piston's machine (survey.js) when the task says so. */
+    wantOf(tk) { return tk.want || this.stateOf(tk.i); }
+    recipeOf(tk) { return tk.want ? R.recipe(tk.want, (dx, dy, dz) => this.at(tk.x + dx, tk.y + dy, tk.z + dz)) : this.recipe[tk.i]; }
     isAir(i) { return this.t[i] === AIR_ID; }
 
     /** Every portal of the blueprint: its cells, and the lighting (the obsidian under its lowest middle cell, clicked on top). */

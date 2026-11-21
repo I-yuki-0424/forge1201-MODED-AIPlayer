@@ -61,6 +61,9 @@ class BuildJob {
             this.stats.surveys++;
             if (sv.unknown) { this.log(`survey: ${sv.unknown} cells not loaded for ${bot.username}`); }
             const tasks = new Map();
+            // fluids the blueprint has are poured at the end, when their basin stands: while blocks are still to be placed or cleared, a fluid in the box (even one where the blueprint
+            // has it, as the world made it) is filled, or it runs into every cell that is opened next to it (live 2026-11-21 run n5: clearing next to natural lava waited for ever)
+            if (sv.tasks.some((tk) => STAGE_OF[tk.kind] === 'prepare' || STAGE_OF[tk.kind] === 'place')) for (const tk of sv.kept) sv.tasks.push(tk);
             for (const tk of sv.tasks) {
                 if (this.parked.has(tk.k)) continue;
                 if (tk.kind !== 'seal' && tk.kind !== 'ignite' && this.available && !this._itemOk(tk)) { this.parked.set(tk.k, `missing_item ${this._itemOf(tk)}`); continue; }
@@ -74,9 +77,9 @@ class BuildJob {
             for (const st of ORDER) if ([...tasks.values()].some((tk) => STAGE_OF[tk.kind] === st)) { stage = st; break; }
             if (sv.unknown) stage = this.stage === 'survey' ? 'survey' : stage;
             this.history.push({ t: Date.now(), why, stage, right: sv.right, dynamic: sv.dynamic, unknown: sv.unknown, by, parked: this.parked.size });
-            this.log(`survey (${why}): ${sv.right} right, ${sv.dynamic} dynamic, ${sv.unknown} unknown, work ${JSON.stringify(by)}, parked ${this.parked.size} -> ${stage}`);
+            this.log(`survey (${why}): ${sv.right} right, ${sv.dynamic} dynamic, ${sv.phased} pistons in the other phase, ${sv.unknown} unknown, work ${JSON.stringify(by)}, parked ${this.parked.size} -> ${stage}`);
             // the tail by name (what each cell holds and should hold): a cell that keeps coming back shows itself here
-            if (tasks.size && tasks.size <= 40) this.log(`survey tail: ${[...tasks.values()].map((tk) => { const h = sv.have && tk.i >= 0 ? sv.have[tk.i] : null, w = tk.i >= 0 ? this.t.stateOf(tk.i) : null; return `${tk.kind} ${tk.k}${w ? ' want ' + S.str(w.name, S.decidedProps(w.name, w.props)).replace('minecraft:', '') : ''}${h ? ' has ' + S.str(h.name, S.decidedProps(h.name, h.props)).replace('minecraft:', '') : ''}${this.fails.get(tk.k) ? ' x' + this.fails.get(tk.k) : ''}`; }).join(' | ')}`);
+            if (tasks.size && tasks.size <= 40) this.log(`survey tail: ${[...tasks.values()].map((tk) => { const h = sv.have && tk.i >= 0 ? sv.have[tk.i] : null, w = tk.i >= 0 ? this.t.wantOf(tk) : null; return `${tk.kind} ${tk.k}${w ? ' want ' + S.str(w.name, S.decidedProps(w.name, w.props)).replace('minecraft:', '') : ''}${h ? ' has ' + S.str(h.name, S.decidedProps(h.name, h.props)).replace('minecraft:', '') : ''}${this.fails.get(tk.k) ? ' x' + this.fails.get(tk.k) : ''}`; }).join(' | ')}`);
             if (stage === 'settle') {
                 if (this.stage === 'settle' && !sv.unknown) { this._finish(sv); }
                 this.stage = 'settle';
@@ -87,7 +90,7 @@ class BuildJob {
         try { await this.surveying; } finally { this.surveying = null; }
     }
 
-    _itemOf(tk) { if (tk.kind === 'fill' || tk.kind === 'seal') return this.sealItem; if (tk.kind === 'ignite') return 'flint_and_steel'; const r = tk.i >= 0 ? this.t.recipe[tk.i] : null; return r && r.item; }
+    _itemOf(tk) { if (tk.kind === 'fill' || tk.kind === 'seal') return this.sealItem; if (tk.kind === 'ignite') return 'flint_and_steel'; const r = tk.i >= 0 ? this.t.recipeOf(tk) : null; return r && r.item; }
     _itemOk(tk) { if (tk.kind === 'clear' || tk.kind === 'fix') return true; const it = this._itemOf(tk); return !it || this.available.has(it); }
 
     _finish(sv) {
@@ -130,7 +133,7 @@ class BuildJob {
         }
         if (tk.kind === 'place' || tk.kind === 'fix') {
             if (tk.y > this.frontier + this.o.window) return false;
-            const r = this.t.recipe[tk.i];
+            const r = this.t.recipeOf(tk);
             if (tk.kind === 'place' && r) for (const d of r.deps) {
                 const x = tk.x + d[0], y = tk.y + d[1], z = tk.z + d[2];
                 if (pending && pending.has(key(x, y, z))) continue;
@@ -140,6 +143,25 @@ class BuildJob {
             return true;
         }
         return true;
+    }
+
+    /** Why task `tk` is not ready (for the stall log): the first rule that holds it. */
+    whyNot(tk, bot, now) {
+        if (this.parked.has(tk.k)) return 'parked';
+        if ((this.cool.get(tk.k) || 0) > now) return 'cooling';
+        if (STAGE_OF[tk.kind] !== this.stage) return `stage ${STAGE_OF[tk.kind]}`;
+        if ((tk.kind === 'place' || tk.kind === 'fix') && tk.y > this.frontier + this.o.window) return `above the window (frontier ${this.frontier})`;
+        const r = tk.i >= 0 ? this.t.recipeOf(tk) : null;
+        if (tk.kind === 'place' && r) for (const d of r.deps) {
+            const x = tk.x + d[0], y = tk.y + d[1], z = tk.z + d[2], want = this.t.at(x, y, z), h = seen(bot, { x, y, z });
+            if (!want || !h || !S.matches(want, h)) return `waits for ${x},${y},${z} ${want ? S.str(want.name, S.decidedProps(want.name, want.props)) : '?'} (has ${h ? S.str(h.name, S.decidedProps(h.name, h.props)) : '?'}${this.parked.has(key(x, y, z)) ? ', parked' : ''})`;
+        }
+        if (tk.kind === 'clear') {
+            const up = this.tasks.get(key(tk.x, tk.y + 1, tk.z));
+            if (up && up.kind === 'clear') return 'under a cell to clear';
+            for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]]) { const h = seen(bot, { x: tk.x + dx, y: tk.y + dy, z: tk.z + dz }); if (h && (h.name === 'water' || h.name === 'lava' || h.props.waterlogged === 'true')) return `next to ${h.name} at ${tk.x + dx},${tk.y + dy},${tk.z + dz}`; }
+        }
+        return 'ready';
     }
 
     /**
@@ -179,7 +201,7 @@ class BuildJob {
                 else if (now - this.stallSince > STALL_MS) {
                     this.relaxed = true;
                     const why = {}; let ex = [];
-                    for (const tk of this.tasks.values()) { const w = this.whyNot(tk, bot, now); const k = w.replace(/ \d.*$/, '').replace(/waits for .*/, 'waits'); why[k] = (why[k] || 0) + 1; if (ex.length < 6 && /waits/.test(w)) ex.push(`${tk.k} ${S.bare(this.t.stateOf(tk.i).name)} ${w}`); }
+                    for (const tk of this.tasks.values()) { const w = this.whyNot(tk, bot, now); const k = w.replace(/ \d.*$/, '').replace(/waits for .*/, 'waits'); why[k] = (why[k] || 0) + 1; if (ex.length < 6 && /waits/.test(w)) ex.push(`${tk.k} ${S.bare(this.t.wantOf(tk).name)} ${w}`); }
                     this.log(`stall in ${this.stage} (${this.tasks.size} tasks, none ready for ${Math.round((now - this.stallSince) / 1000)} s): order rules relaxed until the next survey; why ${JSON.stringify(why)}; e.g. ${ex.join(' | ')}`);
                 }
             }

@@ -178,6 +178,26 @@ test('job: stages in order, clearing top-down and never next to a fluid, placing
     assert.strictEqual(job.claims.size, 0);
     assert.strictEqual(job.fails.get(cl.tasks[0].k), 1);
 });
+test('pistons: the other phase of a retracted piston pushes the row, of an extended sticky one pulls the block back', () => {
+    const P = require('../src/build/pistons');
+    const palette = [{ name: 'minecraft:air', props: {} }, { name: 'minecraft:sticky_piston', props: { facing: 'up', extended: 'false' } }, { name: 'minecraft:smooth_stone', props: {} }, { name: 'minecraft:sticky_piston', props: { facing: 'up', extended: 'true' } }, { name: 'minecraft:piston_head', props: { facing: 'up', type: 'sticky', short: 'false' } }];
+    const blocks = [{ x: 0, y: 0, z: 0, s: 1 }, { x: 0, y: 1, z: 0, s: 2 }, { x: 2, y: 0, z: 0, s: 3 }, { x: 2, y: 1, z: 0, s: 4 }, { x: 2, y: 2, z: 0, s: 2 }];
+    for (let x = 0; x < 3; x++) for (let y = 0; y < 4; y++) if (!blocks.some((b) => b.x === x && b.y === y)) blocks.push({ x, y, z: 0, s: 0 });
+    const t = new Target({ size: [3, 4, 1], palette, blocks }, { x: 0, y: 64, z: 0 });
+    assert.strictEqual(t.pistons.length, 2);
+    const ret = t.pistons.find((p) => !p.extended), ext = t.pistons.find((p) => p.extended);
+    const o1 = P.otherPhase(t, ret);
+    assert.deepStrictEqual(o1.map((c) => [c.y, c.state && c.state.name]), [[65, 'piston_head'], [66, 'smooth_stone']]);
+    const o2 = P.otherPhase(t, ext);
+    assert.deepStrictEqual(o2.map((c) => [c.y, c.state && c.state.name]), [[65, 'smooth_stone'], [66, null]]);
+    // the survey builds the other phase when the world holds the piston that way, and leaves the head alone
+    const w = new Map([['0,64,0', { name: 'sticky_piston', props: { facing: 'up', extended: 'true' } }], ['0,65,0', { name: 'piston_head', props: { facing: 'up', type: 'sticky', short: 'false' } }]]);
+    const sv = survey(t, fakeBot(w));
+    assert.strictEqual(sv.phased, 1);
+    const tk = sv.tasks.find((q) => q.k === '0,66,0');
+    assert(tk && tk.kind === 'place' && tk.want && tk.want.name === 'smooth_stone', 'the stone goes where the push leaves it');
+    assert(!sv.tasks.some((q) => q.k === '0,65,0'), 'the head is not touched');
+});
 test('the owner\'s blueprints: every cell has a recipe or is the world\'s (air, heads, flows, bed heads, portal cells)', () => {
     for (const f of ['iron-farm-34', 'iron-farm-34-nether-side-main']) {
         const p = lit.parse(fs.readFileSync(path.join(__dirname, 'fixtures', `${f}.litematic`)));
