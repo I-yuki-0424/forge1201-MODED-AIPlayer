@@ -41,6 +41,7 @@ class BuildJob {
         this.cool = new Map();             // k -> time before which it is not offered
         this.bots = new Map();             // name -> { station: [cells], pos }
         this.noPath = new Map();           // name -> walks in a row that found no way
+        this.skips = new Map();            // task -> times skipped
         this.noStance = new Map();         // task -> when a look first found no stance
         this.surveying = null;
         this.rounds = 0;
@@ -53,6 +54,7 @@ class BuildJob {
         this.lit = new Set();
         this.temps = new Set();            // temporary blocks placed outside the box ('x,y,z')
         this.tempItem = opts.tempItem || null;
+        this.time = { walk: 0, dig: 0, place: 0, trip: 0, idle: 0, claim: 0 };
         this.stats = { placed: 0, cleared: 0, sealed: 0, filled: 0, fixed: 0, poured: 0, lit: 0, untemp: 0, failed: 0, surveys: 0, escapes: 0, trips: 0 };
     }
 
@@ -346,7 +348,12 @@ class BuildJob {
         for (const { tk, ok, why } of results) {
             this.claims.delete(tk.k);
             if (ok) { this.tasks.delete(tk.k); this.stats[{ seal: 'sealed', fill: 'filled', clear: 'cleared', place: 'placed', fix: 'fixed', pour: 'poured', ignite: 'lit', untemp: 'untemp' }[tk.kind]]++; if (tk.kind === 'untemp') this.temps.delete(tk.k); if (tk.kind === 'place' || tk.kind === 'fix' || tk.kind === 'clear') this._lowered(tk); continue; }
-            if (why === 'skipped') { this.cool.set(tk.k, now + 1500); continue; }
+            if (why === 'skipped') {
+                // skipped over and over (out of reach, its own floor, no item at hand) counts as a failure in the end: a task skipped for ever held a stage (live 2026-11-22)
+                const sk = (this.skips.get(tk.k) || 0) + 1; this.skips.set(tk.k, sk);
+                this.cool.set(tk.k, now + 1500);
+                if (sk % 20 !== 0) continue;
+            }
             if (STAGE_OF[tk.kind] === 'late') this.log(`${name}: ${tk.kind} ${tk.k} failed: ${why}`);
             const n = (this.fails.get(tk.k) || 0) + 1; this.fails.set(tk.k, n); this.stats.failed++;
             this.cool.set(tk.k, now + 2000 * Math.min(n, 5));
@@ -369,7 +376,7 @@ class BuildJob {
     status() {
         const by = {}; for (const tk of this.tasks.values()) by[tk.kind] = (by[tk.kind] || 0) + 1;
         const last = this.history[this.history.length - 1];
-        return { stage: this.done ? 'done' : this.stage, work: by, claimed: this.claims.size, parked: this.parked.size, right: last ? last.right : 0, total: this.t.n, stats: this.stats, frontier: Number.isFinite(this.frontier) ? this.frontier - this.t.box.y : null, result: this.result };
+        return { stage: this.done ? 'done' : this.stage, time: Object.fromEntries(Object.entries(this.time).map(([k, v]) => [k, Math.round(v / 1000)])), work: by, claimed: this.claims.size, parked: this.parked.size, right: last ? last.right : 0, total: this.t.n, stats: this.stats, frontier: Number.isFinite(this.frontier) ? this.frontier - this.t.box.y : null, result: this.result };
     }
 }
 

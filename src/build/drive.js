@@ -49,7 +49,9 @@ async function click(mv, way) { await mv.click(way.n || way.at, way.face, way.hi
 /** Do one claim from its stance. Returns results for job.report. */
 async function work(job, name, bot, mv, cl, cancel) {
     const results = [];
+    const tw = Date.now();
     const r = await mv.goto(cl.station, { cancel, maxNodes: 30000 });
+    job.time.walk += Date.now() - tw;
     if (!r.ok) {
         // a stance the bot cannot get to counts against its tasks (as 'skipped' they came back for ever: live 2026-11-22 sD w2, 22 tree tops for 40 minutes)
         for (const tk of cl.tasks) results.push({ tk, ok: false, why: `no way to the stance ${cl.station.x},${cl.station.y},${cl.station.z} (${r.why})` });
@@ -69,7 +71,7 @@ async function work(job, name, bot, mv, cl, cancel) {
         const h = seen(bot, tk);
         if (!h || !way) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
         { const me = feet(bot); if ((tk.kind === 'clear' || tk.kind === 'untemp') && tk.x === me.x && tk.z === me.z && tk.y === me.y - 1) { results.push({ tk, ok: false, why: 'skipped' }); continue; } }
-        if (tk.kind === 'clear' || tk.kind === 'untemp') { if (S.AIR.has(h.name)) { results.push({ tk, ok: true }); continue; } await mv.dig(tk); done.push(tk); continue; }
+        if (tk.kind === 'clear' || tk.kind === 'untemp') { if (S.AIR.has(h.name)) { results.push({ tk, ok: true }); continue; } const td = Date.now(); await mv.dig(tk); job.time.dig += Date.now() - td; done.push(tk); continue; }
         if (tk.kind === 'seal' || tk.kind === 'fill') { if (!(await mv.hold(mv.rules.temp() || job.tempItem))) { results.push({ tk, ok: false, why: 'skipped' }); continue; } await click(mv, way); done.push(tk); continue; }
         if (tk.kind === 'fix') { await mv.holdNothing(); await mv.click([tk.x, tk.y, tk.z], way.click.face, way.click.hit); for (let k = 1; k < tk.clicks; k++) await mv.click([tk.x, tk.y, tk.z], way.click.face, way.click.hit); done.push(tk); continue; }
         if (tk.kind === 'ignite') { if (!(await mv.hold('flint_and_steel'))) { results.push({ tk, ok: false, why: 'skipped' }); continue; } await mv.click([way.light.x, way.light.y, way.light.z], 'up', way.click.hit); await sleep(300); done.push(tk); continue; }
@@ -79,7 +81,7 @@ async function work(job, name, bot, mv, cl, cancel) {
             if (S.matches(job.t.wantOf(tk), h)) { results.push({ tk, ok: true }); continue; }
             if (!(S.AIR.has(h.name) || REPLACEABLE.test(h.name) || h.name === 'water' || h.name === 'lava')) { await mv.dig(tk); }
             if (!(await mv.hold(rr.item))) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
-            await click(mv, way);
+            const tp = Date.now(); await click(mv, way); job.time.place += Date.now() - tp;
             // clicks after the placement (note, delay, mode, open), counted from what the cell holds now
             await sleep(120);
             const now = seen(bot, tk), fx = now ? clicksFor(job.t.wantOf(tk), now) : null;
@@ -214,18 +216,18 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
             await SUP.dropRubble(bot, (n) => job.available.has(n) || n === job.tempItem || (SUP.TEMPS.includes(n) && SUP.carried(bot)[n] <= 192));
             // tools and temporary blocks before the work needs them
             const base = needsFor(job, bot, {});
-            if (Object.keys(base).length && job.stage !== 'settle' && !(job.lastTrip && Date.now() - job.lastTrip.get(name) < 60000)) { (job.lastTrip = job.lastTrip || new Map()).set(name, Date.now()); await supplyTrip(job, name, bot, mv, {}, cancel); continue; }
+            if (Object.keys(base).length && job.stage !== 'settle' && !(job.lastTrip && Date.now() - job.lastTrip.get(name) < 60000)) { (job.lastTrip = job.lastTrip || new Map()).set(name, Date.now()); const tt = Date.now(); await supplyTrip(job, name, bot, mv, {}, cancel); job.time.trip += Date.now() - tt; continue; }
             const have = SUP.carried(bot);
-            const cl = job.claim(bot, name, Date.now(), (it) => have[it] || 0);
+            const tc = Date.now(); const cl = job.claim(bot, name, Date.now(), (it) => have[it] || 0); job.time.claim += Date.now() - tc;
             if (cl && cl.need) {
                 // a trip that brought nothing is not repeated at once (the supply is short of it, or the chest is out of reach): a pause, other bots go meanwhile
                 const back = (job.tripBack = job.tripBack || new Map()).get(name) || 0;
                 if (Date.now() < back) { await sleep(1000); continue; }
-                const got = await supplyTrip(job, name, bot, mv, cl.need, cancel);
+                const tt = Date.now(); const got = await supplyTrip(job, name, bot, mv, cl.need, cancel); job.time.trip += Date.now() - tt;
                 if (!got) job.tripBack.set(name, Date.now() + 30000);
                 continue;
             }
-            if (!cl) { idle++; await sleep(job.stage === 'settle' ? 1000 : 400); continue; }
+            if (!cl) { idle++; const ti = Date.now(); await sleep(job.stage === 'settle' ? 1000 : 400); job.time.idle += Date.now() - ti; continue; }
             idle = 0;
             const res = await work(job, name, bot, mv, cl, cancel);
             job.report(name, res);

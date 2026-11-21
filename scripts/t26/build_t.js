@@ -111,7 +111,7 @@ async function main() {
             let last = 0;
             while (Date.now() - t0 < LIMIT_MIN * 60000) {
                 if (job.state === 'finished' || job.state === 'cancelled') { state = job.state; break; }
-                if (Date.now() - last > 60000) { last = Date.now(); const s = job.impl.build.status(); console.log(`[progress ${Math.round((Date.now() - t0) / 60000)} min] stage ${s.stage} right ${s.right}/${s.total} work ${JSON.stringify(s.work)} claimed ${s.claimed} parked ${s.parked} frontier ${s.frontier} stats ${JSON.stringify(s.stats)}`); }
+                if (Date.now() - last > 60000) { last = Date.now(); const s = job.impl.build.status(); console.log(`[progress ${Math.round((Date.now() - t0) / 60000)} min] stage ${s.stage} right ${s.right}/${s.total} work ${JSON.stringify(s.work)} claimed ${s.claimed} parked ${s.parked} frontier ${s.frontier} time ${JSON.stringify(s.time)} stats ${JSON.stringify(s.stats)}`); }
                 await sleep(2000);
             }
             if (state === 'control') state = 'timeout';
