@@ -247,6 +247,7 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
             if (!cl) { idle++; const ti = Date.now(); await sleep(job.stage === 'settle' ? 1000 : 400); job.time.idle += Date.now() - ti; continue; }
             idle = 0;
             const res = await work(job, name, bot, mv, cl, cancel);
+            if (process.env.BUILD_TRACE) { const by = {}; for (const r of res) { const k = `${r.tk.kind}:${r.ok ? 'ok' : String(r.why).replace(/-?\d+/g, '#').slice(0, 50)}`; by[k] = (by[k] || 0) + 1; } job.log(`[trace] ${name} at ${cl.station.x},${cl.station.y},${cl.station.z} (${cl.tasks.length} tasks): ${JSON.stringify(by)}`); }
             job.report(name, res);
         }
         return { ended: 'cancelled' };
