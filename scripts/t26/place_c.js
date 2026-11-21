@@ -150,8 +150,17 @@ async function trial(k, S0, svc, seed, rep) {
     const sup = chests.map((_, i) => ({ x: M.x - 3, y: M.y, z: M.z + 3 * i }));
     for (let i = 0; i < chests.length; i++) {
         await S.must(`setblock ${sup[i].x} ${sup[i].y} ${sup[i].z} minecraft:chest[facing=east] replace`);
-        // SHULKER=1 (owner 2026-11-21: the materials of the creative server lie in shulker boxes inside the chest): the chest holds ONE shulker box with its 27 stacks
-        const items = process.env.SHULKER === '1' ? `{Slot:0b,id:"minecraft:white_shulker_box",count:1,components:{"minecraft:container":[${chests[i].map((s, j) => `{slot:${j},item:{id:"minecraft:${s.it}",count:${s.n}}}`).join(',')}]}}` : chests[i].map((s, j) => `{Slot:${j}b,id:"minecraft:${s.it}",count:${s.n}}`).join(',');
+        if (process.env.SHULKER === '1') {
+            // SHULKER=1 (owner 2026-11-21: the materials of the creative server lie in shulker boxes inside the chest): the chest holds ONE shulker box with its 27 stacks. An RCON request is at most 1446
+            // bytes, so the box is filled slot by slot (`item replace`) on a temporary block above the chest and its loot (the box with its contents) goes into the chest.
+            const T0 = { x: sup[i].x, y: sup[i].y + 1, z: sup[i].z };
+            await S.must(`setblock ${T0.x} ${T0.y} ${T0.z} minecraft:white_shulker_box replace`);
+            for (const [j, st] of chests[i].entries()) await S.must(`item replace block ${T0.x} ${T0.y} ${T0.z} container.${j} with minecraft:${st.it} ${st.n}`);
+            await S.must(`loot replace block ${sup[i].x} ${sup[i].y} ${sup[i].z} container.0 mine ${T0.x} ${T0.y} ${T0.z} minecraft:iron_pickaxe`);
+            await S.must(`setblock ${T0.x} ${T0.y} ${T0.z} minecraft:air replace`);
+            continue;
+        }
+        const items = chests[i].map((s, j) => `{Slot:${j}b,id:"minecraft:${s.it}",count:${s.n}}`).join(',');
         await S.must(`data merge block ${sup[i].x} ${sup[i].y} ${sup[i].z} {Items:[${items}]}`);
     }
     // the builders stand on the deck (it reaches 6 beyond the box; the third bot used to stand outside it and fell 136 blocks)
@@ -164,15 +173,20 @@ async function trial(k, S0, svc, seed, rep) {
     const t0 = Date.now(); let state = 'control', shared = null, got = null, err = null;
     if (!T.CONTROL) {
         try {
-            shared = await shareFile(file, pos, placement0.rotation, placement0.mirror);
-            // the builder bot has been in the world since before the upload: the server announces the new placement to it (register_metadata)
-            const c = viewer(svc).syncmatica;
-            if (!c || !c.ready) throw new Error('the builder bot has no Syncmatica list (is the mod on this server?)');
-            for (let i = 0; i < 40 && !c.placements.has(shared.id); i++) await sleep(500);
-            const found = c.placements.get(shared.id);
-            if (!found) throw new Error(`the placement ${shared.id} did not reach the builder (${c.placements.size} placements; log: ${c.log.slice(-3).join(' | ')})`);
-            const f = await c.fetch(found.id);
-            got = { id: found.id, bytes: f.length, pos: found.pos, hashOk: sm.hashOf(f) === found.hash, rotation: found.rotation, mirror: found.mirror };
+            // NOSYNC=1: a server without the Syncmatica mod (worlds 1-6): the placement is made here and the file is used as it is (the supply and the build are what is under test)
+            let found, f;
+            if (process.env.NOSYNC === '1') { found = { id: 'nosync', pos, rotation: placement0.rotation, mirror: placement0.mirror, subRegions: [] }; f = file; shared = { id: 'nosync' }; got = { id: 'nosync', bytes: f.length, pos, hashOk: true, rotation: found.rotation, mirror: found.mirror }; }
+            else {
+                shared = await shareFile(file, pos, placement0.rotation, placement0.mirror);
+                // the builder bot has been in the world since before the upload: the server announces the new placement to it (register_metadata)
+                const c = viewer(svc).syncmatica;
+                if (!c || !c.ready) throw new Error('the builder bot has no Syncmatica list (is the mod on this server?)');
+                for (let i = 0; i < 40 && !c.placements.has(shared.id); i++) await sleep(500);
+                found = c.placements.get(shared.id);
+                if (!found) throw new Error(`the placement ${shared.id} did not reach the builder (${c.placements.size} placements; log: ${c.log.slice(-3).join(' | ')})`);
+                f = await c.fetch(found.id);
+                got = { id: found.id, bytes: f.length, pos: found.pos, hashOk: sm.hashOf(f) === found.hash, rotation: found.rotation, mirror: found.mirror };
+            }
             const pp = lit.place(lit.parse(f), found, { keepAir: false });
             const job = await svc._buildFrom(pp.bp, pp.origin, { name: 'iron-farm', bots: names, start: true, tile: 64, mode: ['layer', 'zlayer'].includes(process.env.BUILD_MODE) ? process.env.BUILD_MODE : 'area', window: Number(process.env.BUILD_WINDOW || 0) }, null, { dim: NETHER ? 'nether' : 'overworld' });
             got.origin = pp.origin; got.job = job.id;
