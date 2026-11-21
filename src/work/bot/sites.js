@@ -27,6 +27,7 @@ const PURPOSES = Object.freeze({
     food: 'food is put in',
     blocks: 'low-value building blocks for sealing water and stacking up',
     any: 'anything may be put in (the fallback for everything of value)',
+    materials: 'building materials for jobs: bots take what a build needs from it, also out of shulker boxes inside it (a box is set down beside the chest and stays there); nothing is stored here',
     free: 'its contents may be used freely: bots take what they need, nothing is put in',
     furnace: 'treated as a furnace: its items go in and out through the container it is linked to (via)',
     portal: 'a Nether or End portal bots may walk through on a route: give its dimension and link it to the gate on the other side (twin)',
@@ -36,14 +37,14 @@ const TAGS = PURPOSES;                                      // the old name, sti
 const ALIASES = Object.freeze({ junk: 'trash', storage: 'any', machine: 'furnace' });
 const canon = (t) => (ALIASES[t] || t);
 // When a stored block has several old tags the most specific one is kept as its purpose.
-const PRIORITY = ['furnace', 'portal', 'tools', 'free', 'ore', 'food', 'blocks', 'trash', 'any', 'other'];
+const PRIORITY = ['furnace', 'portal', 'tools', 'materials', 'free', 'ore', 'food', 'blocks', 'trash', 'any', 'other'];
 const DIMS = Object.freeze(['overworld', 'nether', 'end']);
 const STORES = new Set(['ore', 'trash', 'food', 'blocks', 'any']);         // purposes the upkeep puts items into
 // Containers that hold items for the bots (owner 2026-11-09): a chest, barrel or Ender Storage block STANDS somewhere, so it is used only within `reach` blocks of the bot (10 chunks at first;
 // a setting since 2026-11-10, `reachChunks`, 50 chunks for now: Sites.setReach), 
 // in the bot's dimension; farther away it counts as unusable. Portals, machines and `other` blocks are not containers of this kind and are never filtered.
 const REACH_CHUNKS = 50, REACH_BLOCKS = REACH_CHUNKS * 16;
-const CONTAINER_PURPOSES = new Set(['tools', 'ore', 'trash', 'food', 'blocks', 'any', 'free']);
+const CONTAINER_PURPOSES = new Set(['tools', 'materials', 'ore', 'trash', 'food', 'blocks', 'any', 'free']);
 const flat = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 const MAX_HOPS = 4;                                      // a link to a link to a link ...; deeper is refused like ELOOP
 const NAME = /^[a-z0-9][a-z0-9_-]{0,23}$/;

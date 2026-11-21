@@ -181,7 +181,7 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         return cand[0] || null;
     };
     const viaStack = (name) => !!stackJobs && stackJobs() && require('../../stack/router').ROUTED.has(name);       // setting stackJobs: the jobs go through the router too
-    const CHEST_OPS = new Set(['deposit', 'withdraw']), CHEST_MOVES = new Set(['take_usable', 'stash_worn', 'deposit_many', 'take_many']);
+    const CHEST_OPS = new Set(['deposit', 'withdraw']), CHEST_MOVES = new Set(['take_usable', 'stash_worn', 'deposit_many', 'take_many', 'take_shulker']);
     const envObj = {
         w, bot, now: Date.now, cancelled: () => !!cancel.cancelled, recover, stockMiss, act: null, sub: null,
         temps: bot.__temps || null,                                   // the registry of blocks the bots placed, shared by every bot (temps.js)

@@ -341,7 +341,7 @@ async function takeMany(ctx, { items, x, y, z }) {
     if (!Array.isArray(items) || !items.length || items.length > 60) throw new SkillError('invalid_args', { why: 'items: 1 to 60 of {item, count}' });
     for (const o of items) if (!o || !/^[a-z0-9_]+(:[a-z0-9_]+)?$/.test(o.item) || !Number.isInteger(o.count) || o.count < 1 || o.count > 2304) throw new SkillError('invalid_args', { why: 'each item: {item: name, count: 1..2304}' });
     const win = await openAt(ctx, station(ctx, CONTAINERS, { x, y, z }, 'container'), (b) => openBox(bot, b));
-    const got = [], missing = [];
+    const got = [], missing = []; let shulkers = [];
     try {
         await ctx.until(() => win.containerItems().length > 0, 20, 'not_confirmed').catch(() => null);               // the contents arrive a moment after the window opens
         for (const o of items) {
@@ -356,8 +356,46 @@ async function takeMany(ctx, { items, x, y, z }) {
             got.push({ item: o.item, moved });
             if (moved < o.count) missing.push({ item: o.item, want: o.count - moved });
         }
+        // What is still missing may lie in a shulker box of this container (owner 2026-11-21: the materials of the creative server are kept in shulker boxes inside the chest): reported, so that
+        // the supply (builder/supply.js unpack) can lift one out, set it down and take from it.
+        if (missing.length) shulkers = shulkersHolding(bot, win, missing.map((m) => m.item));
     } finally { bot.closeWindow(win); }
-    return { got, missing };
+    return { got, missing, ...(shulkers.length ? { shulkers } : {}) };
+}
+
+const SHULKER = /(^|_)shulker_box$/;
+/** What a shulker box STACK holds, read from its `container` component (26.1 item components): { item name: count }. Empty for anything else. */
+function shulkerHolds(bot, it) {
+    const c = (it.components || []).find((k) => k && k.type === 'container'), out = {};
+    for (const s of (c && c.data && c.data.contents) || []) { const r = bot.registry.items[s.itemId]; if (r) out[r.name] = (out[r.name] || 0) + (s.itemCount || 1); }
+    return out;
+}
+/** The shulker boxes in the open container's slots that hold any of `want`: [{ slot, name, has: { item: n } }], the one with the most of them first. */
+function shulkersHolding(bot, win, want) {
+    const out = [];
+    for (const it of win.containerItems()) { if (!SHULKER.test(it.name)) continue; const has = shulkerHolds(bot, it); if (want.some((n) => has[n])) out.push({ slot: it.slot, name: it.name, has }); }
+    const score = (o) => want.reduce((n, k) => n + (o.has[k] || 0), 0);
+    return out.sort((a, b) => score(b) - score(a));
+}
+
+/**
+ * take_shulker {items: [name], x, y, z}: lift ONE shulker box that holds any of `items` out of the container at x y z into the pack (shift-click; the box keeps its contents). Returns
+ * { took: <box item name> | null, has: { item: n } }. The caller sets the box down (place) and takes from it with take_many.
+ */
+async function takeShulker(ctx, { items, x, y, z }) {
+    const bot = ctx.bot;
+    if (!Array.isArray(items) || !items.length || items.length > 60 || items.some((n) => typeof n !== 'string' || !/^[a-z0-9_]+(:[a-z0-9_]+)?$/.test(n))) throw new SkillError('invalid_args', { why: 'items: 1 to 60 item names' });
+    const win = await openAt(ctx, station(ctx, CONTAINERS, { x, y, z }, 'container'), (b) => openBox(bot, b));
+    try {
+        await ctx.until(() => win.containerItems().length > 0, 20, 'not_confirmed').catch(() => null);
+        const best = shulkersHolding(bot, win, items)[0];
+        if (!best) return { took: null };
+        const it = win.containerItems().find((i) => i.slot === best.slot), before = inPlayer(win, it.type);
+        ctx.phase('take_shulker', { box: best.name, has: best.has });
+        await ctx.during(bot.clickWindow(best.slot, 0, 1), 60);                               // shift-click: the box goes to the pack
+        await ctx.until(() => inPlayer(win, it.type) > before, 20, 'not_confirmed');
+        return { took: best.name, has: best.has };
+    } finally { bot.closeWindow(win); }
 }
 
 /**
@@ -385,7 +423,7 @@ const mineHand = (ctx, a) => mine(ctx, { x: a.x, y: a.y, z: a.z, collect: false,
 // harvest: one stackable block out of the undug part of the pit beside the bot (for the water rule when the pack holds nothing to seal with: a chest tagged `any` is insert-only, so there is
 // nothing to fetch back). `within` is the pit box (the environment adds it), `items` what is wanted.
 const harvest = async (ctx, a) => harvestBlock(ctx, feetCell(ctx.bot.entity.position), a.within, a.items || []);
-const MOVES = { descend: { fn: descend, ticks: (a) => 200 + 200 * (a.levels || 1) }, mine_hand: { fn: mineHand, ticks: () => 400 }, harvest: { fn: harvest, ticks: () => 700 }, pillar: { fn: pillar, ticks: (a) => 200 + 260 * (a.levels || 1) }, take_usable: { fn: takeUsable, ticks: () => 800 }, deposit_many: { fn: depositMany, ticks: (a) => 400 + 120 * ((a.items && a.items.length) || 1) }, stash_worn: { fn: stashWorn, ticks: () => 800 }, take_many: { fn: takeMany, ticks: (a) => 400 + 120 * ((a.items && a.items.length) || 1) } };
+const MOVES = { descend: { fn: descend, ticks: (a) => 200 + 200 * (a.levels || 1) }, mine_hand: { fn: mineHand, ticks: () => 400 }, harvest: { fn: harvest, ticks: () => 700 }, pillar: { fn: pillar, ticks: (a) => 200 + 260 * (a.levels || 1) }, take_usable: { fn: takeUsable, ticks: () => 800 }, deposit_many: { fn: depositMany, ticks: (a) => 400 + 120 * ((a.items && a.items.length) || 1) }, stash_worn: { fn: stashWorn, ticks: () => 800 }, take_many: { fn: takeMany, ticks: (a) => 400 + 120 * ((a.items && a.items.length) || 1) }, take_shulker: { fn: takeShulker, ticks: () => 500 } };
 Object.assign(MOVES, require('./bridge').MOVES);          // bridge, sneak_walk: work over an abyss (bridge.js; no circular import: it does not need this file)
 
 /** Run one of the work layer's own movements on `bot` (same result shape as skills.execute). */
@@ -395,4 +433,4 @@ function runMove(bot, name, args = {}, opts = {}) {
     return run(bot, m.fn, args, { ...opts, maxTicks: opts.maxTicks || m.ticks(args) });
 }
 
-module.exports = { pillar, descend, descendStep, harvestBlock, finishPillar, climbTo, cleanTemp, runMove, takeUsable, takeMany, depositMany, stashWorn, pickUsable, wornOut, MOVES, TEMP_ITEMS };
+module.exports = { pillar, descend, descendStep, harvestBlock, finishPillar, climbTo, cleanTemp, runMove, takeUsable, takeMany, takeShulker, shulkerHolds, depositMany, stashWorn, pickUsable, wornOut, MOVES, TEMP_ITEMS };
