@@ -205,3 +205,18 @@ Causes found and fixed during the runs (each in a commit): the "needs a support"
 3. Fluids, waterlogging and the circuit's derived states (see the table) have not been seen live.
 
 Run: `scripts/t26/up.sh 7 --new` then `scripts/t26/run.sh 7 place_c.js LIMIT_MIN=240 TRIALS=5 BOTS=3`; read `[progress N min]` lines (the bot's own view, a diagnostic) and the report in `/mnt/data/forgeaip-play/t26/out/<RUN>/place_c-w7.json` (strict and static verdicts, differing cells, `unbuildable`, problems).
+
+## Update 2026-11-21: the owner's iron-farm-34 (Overworld) and its Nether side (`TASK-20261121-071`)
+
+Task: bots build `iron-farm-34.litematic` (48 x 60 x 48, 9350 blocks) in the Overworld and `iron-farm-34-nether-side-main.litematic` (32 x 35 x 32, 1213 blocks) in the Nether; entities ignored; pumpkins as temporary blocks; keep inventory; 1.1 x the materials; drops straight into the pack (`docker/t26/vacuum.sc`, `scripts/t26/vacuum.sh N`); respawn at the site; completion = one run from zero without any intervention, graded by the server. Causes found and the rules they became: `docs/LESSONS.md` L23. Fixtures: `tests/fixtures/iron-farm-34*.litematic` (copied from the owner's PC).
+
+Run: `scripts/t26/vacuum.sh N; MEM=5g scripts/t26/run.sh N place_c.js LITEMATIC=/app/tests/fixtures/<file> BOTS=6 LIMIT_MIN=240 SURPLUS=1.1 TEMP_BLOCK=pumpkin SITE_X=3000 SITE_Z=3000 BUILD_TRACE=1 [DIM=nether] [RESUME=1] [RUN=name]` (world 7-9 have the Syncmatica mod; arguments, not shell variables). A frozen copy for a clean run: `git worktree add /mnt/data/forgeaip-play/snap HEAD; mkdir snap/node_modules; REPO=/mnt/data/forgeaip-play/snap scripts/t26/run.sh ...`. Offline: `node scripts/work/sim_plan.js FILE ZONES` (both blueprints place completely in the simulator: 7642 and 1201 cells), orientation facts: `scripts/t26/orient_probe.js`.
+
+Results (server-graded; "wrong" = cells that differ from the blueprint in what placement or a right-click decides, or blocks left where the blueprint has air; circuit-decided state does not count):
+
+| Blueprint | Best run | Result |
+| :-- | :-- | :-- |
+| Nether side (1201 cells, 6 bots) | resumed runs ne6-ne13; clean runs nf1 (wedged), nf2 (150 min timeout), nf3 / nf4 | resumed run ne13: 1200 of 1201 cells, judge WRONG 12 (11 leftover pumpkins / cobblestone outside the tidy's range, now widened; 1 redstone block cell taken by a circuit's piston head, now counted as circuit-decided). Clean run nf2: 1188 of 1201, WRONG 86 (74 leftovers, no tidy: the job timed out with 5 units stuck). **No clean run passed.** |
+| Overworld farm (7642 cells, 6-8 bots) | resumed ow16 (several processes) | 7430 of 7642 cells (97 %); 36 portals: 30 lit; stuck: the top floor (y 238-258) stations. Clean runs of1 (8 bots) 2507, of3 (8 bots) 3826 after 144 min, both stalled on the upper floors. **No full run, no judge on the whole structure.** |
+
+What is still open, in the order it costs most: (1) walks to stations on the upper floors of the Overworld farm and to the top glass of the Nether side (NAV: "3 segments without getting closer"; the exterior leg helps two thirds of the climbs); (2) a clean run needs the job to END by itself (the tidy and the repair rounds run only then; a timeout ends the harness without them); (3) hoppers that face each other (`tempInStruct`) have no station live although the simulator places them; (4) deaths by falling (a dead bot respawns at the site only in the Nether when the spawn point is set there); (5) speed: 24-70 cells/min with 6-8 bots, 40 % walking, 30 % digging temporary blocks.
