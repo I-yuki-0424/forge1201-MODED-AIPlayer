@@ -296,7 +296,7 @@ class Mover {
                 const f = feet(b);
                 if (b.entity.onGround && !cells.has(key(f.x, f.y, f.z)) && !cells.has(key(f.x, f.y - 1, f.z)) && ![...cells].some((k) => { const [x, y, z] = k.split(',').map(Number); return Math.abs(x - f.x) <= 1 && Math.abs(z - f.z) <= 1 && Math.abs(y - f.y) <= 1; })) return { i, why: `off the route at ${f.x},${f.y},${f.z}` };
                 if (d < (last ? 0.15 : 0.35) && Math.abs(p.y - c.y) < 0.6) { i++; t0 = Date.now(); stuck = 0; lastD = Infinity; continue; }
-                if (Date.now() - t0 > 4000) return { i, why: `no progress toward ${c.x},${c.y},${c.z}` };
+                if (Date.now() - t0 > 4000) { const nm = (dy) => { const q = b.blockAt(new Vec3(c.x, c.y + dy, c.z), false); return q ? q.name : '?'; }; return { i, why: `no progress toward ${c.x},${c.y},${c.z} (${route[i].move}; there ${nm(-1)}/${nm(0)}/${nm(1)}; bot at ${p.x.toFixed(1)},${p.y.toFixed(1)},${p.z.toFixed(1)} ground ${b.entity.onGround})` }; }
                 if (d > lastD - 0.005) stuck++; else stuck = 0;
                 lastD = d;
                 b.look(Math.atan2(-dx, -dz), 0, true);

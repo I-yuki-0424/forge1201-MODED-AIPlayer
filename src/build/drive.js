@@ -146,7 +146,7 @@ async function supplyTrip(job, name, bot, mv, need, cancel) {
     } catch (e) { job.log(`${name}: supply trip failed: ${e.message}`); return false; }
     finally { job.chestBusy = null; }
 }
-const nearContainer = (c) => (x, y, z) => Math.abs(x + 0.5 - (c.x + 0.5)) <= 2.5 && Math.abs(z + 0.5 - (c.z + 0.5)) <= 2.5 && y >= c.y - 1 && y <= c.y + 1 && !(x === c.x && z === c.z);
+const nearContainer = (c) => (x, y, z) => Math.abs(x - c.x) <= 2 && Math.abs(z - c.z) <= 2 && y >= c.y - 1 && y <= c.y + 1 && !(Math.abs(x - c.x) <= 1 && z === c.z && y === c.y + 1) && !(x === c.x && z === c.z);
 /** A free cell beside the container (air, on something solid, not the bot's own cells, outside the box) for a shulker box to stand in while it is unpacked. */
 function boxSpot(job, bot, c) {
     const v = new View(bot, { canDig: () => false }), me = feet(bot), out = [];
@@ -161,7 +161,10 @@ function boxSpot(job, bot, c) {
         if (d <= 4) out.push({ s, d });
     }
     out.sort((a, b) => a.d - b.d);
-    return out.length ? out[0].s : null;
+    // only where a face is in sight from where the bot stands (the chest itself hides some)
+    const P = require('./place'), world = P.botWorld(bot), name = (bot.inventory.items().find((i) => /shulker_box$/.test(i.name)) || {}).name || 'white_shulker_box';
+    for (const { s: c2 } of out) if (P.ways(world, c2, { name, props: {} }, name, [me], { max: 1 }).length || P.ways(world, c2, { name, props: {} }, name, [me], { max: 1, sneakAlways: true }).length) return c2;
+    return null;
 }
 
 /**
