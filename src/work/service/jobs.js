@@ -145,10 +145,25 @@ class JobsPart {
         let placed; try { placed = require('../jobs/litematic').place(require('../jobs/litematic').parse(file), p, { keepAir: false }); } catch (e) { throw new Problem(`not a usable litematic: ${e.message}`); }
         const dim = String(p.dimension || 'minecraft:overworld').replace(/^minecraft:/, '').replace('the_', '');
         const name = String(spec.name || p.name || p.fileName).replace(/[^\w .-]/g, '').slice(0, 40) || 'litematic';
-        // the new builder (src/build/, TASK-20261121-073): the file and the placement as Syncmatica shares them; an `origin` moves the placement so that the box's corner is there
-        let pos = { ...p.pos };
-        if (spec.origin) { const o = spec.origin, at = { x: int(o.x, 'origin.x'), y: int(o.y, 'origin.y'), z: int(o.z, 'origin.z') }; pos = { x: pos.x + at.x - placed.origin.x, y: pos.y + at.y - placed.origin.y, z: pos.z + at.z - placed.origin.z }; }
-        return this.createConstruct({ ...spec, file, name, dim, placement: { pos, rotation: p.rotation, mirror: p.mirror }, syncmatica: { id: p.id, hash: p.hash, ignoredSubRegions: placed.ignored } });
+        if (this._builderFor(spec) === 'construct') {
+            // the new builder (src/build/, TASK-20261121-073): the file and the placement as Syncmatica shares them; an `origin` moves the placement so that the box's corner is there
+            let pos = { ...p.pos };
+            if (spec.origin) { const o = spec.origin, at = { x: int(o.x, 'origin.x'), y: int(o.y, 'origin.y'), z: int(o.z, 'origin.z') }; pos = { x: pos.x + at.x - placed.origin.x, y: pos.y + at.y - placed.origin.y, z: pos.z + at.z - placed.origin.z }; }
+            return this.createConstruct({ ...spec, file, name, dim, placement: { pos, rotation: p.rotation, mirror: p.mirror }, syncmatica: { id: p.id, hash: p.hash, ignoredSubRegions: placed.ignored } });
+        }
+        const o = spec.origin, origin = o ? { x: int(o.x, 'origin.x'), y: int(o.y, 'origin.y'), z: int(o.z, 'origin.z') } : placed.origin;
+        const D = this._dimSpec({ dim });
+        return this._buildFrom(placed.bp, origin, { ...spec, name, tile: spec.tile || 64 }, null, { dim: D.dim, syncmatica: { id: p.id, hash: p.hash, ignoredSubRegions: placed.ignored } });
+    }
+
+    /**
+     * Which builder a Litematica build gets: `spec.builder` ('construct' | 'legacy'), else the new one (construct: flight, placement into the air) when every bot of the crew (the bots named, or
+     * every online bot) is in creative mode, else the old survival builder (jobs/build.js).
+     */
+    _builderFor(spec) {
+        if (spec.builder === 'construct' || spec.builder === 'legacy') return spec.builder;
+        const recs = (Array.isArray(spec.bots) && spec.bots.length ? spec.bots.map((n) => this.bots.get(n)) : [...this.bots.values()].filter((r) => r && !r.removed && r.state === 'online')).filter(Boolean);
+        return recs.length && recs.every((r) => r.bot && r.bot.game && r.bot.game.gameMode === 'creative') ? 'construct' : 'legacy';
     }
 
     /** Build job. spec: { name?, structure, origin: {x,y,z}, ops?: [...], bots?, start?, force? } */

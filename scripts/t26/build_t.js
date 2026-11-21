@@ -46,11 +46,16 @@ async function main() {
     console.log(`[build_t] seed ${seed} ${NETHER ? 'nether' : 'overworld'} box ${M.x} ${M.y} ${M.z} size ${sx}x${sy}x${sz}; ${[...target.items.values()].reduce((a, b) => a + b, 0)} items, ${target.portals.length} portals`);
     // ---- the chest: on solid ground beside the box, two cells of air above it ----
     let C = null;
-    for (let r = 3; r <= 12 && !C; r++) for (const [x, z] of [[M.x - r, M.z + 2], [M.x + 2, M.z - r], [M.x + sx - 1 + r, M.z + 2], [M.x + 2, M.z + sz - 1 + r], [M.x - r, M.z + 8], [M.x + 8, M.z - r]]) {
-        if (C) break;
-        for (let y = (NETHER ? 110 : 200); y > (NETHER ? 32 : -60); y--) {
-            const n = at(x, y, z), up = at(x, y + 1, z), up2 = at(x, y + 2, z), n2 = at(x + 1, y, z), up3 = at(x + 1, y + 1, z);
-            if (n && !GROUNDLESS.test(n) && n2 && !GROUNDLESS.test(n2) && /air/.test(up || '') && /air/.test(up2 || '') && /air/.test(up3 || '')) { C = { x, y: y + 1, z }; break; }
+    const spot = (x, y, z) => { const n = at(x, y, z), n2 = at(x + 1, y, z); return n && n2 && !GROUNDLESS.test(n) && !GROUNDLESS.test(n2) && [at(x, y + 1, z), at(x, y + 2, z), at(x + 1, y + 1, z), at(x + 1, y + 2, z)].every((q) => /^(cave_)?air$/.test(q || '')); };
+    for (let wait = 0; wait < 4 && !C; wait++) {
+        if (wait) await sleep(5000);
+        for (let r = 3; r <= 16 && !C; r++) {
+            const ring = []; for (let x = M.x - r; x <= M.x + sx - 1 + r; x++) { ring.push([x, M.z - r]); ring.push([x, M.z + sz - 1 + r]); } for (let z = M.z - r; z <= M.z + sz - 1 + r; z++) { ring.push([M.x - r, z]); ring.push([M.x + sx - 1 + r, z]); }
+            for (const [x, z] of ring) {
+                if (x + 1 >= M.x && x <= M.x + sx - 1 && z >= M.z && z <= M.z + sz - 1) continue;
+                for (let y = M.y + sy; y >= M.y - 8 && !C; y--) if (spot(x, y, z)) C = { x, y: y + 1, z };
+                if (C) break;
+            }
         }
     }
     if (!C) throw new Error('no place for the chest');
