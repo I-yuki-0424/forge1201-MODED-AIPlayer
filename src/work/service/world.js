@@ -26,6 +26,11 @@ class WorldPart {
         if (s && s.router !== undefined) { need(typeof s.router === 'boolean', 'router: true or false (the chunk-exit router walks first; false = the old legs)'); this.settings.router = s.router; }
         // teleport: off = the server never moves a bot (no tp of any kind: not a recovery, not a lift, not a jump into a dimension, not the operator's command); near / any limit only the recovery moves.
         if (s && s.teleport !== undefined) { need(['off', 'near', 'any'].includes(s.teleport), 'teleport: off, near or any'); this.settings.teleport = s.teleport; }
+        // tempBlock: the operator's own temporary blocks (owner 2026-11-21: "pumpkins"): item names, comma separated, first = the one a builder takes along; '' = the defaults only.
+        if (s && s.tempBlock !== undefined) {
+            need(typeof s.tempBlock === 'string' && s.tempBlock.length <= 200, 'tempBlock: item names separated by commas (pumpkin, or empty)');
+            try { this.settings.tempBlock = require('../bot/tempblocks').setExtra(s.tempBlock).join(','); } catch (e) { throw new Problem(e.message); }
+        }
         if (s && s.reachChunks !== undefined) { need(Number.isInteger(s.reachChunks) && s.reachChunks >= 1 && s.reachChunks <= 200, 'reachChunks: 1..200 chunks (how far a bot looks for a chest)'); this.settings.reachChunks = s.reachChunks; this.sites.setReach(s.reachChunks); }
         if (s && s.toolPolicy && typeof s.toolPolicy === 'object') {
             const tp = { ...this.settings.toolPolicy };

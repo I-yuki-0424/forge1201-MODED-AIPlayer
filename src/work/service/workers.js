@@ -47,11 +47,14 @@ class WorkersPart {
             if (env && job.kind === 'pit') { env.within = job.spec.box; rec.bot.__mineBox = job.spec.box; }          // mining is confined to the pit (skills/commands/block.js)          // a pillar with nothing to stack takes a block from the undug part of the pit (moves.js harvestBlock)
             if (env && env.configure) env.configure({ retireWorn: !!this.settings.retireWorn, defend: this.settings.defend !== false, planNodes: this.o.planNodes || 6000 });
             // Three usable pickaxes in the pack before the work starts (stock-tools: from the tools chest, when one is in reach): a worn one is replaced on the spot.
-            if (this.settings.scripts && this.sites.find('tools') && this.scripts.get('stock-tools')) {
+            // A build needs one pickaxe at most (to take temporary blocks away): the full script crafts a sword, an axe and a shovel and gathers logs for the sticks (live 2026-11-21, creative server:
+            // eight builders cut down the trees around the chest while their materials were short).
+            const stock = job.kind === 'build' ? scriptLib.validate({ name: 'stock-tools-build', steps: [{ take_tool: { class: 'pickaxe', from: 'tools', until: 1 }, optional: true }, { return: 'ok' }] }) : this.scripts.get('stock-tools');
+            if (this.settings.scripts && this.sites.find('tools') && stock) {
                 try {
                     const senv = Object.assign(Object.create(env), { sites: this.sites, policy: job.policy, box: job.spec.box });
                     senv.leavePit = (box) => require('../bot/exit').leavePit(senv, box);
-                    const sr = await scriptLib.runScript(this.scripts.get('stock-tools'), senv, { cancel });
+                    const sr = await scriptLib.runScript(stock, senv, { cancel });
                     this.note(sr.ok ? 'info' : 'warn', `${rec.name} stock-tools: ${sr.ended}${sr.log && sr.log.length ? ` (${sr.log.slice(-12).join('; ')})` : ''}`, { job: job.id });
                 } catch (e) { this.note('warn', `${rec.name} stock-tools failed: ${String(e.message).slice(0, 100)}`); }
             }

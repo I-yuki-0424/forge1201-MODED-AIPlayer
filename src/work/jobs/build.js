@@ -32,8 +32,8 @@ function createBuildJob(cells, origin, ledgerOpts = {}, planOpts = {}) {
         let u = a; while (u < b && (st[u] === 2 || st[u] === 3)) u++;
         if (u >= b) return;
         P.fetched.set(id, now);
-        const need = supply.batch(env.bot, plan, u, env.w, P_needs(plan.units[u], env.w));
-        const rs = await supply.restock(env, plan, need, { trigger: need, topup: false, reserve: 3 });
+        const tw = supply.tempWish(env.bot), need = supply.batch(env.bot, plan, u, env.w, { ...P_needs(plan.units[u], env.w), ...(tw ? { [tw.item]: tw.n } : {}) });
+        const rs = await supply.restock(env, plan, need, { trigger: need, soft: tw ? [tw.item] : [], topup: false, reserve: 3 });
         if (TRACE) console.log(`[build] ${id} idle fetch for area ${z}: ${rs.ok ? 'ok' : 'short'} trips=${rs.trips || 0} items=${Object.keys(need).length}`);
     };
     job.cleanup = async (env) => { if (env && env.bot) { env.bot.__reserve = null; } };

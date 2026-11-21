@@ -62,3 +62,28 @@ console.log('--- test: restock lifts a shulker box out of the chest, sets it dow
     assert.strictEqual(r3.ok, false); assert.strictEqual(r3.reason, 'missing_item'); assert.ok(calls2.includes('deposit_many'), 'the box was put back');
     console.log('[OK]');
 })().catch((e) => { console.error(e); process.exit(1); });
+
+console.log('--- test: temporary blocks: pumpkin is none by default, one once the operator names it; a builder takes a stack along, but a missing one never fails the unit ---');
+(async () => {
+    const TB = require('../src/work/bot/tempblocks'), vo = require('../src/work/bot/janitor').valueOf;
+    const reg = { blocksByName: { pumpkin: { boundingBox: 'block', diggable: true, hardness: 1 }, cobblestone: { boundingBox: 'block', diggable: true, hardness: 2 } } };
+    assert.strictEqual(TB.isTemp('pumpkin', reg, vo), false);
+    assert.deepStrictEqual(TB.setExtra('pumpkin'), ['pumpkin']);
+    assert.strictEqual(TB.isTemp('pumpkin', reg, vo), true); assert.strictEqual(TB.preferred(), 'pumpkin'); assert.strictEqual(TB.BASE[0], 'pumpkin', 'the shared array is updated in place');
+    assert.throws(() => TB.setExtra('Bad Name'), /item name/); assert.throws(() => TB.setExtra('a,b,c,d,e,f'), /at most 5/);
+    const pack = (items) => ({ registry: { ...reg, items: {}, itemsByName: {} }, inventory: { items: () => items, inventoryStart: 9, inventoryEnd: 45, slots: [] } });
+    assert.deepStrictEqual(supply.tempWish(pack([])), { item: 'pumpkin', n: 64 });
+    const b2 = pack([]); supply.tempWish(b2); assert.strictEqual(supply.tempWish(b2), null, 'one try in five minutes');
+    assert.strictEqual(supply.tempWish(pack([{ name: 'pumpkin', count: 30 }])), null, 'enough in the pack');
+    // a trip for a missing temporary block is soft: the unit does not fail on it
+    const plan = { units: [[{ x: 1, y: 70, z: 1, block: 'white_bed', props: {} }]], materials: { white_bed: 1 } }, have = { white_bed: 1 };
+    const env = { bot: { inventory: { items: () => [], inventoryStart: 9, inventoryEnd: 45, slots: [] }, registry: bot.registry }, w: { nameAt: () => 'air', kindAt: () => 'air' }, here: () => ({ x: 0, y: 0, z: 0 }), pos: () => ({ x: 0, y: 0, z: 0 }),
+        have: (it) => have[it] || 0, cancelled: () => false, sites: { sources: () => [{ x: 5, y: 5, z: 5 }] }, travel: async () => ({ ok: true }), exec: async () => ({ ok: true }),
+        run: async () => ({ ok: true, detail: { got: [], missing: [{ item: 'pumpkin', want: 64 }] } }) };
+    const r = await supply.restock(env, plan, { white_bed: 1, pumpkin: 64 }, { trigger: { white_bed: 1, pumpkin: 64 }, soft: ['pumpkin'], topup: false, reserve: 3 });
+    assert.strictEqual(r.ok, true, JSON.stringify(r));
+    const r2 = await supply.restock(env, plan, { white_bed: 2 }, { trigger: { white_bed: 2 }, topup: false, reserve: 3 });
+    assert.strictEqual(r2.ok, false, 'a missing MATERIAL still fails');
+    TB.setExtra(''); assert.strictEqual(TB.preferred(), 'cobblestone'); assert.strictEqual(TB.isTemp('pumpkin', reg, vo), false);
+    console.log('[OK]');
+})().catch((e) => { console.error(e); process.exit(1); });

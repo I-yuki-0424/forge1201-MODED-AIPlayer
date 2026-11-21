@@ -17,13 +17,27 @@ const SHAPE = /(_slab|_stairs|_wall|_fence|_fence_gate|_button|_pressure_plate|_
 
 // The families a pit, a cave or an End island produce in bulk (and the Create stones of the play world's mod set). Crafted forms (polished, bricks, smooth) are NOT in it: they cost work.
 // TEMP_BLOCK=pumpkin[,...] (owner 2026-11-21: "to make temporary blocks easy to see, use pumpkins for this run"): those names are temporary blocks too and come first.
-const EXTRA = String(process.env.TEMP_BLOCK || '').split(',').map((x) => x.trim().replace(/^minecraft:/, '')).filter(Boolean);
-const LOW_NAME = new RegExp('^(?:minecraft:|create:)?(?:'
-    + [...EXTRA, 'dirt', 'coarse_dirt', 'rooted_dirt', 'grass_block', 'podzol', 'mycelium', 'mud', 'packed_mud',
-        'cobblestone', 'mossy_cobblestone', 'cobbled_deepslate', 'stone', 'deepslate', 'andesite', 'diorite', 'granite', 'tuff', 'calcite', 'dripstone_block', 'smooth_basalt', 'basalt',
-        'netherrack', 'blackstone', 'end_stone', 'sandstone', 'red_sandstone', 'terracotta', 'clay', 'moss_block',
-        'limestone', 'scoria', 'scorchia', 'ochrum', 'crimsite', 'veridium', 'asurine', 'weathered_limestone', 'gabbro', 'dolomite'].join('|')
-    + ')$');
+const NAME_OK = /^[a-z0-9_]{1,40}$/;
+let EXTRA = String(process.env.TEMP_BLOCK || '').split(',').map((x) => x.trim().replace(/^minecraft:/, '')).filter(Boolean);
+const LOW_FIXED = ['dirt', 'coarse_dirt', 'rooted_dirt', 'grass_block', 'podzol', 'mycelium', 'mud', 'packed_mud',
+    'cobblestone', 'mossy_cobblestone', 'cobbled_deepslate', 'stone', 'deepslate', 'andesite', 'diorite', 'granite', 'tuff', 'calcite', 'dripstone_block', 'smooth_basalt', 'basalt',
+    'netherrack', 'blackstone', 'end_stone', 'sandstone', 'red_sandstone', 'terracotta', 'clay', 'moss_block',
+    'limestone', 'scoria', 'scorchia', 'ochrum', 'crimsite', 'veridium', 'asurine', 'weathered_limestone', 'gabbro', 'dolomite'];
+let LOW_NAME = null;
+// Preference: what a pit yields first (cobblestone, deepslate), the rest by how many the pack holds. One array for good: other modules hold a reference to it (moves.js TEMP_ITEMS).
+const BASE_FIXED = ['cobblestone', 'cobbled_deepslate', 'dirt', 'netherrack', 'stone', 'andesite', 'diorite', 'granite', 'tuff', 'deepslate'];
+const BASE = [];
+const rebuild = () => { LOW_NAME = new RegExp(`^(?:minecraft:|create:)?(?:${[...EXTRA, ...LOW_FIXED].join('|')})$`); BASE.splice(0, BASE.length, ...EXTRA, ...BASE_FIXED); };
+rebuild();
+/** The operator's own temporary blocks (the console setting `tempBlock`, owner 2026-11-21: pumpkins): item names, first = the one a builder fetches. Empty list = only the defaults. */
+function setExtra(names) {
+    const list = (Array.isArray(names) ? names : String(names || '').split(',')).map((x) => String(x).trim().replace(/^minecraft:/, '')).filter(Boolean);
+    for (const n of list) if (!NAME_OK.test(n)) throw new Error(`temporary block: an item name (a-z, 0-9, _), not ${JSON.stringify(n).slice(0, 30)}`);
+    if (list.length > 5) throw new Error('temporary blocks: at most 5 names');
+    EXTRA = [...new Set(list)]; rebuild(); return EXTRA;
+}
+/** The item a builder takes along as its temporary blocks: the first of the operator's, else cobblestone. */
+const preferred = () => EXTRA[0] || 'cobblestone';
 
 const strip = (n) => String(n || '').replace(/^minecraft:/, '');
 
@@ -43,8 +57,6 @@ function isTemp(name, registry = null, valueOf = null) {
     return true;
 }
 
-/** Preference: what a pit yields first (cobblestone, deepslate), the rest by how many the pack holds. */
-const BASE = [...EXTRA, 'cobblestone', 'cobbled_deepslate', 'dirt', 'netherrack', 'stone', 'andesite', 'diorite', 'granite', 'tuff', 'deepslate'];
 const HAND = ['dirt', 'coarse_dirt', 'grass_block'];                                // break without a tool (and do not fall)
 
 /** `held`: [{name, count}] (or a Map name -> count). Returns the qualifying kinds, best first. */
@@ -84,4 +96,4 @@ function freeHeld(bot) {
     return [...have].map(([name, count]) => ({ name, count: count - reservedOf(bot, name) })).filter((i) => i.count > 0);
 }
 
-module.exports = { reservedOf, freeHeld, isTemp, order, choose, reserve, RESERVE, LOW_MAX, GRAVITY, SHAPE, BASE, HAND };
+module.exports = { reservedOf, freeHeld, isTemp, order, choose, reserve, setExtra, preferred, RESERVE, LOW_MAX, GRAVITY, SHAPE, BASE, HAND };

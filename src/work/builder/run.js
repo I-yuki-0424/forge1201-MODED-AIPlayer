@@ -257,8 +257,8 @@ async function runUnit0(plan, job, regionId, u, env) {
         if (!ready.length) return { ok: true, partial: true, holdMs: 6000, detail: { ...r, waiting: todo.length } };
         // One trip fetches the materials for the whole RUN of units of this bot's area that fit in its pack, not only for this unit (owner 2026-11-18: "build one small component, then fetch
         // materials: 5 s of placing, 30 s of walking"). A trip is made only when this unit lacks something.
-        const unitNeed = P.needsOf(todo, env.w);
-        const rs = await supply.restock(env, plan, supply.batch(env.bot, plan, u.unit, env.w, unitNeed), { trigger: unitNeed, topup: false, reserve: 3 });
+        const unitNeed = P.needsOf(todo, env.w), tw = supply.tempWish(env.bot), wantNeed = tw ? { ...unitNeed, [tw.item]: (unitNeed[tw.item] || 0) + tw.n } : unitNeed;
+        const rs = await supply.restock(env, plan, supply.batch(env.bot, plan, u.unit, env.w, wantNeed), { trigger: wantNeed, soft: tw ? [tw.item] : [], topup: false, reserve: 3 });
         if (rs.trips) r.trips += rs.trips;
         if (rs.dug) reopenDamaged(plan, job, env);                                   // a supply walk through the structure dug cells: the units that own them place them again
         if (TRACE && (rs.trips || !rs.ok)) console.log(`[build] ${Math.round((Date.now() - T0) / 1000)}s ${me} u${u.unit} restock ${rs.ok ? 'ok' : 'SHORT'} trips=${rs.trips || 0} unit-need ${JSON.stringify(unitNeed)} have ${JSON.stringify(Object.fromEntries(Object.keys(unitNeed).map((it) => [it, env.have(it)])))} free-slots ${env.bot ? supply.emptySlots(env.bot) : '?'}${rs.ok ? '' : ' ' + JSON.stringify({ short: rs.detail && rs.detail.short, lastTravel: rs.detail && rs.detail.lastTravel, lastTake: rs.detail && rs.detail.lastTake }).slice(0, 300)}`);

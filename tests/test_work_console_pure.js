@@ -138,6 +138,11 @@ function test(name, fn) { console.log(`--- test: ${name} ---`); return Promise.r
         const ok = await call2('POST', '/api/sites', { body: { name: 'mat1', x: 5, y: 64, z: 5, purpose: 'materials' }, ...A }); assert.strictEqual(ok.status, 200, JSON.stringify(ok.json));
         assert.ok((await call2('GET', '/api/sites', A)).json.purposes.materials);
         assert.strictEqual((await call2('DELETE', '/api/sites/mat1', A)).status, 200);
+        // the temporary blocks of the operator (a setting, not an environment variable)
+        const tb = await call2('POST', '/api/settings', { body: { tempBlock: 'pumpkin' }, ...A }); assert.strictEqual(tb.status, 200); assert.strictEqual(tb.json.tempBlock, 'pumpkin');
+        assert.strictEqual((await call2('POST', '/api/settings', { body: { tempBlock: 'Bad Name' }, ...A })).status, 400);
+        assert.strictEqual((await call2('POST', '/api/settings', { body: { tempBlock: 5 }, ...A })).status, 400);
+        assert.strictEqual((await call2('POST', '/api/settings', { body: { tempBlock: '' }, ...A })).json.tempBlock, '');
     });
 
     await test('v5 routes: sites, scripts and Leave pit need the session; bad input is a 400 with the reason, unknown names a 404', async () => {

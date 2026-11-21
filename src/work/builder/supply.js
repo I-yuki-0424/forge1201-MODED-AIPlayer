@@ -48,6 +48,18 @@ function wishes(bot, need, left, { reserve = 10, maxStacks = 2, share = 3, topup
 const slotsOf = (bot, need) => Object.entries(need).reduce((n, [it, c]) => n + Math.ceil(c / stackOf(bot, it)), 0);
 
 /**
+ * The temporary blocks a builder takes along (owner 2026-11-21: the bots stood at the foot of the structure with no block to climb with: nothing ever fetched them, the builder took only the
+ * materials of its cells). { item, n } when the pack holds fewer than 24 usable ones and none was tried for five minutes, else null. Opportunistic: see `soft` in restock.
+ */
+function tempWish(bot, now = Date.now()) {
+    if (!bot || !bot.inventory || !bot.registry || (bot.__tempTry && now - bot.__tempTry < 300000)) return null;
+    const TB = require('../bot/tempblocks'), vo = require('../bot/janitor').valueOf;
+    if (TB.freeHeld(bot).filter((i) => TB.isTemp(i.name, bot.registry, vo)).reduce((n, i) => n + i.count, 0) >= 24) return null;
+    bot.__tempTry = now;
+    return { item: TB.preferred(), n: TB.RESERVE };
+}
+
+/**
  * What the pack holds of the plan's materials beyond what the coming run needs (`need`), as [{ item, count }]: the leftovers of the batch of another area, or of the first fetch (run 2,
  * 2026-11-18: a bot held 145 bricks and 143 wall pieces for a unit that needed 18, had no free slot for the 3 stairs it lacked, and failed on `missing_item` for ten minutes).
  */
@@ -88,7 +100,7 @@ function batch(bot, plan, u, w, unitNeed) {
  */
 async function restock(env, plan, need, opt = {}) {
     // `opt.trigger`: the items that decide whether a trip is made at all (what the unit at hand needs); `need` may be more (the materials of the run of units that fit in the pack)
-    const trig = opt.trigger || need, lacking = () => Object.entries(trig).filter(([it, n]) => env.have(it) < n);
+    const trig = opt.trigger || need, soft = opt.soft || [], lacking = () => Object.entries(trig).filter(([it, n]) => env.have(it) < n), hard = () => lacking().filter(([it]) => !soft.includes(it));          // `soft`: fetched when it is there, never a reason to fail (the temporary blocks)
     if (!lacking().length) return { ok: true, trips: 0 };
     const sites = env.sites;
     if (!sites) return { ok: false, reason: 'missing_item', detail: { item: lacking()[0][0], why: 'this environment has no list of containers' } };
@@ -128,7 +140,7 @@ async function restock(env, plan, need, opt = {}) {
         for (const it of lack) if (known.has(kOf(c)) && !(log.took[it] > 0)) mem.get(it) && mem.get(it).delete(kOf(c));          // it was said to hold the item and did not (emptied since): forgotten
         if (!r.ok) { log.lastTake = { reason: r.reason, why: r.detail && r.detail.why }; if (['cancelled', 'died', 'disconnected'].includes(r.reason)) return r; }
     }
-    const l = lacking();
+    const l = hard();
     if (l.length) { const wanted = plan.wanted || (plan.wanted = {}); for (const [it] of l) wanted[it] = Date.now(); }          // the crew is told: whoever holds more of it than its unit needs gives it back (giveBack)
     return l.length ? { ok: false, reason: 'missing_item', detail: { item: l[0][0], short: Object.fromEntries(l.map(([it, n]) => [it, n - env.have(it)])), ...log } } : { ok: true, ...log };
 }
@@ -171,4 +183,4 @@ async function giveBack(env, plan, unitNeed) {
     return d.ok && d.detail && d.detail.done ? d.detail.done.reduce((n, g) => n + g.moved, 0) : 0;
 }
 
-module.exports = { giveBack, restock, wishes, batch, surplus, slotsOf, remaining, emptySlots, stackOf };
+module.exports = { giveBack, tempWish, restock, wishes, batch, surplus, slotsOf, remaining, emptySlots, stackOf };
