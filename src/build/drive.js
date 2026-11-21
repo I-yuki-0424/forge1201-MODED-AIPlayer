@@ -273,7 +273,7 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
             job.report(name, res);
         }
         return { ended: 'cancelled' };
-    } finally { job.leave(name); if (hand.sneaking) bot.setControlState('sneak', false); }
+    } finally { job.leave(name); if (hand.sneaking) bot.setControlState('sneak', false); fly.land(bot); }
 }
 
 /**

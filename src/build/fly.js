@@ -90,10 +90,17 @@ function takeOff(bot) {
         bot.physicsEnabled = false;
         if (bot.entity && bot.entity.velocity) bot.entity.velocity.set(0, 0, 0);
         bot.__flying = true;
-        bot.on('respawn', () => { bot.__flying = false; });
-        bot.on('game', () => { bot.__flying = false; });
+        if (!bot.__flyHooks) { bot.__flyHooks = true; bot.on('respawn', () => { bot.__flying = false; }); bot.on('game', () => { bot.__flying = false; }); }
     }
     try { bot._client.write('abilities', { flags: 2 }); } catch (_) { /* disconnected */ }
+}
+
+/** Back to walking (the build is over): physics on again; a creative bot drops to the ground, unhurt. */
+function land(bot) {
+    if (!bot.__flying) return;
+    bot.__flying = false;
+    bot.physicsEnabled = true;
+    try { bot._client.write('abilities', { flags: 0 }); } catch (_) { /* disconnected */ }
 }
 
 /**
@@ -158,4 +165,4 @@ async function flyTo(bot, to, { blocked = null, goal = null, cancel, tries = 4, 
     return { ok: false, reason: 'corrected_repeatedly' };
 }
 
-module.exports = { free, fits, path, simplify, along, flyTo, feet, takeOff, AVOID };
+module.exports = { free, fits, path, simplify, along, flyTo, feet, takeOff, land, AVOID };
