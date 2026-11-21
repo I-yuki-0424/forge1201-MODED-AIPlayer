@@ -16,7 +16,7 @@ const P = require('./place');
 const REACH = 4.4;                 // eye to the cell's box (a vanilla client picks within 4.5)
 const WINDOW = 2;                  // layers above the lowest open one that may be placed at the same time
 const MAX_FAILS = 8;               // tries of one cell before it is parked (reported, not tried again until the next round)
-const BATCH = 96;                  // tasks per claim
+const BATCH = 64;                  // tasks per claim (everything within reach of the stance: walking was the largest share of the time, live 2026-11-22)
 const ROUNDS = 3;                  // extra rounds for parked cells before the build ends with them reported
 const STALL_MS = 40000;            // nothing ready for anybody this long while work is left: the ordering rules are relaxed (a dependency that cannot be met)
 const STAGE_OF = { seal: 'prepare', fill: 'prepare', clear: 'prepare', place: 'place', fix: 'place', pour: 'late', ignite: 'late', untemp: 'cleanup' };
@@ -285,7 +285,7 @@ class BuildJob {
                 const way = this._way(world, seed, c.f);
                 if (!way) continue;
                 const batch = [{ ...seed, way }];
-                for (const tk of c.reach) { if (tk === seed || batch.length >= 24) continue; const w = this._way(world, tk, c.f); if (w) batch.push({ ...tk, way: w }); }
+                for (const tk of c.reach) { if (tk === seed || batch.length >= BATCH) continue; const w = this._way(world, tk, c.f); if (w) batch.push({ ...tk, way: w }); }
                 best = { f: c.f, batch };
                 break;
             }
