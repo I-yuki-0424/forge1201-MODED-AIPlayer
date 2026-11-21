@@ -101,9 +101,11 @@ class Hand {
 }
 
 /** The state the bot sees at a cell: {name, props (strings)} or null when the chunk is not loaded. */
+const AIR_SEEN = Object.freeze({ name: 'air', props: Object.freeze({}), shape: 'empty' });
 function seen(bot, c) {
     const b = bot.blockAt(new Vec3(c.x, c.y, c.z), false);
     if (!b) return null;
+    if (b.name === 'air') return AIR_SEEN;                      // most of a box: no property object to build
     const p = {}; for (const [k, v] of Object.entries(b.getProperties())) p[k] = String(v);
     return { name: b.name, props: p, shape: b.boundingBox };
 }
