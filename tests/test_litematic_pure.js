@@ -81,3 +81,17 @@ const P = (name, props) => ({ name: `minecraft:${name}`, props });
     assert.strictEqual(w(r, 101, 64, 198).name, 'minecraft:stone'); assert.strictEqual(w(r, 100, 64, 200).props.facing, 'west');
 }
 console.log('litematic: ok');
+
+// A job keeps an immutable copy of its blueprint (service/jobs.js _buildFrom: bp.write) and reads it again at every restart: a blueprint made of a litematic with block entities (chests,
+// signs, hoppers ...) must survive the round trip (live 2026-11-21: the tile entities were bare maps, bp.read refused the file, the running job was lost at the first restart).
+(async () => {
+    const fs = require('fs'), path = require('path'), bp = require('../src/work/jobs/blueprint');
+    for (const f of ['iron-farm-34.litematic', 'easy-ironfarm-fixd.litematic']) {
+        const file = fs.readFileSync(path.join(__dirname, 'fixtures', f)), p = L.place(L.parse(file), { pos: { x: 0, y: 0, z: 0 }, rotation: 'NONE', mirror: 'NONE', subRegions: [] }, { keepAir: false });
+        const tiles = p.bp.blocks.filter((b) => b.nbt).length;
+        const back = await bp.read(bp.write(p.bp));
+        assert.deepStrictEqual(back.size, p.bp.size, f); assert.strictEqual(back.blocks.length, p.bp.blocks.length, f); assert.strictEqual(back.blocks.filter((b) => b.nbt).length, tiles, `${f}: block entities kept (${tiles})`);
+        assert.deepStrictEqual(back.blocks.map((b) => [b.x, b.y, b.z, back.palette[b.s].name]).sort().slice(0, 200), p.bp.blocks.map((b) => [b.x, b.y, b.z, p.bp.palette[b.s].name]).sort().slice(0, 200), f);
+    }
+    console.log('litematic round trip through the job file: ok');
+})().catch((e) => { console.error(e); process.exit(1); });

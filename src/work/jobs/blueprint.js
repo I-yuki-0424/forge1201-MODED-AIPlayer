@@ -79,7 +79,7 @@ function write(bp) {
     })));
     const blocks = nbt.list(nbt.comp(bp.blocks.map((b) => {
         const o = { pos: nbt.list(nbt.int([b.x, b.y, b.z])), state: nbt.int(b.s) };
-        if (b.nbt) o.nbt = b.nbt;
+        if (b.nbt) o.nbt = b.nbt.type ? b.nbt : nbt.comp(b.nbt);
         return o;
     })));
     const entities = bp.entities && bp.entities.length ? { type: 'list', value: { type: 'compound', value: bp.entities } } : nbt.list(nbt.comp([]));

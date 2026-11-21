@@ -73,7 +73,7 @@ function parse(buf) {
         const tiles = new Map();
         for (const t of (v.TileEntities ? v.TileEntities.value.value : [])) {
             const x = intOf({ value: t }, 'x'), y = intOf({ value: t }, 'y'), z = intOf({ value: t }, 'z');
-            tiles.set(`${x},${y},${z}`, t);
+            tiles.set(`${x},${y},${z}`, { type: 'compound', value: t });          // a tagged compound, as a structure file's block `nbt` is read (a bare map made bp.write produce a file bp.read refused: a job of a litematic was lost at the first restart)
         }
         regions.push({
             name, pos, size: { x: ax, y: ay, z: az },
