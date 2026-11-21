@@ -1,0 +1,307 @@
+'use strict';
+// Survival movement for builders: a plan over standing cells (A*) with the moves a player makes (walk, step up, drop up to three, pillar up on a temporary block, bridge over a
+// gap on one, break what is in the way, dig down), and their execution with the bot's own physics and inputs (look, forward, jump, sneak, a click, a dig). Every move is
+// checked against where the server puts the bot; a move that does not end where planned ends the run, the caller plans again.
+// The world: the bot's view, with `rules`: canDig(x, y, z, block) (never a built cell of the box, a container, next to a fluid ...), temp() (the item for temporary blocks
+// or null), onTemp(cell) (a temporary block was placed there: the caller removes it later).
+const { Vec3 } = require('vec3');
+const P = require('./place');
+const V = require('./vanilla');
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const key = (x, y, z) => `${x},${y},${z}`;
+const AVOID_IN = /^(lava|fire|soul_fire|nether_portal|end_portal|end_gateway|cobweb|sweet_berry_bush|powder_snow|bubble_column|wither_rose|magma_block|campfire|soul_campfire|pointed_dripstone|cactus|moving_piston)$/;
+const NO_STAND = /^(magma_block|campfire|soul_campfire|cactus|.*_fence|.*_wall|.*_fence_gate|pointed_dripstone|honey_block|slime_block|powder_snow|scaffolding|.*_bed|hopper|composter)$/;
+const H = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+const COST = { walk: 4.6, diag: 6.5, up: 9, drop: 5, pillar: 14, bridge: 24, temp: 6 };
+
+class Heap {
+    constructor() { this.a = []; }
+    push(n) { const a = this.a; a.push(n); let i = a.length - 1; while (i > 0) { const p = (i - 1) >> 1; if (a[p].f <= n.f) break; a[i] = a[p]; i = p; } a[i] = n; }
+    pop() { const a = this.a, top = a[0], last = a.pop(); if (a.length) { let i = 0; for (;;) { const l = 2 * i + 1, r = l + 1; let m = i; if (l < a.length && a[l].f < (m === i ? last.f : a[m].f)) m = l; if (r < a.length && a[r].f < (m === i ? last.f : a[m].f)) m = r; if (m === i) break; a[i] = a[m]; i = m; } a[i] = last; } return top; }
+    get size() { return this.a.length; }
+}
+
+/** The world as movement sees it: what a cell holds, with the changes a plan makes on its way (dug cells are air, temporary blocks stand). */
+class View {
+    constructor(bot, rules) { this.bot = bot; this.rules = rules; this.over = new Map(); this.cache = new Map(); }
+    raw(x, y, z) {
+        const k = key(x, y, z);
+        let b = this.cache.get(k);
+        if (b === undefined) { b = this.bot.blockAt(new Vec3(x, y, z), false); this.cache.set(k, b); }
+        return b;
+    }
+    /** 'free' (a body can be in it), 'solid' (it stands on it / bumps into it), 'avoid' or 'unknown'. */
+    kind(x, y, z) {
+        const o = this.over.get(key(x, y, z));
+        if (o) return o;
+        const b = this.raw(x, y, z);
+        if (!b) return 'unknown';
+        if (AVOID_IN.test(b.name)) return 'avoid';
+        if (b.boundingBox === 'empty') return b.name === 'water' ? 'water' : 'free';
+        return 'solid';
+    }
+    free(x, y, z) { const k = this.kind(x, y, z); return k === 'free' || k === 'water'; }
+    fits(x, y, z) { return this.free(x, y, z) && this.free(x, y + 1, z); }
+    /** Can a body stand on the block at (x, y, z) (its top at the cell's top)? */
+    stands(x, y, z) {
+        const o = this.over.get(key(x, y, z));
+        if (o === 'solid') return true;
+        if (o) return false;
+        const b = this.raw(x, y, z);
+        if (!b || b.boundingBox !== 'block' || NO_STAND.test(b.name)) return false;
+        const top = Math.max(...(b.shapes || []).map((s) => s[4]));
+        return top >= 0.85 && top <= 1 + 1e-6;                    // a full top, or nearly (soul sand, mud, a dirt path, farmland, a chest)
+    }
+    diggable(x, y, z) {
+        if (this.kind(x, y, z) !== 'solid') return false;
+        const b = this.raw(x, y, z);
+        return !!b && this.rules.canDig(x, y, z, b);
+    }
+    digTicks(x, y, z) { const b = this.raw(x, y, z); if (!b) return Infinity; try { return Math.ceil(this.bot.digTime(b) / 50) + 2; } catch (_) { return 40; } }
+}
+
+/**
+ * A plan from the bot's feet cell to a cell `goal(x, y, z)` accepts (h: a heuristic point). Returns [{ x, y, z, move, dig: [cells], place: cell | null }] (the first entry is the start) or null.
+ * `temps`: how many temporary blocks the plan may use.
+ */
+function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = null } = {}) {
+    const open = new Heap(), best = new Map();
+    const hh = (x, y, z) => (Math.abs(x - h.x) + Math.abs(z - h.z)) * COST.walk * 0.9 + Math.abs(y - h.y) * COST.up * 0.7;
+    open.push({ x: start.x, y: start.y, z: start.z, g: 0, f: hh(start.x, start.y, start.z), t: 0, p: null, move: 'start' });
+    best.set(key(start.x, start.y, start.z), 0);
+    const inBox = (x, y, z) => !box || (x >= box.x0 && x <= box.x1 && y >= box.y0 && y <= box.y1 && z >= box.z0 && z <= box.z1);
+    let n = 0;
+    while (open.size && n++ < maxNodes) {
+        const c = open.pop();
+        if (goal(c.x, c.y, c.z)) { const out = []; for (let q = c; q; q = q.p) out.push({ x: q.x, y: q.y, z: q.z, move: q.move, dig: q.dig || null, place: q.place || null }); return out.reverse(); }
+        if ((best.get(key(c.x, c.y, c.z)) ?? Infinity) < c.g) continue;
+        const add = (x, y, z, cost, move, extra = {}) => {
+            if (!inBox(x, y, z)) return;
+            const t = c.t + (extra.place ? 1 : 0);
+            if (t > temps) return;
+            const g = c.g + cost, k = key(x, y, z);
+            if (g >= (best.get(k) ?? Infinity)) return;
+            best.set(k, g);
+            open.push({ x, y, z, g, f: g + hh(x, y, z), t, p: c, move, ...extra });
+        };
+        const headFree = view.free(c.x, c.y + 2, c.z);
+        for (const [dx, dz] of H) {
+            const x = c.x + dx, z = c.z + dz, diag = dx && dz;
+            if (diag && !(view.fits(c.x + dx, c.y, c.z) && view.fits(c.x, c.y, c.z + dz))) continue;
+            // walk on the same level
+            if (view.fits(x, c.y, z)) {
+                if (view.stands(x, c.y - 1, z)) { add(x, c.y, z, diag ? COST.diag : COST.walk, 'walk'); continue; }
+                // drop down 1..3 onto something
+                let landed = false;
+                for (let k = 1; k <= 3 && !diag; k++) { if (!view.free(x, c.y - k, z)) { if (view.stands(x, c.y - k, z)) { add(x, c.y - k + 1, z, COST.drop + k, 'drop'); landed = true; } break; } }
+                if (!landed && !diag) { if (view.free(x, c.y - 1, z) && view.kind(x, c.y - 1, z) !== 'water' && view.stands(c.x, c.y - 1, c.z) && P.full(blk(view, c.x, c.y - 1, c.z))) add(x, c.y, z, COST.bridge + COST.temp, 'bridge', { place: { x, y: c.y - 1, z } }); }
+                continue;
+            }
+            if (diag) continue;
+            // step up one
+            if (headFree && view.fits(x, c.y + 1, z) && view.stands(x, c.y, z)) { add(x, c.y + 1, z, COST.up, 'up'); continue; }
+            // break what is in the way (one or two cells) and walk on
+            const d0 = !view.free(x, c.y, z), d1 = !view.free(x, c.y + 1, z);
+            if ((!d0 || view.diggable(x, c.y, z)) && (!d1 || view.diggable(x, c.y + 1, z)) && view.stands(x, c.y - 1, z)) {
+                const dig = []; let cost = COST.walk;
+                if (d0) { dig.push({ x, y: c.y, z }); cost += view.digTicks(x, c.y, z); }
+                if (d1) { dig.push({ x, y: c.y + 1, z }); cost += view.digTicks(x, c.y + 1, z); }
+                add(x, c.y, z, cost, 'walk', { dig });
+            }
+        }
+        // pillar up on a temporary block (head room first, broken when diggable)
+        if (temps > c.t && view.kind(c.x, c.y + 2, c.z) !== 'avoid' && (headFree || view.diggable(c.x, c.y + 2, c.z))) add(c.x, c.y + 1, c.z, COST.pillar + COST.temp + (headFree ? 0 : view.digTicks(c.x, c.y + 2, c.z)), 'pillar', { place: { x: c.x, y: c.y, z: c.z }, dig: headFree ? null : [{ x: c.x, y: c.y + 2, z: c.z }] });
+        // dig down one (the block under the feet), onto the one under it
+        if (view.diggable(c.x, c.y - 1, c.z) && view.stands(c.x, c.y - 2, c.z)) add(c.x, c.y - 1, c.z, COST.drop + view.digTicks(c.x, c.y - 1, c.z), 'down', { dig: [{ x: c.x, y: c.y - 1, z: c.z }] });
+    }
+    return null;
+}
+const blk = (view, x, y, z) => { const b = view.raw(x, y, z); return b ? { name: b.name, props: {}, shapes: b.shapes || [] } : null; };
+
+/** The feet cell of the bot. */
+function feet(bot) { const p = bot.entity.position; return { x: Math.floor(p.x), y: Math.floor(p.y + 0.16), z: Math.floor(p.z) }; }      // + 0.16: standing on a block a little lower than a full one (soul sand 0.875) is standing on its cell
+
+/** The mover of one bot. */
+class Mover {
+    constructor(bot, rules, { log = () => {} } = {}) { this.bot = bot; this.rules = rules; this.log = log; this.trace = []; }
+
+    /** Look along (yaw, pitch) and let the server have it (it applies a look a tick after it arrives). */
+    async look(yaw, pitch) { await this.bot.look(yaw, pitch, true); await sleep(110); }
+    async lookAtPoint(p) { const e = this.bot.entity.position.offset(0, this.bot.entity.eyeHeight || 1.62, 0); await this.look(Math.atan2(-(p.x - e.x), -(p.z - e.z)), Math.atan2(p.y - e.y, Math.hypot(p.x - e.x, p.z - e.z))); }
+
+    async hold(item) {
+        const b = this.bot;
+        if (b.heldItem && b.heldItem.name === item) return true;
+        const it = b.inventory.items().find((i) => i.name === item);
+        if (!it) return false;
+        try { await b.equip(it, 'hand'); } catch (_) { return false; }
+        return !!(b.heldItem && b.heldItem.name === item);
+    }
+
+    /** Break the block at c with the best tool the bot carries (mineflayer's dig: look, swing, the survival time). */
+    async dig(c) {
+        const b = this.bot, block = b.blockAt(new Vec3(c.x, c.y, c.z), false);
+        if (!block || block.boundingBox === 'empty' && block.name !== 'fire') return true;
+        let best = null, bestT = Infinity;
+        for (const it of [null, ...b.inventory.items()]) {
+            if (it && !/(_pickaxe|_axe|_shovel|_hoe|shears|_sword)$/.test(it.name)) continue;
+            let t; try { const held = b.heldItem; if (it) b.heldItem = it; t = b.digTime(block); b.heldItem = held; } catch (_) { t = Infinity; }
+            if (t < bestT) { bestT = t; best = it; }
+        }
+        if (best && (!b.heldItem || b.heldItem.slot !== best.slot)) { try { await b.equip(best, 'hand'); } catch (_) { /* the hand it has */ } }
+        try { await b.dig(block, true); } catch (e) { return false; }
+        return !b.blockAt(new Vec3(c.x, c.y, c.z), false) || b.blockAt(new Vec3(c.x, c.y, c.z), false).boundingBox === 'empty';
+    }
+
+    /** A click on face `face` of block n at point `hit` (a vanilla use packet), looking at the point first. */
+    async click(n, face, hit, { sneak = false } = {}) {
+        const b = this.bot;
+        if (sneak) { b.setControlState('sneak', true); await sleep(60); }
+        await this.lookAtPoint(new Vec3(hit[0], hit[1], hit[2]));
+        b._client.write('block_place', { hand: 0, location: new Vec3(n[0], n[1], n[2]), direction: V.FACE[face], cursorX: hit[0] - n[0], cursorY: hit[1] - n[1], cursorZ: hit[2] - n[2], insideBlock: false, worldBorderHit: false, sequence: (this.seq = (this.seq || 0) + 1) });
+        b.swingArm();
+        await sleep(120);
+        if (sneak) { b.setControlState('sneak', false); await sleep(60); }
+    }
+
+    /** Place the temporary block into cell c from where the bot stands (a face of a neighbour it sees). */
+    async placeTemp(c) {
+        const item = this.rules.temp();
+        if (!item || !(await this.hold(item))) return false;
+        const world = P.botWorld(this.bot), me = feet(this.bot);
+        const st = [me];
+        const w = P.ways(world, c, { name: item, props: {} }, item, st, { max: 1 })[0] || P.ways(world, c, { name: item, props: {} }, item, st, { max: 1, sneakAlways: true })[0];
+        if (!w) return false;
+        await this.click(w.n, w.face, w.hit, { sneak: w.sneak });
+        for (let i = 0; i < 10; i++) { const bb = this.bot.blockAt(new Vec3(c.x, c.y, c.z), false); if (bb && bb.boundingBox === 'block') { this.rules.onTemp(c); return true; } await sleep(50); }
+        return false;
+    }
+
+    /** Walk the body to the centre of cell c (same level or a step), with the bot's physics. */
+    async walkTo(c, { jump = false, sneak = false, timeout = 2500 } = {}) {
+        const b = this.bot, t0 = Date.now(), tx = c.x + 0.5, tz = c.z + 0.5;
+        b.setControlState('sneak', sneak);
+        try {
+            for (;;) {
+                const p = b.entity.position, dx = tx - p.x, dz = tz - p.z, d = Math.hypot(dx, dz);
+                if (d < 0.18 && Math.abs(p.y - c.y) < 0.6 && b.entity.onGround) break;
+                if (Date.now() - t0 > timeout) return false;
+                await b.look(Math.atan2(-dx, -dz), b.entity.pitch, true);
+                b.setControlState('forward', d > 0.12);
+                b.setControlState('sprint', false);
+                b.setControlState('jump', jump && b.entity.onGround && p.y < c.y - 0.5);
+                await sleep(50);
+            }
+        } finally { b.setControlState('forward', false); b.setControlState('jump', false); b.setControlState('sneak', false); }
+        for (let i = 0; i < 10 && Math.hypot(b.entity.velocity.x, b.entity.velocity.z) > 0.02; i++) await sleep(50);
+        return true;
+    }
+
+    /** Pillar: jump and put the temporary block into the cell the feet leave. */
+    async pillar(c) {
+        const b = this.bot, below = { x: c.x, y: c.y - 1, z: c.z }, item = this.rules.temp();
+        if (!item || !(await this.hold(item))) return false;
+        const p = b.entity.position;
+        if (Math.hypot(below.x + 0.5 - p.x, below.z + 0.5 - p.z) > 0.2) await this.walkTo(below, { sneak: true, timeout: 1500 });          // from the cell's centre, or the block lands in the body
+        await this.look(b.entity.yaw, -Math.PI / 2);
+        b.setControlState('jump', true);
+        let placed = false;
+        for (let i = 0; i < 30 && !placed; i++) {
+            await sleep(50);
+            if (b.entity.position.y > below.y + 1.12 && b.entity.velocity.y > -0.2) {
+                b._client.write('block_place', { hand: 0, location: new Vec3(below.x, below.y - 1, below.z), direction: 1, cursorX: 0.5, cursorY: 1, cursorZ: 0.5, insideBlock: false, worldBorderHit: false, sequence: (this.seq = (this.seq || 0) + 1) });
+                b.swingArm(); placed = true;
+            }
+        }
+        b.setControlState('jump', false);
+        for (let i = 0; i < 30; i++) { await sleep(50); if (b.entity.onGround && b.entity.position.y >= c.y - 0.01) break; }
+        const bb = b.blockAt(new Vec3(below.x, below.y, below.z), false);
+        if (bb && bb.boundingBox === 'block') this.rules.onTemp(below);
+        return feet(b).y === c.y;
+    }
+
+    /** Do one planned step from the cell before it. */
+    async step(prev, s) {
+        for (const d of s.dig || []) if (!(await this.dig(d))) return { ok: false, why: `dig ${d.x},${d.y},${d.z}` };
+        if (s.move === 'walk') return (await this.walkTo(s)) ? { ok: true } : { ok: false, why: 'walk' };
+        if (s.move === 'up') return (await this.walkTo(s, { jump: true })) ? { ok: true } : { ok: false, why: 'up' };
+        if (s.move === 'drop') { const ok = await this.walkTo(s, { timeout: 3500 }); return ok ? { ok: true } : { ok: false, why: 'drop' }; }
+        if (s.move === 'down') { for (let i = 0; i < 30 && feet(this.bot).y > s.y; i++) await sleep(50); return feet(this.bot).y === s.y ? { ok: true } : { ok: false, why: 'down' }; }
+        if (s.move === 'pillar') return (await this.pillar(s)) ? { ok: true } : { ok: false, why: 'pillar' };
+        if (s.move === 'bridge') {
+            // to the edge sneaking, then the block under the next cell, then onto it
+            const b = this.bot, edge = { x: prev.x + 0.5 + (s.x - prev.x) * 0.45, z: prev.z + 0.5 + (s.z - prev.z) * 0.45 };
+            b.setControlState('sneak', true);
+            for (let i = 0; i < 40; i++) { const p = b.entity.position, dx = edge.x - p.x, dz = edge.z - p.z; if (Math.hypot(dx, dz) < 0.08) break; await b.look(Math.atan2(-dx, -dz), 0, true); b.setControlState('forward', true); await sleep(50); }
+            b.setControlState('forward', false);
+            const ok = await this.placeTemp(s.place);
+            b.setControlState('sneak', false);
+            if (!ok) return { ok: false, why: 'bridge place' };
+            return (await this.walkTo(s)) ? { ok: true } : { ok: false, why: 'bridge walk' };
+        }
+        return { ok: false, why: `unknown move ${s.move}` };
+    }
+
+    /**
+     * Follow a run of ground moves (walk, diagonal, up, drop) without stopping in between: steer at the next cell's centre, take it when within 0.35 (the last one: 0.15),
+     * jump just before a step up. Ends when the bot leaves the run's cells (the caller plans again). Returns the index reached.
+     */
+    async follow(route, i0, i1, cancel) {
+        const b = this.bot, cells = new Set(route.slice(Math.max(0, i0 - 1), i1 + 1).map((c) => key(c.x, c.y, c.z)));
+        let i = i0, t0 = Date.now(), stuck = 0, lastD = Infinity;
+        try {
+            while (i <= i1 && !cancel.cancelled) {
+                const c = route[i], last = i === i1, p = b.entity.position, dx = c.x + 0.5 - p.x, dz = c.z + 0.5 - p.z, d = Math.hypot(dx, dz);
+                const f = feet(b);
+                if (!cells.has(key(f.x, f.y, f.z)) && !cells.has(key(f.x, f.y - 1, f.z)) && b.entity.onGround) return { i, why: `off the route at ${f.x},${f.y},${f.z}` };
+                if (d < (last ? 0.15 : 0.35) && Math.abs(p.y - c.y) < 0.6) { i++; t0 = Date.now(); stuck = 0; lastD = Infinity; continue; }
+                if (Date.now() - t0 > 4000) return { i, why: `no progress toward ${c.x},${c.y},${c.z}` };
+                if (d > lastD - 0.005) stuck++; else stuck = 0;
+                lastD = d;
+                b.look(Math.atan2(-dx, -dz), 0, true);
+                b.setControlState('forward', true);
+                b.setControlState('sprint', false);
+                const up = c.y > f.y && route[i].move === 'up';
+                b.setControlState('jump', (up && d < 1.4 && b.entity.onGround) || (stuck > 6 && b.entity.onGround && c.y >= f.y));
+                b.setControlState('sneak', last && d < 0.6);
+                await sleep(50);
+            }
+        } finally { for (const k of ['forward', 'jump', 'sneak', 'sprint']) b.setControlState(k, false); }
+        for (let k = 0; k < 10 && Math.hypot(b.entity.velocity.x, b.entity.velocity.z) > 0.03; k++) await sleep(50);
+        return { i };
+    }
+
+    /**
+     * Go to a cell `goal` accepts (or `to` itself). Plans, follows, re-plans when the bot leaves the plan (up to `tries`). { ok, why, steps }.
+     */
+    async goto(to, { goal = null, cancel = { cancelled: false }, tries = 6, maxNodes = 40000, box = null } = {}) {
+        const g = goal || ((x, y, z) => x === to.x && y === to.y && z === to.z);
+        let steps = 0, last = null;
+        for (let t = 0; t < tries && !cancel.cancelled; t++) {
+            const start = feet(this.bot);
+            if (g(start.x, start.y, start.z)) return { ok: true, steps };
+            const view = new View(this.bot, this.rules), temps = this.rules.temp() ? this.bot.inventory.items().filter((i) => i.name === this.rules.temp()).reduce((a, i) => a + i.count, 0) : 0;
+            const route = plan(view, start, g, to, { maxNodes, temps, box });
+            if (!route) return { ok: false, why: 'no plan', from: start, steps };
+            let i = 1, broke = false;
+            while (i < route.length && !cancel.cancelled) {
+                const s = route[i];
+                if ((s.move === 'walk' || s.move === 'up' || s.move === 'drop') && !(s.dig && s.dig.length)) {
+                    let j = i; while (j + 1 < route.length && ['walk', 'up', 'drop'].includes(route[j + 1].move) && !(route[j + 1].dig && route[j + 1].dig.length)) j++;
+                    const r = await this.follow(route, i, j, cancel);
+                    steps += r.i - i;
+                    if (r.i <= j) { last = r.why; broke = true; break; }
+                    i = j + 1; continue;
+                }
+                const r = await this.step(route[i - 1], s), at = feet(this.bot);
+                if (!r.ok || at.x !== s.x || at.z !== s.z || at.y !== s.y) { last = r.ok ? `ended at ${at.x},${at.y},${at.z} not ${s.x},${s.y},${s.z} (${s.move})` : r.why; broke = true; break; }
+                steps++; i++;
+            }
+            if (!broke && !cancel.cancelled) { const f = feet(this.bot); if (g(f.x, f.y, f.z)) return { ok: true, steps }; }
+        }
+        return { ok: false, why: last || 'cancelled', steps };
+    }
+}
+
+module.exports = { Mover, View, plan, feet, COST };
