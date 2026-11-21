@@ -64,7 +64,8 @@ class BuildJob {
             const tasks = new Map();
             // fluids the blueprint has are poured at the end, when their basin stands: while blocks are still to be placed or cleared, a fluid in the box (even one where the blueprint
             // has it, as the world made it) is filled, or it runs into every cell that is opened next to it (live 2026-11-21 run n5: clearing next to natural lava waited for ever)
-            if (sv.tasks.some((tk) => STAGE_OF[tk.kind] === 'prepare' || STAGE_OF[tk.kind] === 'place')) for (const tk of sv.kept) sv.tasks.push(tk);
+            // (once the late stage has poured, fluids stay: a block put back afterwards next to them is placed into a finished basin)
+            if (!this.pouredOnce && sv.tasks.some((tk) => STAGE_OF[tk.kind] === 'prepare' || STAGE_OF[tk.kind] === 'place')) for (const tk of sv.kept) sv.tasks.push(tk);
             for (const tk of sv.tasks) {
                 if (this.parked.has(tk.k)) continue;
                 if (tk.kind !== 'seal' && tk.kind !== 'ignite' && this.available && !this._itemOk(tk)) { this.parked.set(tk.k, `missing_item ${this._itemOf(tk)}`); continue; }
@@ -88,6 +89,7 @@ class BuildJob {
                 this.stage = 'settle';
                 this.settleAt = Date.now() + 4000;
             } else this.stage = stage;
+            if (stage === 'late') this.pouredOnce = true;
             this._frontier();
         })();
         try { await this.surveying; } finally { this.surveying = null; }
