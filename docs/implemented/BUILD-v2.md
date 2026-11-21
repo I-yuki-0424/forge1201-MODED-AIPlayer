@@ -1,4 +1,4 @@
-# BUILD-v2: the structure builder rewritten from scratch (creative crews, flight, placement into the air)
+# BUILD-v2: the structure builder rewritten from scratch for survival crews (walking, pillars, clicks a vanilla client can make)
 
 `TASK-20261121-073` (owner 2026-11-21): the Litematica build of the creative Fabric 26.1.2 server was "completely unusable" (docs/implemented/BUGFIX-20261121-072-litematica-creative-run.md), so the structure-building code was written again from nothing, in its own package `src/build/`, and is judged on new random natural worlds by the server.
 
@@ -57,3 +57,23 @@ A creative player takes an item from the creative inventory (pick-block does the
 ## Results
 
 (see the section at the end, filled in as runs finish)
+
+
+## 2026-11-21 night: the premise is survival (owner)
+
+The first version above ran on creative mechanics (flight by position packets, creative-inventory items, instant breaking, use packets into air cells). The owner's premise is full
+survival without cheats; that version was removed and everything that moves, digs, places or fetches was rebuilt. What stayed: the blueprint model (`state.js`, `target.js`, `survey.js`,
+`pistons.js`, the server-side per-cell judge).
+
+| File | Survival job |
+| :-- | :-- |
+| `vanilla.js` | vanilla's placement rules as a forward model (clicked face, hit point, look, sneak, neighbours -> state) |
+| `place.js` | the click search: a face of a neighbour the eye sees FIRST along the ray, within 4.4, that gives the wanted state; live 153 of 154 states (`scripts/t26/place_probe.js`) |
+| `move.js` | the mover: plan over standing cells (walk, step up, drop <= 3, pillar, bridge leaning over the edge, dig through, swim), no cell beside or over lava; a path follower on the bot's own physics; searches yield to the event loop |
+| `supply.js` | materials by count from the tagged containers; shulker boxes set down as a depot beside the chest (facing up, never stacked), taken from like chests, put back at the end (`repack`) |
+| `job.js` | claims: a stance from which the click or dig works (pillar or bridge supports, stances inside rock to be cleared), up to 64 tasks per stance; clearing waits only for the nine cells above; placing overlaps clearing once a cell's neighbourhood is cleared |
+| `drive.js` | one bot: supply trips (rubble dropped first, items out of stock only when no container holds them), claims, work, deaths logged, the depot repacked at the end |
+
+Measured on the parallel T26 batches (scripts/t26/batch.sh, 3 Overworld + 3 Nether worlds at a time): digging 0.23 s per block after the tool fix; clearing 8 000-18 000 blocks in 27 min for
+an Overworld site; placing still slow (best 27 blocks in 27 min, 2026-11-22 ~05:00 JST): no survival build has finished. Causes found and fixed are in git log (`TASK:20261121-073`).
+Deployed to the three fabric26 consoles after each fix (`docker compose -f /mnt/data/fabric26-worlds/compose.yaml restart console-creative console-survival-hard console-survival-op`).
