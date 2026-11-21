@@ -172,6 +172,7 @@ function boxSpot(job, bot, c) {
         const s = { x: c.x + dx, y: c.y + dy, z: c.z + dz };
         if (job.t.inside(s.x, s.y, s.z) || (s.x === me.x && s.z === me.z)) continue;
         if (job.sites.some((q) => Math.abs(q.x - s.x) <= 1 && q.z === s.z && q.y === s.y - 1)) continue;        // not on top of a chest (bots stand there)
+        if ((job.depot || []).some((q) => q.x === s.x && q.z === s.z && Math.abs(q.y - s.y) <= 2)) continue;          // never on or under another box (a box on a box keeps the lower one shut, live 2026-11-22)
         // air for the box and over it (a box opens upward), something solid under it, within reach of the bot
         if (!(v.free(s.x, s.y, s.z) && v.free(s.x, s.y + 1, s.z) && v.stands(s.x, s.y - 1, s.z))) continue;
         const d = Math.hypot(s.x + 0.5 - bot.entity.position.x, s.y + 0.5 - (bot.entity.position.y + 1.62), s.z + 0.5 - bot.entity.position.z);

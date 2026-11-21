@@ -25,6 +25,15 @@ async function open(bot, c) {
     if (!block) throw new Error('not loaded');
     return Promise.race([bot.openContainer(block), sleep(5000).then(() => { throw new Error('the container did not open'); })]);
 }
+/** Next to container c (within reach, nothing between): a depot box opened from the far side of the chest did not open (live 2026-11-22). */
+async function near(bot, mover, c) {
+    const p = bot.entity.position, d = Math.hypot(c.x + 0.5 - p.x, c.y + 0.5 - (p.y + 1.62), c.z + 0.5 - p.z);
+    if (d <= 3) return;
+    const v = mover.view();
+    const adj = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]].map(([dx, dz]) => ({ x: c.x + dx, y: c.y, z: c.z + dz })).filter((q) => v.fits(q.x, q.y, q.z) && v.stands(q.x, q.y - 1, q.z)).sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z));
+    for (const q of adj.slice(0, 3)) { const r = await mover.goto(q, { maxNodes: 5000 }); if (r.ok) return; }
+}
+
 /** Shift-click window slot `slot` (into the pack, or from the pack into the container). */
 async function shift(bot, slot) { await bot.clickWindow(slot, 0, 1); await sleep(80); }
 
@@ -60,6 +69,7 @@ async function fetch(bot, site, needs, mover, spot, { log = () => {}, depot = []
     const still = () => Object.entries(want).filter(([, n]) => n > 0);
     const took = (name, n) => { got[name] = (got[name] || 0) + n; if (want[name] !== undefined) want[name] = Math.max(0, want[name] - n); };
     const takeFrom = async (c) => {
+        await near(bot, mover, c);
         const w = await open(bot, c);
         try { for (const it of w.containerItems()) { if (freeSlots(bot) <= 1 || !still().length) break; if (want[it.name] > 0 && !SHULKER.test(it.name)) { await shift(bot, it.slot); took(it.name, it.count); } } }
         finally { bot.closeWindow(w); await sleep(250); }
