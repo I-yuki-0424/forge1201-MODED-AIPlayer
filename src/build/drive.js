@@ -10,7 +10,8 @@ const { readSupply, sealFrom } = require('./supply');
 const { REPLACEABLE, clicksFor } = require('./survey');
 
 const PACE_MS = 30;                 // between two actions of one bot
-const READ_MS = 300;                // after a batch, before the read-back
+const READ_MS = 300;
+const POUR_REACH = 4.5;              // a bucket's ray is the server's own and ends at the block interaction range (5 in creative): a pour aimed 5.2 away hit nothing                // after a batch, before the read-back
 const NON_BLOCKING = /^(item|experience_orb|arrow|spectral_arrow|trident|snowball|egg|ender_pearl|potion|splash_potion|lingering_potion|fireball|small_fireball|dragon_fireball|wither_skull|area_effect_cloud|marker|interaction|block_display|item_display|text_display|lightning_bolt|falling_block|eye_of_ender|firework_rocket|fishing_bobber|leash_knot|painting|item_frame|glow_item_frame)$/;
 const key = (x, y, z) => `${x},${y},${z}`;
 
@@ -199,7 +200,7 @@ async function late(job, name, bot, hand, cl, cancel) {
         if (cancel.cancelled) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
         const r = tk.i >= 0 ? job.t.recipeOf(tk) : null;
         if (tk.kind === 'pour') {
-            const st = pourStation(bot, tk, job.standBlocked(name), job.o.reach);
+            const st = pourStation(bot, tk, job.standBlocked(name), POUR_REACH);
             if (!st) {
                 // the basin is closed all round: the block above is taken out so that a ray can reach the cell; the next survey puts it back once the fluid is in
                 const up = { x: tk.x, y: tk.y + 1, z: tk.z }, h = seen(bot, up);
@@ -213,7 +214,7 @@ async function late(job, name, bot, hand, cl, cancel) {
             const fr = await fly.flyTo(bot, st.f, { cancel, ...flight(job, bot, hand) }); hand.moved();
             if (!fr.ok) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
             await sleep(80);
-            const aim = pourAim(bot, eyeOf(bot.entity.position), tk, job.o.reach) || st.aim;
+            const aim = pourAim(bot, eyeOf(bot.entity.position), tk, POUR_REACH) || st.aim;
             hand.hold(r.item);
             await hand.useItem(aim.yaw, aim.pitch);
             await sleep(400);
