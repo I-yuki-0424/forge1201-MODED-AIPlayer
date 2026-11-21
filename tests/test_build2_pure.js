@@ -144,14 +144,14 @@ function tiny() {
     for (let x = 0; x < 3; x++) for (let z = 0; z < 3; z++) { blocks.push({ x, y: 0, z, s: 1 }); blocks.push({ x, y: 2, z, s: 3 }); for (const y of [1]) blocks.push({ x, y, z, s: x === 1 && z === 1 ? 2 : 0 }); }
     return { size: [3, 3, 3], palette, blocks };
 }
-test('survey: what to clear, place, fix, seal', () => {
+test('survey: what to clear, place, fix, seal', async () => {
     const t = new Target(tiny(), { x: 10, y: 64, z: 10 });
     const w = new Map();
     w.set('10,64,10', { name: 'dirt' });                                                   // a wrong block on a stone cell: place (the dirt goes first)
     w.set('11,65,10', { name: 'stone' });                                                  // terrain in an air cell: clear
     w.set('11,64,11', { name: 'stone' }); w.set('11,65,11', { name: 'repeater', props: { facing: 'north', delay: '1', powered: 'false' } });   // right block, wrong delay: fix with one click
     w.set('9,65,10', { name: 'water', props: { level: '0' } });                            // water outside next to the box: seal
-    const sv = survey(t, fakeBot(w));
+    const sv = await survey(t, fakeBot(w));
     const at = (k) => sv.tasks.find((q) => q.k === k);
     assert.strictEqual(at('10,64,10').kind, 'place'); assert.strictEqual(at('10,64,10').wrong, true);
     assert.strictEqual(at('11,65,10').kind, 'clear');
@@ -197,7 +197,7 @@ test('job: stages in order, clearing top-down and never next to a fluid, placing
     assert.strictEqual(job.claims.size, 0);
     assert.strictEqual(job.fails.get(cl.tasks[0].k), 1);
 });
-test('pistons: the other phase of a retracted piston pushes the row, of an extended sticky one pulls the block back', () => {
+test('pistons: the other phase of a retracted piston pushes the row, of an extended sticky one pulls the block back', async () => {
     const P = require('../src/build/pistons');
     const palette = [{ name: 'minecraft:air', props: {} }, { name: 'minecraft:sticky_piston', props: { facing: 'up', extended: 'false' } }, { name: 'minecraft:smooth_stone', props: {} }, { name: 'minecraft:sticky_piston', props: { facing: 'up', extended: 'true' } }, { name: 'minecraft:piston_head', props: { facing: 'up', type: 'sticky', short: 'false' } }];
     const blocks = [{ x: 0, y: 0, z: 0, s: 1 }, { x: 0, y: 1, z: 0, s: 2 }, { x: 2, y: 0, z: 0, s: 3 }, { x: 2, y: 1, z: 0, s: 4 }, { x: 2, y: 2, z: 0, s: 2 }];
@@ -211,7 +211,7 @@ test('pistons: the other phase of a retracted piston pushes the row, of an exten
     assert.deepStrictEqual(o2.map((c) => [c.y, c.state && c.state.name]), [[65, 'smooth_stone'], [66, null]]);
     // the survey builds the other phase when the world holds the piston that way, and leaves the head alone
     const w = new Map([['0,64,0', { name: 'sticky_piston', props: { facing: 'up', extended: 'true' } }], ['0,65,0', { name: 'piston_head', props: { facing: 'up', type: 'sticky', short: 'false' } }]]);
-    const sv = survey(t, fakeBot(w));
+    const sv = await survey(t, fakeBot(w));
     assert.strictEqual(sv.phased, 1);
     const tk = sv.tasks.find((q) => q.k === '0,66,0');
     assert(tk && tk.kind === 'place' && tk.want && tk.want.name === 'smooth_stone', 'the stone goes where the push leaves it');

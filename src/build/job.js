@@ -62,7 +62,7 @@ class BuildJob {
     async resurvey(bot, why) {
         if (this.surveying) return this.surveying;
         this.surveying = (async () => {
-            const sv = survey(this.t, bot, { lit: new Set() });
+            const sv = await survey(this.t, bot, { lit: new Set() });
             this.stats.surveys++;
             if (sv.unknown) { this.log(`survey: ${sv.unknown} cells not loaded for ${bot.username}`); }
             const tasks = new Map();
@@ -140,8 +140,8 @@ class BuildJob {
         if (tk.kind === 'clear') {
             // top-down, layer by layer (the crew stands on the floor it digs: a column cleared ahead of its neighbours is a shaft whose lower cells no eye sees, live 2026-11-22);
             // never next to a fluid (it would run in)
-            if (tk.y < this.clearTop - 1) return false;
-            if (this.tasks.has(key(tk.x, tk.y + 1, tk.z)) && this.tasks.get(key(tk.x, tk.y + 1, tk.z)).kind === 'clear') return false;
+            // the nine cells above first (no shaft runs ahead of its neighbours; a local rule, so one stuck cell holds only what is under it)
+            for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) { const up = this.tasks.get(key(tk.x + dx, tk.y + 1, tk.z + dz)); if (up && up.kind === 'clear' && !this.parked.has(up.k)) return false; }
             for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]]) {
                 const h = seen(bot, { x: tk.x + dx, y: tk.y + dy, z: tk.z + dz });
                 if (h && (h.name === 'water' || h.name === 'lava' || h.props.waterlogged === 'true')) return false;
@@ -179,8 +179,7 @@ class BuildJob {
             if (!want || !h || !S.matches(want, h)) return `waits for ${x},${y},${z} ${want ? S.str(want.name, S.decidedProps(want.name, want.props)) : '?'} (has ${h ? S.str(h.name, S.decidedProps(h.name, h.props)) : '?'}${this.parked.has(key(x, y, z)) ? ', parked' : ''})`;
         }
         if (tk.kind === 'clear') {
-            const up = this.tasks.get(key(tk.x, tk.y + 1, tk.z));
-            if (up && up.kind === 'clear') return 'under a cell to clear';
+            for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) { const up = this.tasks.get(key(tk.x + dx, tk.y + 1, tk.z + dz)); if (up && up.kind === 'clear') return 'under a cell to clear'; }
             for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]]) { const h = seen(bot, { x: tk.x + dx, y: tk.y + dy, z: tk.z + dz }); if (h && (h.name === 'water' || h.name === 'lava' || h.props.waterlogged === 'true')) return `next to ${h.name} at ${tk.x + dx},${tk.y + dy},${tk.z + dz}`; }
         }
         return 'ready';

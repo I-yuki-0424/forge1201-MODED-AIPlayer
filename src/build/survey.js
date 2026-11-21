@@ -39,12 +39,13 @@ function clicksFor(want, have) {
  *   clear a block that must go (then the cell is air or gets its block)           place  the cell's recipe (a wrong block there is broken first)
  *   fix   clicks on a block that is right apart from a click-set property         pour / ignite   late work (fluids, fire and portals)
  */
-function survey(target, bot, { lit = new Set() } = {}) {
+async function survey(target, bot, { lit = new Set() } = {}) {
     const b = target.box, tasks = [];
     let unknown = 0, right = 0, dynamic = 0;
     const fluidAt = new Uint8Array(target.n);
     const have = new Array(target.n);
     for (let i = 0; i < target.n; i++) {
+        if (i % 8000 === 7999) await new Promise((r) => setImmediate(r));        // a box of 138 240 cells read in one go stalled the bots' keep-alives (kicked, live 2026-11-22)
         const c = target.cell(i), h = seen(bot, c);
         have[i] = h;
         if (!h) { unknown++; continue; }
