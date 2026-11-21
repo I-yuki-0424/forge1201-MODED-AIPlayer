@@ -80,6 +80,7 @@ class BuildJob {
                 tasks.set(tk.k, tk);
             }
             this.tasks = tasks;
+            this.fluidLeft = [...tasks.values()].some((tk) => tk.kind === 'fill' || tk.kind === 'seal');
             this.buckets = new Map();
             for (const tk of tasks.values()) { const k = `${Math.floor(tk.x / 8)},${Math.floor(tk.y / 8)},${Math.floor(tk.z / 8)}`; (this.buckets.get(k) || this.buckets.set(k, []).get(k)).push(tk); }
             this.claims.clear();
@@ -137,7 +138,10 @@ class BuildJob {
     /** Is task `tk` ready in `bot`'s view of the world? (`pending`: cells this bot has just sent a placement for and not read back yet: they count as standing.) */
     ready(tk, bot, now, pending = null, soft = false) {
         if (this.parked.has(tk.k) || (this.cool.get(tk.k) || 0) > now) return false;
-        if (STAGE_OF[tk.kind] !== this.stage) return false;
+        if (STAGE_OF[tk.kind] !== this.stage) {
+            // placing overlaps clearing: a block goes in as soon as its own neighbourhood is cleared (a few hard cells anywhere held the whole build in the prepare stage, live 2026-11-22)
+            if (!(this.stage === 'prepare' && (tk.kind === 'place' || tk.kind === 'fix') && this._clearAround(tk))) return false;
+        }
         if (this.relaxed) return true;
         if (tk.kind === 'clear') {
             // top-down, layer by layer (the crew stands on the floor it digs: a column cleared ahead of its neighbours is a shaft whose lower cells no eye sees, live 2026-11-22);
@@ -167,6 +171,15 @@ class BuildJob {
             return true;
         }
         return true;
+    }
+
+    /** No clearing, filling or sealing left in the cell, its neighbours and the three layers above them (then it can be built while the rest is still cleared). */
+    _clearAround(tk) {
+        for (let dy = -1; dy <= 3; dy++) for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+            const o = this.tasks.get(key(tk.x + dx, tk.y + dy, tk.z + dz));
+            if (o && (o.kind === 'clear' || o.kind === 'fill' || o.kind === 'seal') && !this.parked.has(o.k)) return false;
+        }
+        return !this.fluidLeft;
     }
 
     /** Why task `tk` is not ready (for the stall log): the first rule that holds it. */
@@ -248,7 +261,7 @@ class BuildJob {
         }
         const down = this.stage === 'prepare';
         const crowd = (tk) => others.reduce((s, o) => s + (Math.hypot(o.x - tk.x, o.z - tk.z, (o.y - tk.y) / 2) < 6 ? 1 : 0), 0);
-        const seedScore = (tk) => (down ? -tk.y : tk.y) * 3 + Math.hypot(tk.x - me.x, tk.y - me.y, tk.z - me.z) * 0.25 + crowd(tk) * 25 + (tk.kind === 'seal' || tk.kind === 'fill' ? -1000 : 0);
+        const seedScore = (tk) => (tk.kind === 'place' || tk.kind === 'fix' ? 2000 + tk.y * 3 : (down ? -tk.y : tk.y) * 3) + Math.hypot(tk.x - me.x, tk.y - me.y, tk.z - me.z) * 0.25 + crowd(tk) * 25 + (tk.kind === 'seal' || tk.kind === 'fill' ? -1000 : 0);
         doable.sort((a, b) => seedScore(a) - seedScore(b));
         const view = new View(bot, { canDig: () => false }), blocked = this.standBlocked(name);
         // a spatial index of the doable tasks: a stance is first ranked by how many it has within reach (cheap); the click search (place.ways: rays and the vanilla model) runs only for
@@ -300,7 +313,7 @@ class BuildJob {
                 if (now - ns > 120000) { this.parked.set(seed.k, `no stance (${cands.length} in range)`); this.tasks.delete(seed.k); this.log(`parked ${seed.kind} ${seed.k} (${seed.i >= 0 ? S.bare(this.t.wantOf(seed).name) : 'outside'}): no stance reaches it (${cands.length} stances in range)`); this._frontier(); }
                 continue;
             }
-            const tasks = best.batch.sort((a, b) => (down ? b.y - a.y : a.y - b.y) || a.x - b.x || a.z - b.z);
+            const tasks = best.batch.sort((a, b) => ((a.kind === 'clear') !== (b.kind === 'clear') ? (a.kind === 'clear' ? -1 : 1) : 0) || (a.kind === 'clear' ? b.y - a.y : a.y - b.y) || a.x - b.x || a.z - b.z);
             for (const tk of tasks) this.claims.set(tk.k, name);
             this.bots.set(name, { station: [best.f, { x: best.f.x, y: best.f.y + 1, z: best.f.z }], pos: me });
             for (const tk of tasks) if ((tk.kind === 'clear' || tk.kind === 'untemp') && tk.x === best.f.x && tk.z === best.f.z && tk.y === best.f.y - 1) tk.way = null;      // its own floor: not from there
@@ -350,7 +363,7 @@ class BuildJob {
     report(name, results, now = Date.now()) {
         for (const { tk, ok, why } of results) {
             this.claims.delete(tk.k);
-            if (ok) { this.tasks.delete(tk.k); this.stats[{ seal: 'sealed', fill: 'filled', clear: 'cleared', place: 'placed', fix: 'fixed', pour: 'poured', ignite: 'lit', untemp: 'untemp' }[tk.kind]]++; if (tk.kind === 'untemp') this.temps.delete(tk.k); if (tk.kind === 'place' || tk.kind === 'fix' || tk.kind === 'clear') this._lowered(tk); continue; }
+            if (ok) { this.tasks.delete(tk.k); this.stats[{ seal: 'sealed', fill: 'filled', clear: 'cleared', place: 'placed', fix: 'fixed', pour: 'poured', ignite: 'lit', untemp: 'untemp' }[tk.kind]]++; if (tk.kind === 'untemp') this.temps.delete(tk.k); if (tk.kind === 'fill' || tk.kind === 'seal') this.fluidLeft = [...this.tasks.values()].some((q) => q.kind === 'fill' || q.kind === 'seal'); if (tk.kind === 'place' || tk.kind === 'fix' || tk.kind === 'clear') this._lowered(tk); continue; }
             if (why === 'skipped') {
                 // skipped over and over (out of reach, its own floor, no item at hand) counts as a failure in the end: a task skipped for ever held a stage (live 2026-11-22)
                 const sk = (this.skips.get(tk.k) || 0) + 1; this.skips.set(tk.k, sk);

@@ -64,7 +64,7 @@ async function main() {
     const spot = (x, y, z) => { const n = at(x, y, z), n2 = at(x + 1, y, z); return n && n2 && !GROUNDLESS.test(n) && !GROUNDLESS.test(n2) && [at(x, y + 1, z), at(x, y + 2, z), at(x + 1, y + 1, z), at(x + 1, y + 2, z)].every((q) => /^(cave_)?air$/.test(q || '')) && noLava(x, y, z); };      // the chest not beside lava (bots stand there)
     for (let wait = 0; wait < 4 && !C; wait++) {
         if (wait) await sleep(5000);
-        for (let r = 3; r <= 16 && !C; r++) {
+        for (let r = 3; r <= 24 && !C; r++) {
             const ring = []; for (let x = M.x - r; x <= M.x + sx - 1 + r; x++) { ring.push([x, M.z - r]); ring.push([x, M.z + sz - 1 + r]); } for (let z = M.z - r; z <= M.z + sz - 1 + r; z++) { ring.push([M.x - r, z]); ring.push([M.x + sx - 1 + r, z]); }
             for (const [x, z] of ring) {
                 if (x + 1 >= M.x && x <= M.x + sx - 1 && z >= M.z && z <= M.z + sz - 1) continue;
