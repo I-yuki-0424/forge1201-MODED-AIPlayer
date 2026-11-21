@@ -18,10 +18,10 @@ const sm = require('../../src/transport/syncmatica');
 const lit = require('../../src/work/jobs/litematic');
 const build = require('../../src/work/jobs/build');
 const O = require('../../src/work/jobs/orient');
-const TRIALS = Number(process.env.TRIALS || 1), BOTS = Math.min(8, Math.max(1, Number(process.env.BOTS || 3)));
+const TRIALS = Number(process.env.TRIALS || 1), BOTS = Math.min(12, Math.max(1, Number(process.env.BOTS || 3)));
 const NETHER = (process.env.DIM || 'overworld') === 'nether', RESUME = process.env.RESUME === '1', SURPLUS = Number(process.env.SURPLUS || 2), TEMP = process.env.TEMP_BLOCK || 'cobblestone', SITE_Y = Number(process.env.SITE_Y || (NETHER ? 64 : 200));
 const LIMIT_MIN = Number(process.env.LIMIT_MIN || Math.round(60 / BOTS));          // the owner's bar (2026-11-18): within one hour / the number of bots (3 bots: 20 minutes)
-const names = Array.from({ length: BOTS }, (_, i) => `Fm${T.WORLD}${'abcdefgh'[i - 1] || ''}`), name = names[0];      // BOTS=n: n builders on one job (the crew ledger shares the units)
+const names = Array.from({ length: BOTS }, (_, i) => `Fm${T.WORLD}${'abcdefghijkl'[i - 1] || ''}`), name = names[0];      // BOTS=n: n builders on one job (the crew ledger shares the units)
 const FILE = process.env.LITEMATIC || path.join(__dirname, '../../tests/fixtures/easy-ironfarm-fixd.litematic');
 const STACK = { white_bed: 1, water_bucket: 1, lava_bucket: 1, oak_sign: 16, snowball: 16, flint_and_steel: 1, white_shulker_box: 1 };
 const ONE = new Set(['white_bed', 'water_bucket', 'lava_bucket', 'flint_and_steel', 'white_shulker_box']);     // not stackable: a few spare, not a percentage
