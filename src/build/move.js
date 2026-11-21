@@ -53,12 +53,12 @@ class View {
         const top = Math.max(...(b.shapes || []).map((s) => s[4]));
         return top >= 0.85 && top <= 1 + 1e-6;                    // a full top, or nearly (soul sand, mud, a dirt path, farmland, a chest)
     }
-    /** Lava beside the body's cells or under the feet (two down). */
+    /** Lava beside the body's two cells (a slip or a flow takes the bot) or under the feet (one or two down: a fall). Lava next to the floor block is no danger. */
     nearLava(x, y, z) {
         const k = key(x, y, z); let v = this.lavaNear && this.lavaNear.get(k);
         if (v !== undefined) return v;
         v = false;
-        for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [1, 1, 0], [-1, 1, 0], [0, 1, 1], [0, 1, -1], [0, -1, 0], [0, -2, 0], [1, -1, 0], [-1, -1, 0], [0, -1, 1], [0, -1, -1]]) { const b = this.raw(x + dx, y + dy, z + dz); if (b && (b.name === 'lava' || b.name === 'fire')) { v = true; break; } }
+        for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [1, 1, 0], [-1, 1, 0], [0, 1, 1], [0, 1, -1], [0, -1, 0], [0, -2, 0], [0, 2, 0]]) { const b = this.raw(x + dx, y + dy, z + dz); if (b && (b.name === 'lava' || b.name === 'fire')) { v = true; break; } }
         (this.lavaNear = this.lavaNear || new Map()).set(k, v);
         return v;
     }
