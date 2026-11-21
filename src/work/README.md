@@ -22,7 +22,8 @@ escalation.js  request to the DPOD router (not wired into any job)
 | what happens when a command's precondition does not hold (far, wrong tool in hand, sealed in): the chain unstick / move / equip, the rule table / the preconditions of an instruction | `src/stack/router.js` (`decide`, `run`) / `src/skills/preconditions.js`; the top calls `env.command` (`bot/env.js`), `_command` (`service/commands.js`); settings `rawCommands`, `stackJobs`; spec docs/implemented/COMMAND-STACK-v1.md |
 | how a pit is cut up, lanes, haul road, how a unit digs | `jobs/pit.js` |
 | who gets which unit, leases, retries, stuck units | `jobs/crew.js` |
-| how a structure is built (scaffold, order) / edited | `jobs/build.js` / `jobs/blueprint.js` |
+| how a structure is built by a creative crew (Litematica: flight, placement into the air, vanilla placement rules, survey, stages, repair) | `../build/` (job kind `construct`, `service/construct.js`; docs/implemented/BUILD-v2.md) |
+| how a structure is built by a survival crew (scaffold, order) / edited | `jobs/build.js` + `builder/` (the old builder) / `jobs/blueprint.js` |
 | "collect N of X" | `jobs/gather.js` |
 | the loop of a bot at work: claim, run, wait, fix, retry | `bot/worker.js` |
 | what a job may ask of a bot (execute, recover, discard, tools) | `bot/env.js` |

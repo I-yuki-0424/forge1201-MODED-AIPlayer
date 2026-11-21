@@ -144,6 +144,7 @@ rl3/                RL-MOVE-v3 and pit expert trainer (JAX): simulator, PPO, exp
 moe/                experts (one small PPO policy per item), rule planner, XGBoost/LightGBM router, chain; tools/sim is its environment (docs/proposed/MOE-v1.md)
 src/work/           pure bots, ~13 role folders (jobs, bot, service, web, operator, world, display): map and "where do I change X" in src/work/README.md; calls execute() only
 src/skills/         the action layer: 14 commands built only from player inputs (body, planner, runner, commands/*), intents.js + llm_prompt.js for the LLM
+src/build/           the structure builder for creative crews (docs/implemented/BUILD-v2.md): flight, placement into the air by vanilla's rules, survey/stages/repair; job kind `construct`
 src/stack/           the router of the command stack (docs/implemented/COMMAND-STACK-v1.md): precondition failures + state -> the chain (unstick, move, equip ...); the only place that knows a remedy
 src/experts/move3/ + src/experts/pit/   the learned cell-level walk (env.travel, setting move3) and the pit's station scoring network (pit method expert, setting pitExpert); models in models/experts/
 src/skills_bot.js   the bot child process on the action layer (default; BOT_RUNTIME=legacy forks bot_actuator.js); src/vault_client.js reads LLM credentials
