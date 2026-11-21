@@ -40,7 +40,8 @@ class BuildJob {
         this.parked = new Map();           // k -> reason
         this.cool = new Map();             // k -> time before which it is not offered
         this.bots = new Map();             // name -> { station: [cells], pos }
-        this.noPath = new Map();           // name -> flights in a row that found no way
+        this.noPath = new Map();           // name -> walks in a row that found no way
+        this.noStance = new Map();         // task -> looks that found no stance
         this.surveying = null;
         this.rounds = 0;
         this.history = [];
@@ -270,13 +271,21 @@ class BuildJob {
                 best = { f: c.f, batch };
                 break;
             }
-            if (!best) { this.cool.set(seed.k, now + 6000); this.noWay = (this.noWay || 0) + 1; if (this.noWay % 200 === 1) this.log(`no stance for ${seed.kind} ${seed.k} (${S.bare(this.t.wantOf(seed).name)}); ${cands.length} stances in range`); continue; }
+            if (!best) {
+                this.cool.set(seed.k, now + 6000);
+                // a task no stance reaches is parked after a few looks (it waits for the next round, when the build has changed what can be reached): a handful of hidden cells
+                // held the whole build in the prepare stage (live 2026-11-22 sv8)
+                const ns = (this.noStance.get(seed.k) || 0) + 1; this.noStance.set(seed.k, ns);
+                if (ns >= 6) { this.parked.set(seed.k, `no stance (${cands.length} in range)`); this.tasks.delete(seed.k); this.log(`parked ${seed.kind} ${seed.k} (${S.bare(this.t.wantOf(seed).name)}): no stance reaches it (${cands.length} stances in range)`); this._frontier(); }
+                continue;
+            }
             const tasks = best.batch.sort((a, b) => (down ? b.y - a.y : a.y - b.y) || a.x - b.x || a.z - b.z);
             for (const tk of tasks) this.claims.set(tk.k, name);
             this.bots.set(name, { station: [best.f, { x: best.f.x, y: best.f.y + 1, z: best.f.z }], pos: me });
             for (const tk of tasks) if ((tk.kind === 'clear' || tk.kind === 'untemp') && tk.x === best.f.x && tk.z === best.f.z && tk.y === best.f.y - 1) tk.way = null;      // its own floor: not from there
             return { station: best.f, tasks };
         }
+        if (now - (this.diagAt || 0) > 30000) { this.diagAt = now; this.log(`claim by ${name}: ${ready.length} ready, ${doable.length} doable with what it carries, no stance for the first ${Math.min(3, doable.length)} (${doable.slice(0, 3).map((t) => `${t.kind} ${t.k}`).join(', ')})`); }
         return null;
     }
 
