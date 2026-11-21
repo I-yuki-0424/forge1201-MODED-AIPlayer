@@ -82,14 +82,14 @@ const CONTAINER = /(chest|barrel|shulker_box|hopper|dropper|dispenser|furnace|sm
  * How a bot may fly through terrain (a tunnel): which cells it may break on the way and how. Never a block that belongs where it stands (a built cell of the box), never a container
  * or something unbreakable, never next to a fluid (it would run into the tunnel).
  */
-function flight(job, bot, hand, { anything = false } = {}) {
+function flight(job, bot, hand, { anything = false, wet = false } = {}) {
     return {
         dig: async (c) => { hand.dig(c); await sleep(60); },
         canDig: (x, y, z) => {
             const h = seen(bot, { x, y, z });
             if (!h || S.AIR.has(h.name) || UNBREAKABLE.test(h.name) || CONTAINER.test(h.name) || h.name === 'water' || h.name === 'lava') return false;
             if (!anything && job.t.inside(x, y, z)) { const want = job.t.at(x, y, z); if (S.matches(want, h)) return false; }
-            for (const v of Object.values(R.VEC)) { const n = seen(bot, { x: x + v[0], y: y + v[1], z: z + v[2] }); if (n && (n.name === 'water' || n.name === 'lava' || n.props.waterlogged === 'true')) return false; }
+            if (!wet) for (const v of Object.values(R.VEC)) { const n = seen(bot, { x: x + v[0], y: y + v[1], z: z + v[2] }); if (n && (n.name === 'water' || n.name === 'lava' || n.props.waterlogged === 'true')) return false; }
             return true;
         },
     };
@@ -285,13 +285,15 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
  * the way (built cells too: the next survey puts them back). The last resort; counted and logged.
  */
 async function escape(job, name, bot, hand, cancel) {
-    const blocked = job.standBlocked(name), f = fly.feet(bot), fl = flight(job, bot, hand, { anything: true });
-    const goal = (x, y, z) => !blocked(x, y, z) && !blocked(x, y + 1, z) && fly.fits(bot, x, y, z) && y >= f.y;
-    const route = fly.path(bot, f, { x: f.x, y: f.y + 8, z: f.z }, { goal, dig: fl.canDig, maxNodes: 20000 });
+    const blocked = job.standBlocked(name), f = fly.feet(bot), fl = flight(job, bot, hand, { anything: true, wet: true }), b = job.t.box;
+    // the way out ends above the work (or above the box when nothing is placed yet): a free cell next to the start is no way out (live 2026-11-21 rep1: a bot walled in by seal
+    // blocks under a lake "escaped" into its own cell a hundred times)
+    const above = Math.max(f.y + 3, Number.isFinite(job.frontier) ? job.frontier + job.o.window + 2 : b.y + b.sy);
+    const goal = (x, y, z) => y >= above && !blocked(x, y, z) && !blocked(x, y + 1, z) && fly.fits(bot, x, y, z);
+    const route = fly.path(bot, f, { x: f.x, y: above, z: f.z }, { goal, dig: fl.canDig, maxNodes: 40000 });
     job.stats.escapes = (job.stats.escapes || 0) + 1;
-    job.log(`${name}: closed in at ${f.x} ${f.y} ${f.z}: ${route ? `breaking out (${route.length} cells)` : 'no way out found'}`);
+    job.log(`${name}: closed in at ${f.x} ${f.y} ${f.z}: ${route ? `breaking out to y ${route[route.length - 1].y} (${route.length} cells)` : 'no way out found'}`);
     if (!route) return;
-    // its own cells first (a block in the feet cell), then the way
     for (const y of [f.y, f.y + 1]) if (!fly.free(bot, f.x, y, f.z) && fl.canDig(f.x, y, f.z)) await fl.dig({ x: f.x, y, z: f.z });
     await fly.along(bot, route, cancel, fl.dig);
     hand.moved();
