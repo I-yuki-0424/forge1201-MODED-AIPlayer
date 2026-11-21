@@ -13,7 +13,7 @@ const key = (x, y, z) => `${x},${y},${z}`;
 const AVOID_IN = /^(lava|fire|soul_fire|nether_portal|end_portal|end_gateway|cobweb|sweet_berry_bush|powder_snow|bubble_column|wither_rose|magma_block|campfire|soul_campfire|pointed_dripstone|cactus|moving_piston)$/;
 const NO_STAND = /^(magma_block|campfire|soul_campfire|cactus|.*_fence|.*_wall|.*_fence_gate|pointed_dripstone|honey_block|slime_block|powder_snow|scaffolding|.*_bed|hopper|composter)$/;
 const H = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
-const COST = { walk: 4.6, diag: 6.5, up: 9, drop: 5, pillar: 14, bridge: 24, temp: 6 };
+const COST = { walk: 4.6, diag: 6.5, up: 9, drop: 5, pillar: 14, bridge: 40, temp: 6 };
 
 class Heap {
     constructor() { this.a = []; }
@@ -230,14 +230,33 @@ class Mover {
         if (s.move === 'down') { for (let i = 0; i < 30 && feet(this.bot).y > s.y; i++) await sleep(50); return feet(this.bot).y === s.y ? { ok: true } : { ok: false, why: 'down' }; }
         if (s.move === 'pillar') return (await this.pillar(s)) ? { ok: true } : { ok: false, why: 'pillar' };
         if (s.move === 'bridge') {
-            // to the edge sneaking, then the block under the next cell, then onto it
-            const b = this.bot, edge = { x: prev.x + 0.5 + (s.x - prev.x) * 0.45, z: prev.z + 0.5 + (s.z - prev.z) * 0.45 };
+            // sneak out over the edge (the body keeps 0.05 on the support), then click the support's side face toward the gap: its block goes under the next cell
+            const b = this.bot, dx = s.x - prev.x, dz = s.z - prev.z, item = this.rules.temp();
+            if (!item || !(await this.hold(item))) return { ok: false, why: 'bridge: no temporary block' };
+            const edge = { x: prev.x + 0.5 + dx * 0.75, z: prev.z + 0.5 + dz * 0.75 };
             b.setControlState('sneak', true);
-            for (let i = 0; i < 40; i++) { const p = b.entity.position, dx = edge.x - p.x, dz = edge.z - p.z; if (Math.hypot(dx, dz) < 0.08) break; await b.look(Math.atan2(-dx, -dz), 0, true); b.setControlState('forward', true); await sleep(50); }
-            b.setControlState('forward', false);
-            const ok = await this.placeTemp(s.place);
-            b.setControlState('sneak', false);
-            if (!ok) return { ok: false, why: 'bridge place' };
+            try {
+                for (let i = 0; i < 60; i++) {
+                    const p = b.entity.position, ex = edge.x - p.x, ez = edge.z - p.z;
+                    if (Math.abs(ex * dx + ez * dz) < 0.04 || (ex * dx + ez * dz) < 0) break;
+                    await b.look(Math.atan2(-dx, -dz), 0, true); b.setControlState('forward', true); await sleep(50);
+                }
+                b.setControlState('forward', false);
+                await sleep(150);
+                const p = b.entity.position, eye = [p.x, p.y + 1.27, p.z], sup = [prev.x, prev.y - 1, prev.z];
+                const face = dx > 0 ? 'east' : dx < 0 ? 'west' : dz > 0 ? 'south' : 'north';
+                const plane = [sup[0] + 0.5 + dx * 0.4999, 0, sup[2] + 0.5 + dz * 0.4999];
+                const hit = [dx ? plane[0] : sup[0] + 0.5, sup[1] + 0.5, dz ? plane[2] : sup[2] + 0.5];
+                const r = P.rayFirst(P.botWorld(b), eye, hit);
+                if (!r || r.cell[0] !== sup[0] || r.cell[1] !== sup[1] || r.cell[2] !== sup[2]) return { ok: false, why: 'bridge: the support side is not in sight' };
+                await this.lookAtPoint(new Vec3(...hit));
+                b._client.write('block_place', { hand: 0, location: new Vec3(...sup), direction: V.FACE[face], cursorX: hit[0] - sup[0], cursorY: hit[1] - sup[1], cursorZ: hit[2] - sup[2], insideBlock: false, worldBorderHit: false, sequence: (this.seq = (this.seq || 0) + 1) });
+                b.swingArm();
+                await sleep(200);
+            } finally { b.setControlState('forward', false); b.setControlState('sneak', false); }
+            const bb = b.blockAt(new Vec3(s.place.x, s.place.y, s.place.z), false);
+            if (!bb || bb.boundingBox !== 'block') return { ok: false, why: 'bridge place' };
+            this.rules.onTemp(s.place);
             return (await this.walkTo(s)) ? { ok: true } : { ok: false, why: 'bridge walk' };
         }
         return { ok: false, why: `unknown move ${s.move}` };
@@ -254,7 +273,7 @@ class Mover {
             while (i <= i1 && !cancel.cancelled) {
                 const c = route[i], last = i === i1, p = b.entity.position, dx = c.x + 0.5 - p.x, dz = c.z + 0.5 - p.z, d = Math.hypot(dx, dz);
                 const f = feet(b);
-                if (!cells.has(key(f.x, f.y, f.z)) && !cells.has(key(f.x, f.y - 1, f.z)) && b.entity.onGround) return { i, why: `off the route at ${f.x},${f.y},${f.z}` };
+                if (b.entity.onGround && !cells.has(key(f.x, f.y, f.z)) && !cells.has(key(f.x, f.y - 1, f.z)) && ![...cells].some((k) => { const [x, y, z] = k.split(',').map(Number); return Math.abs(x - f.x) <= 1 && Math.abs(z - f.z) <= 1 && Math.abs(y - f.y) <= 1; })) return { i, why: `off the route at ${f.x},${f.y},${f.z}` };
                 if (d < (last ? 0.15 : 0.35) && Math.abs(p.y - c.y) < 0.6) { i++; t0 = Date.now(); stuck = 0; lastD = Infinity; continue; }
                 if (Date.now() - t0 > 4000) return { i, why: `no progress toward ${c.x},${c.y},${c.z}` };
                 if (d > lastD - 0.005) stuck++; else stuck = 0;
