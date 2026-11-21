@@ -90,11 +90,11 @@ class LitematicPart {
             const t = async (x, y, z, st) => passed(await this.rcon(`execute if block ${x} ${y} ${z} ${st}`));
             const taken = new Set(), names = new Set(this.sites.list().map((q) => q.name)), sites = []; let n = 0, left = 0;
             const cellFor = async (a) => {
-                const cand = []; for (let dx = -12; dx <= 12; dx += 2) for (let dz = -12; dz <= 12; dz += 2) if (Math.abs(dx) + Math.abs(dz) >= 4) cand.push([dx, dz]);
+                const cand = []; for (let dx = -24; dx <= 24; dx += 2) for (let dz = -24; dz <= 24; dz += 2) if (Math.abs(dx) + Math.abs(dz) >= 4) cand.push([dx, dz]);
                 cand.sort((p, q) => p[0] * p[0] + p[1] * p[1] - (q[0] * q[0] + q[1] * q[1]));
                 for (const [dx, dz] of cand) for (const y of [a.y, a.y + 1, a.y - 1]) {
                     const x = a.x + dx, z = a.z + dz, k = `${x},${z}`; if (taken.has(k)) continue;
-                    if (await t(x, y, z, 'minecraft:air') && await t(x, y + 1, z, 'minecraft:air') && !(await t(x, y - 1, z, '#minecraft:replaceable'))) { taken.add(k); return { x, y, z }; }
+                    if (await t(x, y, z, '#minecraft:replaceable') && await t(x, y + 1, z, '#minecraft:replaceable') && !(await t(x, y - 1, z, '#minecraft:replaceable'))) { taken.add(k); return { x, y, z }; }          // air, grass, flowers: the barrel replaces them; the floor is a real block
                 }
                 return null;
             };

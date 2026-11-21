@@ -141,7 +141,7 @@ console.log('--- test: stageMaterials unpacks the shulker boxes of a tagged ches
             sent.push(c); let m;
             if ((m = /^data get block 10 5 10 Items\[(\d+)\]$/.exec(c))) return [head + box1, head + box2][Number(m[1])] || 'Found no elements matching Items[' + m[1] + ']';
             if (/^execute if block 10 5 10 minecraft:chest/.test(c)) return 'Test failed';                          // a single chest
-            if ((m = /^execute if block (-?\d+) (-?\d+) (-?\d+) (.*)$/.exec(c))) { const y = Number(m[2]); return (m[4] === 'minecraft:air' ? y >= 5 : m[4] === '#minecraft:replaceable' ? y >= 5 : false) ? 'Test passed' : 'Test failed'; }
+            if ((m = /^execute if block (-?\d+) (-?\d+) (-?\d+) (.*)$/.exec(c))) { const y = Number(m[2]); return ((m[4] === 'minecraft:air' || m[4] === '#minecraft:replaceable') && y >= 5) ? 'Test passed' : 'Test failed'; }
             return 'ok';
         },
     });
