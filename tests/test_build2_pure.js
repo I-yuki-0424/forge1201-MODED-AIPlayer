@@ -166,11 +166,12 @@ test('job: stages in order, clearing top-down and never next to a fluid, placing
     assert(job.ready(tk('10,64,10'), bot, now));
     assert(!job.ready(tk('11,65,11'), bot, now), 'the repeater waits for the stone under it');
     assert(job.ready(tk('11,65,11'), bot, now, new Set(['11,64,11'])), 'unless that stone was just sent');
-    assert(job.ready(tk('10,66,10'), bot, now), 'inside the window (3 layers)');
+    assert(!job.ready(tk('10,66,10'), bot, now), 'above the window (one layer over the lowest open one)');
     // a claim: a station whose body covers none of the cells it reaches, the tasks bottom-up
     const cl = job.claim(bot, 'b1', now);
     assert(cl && cl.tasks.length);
     for (const q of cl.tasks) assert(!(q.x === cl.station.x && q.z === cl.station.z && (q.y === cl.station.y || q.y === cl.station.y + 1)));
+    assert(cl.station.y > job.frontier + job.o.window + 1 || cl.station.x < 10 || cl.station.x > 12 || cl.station.z < 10 || cl.station.z > 12, 'over the box the crew stands above the window');
     for (let i = 1; i < cl.tasks.length; i++) assert(cl.tasks[i].y >= cl.tasks[i - 1].y);
     // a failure parks after MAX_FAILS tries, done tasks leave the list
     job.report('b1', cl.tasks.map((q, i) => ({ tk: q, ok: i > 0, why: 'got stone' })));

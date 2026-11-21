@@ -12,8 +12,8 @@ const { survey } = require('./survey');
 const { seen, eyeOf, boxDist } = require('./act');
 const fly = require('./fly');
 
-const REACH = 4.8;                 // eye to the cell's box (the server allows < 6 in creative; the margin covers the server's view of the position)
-const WINDOW = 3;                  // layers above the lowest open one that may be placed at the same time
+const REACH = 5.2;                 // eye to the cell's box (the server allows < 6 in creative; the margin covers the server's view of the position)
+const WINDOW = 1;                  // layers above the lowest open one that may be placed at the same time (the crew stands above them: see standBlocked)
 const MAX_FAILS = 8;               // tries of one cell before it is parked (reported, not tried again until the next round)
 const BATCH = 96;                  // tasks per claim
 const ROUNDS = 3;                  // extra rounds for parked cells before the build ends with them reported
@@ -38,6 +38,7 @@ class BuildJob {
         this.parked = new Map();           // k -> reason
         this.cool = new Map();             // k -> time before which it is not offered
         this.bots = new Map();             // name -> { station: [cells], pos }
+        this.noPath = new Map();           // name -> flights in a row that found no way
         this.surveying = null;
         this.rounds = 0;
         this.history = [];
@@ -47,7 +48,7 @@ class BuildJob {
         this.available = opts.available || null;
         this.sealItem = opts.sealItem || 'smooth_stone';
         this.lit = new Set();
-        this.stats = { placed: 0, cleared: 0, sealed: 0, filled: 0, fixed: 0, poured: 0, lit: 0, failed: 0, surveys: 0 };
+        this.stats = { placed: 0, cleared: 0, sealed: 0, filled: 0, fixed: 0, poured: 0, lit: 0, failed: 0, surveys: 0, escapes: 0 };
     }
 
     // ---- surveys ---------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -139,17 +140,23 @@ class BuildJob {
         return true;
     }
 
-    /** Cells a station must not take: the bodies of the other bots, and target cells that will be built soon (a body in a cell blocks its placement). */
+    /**
+     * Cells a station must not take: the bodies of the other bots, and while placing every cell of the box's footprint at or below the top of the window. Nothing is ever placed above a
+     * bot then, so no bot can be closed in by the work (live 2026-11-21, run o1: stations below the layer being placed; a floor went in over four bots and they could not get out).
+     * In the late stage the cells that will hold a block.
+     */
     standBlocked(name) {
         const bodies = new Set();
         for (const [n, b] of this.bots) if (n !== name && b.station) for (const c of b.station) bodies.add(key(c.x, c.y, c.z));
-        const lim = this.frontier + this.o.window + 2, t = this.t;
+        const top = this.frontier + this.o.window, t = this.t, b = t.box, stage = this.stage, relaxed = this.relaxed;
         return (x, y, z) => {
             if (bodies.has(key(x, y, z))) return true;
+            const over = x >= b.x && z >= b.z && x < b.x + b.sx && z < b.z + b.sz;
+            if (stage === 'place' && over && !relaxed) return y <= top + 1;          // feet and head both above the window
             if (!t.inside(x, y, z)) return false;
             const i = t.idx(x, y, z);
             if (t.isAir(i)) return false;
-            return this.stage === 'place' ? y <= lim : this.stage === 'late';
+            return stage === 'place' || stage === 'late';
         };
     }
 
@@ -245,7 +252,7 @@ const bodyCovers = (f, c) => c.x === f.x && c.z === f.z && (c.y === f.y || c.y =
 /** Feet cells around a task cell, nearest first: above it for placing (the work is below), beside and above for clearing. */
 function stationsAround(c, reach, down) {
     const out = [], R = Math.floor(reach);
-    for (let dy = -3; dy <= 3; dy++) for (let dx = -R; dx <= R; dx++) for (let dz = -R; dz <= R; dz++) {
+    for (let dy = -3; dy <= 6; dy++) for (let dx = -R; dx <= R; dx++) for (let dz = -R; dz <= R; dz++) {
         const d = Math.hypot(dx, dz);
         if (d > reach) continue;
         out.push({ x: c.x + dx, y: c.y + dy, z: c.z + dz, s: d * 0.5 + Math.abs(dy - (down ? 0 : 1)) });
