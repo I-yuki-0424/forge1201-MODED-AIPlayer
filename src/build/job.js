@@ -174,7 +174,12 @@ class BuildJob {
             // a stall: work is left, nobody holds any, nothing is ready (a support that cannot stand, a fluid that keeps a cell wet): the rules give way until the next survey
             if (!this.claims.size && this.tasks.size && !this.relaxed) {
                 if (!this.stallSince) this.stallSince = now;
-                else if (now - this.stallSince > STALL_MS) { this.relaxed = true; this.log(`stall in ${this.stage} (${this.tasks.size} tasks, none ready for ${Math.round((now - this.stallSince) / 1000)} s): order rules relaxed until the next survey`); }
+                else if (now - this.stallSince > STALL_MS) {
+                    this.relaxed = true;
+                    const why = {}; let ex = [];
+                    for (const tk of this.tasks.values()) { const w = this.whyNot(tk, bot, now); const k = w.replace(/ \d.*$/, '').replace(/waits for .*/, 'waits'); why[k] = (why[k] || 0) + 1; if (ex.length < 6 && /waits/.test(w)) ex.push(`${tk.k} ${S.bare(this.t.stateOf(tk.i).name)} ${w}`); }
+                    this.log(`stall in ${this.stage} (${this.tasks.size} tasks, none ready for ${Math.round((now - this.stallSince) / 1000)} s): order rules relaxed until the next survey; why ${JSON.stringify(why)}; e.g. ${ex.join(' | ')}`);
+                }
             }
             return null;
         }
@@ -195,10 +200,12 @@ class BuildJob {
             return out;
         };
         const blocked = this.standBlocked(name);
-        for (const seed of ready.slice(0, 6)) {
-            let best = null;
+        for (const seed of ready.slice(0, 4)) {
+            let best = null, tried = 0;
             for (const f of stationsAround(seed, this.o.reach, down)) {
+                if (tried >= 120) break;
                 if (!fly.fits(bot, f.x, f.y, f.z, blocked)) continue;
+                tried++;
                 const eye = eyeOf({ x: f.x + 0.5, y: f.y, z: f.z + 0.5 });
                 if (boxDist(eye, seed) > this.o.reach) continue;
                 if (bodyCovers(f, seed)) continue;
