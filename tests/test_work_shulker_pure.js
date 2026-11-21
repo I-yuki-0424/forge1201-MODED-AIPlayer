@@ -3,6 +3,7 @@ const assert = require('assert');
 const moves = require('../src/work/bot/moves');
 const supply = require('../src/work/builder/supply');
 const sites = require('../src/work/bot/sites');
+supply.setUnpack(true);          // the bot-side unpack is off by default; these tests are about it
 
 setTimeout(() => { console.error('test watchdog'); process.exit(2); }, 20000).unref();
 const items = { 1087: { name: 'white_bed' }, 36: { name: 'oak_planks' }, 733: { name: 'lever' } };
@@ -92,19 +93,19 @@ console.log('--- test: temporary blocks: pumpkin is none by default, one once th
 
 console.log('--- test: the stock reader walks the stacks one request at a time (an RCON reply is at most 4096 bytes), counts shulker contents apart, and says so when a read fails ---');
 (async () => {
-    const { LitematicPart } = require('../src/work/service/litematic'), read = LitematicPart.prototype._readStock;
+    const { LitematicPart } = require('../src/work/service/litematic'), read = LitematicPart.prototype._readStock, withRcon = (f) => Object.assign(Object.create(LitematicPart.prototype), { rcon: f });
     const head = '1, 2, 3 has the following block data: ';
     const els = [
         head + '{Slot: 0b, id: "minecraft:white_shulker_box", count: 1, components: {"minecraft:container": [{slot: 0, item: {id: "minecraft:white_bed"}}, {slot: 1, item: {id: "minecraft:white_bed"}}, {slot: 2, item: {id: "minecraft:lever", count: 64}}]}}',
         head + '{Slot: 5b, id: "minecraft:stone", count: 30}',
     ];
     const asked = [], o = { rcon: async (c) => { asked.push(c); const m = /Items\[(\d+)\]$/.exec(c); const i = Number(m[1]); return els[i] || `Found no elements matching Items[${i}]`; } };
-    const r = await read.call(o, 1, 2, 3);
+    const r = await read.call(withRcon(o.rcon), 1, 2, 3);
     assert.deepStrictEqual(r, { loose: { stone: 30 }, boxed: { white_bed: 2, lever: 64 }, boxes: 1 });
     assert.deepStrictEqual(asked, ['data get block 1 2 3 Items[0]', 'data get block 1 2 3 Items[1]', 'data get block 1 2 3 Items[2]']);
-    assert.deepStrictEqual(await read.call({ rcon: async () => 'Found no elements matching Items[0]' }, 1, 2, 3), { loose: {}, boxed: {}, boxes: 0 }, 'an empty container');
-    await assert.rejects(read.call({ rcon: async () => { throw new Error('rcon: connection closed'); } }, 1, 2, 3), /reading the container at 1 2 3/);
-    await assert.rejects(read.call({ rcon: async () => head + '{Slot: 0b, id: "minecraft:stone", count: 3' }, 1, 2, 3), /stack 0/);
+    assert.deepStrictEqual(await read.call(withRcon(async () => 'Found no elements matching Items[0]'), 1, 2, 3), { loose: {}, boxed: {}, boxes: 0 }, 'an empty container');
+    await assert.rejects(read.call(withRcon(async () => { throw new Error('rcon: connection closed'); }), 1, 2, 3), /reading the container at 1 2 3/);
+    await assert.rejects(read.call(withRcon(async () => head + '{Slot: 0b, id: "minecraft:stone", count: 3'), 1, 2, 3), /stack 0/);
     console.log('[OK]');
 })().catch((e) => { console.error(e); process.exit(1); });
 
@@ -121,5 +122,38 @@ console.log('--- test: shulker boxes get distinct cells, spaced apart, never on 
     assert.ok(keys.every(Boolean) && new Set(keys).size === 6, `six distinct cells: ${keys}`);
     assert.ok(!keys.includes('13,5,10'), 'a cell of the structure is never used');
     for (const a of out) for (const b of out) if (a !== b) assert.ok(Math.abs(a.x - b.x) + Math.abs(a.z - b.z) >= 2, 'no two boxes touch');
+    console.log('[OK]');
+})().catch((e) => { console.error(e); process.exit(1); });
+
+console.log('--- test: stageMaterials unpacks the shulker boxes of a tagged chest into barrels, tags them with what they hold, takes the boxes out of the chest, refuses without boxes ---');
+(async () => {
+    const { LitematicPart } = require('../src/work/service/litematic'), P = LitematicPart.prototype;
+    const sent = [], world = new Map();                       // "x,y,z" -> block, for execute if block
+    const chest = { x: 10, y: 5, z: 10 }, box1 = '{Slot: 0b, id: "minecraft:white_shulker_box", count: 1, components: {"minecraft:container": [{slot: 0, item: {id: "minecraft:glass", count: 64}}, {slot: 3, item: {id: "minecraft:glass", count: 64}}]}}';
+    const box2 = '{Slot: 1b, id: "minecraft:white_shulker_box", count: 1, components: {"minecraft:container": [{slot: 0, item: {id: "minecraft:white_bed"}}, {slot: 1, item: {id: "minecraft:lever", count: 3}}]}}';
+    const head = '10, 5, 10 has the following block data: ';
+    const added = [];
+    const svc = Object.assign(Object.create(P), {
+        o: { rcon: true }, _staging: false,
+        sites: { list: () => [{ name: 'anyitem', x: 10, y: 5, z: 10, purpose: 'tools', label: 'all' }, ...added.map((a) => ({ name: a.name }))], withdrawable: () => true },
+        note: () => {}, addSite: (r) => { added.push(r); },
+        rcon: async (c) => {
+            sent.push(c); let m;
+            if ((m = /^data get block 10 5 10 Items\[(\d+)\]$/.exec(c))) return [head + box1, head + box2][Number(m[1])] || 'Found no elements matching Items[' + m[1] + ']';
+            if (/^execute if block 10 5 10 minecraft:chest/.test(c)) return 'Test failed';                          // a single chest
+            if ((m = /^execute if block (-?\d+) (-?\d+) (-?\d+) (.*)$/.exec(c))) { const y = Number(m[2]); return (m[4] === 'minecraft:air' ? y >= 5 : m[4] === '#minecraft:replaceable' ? y >= 5 : false) ? 'Test passed' : 'Test failed'; }
+            return 'ok';
+        },
+    });
+    const r = await P.stageMaterials.call(svc);
+    assert.strictEqual(r.staged, 2); assert.deepStrictEqual(r.sites, ['mat1', 'mat2']); assert.strictEqual(r.left, 0);
+    assert.deepStrictEqual(added.map((a) => [a.name, a.purpose, a.label]), [['mat1', 'materials', 'glass'], ['mat2', 'materials', 'white_bed lever']]);
+    assert.ok(new Set(added.map((a) => `${a.x},${a.z}`)).size === 2 && added.every((a) => Math.abs(a.x - 10) + Math.abs(a.z - 10) >= 4), 'two cells, away from the chest');
+    assert.ok(sent.some((c) => /^setblock \S+ \S+ \S+ minecraft:barrel\[facing=up\] replace$/.test(c)));
+    assert.ok(sent.some((c) => / container\.3 with minecraft:glass 64$/.test(c)) && sent.some((c) => / container\.0 with minecraft:white_bed 1$/.test(c)), 'every stack goes to its slot');
+    assert.ok(sent.includes('item replace block 10 5 10 container.0 with minecraft:air') && sent.includes('item replace block 10 5 10 container.1 with minecraft:air'), 'the boxes leave the chest');
+    assert.ok(sent.every((c) => c.length < 1400), 'every RCON request is short');
+    await assert.rejects(P.stageMaterials.call(Object.assign(Object.create(P), { o: { rcon: true }, _staging: false, sites: { list: () => [{ name: 'a', x: 10, y: 5, z: 10, purpose: 'tools' }], withdrawable: () => true }, rcon: async (c) => (/Items\[/.test(c) ? 'Found no elements matching Items[0]' : 'Test failed') })), /no shulker box/);
+    await assert.rejects(P.stageMaterials.call(Object.assign(Object.create(P), { o: {} })), /needs RCON/);
     console.log('[OK]');
 })().catch((e) => { console.error(e); process.exit(1); });

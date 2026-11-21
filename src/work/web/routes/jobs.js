@@ -11,6 +11,7 @@ module.exports = (service) => async (req, url, m, p) => {
     if (m === 'GET' && p === '/api/litematic/placements') return service.syncPlacements(url.searchParams.get('bot') || null);
     if (m === 'POST' && p === '/api/litematic/preview') return service.litematicPreview(await json(req));
     if (m === 'GET' && p === '/api/litematic/stock') return service.materialStock();
+    if (m === 'POST' && p === '/api/litematic/unpack') return service.stageMaterials();
     if (m === 'POST' && p === '/api/litematic/check') return service.materialCheck(await json(req));
     if (m === 'POST' && p === '/api/jobs/litematic') return service.createBuildFromPlacement(await json(req));
     if (m === 'POST' && p === '/api/range/check') return service.checkRange(await json(req));

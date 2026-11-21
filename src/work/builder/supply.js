@@ -3,6 +3,8 @@
 // `withdraw` per item kind through a recovery script, one trip each: the iron golem trap has 20 kinds and the bots spent more time walking to chests than placing.
 const C = require('./cells');
 
+let UNPACK = false;          // bots lift shulker boxes out of a chest and set them down themselves: OFF (live 2026-11-21: boxes leaked into packs and were scattered 85 blocks out); the console unpacks them into barrels (service/litematic.js stageMaterials)
+const setUnpack = (v) => { UNPACK = !!v; };
 const STACK_FALLBACK = 64;
 const stackOf = (bot, item) => { const it = bot.registry && bot.registry.itemsByName[item]; return (it && it.stackSize) || STACK_FALLBACK; };
 const emptySlots = (bot) => { let n = 0; for (let s = bot.inventory.inventoryStart; s < bot.inventory.inventoryEnd; s++) if (!bot.inventory.slots[s]) n++; return n; };
@@ -108,9 +110,10 @@ async function restock(env, plan, need, opt = {}) {
     const tried = new Set();
     // What each chest held when somebody last took from it (shared by the crew, on the plan): the next trip goes first to the chests known to hold what is lacking, the nearest of them, then the rest.
     const mem = plan.supplyMem || (plan.supplyMem = new Map()), kOf = (c) => `${c.x},${c.y},${c.z}`;
-    for (let round = 0; round < 14 && lacking().length; round++) {
+    for (let round = 0; round < 40 && lacking().length; round++) {
         const lack = lacking().map(([it]) => it), known = new Set(); for (const it of lack) for (const k of mem.get(it) || []) known.add(k);
-        const all = [...sites.sources(env.pos(), 'materials'), ...(plan.boxes || [])].filter((s) => !tried.has(kOf(s))), chests = [...all.filter((s) => known.has(kOf(s))), ...all.filter((s) => !known.has(kOf(s)))];
+        const all = [...sites.sources(env.pos(), 'materials'), ...(plan.boxes || [])].filter((s) => !tried.has(kOf(s))); for (const s of all) if (s.label && lack.some((it) => s.label.split(/\s+/).includes(it))) known.add(kOf(s));          // a staged container names what it holds in its label
+        const chests = [...all.filter((s) => known.has(kOf(s))), ...all.filter((s) => !known.has(kOf(s)))];
         if (!chests.length) break;
         const c = chests[0]; tried.add(`${c.x},${c.y},${c.z}`);
         if (env.cancelled && env.cancelled()) return { ok: false, reason: 'cancelled' };
@@ -131,7 +134,7 @@ async function restock(env, plan, need, opt = {}) {
         const r = await env.run('take_many', { items, x: c.x, y: c.y, z: c.z });
         log.trips++; account(r, c); tr(`take_many ${c.shulker ? 'box' : 'chest'} ${c.x},${c.y},${c.z}: ${r.ok ? 'ok got ' + ((r.detail && r.detail.got) || []).map((g) => g.item + ' ' + g.moved).join(',') + ((r.detail && r.detail.shulkers || []).length ? ' (shulkers hold: ' + r.detail.shulkers.length + ')' : '') : r.reason + ' ' + ((r.detail && (r.detail.why || r.detail.error)) || '').toString().slice(0, 80)}`);
         // What is still lacking may lie in shulker boxes of this container: one is lifted out and set down, then taken from like a chest, and it stays as a source for the rest of the run.
-        for (let k = 0; k < 8 && r.ok && r.detail && (r.detail.shulkers || []).length && lacking().length; k++) {
+        for (let k = 0; UNPACK && k < 8 && r.ok && r.detail && (r.detail.shulkers || []).length && lacking().length; k++) {
             const box = await unpack(env, plan, c, lacking().map(([it]) => it), log); if (!box) break;
             const rb = await env.run('take_many', { items: wishes(env.bot, need, remaining(plan, env.w), opt), x: box.x, y: box.y, z: box.z });
             log.trips++; account(rb, box); tr(`take_many box ${box.x},${box.y},${box.z}: ${rb.ok ? 'ok got ' + ((rb.detail && rb.detail.got) || []).map((g) => g.item + ' ' + g.moved).join(',') : rb.reason + ' ' + ((rb.detail && (rb.detail.why || rb.detail.error)) || '').toString().slice(0, 80)}`);
@@ -210,4 +213,4 @@ async function giveBack(env, plan, unitNeed) {
     return d.ok && d.detail && d.detail.done ? d.detail.done.reduce((n, g) => n + g.moved, 0) : 0;
 }
 
-module.exports = { giveBack, tempWish, unpack, boxSpot, restock, wishes, batch, surplus, slotsOf, remaining, emptySlots, stackOf };
+module.exports = { giveBack, tempWish, unpack, boxSpot, setUnpack, restock, wishes, batch, surplus, slotsOf, remaining, emptySlots, stackOf };

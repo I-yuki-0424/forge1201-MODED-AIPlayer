@@ -31,6 +31,7 @@ class WorldPart {
             need(typeof s.tempBlock === 'string' && s.tempBlock.length <= 200, 'tempBlock: item names separated by commas (pumpkin, or empty)');
             try { this.settings.tempBlock = require('../bot/tempblocks').setExtra(s.tempBlock).join(','); } catch (e) { throw new Problem(e.message); }
         }
+        if (s && typeof s.unpackBoxes === 'boolean') { this.settings.unpackBoxes = s.unpackBoxes; require('../builder/supply').setUnpack(s.unpackBoxes); }      // experimental: bots lift shulker boxes out of a chest themselves (default off; the Litematica page unpacks them into barrels)
         if (s && s.reachChunks !== undefined) { need(Number.isInteger(s.reachChunks) && s.reachChunks >= 1 && s.reachChunks <= 200, 'reachChunks: 1..200 chunks (how far a bot looks for a chest)'); this.settings.reachChunks = s.reachChunks; this.sites.setReach(s.reachChunks); }
         if (s && s.toolPolicy && typeof s.toolPolicy === 'object') {
             const tp = { ...this.settings.toolPolicy };

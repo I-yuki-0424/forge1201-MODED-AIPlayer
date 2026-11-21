@@ -183,6 +183,7 @@ async function trial(k, S0, svc, seed, rep) {
     for (const [i, n] of names.entries()) { const bx0 = M.x - 5.5, bz0 = M.z - 3.5 + i; await S.must(`tp ${n} ${bx0} ${M.y} ${bz0}`); await S.must(`spawnpoint ${n} ${Math.floor(bx0)} ${M.y} ${Math.floor(bz0)}`); await T.kit(S, n, { blocks: process.env.CHEST_JSON ? 0 : 320, block: TEMP }); if (process.env.GM) await S.must(`gamemode ${process.env.GM} ${n}`); }
     await sleep(4000);
     if (process.env.CHEST_JSON) svc.addSite({ name: 'anyitem', x: M.x - 3, y: M.y, z: M.z, purpose: 'tools', label: 'all' });
+    if (process.env.CHEST_JSON && process.env.STAGE === '1') { await sleep(2000); const st = await svc.stageMaterials(); console.log(`[place_c stage] ${st.staged} boxes into barrels, ${st.left} without room`); }          // STAGE=1: the console's "Unpack shulker boxes" before the build
     for (let i = 0; i < chests.length; i++) svc.addSite({ name: `supply${i}`, x: sup[i].x, y: sup[i].y, z: sup[i].z, purpose: process.env.SHULKER === '1' ? 'materials' : 'free' });      // after the bot sees the chunk
     console.log(`[place_c site] box minimum ${M.x} ${M.y} ${M.z}, size ${sx} x ${sy} x ${sz}; reference copy at ${ref.x} ${ref.y} ${ref.z}; supply chests at x ${M.x - 3}; /tp ${M.x + 22} ${M.y + 30} ${M.z + 22} to look down on it`);
     await T.say(S, `place_c: ${name} builds ${parsed.meta.name} (${probe.blocks.length} blocks) at ${M.x} ${M.y} ${M.z}, trial ${k + 1}/${TRIALS}`);
