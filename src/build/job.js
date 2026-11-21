@@ -75,6 +75,8 @@ class BuildJob {
             if (sv.unknown) stage = this.stage === 'survey' ? 'survey' : stage;
             this.history.push({ t: Date.now(), why, stage, right: sv.right, dynamic: sv.dynamic, unknown: sv.unknown, by, parked: this.parked.size });
             this.log(`survey (${why}): ${sv.right} right, ${sv.dynamic} dynamic, ${sv.unknown} unknown, work ${JSON.stringify(by)}, parked ${this.parked.size} -> ${stage}`);
+            // the tail by name (what each cell holds and should hold): a cell that keeps coming back shows itself here
+            if (tasks.size && tasks.size <= 40) this.log(`survey tail: ${[...tasks.values()].map((tk) => { const h = sv.have && tk.i >= 0 ? sv.have[tk.i] : null, w = tk.i >= 0 ? this.t.stateOf(tk.i) : null; return `${tk.kind} ${tk.k}${w ? ' want ' + S.str(w.name, S.decidedProps(w.name, w.props)).replace('minecraft:', '') : ''}${h ? ' has ' + S.str(h.name, S.decidedProps(h.name, h.props)).replace('minecraft:', '') : ''}${this.fails.get(tk.k) ? ' x' + this.fails.get(tk.k) : ''}`; }).join(' | ')}`);
             if (stage === 'settle') {
                 if (this.stage === 'settle' && !sv.unknown) { this._finish(sv); }
                 this.stage = 'settle';
