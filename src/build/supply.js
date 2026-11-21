@@ -86,7 +86,10 @@ async function fetch(bot, site, needs, mover, spot, { log = () => {} } = {}) {
         // broken, it drops itself with what is left; picked up, it goes back into the chest
         const n1 = boxes(bot).length;
         await mover.dig(at);
-        for (let i = 0; i < 40 && boxes(bot).length <= n1; i++) { if (i === 6) await mover.walkTo(at, { timeout: 1500 }); await sleep(100); }
+        for (let i = 0; i < 40 && boxes(bot).length <= n1; i++) {
+            if (i === 6 || i === 20) { const it = Object.values(bot.entities).filter((e) => e.name === 'item' && e.position.distanceTo(new Vec3(at.x + 0.5, at.y, at.z + 0.5)) < 3).sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))[0]; await mover.walkTo(it ? { x: Math.floor(it.position.x), y: Math.floor(it.position.y + 0.2), z: Math.floor(it.position.z) } : at, { timeout: 2000 }); }
+            await sleep(100);
+        }
         if (boxes(bot).length > n1 || boxes(bot).length) await putBack(bot, site);
         else log(`supply: the box from ${at.x},${at.y},${at.z} was not picked up`);
     }

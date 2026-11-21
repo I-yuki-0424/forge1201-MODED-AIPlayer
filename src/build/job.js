@@ -244,6 +244,8 @@ class BuildJob {
                 if (blocked(f.x, f.y, f.z) || blocked(f.x, f.y + 1, f.z) || !view.fits(f.x, f.y, f.z)) continue;
                 if (bodyCovers(f, seed)) continue;
                 const standing = view.stands(f.x, f.y - 1, f.z);
+                // a stance in the air is reached by a pillar: only a short one (four blocks at most down to something to stand on)
+                if (!standing) { let h = 1; while (h <= 5 && view.free(f.x, f.y - 1 - h, f.z) && !view.stands(f.x, f.y - 1 - h, f.z)) h++; if (h > 4 || !view.stands(f.x, f.y - 1 - h, f.z)) continue; }
                 // not standing on anything: the mover pillars up to it, the pillar's top block is under the feet (and is a support for clicks)
                 const world = this._world(bot, standing ? null : f);
                 const way = this._way(world, seed, f);
@@ -256,7 +258,7 @@ class BuildJob {
                     const w = this._way(world, tk, f);
                     if (w) batch.push({ ...tk, way: w });
                 }
-                const score = batch.length - Math.hypot(f.x - me.x, f.y - me.y, f.z - me.z) * 0.08 - (standing ? 0 : 3);
+                const score = batch.length - Math.hypot(f.x - me.x, f.y - me.y, f.z - me.z) * 0.08 - (standing ? 0 : 15);
                 if (!best || score > best.score) best = { f, batch, score };
                 if (batch.length >= 12) break;
             }

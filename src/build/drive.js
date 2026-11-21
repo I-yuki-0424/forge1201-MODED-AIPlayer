@@ -133,11 +133,16 @@ function worn(bot, it) { const max = (bot.registry.itemsByName[it.name] || {}).m
 async function supplyTrip(job, name, bot, mv, need, cancel) {
     const site = job.sites[0];
     if (!site) return false;
-    while (job.chestBusy && job.chestBusy !== name && !cancel.cancelled) await sleep(500);
+    // wait for the chest away from it (a box broken beside the chest drops as an item: a bot standing there picks it up and the box is gone from the supply)
+    if (job.chestBusy && job.chestBusy !== name) {
+        await mv.goto(site, { goal: (x, y, z) => Math.hypot(x - site.x, z - site.z) >= 5 && Math.hypot(x - site.x, z - site.z) <= 9, cancel, maxNodes: 15000 });
+        while (job.chestBusy && job.chestBusy !== name && !cancel.cancelled) await sleep(500);
+    }
     job.chestBusy = name;
     try {
         const r = await mv.goto(site, { goal: nearContainer(site), cancel, maxNodes: 40000 });
         if (!r.ok) { job.log(`${name}: no way to the materials at ${site.x} ${site.y} ${site.z} (${r.why})`); return false; }
+        if (bot.inventory.items().some((i) => /shulker_box$/.test(i.name))) await SUP.putBack(bot, site);          // boxes it carries (picked up somewhere) go back first
         const spot = () => boxSpot(job, bot, site);
         const res = await SUP.fetch(bot, site, needsFor(job, bot, need), mv, spot, { log: job.log });
         job.stats.trips++;
