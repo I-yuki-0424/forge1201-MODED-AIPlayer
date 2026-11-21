@@ -189,14 +189,20 @@ class BuildJob {
             const o = this.tasks.get(key(tk.x + dx, tk.y + dy, tk.z + dz));
             if (o && (o.kind === 'clear' || o.kind === 'fill' || o.kind === 'seal') && !this.parked.has(o.k)) return false;
         }
-        return !this.fluidLeft;
+        // fluids still to fill or seal within four cells (a global "fluids left" held every block of the box for one fill nobody could reach, live 2026-11-22)
+        for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) for (let dz = -4; dz <= 4; dz++) {
+            if (Math.abs(dx) + Math.abs(dy) + Math.abs(dz) > 6) continue;
+            const o = this.tasks.get(key(tk.x + dx, tk.y + dy, tk.z + dz));
+            if (o && (o.kind === 'fill' || o.kind === 'seal') && !this.parked.has(o.k)) return false;
+        }
+        return true;
     }
 
     /** Why task `tk` is not ready (for the stall log): the first rule that holds it. */
     whyNot(tk, bot, now) {
         if (this.parked.has(tk.k)) return 'parked';
         if ((this.cool.get(tk.k) || 0) > now) return 'cooling';
-        if (STAGE_OF[tk.kind] !== this.stage && !(this.stage === 'prepare' && (tk.kind === 'place' || tk.kind === 'fix') && this._clearAround(tk))) return this.stage === 'prepare' && (tk.kind === 'place' || tk.kind === 'fix') ? (this.fluidLeft ? 'fluids left' : 'clearing around it') : `stage ${STAGE_OF[tk.kind]}`;
+        if (STAGE_OF[tk.kind] !== this.stage && !(this.stage === 'prepare' && (tk.kind === 'place' || tk.kind === 'fix') && this._clearAround(tk))) return this.stage === 'prepare' && (tk.kind === 'place' || tk.kind === 'fix') ? 'clearing or fluids around it' : `stage ${STAGE_OF[tk.kind]}`;
         if ((tk.kind === 'place' || tk.kind === 'fix') && tk.y > this.frontier + this.o.window) return `above the window (frontier ${this.frontier})`;
         const r = tk.i >= 0 ? this.t.recipeOf(tk) : null;
         if (tk.kind === 'place' && r) for (const d of r.deps) {
@@ -335,6 +341,8 @@ class BuildJob {
             for (const tk of tasks) if ((tk.kind === 'clear' || tk.kind === 'untemp') && tk.x === best.f.x && tk.z === best.f.z && tk.y === best.f.y - 1) tk.way = null;      // its own floor: not from there
             return { station: best.f, tasks };
         }
+        // what can be done with what it carries reaches nowhere, but ready work waits for items: fetch them (a crew stood idle with ready blocks and empty packs, live 2026-11-22)
+        { const need = {}; for (const tk of ready) { if (doable.includes(tk)) continue; const it = item(tk); if (it) need[it] = (need[it] || 0) + 1; } if (Object.keys(need).length) return { need }; }
         if (now - (this.diagAt || 0) > 30000) {
             this.diagAt = now;
             const why = {}; let n = 0;
