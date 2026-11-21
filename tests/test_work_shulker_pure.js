@@ -87,3 +87,21 @@ console.log('--- test: temporary blocks: pumpkin is none by default, one once th
     TB.setExtra(''); assert.strictEqual(TB.preferred(), 'cobblestone'); assert.strictEqual(TB.isTemp('pumpkin', reg, vo), false);
     console.log('[OK]');
 })().catch((e) => { console.error(e); process.exit(1); });
+
+console.log('--- test: the stock reader walks the stacks one request at a time (an RCON reply is at most 4096 bytes), counts shulker contents apart, and says so when a read fails ---');
+(async () => {
+    const { LitematicPart } = require('../src/work/service/litematic'), read = LitematicPart.prototype._readStock;
+    const head = '1, 2, 3 has the following block data: ';
+    const els = [
+        head + '{Slot: 0b, id: "minecraft:white_shulker_box", count: 1, components: {"minecraft:container": [{slot: 0, item: {id: "minecraft:white_bed"}}, {slot: 1, item: {id: "minecraft:white_bed"}}, {slot: 2, item: {id: "minecraft:lever", count: 64}}]}}',
+        head + '{Slot: 5b, id: "minecraft:stone", count: 30}',
+    ];
+    const asked = [], o = { rcon: async (c) => { asked.push(c); const m = /Items\[(\d+)\]$/.exec(c); const i = Number(m[1]); return els[i] || `Found no elements matching Items[${i}]`; } };
+    const r = await read.call(o, 1, 2, 3);
+    assert.deepStrictEqual(r, { loose: { stone: 30 }, boxed: { white_bed: 2, lever: 64 }, boxes: 1 });
+    assert.deepStrictEqual(asked, ['data get block 1 2 3 Items[0]', 'data get block 1 2 3 Items[1]', 'data get block 1 2 3 Items[2]']);
+    assert.deepStrictEqual(await read.call({ rcon: async () => 'Found no elements matching Items[0]' }, 1, 2, 3), { loose: {}, boxed: {}, boxes: 0 }, 'an empty container');
+    await assert.rejects(read.call({ rcon: async () => { throw new Error('rcon: connection closed'); } }, 1, 2, 3), /reading the container at 1 2 3/);
+    await assert.rejects(read.call({ rcon: async () => head + '{Slot: 0b, id: "minecraft:stone", count: 3' }, 1, 2, 3), /stack 0/);
+    console.log('[OK]');
+})().catch((e) => { console.error(e); process.exit(1); });

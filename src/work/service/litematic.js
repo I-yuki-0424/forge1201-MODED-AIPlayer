@@ -41,8 +41,15 @@ class LitematicPart {
     /** One container block's items: { loose: {item: n}, boxed: {item: n}, boxes: n }, shulker boxes counted by what they hold (their `container` component). */
     async _readStock(x, y, z) {
         const out = { loose: {}, boxed: {}, boxes: 0 };
-        let items; try { items = snbt.fromReply(await this.rcon(`data get block ${x} ${y} ${z} Items`)); } catch (_) { return out; }
-        for (const s of Array.isArray(items) ? items : []) {
+        // One reply of RCON is at most 4096 bytes and `Items` of a chest of shulker boxes is far more (live 2026-11-21: the chest read as empty), and `data get` takes no `Items[].id`:
+        // one stack per request, Items[0], Items[1] ... until the server finds no element (a stack with 27 kinds inside a shulker box is about 1.5 KB).
+        const at = `${x} ${y} ${z}`, items = [];
+        for (let i = 0; i < 54; i++) {
+            let reply; try { reply = await this.rcon(`data get block ${at} Items[${i}]`); } catch (e) { throw new Problem(`reading the container at ${at}: ${String(e.message).slice(0, 120)}`); }
+            if (/no elements|Found no|does not have|has no/i.test(String(reply))) break;                                      // past the last stack (or an empty container)
+            try { items.push(snbt.fromReply(reply)); } catch (e) { throw new Problem(`reading the container at ${at}, stack ${i}: ${String(e.message).slice(0, 120)}`); }
+        }
+        for (const s of items) {
             const id = bare(s.id), n = Number(s.count) || 1;
             if (SHULKER.test(id)) {
                 out.boxes++;
