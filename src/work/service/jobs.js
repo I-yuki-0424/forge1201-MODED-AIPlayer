@@ -136,6 +136,9 @@ class JobsPart {
      */
     async createBuildFromPlacement(spec) {
         need(spec && typeof spec === 'object' && typeof spec.placement === 'string', 'spec.placement (a Syncmatica placement id) missing');
+        spec = this._withRange(spec);
+        need(spec.tile === undefined || (Number.isInteger(spec.tile) && spec.tile >= 8 && spec.tile <= 256), 'tile: an integer 8..256');
+        need(spec.bots === undefined || (Array.isArray(spec.bots) && spec.bots.length <= 24), 'bots: a list of names');
         const c = this._syncClient(spec.bot || (spec.bots && spec.bots[0])), p = c.placements.get(spec.placement);
         need(p, `no placement ${String(spec.placement).slice(0, 40)} in the list`, 404);
         let file; try { file = await c.fetch(p.id); } catch (e) { throw new Problem(`the download failed: ${e.message}`); }

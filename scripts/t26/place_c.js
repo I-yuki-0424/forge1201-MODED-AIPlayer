@@ -150,14 +150,15 @@ async function trial(k, S0, svc, seed, rep) {
     const sup = chests.map((_, i) => ({ x: M.x - 3, y: M.y, z: M.z + 3 * i }));
     for (let i = 0; i < chests.length; i++) {
         await S.must(`setblock ${sup[i].x} ${sup[i].y} ${sup[i].z} minecraft:chest[facing=east] replace`);
-        const items = chests[i].map((s, j) => `{Slot:${j}b,id:"minecraft:${s.it}",count:${s.n}}`).join(',');
+        // SHULKER=1 (owner 2026-11-21: the materials of the creative server lie in shulker boxes inside the chest): the chest holds ONE shulker box with its 27 stacks
+        const items = process.env.SHULKER === '1' ? `{Slot:0b,id:"minecraft:white_shulker_box",count:1,components:{"minecraft:container":[${chests[i].map((s, j) => `{slot:${j},item:{id:"minecraft:${s.it}",count:${s.n}}}`).join(',')}]}}` : chests[i].map((s, j) => `{Slot:${j}b,id:"minecraft:${s.it}",count:${s.n}}`).join(',');
         await S.must(`data merge block ${sup[i].x} ${sup[i].y} ${sup[i].z} {Items:[${items}]}`);
     }
     // the builders stand on the deck (it reaches 6 beyond the box; the third bot used to stand outside it and fell 136 blocks)
     // a bot that dies comes back on the deck (a bed beside the site), not at the world spawn 250 blocks away with no way up
     for (const [i, n] of names.entries()) { const bx0 = M.x - 5.5, bz0 = M.z - 3.5 + i; await S.must(`tp ${n} ${bx0} ${M.y} ${bz0}`); await S.must(`spawnpoint ${n} ${Math.floor(bx0)} ${M.y} ${Math.floor(bz0)}`); await T.kit(S, n, { blocks: 320, block: TEMP }); }
     await sleep(4000);
-    for (let i = 0; i < chests.length; i++) svc.addSite({ name: `supply${i}`, x: sup[i].x, y: sup[i].y, z: sup[i].z, purpose: 'free' });      // after the bot sees the chunk
+    for (let i = 0; i < chests.length; i++) svc.addSite({ name: `supply${i}`, x: sup[i].x, y: sup[i].y, z: sup[i].z, purpose: process.env.SHULKER === '1' ? 'materials' : 'free' });      // after the bot sees the chunk
     console.log(`[place_c site] box minimum ${M.x} ${M.y} ${M.z}, size ${sx} x ${sy} x ${sz}; reference copy at ${ref.x} ${ref.y} ${ref.z}; supply chests at x ${M.x - 3}; /tp ${M.x + 22} ${M.y + 30} ${M.z + 22} to look down on it`);
     await T.say(S, `place_c: ${name} builds ${parsed.meta.name} (${probe.blocks.length} blocks) at ${M.x} ${M.y} ${M.z}, trial ${k + 1}/${TRIALS}`);
     const t0 = Date.now(); let state = 'control', shared = null, got = null, err = null;

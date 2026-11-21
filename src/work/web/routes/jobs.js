@@ -7,6 +7,12 @@ module.exports = (service) => async (req, url, m, p) => {
     let a;
     if (m === 'POST' && p === '/api/jobs/pit') return service.createPit(await json(req));
     if (m === 'POST' && p === '/api/jobs/build') return service.createBuild(await json(req));
+    // Litematica (Syncmatica placements the server shares): the list, what one needs, what the material containers hold, the job
+    if (m === 'GET' && p === '/api/litematic/placements') return service.syncPlacements(url.searchParams.get('bot') || null);
+    if (m === 'POST' && p === '/api/litematic/preview') return service.litematicPreview(await json(req));
+    if (m === 'GET' && p === '/api/litematic/stock') return service.materialStock();
+    if (m === 'POST' && p === '/api/litematic/check') return service.materialCheck(await json(req));
+    if (m === 'POST' && p === '/api/jobs/litematic') return service.createBuildFromPlacement(await json(req));
     if (m === 'POST' && p === '/api/range/check') return service.checkRange(await json(req));
     if (m === 'GET' && p === '/api/dimensions') return service.dimensionsList();
     if (m === 'POST' && p === '/api/layout/preview') return service.previewLayout(await json(req));

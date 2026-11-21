@@ -128,6 +128,18 @@ function test(name, fn) { console.log(`--- test: ${name} ---`); return Promise.r
         for (const u of srcs) { const r = await call2('GET', u, {}); assert.strictEqual(r.status, 200, `${u} is ${r.status}`); }
     });
 
+    await test('Litematica routes (2026-11-21): every one needs the session; without a Syncmatica list the placements are a 404 with the reason, bad specs a 400, stock needs RCON; the purpose `materials` can be tagged', async () => {
+        for (const [m, u] of [['GET', '/api/litematic/placements'], ['POST', '/api/litematic/preview'], ['GET', '/api/litematic/stock'], ['POST', '/api/litematic/check'], ['POST', '/api/jobs/litematic']]) assert.strictEqual((await call2(m, u, {})).status, 401, `${m} ${u} without a session`);
+        const pl = await call2('GET', '/api/litematic/placements', A); assert.strictEqual(pl.status, 404); assert.match(pl.json.error, /Syncmatica/);
+        assert.strictEqual((await call2('POST', '/api/jobs/litematic', { body: {}, ...A })).status, 400);
+        const t = await call2('POST', '/api/jobs/litematic', { body: { placement: 'x', tile: 3 }, ...A }); assert.strictEqual(t.status, 400); assert.match(t.json.error, /tile/);
+        assert.strictEqual((await call2('POST', '/api/litematic/preview', { body: { placement: 'x' }, ...A })).status, 404);
+        assert.strictEqual((await call2('GET', '/api/litematic/stock', A)).status, 503);
+        const ok = await call2('POST', '/api/sites', { body: { name: 'mat1', x: 5, y: 64, z: 5, purpose: 'materials' }, ...A }); assert.strictEqual(ok.status, 200, JSON.stringify(ok.json));
+        assert.ok((await call2('GET', '/api/sites', A)).json.purposes.materials);
+        assert.strictEqual((await call2('DELETE', '/api/sites/mat1', A)).status, 200);
+    });
+
     await test('v5 routes: sites, scripts and Leave pit need the session; bad input is a 400 with the reason, unknown names a 404', async () => {
         for (const [m, u] of [['GET', '/api/sites'], ['POST', '/api/sites'], ['GET', '/api/scripts'], ['POST', '/api/scripts'], ['POST', '/api/bots/Crew1/leave'], ['POST', '/api/scripts/x/run']]) assert.strictEqual((await call2(m, u, {})).status, 401, `${m} ${u} without a session`);
         assert.strictEqual((await call2('POST', '/api/sites', { body: { name: 'a', x: 1, y: 2, z: 3, tags: ['wood'] }, ...A })).status, 400);
