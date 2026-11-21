@@ -41,7 +41,7 @@ class BuildJob {
         this.cool = new Map();             // k -> time before which it is not offered
         this.bots = new Map();             // name -> { station: [cells], pos }
         this.noPath = new Map();           // name -> walks in a row that found no way
-        this.noStance = new Map();         // task -> looks that found no stance
+        this.noStance = new Map();         // task -> when a look first found no stance
         this.surveying = null;
         this.rounds = 0;
         this.history = [];
@@ -119,11 +119,15 @@ class BuildJob {
         this.log(`build finished: ${parked.length ? parked.length + ' cells parked' : 'every cell right'} after ${this.result.minutes} min`);
     }
 
-    /** The lowest layer that still has blocks to place (the window starts there). */
+    /** The lowest layer that still has blocks to place (the window starts there), and the highest that still has blocks to clear. */
     _frontier() {
-        let f = Infinity;
-        for (const tk of this.tasks.values()) if ((tk.kind === 'place' || tk.kind === 'fix') && !this.parked.has(tk.k) && tk.y < f) f = tk.y;
-        this.frontier = f;
+        let f = Infinity, c = -Infinity;
+        for (const tk of this.tasks.values()) {
+            if (this.parked.has(tk.k)) continue;
+            if ((tk.kind === 'place' || tk.kind === 'fix') && tk.y < f) f = tk.y;
+            if (tk.kind === 'clear' && tk.y > c) c = tk.y;
+        }
+        this.frontier = f; this.clearTop = c;
     }
 
     // ---- what may be done now --------------------------------------------------------------------------------------------------------------------------------------------
@@ -134,7 +138,9 @@ class BuildJob {
         if (STAGE_OF[tk.kind] !== this.stage) return false;
         if (this.relaxed) return true;
         if (tk.kind === 'clear') {
-            // top-down: not under a cell that still has to be cleared; never next to a fluid (it would run in)
+            // top-down, layer by layer (the crew stands on the floor it digs: a column cleared ahead of its neighbours is a shaft whose lower cells no eye sees, live 2026-11-22);
+            // never next to a fluid (it would run in)
+            if (tk.y < this.clearTop - 1) return false;
             if (this.tasks.has(key(tk.x, tk.y + 1, tk.z)) && this.tasks.get(key(tk.x, tk.y + 1, tk.z)).kind === 'clear') return false;
             for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]]) {
                 const h = seen(bot, { x: tk.x + dx, y: tk.y + dy, z: tk.z + dz });
@@ -283,8 +289,8 @@ class BuildJob {
                 this.cool.set(seed.k, now + 6000);
                 // a task no stance reaches is parked after a few looks (it waits for the next round, when the build has changed what can be reached): a handful of hidden cells
                 // held the whole build in the prepare stage (live 2026-11-22 sv8)
-                const ns = (this.noStance.get(seed.k) || 0) + 1; this.noStance.set(seed.k, ns);
-                if (ns >= 6) { this.parked.set(seed.k, `no stance (${cands.length} in range)`); this.tasks.delete(seed.k); this.log(`parked ${seed.kind} ${seed.k} (${seed.i >= 0 ? S.bare(this.t.wantOf(seed).name) : 'outside'}): no stance reaches it (${cands.length} stances in range)`); this._frontier(); }
+                const ns = this.noStance.get(seed.k) || now; this.noStance.set(seed.k, ns);
+                if (now - ns > 120000) { this.parked.set(seed.k, `no stance (${cands.length} in range)`); this.tasks.delete(seed.k); this.log(`parked ${seed.kind} ${seed.k} (${seed.i >= 0 ? S.bare(this.t.wantOf(seed).name) : 'outside'}): no stance reaches it (${cands.length} stances in range)`); this._frontier(); }
                 continue;
             }
             const tasks = best.batch.sort((a, b) => (down ? b.y - a.y : a.y - b.y) || a.x - b.x || a.z - b.z);
@@ -336,7 +342,7 @@ class BuildJob {
     report(name, results, now = Date.now()) {
         for (const { tk, ok, why } of results) {
             this.claims.delete(tk.k);
-            if (ok) { this.tasks.delete(tk.k); this.stats[{ seal: 'sealed', fill: 'filled', clear: 'cleared', place: 'placed', fix: 'fixed', pour: 'poured', ignite: 'lit', untemp: 'untemp' }[tk.kind]]++; if (tk.kind === 'untemp') this.temps.delete(tk.k); if (tk.kind === 'place' || tk.kind === 'fix') this._lowered(tk); continue; }
+            if (ok) { this.tasks.delete(tk.k); this.stats[{ seal: 'sealed', fill: 'filled', clear: 'cleared', place: 'placed', fix: 'fixed', pour: 'poured', ignite: 'lit', untemp: 'untemp' }[tk.kind]]++; if (tk.kind === 'untemp') this.temps.delete(tk.k); if (tk.kind === 'place' || tk.kind === 'fix' || tk.kind === 'clear') this._lowered(tk); continue; }
             if (why === 'skipped') { this.cool.set(tk.k, now + 1500); continue; }
             if (STAGE_OF[tk.kind] === 'late') this.log(`${name}: ${tk.kind} ${tk.k} failed: ${why}`);
             const n = (this.fails.get(tk.k) || 0) + 1; this.fails.set(tk.k, n); this.stats.failed++;
@@ -346,7 +352,7 @@ class BuildJob {
     }
     release(name, tasks) { for (const tk of tasks) if (this.claims.get(tk.k) === name) this.claims.delete(tk.k); }
     leave(name) { for (const [k, n] of this.claims) if (n === name) this.claims.delete(k); this.bots.delete(name); }
-    _lowered(tk) { if (tk.y === this.frontier) this._frontier(); }
+    _lowered(tk) { if (tk.y === this.frontier || tk.y === this.clearTop) this._frontier(); }
 
     /** Nothing left in the current stage (no task, none claimed): time for a survey. */
     exhausted() {
