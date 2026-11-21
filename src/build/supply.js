@@ -76,8 +76,8 @@ async function fetch(bot, site, needs, mover, spot, { log = () => {} } = {}) {
         await sleep(150);
         const box = boxes(bot)[0];
         if (!box || boxes(bot).length <= n0) { log(`supply: the box in slot ${bx.slot} did not come out`); continue; }
-        const at = spot();
-        if (!at || !(await mover.placeItem(box.name, at))) { log(`supply: could not set a box down${at ? ` at ${at.x},${at.y},${at.z}` : ''}`); await putBack(bot, site); break; }
+        const at = spot(), pr = at ? await mover.placeItem(box.name, at) : 'no free cell beside the chest';
+        if (pr !== true) { log(`supply: could not set a box down${at ? ` at ${at.x},${at.y},${at.z}` : ''}: ${pr}`); await putBack(bot, site); break; }
         try {
             const bw = await open(bot, at);
             try { for (const it of bw.containerItems()) { if (freeSlots(bot) <= 1) break; if (want[it.name] > 0) { await shift(bot, it.slot); took(it.name, it.count); } } }

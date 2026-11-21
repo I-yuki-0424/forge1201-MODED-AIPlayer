@@ -1,11 +1,14 @@
 'use strict';
-// The new builder (src/build/, TASK-20261121-073) without a server: block-state rules, recipes, the flight path, the survey and the job's order on a fake world.
+// The survival builder (src/build/, TASK-20261121-073) without a server: block-state rules, vanilla's placement model, the click search with a client's line of sight,
+// the survival movement plan, the survey and the job's order on a fake world.
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const S = require('../src/build/state');
 const R = require('../src/build/rules');
-const fly = require('../src/build/fly');
+const V = require('../src/build/vanilla');
+const P = require('../src/build/place');
+const M = require('../src/build/move');
 const { survey, clicksFor } = require('../src/build/survey');
 const { Target } = require('../src/build/target');
 const { BuildJob } = require('../src/build/job');
@@ -20,11 +23,12 @@ function fakeBot(world, loaded = { x0: -100, x1: 100, y0: -64, y1: 320, z0: -100
     return {
         username: 'fake',
         entity: { position: { x: 0.5, y: 70, z: 0.5, floored() { return this; } } },
+        digTime: () => 300,
         blockAt(p) {
             if (p.x < loaded.x0 || p.x > loaded.x1 || p.z < loaded.z0 || p.z > loaded.z1) return null;
             const s = world.get(`${p.x},${p.y},${p.z}`) || { name: 'air', props: {} };
             const empty = /^(air|water|lava|nether_portal|short_grass)$/.test(s.name);
-            return { name: s.name, getProperties: () => s.props || {}, boundingBox: empty ? 'empty' : 'block' };
+            return { name: s.name, getProperties: () => s.props || {}, boundingBox: empty ? 'empty' : 'block', shapes: empty ? [] : (s.shapes || [[0, 0, 0, 1, 1, 1]]) };
         },
     };
 }
@@ -68,27 +72,58 @@ test('items', () => {
 });
 
 console.log('rules');
-test('recipes aim where vanilla reads them (verified live by rules_probe.js)', () => {
-    const r = (name, props, at) => R.recipe({ name, props }, at);
-    assert.strictEqual(r('hopper', { facing: 'down' }).face, R.FACE.up);
-    assert.strictEqual(r('hopper', { facing: 'north' }).face, R.FACE.south);
-    assert.deepStrictEqual(r('observer', { facing: 'south' }).look, { h: 'south', v: null });
-    assert.deepStrictEqual(r('sticky_piston', { facing: 'up' }).look, { h: 'north', v: 'down' });
-    assert.deepStrictEqual(r('repeater', { facing: 'north', delay: '3' }).look, { h: 'south' });
-    assert.strictEqual(r('repeater', { facing: 'north', delay: '3' }).clicks, 2);
-    assert.strictEqual(r('comparator', { facing: 'north', mode: 'subtract' }).clicks, 1);
-    assert.strictEqual(r('note_block', { note: '7' }).clicks, 7);
-    assert.strictEqual(r('spruce_trapdoor', { facing: 'west', half: 'top', open: 'true' }).face, R.FACE.down);
-    assert.strictEqual(r('spruce_trapdoor', { facing: 'west', half: 'top', open: 'true' }).clicks, 1);
-    assert.strictEqual(r('iron_trapdoor', { facing: 'west', half: 'bottom', open: 'false' }).clicks, 0);
-    assert.strictEqual(r('smooth_stone_slab', { type: 'top' }).face, R.FACE.down);
-    assert.strictEqual(r('white_shulker_box', { facing: 'up' }).face, R.FACE.up);
-    assert.strictEqual(r('nether_portal', { axis: 'z' }).op, 'ignite');
-    assert.strictEqual(r('lava', { level: '0' }).op, 'pour');
-    assert.strictEqual(r('lava', { level: '1' }), null);
-    assert.strictEqual(r('piston_head', { facing: 'up' }), null);
-    assert.strictEqual(r('air', {}), null);
+console.log('vanilla placement');
+test('orderedByNearest is vanilla\'s: the dominant axis first', () => {
+    assert.deepStrictEqual(V.orderedByNearest(0, -1, 0.1).slice(0, 2), ['down', 'south']);
+    assert.strictEqual(V.orderedByNearest(1, 0.2, 0.1)[0], 'east');
+    assert.strictEqual(V.orderedByNearest(0.1, 0.3, -1)[0], 'north');
+    assert.strictEqual(V.horizontalOf(-0.2, 1), 'south');
 });
+test('predict: what a click makes of an item (the probe checked every state live: scripts/t26/place_probe.js)', () => {
+    const none = () => null, sol = () => true;
+    const ctx = (face, look, extra = {}) => ({ face, look, hitY: 0.5, sneak: false, at: none, solid: sol, ...extra });
+    assert.deepStrictEqual(V.predict('hopper', ctx('north', [0, 0, 1])).props, { facing: 'south' });
+    assert.deepStrictEqual(V.predict('hopper', ctx('up', [0, -1, 0])).props, { facing: 'down' });
+    assert.strictEqual(V.predict('observer', ctx('up', [0, -1, 0.2])).props.facing, 'down');
+    assert.strictEqual(V.predict('sticky_piston', ctx('up', [0, -1, 0.2])).props.facing, 'up');
+    assert.strictEqual(V.predict('repeater', ctx('up', [0, -1, 0.3])).props.facing, 'north');
+    assert.deepStrictEqual(V.predict('spruce_trapdoor', ctx('west', [-1, 0, 0], { hitY: 0.8 })).props, { facing: 'west', half: 'top', open: 'false' });
+    assert.deepStrictEqual(V.predict('smooth_stone_slab', ctx('down', [0, 1, 0])).props, { type: 'top' });
+    assert.deepStrictEqual(V.predict('redstone_torch', ctx('south', [0, 0, 1])), { name: 'redstone_wall_torch', props: { facing: 'south' } });
+    assert.deepStrictEqual(V.predict('lever', ctx('up', [0.2, -1, 0])).props, { face: 'floor', facing: 'east' });
+    assert.strictEqual(V.predict('white_bed', ctx('up', [-1, -1, 0])).props.facing, 'west');
+    // a chest clicked on the side of a lone chest that faces east joins it
+    const lone = (dx, dy, dz) => (dx === 0 && dy === 0 && dz === 1 ? { name: 'chest', props: { facing: 'east', type: 'single' } } : null);
+    assert.deepStrictEqual(V.predict('chest', ctx('north', [0, -0.3, -1], { at: lone })).props, { facing: 'east', type: 'left', waterlogged: 'false' });
+});
+test('the click search: a face the eye sees first, the state vanilla gives, within reach', () => {
+    const stone = { name: 'stone', props: {}, shapes: [[0, 0, 0, 1, 1, 1]] };
+    const m = new Map(); for (let x = -3; x <= 3; x++) for (let z = -3; z <= 3; z++) m.set(`${x},-1,${z}`, stone);
+    const world = { block: (x, y, z) => m.get(`${x},${y},${z}`) || P.AIR };
+    const st = []; for (let x = -3; x <= 3; x++) for (let z = -3; z <= 3; z++) st.push({ x, y: 0, z });
+    st.sort((a, b) => Math.hypot(a.x, a.z) - Math.hypot(b.x, b.z));
+    const w = P.ways(world, { x: 0, y: 0, z: 0 }, { name: 'repeater', props: { facing: 'north', delay: '3' } }, 'repeater', st)[0];
+    assert(w && w.face === 'up' && w.station.z < 0, 'a repeater facing north is placed looking south, from the north');
+    assert(!P.ways(world, { x: 0, y: 2, z: 0 }, { name: 'stone', props: {} }, 'stone', st).length, 'nothing to click on in the air');
+    // a wall between the eye and the face: not that station
+    m.set('0,0,-1', stone); m.set('0,1,-1', stone);
+    const w2 = P.ways(world, { x: 0, y: 0, z: 0 }, { name: 'repeater', props: { facing: 'north' } }, 'repeater', [{ x: 0, y: 0, z: -2 }]);
+    assert.strictEqual(w2.length, 0, 'the face is hidden behind the wall');
+});
+
+console.log('survival movement');
+test('a plan walks, steps up, drops, and pillars only with temporary blocks', () => {
+    const w = new Map(); for (let x = -10; x <= 30; x++) for (let z = -5; z <= 5; z++) w.set(`${x},-1,${z}`, { name: 'stone' });
+    for (let z = -5; z <= 5; z++) { w.set(`5,0,${z}`, { name: 'stone' }); w.set(`10,-1,${z}`, { name: 'air' }); w.set(`10,-2,${z}`, { name: 'stone' }); }
+    const bot = fakeBot(w), view = new M.View(bot, { canDig: () => false });
+    const r = M.plan(view, { x: 0, y: 0, z: 0 }, (x, y, z) => x === 20 && z === 0, { x: 20, y: 0, z: 0 }, { temps: 0 });
+    assert(r, 'a plan'); const moves = r.map((q) => q.move);
+    assert(moves.includes('up') && moves.includes('drop'), moves.join(' '));
+    assert(!M.plan(view, { x: 0, y: 0, z: 0 }, (x, y, z) => y >= 4, { x: 0, y: 4, z: 0 }, { temps: 0 }), 'no climbing without blocks');
+    const up = M.plan(view, { x: 0, y: 0, z: 0 }, (x, y, z) => y >= 4, { x: 0, y: 4, z: 0 }, { temps: 8 });
+    assert(up && up.filter((q) => q.move === 'pillar').length === 4, 'four pillar steps');
+});
+
 test('dependencies: support below, the wall a torch hangs on, the chest partner, the watched cell', () => {
     const stone = { name: 'stone', props: {} }, at = () => stone;
     assert.deepStrictEqual(R.recipe({ name: 'redstone_wire', props: {} }, at).deps, [[0, -1, 0]]);
@@ -99,23 +134,6 @@ test('dependencies: support below, the wall a torch hangs on, the chest partner,
     assert.deepStrictEqual(R.recipe({ name: 'observer', props: { facing: 'east' } }, at).deps, [[1, 0, 0]]);
     assert.deepStrictEqual(R.recipe({ name: 'observer', props: { facing: 'east' } }, () => ({ name: 'air', props: {} })).deps, []);
     assert.deepStrictEqual(R.recipe({ name: 'redstone_wire', props: {} }, () => null).deps, []);
-});
-
-console.log('fly');
-test('a path around a wall, never through a portal, no corner cutting', () => {
-    const w = new Map();
-    for (let y = 60; y < 80; y++) for (let z = -3; z <= 3; z++) w.set(`5,${y},${z}`, { name: 'stone' });
-    w.set('5,70,4', { name: 'nether_portal' }); w.set('5,71,4', { name: 'nether_portal' });
-    const bot = fakeBot(w), p = fly.path(bot, { x: 0, y: 70, z: 0 }, { x: 10, y: 70, z: 0 });
-    assert(p, 'a path');
-    for (const c of p) { assert(!(c.x === 5 && c.z >= -3 && c.z <= 3 && c.y >= 59 && c.y < 80), `through the wall at ${JSON.stringify(c)}`); assert(!(c.x === 5 && c.z === 4 && (c.y === 70 || c.y === 71 || c.y === 69)), 'through the portal'); }
-    for (let i = 1; i < p.length; i++) assert(Math.abs(p[i].x - p[i - 1].x) <= 1 && Math.abs(p[i].y - p[i - 1].y) <= 1 && Math.abs(p[i].z - p[i - 1].z) <= 1);
-    const blocked = fly.path(bot, { x: 0, y: 70, z: 0 }, { x: 10, y: 70, z: 0 }, { blocked: () => true });
-    assert.strictEqual(blocked, null);
-});
-test('simplify keeps the turns only', () => {
-    const s = fly.simplify([{ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }, { x: 2, y: 0, z: 0 }, { x: 2, y: 0, z: 1 }, { x: 2, y: 0, z: 2 }]);
-    assert.deepStrictEqual(s, [{ x: 0, y: 0, z: 0 }, { x: 2, y: 0, z: 0 }, { x: 2, y: 0, z: 2 }]);
 });
 
 console.log('survey and job');
@@ -149,6 +167,7 @@ test('clicksFor', () => {
 test('job: stages in order, clearing top-down and never next to a fluid, placing bottom-up with the window and the support first', async () => {
     const t = new Target(tiny(), { x: 10, y: 64, z: 10 });
     const w = new Map();
+    for (let x = 4; x <= 18; x++) for (let z = 4; z <= 18; z++) w.set(`${x},63,${z}`, { name: 'dirt' });          // the ground under the box
     w.set('10,65,10', { name: 'stone' }); w.set('11,65,10', { name: 'stone' }); w.set('11,66,10', { name: 'dirt' });     // terrain in air cells; a wrong block where glass belongs (placed over later)
     w.set('12,65,12', { name: 'stone' }); w.set('13,65,12', { name: 'lava', props: { level: '0' } });     // next to lava outside: sealed first
     const bot = fakeBot(w), job = new BuildJob(t, { available: new Set(['stone', 'repeater', 'glass', 'smooth_stone']) });
@@ -166,12 +185,12 @@ test('job: stages in order, clearing top-down and never next to a fluid, placing
     assert(job.ready(tk('10,64,10'), bot, now));
     assert(!job.ready(tk('11,65,11'), bot, now), 'the repeater waits for the stone under it');
     assert(job.ready(tk('11,65,11'), bot, now, new Set(['11,64,11'])), 'unless that stone was just sent');
-    assert(!job.ready(tk('10,66,10'), bot, now), 'above the window (one layer over the lowest open one)');
+    assert(job.ready(tk('10,66,10'), bot, now), 'inside the window (two layers over the lowest open one)');
     // a claim: a station whose body covers none of the cells it reaches, the tasks bottom-up
-    const cl = job.claim(bot, 'b1', now);
-    assert(cl && cl.tasks.length);
-    for (const q of cl.tasks) assert(!(q.x === cl.station.x && q.z === cl.station.z && (q.y === cl.station.y || q.y === cl.station.y + 1)));
-    assert(cl.station.y > job.frontier + job.o.window + 1 || cl.station.x < 10 || cl.station.x > 12 || cl.station.z < 10 || cl.station.z > 12, 'over the box the crew stands above the window');
+    assert(job.claim(bot, 'b1', now, () => 0).need, 'without the items the claim asks for them');
+    const cl = job.claim(bot, 'b1', now, () => 64);
+    assert(cl && cl.tasks && cl.tasks.length, 'a claim with the items');
+    for (const q of cl.tasks) { assert(!(q.x === cl.station.x && q.z === cl.station.z && (q.y === cl.station.y || q.y === cl.station.y + 1))); assert(q.way, 'every claimed task has its click or dig'); }
     for (let i = 1; i < cl.tasks.length; i++) assert(cl.tasks[i].y >= cl.tasks[i - 1].y);
     // a failure parks after MAX_FAILS tries, done tasks leave the list
     job.report('b1', cl.tasks.map((q, i) => ({ tk: q, ok: i > 0, why: 'got stone' })));
