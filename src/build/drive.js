@@ -51,7 +51,8 @@ async function work(job, name, bot, mv, cl, cancel) {
     const results = [];
     const r = await mv.goto(cl.station, { cancel, maxNodes: 30000 });
     if (!r.ok) {
-        for (const tk of cl.tasks) results.push({ tk, ok: false, why: 'skipped' });
+        // a stance the bot cannot get to counts against its tasks (as 'skipped' they came back for ever: live 2026-11-22 sD w2, 22 tree tops for 40 minutes)
+        for (const tk of cl.tasks) results.push({ tk, ok: false, why: `no way to the stance ${cl.station.x},${cl.station.y},${cl.station.z} (${r.why})` });
         const n = (job.noPath.get(name) || 0) + 1; job.noPath.set(name, n);
         job.log(`${name}: no way to ${cl.station.x} ${cl.station.y} ${cl.station.z} (${r.why}, ${n} in a row)`);
         if (n >= 4) { job.noPath.set(name, 0); await escape(job, name, bot, mv, cancel); }
