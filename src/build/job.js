@@ -186,7 +186,7 @@ class BuildJob {
     whyNot(tk, bot, now) {
         if (this.parked.has(tk.k)) return 'parked';
         if ((this.cool.get(tk.k) || 0) > now) return 'cooling';
-        if (STAGE_OF[tk.kind] !== this.stage) return `stage ${STAGE_OF[tk.kind]}`;
+        if (STAGE_OF[tk.kind] !== this.stage && !(this.stage === 'prepare' && (tk.kind === 'place' || tk.kind === 'fix') && this._clearAround(tk))) return this.stage === 'prepare' && (tk.kind === 'place' || tk.kind === 'fix') ? (this.fluidLeft ? 'fluids left' : 'clearing around it') : `stage ${STAGE_OF[tk.kind]}`;
         if ((tk.kind === 'place' || tk.kind === 'fix') && tk.y > this.frontier + this.o.window) return `above the window (frontier ${this.frontier})`;
         const r = tk.i >= 0 ? this.t.recipeOf(tk) : null;
         if (tk.kind === 'place' && r) for (const d of r.deps) {
@@ -319,7 +319,12 @@ class BuildJob {
             for (const tk of tasks) if ((tk.kind === 'clear' || tk.kind === 'untemp') && tk.x === best.f.x && tk.z === best.f.z && tk.y === best.f.y - 1) tk.way = null;      // its own floor: not from there
             return { station: best.f, tasks };
         }
-        if (now - (this.diagAt || 0) > 30000) { this.diagAt = now; this.log(`claim by ${name}: ${ready.length} ready, ${doable.length} doable with what it carries, no stance for the first ${Math.min(3, doable.length)} (${doable.slice(0, 3).map((t) => `${t.kind} ${t.k}`).join(', ')})`); }
+        if (now - (this.diagAt || 0) > 30000) {
+            this.diagAt = now;
+            const why = {}; let n = 0;
+            for (const tk of this.tasks.values()) { if (n++ > 4000) break; const w = this.whyNot(tk, bot, now).replace(/ \d.*$/, '').replace(/waits for .*/, 'waits for a dependency').replace(/next to .*/, 'next to a fluid'); why[w] = (why[w] || 0) + 1; }
+            this.log(`claim by ${name}: ${ready.length} ready, ${doable.length} doable with what it carries, no stance for the first ${Math.min(3, doable.length)} (${doable.slice(0, 3).map((t) => `${t.kind} ${t.k}`).join(', ')}); the others: ${JSON.stringify(why)}; frontier ${this.frontier}`);
+        }
         return null;
     }
 
