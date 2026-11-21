@@ -62,7 +62,7 @@ function recipe(t, at = () => null) {
     else if (LOOK_FACING.test(n)) {
         r = place(item, 'up', lookAt(f));
         const v = VEC[f];
-        if (v) { const w = at(v[0], v[1], v[2]); if (w && !S.AIR.has(S.bare(w.name))) r.deps.push(v); }     // the cell it watches stands first: no pulse at placement
+        if (v) { const w = at(v[0], v[1], v[2]); if (w && !S.AIR.has(S.bare(w.name))) { r.deps.push(v); r.soft = [v]; } }     // the cell it watches stands first (no pulse at placement); a preference, not a need (job.js)
     } else if (PISTONLIKE.test(n)) r = place(item, 'up', lookAt(OPP[f]));
     else if (/^(repeater|comparator)$/.test(n)) {
         r = place(item, 'up', { h: OPP[f] }, { deps: [[0, -1, 0]] });

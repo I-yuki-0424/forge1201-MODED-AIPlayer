@@ -121,7 +121,7 @@ class BuildJob {
     // ---- what may be done now --------------------------------------------------------------------------------------------------------------------------------------------
 
     /** Is task `tk` ready in `bot`'s view of the world? (`pending`: cells this bot has just sent a placement for and not read back yet: they count as standing.) */
-    ready(tk, bot, now, pending = null) {
+    ready(tk, bot, now, pending = null, soft = false) {
         if (this.parked.has(tk.k) || (this.cool.get(tk.k) || 0) > now) return false;
         if (STAGE_OF[tk.kind] !== this.stage) return false;
         if (this.relaxed) return true;
@@ -141,7 +141,12 @@ class BuildJob {
                 const x = tk.x + d[0], y = tk.y + d[1], z = tk.z + d[2];
                 if (pending && pending.has(key(x, y, z))) continue;
                 const want = this.t.at(x, y, z), h = seen(bot, { x, y, z });
-                if (!want || !h || !S.matches(want, h)) return false;
+                if (!want || !h || !S.matches(want, h)) {
+                    // a soft dependency (the cell an observer watches) holds only while that cell can be placed now itself: a chain of observers watching observers up past the
+                    // window waited for ever (live 2026-11-21 run n7)
+                    if (r.soft && r.soft.includes(d) && !soft) { const dt = this.tasks.get(key(x, y, z)); if (!dt || !this.ready(dt, bot, now, pending, true)) continue; }
+                    return false;
+                }
             }
             return true;
         }
