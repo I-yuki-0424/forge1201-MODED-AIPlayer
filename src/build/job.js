@@ -344,6 +344,13 @@ class BuildJob {
         }
     }
 
+    /** Park the place tasks that need items the supply is out of (tried again next round). */
+    parkItems(items) {
+        const set = new Set(items); let n = 0;
+        for (const tk of [...this.tasks.values()]) if (tk.kind === 'place' && set.has(this._itemOf(tk)) && !this.claims.has(tk.k)) { this.parked.set(tk.k, `missing_item ${this._itemOf(tk)}`); this.tasks.delete(tk.k); n++; }
+        if (n) { this.log(`parked ${n} cells: the supply is out of ${items.join(', ')}`); this._frontier(); }
+    }
+
     /** A stance `name` found no way to: not offered to it again for three minutes. */
     avoid(name, f) { const m = this.bad || (this.bad = new Map()); let s = m.get(name); if (!s) m.set(name, (s = new Map())); s.set(key(f.x, f.y, f.z), Date.now() + 180000); }
     avoided(name, f) { const s = this.bad && this.bad.get(name); if (!s) return false; const k = key(f.x, f.y, f.z), t = s.get(k); if (!t) return false; if (t < Date.now()) { s.delete(k); return false; } return true; }
@@ -423,7 +430,6 @@ class BuildJob {
             this._stall(bot, now);
             return null;
         }
-        this.stallSince = 0;
         // what the bot can do with what it carries; the rest says what to fetch
         const item = (tk) => this._itemOf(tk);
         // never the block a bot stands on (in the Nether a bot fell into the lava when another cleared its floor, live 2026-11-21)
@@ -516,18 +522,20 @@ class BuildJob {
                 // a task no stance reaches is parked after a few looks (it waits for the next round, when the build has changed what can be reached): a handful of hidden cells
                 // held the whole build in the prepare stage (live 2026-11-22 sv8)
                 const ns = this.noStance.get(seed.k) || now; this.noStance.set(seed.k, ns);
-                if (now - ns > 120000) { this.parked.set(seed.k, `no stance (${cands.length} in range)`); this.tasks.delete(seed.k); this.log(`parked ${seed.kind} ${seed.k} (${seed.i >= 0 ? S.bare(this.t.wantOf(seed).name) : 'outside'}): no stance reaches it (${cands.length} stances in range; rejected ${JSON.stringify(rej)}; the cell holds ${(seen(bot, seed) || {}).name}; neighbours ${['up', 'down', 'north', 'south', 'west', 'east'].map((d, i) => { const o = [[0, 1, 0], [0, -1, 0], [0, 0, -1], [0, 0, 1], [-1, 0, 0], [1, 0, 0]][i], h = seen(bot, { x: seed.x + o[0], y: seed.y + o[1], z: seed.z + o[2] }); return `${d}:${h ? S.bare(h.name) : '?'}`; }).join(' ')})`); this._frontier(); }
+                if (now - ns > 60000) { this.parked.set(seed.k, `no stance (${cands.length} in range)`); this.tasks.delete(seed.k); this.log(`parked ${seed.kind} ${seed.k} (${seed.i >= 0 ? S.bare(this.t.wantOf(seed).name) : 'outside'}): no stance reaches it (${cands.length} stances in range; rejected ${JSON.stringify(rej)}; the cell holds ${(seen(bot, seed) || {}).name}; neighbours ${['up', 'down', 'north', 'south', 'west', 'east'].map((d, i) => { const o = [[0, 1, 0], [0, -1, 0], [0, 0, -1], [0, 0, 1], [-1, 0, 0], [1, 0, 0]][i], h = seen(bot, { x: seed.x + o[0], y: seed.y + o[1], z: seed.z + o[2] }); return `${d}:${h ? S.bare(h.name) : '?'}`; }).join(' ')})`); this._frontier(); }
                 continue;
             }
             this.lastClaimInfo = `scanned ${scanned}, ready ${ready.length}, doable ${doable.length}, seeds to here ${doable.indexOf(seed) + 1}, batch ${best.batch.length}, ${Date.now() - t0} ms in seeds`;
             // never the stance's own floor (it is not dug from on top of it)
             const tasks = best.batch.filter((tk) => !((tk.kind === 'clear' || tk.kind === 'untemp') && tk.x === best.f.x && tk.z === best.f.z && tk.y === best.f.y - 1)).sort((a, b) => ((a.kind === 'clear') !== (b.kind === 'clear') ? (a.kind === 'clear' ? -1 : 1) : 0) || (a.kind === 'clear' ? b.y - a.y : a.y - b.y) || a.x - b.x || a.z - b.z);
             if (!tasks.length) { this.cool.set(seed.k, now + 3000); continue; }
+            this.stallSince = 0;
             for (const tk of tasks) this.claims.set(tk.k, name);
             this.bots.set(name, { station: [best.f, { x: best.f.x, y: best.f.y + 1, z: best.f.z }], pos: me });
             return { station: best.f, tasks };
         }
         if (now - (this._frontierAt || 0) > 5000) { this._frontierAt = now; this._frontier(); }
+        this._stall(bot, now);            // ready work that no stance reaches counts as nothing ready for the stall rule (a single unreachable cell kept a crew idle)
         this.lastClaimInfo = `no stance: scanned ${scanned}, ready ${ready.length}, doable ${doable.length}, ${Date.now() - t0} ms in seeds`;
         // what can be done with what it carries reaches nowhere, but ready work waits for items: fetch them (a crew stood idle with ready blocks and empty packs, live 2026-11-22)
         { const need = {}; for (const tk of ready) { if (doable.includes(tk)) continue; const it = item(tk); if (it) need[it] = (need[it] || 0) + 1; } if (Object.keys(need).length) return { need }; }

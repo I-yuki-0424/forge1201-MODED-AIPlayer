@@ -271,7 +271,15 @@ function worn(bot, it) { const max = (bot.registry.itemsByName[it.name] || {}).m
 async function supplyTrip(job, name, bot, mv, need, cancel) {
     const site = job.sites[0];
     if (!site) return false;
-    if (!Object.keys(needsFor(job, bot, need)).length) return false;          // nothing it may fetch now (all out of stock): no walk to the chest for nothing
+    if (!Object.keys(needsFor(job, bot, need)).length) {          // nothing it may fetch now (all out of stock): no walk to the chest for nothing
+        const ks = Object.keys(need);
+        if (ks.length && Date.now() - (job.noFetchAt || 0) > 60000) { job.noFetchAt = Date.now(); job.log(`${name}: nothing to fetch for ${ks.slice(0, 4).join(', ')}: ${ks.slice(0, 4).map((k) => `${k} out until ${job.outOf && job.outOf.get(k) ? new Date(job.outOf.get(k)).toISOString().slice(11, 19) : '-'}, supply ${(job.supply && job.supply.totals[k]) || 0}, carried ${SUP.carried(bot)[k] || 0}`).join('; ')}`); }
+        // items no container holds any more: the tasks that need them are parked (they come back in the next round) and the window moves on (a few cells of snow and grass held
+        // the crew idle, live 2026-11-23 fy1 w1)
+        const out = ks.filter((k) => job.outOf && (job.outOf.get(k) || 0) > Date.now());
+        if (out.length === ks.length) job.parkItems(out);
+        return false;
+    }
     // wait for the chest away from it (a box broken beside the chest drops as an item: a bot standing there picks it up and the box is gone from the supply)
     // (at most 90 s: a bot that stopped at the chest held the whole crew waiting, owner 2026-11-23 problem 8)
     if (job.chestBusy && job.chestBusy !== name) {
