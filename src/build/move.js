@@ -66,6 +66,8 @@ class View {
         const k = key(x, y, z); let v = this.lavaNear && this.lavaNear.get(k);
         if (v !== undefined) return v;
         v = false;
+        // regions of 8x8x8 cells without any lava answer at once (78 lookups per cell made the search crawl at 4 500 cells/s, live 2026-11-22 sQ2 w4)
+        if (!this._lavaRegions(x - 2, y - 2, z - 2, x + 2, y + 3, z + 2)) { (this.lavaNear = this.lavaNear || new Map()).set(k, false); return false; }
         // two cells around the body, from two under the feet to three over them: the Nether's lava runs several cells in seconds and falls from above (bots pillaring beside it
         // burned, four deaths on one world, live 2026-11-22 sW w5); fire only where the body is
         // lava at the floor's level beside the floor cannot flow up into the body: allowed (a lava lake is filled from its shore; forbidding it left every fill without a stance,
@@ -78,6 +80,21 @@ class View {
         }
         (this.lavaNear = this.lavaNear || new Map()).set(k, v);
         return v;
+    }
+    /** Is there lava (or fire) in any 8x8x8 region the box touches? Each region is scanned once per view. */
+    _lavaRegions(x0, y0, z0, x1, y1, z1) {
+        const R = 8, reg = this.regions || (this.regions = new Map());
+        for (let rx = Math.floor(x0 / R); rx <= Math.floor(x1 / R); rx++) for (let ry = Math.floor(y0 / R); ry <= Math.floor(y1 / R); ry++) for (let rz = Math.floor(z0 / R); rz <= Math.floor(z1 / R); rz++) {
+            const k = `${rx},${ry},${rz}`;
+            let has = reg.get(k);
+            if (has === undefined) {
+                has = false;
+                for (let x = rx * R; x < rx * R + R && !has; x++) for (let y = ry * R; y < ry * R + R && !has; y++) for (let z = rz * R; z < rz * R + R; z++) { const b = this.bot.blockAt(new Vec3(x, y, z), false); if (b && (b.name === 'lava' || b.name === 'fire')) { has = true; break; } }
+                reg.set(k, has);
+            }
+            if (has) return true;
+        }
+        return false;
     }
     diggable(x, y, z) {
         if (this.kind(x, y, z) !== 'solid') return false;

@@ -78,8 +78,10 @@ function ways(world, T, want, item, stations, { max = 1, reach = REACH, sneakAlw
     const at = (dx, dy, dz) => world.block(T.x + dx, T.y + dy, T.z + dz);
     const solid = (dx, dy, dz) => { const towards = Object.keys(V.VEC).find((k) => V.VEC[k][0] === -dx && V.VEC[k][1] === -dy && V.VEC[k][2] === -dz); return sturdy(at(dx, dy, dz), towards); };
     for (const F of V.DIRS) {
-        const v = V.VEC[F], N = [T.x - v[0], T.y - v[1], T.z - v[2]], nb = world.block(...N);
+        const v = V.VEC[F], N = [T.x - v[0], T.y - v[1], T.z - v[2]];
+        let nb = world.block(...N);
         if (isAir(nb) || isFluid(nb)) continue;
+        if (!Array.isArray(nb.shapes) || !nb.shapes.length) nb = { ...nb, shapes: outlineOf(nb) };       // a torch, wire, rail: clicked on its outline (smooth stone over torches was never placed, live 2026-11-22 sQ2)
         const face = faceOf(nb, F);
         if (!face) continue;
         const sneak0 = sneakAlways || V.INTERACTIVE.test(nb.name) || /chest$/.test(S.bare(want.name)) && (want.props.type || 'single') !== 'left';
@@ -121,10 +123,17 @@ function ways(world, T, want, item, stations, { max = 1, reach = REACH, sneakAlw
 // what the crosshair hits on a block with no collision box (grass, flowers, mushrooms, leaf litter, torches): its outline, about this box (with no box at all such a block was never
 // "in sight", its clear task never got a stance, and the layers under it waited, live 2026-11-22 sY)
 const OUTLINE = [[0.25, 0, 0.25, 0.75, 0.5, 0.75]];
+/** The outline (what the crosshair hits) of a block with no collision box, close to vanilla's for the common ones. The server takes a click anywhere near the block. */
+function outlineOf(b) {
+    const n = S.bare(b.name);
+    if (/^(torch|soul_torch|redstone_torch|copper_torch)$/.test(n)) return [[0.375, 0, 0.375, 0.625, 0.625, 0.625]];
+    if (/(^redstone_wire|^tripwire$|_carpet$|^moss_carpet$|_rail$|^rail$|_pressure_plate$|^lily_pad$|^snow$)/.test(n)) return [[0, 0, 0, 1, 0.0625, 1]];
+    return OUTLINE;
+}
 function clickable(world, T, s, { reach = REACH, faces = null } = {}) {
     let blk = world.block(T.x, T.y, T.z);
     if (isAir(blk) || isFluid(blk)) return null;
-    if (!Array.isArray(blk.shapes) || !blk.shapes.length) blk = { ...blk, shapes: OUTLINE };
+    if (!Array.isArray(blk.shapes) || !blk.shapes.length) blk = { ...blk, shapes: outlineOf(blk) };
     const eye = [s.x + 0.5, s.y + EYE, s.z + 0.5];
     for (const F of faces || V.DIRS) {
         const face = faceOf(blk, F); if (!face) continue;
