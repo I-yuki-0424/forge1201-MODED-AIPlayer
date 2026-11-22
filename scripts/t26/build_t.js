@@ -82,8 +82,10 @@ async function main() {
     { const tmp = SUP.TEMPS.find((n) => !items.has(n)); items.set(tmp, Number(process.env.TEMPS || 64 * 24)); }
     for (const [tool, n] of [['diamond_pickaxe', BOTS * 3], ['diamond_shovel', BOTS * 2], ['diamond_axe', BOTS]]) items.set(tool, n);
     const stacks = []; for (const [it, n] of items) { const st = STACK(it); for (let r = Math.max(1, n); r > 0; r -= st) stacks.push({ it, n: Math.min(st, r) }); }
-    const boxes = []; for (let i = 0; i < stacks.length; i += 27) boxes.push(stacks.slice(i, i + 27));
-    const chests = []; for (let i = 0; i < Math.ceil(boxes.length / 54); i++) chests.push({ x: C.x, y: C.y, z: C.z + i * 2 });
+    // shulker boxes the blueprint uses go loose into the chest (vanilla keeps a shulker box out of another one)
+    const loose = stacks.filter((st) => SUP.SHULKER.test(st.it)), packed = stacks.filter((st) => !SUP.SHULKER.test(st.it));
+    const boxes = []; for (let i = 0; i < packed.length; i += 27) boxes.push(packed.slice(i, i + 27));
+    const chests = []; for (let i = 0; i < Math.ceil((boxes.length + loose.length) / 54); i++) chests.push({ x: C.x, y: C.y, z: C.z + i * 2 });
     await srv.must(`forceload add ${M.x - 16} ${M.z - 16} ${M.x + sx + 16} ${M.z + sz + 16}`);
     for (const ch of chests) {
         await srv.must(`setblock ${ch.x} ${ch.y} ${ch.z} minecraft:chest[facing=north,type=right] replace`);
@@ -96,6 +98,10 @@ async function main() {
         for (const [j, st] of box.entries()) await srv.must(`item replace block ${tmp.x} ${tmp.y} ${tmp.z} container.${j} with minecraft:${st.it} ${st.n}`);
         await srv.must(`loot replace block ${ch.x + half} ${ch.y} ${ch.z} container.${slot} mine ${tmp.x} ${tmp.y} ${tmp.z} minecraft:iron_pickaxe`);
         await srv.must(`setblock ${tmp.x} ${tmp.y} ${tmp.z} minecraft:air replace`);
+    }
+    for (const [li, st] of loose.entries()) {
+        const bi = boxes.length + li, ch = chests[Math.floor(bi / 54)], half = (bi % 54) < 27 ? 0 : 1, slot = bi % 27;
+        await srv.must(`item replace block ${ch.x + half} ${ch.y} ${ch.z} container.${slot} with minecraft:${st.it} ${st.n}`);
     }
     console.log(`[build_t] chest at ${C.x} ${C.y} ${C.z}: ${boxes.length} shulker boxes, ${stacks.length} stacks, ${items.size} item types`);
     // ---- the crew: beside the chest, survival; the materials chest tagged for the console ----

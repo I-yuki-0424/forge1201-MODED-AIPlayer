@@ -17,7 +17,9 @@ function boxHolds(bot, it) {
 /** What the bot carries: { item: count } (shulker boxes count as boxes, not as what is inside). */
 function carried(bot) { const o = {}; for (const it of bot.inventory.items()) o[it.name] = (o[it.name] || 0) + it.count; return o; }
 const freeSlots = (bot) => 36 - bot.inventory.items().filter((i) => i.slot >= 9 && i.slot < 45).length;
-const boxes = (bot) => bot.inventory.items().filter((i) => SHULKER.test(i.name));
+// the supply's boxes the bot carries (with something inside); an empty box is a building material like any other block (the Nether blueprint has shulker boxes in it)
+const boxes = (bot) => bot.inventory.items().filter((i) => SHULKER.test(i.name) && Object.keys(boxHolds(bot, i)).length > 0);
+const emptyBox = (bot, it) => SHULKER.test(it.name) && Object.keys(boxHolds(bot, it)).length === 0;
 
 /** Open the container at c (the mover has brought the bot within reach). */
 async function open(bot, c) {
@@ -44,7 +46,7 @@ async function readSupply(bot, sites, reach, { log = () => {} } = {}) {
         const r = await reach(s);
         if (!r.ok) { failed.push({ at: s, why: r.why }); continue; }
         let win; try { win = await open(bot, s); } catch (e) { failed.push({ at: s, why: e.message }); continue; }
-        try { for (const it of win.containerItems()) { totals[it.name] = (totals[it.name] || 0) + it.count; if (SHULKER.test(it.name)) for (const [k, n] of Object.entries(boxHolds(bot, it))) totals[k] = (totals[k] || 0) + n; } }
+        try { for (const it of win.containerItems()) { if (SHULKER.test(it.name) && !emptyBox(bot, it)) { for (const [k, n] of Object.entries(boxHolds(bot, it))) totals[k] = (totals[k] || 0) + n; } else totals[it.name] = (totals[it.name] || 0) + it.count; } }
         finally { bot.closeWindow(win); }
         read.push(s); log(`supply: ${s.x} ${s.y} ${s.z} read`);
     }
@@ -72,7 +74,7 @@ async function fetch(bot, site, needs, mover, spot, { log = () => {}, depot = []
     const takeFrom = async (c) => {
         await near(bot, mover, c);
         const w = await open(bot, c);
-        try { for (const it of w.containerItems()) { saw(it.name, it.count); if (freeSlots(bot) <= 1 || !still().length) continue; if (want[it.name] > 0 && !SHULKER.test(it.name)) { await shift(bot, it.slot); took(it.name, it.count); } } }
+        try { for (const it of w.containerItems()) { saw(it.name, it.count); if (freeSlots(bot) <= 1 || !still().length) continue; if (want[it.name] > 0 && (!SHULKER.test(it.name) || emptyBox(bot, it))) { await shift(bot, it.slot); took(it.name, it.count); } } }
         finally { bot.closeWindow(w); await sleep(250); }
     };
     // 1. the depot boxes already standing
@@ -83,8 +85,9 @@ async function fetch(bot, site, needs, mover, spot, { log = () => {}, depot = []
     const useful = [];
     try {
         for (const it of win.containerItems()) {
-            if (SHULKER.test(it.name)) for (const [k, n] of Object.entries(boxHolds(bot, it))) saw(k, n); else saw(it.name, it.count);
+            if (SHULKER.test(it.name) && !emptyBox(bot, it)) for (const [k, n] of Object.entries(boxHolds(bot, it))) saw(k, n); else saw(it.name, it.count);
             if (freeSlots(bot) <= 1) continue;
+            if (emptyBox(bot, it) && want[it.name] > 0) { await shift(bot, it.slot); took(it.name, it.count); continue; }
             if (SHULKER.test(it.name)) { const h = boxHolds(bot, it), score = still().reduce((a, [k, n]) => a + Math.min(n, h[k] || 0), 0); if (score > 0) useful.push({ slot: it.slot, h, score }); }
             else if (want[it.name] > 0) { await shift(bot, it.slot); took(it.name, it.count); }
         }
@@ -96,9 +99,9 @@ async function fetch(bot, site, needs, mover, spot, { log = () => {}, depot = []
         const n0 = boxes(bot).length;
         win = await open(bot, site);
         try { await shift(bot, bx.slot); } finally { bot.closeWindow(win); await sleep(250); }
-        const box = boxes(bot)[0];
+        const box = boxes(bot).find((i) => i.slot !== undefined);
         if (!box || boxes(bot).length <= n0) { log(`supply: the box in slot ${bx.slot} did not come out`); continue; }
-        const at = spot(), pr = at ? await mover.placeItem(box.name, at, { facing: 'up' }) : 'no free cell for the depot';          // facing up: a box opens toward its facing (one set down sideways against rock never opened, live 2026-11-22)
+        const at = spot(), pr = at ? await mover.placeItem(box.name, at, { facing: at.facing || 'up' }) : 'no free cell for the depot';          // facing up: a box opens toward its facing (one set down sideways against rock never opened, live 2026-11-22)
         if (pr !== true) { log(`supply: could not set a box down${at ? ` at ${at.x},${at.y},${at.z}` : ''}: ${pr}`); await putBack(bot, site); break; }
         depot.push(at);
         try { await takeFrom(at); } catch (e) { log(`supply: the box at ${at.x},${at.y},${at.z} did not open: ${e.message}`); }

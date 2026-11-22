@@ -179,22 +179,31 @@ const nearContainer = (c) => (x, y, z) => Math.abs(x - c.x) <= 2 && Math.abs(z -
 /** A free cell beside the container (air, on something solid, not the bot's own cells, outside the box) for a shulker box to stand in while it is unpacked. */
 function boxSpot(job, bot, c) {
     const v = new View(bot, { canDig: () => false }), me = feet(bot), out = [];
-    // the depot: two to four cells from the chest (the ring next to it stays free for the bots that open the chest), never next to another depot box's top
-    for (let r = 2; r <= 4; r++) for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) for (const dy of [0, 1, -1]) {
+    // a box opens toward its facing: that cell must stay free; it is set down on the face of a solid block opposite to it (up on a floor, or sideways against a wall: on a
+    // mountainside nearly no cell beside the chest had a floor and no box could be set down, live 2026-11-22 sX w2)
+    const FACINGS = [['up', 0, 1, 0], ['north', 0, 0, -1], ['south', 0, 0, 1], ['west', -1, 0, 0], ['east', 1, 0, 0]];
+    const isBox = (x, y, z) => (job.depot || []).some((q) => q.x === x && q.y === y && q.z === z);
+    // the depot: two to four cells from the chest (the ring next to it stays free for the bots that open the chest)
+    for (let r = 2; r <= 4; r++) for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) for (const dy of [0, 1, -1, 2]) {
         if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
         const s = { x: c.x + dx, y: c.y + dy, z: c.z + dz };
-        if (job.t.inside(s.x, s.y, s.z) || (s.x === me.x && s.z === me.z)) continue;
+        if (job.t.inside(s.x, s.y, s.z) || (s.x === me.x && s.z === me.z && (s.y === me.y || s.y === me.y + 1))) continue;
         if (job.sites.some((q) => Math.abs(q.x - s.x) <= 1 && q.z === s.z && q.y === s.y - 1)) continue;        // not on top of a chest (bots stand there)
-        if ((job.depot || []).some((q) => q.x === s.x && q.z === s.z && Math.abs(q.y - s.y) <= 2)) continue;          // never on or under another box (a box on a box keeps the lower one shut, live 2026-11-22)
-        // air for the box and over it (a box opens upward), something solid under it, within reach of the bot
-        if (!(v.free(s.x, s.y, s.z) && v.free(s.x, s.y + 1, s.z) && v.stands(s.x, s.y - 1, s.z))) continue;
+        if (!v.free(s.x, s.y, s.z)) continue;
         const d = Math.hypot(s.x + 0.5 - bot.entity.position.x, s.y + 0.5 - (bot.entity.position.y + 1.62), s.z + 0.5 - bot.entity.position.z);
-        if (d <= 4) out.push({ s, d });
+        if (d > 4) continue;
+        for (const [facing, fx, fy, fz] of FACINGS) {
+            const front = { x: s.x + fx, y: s.y + fy, z: s.z + fz };
+            if (!v.free(front.x, front.y, front.z) || isBox(front.x, front.y, front.z)) continue;          // its lid's cell free, and never another box's cell (a box on a box keeps the lower one shut)
+            if ((job.depot || []).some((q) => q.x + (q.fx || 0) === s.x && q.y + (q.fy ?? 1) === s.y && q.z + (q.fz || 0) === s.z)) continue;     // not in another box's lid cell
+            if (!v.stands(s.x - fx, s.y - fy, s.z - fz) && !(fy === 0 && v.kind(s.x - fx, s.y - fy, s.z - fz) === 'solid')) continue;            // the block it is set against
+            out.push({ s: { ...s, facing, fx, fy, fz }, d: d + (facing === 'up' ? 0 : 0.5) });
+        }
     }
     out.sort((a, b) => a.d - b.d);
     // only where a face is in sight from where the bot stands (the chest itself hides some)
     const P = require('./place'), world = P.botWorld(bot), name = (bot.inventory.items().find((i) => /shulker_box$/.test(i.name)) || {}).name || 'white_shulker_box';
-    for (const { s: c2 } of out) if (P.ways(world, c2, { name, props: { facing: 'up' } }, name, [me], { max: 1 }).length || P.ways(world, c2, { name, props: { facing: 'up' } }, name, [me], { max: 1, sneakAlways: true }).length) return c2;
+    for (const { s: c2 } of out) { const want = { name, props: { facing: c2.facing } }; if (P.ways(world, c2, want, name, [me], { max: 1 }).length || P.ways(world, c2, want, name, [me], { max: 1, sneakAlways: true }).length) return c2; }
     return null;
 }
 
