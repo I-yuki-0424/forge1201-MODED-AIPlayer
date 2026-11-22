@@ -103,12 +103,13 @@ async function fetch(bot, site, needs, mover, spot, { log = () => {}, depot = []
     for (const bx of useful) {
         if (!still().length || freeSlots(bot) <= 2) break;
         const n0 = boxes(bot).length;
+        await near(bot, mover, site);                 // back beside the chest (the last box may have been set down a few cells away)
         win = await open(bot, site);
         try { await shift(bot, bx.slot); } finally { bot.closeWindow(win); await sleep(250); }
         const box = boxes(bot).find((i) => i.slot !== undefined);
         if (!box || boxes(bot).length <= n0) { log(`supply: the box in slot ${bx.slot} did not come out`); continue; }
         const at = await spot(), pr = at ? await mover.placeItem(box.name, at, { facing: at.facing || 'up' }) : 'no free cell for the depot';          // facing up: a box opens toward its facing (one set down sideways against rock never opened, live 2026-11-22)
-        if (pr !== true) { log(`supply: could not set a box down${at ? ` at ${at.x},${at.y},${at.z}` : ''}: ${pr}`); await putBack(bot, site); break; }
+        if (pr !== true) { log(`supply: could not set a box down${at ? ` at ${at.x},${at.y},${at.z}` : ''}: ${pr}`); await near(bot, mover, site); await putBack(bot, site); break; }
         depot.push(at);
         try { await takeFrom(at); } catch (e) { log(`supply: the box at ${at.x},${at.y},${at.z} did not open: ${e.message}`); }
     }

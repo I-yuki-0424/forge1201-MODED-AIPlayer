@@ -66,10 +66,10 @@ async function main() {
     const pos = { x: M.x - placed0.origin.x, y: M.y - placed0.origin.y, z: M.z - placed0.origin.z };
     const target = new Target(lit.place(parsed, { pos, rotation: 'NONE', mirror: 'NONE' }, { keepAir: true }).bp, M);
     console.log(`[build_t] seed ${seed} ${NETHER ? 'nether' : 'overworld'} box ${M.x} ${M.y} ${M.z} size ${sx}x${sy}x${sz}; ${[...target.items.values()].reduce((a, b) => a + b, 0)} items, ${target.portals.length} portals`);
-    // ---- the chest: on solid ground beside the box, two cells of air above it ----
+    // ---- the chest: on solid ground beside the box, its own cell and two cells over it free (a bot stands on it: a two-high gap wedged the crew's heads in the rock, live 2026-11-22 sF2 w5) ----
     let C = null;
     const noLava = (x, y, z) => { for (let dx = -2; dx <= 3; dx++) for (let dy = -2; dy <= 3; dy++) for (let dz = -2; dz <= 2; dz++) if (/lava/.test(at(x + dx, y + dy, z + dz) || '')) return false; return true; };
-    const spot = (x, y, z) => { const n = at(x, y, z), n2 = at(x + 1, y, z); return n && n2 && !GROUNDLESS.test(n) && !GROUNDLESS.test(n2) && [at(x, y + 1, z), at(x, y + 2, z), at(x + 1, y + 1, z), at(x + 1, y + 2, z)].every((q) => /^(cave_)?air$/.test(q || '')) && noLava(x, y, z); };      // the chest not beside lava (bots stand there)
+    const spot = (x, y, z) => { const n = at(x, y, z), n2 = at(x + 1, y, z); return n && n2 && !GROUNDLESS.test(n) && !GROUNDLESS.test(n2) && [at(x, y + 1, z), at(x, y + 2, z), at(x, y + 3, z), at(x + 1, y + 1, z), at(x + 1, y + 2, z), at(x + 1, y + 3, z)].every((q) => /^(cave_)?air$/.test(q || '')) && noLava(x, y, z); };      // the chest not beside lava (bots stand there)
     for (let wait = 0; wait < 4 && !C; wait++) {
         if (wait) await sleep(5000);
         for (let r = 3; r <= 24 && !C; r++) {

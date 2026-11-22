@@ -182,6 +182,17 @@ const nearContainer = (c) => (x, y, z) => Math.abs(x - c.x) <= 2 && Math.abs(z -
 async function boxSpot(job, bot, c, mv) {
     const first = pickBoxSpot(job, bot, c, false);
     if (first || !mv) return first;
+    // none in reach from where it stands: a cell up to six from the chest, walked to (cramped Nether caves had nothing within four of the chest's side, live 2026-11-22 sF2 w4)
+    for (const s0 of pickBoxSpot(job, bot, c, false, null, { far: true }).slice(0, 6)) {
+        const v = mv.view(), near = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1], [2, 0], [-2, 0], [0, 2], [0, -2]].flatMap(([dx, dz]) => [0, 1, -1].map((dy) => ({ x: s0.x + dx, y: s0.y + dy, z: s0.z + dz })))
+            .filter((q) => v.fits(q.x, q.y, q.z) && v.stands(q.x, q.y - 1, q.z) && !(q.x === s0.x && q.z === s0.z));
+        for (const q of near.slice(0, 3)) {
+            const r = await mv.goto(q, { maxNodes: 8000 });
+            if (!r.ok) continue;
+            const got = pickBoxSpot(job, bot, c, false, s0);
+            if (got) return got;
+        }
+    }
     // no free cell: a niche dug into natural rock or soil within reach (a chest on a cliff at height 149 had four boxes beside it and no room for a fifth, live 2026-11-22 prof2)
     const dig = pickBoxSpot(job, bot, c, true);
     if (!dig) return null;
@@ -189,14 +200,14 @@ async function boxSpot(job, bot, c, mv) {
     return pickBoxSpot(job, bot, c, false, dig);
 }
 const NATURAL = /^(dirt|grass_block|coarse_dirt|podzol|rooted_dirt|mud|stone|deepslate|cobblestone|andesite|diorite|granite|tuff|calcite|gravel|sand|red_sand|sandstone|red_sandstone|terracotta|[a-z_]+_terracotta|netherrack|basalt|blackstone|soul_sand|soul_soil|crimson_nylium|warped_nylium|snow_block|packed_ice|moss_block)$/;
-function pickBoxSpot(job, bot, c, digging, only = null) {
+function pickBoxSpot(job, bot, c, digging, only = null, { far = false } = {}) {
     const v = new View(bot, { canDig: () => false }), me = feet(bot), out = [];
     // a box opens toward its facing: that cell must stay free; it is set down on the face of a solid block opposite to it (up on a floor, or sideways against a wall: on a
     // mountainside nearly no cell beside the chest had a floor and no box could be set down, live 2026-11-22 sX w2)
     const FACINGS = [['up', 0, 1, 0], ['north', 0, 0, -1], ['south', 0, 0, 1], ['west', -1, 0, 0], ['east', 1, 0, 0]];
     const isBox = (x, y, z) => (job.depot || []).some((q) => q.x === x && q.y === y && q.z === z);
     // the depot: two to four cells from the chest (the ring next to it stays free for the bots that open the chest)
-    for (let r = 2; r <= 4; r++) for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) for (const dy of [0, 1, -1, 2]) {
+    for (let r = 2; r <= (far ? 6 : 4); r++) for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) for (const dy of (far ? [0, 1, -1, 2, -2, 3] : [0, 1, -1, 2])) {
         if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
         const s = { x: c.x + dx, y: c.y + dy, z: c.z + dz };
         if (job.t.inside(s.x, s.y, s.z) || (s.x === me.x && s.z === me.z && (s.y === me.y || s.y === me.y + 1))) continue;
@@ -205,7 +216,7 @@ function pickBoxSpot(job, bot, c, digging, only = null) {
         if (digging) { const q = v.raw(s.x, s.y, s.z); if (!q || !NATURAL.test(q.name) || job.sites.some((x) => x.x === s.x && x.y === s.y && x.z === s.z)) continue; }
         else if (!v.free(s.x, s.y, s.z)) continue;
         const d = Math.hypot(s.x + 0.5 - bot.entity.position.x, s.y + 0.5 - (bot.entity.position.y + 1.62), s.z + 0.5 - bot.entity.position.z);
-        if (d > 4) continue;
+        if (d > 4 && !far) continue;
         for (const [facing, fx, fy, fz] of FACINGS) {
             const front = { x: s.x + fx, y: s.y + fy, z: s.z + fz };
             if (!v.free(front.x, front.y, front.z) || isBox(front.x, front.y, front.z)) continue;          // its lid's cell free, and never another box's cell (a box on a box keeps the lower one shut)
@@ -215,6 +226,7 @@ function pickBoxSpot(job, bot, c, digging, only = null) {
         }
     }
     out.sort((a, b) => a.d - b.d);
+    if (far) { const seen0 = new Set(); return out.map((o) => o.s).filter((q) => { const k = `${q.x},${q.y},${q.z}`; if (seen0.has(k)) return false; seen0.add(k); return true; }); }
     if (digging) { const P = require('./place'), world = P.botWorld(bot); for (const { s: c2 } of out) if (P.clickable(world, c2, me)) return c2; return null; }
     // only where a face is in sight from where the bot stands (the chest itself hides some)
     const P = require('./place'), world = P.botWorld(bot), name = (bot.inventory.items().find((i) => /shulker_box$/.test(i.name)) || {}).name || 'white_shulker_box';
