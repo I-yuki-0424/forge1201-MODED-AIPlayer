@@ -229,6 +229,7 @@ class Mover {
     /** Sneak to the edge of the bot's cell toward (dx, dz) and lean over it (the body keeps 0.05 on its floor); unlean() steps back to the middle. */
     async lean(dx, dz) {
         const b = this.bot, f = feet(b), edge = { x: f.x + 0.5 + dx * 0.75, z: f.z + 0.5 + dz * 0.75 };
+        this.leanFrom = f;                // the cell it stands on: leaning, its centre is over the next cell, and a cell worked out from the position then is the empty one
         b.setControlState('sneak', true);
         for (let i = 0; i < 60; i++) {
             const p = b.entity.position, ex = edge.x - p.x, ez = edge.z - p.z;
@@ -239,7 +240,8 @@ class Mover {
         await sleep(150);
     }
     async unlean() {
-        const b = this.bot, f = feet(b);
+        // back to the cell it leaned from (from the position while leaning the bot walked into the empty cell beside its pillar: three falls of 30-40 blocks, live 2026-11-22 sH2)
+        const b = this.bot, f = this.leanFrom || feet(b); this.leanFrom = null;
         await this.walkTo(f, { sneak: true, timeout: 1500 });
         b.setControlState('sneak', false);
     }
@@ -343,7 +345,13 @@ class Mover {
                 b._client.write('block_place', { hand: 0, location: new Vec3(...sup), direction: V.FACE[face], cursorX: hit[0] - sup[0], cursorY: hit[1] - sup[1], cursorZ: hit[2] - sup[2], insideBlock: false, worldBorderHit: false, sequence: (this.seq = (this.seq || 0) + 1) });
                 b.swingArm();
                 await sleep(200);
-            } finally { b.setControlState('forward', false); b.setControlState('sneak', false); }
+            } finally {
+                b.setControlState('forward', false);
+                // no block came under the next cell: back onto the support before sneaking stops (released while leaning out, the bot fell, live 2026-11-22 sH2)
+                const nb = b.blockAt(new Vec3(s.place.x, s.place.y, s.place.z), false);
+                if (!nb || nb.boundingBox !== 'block') await this.walkTo(prev, { sneak: true, timeout: 1500 });
+                b.setControlState('sneak', false);
+            }
             const bb = b.blockAt(new Vec3(s.place.x, s.place.y, s.place.z), false);
             if (!bb || bb.boundingBox !== 'block') return { ok: false, why: 'bridge place' };
             this.rules.onTemp(s.place);
@@ -361,15 +369,20 @@ class Mover {
         let i = i0, t0 = Date.now(), stuck = 0, lastD = Infinity;
         // cells beside a drop of four or more: walked sneaking, as a player does (momentum at a corner or at the end of a run carried bots over the edge: falls of 14-39 blocks,
         // two deaths on one Nether world, live 2026-11-22 sZ w6); sneaking stops at the edge
-        const v = new View(b, this.rules), edgy = new Map();
+        const v = new View(b, this.rules);
         const deep = (x, y, z) => { if (!v.fits(x, y, z)) return false; for (let k = 1; k <= 4; k++) if (!v.free(x, y - k, z)) return false; return true; };
         const lavaAt = (x, y, z) => { const q = v.raw(x, y, z); return !!q && q.name === 'lava'; };
-        const isEdgy = (c) => { const k = key(c.x, c.y, c.z); if (!edgy.has(k)) edgy.set(k, [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]].some(([dx, dz]) => deep(c.x + dx, c.y, c.z + dz) || lavaAt(c.x + dx, c.y - 1, c.z + dz) || lavaAt(c.x + dx, c.y, c.z + dz))); return edgy.get(k); };
+        // looked at again every tick, not cached: the crew digs the ground a route runs over while it is walked (three bots fell 50 blocks into lava through floors cleared
+        // under a 50-cell route, live 2026-11-22 sI2 w6)
+        const isEdgy = (c) => [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]].some(([dx, dz]) => deep(c.x + dx, c.y, c.z + dz) || lavaAt(c.x + dx, c.y - 1, c.z + dz) || lavaAt(c.x + dx, c.y, c.z + dz));
+        const floorGone = (c) => { const q = b.blockAt(new Vec3(c.x, c.y - 1, c.z), false); return !!q && (q.boundingBox === 'empty' || q.name === 'lava') && q.name !== 'water'; };
         try {
             while (i <= i1 && !cancel.cancelled) {
                 const c = route[i], last = i === i1, p = b.entity.position, dx = c.x + 0.5 - p.x, dz = c.z + 0.5 - p.z, d = Math.hypot(dx, dz);
                 const f = feet(b);
                 if (b.entity.onGround && !cells.has(key(f.x, f.y, f.z)) && !cells.has(key(f.x, f.y - 1, f.z)) && ![...cells].some((k) => { const [x, y, z] = k.split(',').map(Number); return Math.abs(x - f.x) <= 1 && Math.abs(z - f.z) <= 1 && Math.abs(y - f.y) <= 1; })) return { i, why: `off the route at ${f.x},${f.y},${f.z}` };
+                v.cache.clear(); if (v.lavaNear) v.lavaNear.clear();
+                if (['walk', 'up'].includes(route[i].move) && floorGone(c)) return { i, why: `the floor at ${c.x},${c.y - 1},${c.z} is gone` };
                 if (d < (last ? 0.15 : 0.35) && (Math.abs(p.y - c.y) < 0.6 || (b.entity.isInWater && route[i].move === 'swim' && Math.abs(p.y - c.y) < 1.0))) { i++; t0 = Date.now(); stuck = 0; lastD = Infinity; continue; }
                 if (Date.now() - t0 > 4000) { const nm = (dy) => { const q = b.blockAt(new Vec3(c.x, c.y + dy, c.z), false); return q ? q.name : '?'; }; return { i, why: `no progress toward ${c.x},${c.y},${c.z} (${route[i].move}; there ${nm(-1)}/${nm(0)}/${nm(1)}; bot at ${p.x.toFixed(1)},${p.y.toFixed(1)},${p.z.toFixed(1)} ground ${b.entity.onGround})` }; }
                 if (d > lastD - 0.005) stuck++; else stuck = 0;
