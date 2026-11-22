@@ -21,12 +21,14 @@ function rules(job, bot) {
     return {
         canDig: (x, y, z, b) => {
             if (UNBREAKABLE.test(b.name) || CONTAINER.test(b.name)) return false;
+            if (underCrew(job, bot, x, y, z)) return false;
             if (job.t.inside(x, y, z)) { const want = job.t.at(x, y, z), h = seen(bot, { x, y, z }); if (h && S.matches(want, h)) return false; }
             for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) if (FLUID(seen(bot, { x: x + dx, y: y + dy, z: z + dz }))) return false;
             return true;
         },
         // the temporary block: the supply's, or rubble the bot dug up (dirt, cobblestone, netherrack: what a player builds scaffolds with)
         temp: () => { const inv = bot.inventory.items(); if (job.tempItem && inv.some((i) => i.name === job.tempItem)) return job.tempItem; const r = SUP.TEMPS.find((t) => !job.t.items.has(t) && inv.some((i) => i.name === t)); return r || null; },
+        mayDig: (x, y, z) => !underCrew(job, bot, x, y, z),
         onTemp: (c) => { if (!job.t.inside(c.x, c.y, c.z)) job.temps.add(key(c.x, c.y, c.z)); },
     };
 }
@@ -41,6 +43,19 @@ function keepRubble(job) {
         if (SUP.TEMPS.includes(n) && !job.t.items.has(n)) { if (temps <= 0) return false; temps -= count; return true; }
         return job.t.items.has(n) || job.available.has(n);
     };
+}
+
+/**
+ * Does another bot of the crew stand on the block at (x, y, z), or on one of the two above it (live positions from the server, not those of the last claim)? Broken under it,
+ * it falls (Nether crews fell 30-50 blocks off temporary blocks the clearing took away under them, live 2026-11-22 sJ2).
+ */
+function underCrew(job, bot, x, y, z) {
+    for (const p of Object.values(bot.players || {})) {
+        if (!p || !p.entity || p.username === bot.username || !job.bots.has(p.username)) continue;
+        const q = p.entity.position;
+        if (Math.abs(q.x - (x + 0.5)) < 0.8 && Math.abs(q.z - (z + 0.5)) < 0.8 && q.y >= y + 0.5 && q.y <= y + 3.2) return true;
+    }
+    return false;
 }
 
 /** Is task tk's cell right now? */
@@ -84,7 +99,7 @@ async function work(job, name, bot, mv, cl, cancel) {
         const h = seen(bot, tk);
         if (!h || !way) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
         { const me = feet(bot); if ((tk.kind === 'clear' || tk.kind === 'untemp') && tk.x === me.x && tk.z === me.z && tk.y === me.y - 1) { results.push({ tk, ok: false, why: 'skipped' }); continue; } }
-        if (tk.kind === 'clear' || tk.kind === 'untemp') { if (S.AIR.has(h.name)) { results.push({ tk, ok: true }); continue; } const td = Date.now(); await mv.dig(tk); job.time.dig += Date.now() - td; done.push(tk); continue; }
+        if (tk.kind === 'clear' || tk.kind === 'untemp') { if (S.AIR.has(h.name)) { results.push({ tk, ok: true }); continue; } if (underCrew(job, bot, tk.x, tk.y, tk.z)) { results.push({ tk, ok: false, why: 'skipped' }); continue; } const td = Date.now(); await mv.dig(tk); job.time.dig += Date.now() - td; done.push(tk); continue; }
         if (tk.kind === 'seal' || tk.kind === 'fill' || tk.kind === 'scaffold') { if (!(await mv.hold(mv.rules.temp() || job.tempItem))) { results.push({ tk, ok: false, why: 'skipped' }); continue; } await click(mv, way); done.push(tk); continue; }
         if (tk.kind === 'fix') { await mv.holdNothing(); await mv.click([tk.x, tk.y, tk.z], way.click.face, way.click.hit); for (let k = 1; k < tk.clicks; k++) await mv.click([tk.x, tk.y, tk.z], way.click.face, way.click.hit); done.push(tk); continue; }
         if (tk.kind === 'ignite') { if (!(await mv.hold('flint_and_steel'))) { results.push({ tk, ok: false, why: 'skipped' }); continue; } await mv.click([way.light.x, way.light.y, way.light.z], 'up', way.click.hit); await sleep(300); done.push(tk); continue; }

@@ -10,6 +10,7 @@ const V = require('./vanilla');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const key = (x, y, z) => `${x},${y},${z}`;
+const CLIMB = /^(vine|ladder|scaffolding|twisting_vines|twisting_vines_plant|weeping_vines|weeping_vines_plant|cave_vines|cave_vines_plant)$/;
 const AVOID_IN = /^(lava|fire|soul_fire|nether_portal|end_portal|end_gateway|cobweb|sweet_berry_bush|powder_snow|bubble_column|wither_rose|magma_block|campfire|soul_campfire|pointed_dripstone|cactus|moving_piston)$/;
 const NO_STAND = /^(magma_block|campfire|soul_campfire|cactus|.*_fence|.*_wall|.*_fence_gate|pointed_dripstone|honey_block|slime_block|powder_snow|scaffolding|.*_bed|hopper|composter)$/;
 const H = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
@@ -38,6 +39,8 @@ class View {
         const b = this.raw(x, y, z);
         if (!b) return 'unknown';
         if (AVOID_IN.test(b.name)) return 'avoid';
+        // climbable plants have no collision box but catch a walking body (it climbs and gets nowhere: 307 failed walks in a jungle, live 2026-11-22 sJ2 w3): broken on the way
+        if (CLIMB.test(b.name)) return 'solid';
         if (b.boundingBox === 'empty') return b.name === 'water' ? 'water' : 'free';
         return 'solid';
     }
@@ -218,6 +221,7 @@ class Mover {
         // nothing to break only where there is nothing at all: snow layers, grass, flowers have no collision box but are blocks (taking them for "gone" left 2 271 snow cells
         // undug after eight tries each, live 2026-11-22 sA2 w3)
         if (!block || /^(air|cave_air|void_air|water|lava|bubble_column)$/.test(block.name)) return true;
+        if (this.rules.mayDig && !this.rules.mayDig(c.x, c.y, c.z)) return false;              // someone stands on it now (the plan was made before they came)
         const tool = toolFor(b, block);
         if (tool && (!b.heldItem || b.heldItem.name !== tool.name)) { try { await b.equip(tool, 'hand'); } catch (_) { /* the hand it has */ } }
         else if (!tool && b.heldItem && /(_sword|_pickaxe|_axe|_shovel|_hoe)$/.test(b.heldItem.name) === false) { /* any item: breaking by hand is the same */ }
