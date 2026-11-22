@@ -557,6 +557,9 @@ class BuildJob {
                 break;
             }
             if (!best) {
+                // out of this bot's reach only (it is in a pocket): nothing against the cell, another bot may reach it (one bot's pocket parked 570 cells for the crew, live
+                // 2026-11-23 gb4 w6)
+                if (rej.unreachable && !cands.length) continue;
                 this.cool.set(seed.k, now + 6000);
                 // a block in the air whose own orientation no pillar edge gives (a chest faces the player): a scaffold block beside it first, in a cell that stays empty in the
                 // end, below it if that can be; the block then goes against the scaffold from any side (Nether chests over the lava sea were parked, live 2026-11-22 sG2 w6)
