@@ -4,7 +4,7 @@
 // (createConstruct: the same code as the Litematica page). Judged by the SERVER, cell by cell (`execute if block`): the block and the properties the builder decides must be the blueprint's
 // (power, connections, lit, extended, occupied, flowing fluid levels are the world's and are reported apart); a trial passes when the job ends by itself and no cell is wrong. The untouched site
 // must fail the same judge (the negative control). (Before 2026-11-21 20:00 a reference copy made by commands was compared: its own lava ran over the sky and made thousands of false differences.)
-//   scripts/t26/run.sh N build_t.js LITEMATIC=/app/tests/fixtures/iron-farm-34.litematic [DIM=nether] [BOTS=8] [LIMIT_MIN=120] [SEED_SITE=n] [CONTROL=noop]
+//   scripts/t26/run.sh N build_t.js LITEMATIC=/app/tests/fixtures/iron-farm-34.litematic [DIM=nether] [BOTS=8] [LIMIT_MIN=120] [SEED_SITE=n] [CONTROL=noop] [WAIT_FOR=Seia_Y]
 const fs = require('fs');
 const T = require('./lib');
 const SUP = require('../../src/build/supply');
@@ -126,6 +126,14 @@ async function main() {
     const control = await judge(srv, target), controlFails = control.wrong.length > 0;
     console.log(`[build_t] negative control: the untouched site has ${control.wrong.length} wrong cells`);
     await T.say(S0, `build_t: ${BOTS} bots build ${parsed.meta.name} at ${M.x} ${M.y} ${M.z}${NETHER ? ' (nether)' : ''}`);
+    // WAIT_FOR=<player>: everything is set up (site, chest, bots); the build starts when that player is on the server, so it can be watched from its first block
+    if (process.env.WAIT_FOR) {
+        const who = process.env.WAIT_FOR;
+        console.log(`[build_t] waiting for ${who} to join (site ${M.x} ${M.y} ${M.z}${NETHER ? ' in the nether' : ''}, chest ${C.x} ${C.y} ${C.z})`);
+        for (;;) { const l = String(await S0.cmd('list')); if (new RegExp(`\\b${who}\\b`).test(l)) break; await sleep(3000); }
+        console.log(`[build_t] ${who} is on the server: the build starts`);
+        await T.say(S0, `build_t: the build starts now (site ${M.x} ${M.y} ${M.z}${NETHER ? ' in the nether' : ''}, chest ${C.x} ${C.y} ${C.z})`);
+    }
     const t0 = Date.now(); let state = 'control', job = null, err = null;
     if (!T.CONTROL) {
         try {

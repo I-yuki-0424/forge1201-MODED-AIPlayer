@@ -97,10 +97,12 @@ site); placing is the bottleneck (best 141-474 blocks in 27 min, mostly far less
 
 The harness ends a run after LIMIT_MIN = 200 min (Overworld/Nether) or 120 (world 1) and then judges every cell; the server stays up until `scripts/t26/down.sh N`.
 
-**Operator.** Only the owner, `seia_y` (lowercase), offline-mode UUID 0d1dd89f-28fa-3770-a9b2-1c9f33cb5442. The image's `OPS` had resolved the name at Mojang and opped another account
-(`Seia_Y`, 43de32db-...): removed on all six worlds, and `OPS` dropped from docker/t26/compose.yaml. A running server takes `op <name>` from the online player's profile, so
-`scripts/t26/owner-op.sh` (background, flock, every 5 s, log `out/owner-op.log`) ops `seia_y` once they are on a world and removes any other operator. Restart it after a reboot:
-`nohup scripts/t26/owner-op.sh >> /mnt/data/forgeaip-play/t26/out/owner-op.log 2>&1 &`.
+**Operator.** Only the owner, `Seia_Y`, by the offline-mode UUID of the name (734c8e10-06c7-37ad-9971-6f79965693a1): `scripts/t26/up.sh` writes `ops.json` into the world's volume before the
+server's first start; no `OPS` env (the image resolved it at Mojang and opped another account), no Mojang lookup, `online-mode=false` (players are identified by name). Nothing manages
+operators while a server runs.
+
+**Watching a run from its start.** `WAIT_FOR=Seia_Y` (build_t.js, or `WAIT_FOR=Seia_Y scripts/t26/batch.sh ...`): the site, the chest and the crew are set up, then the build waits until
+that player is on the server; the run's time limit counts from the start of the build. The harness says the site and the chest coordinates in the log and in chat.
 
 **How to run and deploy.** `scripts/t26/batch.sh RUN "2 3" "4 5 6"` (Overworld on the first list, Nether on the second; new random world each), small traced run:
 `scripts/t26/up.sh 1 --new && scripts/t26/run.sh 1 build_t.js LITEMATIC=/app/tests/fixtures/easy-ironfarm-fixd.litematic BOTS=2 LIMIT_MIN=120 RUN=x BUILD_TRACE=1`. Progress lines every minute

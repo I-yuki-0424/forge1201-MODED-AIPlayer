@@ -17,6 +17,12 @@ if [ $NEW = 1 ]; then
   docker volume rm "forgeaip-t26-${N}_data" >/dev/null 2>&1 || true
   if docker volume inspect "forgeaip-t26-${N}_data" >/dev/null 2>&1; then echo "world $N: the old volume is still there (in use?): not a new world" >&2; exit 1; fi
 fi
+# the operator from the first start: the owner Seia_Y by the offline-mode UUID of the name (no Mojang lookup; the image's OPS resolved names at Mojang and opped another account)
+OWNER=Seia_Y; OWNER_UUID=734c8e10-06c7-37ad-9971-6f79965693a1          # UUID.nameUUIDFromBytes("OfflinePlayer:Seia_Y")
+if ! docker ps --format '{{.Names}}' | grep -q "^forgeaip-t26-$N\$"; then
+  docker volume create "forgeaip-t26-${N}_data" >/dev/null
+  printf '[{"uuid":"%s","name":"%s","level":4,"bypassesPlayerLimit":false}]\n' "$OWNER_UUID" "$OWNER" | docker run --rm -i -v "forgeaip-t26-${N}_data":/data --entrypoint sh itzg/minecraft-server@sha256:7d4a888284c2f8d468f620f2534de648cb8eacba48df8d4d20b6ad1ef201f3a3 -c 'cat > /data/ops.json && chown 1000:1000 /data/ops.json'
+fi
 "${C[@]}" up -d mc >/dev/null
 for _ in $(seq 1 150); do [ "$(docker inspect -f '{{.State.Health.Status}}' forgeaip-t26-$N 2>/dev/null)" = healthy ] && break; sleep 4; done
 [ "$(docker inspect -f '{{.State.Health.Status}}' forgeaip-t26-$N)" = healthy ] || { docker logs --tail 40 forgeaip-t26-$N >&2; echo "t26 world $N not healthy" >&2; exit 1; }
