@@ -343,9 +343,12 @@ class BuildJob {
         const cols = []; for (const b of this.bots.values()) { if (b.pos) cols.push(b.pos); if (b.station) cols.push(b.station[0]); }
         if (bot) for (const p of Object.values(bot.players || {})) if (p && p.entity && this.bots.has(p.username)) { const q = p.entity.position; cols.push({ x: Math.floor(q.x), y: Math.floor(q.y + 0.16), z: Math.floor(q.z) }); }
         for (const [k, m] of this.temps) {
-            if (this.tasks.has(k) || now - m.t < 8000) continue;
+            if (this.tasks.has(k)) continue;
             const [x, y, z] = k.split(',').map(Number);
-            if (cols.some((p) => Math.abs(p.x - x) <= 0 && Math.abs(p.z - z) <= 0 && p.y > y && p.y <= y + 80)) continue;
+            // kept while the crew uses it (someone on it within 90 s): a bridge between the chest and the site taken away after each crossing was built again by the next bot,
+            // 2 230 times on one Nether world (live 2026-11-23 fz3 w6)
+            if (cols.some((p) => Math.abs(p.x - x) <= 0 && Math.abs(p.z - z) <= 0 && p.y > y && p.y <= y + 80)) { m.used = now; continue; }
+            if (now - Math.max(m.t, m.used || 0) < 90000) continue;
             const tk = { k, kind: 'untemp', i: -1, x, y, z };
             this.tasks.set(k, tk); this.untemps.add(tk);
         }

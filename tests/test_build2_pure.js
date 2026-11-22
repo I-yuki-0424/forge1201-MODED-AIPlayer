@@ -271,7 +271,7 @@ test('temporary blocks for walking become untemp tasks once nobody is on them, i
     const job = new BuildJob(t, {}); job.stage = 'prepare';
     job.addTemp({ x: 0, y: 70, z: 0 }, 'pillar', 'a', 'dirt'); job.addTemp({ x: 0, y: 71, z: 0 }, 'pillar', 'a', 'dirt'); job.addTemp({ x: 5, y: 70, z: 5 }, 'bridge', 'a', 'dirt');
     job.bots.set('a', { station: [{ x: 5, y: 71, z: 5 }], pos: { x: 5, y: 71, z: 5 } });
-    for (const m of job.temps.values()) m.t -= 10000;
+    for (const m of job.temps.values()) m.t -= 100000;
     job._offerTemps(Date.now());
     assert(job.tasks.has('0,70,0') && job.tasks.has('0,71,0'), 'the pillar nobody stands on');
     assert(!job.tasks.has('5,70,5'), 'not the block a bot stands on');
