@@ -331,7 +331,11 @@ class BuildJob {
         for (const seed of doable.slice(0, 12)) {
             if (Date.now() - t0 > 250) break;
             let best = null;
-            const cands = [], rej = { blocked: 0, lava: 0, solid: 0, unsupported: 0, far: 0, way: 0 };
+            const cands = [], rej = { blocked: 0, lava: 0, solid: 0, unsupported: 0, far: 0, way: 0, nothingToClick: 0 };
+            // a block to place with nothing beside it (a part of the build in the air): it is clicked onto the top of the pillar the bot stands on, so only stances whose pillar
+            // top touches the cell can do it (ranked by pillar height, they never made the first twelve: 4 495 cells parked, live 2026-11-22 sB2 w2)
+            const AIRY = (h) => !h || S.AIR.has(h.name) || h.name === 'water' || h.name === 'lava';
+            const lonely = seed.kind === 'place' && [[0, 1, 0], [0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]].every(([dx, dy, dz]) => AIRY(seen(bot, { x: seed.x + dx, y: seed.y + dy, z: seed.z + dz })));
             for (const f of stationsAround(seed, this.o.reach, down)) {
                 if (cands.length >= 40) break;
                 if (blocked(f.x, f.y, f.z) || blocked(f.x, f.y + 1, f.z) || bodyCovers(f, seed)) { rej.blocked++; continue; }
@@ -351,6 +355,7 @@ class BuildJob {
                         h = 4 + br;
                     }
                 }
+                if (lonely && (standing || dug || wet || Math.abs(f.x - seed.x) + Math.abs(f.y - 1 - seed.y) + Math.abs(f.z - seed.z) !== 1)) { rej.nothingToClick++; continue; }
                 const eye = eyeOf({ x: f.x + 0.5, y: f.y, z: f.z + 0.5 });
                 if (boxDist(eye, seed) > this.o.reach) { rej.far++; continue; }
                 const reach = near(eye).filter((tk) => !bodyCovers(f, tk));
