@@ -249,6 +249,15 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
             if (diag) continue;
             // step up one
             if (headFree && view.fits(x, c.y + 1, z) && view.stands(x, c.y, z)) { add(x, c.y + 1, z, COST.up, 'up'); continue; }
+            // dig a step up: the block in front stays as the step, the two over it and the one over the head go (a bot without blocks at the bottom of a hole two deep beside the
+            // chest had no way at all, live 2026-11-23 gd1 w6)
+            if (view.stands(x, c.y, z) && !view.free(x, c.y, z)) {
+                const cells = [[x, c.y + 1, z], [x, c.y + 2, z], [c.x, c.y + 2, c.z]];
+                if (cells.every(([a, b, d]) => view.free(a, b, d) || view.diggable(a, b, d)) && cells.some(([a, b, d]) => !view.free(a, b, d))) {
+                    const dig = cells.filter(([a, b, d]) => !view.free(a, b, d)).map(([a, b, d]) => ({ x: a, y: b, z: d }));
+                    add(x, c.y + 1, z, COST.up + dig.reduce((t, q) => t + view.digTicks(q.x, q.y, q.z), 0), 'up', { dig });
+                }
+            }
             // break what is in the way (one or two cells) and walk on
             const d0 = !view.free(x, c.y, z), d1 = !view.free(x, c.y + 1, z);
             if ((!d0 || view.diggable(x, c.y, z)) && (!d1 || view.diggable(x, c.y + 1, z)) && view.stands(x, c.y - 1, z)) {

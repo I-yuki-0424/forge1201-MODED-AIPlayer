@@ -326,4 +326,12 @@ test('a wall on a wall: the click goes to the outline\'s top at 1.0, not the col
     assert(w && w.face === 'up' && Math.abs(w.hit[1] - 1) < 1e-3, JSON.stringify(w));
 });
 
+test('a bot with no blocks digs steps out of a hole two deep (gd1 w6)', async () => {
+    const w = new Map(); for (let x = -6; x <= 6; x++) for (let z = -6; z <= 6; z++) for (let y = -3; y <= 1; y++) w.set(`${x},${y},${z}`, { name: 'netherrack' });
+    w.delete('0,0,0'); w.delete('0,1,0');                       // the hole: the bot stands at 0,0,0 on netherrack at y -1, ground level is y 2
+    const v = new M.View(fakeBot(w), { canDig: () => true });
+    const r = await M.plan(v, { x: 0, y: 0, z: 0 }, (x, y, z) => y >= 2, { x: 3, y: 2, z: 0 }, { temps: 0 });
+    assert(r && r.some((q) => q.move === 'up' && q.dig && q.dig.length), r ? r.map((q) => q.move).join(' ') : 'no plan');
+});
+
 (async () => { for (const [name, fn] of queue) { await fn(); n++; console.log(`  ok ${name}`); } console.log(`test_build2_pure: ${n} passed`); })().catch((e) => { console.error(e); process.exit(1); });
