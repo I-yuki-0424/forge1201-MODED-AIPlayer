@@ -157,7 +157,7 @@ function needsFor(job, bot, need) {
     const have = SUP.carried(bot), out = {};
     // what the ready work asks for, or a fair share of the supply when there is plenty (a stack at most): scarce items are not hoarded by the first bot at the chest
     const crew = Math.max(1, job.bots.size), total = (it) => (job.supply && job.supply.totals[it]) || 0;
-    for (const [it, n] of Object.entries(need)) { const want = Math.min(Math.max(Math.min(n * 4, 64), Math.min(64, Math.floor(total(it) / crew))), 64 * 6) - (have[it] || 0); if (want > 0) out[it] = want; }          // four times what the ready work asks for (trips for one glass block at a time, live 2026-11-22)
+    for (const [it, n] of Object.entries(need)) { const fair = Math.floor(total(it) / crew), want = (fair > 0 ? Math.max(n, Math.min(64, fair)) : Math.min(n * 4, 64)) - (have[it] || 0); if (want > 0) out[it] = want; }          // a fair share of up to a stack, at least what the ready work asks for; scarce items (torches) not hoarded four times over by each of eight bots
     const temps = SUP.TEMPS.filter((t) => !job.t.items.has(t)).reduce((a, t) => a + (have[t] || 0), 0);
     if (job.tempItem && temps < 64) out[job.tempItem] = 192 - temps;
     for (const tool of ['pickaxe', 'shovel', 'axe']) if (!bot.inventory.items().some((i) => i.name.endsWith('_' + tool) && !worn(bot, i))) { const best = job.supply && Object.keys(job.supply.totals).find((k) => k.endsWith('_' + tool)); if (best) out[best] = 1; }
@@ -304,6 +304,8 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
             if (Object.keys(base).length && job.stage !== 'settle' && !(job.lastTrip && Date.now() - job.lastTrip.get(name) < 60000)) { (job.lastTrip = job.lastTrip || new Map()).set(name, Date.now()); const tt = Date.now(); await supplyTrip(job, name, bot, mv, {}, cancel); job.time.trip += Date.now() - tt; continue; }
             const have = SUP.carried(bot);
             const tc = Date.now(); const cl = job.claim(bot, name, Date.now(), (it) => have[it] || 0); const dc = Date.now() - tc; job.time.claim += dc; if (dc > 400) job.log(`${name}: claim took ${dc} ms (${job.lastClaimInfo || ''})`);
+            { const w = !cl ? 'nothing' : cl.need ? `need ${Object.keys(cl.need).slice(0, 3).join('+')}` : cl.moveOff ? 'move off' : 'work'; const o = job.claimWhy || (job.claimWhy = {}); o[w] = (o[w] || 0) + 1;
+              if (Date.now() - (job.claimWhyAt || 0) > 60000) { job.claimWhyAt = Date.now(); job.log(`claims in the last minute: ${JSON.stringify(o)}`); job.claimWhy = {}; } }
             if (cl && cl.moveOff) {
                 const f = feet(bot), floor = (x, y, z) => job.tasks.get(`${x},${y - 1},${z}`);
                 await mv.goto(f, { goal: (x, y, z) => Math.hypot(x - f.x, z - f.z) >= 2 && !(floor(x, y, z) && ['clear', 'untemp'].includes(floor(x, y, z).kind)), cancel, maxNodes: 4000 });
