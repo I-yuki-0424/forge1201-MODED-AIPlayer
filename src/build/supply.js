@@ -63,6 +63,14 @@ async function readSupply(bot, sites, reach, { log = () => {} } = {}) {
     return { totals, read, failed };
 }
 
+/** Items by name back into the container at site (what the bot carries of them, all of it). Returns { item: count } put back. */
+async function deposit(bot, site, names) {
+    const win = await open(bot, site), out = {};
+    try { for (const it of bot.inventory.items()) { if (!names.includes(it.name)) continue; await shift(bot, win.inventoryStart + (it.slot - 9)); out[it.name] = (out[it.name] || 0) + it.count; } }
+    finally { bot.closeWindow(win); await sleep(250); }
+    return out;
+}
+
 /** Every shulker box the bot carries back into the container at site. */
 async function putBack(bot, site) {
     const win = await open(bot, site);
@@ -167,4 +175,4 @@ async function dropRubble(bot, keep, { minFree = 6 } = {}) {
 const TEMPS = ['dirt', 'cobblestone', 'pumpkin', 'netherrack', 'cobbled_deepslate', 'stone', 'andesite', 'diorite', 'granite', 'oak_planks', 'spruce_planks', 'birch_planks'];
 const tempFrom = (totals, used) => TEMPS.find((s) => totals[s] > 0 && !used.has(s)) || null;
 
-module.exports = { readSupply, fetch, repack, putBack, dropRubble, boxHolds, carried, freeSlots, tempFrom, TEMPS, SHULKER, TOOL };
+module.exports = { readSupply, fetch, repack, putBack, deposit, dropRubble, boxHolds, carried, freeSlots, tempFrom, TEMPS, SHULKER, TOOL };

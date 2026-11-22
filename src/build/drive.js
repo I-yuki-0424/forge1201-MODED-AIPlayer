@@ -457,6 +457,21 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
             // tools and temporary blocks before the work needs them
             const base = needsFor(job, bot, {});
             if (Object.keys(base).length && job.stage !== 'settle' && !(job.lastTrip && Date.now() - job.lastTrip.get(name) < 60000)) { (job.lastTrip = job.lastTrip || new Map()).set(name, Date.now()); const tt = Date.now(); await supplyTrip(job, name, bot, mv, {}, within(cancel, 180000)); job.time.trip += Date.now() - tt; continue; }
+            // a handover: items the chest is out of that this bot carries and has not placed for two minutes go back into the chest for the bots that need them (four
+            // bots each held what the others' cells needed and the chest was empty, live 2026-11-23 gd1 w1)
+            if (job.outOf && job.sites[0] && Date.now() - (job.handAt && job.handAt.get(name) || 0) > 60000) {
+                (job.handAt || (job.handAt = new Map())).set(name, Date.now());
+                const mine = (job.used && job.used.get(name)) || new Map(), inv = SUP.carried(bot);
+                const give = [...job.outOf.entries()].filter(([it, t]) => t > Date.now() && inv[it] > 0 && Date.now() - (mine.get(it) || 0) > 120000).map(([it]) => it);
+                if (give.length && !job.chestBusy) {
+                    job.chestBusy = name;
+                    try {
+                        const r = await mv.goto(job.sites[0], { goal: nearContainer(job.sites[0]), cancel: within(cancel, 120000), maxNodes: 40000 });
+                        if (r.ok) { const back = await SUP.deposit(bot, job.sites[0], give); for (const it of Object.keys(back)) job.outOf.delete(it); job.log(`${name}: handed back ${JSON.stringify(back)} for the others`); }
+                    } catch (e) { job.log(`${name}: hand-back failed: ${e.message}`); } finally { job.chestBusy = null; }
+                    continue;
+                }
+            }
             const have = SUP.carried(bot);
             const tc = Date.now(); const cl = job.claim(bot, name, Date.now(), (it) => have[it] || 0, (it) => !!job.outOf && (job.outOf.get(it) || 0) > Date.now() && !(have[it] > 0)); const dc = Date.now() - tc; job.time.claim += dc; if (dc > 400) job.log(`${name}: claim took ${dc} ms (${job.lastClaimInfo || ''})`);
             { const w = !cl ? 'nothing' : cl.need ? `need ${Object.keys(cl.need).slice(0, 3).join('+')}` : cl.moveOff ? 'move off' : 'work'; const o = job.claimWhy || (job.claimWhy = {}); o[w] = (o[w] || 0) + 1;
