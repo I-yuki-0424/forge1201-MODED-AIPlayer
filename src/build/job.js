@@ -268,8 +268,11 @@ class BuildJob {
         for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
             const up = this.tasks.get(key(tk.x + dx, tk.y + 1, tk.z + dz));
             if (!up || up.kind !== 'clear' || this.parked.has(up.k)) continue;
-            if (up.leaf === undefined) { const uh = seen(bot, up); up.leaf = !!uh && /_leaves$/.test(uh.name) && uh.props.persistent !== 'true'; }
+            if (up.leaf === undefined) { const uh = seen(bot, up); up.leaf = !!uh && /_leaves$/.test(uh.name) && uh.props.persistent !== 'true'; up.falls = !!uh && /^(sand|red_sand|gravel|suspicious_sand|suspicious_gravel|.*_concrete_powder)$/.test(uh.name); }
             if (up.leaf) continue;
+            // a cell over it that no stance has reached for 20 s does not hold it (it is dug from the side, the one over it stays; not under sand or gravel, which would fall):
+            // 14 unreachable top cells held 20 349 under them, live 2026-11-23 gd2 w5
+            const ns = this.noStance.get(up.k); if (ns && Date.now() - ns > 20000 && !up.falls) continue;
             return true;
         }
         return false;
@@ -577,6 +580,7 @@ class BuildJob {
                 continue;
             }
             this.lastClaimInfo = `scanned ${scanned}, ready ${ready.length}, doable ${doable.length}, seeds to here ${doable.indexOf(seed) + 1}, batch ${best.batch.length}, ${Date.now() - t0} ms in seeds`;
+            if (seed.kind === 'place') { const q = this.pstat || (this.pstat = { n: 0, ready: 0, doable: 0, reach: 0, batch: 0 }); q.n++; q.ready += ready.length; q.doable += doable.length; q.batch += best.batch.length; }
             // never the stance's own floor (it is not dug from on top of it)
             const tasks = best.batch.filter((tk) => !((tk.kind === 'clear' || tk.kind === 'untemp') && tk.x === best.f.x && tk.z === best.f.z && tk.y === best.f.y - 1)).sort((a, b) => ((a.kind === 'clear') !== (b.kind === 'clear') ? (a.kind === 'clear' ? -1 : 1) : 0) || (a.kind === 'clear' ? b.y - a.y : a.y - b.y) || a.x - b.x || a.z - b.z);
             if (!tasks.length) { this.cool.set(seed.k, now + 3000); continue; }
