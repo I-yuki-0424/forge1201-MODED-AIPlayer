@@ -284,7 +284,9 @@ function needsFor(job, bot, need) {
     const have = SUP.carried(bot), out = {};
     // what the ready work asks for, or a fair share of the supply when there is plenty (a stack at most): scarce items are not hoarded by the first bot at the chest
     const crew = Math.max(1, job.bots.size), total = (it) => (job.supply && job.supply.totals[it]) || 0;
-    for (const [it, n] of Object.entries(need)) { const fair = Math.floor(total(it) / crew), want = (fair > 0 ? Math.max(n, Math.min(64, fair)) : Math.min(n * 4, 64)) - (have[it] || 0); if (want > 0) out[it] = want; }          // a fair share of up to a stack, at least what the ready work asks for; scarce items (torches) not hoarded four times over by each of eight bots
+    // a stack of what is plentiful (a fair share of 64 or more); of what is scarce never more than the fair share, however many ready cells ask for it (one bot took all 104
+    // hoppers and 90 chests and seven waited, live 2026-11-23 fz9 w6)
+    for (const [it, n] of Object.entries(need)) { const fair = Math.floor(total(it) / crew), cap = fair >= 64 ? 64 : Math.min(Math.max(n, 1), Math.max(fair, 1)), want = cap - (have[it] || 0); if (want > 0) out[it] = want; }          // a fair share of up to a stack, at least what the ready work asks for; scarce items (torches) not hoarded four times over by each of eight bots
     const temps = SUP.TEMPS.filter((t) => !job.t.items.has(t)).reduce((a, t) => a + (have[t] || 0), 0);
     if (job.tempItem && temps < 64) out[job.tempItem] = 192 - temps;
     for (const tool of ['pickaxe', 'shovel', 'axe']) if (!bot.inventory.items().some((i) => i.name.endsWith('_' + tool) && !worn(bot, i))) { const best = job.supply && Object.keys(job.supply.totals).find((k) => k.endsWith('_' + tool)); if (best) out[best] = 1; }
