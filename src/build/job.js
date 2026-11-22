@@ -227,6 +227,19 @@ class BuildJob {
         this.fluidLeft = true; this._fg = null;
     }
 
+    /** A clear task for the block over fluid task tk when nothing else reaches it (not a built cell, not a container); true when one was added. */
+    _openOver(bot, tk) {
+        const c = { x: tk.x, y: tk.y + 1, z: tk.z }, k = key(c.x, c.y, c.z), h = seen(bot, c);
+        if (!h || S.AIR.has(h.name) || h.name === 'water' || h.name === 'lava' || /(chest|barrel|shulker_box|hopper|bedrock|furnace|_bed)$/.test(h.name)) return false;
+        if (this.t.inside(c.x, c.y, c.z) && !this.t.isAir(this.t.idx(c.x, c.y, c.z))) return false;
+        if (this.tasks.has(k) || this.parked.has(k)) return false;
+        const t = { k, x: c.x, y: c.y, z: c.z, i: this.t.inside(c.x, c.y, c.z) ? this.t.idx(c.x, c.y, c.z) : -1, kind: 'clear', opens: tk.k };
+        this.tasks.set(k, t);
+        const bk = `${Math.floor(c.x / 8)},${Math.floor(c.y / 8)},${Math.floor(c.z / 8)}`; (this.buckets.get(bk) || this.buckets.set(bk, []).get(bk)).push(t);
+        this.log(`opening ${k} over the ${tk.kind} ${tk.k} (${h.name})`);
+        return true;
+    }
+
     /** A scaffold task in a cell beside tk that is to end up empty (below first), unless one is there already. */
     _scaffoldFor(tk) {
         for (const [dx, dy, dz] of [[0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]]) {
@@ -541,8 +554,13 @@ class BuildJob {
                 // a block in the air whose own orientation no pillar edge gives (a chest faces the player): a scaffold block beside it first, in a cell that stays empty in the
                 // end, below it if that can be; the block then goes against the scaffold from any side (Nether chests over the lava sea were parked, live 2026-11-22 sG2 w6)
                 if (lonely && seed.kind === 'place' && this._scaffoldFor(seed)) { this.noStance.delete(seed.k); continue; }
+                // a fluid sealed in the rock has no face in sight: the block over it is dug first (lava and water do not run up), then the block goes in through that hole
+                // (every fill of a lava pocket in netherrack was parked and the clearing over it waited, 26 840 cells, live 2026-11-23 ga2 w5)
+                if ((seed.kind === 'fill' || seed.kind === 'seal') && this._openOver(bot, seed)) { this.noStance.delete(seed.k); continue; }
                 // a task no stance reaches is parked after a few looks (it waits for the next round, when the build has changed what can be reached): a handful of hidden cells
                 // held the whole build in the prepare stage (live 2026-11-22 sv8)
+                // a fluid task is never parked (the cells next to it wait on it for good): it cools and is looked at again
+                if (seed.kind === 'fill' || seed.kind === 'seal') { this.cool.set(seed.k, now + 30000); continue; }
                 const ns = this.noStance.get(seed.k) || now; this.noStance.set(seed.k, ns);
                 if (now - ns > 60000) { this.parked.set(seed.k, `no stance (${cands.length} in range)`); this.tasks.delete(seed.k); this.log(`parked ${seed.kind} ${seed.k} (${seed.i >= 0 ? S.bare(this.t.wantOf(seed).name) : 'outside'}): no stance reaches it (${cands.length} stances in range; rejected ${JSON.stringify(rej)}; the cell holds ${(seen(bot, seed) || {}).name}; neighbours ${['up', 'down', 'north', 'south', 'west', 'east'].map((d, i) => { const o = [[0, 1, 0], [0, -1, 0], [0, 0, -1], [0, 0, 1], [-1, 0, 0], [1, 0, 0]][i], h = seen(bot, { x: seed.x + o[0], y: seed.y + o[1], z: seed.z + o[2] }); return `${d}:${h ? S.bare(h.name) : '?'}`; }).join(' ')})`); this._frontier(); }
                 continue;
