@@ -157,7 +157,7 @@ function needsFor(job, bot, need) {
     const have = SUP.carried(bot), out = {};
     // what the ready work asks for, or a fair share of the supply when there is plenty (a stack at most): scarce items are not hoarded by the first bot at the chest
     const crew = Math.max(1, job.bots.size), total = (it) => (job.supply && job.supply.totals[it]) || 0;
-    for (const [it, n] of Object.entries(need)) { const want = Math.min(Math.max(Math.min(n * 4, 64), Math.min(64, Math.floor(total(it) / crew))), 64 * 6) - (have[it] || 0);          // four times what the ready work asks for (trips for one glass block at a time, live 2026-11-22) if (want > 0) out[it] = want; }
+    for (const [it, n] of Object.entries(need)) { const want = Math.min(Math.max(Math.min(n * 4, 64), Math.min(64, Math.floor(total(it) / crew))), 64 * 6) - (have[it] || 0); if (want > 0) out[it] = want; }          // four times what the ready work asks for (trips for one glass block at a time, live 2026-11-22)
     const temps = SUP.TEMPS.filter((t) => !job.t.items.has(t)).reduce((a, t) => a + (have[t] || 0), 0);
     if (job.tempItem && temps < 64) out[job.tempItem] = 192 - temps;
     for (const k of Object.keys(out)) if ((job.outOf && job.outOf.get(k) || 0) > Date.now()) delete out[k];          // the chest ran out of it a while ago: not fetched again yet
