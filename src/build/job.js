@@ -371,7 +371,7 @@ class BuildJob {
                 // a task no stance reaches is parked after a few looks (it waits for the next round, when the build has changed what can be reached): a handful of hidden cells
                 // held the whole build in the prepare stage (live 2026-11-22 sv8)
                 const ns = this.noStance.get(seed.k) || now; this.noStance.set(seed.k, ns);
-                if (now - ns > 120000) { this.parked.set(seed.k, `no stance (${cands.length} in range)`); this.tasks.delete(seed.k); this.log(`parked ${seed.kind} ${seed.k} (${seed.i >= 0 ? S.bare(this.t.wantOf(seed).name) : 'outside'}): no stance reaches it (${cands.length} stances in range; rejected ${JSON.stringify(rej)}; the cell holds ${(seen(bot, seed) || {}).name})`); this._frontier(); }
+                if (now - ns > 120000) { this.parked.set(seed.k, `no stance (${cands.length} in range)`); this.tasks.delete(seed.k); this.log(`parked ${seed.kind} ${seed.k} (${seed.i >= 0 ? S.bare(this.t.wantOf(seed).name) : 'outside'}): no stance reaches it (${cands.length} stances in range; rejected ${JSON.stringify(rej)}; the cell holds ${(seen(bot, seed) || {}).name}; neighbours ${['up', 'down', 'north', 'south', 'west', 'east'].map((d, i) => { const o = [[0, 1, 0], [0, -1, 0], [0, 0, -1], [0, 0, 1], [-1, 0, 0], [1, 0, 0]][i], h = seen(bot, { x: seed.x + o[0], y: seed.y + o[1], z: seed.z + o[2] }); return `${d}:${h ? S.bare(h.name) : '?'}`; }).join(' ')})`); this._frontier(); }
                 continue;
             }
             this.lastClaimInfo = `scanned ${scanned}, ready ${ready.length}, doable ${doable.length}, seeds to here ${doable.indexOf(seed) + 1}, batch ${best.batch.length}, ${Date.now() - t0} ms in seeds`;

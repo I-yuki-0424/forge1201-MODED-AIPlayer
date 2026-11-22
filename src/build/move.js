@@ -174,6 +174,8 @@ function feet(bot) { const p = bot.entity.position; return { x: Math.floor(p.x),
 class Mover {
     constructor(bot, rules, { log = () => {} } = {}) { this.bot = bot; this.rules = rules; this.log = log; this.trace = []; }
     view() { return new View(this.bot, this.rules); }
+    /** The last moves and digs (kept for a death's report). */
+    note(what) { const p = this.bot.entity && this.bot.entity.position; this.trace.push(`${new Date().toISOString().slice(11, 19)} ${what}${p ? ` @${p.x.toFixed(1)},${p.y.toFixed(1)},${p.z.toFixed(1)}` : ''}`); if (this.trace.length > 8) this.trace.shift(); }
 
     /** Look along (yaw, pitch) and let the server have it (it applies a look a tick after it arrives). */
     async look(yaw, pitch) { await this.bot.look(yaw, pitch, true); await sleep(110); }
@@ -212,6 +214,7 @@ class Mover {
     /** Break the block at c with the tool its material asks for (mineable/pickaxe, shovel, axe, hoe; the best tier the bot carries; shears for leaves and wool). */
     async dig(c) {
         const b = this.bot, block = b.blockAt(new Vec3(c.x, c.y, c.z), false);
+        if (block) this.note(`dig ${block.name} ${c.x},${c.y},${c.z}`);
         // nothing to break only where there is nothing at all: snow layers, grass, flowers have no collision box but are blocks (taking them for "gone" left 2 271 snow cells
         // undug after eight tries each, live 2026-11-22 sA2 w3)
         if (!block || /^(air|cave_air|void_air|water|lava|bubble_column)$/.test(block.name)) return true;
@@ -393,11 +396,13 @@ class Mover {
                 const s = route[i];
                 if (['walk', 'up', 'drop', 'swim'].includes(s.move) && !(s.dig && s.dig.length)) {
                     let j = i; while (j + 1 < route.length && ['walk', 'up', 'drop', 'swim'].includes(route[j + 1].move) && !(route[j + 1].dig && route[j + 1].dig.length)) j++;
+                    this.note(`follow ${route[i - 1].x},${route[i - 1].y},${route[i - 1].z}->${route[j].x},${route[j].y},${route[j].z} (${j - i + 1} cells: ${route.slice(i, j + 1).map((c) => c.move[0]).join('')})`);
                     const r = await this.follow(route, i, j, cancel);
                     steps += r.i - i;
                     if (r.i <= j) { last = r.why; broke = true; break; }
                     i = j + 1; continue;
                 }
+                this.note(`${s.move} ${route[i - 1].x},${route[i - 1].y},${route[i - 1].z}->${s.x},${s.y},${s.z}${s.dig && s.dig.length ? ' dig' : ''}`);
                 const r = await this.step(route[i - 1], s), at = feet(this.bot);
                 if (!r.ok || at.x !== s.x || at.z !== s.z || at.y !== s.y) { last = r.ok ? `ended at ${at.x},${at.y},${at.z} not ${s.x},${s.y},${s.z} (${s.move})` : r.why; broke = true; break; }
                 steps++; i++;
