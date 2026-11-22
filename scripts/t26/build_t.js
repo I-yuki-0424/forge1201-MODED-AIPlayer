@@ -46,16 +46,23 @@ async function main() {
     const at = (x, y, z) => { const b = scout.blockAt(new Vec3(x, y, z)); return b ? b.name : null; };
     // a site on land (Overworld: a farm is not built in the sea; at most a tenth of the footprint's surface water), up to twelve draws
     let cx, cz;
+    const groundYAt = (x, z) => { for (let y = 200; y > -60; y--) { const b = at(x, y, z); if (b && !/^(air|cave_air|void_air|.*_leaves|.*_log|vine|short_grass|tall_grass|snow)$/.test(b)) return y; } return null; };
     for (let draw = 0; draw < 30; draw++) {
         const ang = rnd() * Math.PI * 2, dist = 40 + rnd() * 60 + draw * 60;
         cx = Math.floor((NETHER ? sp.x / 8 : sp.x) + Math.cos(ang) * dist); cz = Math.floor((NETHER ? sp.z / 8 : sp.z) + Math.sin(ang) * dist);
         await srv.must(`tp ${names[0]} ${cx + 0.5} ${NETHER ? 100 : 250} ${cz + 0.5}`);
         await sleep(NETHER ? 6000 : 9000);
         if (NETHER) break;
-        let wet = 0, n = 0;
-        for (let x = cx - Math.floor(sx / 2); x < cx + sx / 2; x += 4) for (let z = cz - Math.floor(sz / 2); z < cz + sz / 2; z += 4) { for (let y = 200; y > -60; y--) { const b = at(x, y, z); if (b && b !== 'air' && !/leaves|log/.test(b)) { n++; if (/water|ice|kelp|seagrass/.test(b)) wet++; break; } } }
-        console.log(`[build_t] site draw ${draw}: ${cx} ${cz}, ${wet}/${n} of the surface is water`);
-        if (n && wet / n <= 0.1) break;
+        // counted when the site's chunks are in: a draw judged on a third of its surface had no ground at its middle (live 2026-11-22 sK2 w3)
+        let wet = 0, n = 0, want = 0;
+        for (let tries = 0; tries < 4; tries++) {
+            wet = 0; n = 0; want = 0;
+            for (let x = cx - Math.floor(sx / 2); x < cx + sx / 2; x += 4) for (let z = cz - Math.floor(sz / 2); z < cz + sz / 2; z += 4) { want++; for (let y = 200; y > -60; y--) { const b = at(x, y, z); if (b && b !== 'air' && !/leaves|log/.test(b)) { n++; if (/water|ice|kelp|seagrass/.test(b)) wet++; break; } } }
+            console.log(`[build_t] site draw ${draw}: ${cx} ${cz}, ${wet}/${n} of the surface is water`);
+            if (n >= 0.9 * want && groundYAt(cx, cz) !== null) break;
+            await sleep(4000);
+        }
+        if (n && n >= 0.9 * want && wet / n <= 0.1 && groundYAt(cx, cz) !== null) break;
     }
     const GROUNDLESS = /^(air|cave_air|void_air|.*_leaves|.*_log|.*_wood|vine|short_grass|tall_grass|fern|large_fern|.*_flower|dandelion|poppy|snow|water|lava|bamboo|sugar_cane)$/;
     const groundY = (x, z, top) => { for (let y = top; y > (NETHER ? 32 : -60); y--) { const n = at(x, y, z); if (n && !GROUNDLESS.test(n)) return y; } return null; };

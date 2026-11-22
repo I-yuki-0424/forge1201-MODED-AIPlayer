@@ -85,8 +85,8 @@ function ways(world, T, want, item, stations, { max = 1, reach = REACH, sneakAlw
         const sneak0 = sneakAlways || V.INTERACTIVE.test(nb.name) || /chest$/.test(S.bare(want.name)) && (want.props.type || 'single') !== 'left';
         for (const s of stations) {
             if (s.x === T.x && s.z === T.z && (s.y === T.y || s.y + 1 === T.y)) continue;        // the body would be in the cell
-            // s.lean [dx, dz]: the bot sneaks to that edge of its cell and leans over it (the eye 0.75 out), as a player does to place beside the block it stands on
-            const sneak = sneak0 || !!s.lean, lx = s.lean ? s.lean[0] * 0.75 : 0, lz = s.lean ? s.lean[1] * 0.75 : 0;
+            // s.lean [dx, dz]: the bot sneaks to that edge of its cell and leans over it (the eye LEAN = 0.6 out, move.js), as a player does to place beside the block it stands on
+            const sneak = sneak0 || !!s.lean, lx = s.lean ? s.lean[0] * 0.6 : 0, lz = s.lean ? s.lean[1] * 0.6 : 0;
             const eye = [s.x + 0.5 + lx, s.y + (sneak ? EYE_SNEAK : EYE), s.z + 0.5 + lz];
             for (const [u, w] of [[0.5, 0.5], [0.2, 0.5], [0.8, 0.5], [0.5, 0.2], [0.5, 0.8], [0.2, 0.2], [0.8, 0.8], [0.2, 0.8], [0.8, 0.2]]) {
                 const p = [0, 0, 0], [ra, rb] = face.rect;

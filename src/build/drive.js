@@ -212,9 +212,12 @@ async function boxSpot(job, bot, c, mv) {
     }
     // no free cell: a niche dug into natural rock or soil within reach (a chest on a cliff at height 149 had four boxes beside it and no room for a fifth, live 2026-11-22 prof2)
     const dig = pickBoxSpot(job, bot, c, true);
-    if (!dig) return null;
-    if (!(await mv.dig(dig))) return null;
-    return pickBoxSpot(job, bot, c, false, dig);
+    const far = pickBoxSpot(job, bot, c, false, null, { far: true }).length, me = feet(bot);
+    if (!dig) { job.log(`supply: no depot cell: none free in reach, ${far} free up to six away (walked to: none worked), no natural block to dig a niche into; the bot at ${me.x},${me.y},${me.z}, the chest at ${c.x},${c.y},${c.z}`); return null; }
+    if (!(await mv.dig(dig))) { job.log(`supply: no depot cell: the niche at ${dig.x},${dig.y},${dig.z} did not dig`); return null; }
+    const got = pickBoxSpot(job, bot, c, false, dig);
+    if (!got) job.log(`supply: no depot cell: the niche at ${dig.x},${dig.y},${dig.z} was dug but is not usable`);
+    return got;
 }
 const NATURAL = /^(dirt|grass_block|coarse_dirt|podzol|rooted_dirt|mud|stone|deepslate|cobblestone|andesite|diorite|granite|tuff|calcite|gravel|sand|red_sand|sandstone|red_sandstone|terracotta|[a-z_]+_terracotta|netherrack|basalt|blackstone|soul_sand|soul_soil|crimson_nylium|warped_nylium|snow_block|packed_ice|moss_block)$/;
 function pickBoxSpot(job, bot, c, digging, only = null, { far = false } = {}) {

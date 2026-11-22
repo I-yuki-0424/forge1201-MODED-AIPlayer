@@ -10,6 +10,9 @@ const V = require('./vanilla');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const key = (x, y, z) => `${x},${y},${z}`;
+// how far the centre goes out when leaning over an edge: 0.1 beyond it, 0.2 of the body still on the block (at 0.25 beyond it, 0.05 on, bots slipped off pit edges, live
+// 2026-11-22 sK2 w5); the support's side face is in sight from there
+const LEAN = 0.6;
 const CLIMB = /^(vine|ladder|scaffolding|twisting_vines|twisting_vines_plant|weeping_vines|weeping_vines_plant|cave_vines|cave_vines_plant)$/;
 const AVOID_IN = /^(lava|fire|soul_fire|nether_portal|end_portal|end_gateway|cobweb|sweet_berry_bush|powder_snow|bubble_column|wither_rose|magma_block|campfire|soul_campfire|pointed_dripstone|cactus|moving_piston)$/;
 const NO_STAND = /^(magma_block|campfire|soul_campfire|cactus|.*_fence|.*_wall|.*_fence_gate|pointed_dripstone|honey_block|slime_block|powder_snow|scaffolding|.*_bed|hopper|composter)$/;
@@ -232,7 +235,7 @@ class Mover {
 
     /** Sneak to the edge of the bot's cell toward (dx, dz) and lean over it (the body keeps 0.05 on its floor); unlean() steps back to the middle. */
     async lean(dx, dz) {
-        const b = this.bot, f = feet(b), edge = { x: f.x + 0.5 + dx * 0.75, z: f.z + 0.5 + dz * 0.75 };
+        const b = this.bot, f = feet(b), edge = { x: f.x + 0.5 + dx * LEAN, z: f.z + 0.5 + dz * LEAN };
         this.leanFrom = f;                // the cell it stands on: leaning, its centre is over the next cell, and a cell worked out from the position then is the empty one
         b.setControlState('sneak', true);
         for (let i = 0; i < 60; i++) {
@@ -329,7 +332,7 @@ class Mover {
             // sneak out over the edge (the body keeps 0.05 on the support), then click the support's side face toward the gap: its block goes under the next cell
             const b = this.bot, dx = s.x - prev.x, dz = s.z - prev.z, item = this.rules.temp();
             if (!item || !(await this.hold(item))) return { ok: false, why: 'bridge: no temporary block' };
-            const edge = { x: prev.x + 0.5 + dx * 0.75, z: prev.z + 0.5 + dz * 0.75 };
+            const edge = { x: prev.x + 0.5 + dx * LEAN, z: prev.z + 0.5 + dz * LEAN };
             b.setControlState('sneak', true);
             try {
                 for (let i = 0; i < 60; i++) {
@@ -448,4 +451,4 @@ class Mover {
     }
 }
 
-module.exports = { Mover, View, plan, feet, COST };
+module.exports = { Mover, View, plan, feet, COST, LEAN };
