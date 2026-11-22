@@ -427,7 +427,9 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
               if (Date.now() - (job.claimWhyAt || 0) > 60000) { job.claimWhyAt = Date.now(); job.log(`claims in the last minute: ${JSON.stringify(o)}`); job.claimWhy = {}; } }
             if (cl && cl.moveOff) {
                 const f = feet(bot), floor = (x, y, z) => job.tasks.get(`${x},${y - 1},${z}`);
-                await mv.goto(f, { goal: (x, y, z) => Math.hypot(x - f.x, z - f.z) >= 2 && !(floor(x, y, z) && ['clear', 'untemp'].includes(floor(x, y, z).kind)), cancel, maxNodes: 4000 });
+                const r = await mv.goto(f, { goal: (x, y, z) => Math.hypot(x - f.x, z - f.z) >= 2 && !(floor(x, y, z) && ['clear', 'untemp'].includes(floor(x, y, z).kind)), cancel, maxNodes: 4000 });
+                // no way off: the cell under it waits 20 s (an instant failure, repeated without a pause, spun 1 258 times a minute and froze every bot for 17 s, live 2026-11-23 fy1 w4)
+                if (!r.ok) { job.cool.set(`${f.x},${f.y - 1},${f.z}`, Date.now() + 20000); await sleep(500); }
                 continue;
             }
             if (cl && cl.need) {

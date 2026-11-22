@@ -131,9 +131,12 @@ class BuildJob {
 
     /** The lowest layer that still has blocks to place (the window starts there), and the highest that still has blocks to clear. */
     _frontier() {
-        let f = Infinity, c = -Infinity;
+        let f = Infinity, c = -Infinity; const now = Date.now();
         for (const tk of this.tasks.values()) {
             if (this.parked.has(tk.k)) continue;
+            // a cell no stance has reached for 15 s does not hold the window (four unreachable cells in the lowest layer left eight bots idle with 7 500 blocks above, live
+            // 2026-11-23 fy1 w2); it is still offered and tried, and parked after two minutes
+            const ns = this.noStance.get(tk.k); if (ns && now - ns > 15000 && (tk.kind === 'place' || tk.kind === 'fix')) continue;
             if ((tk.kind === 'place' || tk.kind === 'fix') && tk.y < f) f = tk.y;
             if (tk.kind === 'clear' && tk.y > c) c = tk.y;
         }
@@ -327,10 +330,11 @@ class BuildJob {
      * Temporary blocks nobody stands on or above any more (no bot's body, stance or claim in their column) become untemp tasks after a few seconds, in any stage: walking blocks are not
      * kept (owner 2026-11-23: pillars and bridges for moving need no reuse). Scaffolds, the supports a placement needs, are not temps and stay while a block waits against them.
      */
-    _offerTemps(now) {
+    _offerTemps(now, bot = null) {
         if (now - (this._offerAt || 0) < 3000 || !this.temps.size) return;
         this._offerAt = now;
         const cols = []; for (const b of this.bots.values()) { if (b.pos) cols.push(b.pos); if (b.station) cols.push(b.station[0]); }
+        if (bot) for (const p of Object.values(bot.players || {})) if (p && p.entity && this.bots.has(p.username)) { const q = p.entity.position; cols.push({ x: Math.floor(q.x), y: Math.floor(q.y + 0.16), z: Math.floor(q.z) }); }
         for (const [k, m] of this.temps) {
             if (this.tasks.has(k) || now - m.t < 8000) continue;
             const [x, y, z] = k.split(',').map(Number);
@@ -377,7 +381,7 @@ class BuildJob {
     claim(bot, name, now = Date.now(), has = () => Infinity) {
         const me = feet(bot), others = [...this.bots.entries()].filter(([n, b]) => n !== name && b.station).map(([, b]) => b.station[0]);
         const ready = [], G = 8; let scanned = 0;
-        this._offerTemps(now);
+        this._offerTemps(now, bot);
         const sec = this.sectorOf(name), inSec = (tk) => tk.x >= sec.x0 && tk.x <= sec.x1 && tk.z >= sec.z0 && tk.z <= sec.z1;
         // the bot's own sector first, nearest first within it; the rest of the box after it (helping where a sector is done or its bot is gone)
         const keys = [...this.buckets.keys()].map((k) => { const [x, y, z] = k.split(',').map(Number), mine = x * G + G - 1 >= sec.x0 && x * G <= sec.x1 && z * G + G - 1 >= sec.z0 && z * G <= sec.z1; return { k, d: Math.hypot(x * G + G / 2 - me.x, (y * G + G / 2 - me.y) * 1.5, z * G + G / 2 - me.z) + (mine ? 0 : 1000) }; }).sort((a, b) => a.d - b.d);
@@ -523,6 +527,7 @@ class BuildJob {
             this.bots.set(name, { station: [best.f, { x: best.f.x, y: best.f.y + 1, z: best.f.z }], pos: me });
             return { station: best.f, tasks };
         }
+        if (now - (this._frontierAt || 0) > 5000) { this._frontierAt = now; this._frontier(); }
         this.lastClaimInfo = `no stance: scanned ${scanned}, ready ${ready.length}, doable ${doable.length}, ${Date.now() - t0} ms in seeds`;
         // what can be done with what it carries reaches nowhere, but ready work waits for items: fetch them (a crew stood idle with ready blocks and empty packs, live 2026-11-22)
         { const need = {}; for (const tk of ready) { if (doable.includes(tk)) continue; const it = item(tk); if (it) need[it] = (need[it] || 0) + 1; } if (Object.keys(need).length) return { need }; }
