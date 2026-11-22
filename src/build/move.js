@@ -209,13 +209,15 @@ class Mover {
     /** Break the block at c with the tool its material asks for (mineable/pickaxe, shovel, axe, hoe; the best tier the bot carries; shears for leaves and wool). */
     async dig(c) {
         const b = this.bot, block = b.blockAt(new Vec3(c.x, c.y, c.z), false);
-        if (!block || block.boundingBox === 'empty' && block.name !== 'fire') return true;
+        // nothing to break only where there is nothing at all: snow layers, grass, flowers have no collision box but are blocks (taking them for "gone" left 2 271 snow cells
+        // undug after eight tries each, live 2026-11-22 sA2 w3)
+        if (!block || /^(air|cave_air|void_air|water|lava|bubble_column)$/.test(block.name)) return true;
         const tool = toolFor(b, block);
         if (tool && (!b.heldItem || b.heldItem.name !== tool.name)) { try { await b.equip(tool, 'hand'); } catch (_) { /* the hand it has */ } }
         else if (!tool && b.heldItem && /(_sword|_pickaxe|_axe|_shovel|_hoe)$/.test(b.heldItem.name) === false) { /* any item: breaking by hand is the same */ }
         try { await b.dig(block, true); } catch (e) { return false; }
         const after = b.blockAt(new Vec3(c.x, c.y, c.z), false);
-        return !after || after.boundingBox === 'empty';
+        return !after || /^(air|cave_air|void_air|water|lava|bubble_column)$/.test(after.name) || (after.boundingBox === 'empty' && after.name !== block.name);
     }
 
     /** A click on face `face` of block n at point `hit` (a vanilla use packet), looking at the point first. */
