@@ -95,7 +95,7 @@ class View {
     }
     /**
      * Is there lava (or fire) in any 8x8x8 region the box touches? A region is scanned by state ids (blockAt builds a Block with its biome for each of 512 cells: the scans were a
-     * sixth of all CPU in the Nether, live 2026-11-23 fx3 profile) and the answer is kept 30 s per bot, shared by its views.
+     * sixth of all CPU in the Nether, live 2026-11-23 fx3 profile) and the answer is kept 5 s per bot, shared by its views.
      */
     _lavaRegions(x0, y0, z0, x1, y1, z1) {
         const R = 8, reg = lavaCache(this.bot);
@@ -103,15 +103,18 @@ class View {
             const k = `${rx},${ry},${rz}`;
             let has = reg.get(k);
             if (has === undefined) {
-                has = false;
+                has = false; let unknown = false;
                 const w = this.bot.world, hot = w && this.bot.registry ? hotStates(this.bot) : null, p = new Vec3(0, 0, 0);
                 for (let x = rx * R; x < rx * R + R && !has; x++) for (let y = ry * R; y < ry * R + R && !has; y++) for (let z = rz * R; z < rz * R + R; z++) {
                     p.x = x; p.y = y; p.z = z;
                     if (!hot) { const b = this.bot.blockAt(p, false); if (b && (b.name === 'lava' || b.name === 'fire')) { has = true; break; } continue; }
+                    // a cell whose chunk is not loaded is no proof of no lava: the region counts as hot and is not kept (a region read before its chunk came was kept as
+                    // lava-free and all eight bots walked into the lava beside the chest, live 2026-11-23 fy2 w4)
+                    if (!w.getColumnAt(p)) { unknown = true; has = true; break; }
                     let id; try { id = w.getBlockStateId(p); } catch (_) { id = undefined; }
                     if (id !== undefined && hot.has(id)) { has = true; break; }
                 }
-                reg.set(k, has);
+                if (!unknown) reg.set(k, has);
             }
             if (has) return true;
         }
@@ -140,11 +143,11 @@ function hotStates(bot) {
     for (const n of ['lava', 'fire', 'soul_fire']) { const b = bot.registry.blocksByName[n]; if (b) for (let i = b.minStateId; i <= b.maxStateId; i++) s.add(i); }
     HOT.set(bot.registry, s); return s;
 }
-/** A bot's lava regions ('rx,ry,rz' -> bool), dropped every 30 s (lava flows; a dug cell can open onto it). */
+/** A bot's lava regions ('rx,ry,rz' -> bool), dropped every 5 s (lava flows; a dug cell can open onto it). */
 const LAVA = new WeakMap();
 function lavaCache(bot) {
     let c = LAVA.get(bot); const now = Date.now();
-    if (!c || now - c.at > 30000) { c = { at: now, m: new Map() }; LAVA.set(bot, c); }
+    if (!c || now - c.at > 5000) { c = { at: now, m: new Map() }; LAVA.set(bot, c); }
     return c.m;
 }
 
@@ -521,6 +524,8 @@ class Mover {
                 v.cache.clear(); if (v.lavaNear) v.lavaNear.clear(); if (v.digC) v.digC.clear();
                 if (breath && b.entity.isInWater && typeof b.oxygenLevel === 'number' && b.oxygenLevel <= 8) return { i, why: 'out of breath' };
                 if (['walk', 'up', 'drop'].includes(route[i].move) && floorGone(c)) return { i, why: `the floor at ${c.x},${c.y - 1},${c.z} is gone` };
+                // lava in the next cell or under it, whatever the plan saw (lava flows in seconds): stop and plan again
+                if ([0, 1, -1].some((dy) => { const q = b.blockAt(new Vec3(c.x, c.y + dy, c.z), false); return !!q && (q.name === 'lava' || q.name === 'fire' || q.name === 'soul_fire'); })) return { i, why: `lava at ${c.x},${c.y},${c.z}` };
                 if (d < (last ? 0.15 : 0.35) && (Math.abs(p.y - c.y) < 0.6 || (b.entity.isInWater && route[i].move === 'swim' && Math.abs(p.y - c.y) < 1.0))) { i++; t0 = Date.now(); stuck = 0; lastD = Infinity; continue; }
                 if (Date.now() - t0 > 4000) { const nm = (dy) => { const q = b.blockAt(new Vec3(c.x, c.y + dy, c.z), false); return q ? q.name : '?'; }; return { i, why: `no progress toward ${c.x},${c.y},${c.z} (${route[i].move}; there ${nm(-1)}/${nm(0)}/${nm(1)}; bot at ${p.x.toFixed(1)},${p.y.toFixed(1)},${p.z.toFixed(1)} ground ${b.entity.onGround})` }; }
                 if (d > lastD - 0.005) stuck++; else stuck = 0;
