@@ -77,3 +77,41 @@ survival without cheats; that version was removed and everything that moves, dig
 Measured on the parallel T26 batches (scripts/t26/batch.sh, 3 Overworld + 3 Nether worlds at a time): digging 0.23 s per block after the tool fix; clearing 8 000-18 000 blocks in 27 min for
 an Overworld site; placing still slow (best 27 blocks in 27 min, 2026-11-22 ~05:00 JST): no survival build has finished. Causes found and fixed are in git log (`TASK:20261121-073`).
 Deployed to the three fabric26 consoles after each fix (`docker compose -f /mnt/data/fabric26-worlds/compose.yaml restart console-creative console-survival-hard console-survival-op`).
+
+## Handover 2026-11-22 23:40 JST (session ended by the owner; the next one starts from the owner's list of problems)
+
+**Where it stands.** No survival build of either blueprint has finished. 93 commits (`git log --grep TASK:20261121-073`) found and fixed one cause at a time over about 24 h of parallel batches;
+the owner judged that inefficient and stopped the loop to give all problems at once. Deaths went from 4-8 per world per batch to 0-3; clearing works (8 000-14 000 blocks in 27 min per
+site); placing is the bottleneck (best 141-474 blocks in 27 min, mostly far less). Unit tests: `npm test` green 2026-11-22 (+ `tests/test_rcon_pure.js`, `tests/test_modules_load_pure.js`).
+
+**Test servers the owner watches (left running, survival premise unchanged).** T26 worlds on the tailnet, port 25590 + N (ViaVersion lets the 26.3 client in):
+
+| N | port | blueprint | box (min corner) | run log (/mnt/data/forgeaip-play/t26/out/) |
+| :-- | :-- | :-- | :-- | :-- |
+| 1 | 25591 | easy-ironfarm-fixd (2 bots, traced) | -13 88 -79 | scratchpad tr26.log of the old session |
+| 2 | 25592 | iron-farm-34 (8 bots) | 254 68 203 | sT2-w2.log |
+| 3 | 25593 | iron-farm-34 | 195 74 180 | sT2-w3.log |
+| 4 | 25594 | nether-side-main (Nether) | -112 50 -11 | sS2-w4.log |
+| 5 | 25595 | nether-side-main (Nether) | -59 66 42 | sS2-w5.log |
+| 6 | 25596 | nether-side-main (Nether) | 69 67 -47 | sS2-w6.log |
+
+The harness ends a run after LIMIT_MIN = 200 min (Overworld/Nether) or 120 (world 1) and then judges every cell; the server stays up until `scripts/t26/down.sh N`.
+
+**Operator.** Only the owner, `seia_y` (lowercase), offline-mode UUID 0d1dd89f-28fa-3770-a9b2-1c9f33cb5442. The image's `OPS` had resolved the name at Mojang and opped another account
+(`Seia_Y`, 43de32db-...): removed on all six worlds, and `OPS` dropped from docker/t26/compose.yaml. A running server takes `op <name>` from the online player's profile, so
+`scripts/t26/owner-op.sh` (background, flock, every 5 s, log `out/owner-op.log`) ops `seia_y` once they are on a world and removes any other operator. Restart it after a reboot:
+`nohup scripts/t26/owner-op.sh >> /mnt/data/forgeaip-play/t26/out/owner-op.log 2>&1 &`.
+
+**How to run and deploy.** `scripts/t26/batch.sh RUN "2 3" "4 5 6"` (Overworld on the first list, Nether on the second; new random world each), small traced run:
+`scripts/t26/up.sh 1 --new && scripts/t26/run.sh 1 build_t.js LITEMATIC=/app/tests/fixtures/easy-ironfarm-fixd.litematic BOTS=2 LIMIT_MIN=120 RUN=x BUILD_TRACE=1`. Progress lines every minute
+carry `time {walk,dig,place,trip,idle,claim}`; `claims in the last minute: {...}` says what claims returned (work / need X / nothing); `claim by ...` gives why tasks wait (every task by the
+cheap reasons); a death logs the bot's last eight moves. `PROFILE_AT=12` writes a CPU profile to out/prof/. Deploy to the three consoles ONLY with `scripts/t26/deploy-consoles.sh` (it loads
+every module first; an unparsable drive.js took the consoles down for 30 min on 2026-11-22).
+
+**Open, as last measured (worth checking first).**
+1. Idle crews with work left: world 2 had `{"nothing": 445}` claims a minute (no ready task found) with 7 500 blocks to place; the frontier layer's cells wait on each other or have no stance.
+2. Placing in the air: lean-over-the-edge clicks and scaffold blocks exist (`_scaffoldFor`, `lean`), but few such cells get done; blocks on torches/wire now click the outline (untested at scale).
+3. Nether: falls into the lava sea and pits remain possible (3 deaths on world 5); routes are re-checked live, digging under a crew member is refused, leaning keeps 0.2 on the block.
+4. Supply: scarce items (redstone torches, levers, hoppers) run short across 8 bots; the depot of shulker boxes can fail in cramped caves (logs say which fallback failed).
+5. Speed: walking dominates bot time once claims work; long tunnels/pillars cost the most.
+6. Docs: the creative-era sections above are history; the survival design is the 2026-11-21 night section and this handover.

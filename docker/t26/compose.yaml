@@ -22,7 +22,7 @@ services:
       SEED: ${SEED:-}
       MODE: survival
       DIFFICULTY: normal
-      OPS: "Seia_Y"
+      # no OPS here: the image resolves names at Mojang (it made "Seia_Y", another account, the operator); scripts/t26/owner-op.sh ops the owner seia_y by the offline profile when they join
       OP_PERMISSION_LEVEL: "4"
       SPAWN_PROTECTION: "0"
       VIEW_DISTANCE: "10"
