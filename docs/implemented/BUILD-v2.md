@@ -133,3 +133,20 @@ Causes taken from the live runs `watch-w2.log` / `watch-w3.log` (25592, 25593), 
 | 7 | no reasons visible | — | chat lines `[stuck] [idle] [wait] [supply] [evacuate]` (once per state, repeated every 2 min; `BUILD_CHAT=0` off) |
 | 8 | whole crew waiting | a window read empty marked items out of stock for 10 min for everyone | empty windows re-read; "absent" only when every container was seen; 3 min |
 | 10 | one stuck bot holds all | — | 4 min without progress while there is work: evacuate (claims released, out of the footprint with loose rules); 3-min deadline per claim/trip; chest wait at most 90 s |
+
+### Part 2 of the list (same day) and what the live runs fy1-fy4 showed
+
+| Problem | Cause | Fix |
+| :-- | :-- | :-- |
+| tall pillar everyone climbs | `escape` went to the top of the 60-high box; untemp tasks at -3000 pulled the crew onto leftover pillars | escape sideways (>= 3 cells, same height); a stance with no way is avoided at once (3 min), closed-in is decided by the search (< 80 cells), not by a count of failures; untemp only from a standing stance, after real work |
+| sneaking everywhere | every cell beside a 4-drop was walked sneaking | only at the end of a run or a turn beside a drop, or next to lava |
+| pushing at a cliff start, stacking in one cell | plans went through other bots; several pillared the same column | no plan through another bot's body; a pillar column is reserved 20 s; waiting/idle bots keep 2 cells apart, off edges |
+| no bridging from a Nether cliff | the estimate priced a bridged cell at a walk (46 vs 4.6) | weighted estimate (x2.5 toward a goal in the air) |
+| rubble picked up again | thrown where the bot then waited | thrown away from the next stance just before walking, at most every 30 s |
+| one block per stance | the batch held only what was ready at claim time | `job._widen`: every block in reach whose supports stand or are earlier in the claim |
+| dug out around itself | deep clearing took the floor ring | never the ring around the stance or below the floor |
+| Nether deaths left the crew in the Overworld | no respawn point | a respawn anchor + glowstone in the chest; one bot sets it down and charges it, every bot sets its spawn (8/8 on three worlds) |
+| overlay missing | test runs drew only with WAIT_FOR | on by default (DISPLAY=0 off); runs start without waiting for a login |
+| found live | idle crews: lowest cells without a stance held the window; untemp under feet hid the stall; a hot step-off loop froze all bots 17 s; lava regions cached before their chunk loaded (8 bots into lava); claim and dig checks were most of the CPU in the Nether | all fixed (git log TASK:20261121-073, 2026-11-23) |
+
+Measured (fy runs, 2026-11-23): Nether event-loop p99 868 -> 89-365 ms, blocks of 1.5-28 s gone; world 3 placed 515 blocks in 41 min (best before: 474 in 27 min); no build finished yet. Open: Nether placing is slow (chests and hoppers run short, cells over the lava sea); placement in the air; the builder's remedies are still its own rules, not the command-stack router.
