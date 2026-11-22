@@ -177,6 +177,16 @@ class BuildJob {
         return true;
     }
 
+    /** The fill and seal tasks by 8-cell grid square, rebuilt when the task map is replaced (a survey) or every 20 s (filled ones drop out by the identity check). */
+    _fluidGrid() {
+        const now = Date.now();
+        if (this._fg && this._fgTasks === this.tasks && now - this._fgAt < 20000) return this._fg;
+        const g = new Map();
+        for (const o of this.tasks.values()) { if (o.kind !== 'fill' && o.kind !== 'seal') continue; const k = `${Math.floor(o.x / 8)},${Math.floor(o.y / 8)},${Math.floor(o.z / 8)}`; (g.get(k) || g.set(k, []).get(k)).push(o); }
+        this._fg = g; this._fgTasks = this.tasks; this._fgAt = now;
+        return g;
+    }
+
     /** A log within six cells (leaves near one do not decay). */
     _logNear(bot, c) {
         for (let dy = -6; dy <= 6; dy++) for (let dx = -6; dx <= 6; dx++) for (let dz = -6; dz <= 6; dz++) {
@@ -203,11 +213,15 @@ class BuildJob {
             const o = this.tasks.get(key(tk.x + dx, tk.y + dy, tk.z + dz));
             if (o && (o.kind === 'clear' || o.kind === 'fill' || o.kind === 'seal') && !this.parked.has(o.k)) return false;
         }
-        // fluids still to fill or seal within four cells (a global "fluids left" held every block of the box for one fill nobody could reach, live 2026-11-22)
-        for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) for (let dz = -4; dz <= 4; dz++) {
-            if (Math.abs(dx) + Math.abs(dy) + Math.abs(dz) > 6) continue;
-            const o = this.tasks.get(key(tk.x + dx, tk.y + dy, tk.z + dz));
-            if (o && (o.kind === 'fill' || o.kind === 'seal') && !this.parked.has(o.k)) return false;
+        // fluids still to fill or seal within four cells (a global "fluids left" held every block of the box for one fill nobody could reach, live 2026-11-22); through a grid of
+        // the fluid tasks (looking up 300 cells for every task made each claim take 450 ms, live 2026-11-22 sZ)
+        const fg = this._fluidGrid();
+        if (fg.size) {
+            const G = 8, gx = Math.floor(tk.x / G), gy = Math.floor(tk.y / G), gz = Math.floor(tk.z / G);
+            for (let ax = gx - 1; ax <= gx + 1; ax++) for (let ay = gy - 1; ay <= gy + 1; ay++) for (let az = gz - 1; az <= gz + 1; az++) {
+                const l = fg.get(`${ax},${ay},${az}`); if (!l) continue;
+                for (const o of l) if (this.tasks.get(o.k) === o && (o.kind === 'fill' || o.kind === 'seal') && Math.abs(o.x - tk.x) <= 4 && Math.abs(o.y - tk.y) <= 4 && Math.abs(o.z - tk.z) <= 4 && Math.abs(o.x - tk.x) + Math.abs(o.y - tk.y) + Math.abs(o.z - tk.z) <= 6) return false;
+            }
         }
         return true;
     }

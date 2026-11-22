@@ -333,6 +333,11 @@ class Mover {
     async follow(route, i0, i1, cancel) {
         const b = this.bot, cells = new Set(route.slice(Math.max(0, i0 - 1), i1 + 1).map((c) => key(c.x, c.y, c.z)));
         let i = i0, t0 = Date.now(), stuck = 0, lastD = Infinity;
+        // cells beside a drop of four or more: walked sneaking, as a player does (momentum at a corner or at the end of a run carried bots over the edge: falls of 14-39 blocks,
+        // two deaths on one Nether world, live 2026-11-22 sZ w6); sneaking stops at the edge
+        const v = new View(b, this.rules), edgy = new Map();
+        const deep = (x, y, z) => { if (!v.fits(x, y, z)) return false; for (let k = 1; k <= 4; k++) if (!v.free(x, y - k, z)) return false; return true; };
+        const isEdgy = (c) => { const k = key(c.x, c.y, c.z); if (!edgy.has(k)) edgy.set(k, [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]].some(([dx, dz]) => deep(c.x + dx, c.y, c.z + dz))); return edgy.get(k); };
         try {
             while (i <= i1 && !cancel.cancelled) {
                 const c = route[i], last = i === i1, p = b.entity.position, dx = c.x + 0.5 - p.x, dz = c.z + 0.5 - p.z, d = Math.hypot(dx, dz);
@@ -348,7 +353,8 @@ class Mover {
                 const up = c.y > f.y && route[i].move === 'up', wet = b.entity.isInWater;
                 // in water: up (jump) to rise or to stay at the surface, nothing to sink
                 b.setControlState('jump', wet ? c.y >= f.y : ((up && d < 1.4 && b.entity.onGround) || (stuck > 6 && b.entity.onGround && c.y >= f.y)));
-                b.setControlState('sneak', last && d < 0.6 && route[i].move !== 'drop' && c.y >= f.y);          // a careful last step, but never before a drop (sneak stops at the edge)
+                const careful = route[i].move !== 'drop' && route[i].move !== 'swim' && c.y >= f.y && (isEdgy(c) || isEdgy(f));
+                b.setControlState('sneak', careful || (last && d < 0.6 && route[i].move !== 'drop' && c.y >= f.y));          // a careful last step, but never before a drop (sneak stops at the edge)
                 await sleep(50);
             }
         } finally { for (const k of ['forward', 'jump', 'sneak', 'sprint']) b.setControlState(k, false); }
