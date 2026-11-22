@@ -356,7 +356,7 @@ class Mover {
                 // nothing at all from where the bot believes it is (its picture of its own position is off: live 2026-11-22 the server had it on the chest, the bot a cell higher):
                 // a jump lets the physics and the server's correction settle it, then plan again
                 if (l.nodes <= 2 && t < tries - 1) { this.bot.setControlState('jump', true); await sleep(350); this.bot.setControlState('jump', false); await sleep(700); continue; }
-                return { ok: false, why: `no plan (${l.why}, ${l.nodes} cells from ${start.x},${start.y},${start.z})`, from: start, steps };
+                return { ok: false, why: `no plan (${l.why}, ${l.nodes} cells from ${start.x},${start.y},${start.z}; ${temps} ${this.rules.temp()}; goal ${view.kind(to.x, to.y, to.z)}/${view.kind(to.x, to.y + 1, to.z)} over ${view.kind(to.x, to.y - 1, to.z)}${view.stands(to.x, to.y - 1, to.z) ? ' stands' : ''}${view.nearLava(to.x, to.y, to.z) ? ' lava' : ''})`, from: start, steps };
             }
             let i = 1, broke = false;
             while (i < route.length && !cancel.cancelled) {
