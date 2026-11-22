@@ -15,7 +15,7 @@ const { View, feet } = require('./move');
 const P = require('./place');
 
 const REACH = 4.4;                 // eye to the cell's box (a vanilla client picks within 4.5)
-const WINDOW = 2;                  // layers above the lowest open one that may be placed at the same time
+const WINDOW = 4;                  // layers above the lowest open one that may be placed at the same time (2 left 1.8 tasks per place claim in thin layers, a pillar for each, live 2026-11-23 gc1 w3)
 const MAX_FAILS = 8;               // tries of one cell before it is parked (reported, not tried again until the next round)
 const BATCH = 64;                  // tasks per claim (everything within reach of the stance: walking was the largest share of the time, live 2026-11-22)
 const ROUNDS = 3;                  // extra rounds for parked cells before the build ends with them reported
@@ -225,7 +225,8 @@ class BuildJob {
     /** A fill (inside the box) or seal (outside) task for the fluid in cell c, unless there is one or it is parked. */
     _fluidTask(c) {
         const k = key(c.x, c.y, c.z);
-        if (this.tasks.has(k) || this.parked.has(k)) return;
+        if (this.tasks.has(k)) return;
+        this.parked.delete(k);            // a fluid parked earlier is work again
         const inside = this.t.inside(c.x, c.y, c.z);
         const t = { k, x: c.x, y: c.y, z: c.z, i: inside ? this.t.idx(c.x, c.y, c.z) : -1, kind: inside ? 'fill' : 'seal' };
         this.tasks.set(k, t);
@@ -744,6 +745,8 @@ class BuildJob {
             if (STAGE_OF[tk.kind] === 'late') this.log(`${name}: ${tk.kind} ${tk.k} failed: ${why}`);
             const n = (this.fails.get(tk.k) || 0) + 1; this.fails.set(tk.k, n); this.stats.failed++;
             this.cool.set(tk.k, now + 2000 * Math.min(n, 5));
+            // a fluid task is never parked (everything beside it waits on it: 10 275 cells under 17 cells next to lava whose fills were parked, live 2026-11-23 gb5 w5)
+            if (n >= MAX_FAILS && (tk.kind === 'fill' || tk.kind === 'seal')) { this.fails.set(tk.k, 0); this.cool.set(tk.k, now + 60000); continue; }
             if (n >= MAX_FAILS) { this.parked.set(tk.k, why || 'failed'); this.tasks.delete(tk.k); this.log(`parked ${tk.kind} ${tk.k} after ${n} tries: ${why}`); this._frontier(); }
         }
     }
