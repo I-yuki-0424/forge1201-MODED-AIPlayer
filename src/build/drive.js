@@ -160,8 +160,8 @@ function needsFor(job, bot, need) {
     for (const [it, n] of Object.entries(need)) { const want = Math.min(Math.max(Math.min(n * 4, 64), Math.min(64, Math.floor(total(it) / crew))), 64 * 6) - (have[it] || 0); if (want > 0) out[it] = want; }          // four times what the ready work asks for (trips for one glass block at a time, live 2026-11-22)
     const temps = SUP.TEMPS.filter((t) => !job.t.items.has(t)).reduce((a, t) => a + (have[t] || 0), 0);
     if (job.tempItem && temps < 64) out[job.tempItem] = 192 - temps;
-    for (const k of Object.keys(out)) if ((job.outOf && job.outOf.get(k) || 0) > Date.now()) delete out[k];          // the chest ran out of it a while ago: not fetched again yet
     for (const tool of ['pickaxe', 'shovel', 'axe']) if (!bot.inventory.items().some((i) => i.name.endsWith('_' + tool) && !worn(bot, i))) { const best = job.supply && Object.keys(job.supply.totals).find((k) => k.endsWith('_' + tool)); if (best) out[best] = 1; }
+    for (const k of Object.keys(out)) if ((job.outOf && job.outOf.get(k) || 0) > Date.now()) delete out[k];          // the chest ran out of it a while ago: not fetched again yet (tools too: the filter ran before they were added)
     return out;
 }
 function worn(bot, it) { const max = (bot.registry.itemsByName[it.name] || {}).maxDurability; if (!max) return false; const dmg = (it.components || []).find((c) => c && c.type === 'damage'); const d = dmg ? Number(dmg.data) : (it.durabilityUsed || 0); return max - d < 12; }
@@ -190,6 +190,8 @@ async function supplyTrip(job, name, bot, mv, need, cancel) {
         job.log(`${name}: supply trip for ${JSON.stringify(wants).slice(0, 160)}: got ${JSON.stringify(res.got).slice(0, 200)}${Object.keys(res.short).length ? `; short ${JSON.stringify(res.short).slice(0, 200)}` : ''}`);
         // what it came back without, the chest has none of (left): not asked for again for ten minutes (a crew went every minute for nothing, live 2026-11-22 sF w3)
         for (const k of res.absent || []) (job.outOf = job.outOf || new Map()).set(k, Date.now() + 600000);
+        // a tool the trip came back without is not asked for again for ten minutes (bots walked to the chest every minute for an axe it did not give, live 2026-11-22 sR2 w3)
+        for (const k of Object.keys(wants)) if (SUP.TOOL.test(k) && !res.got[k]) (job.outOf = job.outOf || new Map()).set(k, Date.now() + 600000);
         return Object.keys(res.got).length > 0;
     } catch (e) { job.log(`${name}: supply trip failed: ${e.message}`); return false; }
     finally { job.chestBusy = null; }

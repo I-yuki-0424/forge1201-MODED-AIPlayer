@@ -158,8 +158,12 @@ class BuildJob {
             // live 2026-11-22 sL2)
             if (this._covered(tk, bot)) return false;
             for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]]) {
-                const h = seen(bot, { x: tk.x + dx, y: tk.y + dy, z: tk.z + dz });
-                if (h && (h.name === 'water' || h.name === 'lava' || h.props.waterlogged === 'true')) return false;
+                const c = { x: tk.x + dx, y: tk.y + dy, z: tk.z + dz }, h = seen(bot, c);
+                if (h && (h.name === 'water' || h.name === 'lava' || h.props.waterlogged === 'true')) {
+                    // a fluid nobody is to fill or seal: a task for it (the clearing beside it waited for good, live 2026-11-22 sR2 w5)
+                    if (h.props.waterlogged !== 'true') this._fluidTask(c);
+                    return false;
+                }
             }
             return true;
         }
@@ -190,6 +194,17 @@ class BuildJob {
         for (const o of this.tasks.values()) { if (o.kind !== 'fill' && o.kind !== 'seal') continue; const k = `${Math.floor(o.x / 8)},${Math.floor(o.y / 8)},${Math.floor(o.z / 8)}`; (g.get(k) || g.set(k, []).get(k)).push(o); }
         this._fg = g; this._fgTasks = this.tasks; this._fgAt = now;
         return g;
+    }
+
+    /** A fill (inside the box) or seal (outside) task for the fluid in cell c, unless there is one or it is parked. */
+    _fluidTask(c) {
+        const k = key(c.x, c.y, c.z);
+        if (this.tasks.has(k) || this.parked.has(k)) return;
+        const inside = this.t.inside(c.x, c.y, c.z);
+        const t = { k, x: c.x, y: c.y, z: c.z, i: inside ? this.t.idx(c.x, c.y, c.z) : -1, kind: inside ? 'fill' : 'seal' };
+        this.tasks.set(k, t);
+        const bk = `${Math.floor(c.x / 8)},${Math.floor(c.y / 8)},${Math.floor(c.z / 8)}`; (this.buckets.get(bk) || this.buckets.set(bk, []).get(bk)).push(t);
+        this.fluidLeft = true; this._fg = null;
     }
 
     /** A scaffold task in a cell beside tk that is to end up empty (below first), unless one is there already. */

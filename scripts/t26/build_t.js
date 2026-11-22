@@ -94,7 +94,7 @@ async function main() {
     if (target.portals.length) items.set('flint_and_steel', Math.max(items.get('flint_and_steel') || 0, 2 + Math.ceil(target.portals.length / 20)));
     // temporary blocks (pillars, bridges, supports, fluid fills): the first scaffold block the blueprint does not use (a blueprint with dirt in it left the crew without any)
     { const tmp = SUP.TEMPS.find((n) => !items.has(n)); items.set(tmp, Number(process.env.TEMPS || 64 * 24)); }
-    for (const [tool, n] of [['diamond_pickaxe', BOTS * 3], ['diamond_shovel', BOTS * 2], ['diamond_axe', BOTS]]) items.set(tool, n);
+    for (const [tool, n] of [['diamond_pickaxe', BOTS * 3], ['diamond_shovel', BOTS * 2], ['diamond_axe', BOTS * 3]]) items.set(tool, n);
     const stacks = []; for (const [it, n] of items) { const st = STACK(it); for (let r = Math.max(1, n); r > 0; r -= st) stacks.push({ it, n: Math.min(st, r) }); }
     // shulker boxes the blueprint uses go loose into the chest (vanilla keeps a shulker box out of another one)
     const loose = stacks.filter((st) => SUP.SHULKER.test(st.it)), packed = stacks.filter((st) => !SUP.SHULKER.test(st.it));
