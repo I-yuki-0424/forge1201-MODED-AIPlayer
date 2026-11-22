@@ -430,7 +430,12 @@ class BuildJob {
         if (k === 'seal' || k === 'fill') { const it = this.tempItem; if (!it) return null; return P.ways(world, tk, { name: it, props: {} }, it, [f], { max: 1 })[0] || null; }
         if (k === 'place') {
             const r = this.t.recipeOf(tk); if (!r || !r.item) return null;
-            return P.ways(world, tk, this.t.wantOf(tk), r.item, [f], { max: 1 })[0] || null;
+            const w = P.ways(world, tk, this.t.wantOf(tk), r.item, [f], { max: 1 })[0];
+            if (w) return w;
+            // beside the top of the block it stands on (a cell in the air): leaning over the edge toward it
+            const dx = tk.x - f.x, dz = tk.z - f.z;
+            if (tk.y === f.y - 1 && Math.abs(dx) + Math.abs(dz) === 1) return P.ways(world, tk, this.t.wantOf(tk), r.item, [{ ...f, lean: [dx, dz] }], { max: 1 })[0] || null;
+            return null;
         }
         if (k === 'ignite') { const at = tk.portal ? tk.portal.light : { x: tk.x, y: tk.y - 1, z: tk.z }; const c = P.clickable(world, at, f, { faces: ['up'] }); return c ? { light: at, click: c } : null; }
         if (k === 'pour') return true;

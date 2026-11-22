@@ -56,7 +56,7 @@ function holds(job, bot, tk) {
 }
 
 /** A click with the held item: look at the hit point (the server applies a look a tick after it arrives), then the use packet. */
-async function click(mv, way) { await mv.click(way.n || way.at, way.face, way.hit, { sneak: !!way.sneak }); }
+async function click(mv, way) { if (way.lean) await mv.lean(way.lean[0], way.lean[1]); try { await mv.click(way.n || way.at, way.face, way.hit, { sneak: !!way.sneak, keepSneak: !!way.lean }); } finally { if (way.lean) await mv.unlean(); } }
 
 /** Do one claim from its stance. Returns results for job.report. */
 async function work(job, name, bot, mv, cl, cancel) {
@@ -154,6 +154,7 @@ function worn(bot, it) { const max = (bot.registry.itemsByName[it.name] || {}).m
 async function supplyTrip(job, name, bot, mv, need, cancel) {
     const site = job.sites[0];
     if (!site) return false;
+    if (!Object.keys(needsFor(job, bot, need)).length) return false;          // nothing it may fetch now (all out of stock): no walk to the chest for nothing
     // wait for the chest away from it (a box broken beside the chest drops as an item: a bot standing there picks it up and the box is gone from the supply)
     if (job.chestBusy && job.chestBusy !== name) {
         await mv.goto(site, { goal: (x, y, z) => Math.hypot(x - site.x, z - site.z) >= 5 && Math.hypot(x - site.x, z - site.z) <= 9, cancel, maxNodes: 15000 });

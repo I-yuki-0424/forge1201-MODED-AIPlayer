@@ -226,15 +226,33 @@ class Mover {
         return !after || /^(air|cave_air|void_air|water|lava|bubble_column)$/.test(after.name) || (after.boundingBox === 'empty' && after.name !== block.name);
     }
 
+    /** Sneak to the edge of the bot's cell toward (dx, dz) and lean over it (the body keeps 0.05 on its floor); unlean() steps back to the middle. */
+    async lean(dx, dz) {
+        const b = this.bot, f = feet(b), edge = { x: f.x + 0.5 + dx * 0.75, z: f.z + 0.5 + dz * 0.75 };
+        b.setControlState('sneak', true);
+        for (let i = 0; i < 60; i++) {
+            const p = b.entity.position, ex = edge.x - p.x, ez = edge.z - p.z;
+            if ((ex * dx + ez * dz) < 0.04) break;
+            await b.look(Math.atan2(-dx, -dz), 0, true); b.setControlState('forward', true); await sleep(50);
+        }
+        b.setControlState('forward', false);
+        await sleep(150);
+    }
+    async unlean() {
+        const b = this.bot, f = feet(b);
+        await this.walkTo(f, { sneak: true, timeout: 1500 });
+        b.setControlState('sneak', false);
+    }
+
     /** A click on face `face` of block n at point `hit` (a vanilla use packet), looking at the point first. */
-    async click(n, face, hit, { sneak = false } = {}) {
+    async click(n, face, hit, { sneak = false, keepSneak = false } = {}) {
         const b = this.bot;
         if (sneak) { b.setControlState('sneak', true); await sleep(60); }
         await this.lookAtPoint(new Vec3(hit[0], hit[1], hit[2]));
         b._client.write('block_place', { hand: 0, location: new Vec3(n[0], n[1], n[2]), direction: V.FACE[face], cursorX: hit[0] - n[0], cursorY: hit[1] - n[1], cursorZ: hit[2] - n[2], insideBlock: false, worldBorderHit: false, sequence: (this.seq = (this.seq || 0) + 1) });
         b.swingArm();
         await sleep(120);
-        if (sneak) { b.setControlState('sneak', false); await sleep(60); }
+        if (sneak && !keepSneak) { b.setControlState('sneak', false); await sleep(60); }
     }
 
     /** Place the temporary block into cell c from where the bot stands (a face of a neighbour it sees). */
