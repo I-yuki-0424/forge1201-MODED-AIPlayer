@@ -268,7 +268,7 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
             }
         }
         // pillar up on a temporary block (head room first, broken when diggable), only from a cell the block can go into
-        if (temps > c.t && view.placeable(c.x, c.y, c.z) && view.kind(c.x, c.y + 2, c.z) !== 'avoid' && (headFree || view.diggable(c.x, c.y + 2, c.z))) add(c.x, c.y + 1, c.z, COST.pillar + COST.temp + (headFree ? 0 : view.digTicks(c.x, c.y + 2, c.z)), 'pillar', { place: { x: c.x, y: c.y, z: c.z }, dig: headFree ? null : [{ x: c.x, y: c.y + 2, z: c.z }] });
+        if (temps > c.t && !(view.rules.noPillar && view.rules.noPillar(c.x, c.y, c.z)) && view.placeable(c.x, c.y, c.z) && view.kind(c.x, c.y + 2, c.z) !== 'avoid' && (headFree || view.diggable(c.x, c.y + 2, c.z))) add(c.x, c.y + 1, c.z, COST.pillar + COST.temp + (headFree ? 0 : view.digTicks(c.x, c.y + 2, c.z)), 'pillar', { place: { x: c.x, y: c.y, z: c.z }, dig: headFree ? null : [{ x: c.x, y: c.y + 2, z: c.z }] });
         // dig down one (the block under the feet), onto the one under it
         if (view.diggable(c.x, c.y - 1, c.z) && view.stands(c.x, c.y - 2, c.z)) add(c.x, c.y - 1, c.z, COST.drop + view.digTicks(c.x, c.y - 1, c.z), 'down', { dig: [{ x: c.x, y: c.y - 1, z: c.z }] });
     }
@@ -293,7 +293,11 @@ function feet(bot) { const p = bot.entity.position; return { x: Math.floor(p.x),
 
 /** The mover of one bot. */
 class Mover {
-    constructor(bot, rules, { log = () => {} } = {}) { this.bot = bot; this.rules = rules; this.log = log; this.trace = []; this.mine = new Map(); }
+    constructor(bot, rules, { log = () => {} } = {}) {
+        this.bot = bot; this.log = log; this.trace = []; this.mine = new Map(); this.badPillar = new Map();
+        // a pillar that failed in a cell is not planned there again for two minutes (one was tried 13 times in a row, live 2026-11-23 gd1 w2)
+        this.rules = { ...rules, noPillar: (x, y, z) => (this.badPillar.get(key(x, y, z)) || 0) > Date.now() };
+    }
     /** A temporary block this mover put at c (`how`: pillar, bridge, temp): its own, taken down by unpillar() when it leaves; the caller is told (onTemp) for the rest. */
     _temp(c, how) { const b = this.bot.blockAt(new Vec3(c.x, c.y, c.z), false); this.mine.set(key(c.x, c.y, c.z), b ? b.name : null); if (this.rules.onTemp) this.rules.onTemp(c, how); }
 
@@ -509,7 +513,13 @@ class Mover {
         if (s.move === 'up') return (await this.walkTo(s, { jump: true })) ? { ok: true } : { ok: false, why: 'up' };
         if (s.move === 'drop') { const ok = await this.walkTo(s, { timeout: 3500 }); return ok ? { ok: true } : { ok: false, why: 'drop' }; }
         if (s.move === 'down') { for (let i = 0; i < 30 && feet(this.bot).y > s.y; i++) await sleep(50); return feet(this.bot).y === s.y ? { ok: true } : { ok: false, why: 'down' }; }
-        if (s.move === 'pillar') { if (this.rules.onPillar) this.rules.onPillar(s); return (await this.pillar(s)) ? { ok: true } : { ok: false, why: 'pillar' }; }
+        if (s.move === 'pillar') {
+            if (this.rules.onPillar) this.rules.onPillar(s);
+            if (await this.pillar(s)) return { ok: true };
+            this.badPillar.set(key(prev.x, prev.y, prev.z), Date.now() + 120000);
+            const nm = (y) => { const q = this.bot.blockAt(new Vec3(prev.x, y, prev.z), false); return q ? q.name : '?'; };
+            return { ok: false, why: `pillar (in ${nm(prev.y)}, under ${nm(prev.y - 1)}, over the head ${nm(prev.y + 2)})` };
+        }
         if (s.move === 'bridge') {
             // sneak out over the edge (the body keeps 0.05 on the support), then click the support's side face toward the gap: its block goes under the next cell
             const b = this.bot, dx = s.x - prev.x, dz = s.z - prev.z, item = this.rules.temp();
