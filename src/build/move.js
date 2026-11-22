@@ -469,6 +469,8 @@ class Mover {
                 if (l.nodes <= 2 && t < tries - 1) { this.bot.setControlState('jump', true); await sleep(350); this.bot.setControlState('jump', false); await sleep(700); continue; }
                 return { ok: false, why: `no plan (${l.why}, ${l.nodes} cells from ${start.x},${start.y},${start.z}; ${temps} ${this.rules.temp()}; goal ${view.kind(to.x, to.y, to.z)}/${view.kind(to.x, to.y + 1, to.z)} over ${view.kind(to.x, to.y - 1, to.z)}${view.stands(to.x, to.y - 1, to.z) ? ' stands' : ''}${view.nearLava(to.x, to.y, to.z) ? ' lava' : ''})`, from: start, steps };
             }
+            // the planned way for the in-game display (service/display.js draws it in the bot's colour)
+            if (typeof this.bot.__onPhase === 'function') { try { this.bot.__onPhase({ phase: 'walk', cells: route.map((c) => [c.x, c.y, c.z]) }); } catch (_) { /* display only */ } }
             let i = 1, broke = false;
             while (i < route.length && !cancel.cancelled) {
                 const s = route[i];
