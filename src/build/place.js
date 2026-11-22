@@ -85,6 +85,9 @@ function ways(world, T, want, item, stations, { max = 1, reach = REACH, sneakAlw
         let nb = world.block(...N);
         if (isAir(nb) || isFluid(nb)) continue;
         if (!Array.isArray(nb.shapes) || !nb.shapes.length) nb = { ...nb, shapes: outlineOf(nb) };       // a torch, wire, rail: clicked on its outline (smooth stone over torches was never placed, live 2026-11-22 sQ2)
+        // walls, fences, gates: collision 1.5 high, the outline a player clicks ends at 1.0 (a wall on a wall was never placed: the click went to the top of the collision box,
+        // inside the cell above, live 2026-11-23 gb1 w1)
+        else if (nb.shapes.some((q) => q[4] > 1)) nb = { ...nb, shapes: nb.shapes.map((q) => [q[0], q[1], q[2], q[3], Math.min(q[4], 1), q[5]]) };
         const face = faceOf(nb, F);
         if (!face) continue;
         const sneak0 = sneakAlways || V.INTERACTIVE.test(nb.name) || /chest$/.test(S.bare(want.name)) && (want.props.type || 'single') !== 'left';

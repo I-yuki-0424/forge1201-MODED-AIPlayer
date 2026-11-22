@@ -318,4 +318,12 @@ test('bridges chain over a gap of three; a drop of five for a healthy bot (ga4 w
     assert(await M.plan(v2, { x: 0, y: 5, z: 0 }, (x, y, z) => y === 0, { x: 3, y: 0, z: 0 }, { temps: 0, maxDrop: 6 }), 'a fall of five when healthy');
 });
 
+test('a wall on a wall: the click goes to the outline\'s top at 1.0, not the collision box at 1.5 (gb1 w1)', () => {
+    const stone = { name: 'stone', props: {}, shapes: [[0, 0, 0, 1, 1, 1]] }, wall = { name: 'stone_brick_wall', props: {}, shapes: [[0.25, 0, 0.25, 0.75, 1.5, 0.75]] };
+    const m = new Map(); for (let x = -3; x <= 3; x++) for (let z = -3; z <= 3; z++) m.set(`${x},-1,${z}`, stone); m.set('0,0,0', wall);
+    const world = { block: (x, y, z) => m.get(`${x},${y},${z}`) || P.AIR };
+    const w = P.ways(world, { x: 0, y: 1, z: 0 }, { name: 'stone_brick_wall', props: {} }, 'stone_brick_wall', [{ x: 1, y: 0, z: 1 }, { x: 2, y: 0, z: 0 }], { max: 1 })[0];
+    assert(w && w.face === 'up' && Math.abs(w.hit[1] - 1) < 1e-3, JSON.stringify(w));
+});
+
 (async () => { for (const [name, fn] of queue) { await fn(); n++; console.log(`  ok ${name}`); } console.log(`test_build2_pure: ${n} passed`); })().catch((e) => { console.error(e); process.exit(1); });
