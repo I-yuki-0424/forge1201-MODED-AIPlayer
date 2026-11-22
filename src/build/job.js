@@ -150,7 +150,12 @@ class BuildJob {
     /** Is task `tk` ready in `bot`'s view of the world? (`pending`: cells this bot has just sent a placement for and not read back yet: they count as standing.) */
     ready(tk, bot, now, pending = null, soft = false) {
         if (this.parked.has(tk.k) || (this.cool.get(tk.k) || 0) > now) return false;
-        if (tk.kind === 'untemp') return !this.tasks.has(key(tk.x, tk.y + 1, tk.z)) || this.tasks.get(key(tk.x, tk.y + 1, tk.z)).kind !== 'untemp';      // any stage; the top of a stack first
+        if (tk.kind === 'untemp') {
+            // any stage; the top of a stack first; never one that holds back a fluid (a temporary block taken away beside the Nether's lava let it run onto the crew: 22 deaths
+            // "tried to swim in lava" on two worlds, live 2026-11-23 fz1)
+            if (this.tasks.has(key(tk.x, tk.y + 1, tk.z)) && this.tasks.get(key(tk.x, tk.y + 1, tk.z)).kind === 'untemp') return false;
+            return !wetAround(bot, tk);
+        }
         // a wrong block dug out of a cell to place (kind clear, `after` place) belongs to the place stage: it was never ready there and held the crew idle for good (live 2026-11-23 fx1 w1)
         if (STAGE_OF[tk.kind] !== this.stage && !(tk.after && STAGE_OF[tk.after] === this.stage)) {
             // placing overlaps clearing: a block goes in as soon as its own neighbourhood is cleared (a few hard cells anywhere held the whole build in the prepare stage, live 2026-11-22)
@@ -722,6 +727,12 @@ class BuildJob {
         const last = this.history[this.history.length - 1];
         return { stage: this.done ? 'done' : this.stage, time: Object.fromEntries(Object.entries(this.time).map(([k, v]) => [k, Math.round(v / 1000)])), work: by, claimed: this.claims.size, parked: this.parked.size, right: last ? last.right : 0, total: this.t.n, stats: this.stats, frontier: Number.isFinite(this.frontier) ? this.frontier - this.t.box.y : null, result: this.result };
     }
+}
+
+/** A fluid in one of the six cells around c (lava or water would run into c once its block is gone). */
+function wetAround(bot, c) {
+    for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]]) { const h = seen(bot, { x: c.x + dx, y: c.y + dy, z: c.z + dz }); if (h && (h.name === 'water' || h.name === 'lava' || h.props.waterlogged === 'true')) return true; }
+    return false;
 }
 
 /** Does a body with its feet in f cover cell c (then nothing can be placed there)? */
