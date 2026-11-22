@@ -277,9 +277,12 @@ class BuildJob {
         for (const { k } of keys) {
             const [, by] = k.split(',').map(Number);
             if (by * G > hi || by * G + G - 1 < lo) continue;
-            for (const tk of this.buckets.get(k)) {
+            // done tasks leave their bucket here (kept, 23 000 cleared cells filled the scan budget and a claim saw 5 ready tasks out of thousands, live 2026-11-22 sD2)
+            const live = this.buckets.get(k).filter((tk) => this.tasks.get(tk.k) === tk);
+            if (live.length) this.buckets.set(k, live); else { this.buckets.delete(k); continue; }
+            for (const tk of live) {
+                if (this.claims.has(tk.k)) continue;
                 scanned++;
-                if (!this.tasks.has(tk.k) || this.claims.has(tk.k)) continue;
                 // already as it should be (dug on someone's way, leaves that decayed, a block another bot put there): done, not offered (a clear task on air found no stance and was parked, live 2026-11-22)
                 if (tk.after) { const h = seen(bot, tk); if (h && (S.AIR.has(h.name) || SV.REPLACEABLE.test(h.name))) { tk.kind = tk.after; delete tk.after; } }
                 if (this._already(tk, bot)) { this.tasks.delete(tk.k); this._lowered(tk); continue; }

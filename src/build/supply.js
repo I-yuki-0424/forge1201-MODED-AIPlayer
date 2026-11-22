@@ -38,6 +38,12 @@ async function near(bot, mover, c) {
 
 /** Shift-click window slot `slot` (into the pack, or from the pack into the container). */
 async function shift(bot, slot) { await bot.clickWindow(slot, 0, 1); await sleep(80); }
+/** Take n of stack `it` from window w: the whole stack by shift-click, part of it by clicks (a bot that took whole stacks took every repeater and torch; the rest of the crew
+ * found none and stood idle, live 2026-11-22 sE2). Returns the count taken. */
+async function take(bot, w, it, n) {
+    if (n >= it.count) { await shift(bot, it.slot); return it.count; }
+    try { await w.withdraw(it.type, null, n); await sleep(80); return n; } catch (_) { await shift(bot, it.slot); return it.count; }
+}
 
 /** What the containers hold: { totals: {item: n}, read, failed } (opened one by one, nothing moved). `reach(c)` brings the bot within reach of container c. */
 async function readSupply(bot, sites, reach, { log = () => {} } = {}) {
@@ -74,7 +80,7 @@ async function fetch(bot, site, needs, mover, spot, { log = () => {}, depot = []
     const takeFrom = async (c) => {
         await near(bot, mover, c);
         const w = await open(bot, c);
-        try { for (const it of w.containerItems()) { saw(it.name, it.count); if (freeSlots(bot) <= 1 || !still().length) continue; if (want[it.name] > 0 && (!SHULKER.test(it.name) || emptyBox(bot, it))) { await shift(bot, it.slot); took(it.name, it.count); } } }
+        try { for (const it of w.containerItems()) { saw(it.name, it.count); if (freeSlots(bot) <= 1 || !still().length) continue; if (want[it.name] > 0 && (!SHULKER.test(it.name) || emptyBox(bot, it))) took(it.name, await take(bot, w, it, want[it.name])); } }
         finally { bot.closeWindow(w); await sleep(250); }
     };
     // 1. the depot boxes already standing
@@ -87,9 +93,9 @@ async function fetch(bot, site, needs, mover, spot, { log = () => {}, depot = []
         for (const it of win.containerItems()) {
             if (SHULKER.test(it.name) && !emptyBox(bot, it)) for (const [k, n] of Object.entries(boxHolds(bot, it))) saw(k, n); else saw(it.name, it.count);
             if (freeSlots(bot) <= 1) continue;
-            if (emptyBox(bot, it) && want[it.name] > 0) { await shift(bot, it.slot); took(it.name, it.count); continue; }
+            if (emptyBox(bot, it) && want[it.name] > 0) { took(it.name, await take(bot, win, it, want[it.name])); continue; }
             if (SHULKER.test(it.name)) { const h = boxHolds(bot, it), score = still().reduce((a, [k, n]) => a + Math.min(n, h[k] || 0), 0); if (score > 0) useful.push({ slot: it.slot, h, score }); }
-            else if (want[it.name] > 0) { await shift(bot, it.slot); took(it.name, it.count); }
+            else if (want[it.name] > 0) took(it.name, await take(bot, win, it, want[it.name]));
         }
     } finally { bot.closeWindow(win); await sleep(250); }
     // 3. a box out of the chest into the depot, then taken from

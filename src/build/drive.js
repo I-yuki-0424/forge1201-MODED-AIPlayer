@@ -139,7 +139,9 @@ async function escape(job, name, bot, mv, cancel) {
 /** The crew's items: what the box needs (counted down by what stands), the temporary block, tools. */
 function needsFor(job, bot, need) {
     const have = SUP.carried(bot), out = {};
-    for (const [it, n] of Object.entries(need)) { const want = Math.min(n, 64 * 6) - (have[it] || 0); if (want > 0) out[it] = want; }
+    // what the ready work asks for, or a fair share of the supply when there is plenty (a stack at most): scarce items are not hoarded by the first bot at the chest
+    const crew = Math.max(1, job.bots.size), total = (it) => (job.supply && job.supply.totals[it]) || 0;
+    for (const [it, n] of Object.entries(need)) { const want = Math.min(Math.max(n, Math.min(64, Math.floor(total(it) / crew))), 64 * 6) - (have[it] || 0); if (want > 0) out[it] = want; }
     const temps = SUP.TEMPS.filter((t) => !job.t.items.has(t)).reduce((a, t) => a + (have[t] || 0), 0);
     if (job.tempItem && temps < 64) out[job.tempItem] = 192 - temps;
     for (const k of Object.keys(out)) if ((job.outOf && job.outOf.get(k) || 0) > Date.now()) delete out[k];          // the chest ran out of it a while ago: not fetched again yet
