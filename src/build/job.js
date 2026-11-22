@@ -188,7 +188,7 @@ class BuildJob {
             return true;
         }
         if (tk.kind === 'place' || tk.kind === 'fix') {
-            if (tk.y > this.frontier + this.o.window) return false;
+            if (tk.y > this.frontier + this.win()) return false;
             const r = this.t.recipeOf(tk);
             if (tk.kind === 'place' && r) for (const d of r.deps) {
                 const x = tk.x + d[0], y = tk.y + d[1], z = tk.z + d[2];
@@ -207,6 +207,10 @@ class BuildJob {
         }
         return true;
     }
+
+    /** The window of layers over the frontier that may be placed now: two, five for 20 s after a claim found fewer ready cells than bots (a few stuck low cells held the crew idle
+     *  with 7 500 blocks above, live 2026-11-23 gb1 w2); the dependencies still decide. */
+    win() { return (this.winBoost || 0) > Date.now() ? this.o.window + 3 : this.o.window; }
 
     /** The fill and seal tasks by 8-cell grid square, rebuilt when the task map is replaced (a survey) or every 20 s (filled ones drop out by the identity check). */
     _fluidGrid() {
@@ -314,7 +318,7 @@ class BuildJob {
         if (this.parked.has(tk.k)) return 'parked';
         if ((this.cool.get(tk.k) || 0) > now) return 'cooling';
         if (STAGE_OF[tk.kind] !== this.stage && !(this.stage === 'prepare' && (tk.kind === 'place' || tk.kind === 'fix') && this._clearAround(tk))) return this.stage === 'prepare' && (tk.kind === 'place' || tk.kind === 'fix') ? 'clearing or fluids around it' : `stage ${STAGE_OF[tk.kind]}`;
-        if ((tk.kind === 'place' || tk.kind === 'fix') && tk.y > this.frontier + this.o.window) return `above the window (frontier ${this.frontier})`;
+        if ((tk.kind === 'place' || tk.kind === 'fix') && tk.y > this.frontier + this.win()) return `above the window (frontier ${this.frontier})`;
         const r = tk.i >= 0 ? this.t.recipeOf(tk) : null;
         if (tk.kind === 'place' && r) for (const d of r.deps) {
             const x = tk.x + d[0], y = tk.y + d[1], z = tk.z + d[2], want = this.t.at(x, y, z), h = seen(bot, { x, y, z });
@@ -426,7 +430,7 @@ class BuildJob {
             if (this._already(tk, bot)) { this.tasks.delete(tk.k); this.untemps.delete(tk); this.temps.delete(tk.k); continue; }
             if (this.ready(tk, bot, now)) ready.push(tk);
         }
-        const lo = this.stage === 'place' ? this.frontier : -Infinity, hi = this.stage === 'place' ? this.frontier + this.o.window : Infinity;
+        const lo = this.stage === 'place' ? this.frontier : -Infinity, hi = this.stage === 'place' ? this.frontier + this.win() : Infinity;
         const tScan = Date.now();
         for (const { k } of keys) {
             // the scan is synchronous: at most 60 ms of it per claim (eight bots claiming over 17 000 tasks blocked every bot's keep-alive for seconds, live 2026-11-23 fx3 profile)
@@ -444,7 +448,7 @@ class BuildJob {
                 // (a covered cell is looked at again after 2 s: 14 000 of them checked on every claim used up the scan's 60 ms before it reached the ready ones, live 2026-11-23 fz4 w2)
                 if (tk.kind === 'clear' && !this.relaxed && this.stage === 'prepare') { if ((tk.covUntil || 0) > now) continue; if (this._covered(tk, bot)) { tk.covUntil = now + 2000; continue; } }
                 // (in every stage: in the prepare stage the scan read the world for 7 500 blocks above the window and ran out of time before the ready ones, live 2026-11-23 fz6 w2)
-                if ((tk.kind === 'place' || tk.kind === 'fix') && !this.relaxed && tk.y > this.frontier + this.o.window) continue;
+                if ((tk.kind === 'place' || tk.kind === 'fix') && !this.relaxed && tk.y > this.frontier + this.win()) continue;
                 // already as it should be (dug on someone's way, leaves that decayed, a block another bot put there): done, not offered (a clear task on air found no stance and was parked, live 2026-11-22)
                 if (tk.after) { const h = seen(bot, tk); if (h && S.AIR.has(h.name)) { tk.kind = tk.after; delete tk.after; } }
                 if (this._already(tk, bot)) { this.tasks.delete(tk.k); this._lowered(tk); continue; }
@@ -454,6 +458,7 @@ class BuildJob {
             }
             if (ready.length >= 300 || scanned >= 60000) break;
         }
+        if (ready.length < this.bots.size && !this.relaxed && (this.winBoost || 0) < now) this.winBoost = now + 20000;
         if (!ready.length) {
             this.nothingWhy = `nothing ready in stage ${this.stage} (${this.tasks.size} tasks, ${this.claims.size} claimed by others, frontier ${Number.isFinite(this.frontier) ? this.frontier : '-'}, parked ${this.parked.size})`;
             this._stall(bot, now);
@@ -590,7 +595,7 @@ class BuildJob {
             for (const tk of this.tasks.values()) {
                 if (this.claims.has(tk.k)) { why.claimed++; continue; }
                 if (tk.kind === 'clear' && this._covered(tk, bot)) { why['under a cell to clear']++; continue; }
-                if ((tk.kind === 'place' || tk.kind === 'fix') && this.stage === 'place' && tk.y > this.frontier + this.o.window) { why['above the window']++; continue; }
+                if ((tk.kind === 'place' || tk.kind === 'fix') && this.stage === 'place' && tk.y > this.frontier + this.win()) { why['above the window']++; continue; }
                 if (n++ > 4000) { why['not looked at'] = (why['not looked at'] || 0) + 1; continue; }
                 const w = this.whyNot(tk, bot, now).replace(/ \d.*$/, '').replace(/waits for .*/, 'waits for a dependency').replace(/next to .*/, 'next to a fluid'); why[w] = (why[w] || 0) + 1;
             }
@@ -621,7 +626,7 @@ class BuildJob {
         const inB = new Set(batch.map((t) => t.k)), eye = eyeOf({ x: f.x + 0.5, y: f.y, z: f.z + 0.5 }), cand = [];
         const cube = (tk) => { const w = this.t.wantOf(tk); if (w && FULL.test(S.bare(w.name))) world.over.set(tk.k, { name: S.bare(w.name), props: {}, shapes: [[0, 0, 0, 1, 1, 1]] }); };
         for (const t of batch) if (t.kind === 'place') cube(t);
-        const top = this.relaxed ? Infinity : this.frontier + this.o.window;
+        const top = this.relaxed ? Infinity : this.frontier + this.win();
         for (let dy = -5; dy <= 4; dy++) for (let dx = -5; dx <= 5; dx++) for (let dz = -5; dz <= 5; dz++) {
             const x = f.x + dx, y = f.y + dy, z = f.z + dz, k = key(x, y, z), tk = this.tasks.get(k);
             if (!tk || tk.kind !== 'place' || tk.y > top || inB.has(k) || this.claims.has(k) || this.parked.has(k) || (this.cool.get(k) || 0) > now) continue;
