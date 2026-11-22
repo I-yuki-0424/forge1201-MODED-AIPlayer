@@ -154,7 +154,14 @@ class BuildJob {
             // top-down, layer by layer (the crew stands on the floor it digs: a column cleared ahead of its neighbours is a shaft whose lower cells no eye sees, live 2026-11-22);
             // never next to a fluid (it would run in)
             // the nine cells above first (no shaft runs ahead of its neighbours; a local rule, so one stuck cell holds only what is under it)
-            for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) { const up = this.tasks.get(key(tk.x + dx, tk.y + 1, tk.z + dz)); if (up && up.kind === 'clear' && !this.parked.has(up.k)) return false; }
+            // natural leaves above do not count: they wait for the logs below them to go (they decay), so counting them locked trees for good (3 of 5 987 clear tasks ready,
+            // live 2026-11-22 sL2)
+            for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+                const up = this.tasks.get(key(tk.x + dx, tk.y + 1, tk.z + dz));
+                if (!up || up.kind !== 'clear' || this.parked.has(up.k)) continue;
+                const uh = seen(bot, up); if (uh && /_leaves$/.test(uh.name) && uh.props.persistent !== 'true') continue;
+                return false;
+            }
             for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]]) {
                 const h = seen(bot, { x: tk.x + dx, y: tk.y + dy, z: tk.z + dz });
                 if (h && (h.name === 'water' || h.name === 'lava' || h.props.waterlogged === 'true')) return false;
@@ -211,7 +218,7 @@ class BuildJob {
         for (let dy = -6; dy <= 6; dy++) for (let dx = -6; dx <= 6; dx++) for (let dz = -6; dz <= 6; dz++) {
             if (Math.abs(dx) + Math.abs(dy) + Math.abs(dz) > 6) continue;
             const h = seen(bot, { x: c.x + dx, y: c.y + dy, z: c.z + dz });
-            if (h && /(_log|_wood|_stem|mangrove_roots)$/.test(h.name)) return true;
+            if (h && /(_log|_wood|_stem|mangrove_roots)$/.test(h.name) && (this.tasks.get(key(c.x + dx, c.y + dy, c.z + dz)) || {}).kind === 'clear') return true;      // only a log that is to go (one outside the box stays: its leaves would wait for ever)
         }
         return false;
     }
