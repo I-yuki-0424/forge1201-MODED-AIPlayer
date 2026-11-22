@@ -347,8 +347,16 @@ class Mover {
             const start = feet(this.bot);
             if (g(start.x, start.y, start.z)) return { ok: true, steps };
             const view = new View(this.bot, this.rules), temps = this.rules.temp() ? this.bot.inventory.items().filter((i) => i.name === this.rules.temp()).reduce((a, i) => a + i.count, 0) : 0;
+            // the bot's own cell not loaded yet (after a teleport, a respawn): wait for the chunks
+            if (view.kind(start.x, start.y, start.z) === 'unknown') { await sleep(1000); continue; }
             const route = await plan(view, start, g, to, { maxNodes, temps, box });
-            if (!route) { const l = plan.last || {}; return { ok: false, why: `no plan (${l.why}, ${l.nodes} cells from ${start.x},${start.y},${start.z})`, from: start, steps }; }
+            if (!route) {
+                const l = plan.last || {};
+                // nothing at all from where the bot believes it is (its picture of its own position is off: live 2026-11-22 the server had it on the chest, the bot a cell higher):
+                // a jump lets the physics and the server's correction settle it, then plan again
+                if (l.nodes <= 2 && t < tries - 1) { this.bot.setControlState('jump', true); await sleep(350); this.bot.setControlState('jump', false); await sleep(700); continue; }
+                return { ok: false, why: `no plan (${l.why}, ${l.nodes} cells from ${start.x},${start.y},${start.z})`, from: start, steps };
+            }
             let i = 1, broke = false;
             while (i < route.length && !cancel.cancelled) {
                 const s = route[i];
