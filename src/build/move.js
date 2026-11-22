@@ -44,6 +44,8 @@ class View {
         if (AVOID_IN.test(b.name)) return 'avoid';
         // climbable plants have no collision box but catch a walking body (it climbs and gets nowhere: 307 failed walks in a jungle, live 2026-11-22 sJ2 w3): broken on the way
         if (CLIMB.test(b.name)) return 'solid';
+        // falling water (a waterfall) carries a body down: no route goes through it (six bots drowned swimming up one, live 2026-11-22 sN2 w2)
+        if (b.name === 'water') { const lv = Number((b.getProperties() || {}).level || 0); if (lv >= 8) return 'avoid'; }
         if (b.boundingBox === 'empty') return b.name === 'water' ? 'water' : 'free';
         return 'solid';
     }
@@ -233,6 +235,26 @@ class Mover {
         return !after || /^(air|cave_air|void_air|water|lava|bubble_column)$/.test(after.name) || (after.boundingBox === 'empty' && after.name !== block.name);
     }
 
+    /** Under water with little air: to the nearest cell (six around) where the head is in the air, by the shortest plan; a last resort before drowning. */
+    async surface(cancel) {
+        const v = this.view(), f = feet(this.bot), out = [];
+        for (let dy = -2; dy <= 6; dy++) for (let dx = -6; dx <= 6; dx++) for (let dz = -6; dz <= 6; dz++) {
+            const x = f.x + dx, y = f.y + dy, z = f.z + dz, hk = v.kind(x, y + 1, z);
+            if (v.free(x, y, z) && hk === 'free' && (v.stands(x, y - 1, z) || v.kind(x, y, z) === 'water' || v.kind(x, y - 1, z) === 'water')) out.push({ x, y, z, d: Math.abs(dx) + Math.abs(dy) * 0.5 + Math.abs(dz) });
+        }
+        out.sort((a, b) => a.d - b.d);
+        this.log(`${this.bot.username}: out of breath at ${f.x},${f.y},${f.z}: to air (${out.length} cells)`);
+        for (const c of out.slice(0, 4)) {
+            const route = await plan(v, f, (x, y, z) => x === c.x && y === c.y && z === c.z, c, { maxNodes: 4000, temps: 0 });
+            if (!route) continue;
+            await this.follow(route, 1, route.length - 1, cancel || { cancelled: false }, { breath: false });
+            if (!this.bot.entity.isInWater || this.bot.oxygenLevel > 12) return true;
+        }
+        // nothing planned: straight up, jumping
+        this.bot.setControlState('jump', true); await sleep(2500); this.bot.setControlState('jump', false);
+        return false;
+    }
+
     /** Sneak to the edge of the bot's cell toward (dx, dz) and lean over it (the body keeps 0.05 on its floor); unlean() steps back to the middle. */
     async lean(dx, dz) {
         const b = this.bot, f = feet(b), edge = { x: f.x + 0.5 + dx * LEAN, z: f.z + 0.5 + dz * LEAN };
@@ -371,7 +393,7 @@ class Mover {
      * Follow a run of ground moves (walk, diagonal, up, drop) without stopping in between: steer at the next cell's centre, take it when within 0.35 (the last one: 0.15),
      * jump just before a step up. Ends when the bot leaves the run's cells (the caller plans again). Returns the index reached.
      */
-    async follow(route, i0, i1, cancel) {
+    async follow(route, i0, i1, cancel, { breath = true } = {}) {
         const b = this.bot, cells = new Set(route.slice(Math.max(0, i0 - 1), i1 + 1).map((c) => key(c.x, c.y, c.z)));
         let i = i0, t0 = Date.now(), stuck = 0, lastD = Infinity;
         // cells beside a drop of four or more: walked sneaking, as a player does (momentum at a corner or at the end of a run carried bots over the edge: falls of 14-39 blocks,
@@ -389,6 +411,7 @@ class Mover {
                 const f = feet(b);
                 if (b.entity.onGround && !cells.has(key(f.x, f.y, f.z)) && !cells.has(key(f.x, f.y - 1, f.z)) && ![...cells].some((k) => { const [x, y, z] = k.split(',').map(Number); return Math.abs(x - f.x) <= 1 && Math.abs(z - f.z) <= 1 && Math.abs(y - f.y) <= 1; })) return { i, why: `off the route at ${f.x},${f.y},${f.z}` };
                 v.cache.clear(); if (v.lavaNear) v.lavaNear.clear();
+                if (breath && b.entity.isInWater && typeof b.oxygenLevel === 'number' && b.oxygenLevel <= 8) return { i, why: 'out of breath' };
                 if (['walk', 'up'].includes(route[i].move) && floorGone(c)) return { i, why: `the floor at ${c.x},${c.y - 1},${c.z} is gone` };
                 if (d < (last ? 0.15 : 0.35) && (Math.abs(p.y - c.y) < 0.6 || (b.entity.isInWater && route[i].move === 'swim' && Math.abs(p.y - c.y) < 1.0))) { i++; t0 = Date.now(); stuck = 0; lastD = Infinity; continue; }
                 if (Date.now() - t0 > 4000) { const nm = (dy) => { const q = b.blockAt(new Vec3(c.x, c.y + dy, c.z), false); return q ? q.name : '?'; }; return { i, why: `no progress toward ${c.x},${c.y},${c.z} (${route[i].move}; there ${nm(-1)}/${nm(0)}/${nm(1)}; bot at ${p.x.toFixed(1)},${p.y.toFixed(1)},${p.z.toFixed(1)} ground ${b.entity.onGround})` }; }
@@ -436,6 +459,7 @@ class Mover {
                     let j = i; while (j + 1 < route.length && ['walk', 'up', 'drop', 'swim'].includes(route[j + 1].move) && !(route[j + 1].dig && route[j + 1].dig.length)) j++;
                     this.note(`follow ${route[i - 1].x},${route[i - 1].y},${route[i - 1].z}->${route[j].x},${route[j].y},${route[j].z} (${j - i + 1} cells: ${route.slice(i, j + 1).map((c) => c.move[0]).join('')})`);
                     const r = await this.follow(route, i, j, cancel);
+                    if (r.why === 'out of breath') { await this.surface(cancel); last = 'out of breath'; broke = true; break; }
                     steps += r.i - i;
                     if (r.i <= j) { last = r.why; broke = true; break; }
                     i = j + 1; continue;
