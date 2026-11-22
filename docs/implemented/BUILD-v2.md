@@ -150,3 +150,13 @@ Causes taken from the live runs `watch-w2.log` / `watch-w3.log` (25592, 25593), 
 | found live | idle crews: lowest cells without a stance held the window; untemp under feet hid the stall; a hot step-off loop froze all bots 17 s; lava regions cached before their chunk loaded (8 bots into lava); claim and dig checks were most of the CPU in the Nether | all fixed (git log TASK:20261121-073, 2026-11-23) |
 
 Measured (fy runs, 2026-11-23): Nether event-loop p99 868 -> 89-365 ms, blocks of 1.5-28 s gone; world 3 placed 515 blocks in 41 min (best before: 474 in 27 min); no build finished yet. Open: Nether placing is slow (chests and hoppers run short, cells over the lava sea); placement in the air; the builder's remedies are still its own rules, not the command-stack router.
+
+### Part 3 of the list (2026-11-23 morning) and the runs fz*-ga*
+
+| Problem | Cause | Fix |
+| :-- | :-- | :-- |
+| comparator facing never right | the look was the eye's ray to the hit point; at an angle it gave the wrong horizontal | flexible placement as Tweakeroo does it on a vanilla server: an exact rotation (a cardinal, level or near straight up/down) sent with the click when the natural look does not give the state; live probe 153/154 states, 36/39 exact-look placements right (the rest: the known right chest half, a gate's open click) |
+| unmined areas at the edges | stances inside rock were allowed only in cells to clear | stances may be dug into natural terrain outside the box; covered cells are not re-checked for 2 s and blocks above the window are skipped in every stage (the 60 ms scan ran out before the ready cells) |
+| Nether crew into the air at once | stances outside a lava-ringed pocket offered again and again | a searched-out plan gives the cells a bot can reach; claims offer only stances among them; with nothing there the bot leaves the pocket (once; then 2 min back-off) |
+| sinking and floating in the sea | the breath reflex swam up while the builder's plan dived | the fall and breath reflexes are off for builder bots (lava and fight stay); swimming under the surface costs a dive |
+| found live | 22 lava deaths: temporary blocks holding back lava were taken away; a stall's relaxed order dropped the fluid rule; lava pockets sealed in rock could not be filled; one bot took all scarce items; one dirt beside 400 cobblestone made pillars impossible; bridges rebuilt 2 230 times | untemp never beside a fluid, the fluid rule survives relaxing, sealed lava is opened from above and filled through the hole, fluid tasks are never parked, the fair share per trip, the temporary block is the plain block carried most, temps kept 90 s after last use, the stall rule applies while at most one bot works, a parked dependency does not hold a block |
