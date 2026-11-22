@@ -164,7 +164,7 @@ function lavaCache(bot) {
  * A plan from the bot's feet cell to a cell `goal(x, y, z)` accepts (h: a heuristic point). Returns [{ x, y, z, move, dig: [cells], place: cell | null }] (the first entry is the start) or null.
  * `temps`: how many temporary blocks the plan may use.
  */
-async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = null, budgetMs = 4000, lavaCost = 0 } = {}) {
+async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = null, budgetMs = 4000, lavaCost = 0, maxDrop = 4 } = {}) {
     const open = new Heap(), best = new Map();
     // height to gain costs about a pillar step each (a weaker estimate searched whole hillsides before climbing 17 blocks to a tree top, live 2026-11-22)
     // weighted (a quicker search, a little longer way): a goal in the air is reached over a bridge at ten times a walk's cost, which an estimate at walking cost hid: the search
@@ -216,10 +216,14 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
             // walk on the same level
             if (view.fits(x, c.y, z)) {
                 if (view.stands(x, c.y - 1, z)) { add(x, c.y, z, diag ? COST.diag : COST.walk, 'walk'); continue; }
-                // drop down 1..3 onto something
+                // drop down onto something: up to three, or up to `maxDrop` for a healthy bot at a cost for the damage (a bot on a plateau with four-block drops all round had
+                // no way down, live 2026-11-23 ga4 w1)
                 let landed = false;
-                for (let k = 1; k <= 3 && !diag; k++) { if (!view.free(x, c.y - k, z)) { if (view.stands(x, c.y - k, z)) { add(x, c.y - k + 1, z, COST.drop + k, 'drop'); landed = true; } break; } }
-                if (!landed && !diag) { if (view.placeable(x, c.y - 1, z) && view.kind(x, c.y - 1, z) !== 'water' && view.stands(c.x, c.y - 1, c.z) && P.full(blk(view, c.x, c.y - 1, c.z))) add(x, c.y, z, COST.bridge + COST.temp, 'bridge', { place: { x, y: c.y - 1, z } }); }
+                for (let k = 1; k <= maxDrop && !diag; k++) { if (!view.free(x, c.y - k, z)) { if (view.stands(x, c.y - k, z) && view.kind(x, c.y - k + 1, z) !== 'water' || view.kind(x, c.y - k + 1, z) === 'water') { add(x, c.y - k + 1, z, COST.drop + k + (k > 4 ? (k - 4) * 15 : 0), 'drop'); landed = true; } break; } }
+                // a bridge from a block under the feet, or from the temporary block this plan just put there (bridges were one cell long: the plan's view never had its own
+                // blocks, live 2026-11-23 ga4 w1)
+                const onTemp = !!c.place && c.place.x === c.x && c.place.y === c.y - 1 && c.place.z === c.z;
+                if (!landed && !diag) { if (view.placeable(x, c.y - 1, z) && view.kind(x, c.y - 1, z) !== 'water' && (onTemp || (view.stands(c.x, c.y - 1, c.z) && P.full(blk(view, c.x, c.y - 1, c.z))))) add(x, c.y, z, COST.bridge + COST.temp, 'bridge', { place: { x, y: c.y - 1, z } }); }
                 continue;
             }
             if (diag) continue;
@@ -579,7 +583,8 @@ class Mover {
             const view = new View(this.bot, this.rules), temps = this.rules.temp() ? this.bot.inventory.items().filter((i) => i.name === this.rules.temp()).reduce((a, i) => a + i.count, 0) : 0;
             // the bot's own cell not loaded yet (after a teleport, a respawn): wait for the chunks
             if (view.kind(start.x, start.y, start.z) === 'unknown') { await sleep(1000); continue; }
-            const route = await plan(view, start, g, to, { maxNodes, temps, box, lavaCost });
+            const maxDrop = (this.bot.health || 0) >= 16 ? 6 : 4;          // k: the floor k cells under the feet, a fall of k - 1 (three without damage)
+            const route = await plan(view, start, g, to, { maxNodes, temps, box, lavaCost, maxDrop });
             if (!route) {
                 const l = plan.last || {};
                 // nothing at all from where the bot believes it is (its picture of its own position is off: live 2026-11-22 the server had it on the chest, the bot a cell higher):
