@@ -193,6 +193,8 @@ class BuildJob {
             if (tk.kind === 'place' && r) for (const d of r.deps) {
                 const x = tk.x + d[0], y = tk.y + d[1], z = tk.z + d[2];
                 if (pending && pending.has(key(x, y, z))) continue;
+                // a dependency that is parked does not hold the block (it waited for good and held the window, live 2026-11-23 ga2 w2): the block is tried, the click search decides
+                if (this.parked.has(key(x, y, z))) continue;
                 const want = this.t.at(x, y, z), h = seen(bot, { x, y, z });
                 if (!want || !h || !S.matches(want, h)) {
                     // a soft dependency (the cell an observer watches) holds only while that cell can be placed now itself: a chain of observers watching observers up past the
