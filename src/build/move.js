@@ -119,8 +119,10 @@ class View {
     }
     diggable(x, y, z) {
         if (this.kind(x, y, z) !== 'solid') return false;
-        const b = this.raw(x, y, z);
-        return !!b && this.rules.canDig(x, y, z, b);
+        const k = key(x, y, z), c = this.digC || (this.digC = new Map());
+        let v = c.get(k);
+        if (v === undefined) { const b = this.raw(x, y, z); v = !!b && this.rules.canDig(x, y, z, b, this); c.set(k, v); }
+        return v;
     }
     // with the tool the dig will use, not what the hand holds now (priced with a held bed or dirt, stone cost 150 ticks and a 9-block tunnel lost to searching 30 000 surface cells, live 2026-11-22)
     digTicks(x, y, z) {
@@ -500,7 +502,7 @@ class Mover {
                 const c = route[i], last = i === i1, p = b.entity.position, dx = c.x + 0.5 - p.x, dz = c.z + 0.5 - p.z, d = Math.hypot(dx, dz);
                 const f = feet(b);
                 if (b.entity.onGround && !cells.has(key(f.x, f.y, f.z)) && !cells.has(key(f.x, f.y - 1, f.z)) && ![...cells].some((k) => { const [x, y, z] = k.split(',').map(Number); return Math.abs(x - f.x) <= 1 && Math.abs(z - f.z) <= 1 && Math.abs(y - f.y) <= 1; })) return { i, why: `off the route at ${f.x},${f.y},${f.z}` };
-                v.cache.clear(); if (v.lavaNear) v.lavaNear.clear();
+                v.cache.clear(); if (v.lavaNear) v.lavaNear.clear(); if (v.digC) v.digC.clear();
                 if (breath && b.entity.isInWater && typeof b.oxygenLevel === 'number' && b.oxygenLevel <= 8) return { i, why: 'out of breath' };
                 if (['walk', 'up', 'drop'].includes(route[i].move) && floorGone(c)) return { i, why: `the floor at ${c.x},${c.y - 1},${c.z} is gone` };
                 if (d < (last ? 0.15 : 0.35) && (Math.abs(p.y - c.y) < 0.6 || (b.entity.isInWater && route[i].move === 'swim' && Math.abs(p.y - c.y) < 1.0))) { i++; t0 = Date.now(); stuck = 0; lastD = Infinity; continue; }

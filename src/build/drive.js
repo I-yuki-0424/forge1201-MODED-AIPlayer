@@ -20,11 +20,15 @@ const key = (x, y, z) => `${x},${y},${z}`;
 /** The mover's rules for this job: what may be broken on the way (never a built cell of the box, a container, a supply site, next to a fluid), the temporary block. */
 function rules(job, bot) {
     return {
-        canDig: (x, y, z, b) => {
+        // `view` (the planner's): its cached blocks for the neighbours (six blockAt per check made this 55 % of all CPU in the Nether, profile fx4)
+        canDig: (x, y, z, b, view = null) => {
             if (UNBREAKABLE.test(b.name) || CONTAINER.test(b.name)) return false;
-            if (underCrew(job, bot, x, y, z)) return false;
+            for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
+                if (view) { const q = view.raw(x + dx, y + dy, z + dz); if (q && (q.name === 'water' || q.name === 'lava' || String((q.getProperties() || {}).waterlogged) === 'true')) return false; }
+                else if (FLUID(seen(bot, { x: x + dx, y: y + dy, z: z + dz }))) return false;
+            }
             if (job.t.inside(x, y, z)) { const want = job.t.at(x, y, z), h = seen(bot, { x, y, z }); if (h && S.matches(want, h)) return false; }
-            for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) if (FLUID(seen(bot, { x: x + dx, y: y + dy, z: z + dz }))) return false;
+            if (underCrew(job, bot, x, y, z)) return false;
             return true;
         },
         // the temporary block: the supply's, or rubble the bot dug up (dirt, cobblestone, netherrack: what a player builds scaffolds with)
