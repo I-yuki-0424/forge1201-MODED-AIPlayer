@@ -131,7 +131,7 @@ async function repack(bot, site, depot, mover, { log = () => {} } = {}) {
 async function dropRubble(bot, keep, { minFree = 6 } = {}) {
     if (freeSlots(bot) >= minFree) return 0;
     let n = 0;
-    for (const it of bot.inventory.items()) { if (keep(it.name) || TOOL.test(it.name) || SHULKER.test(it.name)) continue; try { await bot.tossStack(it); n++; } catch (_) { /* busy */ } if (freeSlots(bot) >= minFree + 4) break; }
+    for (const it of bot.inventory.items()) { if (keep(it.name, it.count) || TOOL.test(it.name) || SHULKER.test(it.name)) continue; try { await bot.tossStack(it); n++; } catch (_) { /* busy */ } if (freeSlots(bot) >= minFree + 4) break; }
     return n;
 }
 

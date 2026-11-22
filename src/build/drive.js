@@ -31,6 +31,18 @@ function rules(job, bot) {
     };
 }
 
+/**
+ * What a bot keeps when it makes room: the blueprint's items and the supply's, and of the temporary kinds (dirt, cobblestone, netherrack ...) three stacks in all. Dirt is both the
+ * supply's temporary block and the rubble of a hill: kept whole, 26 stacks of it filled the pack and every supply trip came back empty (live 2026-11-22 tr8).
+ */
+function keepRubble(job) {
+    let temps = 192;
+    return (n, count) => {
+        if (SUP.TEMPS.includes(n) && !job.t.items.has(n)) { if (temps <= 0) return false; temps -= count; return true; }
+        return job.t.items.has(n) || job.available.has(n);
+    };
+}
+
 /** Is task tk's cell right now? */
 function holds(job, bot, tk) {
     const h = seen(bot, tk);
@@ -151,7 +163,7 @@ async function supplyTrip(job, name, bot, mv, need, cancel) {
         if (!r.ok) { job.log(`${name}: no way to the materials at ${site.x} ${site.y} ${site.z} (${r.why})`); return false; }
         if (bot.inventory.items().some((i) => /shulker_box$/.test(i.name))) await SUP.putBack(bot, site);          // boxes it carries (picked up somewhere) go back first
         const spot = () => boxSpot(job, bot, site);
-        await SUP.dropRubble(bot, (n) => job.available.has(n) || n === job.tempItem || (SUP.TEMPS.includes(n) && SUP.carried(bot)[n] <= 128), { minFree: 12 });          // room in the pack first (a pack full of rubble brought nothing back)
+        await SUP.dropRubble(bot, keepRubble(job), { minFree: 12 });          // room in the pack first (a pack full of rubble brought nothing back)
         const wants = needsFor(job, bot, need);
         job.depot = job.depot || [];
         const res = await SUP.fetch(bot, site, wants, mv, spot, { log: job.log, depot: job.depot });
@@ -225,7 +237,7 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
                 await job.supplyReading; await sleep(200); continue;
             }
             if (job.exhausted()) { await job.resurvey(bot, `${name}: stage ${job.stage} done`); continue; }
-            await SUP.dropRubble(bot, (n) => job.available.has(n) || n === job.tempItem || (SUP.TEMPS.includes(n) && SUP.carried(bot)[n] <= 192));
+            await SUP.dropRubble(bot, keepRubble(job));
             // tools and temporary blocks before the work needs them
             const base = needsFor(job, bot, {});
             if (Object.keys(base).length && job.stage !== 'settle' && !(job.lastTrip && Date.now() - job.lastTrip.get(name) < 60000)) { (job.lastTrip = job.lastTrip || new Map()).set(name, Date.now()); const tt = Date.now(); await supplyTrip(job, name, bot, mv, {}, cancel); job.time.trip += Date.now() - tt; continue; }
