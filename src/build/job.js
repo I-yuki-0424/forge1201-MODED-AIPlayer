@@ -144,6 +144,9 @@ class BuildJob {
         }
         if (this.relaxed) return true;
         if (tk.kind === 'clear') {
+            // natural leaves fall by themselves once the logs near them are gone (a player cuts the trunk, not the crown): they wait while a log stands within six
+            const here = seen(bot, tk);
+            if (here && /_leaves$/.test(here.name) && here.props.persistent !== 'true' && this._logNear(bot, tk)) return false;
             // top-down, layer by layer (the crew stands on the floor it digs: a column cleared ahead of its neighbours is a shaft whose lower cells no eye sees, live 2026-11-22);
             // never next to a fluid (it would run in)
             // the nine cells above first (no shaft runs ahead of its neighbours; a local rule, so one stuck cell holds only what is under it)
@@ -171,6 +174,16 @@ class BuildJob {
             return true;
         }
         return true;
+    }
+
+    /** A log within six cells (leaves near one do not decay). */
+    _logNear(bot, c) {
+        for (let dy = -6; dy <= 6; dy++) for (let dx = -6; dx <= 6; dx++) for (let dz = -6; dz <= 6; dz++) {
+            if (Math.abs(dx) + Math.abs(dy) + Math.abs(dz) > 6) continue;
+            const h = seen(bot, { x: c.x + dx, y: c.y + dy, z: c.z + dz });
+            if (h && /(_log|_wood|_stem|mangrove_roots)$/.test(h.name)) return true;
+        }
+        return false;
     }
 
     /** Is the cell of task tk already what the task would make it? */
