@@ -460,7 +460,8 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
             const have = SUP.carried(bot);
             const tc = Date.now(); const cl = job.claim(bot, name, Date.now(), (it) => have[it] || 0, (it) => !!job.outOf && (job.outOf.get(it) || 0) > Date.now() && !(have[it] > 0)); const dc = Date.now() - tc; job.time.claim += dc; if (dc > 400) job.log(`${name}: claim took ${dc} ms (${job.lastClaimInfo || ''})`);
             { const w = !cl ? 'nothing' : cl.need ? `need ${Object.keys(cl.need).slice(0, 3).join('+')}` : cl.moveOff ? 'move off' : 'work'; const o = job.claimWhy || (job.claimWhy = {}); o[w] = (o[w] || 0) + 1;
-              if (Date.now() - (job.claimWhyAt || 0) > 60000) { job.claimWhyAt = Date.now(); job.log(`claims in the last minute: ${JSON.stringify(o)}`); job.claimWhy = {}; } }
+              if (cl && cl.tasks) { job.claimTasks = (job.claimTasks || 0) + cl.tasks.length; job.claimTasksN = (job.claimTasksN || 0) + 1; }
+              if (Date.now() - (job.claimWhyAt || 0) > 60000) { job.claimWhyAt = Date.now(); job.log(`claims in the last minute: ${JSON.stringify(o)}; ${job.claimTasksN ? (job.claimTasks / job.claimTasksN).toFixed(1) : 0} tasks per claim`); job.claimWhy = {}; job.claimTasks = 0; job.claimTasksN = 0; } }
             if (cl && cl.moveOff) {
                 const f = feet(bot), floor = (x, y, z) => job.tasks.get(`${x},${y - 1},${z}`);
                 const r = await mv.goto(f, { goal: (x, y, z) => Math.hypot(x - f.x, z - f.z) >= 2 && !(floor(x, y, z) && ['clear', 'untemp'].includes(floor(x, y, z).kind)), cancel, maxNodes: 4000 });
