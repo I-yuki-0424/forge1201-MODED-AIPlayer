@@ -466,7 +466,7 @@ class BuildJob {
         const near = (eye) => { const out = []; for (let gx = g(eye.x - 5); gx <= g(eye.x + 5); gx++) for (let gy = g(eye.y - 5); gy <= g(eye.y + 5); gy++) for (let gz = g(eye.z - 5); gz <= g(eye.z + 5); gz++) { const l = grid.get(`${gx},${gy},${gz}`); if (l) for (const tk of l) if (boxDist(eye, tk) <= this.o.reach) out.push(tk); } return out; };
         // seeds until one has a stance, within a quarter second (three seeds and five stances each left bots idle with hundreds of ready tasks: the best-ranked stances were inside
         // rock, where the line of sight is blocked, live 2026-11-22 sV)
-        const t0 = Date.now();
+        const t0 = Date.now(); let outOfReach = 0;
         for (const seed of doable.slice(0, 12)) {
             if (Date.now() - t0 > 250) break;
             let best = null;
@@ -478,7 +478,7 @@ class BuildJob {
             for (const f of stationsAround(seed, this.o.reach, down)) {
                 if (cands.length >= 40) break;
                 if (blocked(f.x, f.y, f.z) || blocked(f.x, f.y + 1, f.z) || bodyCovers(f, seed) || this.avoided(name, f)) { rej.blocked++; continue; }
-                if (inReach && !inReach(f)) { rej.unreachable = (rej.unreachable || 0) + 1; continue; }
+                if (inReach && !inReach(f)) { rej.unreachable = (rej.unreachable || 0) + 1; outOfReach++; continue; }
                 if (view.nearLava(f.x, f.y, f.z)) { rej.lava++; continue; }                 // the mover never goes there: offered, it cost a 4 s search each time
                 // clearing: a stance may be inside rock that is to be cleared anyway (a box sunk in rock has no open cell near its top layer); the walk digs its way in
                 const dug = !view.fits(f.x, f.y, f.z);
@@ -544,6 +544,8 @@ class BuildJob {
         }
         if (now - (this._frontierAt || 0) > 5000) { this._frontierAt = now; this._frontier(); }
         this._stall(bot, now);            // ready work that no stance reaches counts as nothing ready for the stall rule (a single unreachable cell kept a crew idle)
+        // ready work there is, but only out of the bot's reach: it is in a pocket (drive.js takes it out)
+        if (inReach && outOfReach) (this.pocketed || (this.pocketed = new Set())).add(name);
         this.lastClaimInfo = `no stance: scanned ${scanned}, ready ${ready.length}, doable ${doable.length}, ${Date.now() - t0} ms in seeds`;
         // what can be done with what it carries reaches nowhere, but ready work waits for items: fetch them (a crew stood idle with ready blocks and empty packs, live 2026-11-22)
         { const need = {}; for (const tk of ready) { if (doable.includes(tk)) continue; const it = item(tk); if (it) need[it] = (need[it] || 0) + 1; } if (Object.keys(need).length) return { need }; }

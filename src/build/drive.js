@@ -458,7 +458,7 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
                 continue;
             }
             // nothing for it in the pocket it is in: out of the pocket now (past lava at a cost, never into it), not after minutes of trying
-            if (!cl && job.reachOf && job.reachOf.has(name) && job.reachOf.get(name).from === `${feet(bot).x},${feet(bot).y},${feet(bot).z}`) {
+            if (!cl && job.pocketed && job.pocketed.delete(name) && job.reachOf && job.reachOf.has(name) && job.reachOf.get(name).from === `${feet(bot).x},${feet(bot).y},${feet(bot).z}`) {
                 job.log(`${name}: nothing to do in the ${job.reachOf.get(name).cells.size} cells it can reach: out of the pocket`);
                 const pocket = job.reachOf.get(name).cells; job.reachOf.delete(name); await escape(job, name, bot, mv, cancel, pocket); continue;
             }
