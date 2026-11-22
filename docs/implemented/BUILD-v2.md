@@ -117,3 +117,19 @@ every module first; an unparsable drive.js took the consoles down for 30 min on 
 4. Supply: scarce items (redstone torches, levers, hoppers) run short across 8 bots; the depot of shulker boxes can fail in cramped caves (logs say which fallback failed).
 5. Speed: walking dominates bot time once claims work; long tunnels/pillars cost the most.
 6. Docs: the creative-era sections above are history; the survival design is the 2026-11-21 night section and this handover.
+
+## Owner's problem list 2026-11-23 (commit fcdb79ca)
+
+Causes taken from the live runs `watch-w2.log` / `watch-w3.log` (25592, 25593), then fixed:
+
+| # | Problem | Cause found | Fix |
+| :-- | :-- | :-- | :-- |
+| 1, 8 | jumping onto redstone, stuck | the planner pillared from a cell holding built wire; the server refuses a block there | `View.placeable`: pillars and bridges only into replaceable cells, stance pillars checked in `claim` |
+| 2 | temporary blocks everywhere | walking pillars and bridges were taken away only in the last stage | `Mover.unpillar` digs its own pillar down when it leaves; `job._offerTemps` makes unused walking blocks untemp tasks in every stage; scaffolds (placement supports) unchanged |
+| 3, 9 | stances shift a few cells, bots crowd one corner | seeds by global height, no ownership | `job.sectorOf`: one ground-plan piece per bot (kept), own sector first; `job._deepen`: a clear claim takes everything in reach top-down |
+| 4 | only ~3 bots drawn | the first bots' paths took the path cap | equal share per bot, 48 cells ahead; sectors drawn at the frontier |
+| 5 | ping | long synchronous searches | plan yields every 500 nodes; progress line shows event-loop `lag max / p99` |
+| 6 | powder snow | walked into and sank | powder snow is an obstacle that is dug; `unsink`; `build_t` refuses sites with powder snow in the footprint + 8 |
+| 7 | no reasons visible | — | chat lines `[stuck] [idle] [wait] [supply] [evacuate]` (once per state, repeated every 2 min; `BUILD_CHAT=0` off) |
+| 8 | whole crew waiting | a window read empty marked items out of stock for 10 min for everyone | empty windows re-read; "absent" only when every container was seen; 3 min |
+| 10 | one stuck bot holds all | — | 4 min without progress while there is work: evacuate (claims released, out of the footprint with loose rules); 3-min deadline per claim/trip; chest wait at most 90 s |
