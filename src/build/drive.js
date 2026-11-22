@@ -319,7 +319,7 @@ async function supplyTrip(job, name, bot, mv, need, cancel) {
     job.chestBusy = name;
     try {
         const r = await mv.goto(site, { goal: nearContainer(site), cancel, maxNodes: 40000 });
-        if (!r.ok) { job.log(`${name}: no way to the materials at ${site.x} ${site.y} ${site.z} (${r.why})`); return false; }
+        if (!r.ok) { job.log(`${name}: no way to the materials at ${site.x} ${site.y} ${site.z} (${r.why})${r.region && Date.now() - (job.edgeAt || 0) > 60000 ? (job.edgeAt = Date.now(), `; edge ${edgeOf(mv, r.region)}`) : ''}`); return false; }
         if (bot.inventory.items().some((i) => /shulker_box$/.test(i.name))) await SUP.putBack(bot, site);          // boxes it carries (picked up somewhere) go back first
         const spot = () => boxSpot(job, bot, site, mv);
         await SUP.dropRubble(bot, keepRubble(job), { minFree: 12 });          // room in the pack first (a pack full of rubble brought nothing back)
