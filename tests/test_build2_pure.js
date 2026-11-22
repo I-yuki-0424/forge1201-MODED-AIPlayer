@@ -304,10 +304,13 @@ test('flexible placement: a comparator facing east from a stance whose own look 
 
 test('bridges chain over a gap of three; a drop of five for a healthy bot (ga4 w1)', async () => {
     const w = new Map(); for (let x = -3; x <= 12; x++) for (let z = -2; z <= 2; z++) if (x <= 0 || x >= 4) w.set(`${x},-1,${z}`, { name: 'stone' });
-    for (let x = -3; x <= 12; x++) for (let z = -2; z <= 2; z++) for (let y = -10; y <= -2; y++) if (x > 0 && x < 4) { /* the gap is deep */ }
+    for (let x = 1; x <= 3; x++) for (let z = -2; z <= 2; z++) w.set(`${x},-6,${z}`, { name: 'stone' });          // the gap has ground five down (a bridge over the void is refused)
     const v = new M.View(fakeBot(w), { canDig: () => false });
     const r = await M.plan(v, { x: 0, y: 0, z: 0 }, (x, y, z) => x === 6 && z === 0 && y === 0, { x: 6, y: 0, z: 0 }, { temps: 8 });
     assert(r, 'a plan over the gap'); assert.strictEqual(r.filter((q) => q.move === 'bridge').length, 3, r.map((q) => q.move).join(' '));
+    const wv = new Map([...w].filter(([k]) => !k.endsWith(',-6,0') && !/,-6,/.test(k)));
+    const vv = new M.View(fakeBot(wv), { canDig: () => false });
+    assert(!(await M.plan(vv, { x: 0, y: 0, z: 0 }, (x, y, z) => x === 6 && z === 0 && y === 0, { x: 6, y: 0, z: 0 }, { temps: 8 })), 'no bridge over the void');
     const w2 = new Map(); for (let x = -3; x <= 0; x++) for (let z = -2; z <= 2; z++) w2.set(`${x},4,${z}`, { name: 'stone' }); for (let x = -3; x <= 6; x++) for (let z = -2; z <= 2; z++) w2.set(`${x},-1,${z}`, { name: 'stone' });
     const v2 = new M.View(fakeBot(w2), { canDig: () => false });
     assert(!(await M.plan(v2, { x: 0, y: 5, z: 0 }, (x, y, z) => y === 0, { x: 3, y: 0, z: 0 }, { temps: 0, maxDrop: 4 })), 'no fall of five by default');

@@ -97,6 +97,21 @@ class View {
         (this.lavaNear = this.lavaNear || new Map()).set(k, v);
         return v;
     }
+    /** Is a fall down the column from cell (x, y, z) deadly: into lava, onto ground more than 20 cells down, into the void or into chunks not loaded (water breaks a fall)? */
+    deadly(x, y, z) {
+        const k = key(x, y, z), m = this.deadC || (this.deadC = new Map()); let v = m.get(k);
+        if (v !== undefined) return v;
+        v = true;
+        for (let d = 0; d <= 64; d++) {
+            const q = this.raw(x, y - d, z);
+            if (!q) break;
+            if (q.name === 'lava') break;
+            if (q.name === 'water') { v = false; break; }
+            if (q.boundingBox === 'block') { v = d > 20; break; }
+        }
+        m.set(k, v);
+        return v;
+    }
     /** Lava at (x, y, z) with nothing it can run into: every cell beside and under it is a block (not air, not another fluid). */
     _sealed(x, y, z) {
         for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]]) { const q = this.raw(x + dx, y + dy, z + dz); if (!q || q.boundingBox !== 'block' || q.name === 'lava' || q.name === 'water') return false; const o = this.over.get(key(x + dx, y + dy, z + dz)); if (o === 'free') return false; }
@@ -193,6 +208,8 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
             // never through another bot's body (several bots planned the same cell and pushed each other off a cliff, or jumped in the same column, owner 2026-11-23)
             if (view.rules.occupied && (view.rules.occupied(x, y, z) || view.rules.occupied(x, y + 1, z))) return;
             if (move === 'pillar' && view.rules.columnBusy && view.rules.columnBusy(x, z)) return;
+            // no bridge over a fall into lava or the void (chained bridges over the Nether's lava sea: seven falls of 45 blocks into it, live 2026-11-23 gb1 w5)
+            if (move === 'bridge' && view.deadly(x, y - 1, z)) return;
             const t = c.t + (extra.place ? 1 : 0);
             if (t > temps) return;
             const g = c.g + cost + extraCost, k = key(x, y, z);
