@@ -421,7 +421,8 @@ class BuildJob {
                 scanned++;
                 // the cheap reasons first (map lookups only): most of a box to clear lies under cells still to clear, most of a box to build above the window; the costly
                 // checks (the world's blocks) only for the rest (6 000 costly checks per claim saw 5 ready tasks out of 28 000, the ready top layer out of reach, live 2026-11-22 sM2)
-                if (tk.kind === 'clear' && !this.relaxed && this.stage === 'prepare' && this._covered(tk, bot)) continue;
+                // (a covered cell is looked at again after 2 s: 14 000 of them checked on every claim used up the scan's 60 ms before it reached the ready ones, live 2026-11-23 fz4 w2)
+                if (tk.kind === 'clear' && !this.relaxed && this.stage === 'prepare') { if ((tk.covUntil || 0) > now) continue; if (this._covered(tk, bot)) { tk.covUntil = now + 2000; continue; } }
                 if ((tk.kind === 'place' || tk.kind === 'fix') && !this.relaxed && this.stage === 'place' && tk.y > this.frontier + this.o.window) continue;
                 // already as it should be (dug on someone's way, leaves that decayed, a block another bot put there): done, not offered (a clear task on air found no stance and was parked, live 2026-11-22)
                 if (tk.after) { const h = seen(bot, tk); if (h && S.AIR.has(h.name)) { tk.kind = tk.after; delete tk.after; } }
