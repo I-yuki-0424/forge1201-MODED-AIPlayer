@@ -89,10 +89,18 @@ class View {
             if (Math.abs(dx) + Math.abs(dz) > 2) continue;
             if (dy < 0 && (dx || dz)) continue;
             const b = this.raw(x + dx, y + dy, z + dz);
+            // lava sealed in the rock (no free cell beside or under it) cannot run: no danger (a pocket of one cell in netherrack kept every stance away and its fill was
+            // parked; it is filled from above, where lava does not flow, live 2026-11-23 fz8 w5)
+            if (b && b.name === 'lava' && this._sealed(x + dx, y + dy, z + dz)) continue;
             if (b && (b.name === 'lava' || (b.name === 'fire' && !dx && !dz && dy >= -1 && dy <= 1))) { v = true; break; }
         }
         (this.lavaNear = this.lavaNear || new Map()).set(k, v);
         return v;
+    }
+    /** Lava at (x, y, z) with nothing it can run into: every cell beside and under it is a block (not air, not another fluid). */
+    _sealed(x, y, z) {
+        for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]]) { const q = this.raw(x + dx, y + dy, z + dz); if (!q || q.boundingBox !== 'block' || q.name === 'lava' || q.name === 'water') return false; const o = this.over.get(key(x + dx, y + dy, z + dz)); if (o === 'free') return false; }
+        return true;
     }
     /**
      * Is there lava (or fire) in any 8x8x8 region the box touches? A region is scanned by state ids (blockAt builds a Block with its biome for each of 512 cells: the scans were a

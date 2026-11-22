@@ -161,7 +161,9 @@ class BuildJob {
             // placing overlaps clearing: a block goes in as soon as its own neighbourhood is cleared (a few hard cells anywhere held the whole build in the prepare stage, live 2026-11-22)
             if (!(this.stage === 'prepare' && (tk.kind === 'place' || tk.kind === 'fix' || tk.kind === 'scaffold') && this._clearAround(tk))) return false;
         }
-        if (this.relaxed) return true;
+        // relaxed (a stall): the order rules go, never the fluid rule (relaxed clearing dug the rock round lava pockets and the lava ran through the dug box: five deaths in six
+        // seconds, live 2026-11-23 fz8 w5)
+        if (this.relaxed) return !(tk.kind === 'clear' && [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]].some(([dx, dy, dz]) => { const h = seen(bot, { x: tk.x + dx, y: tk.y + dy, z: tk.z + dz }); return h && (h.name === 'water' || h.name === 'lava' || h.props.waterlogged === 'true'); }));
         if (tk.kind === 'scaffold') return true;
         if (tk.kind === 'clear') {
             // a scaffold stays while a block beside it still waits to be placed against it
