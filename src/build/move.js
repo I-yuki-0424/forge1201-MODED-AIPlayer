@@ -125,7 +125,7 @@ class View {
  * A plan from the bot's feet cell to a cell `goal(x, y, z)` accepts (h: a heuristic point). Returns [{ x, y, z, move, dig: [cells], place: cell | null }] (the first entry is the start) or null.
  * `temps`: how many temporary blocks the plan may use.
  */
-async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = null, budgetMs = 4000 } = {}) {
+async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = null, budgetMs = 4000, lavaCost = 0 } = {}) {
     const open = new Heap(), best = new Map();
     // height to gain costs about a pillar step each (a weaker estimate searched whole hillsides before climbing 17 blocks to a tree top, live 2026-11-22)
     const hh = (x, y, z) => (Math.abs(x - h.x) + Math.abs(z - h.z)) * COST.walk * 0.9 + (h.y > y ? (h.y - y) * (temps > 0 ? COST.pillar + COST.temp : COST.up) * 0.9 : (y - h.y) * COST.drop * 0.5);
@@ -134,17 +134,21 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
     const inBox = (x, y, z) => !box || (x >= box.x0 && x <= box.x1 && y >= box.y0 && y <= box.y1 && z >= box.z0 && z <= box.z1);
     let n = 0, spent = 0, slice = Date.now();
     while (open.size && n++ < maxNodes) {
-        // a long search gives the event loop back every 500 nodes (1500 kept eight bots' keep-alives waiting: ping over 20 ms, owner 2026-11-23 problem 5) and ends after `budgetMs` of its own time (a synchronous search froze the work console for 25 s, live 2026-11-22)
-        if (n % 500 === 0) { spent += Date.now() - slice; if (spent > budgetMs) { plan.last = { why: 'time', nodes: n }; return null; } await new Promise((r) => setImmediate(r)); slice = Date.now(); }
+        // a long search gives the event loop back after 25 ms of its own time and ends after `budgetMs` of it (by node counts, a slice beside the Nether's lava, where every cell
+        // looks at 78 others, held all eight bots for 1.5-6 s: ping, owner 2026-11-23 problem 5; a synchronous search froze the work console for 25 s, live 2026-11-22)
+        if (n % 32 === 0 && Date.now() - slice > 25) { spent += Date.now() - slice; if (spent > budgetMs) { plan.last = { why: 'time', nodes: n }; return null; } await new Promise((r) => setImmediate(r)); slice = Date.now(); }
         const c = open.pop();
         if (goal(c.x, c.y, c.z)) { const out = []; for (let q = c; q; q = q.p) out.push({ x: q.x, y: q.y, z: q.z, move: q.move, dig: q.dig || null, place: q.place || null }); return out.reverse(); }
         if ((best.get(key(c.x, c.y, c.z)) ?? Infinity) < c.g) continue;
         const add = (x, y, z, cost, move, extra = {}) => {
             if (!inBox(x, y, z)) return;
-            if (view.nearLava(x, y, z)) return;                             // never a cell beside or over lava (a slip, a flow, a push: a cost was not enough, bots died in the Nether's lava sea, live 2026-11-22)
+            // never a cell beside or over lava (a slip, a flow, a push: a cost was not enough, bots died in the Nether's lava sea, live 2026-11-22); a bot closed in by lava on
+            // every side may get out past it at a high cost (`lavaCost`, escapes only: one stood boxed in for good, live 2026-11-23 fx1 w4)
+            let extraCost = 0;
+            if (view.nearLava(x, y, z)) { if (!lavaCost) return; extraCost = lavaCost; }
             const t = c.t + (extra.place ? 1 : 0);
             if (t > temps) return;
-            const g = c.g + cost, k = key(x, y, z);
+            const g = c.g + cost + extraCost, k = key(x, y, z);
             if (g >= (best.get(k) ?? Infinity)) return;
             best.set(k, g);
             open.push({ x, y, z, g, f: g + hh(x, y, z), t, p: c, move, ...extra });
@@ -496,7 +500,7 @@ class Mover {
     /**
      * Go to a cell `goal` accepts (or `to` itself). Plans, follows, re-plans when the bot leaves the plan (up to `tries`). { ok, why, steps }.
      */
-    async goto(to, { goal = null, cancel = { cancelled: false }, tries = 6, maxNodes = 40000, box = null } = {}) {
+    async goto(to, { goal = null, cancel = { cancelled: false }, tries = 6, maxNodes = 40000, box = null, lavaCost = 0 } = {}) {
         const g = goal || ((x, y, z) => x === to.x && y === to.y && z === to.z);
         let steps = 0, last = null;
         await this.unsink();
@@ -507,7 +511,7 @@ class Mover {
             const view = new View(this.bot, this.rules), temps = this.rules.temp() ? this.bot.inventory.items().filter((i) => i.name === this.rules.temp()).reduce((a, i) => a + i.count, 0) : 0;
             // the bot's own cell not loaded yet (after a teleport, a respawn): wait for the chunks
             if (view.kind(start.x, start.y, start.z) === 'unknown') { await sleep(1000); continue; }
-            const route = await plan(view, start, g, to, { maxNodes, temps, box });
+            const route = await plan(view, start, g, to, { maxNodes, temps, box, lavaCost });
             if (!route) {
                 const l = plan.last || {};
                 // nothing at all from where the bot believes it is (its picture of its own position is off: live 2026-11-22 the server had it on the chest, the bot a cell higher):

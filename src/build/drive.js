@@ -10,6 +10,7 @@ const { seen } = require('./world');
 const { clicksFor, REPLACEABLE } = require('./survey');
 const SUP = require('./supply');
 
+const COST_LAVA = 60;                // escapes and evacuations may pass beside lava (never into it) at this cost per cell
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const UNBREAKABLE = /^(bedrock|barrier|end_portal_frame|end_portal|end_gateway|nether_portal|command_block|chain_command_block|repeating_command_block|structure_block|jigsaw|reinforced_deepslate|light)$/;
 const CONTAINER = /(chest|barrel|shulker_box|hopper|dropper|dispenser|furnace|smoker|crafter|_bed|lectern|brewing_stand|decorated_pot)$/;
@@ -151,7 +152,7 @@ async function escape(job, name, bot, mv, cancel) {
     m2.mine = mv.mine;
     const top = Math.max(f.y + 2, b.y + b.sy + 1);
     job.stats.escapes++;
-    const r = await m2.goto({ x: f.x, y: top, z: f.z }, { goal: (x, y, z) => y >= top || !job.t.inside(x, y - 1, z) && Math.hypot(x - f.x, z - f.z) > 3, cancel, maxNodes: 20000 });
+    const r = await m2.goto({ x: f.x, y: top, z: f.z }, { goal: (x, y, z) => y >= top || !job.t.inside(x, y - 1, z) && Math.hypot(x - f.x, z - f.z) > 3, cancel, maxNodes: 20000, lavaCost: COST_LAVA });
     job.log(`${name}: closed in at ${f.x} ${f.y} ${f.z}: ${r.ok ? 'out' : 'no way out (' + r.why + ')'}`);
     if (!r.ok) tell(job, name, bot, 'stuck', `closed in at ${f.x} ${f.y} ${f.z}, no way out (${String(r.why).slice(0, 80)})`);
     return r.ok;
@@ -172,7 +173,7 @@ async function evacuate(job, name, bot, mv, cancel, why) {
     const m2 = new Mover(bot, loose); m2.mine = mv.mine;
     const out = (x, y, z) => (x < b.x - 1 || x > b.x + b.sx || z < b.z - 1 || z > b.z + b.sz);
     const nearest = { x: Math.min(Math.max(f.x, b.x - 3), b.x + b.sx + 2), y: f.y, z: Math.min(Math.max(f.z, b.z - 3), b.z + b.sz + 2) };
-    const r = await m2.goto(nearest, { goal: out, cancel, maxNodes: 30000 });
+    const r = await m2.goto(nearest, { goal: out, cancel, maxNodes: 30000, lavaCost: COST_LAVA });
     job.log(`${name}: evacuation ${r.ok ? 'done' : 'failed (' + r.why + ')'}`);
     await sleep(15000);
     return r.ok;
