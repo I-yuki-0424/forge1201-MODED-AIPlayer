@@ -162,7 +162,7 @@ async function supplyTrip(job, name, bot, mv, need, cancel) {
         const r = await mv.goto(site, { goal: nearContainer(site), cancel, maxNodes: 40000 });
         if (!r.ok) { job.log(`${name}: no way to the materials at ${site.x} ${site.y} ${site.z} (${r.why})`); return false; }
         if (bot.inventory.items().some((i) => /shulker_box$/.test(i.name))) await SUP.putBack(bot, site);          // boxes it carries (picked up somewhere) go back first
-        const spot = () => boxSpot(job, bot, site);
+        const spot = () => boxSpot(job, bot, site, mv);
         await SUP.dropRubble(bot, keepRubble(job), { minFree: 12 });          // room in the pack first (a pack full of rubble brought nothing back)
         const wants = needsFor(job, bot, need);
         job.depot = job.depot || [];
@@ -177,7 +177,17 @@ async function supplyTrip(job, name, bot, mv, need, cancel) {
 }
 const nearContainer = (c) => (x, y, z) => Math.abs(x - c.x) <= 2 && Math.abs(z - c.z) <= 2 && y >= c.y - 1 && y <= c.y + 1 && !(Math.abs(x - c.x) <= 1 && z === c.z && y === c.y + 1) && !(x === c.x && z === c.z);
 /** A free cell beside the container (air, on something solid, not the bot's own cells, outside the box) for a shulker box to stand in while it is unpacked. */
-function boxSpot(job, bot, c) {
+async function boxSpot(job, bot, c, mv) {
+    const first = pickBoxSpot(job, bot, c, false);
+    if (first || !mv) return first;
+    // no free cell: a niche dug into natural rock or soil within reach (a chest on a cliff at height 149 had four boxes beside it and no room for a fifth, live 2026-11-22 prof2)
+    const dig = pickBoxSpot(job, bot, c, true);
+    if (!dig) return null;
+    if (!(await mv.dig(dig))) return null;
+    return pickBoxSpot(job, bot, c, false, dig);
+}
+const NATURAL = /^(dirt|grass_block|coarse_dirt|podzol|rooted_dirt|mud|stone|deepslate|cobblestone|andesite|diorite|granite|tuff|calcite|gravel|sand|red_sand|sandstone|red_sandstone|terracotta|[a-z_]+_terracotta|netherrack|basalt|blackstone|soul_sand|soul_soil|crimson_nylium|warped_nylium|snow_block|packed_ice|moss_block)$/;
+function pickBoxSpot(job, bot, c, digging, only = null) {
     const v = new View(bot, { canDig: () => false }), me = feet(bot), out = [];
     // a box opens toward its facing: that cell must stay free; it is set down on the face of a solid block opposite to it (up on a floor, or sideways against a wall: on a
     // mountainside nearly no cell beside the chest had a floor and no box could be set down, live 2026-11-22 sX w2)
@@ -189,7 +199,9 @@ function boxSpot(job, bot, c) {
         const s = { x: c.x + dx, y: c.y + dy, z: c.z + dz };
         if (job.t.inside(s.x, s.y, s.z) || (s.x === me.x && s.z === me.z && (s.y === me.y || s.y === me.y + 1))) continue;
         if (job.sites.some((q) => Math.abs(q.x - s.x) <= 1 && q.z === s.z && q.y === s.y - 1)) continue;        // not on top of a chest (bots stand there)
-        if (!v.free(s.x, s.y, s.z)) continue;
+        if (only && !(only.x === s.x && only.y === s.y && only.z === s.z)) continue;
+        if (digging) { const q = v.raw(s.x, s.y, s.z); if (!q || !NATURAL.test(q.name) || job.sites.some((x) => x.x === s.x && x.y === s.y && x.z === s.z)) continue; }
+        else if (!v.free(s.x, s.y, s.z)) continue;
         const d = Math.hypot(s.x + 0.5 - bot.entity.position.x, s.y + 0.5 - (bot.entity.position.y + 1.62), s.z + 0.5 - bot.entity.position.z);
         if (d > 4) continue;
         for (const [facing, fx, fy, fz] of FACINGS) {
@@ -201,6 +213,7 @@ function boxSpot(job, bot, c) {
         }
     }
     out.sort((a, b) => a.d - b.d);
+    if (digging) { const P = require('./place'), world = P.botWorld(bot); for (const { s: c2 } of out) if (P.clickable(world, c2, me)) return c2; return null; }
     // only where a face is in sight from where the bot stands (the chest itself hides some)
     const P = require('./place'), world = P.botWorld(bot), name = (bot.inventory.items().find((i) => /shulker_box$/.test(i.name)) || {}).name || 'white_shulker_box';
     for (const { s: c2 } of out) { const want = { name, props: { facing: c2.facing } }; if (P.ways(world, c2, want, name, [me], { max: 1 }).length || P.ways(world, c2, want, name, [me], { max: 1, sneakAlways: true }).length) return c2; }

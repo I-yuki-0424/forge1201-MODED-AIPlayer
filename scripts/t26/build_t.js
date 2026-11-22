@@ -8,6 +8,13 @@
 const fs = require('fs');
 const T = require('./lib');
 const SUP = require('../../src/build/supply');
+// PROFILE_AT=minutes: two minutes of CPU profile from then on, written to /out/prof/<RUN>.cpuprofile while the run goes on (a run that never exits writes no --cpu-prof)
+if (process.env.PROFILE_AT) {
+    const insp = require('inspector'), fs = require('fs'), ses = new insp.Session(); ses.connect();
+    setTimeout(() => ses.post('Profiler.enable', () => ses.post('Profiler.start', () => setTimeout(() => ses.post('Profiler.stop', (e, r) => {
+        if (!e) { fs.mkdirSync('/out/prof', { recursive: true }); fs.writeFileSync(`/out/prof/${process.env.RUN || 'run'}.cpuprofile`, JSON.stringify(r.profile)); console.log('[build_t] cpu profile written'); }
+    }), 120000))), Number(process.env.PROFILE_AT) * 60000).unref();
+}
 const { Vec3 } = require('vec3');
 const lit = require('../../src/work/jobs/litematic');
 const S = require('../../src/build/state');
