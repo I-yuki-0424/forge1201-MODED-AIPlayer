@@ -307,7 +307,11 @@ class BuildJob {
         const grid = new Map(), g = (v) => Math.floor(v / 4);
         for (const tk of doable) { const kk = `${g(tk.x)},${g(tk.y)},${g(tk.z)}`; (grid.get(kk) || grid.set(kk, []).get(kk)).push(tk); }
         const near = (eye) => { const out = []; for (let gx = g(eye.x - 5); gx <= g(eye.x + 5); gx++) for (let gy = g(eye.y - 5); gy <= g(eye.y + 5); gy++) for (let gz = g(eye.z - 5); gz <= g(eye.z + 5); gz++) { const l = grid.get(`${gx},${gy},${gz}`); if (l) for (const tk of l) if (boxDist(eye, tk) <= this.o.reach) out.push(tk); } return out; };
-        for (const seed of doable.slice(0, 3)) {
+        // seeds until one has a stance, within a quarter second (three seeds and five stances each left bots idle with hundreds of ready tasks: the best-ranked stances were inside
+        // rock, where the line of sight is blocked, live 2026-11-22 sV)
+        const t0 = Date.now();
+        for (const seed of doable.slice(0, 12)) {
+            if (Date.now() - t0 > 250) break;
             let best = null;
             const cands = [], rej = { blocked: 0, solid: 0, unsupported: 0, far: 0, way: 0 };
             for (const f of stationsAround(seed, this.o.reach, down)) {
@@ -331,10 +335,10 @@ class BuildJob {
                 const eye = eyeOf({ x: f.x + 0.5, y: f.y, z: f.z + 0.5 });
                 if (boxDist(eye, seed) > this.o.reach) { rej.far++; continue; }
                 const reach = near(eye).filter((tk) => !bodyCovers(f, tk));
-                cands.push({ f, standing, dug, reach, score: reach.length - Math.hypot(f.x - me.x, f.y - me.y, f.z - me.z) * 0.08 - (standing ? 0 : 10 + 3 * h) - (dug ? 4 : 0) });
+                cands.push({ f, standing, dug, reach, score: reach.length - Math.hypot(f.x - me.x, f.y - me.y, f.z - me.z) * 0.08 - (standing ? 0 : 10 + 3 * h) - (dug ? 20 : 0) });
             }
             cands.sort((a, b) => b.score - a.score);
-            for (const c of cands.slice(0, 5)) {
+            for (const c of cands.slice(0, 12)) {
                 const world = this._world(bot, c.standing ? null : c.f, c.dug ? c.f : null);
                 const way = this._way(world, seed, c.f);
                 if (!way) { rej.way++; continue; }
@@ -363,7 +367,7 @@ class BuildJob {
             this.diagAt = now;
             const why = {}; let n = 0;
             for (const tk of this.tasks.values()) { if (n++ > 4000) break; const w = this.whyNot(tk, bot, now).replace(/ \d.*$/, '').replace(/waits for .*/, 'waits for a dependency').replace(/next to .*/, 'next to a fluid'); why[w] = (why[w] || 0) + 1; }
-            this.log(`claim by ${name}: ${ready.length} ready, ${doable.length} doable with what it carries, no stance for the first ${Math.min(3, doable.length)} (${doable.slice(0, 3).map((t) => `${t.kind} ${t.k}`).join(', ')}); the others: ${JSON.stringify(why)}; frontier ${this.frontier}`);
+            this.log(`claim by ${name}: ${ready.length} ready, ${doable.length} doable with what it carries, no stance for the first ${Math.min(12, doable.length)} (${doable.slice(0, 3).map((t) => `${t.kind} ${t.k}`).join(', ')}); the others: ${JSON.stringify(why)}; frontier ${this.frontier}`);
         }
         return null;
     }

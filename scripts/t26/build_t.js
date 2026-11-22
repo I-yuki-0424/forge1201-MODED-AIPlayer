@@ -7,6 +7,7 @@
 //   scripts/t26/run.sh N build_t.js LITEMATIC=/app/tests/fixtures/iron-farm-34.litematic [DIM=nether] [BOTS=8] [LIMIT_MIN=120] [SEED_SITE=n] [CONTROL=noop]
 const fs = require('fs');
 const T = require('./lib');
+const SUP = require('../../src/build/supply');
 const { Vec3 } = require('vec3');
 const lit = require('../../src/work/jobs/litematic');
 const S = require('../../src/build/state');
@@ -77,7 +78,8 @@ async function main() {
     // materials: the blueprint's items plus the lighter and the buckets, in shulker boxes of 27 stacks, the boxes in a double chest (54 slots, a second double chest if needed)
     const items = new Map([...target.items].map(([k, n]) => [k, Math.ceil(n * 1.05)]));
     if (target.portals.length) items.set('flint_and_steel', Math.max(items.get('flint_and_steel') || 0, 2 + Math.ceil(target.portals.length / 20)));
-    items.set('dirt', Number(process.env.TEMPS || 64 * 24));                                                              // temporary blocks (pillars, bridges, supports, fluid fills)
+    // temporary blocks (pillars, bridges, supports, fluid fills): the first scaffold block the blueprint does not use (a blueprint with dirt in it left the crew without any)
+    { const tmp = SUP.TEMPS.find((n) => !items.has(n)); items.set(tmp, Number(process.env.TEMPS || 64 * 24)); }
     for (const [tool, n] of [['diamond_pickaxe', BOTS * 3], ['diamond_shovel', BOTS * 2], ['diamond_axe', BOTS]]) items.set(tool, n);
     const stacks = []; for (const [it, n] of items) { const st = STACK(it); for (let r = Math.max(1, n); r > 0; r -= st) stacks.push({ it, n: Math.min(st, r) }); }
     const boxes = []; for (let i = 0; i < stacks.length; i += 27) boxes.push(stacks.slice(i, i + 27));
