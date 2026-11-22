@@ -156,12 +156,7 @@ class BuildJob {
             // the nine cells above first (no shaft runs ahead of its neighbours; a local rule, so one stuck cell holds only what is under it)
             // natural leaves above do not count: they wait for the logs below them to go (they decay), so counting them locked trees for good (3 of 5 987 clear tasks ready,
             // live 2026-11-22 sL2)
-            for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
-                const up = this.tasks.get(key(tk.x + dx, tk.y + 1, tk.z + dz));
-                if (!up || up.kind !== 'clear' || this.parked.has(up.k)) continue;
-                const uh = seen(bot, up); if (uh && /_leaves$/.test(uh.name) && uh.props.persistent !== 'true') continue;
-                return false;
-            }
+            if (this._covered(tk, bot)) return false;
             for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]]) {
                 const h = seen(bot, { x: tk.x + dx, y: tk.y + dy, z: tk.z + dz });
                 if (h && (h.name === 'water' || h.name === 'lava' || h.props.waterlogged === 'true')) return false;
@@ -208,6 +203,18 @@ class BuildJob {
             this.tasks.set(k, s);
             const bk = `${Math.floor(c.x / 8)},${Math.floor(c.y / 8)},${Math.floor(c.z / 8)}`; (this.buckets.get(bk) || this.buckets.set(bk, []).get(bk)).push(s);
             this.log(`scaffold at ${k} for ${tk.kind} ${tk.k} (${S.bare(this.t.wantOf(tk).name)})`);
+            return true;
+        }
+        return false;
+    }
+
+    /** Is a clear task still in one of the nine cells above clear task tk (natural leaves do not count; whether a task's cell is leaves is looked up once)? Cheap: map lookups. */
+    _covered(tk, bot) {
+        for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+            const up = this.tasks.get(key(tk.x + dx, tk.y + 1, tk.z + dz));
+            if (!up || up.kind !== 'clear' || this.parked.has(up.k)) continue;
+            if (up.leaf === undefined) { const uh = seen(bot, up); up.leaf = !!uh && /_leaves$/.test(uh.name) && uh.props.persistent !== 'true'; }
+            if (up.leaf) continue;
             return true;
         }
         return false;
@@ -309,6 +316,10 @@ class BuildJob {
             for (const tk of live) {
                 if (this.claims.has(tk.k)) continue;
                 scanned++;
+                // the cheap reasons first (map lookups only): most of a box to clear lies under cells still to clear, most of a box to build above the window; the costly
+                // checks (the world's blocks) only for the rest (6 000 costly checks per claim saw 5 ready tasks out of 28 000, the ready top layer out of reach, live 2026-11-22 sM2)
+                if (tk.kind === 'clear' && !this.relaxed && this.stage === 'prepare' && this._covered(tk, bot)) continue;
+                if ((tk.kind === 'place' || tk.kind === 'fix') && !this.relaxed && this.stage === 'place' && tk.y > this.frontier + this.o.window) continue;
                 // already as it should be (dug on someone's way, leaves that decayed, a block another bot put there): done, not offered (a clear task on air found no stance and was parked, live 2026-11-22)
                 if (tk.after) { const h = seen(bot, tk); if (h && (S.AIR.has(h.name) || SV.REPLACEABLE.test(h.name))) { tk.kind = tk.after; delete tk.after; } }
                 if (this._already(tk, bot)) { this.tasks.delete(tk.k); this._lowered(tk); continue; }
@@ -316,7 +327,7 @@ class BuildJob {
                 if (tk.kind === 'place') { const h = seen(bot, tk); if (h && !S.AIR.has(h.name) && !SV.REPLACEABLE.test(h.name) && !SV.FLUID(h)) { tk.kind = 'clear'; tk.after = 'place'; } }
                 if (this.ready(tk, bot, now)) ready.push(tk);
             }
-            if (ready.length >= 300 || scanned >= 6000) break;
+            if (ready.length >= 300 || scanned >= 60000) break;
         }
         if (!ready.length) {
             if (!this.claims.size && this.tasks.size && !this.relaxed) {
