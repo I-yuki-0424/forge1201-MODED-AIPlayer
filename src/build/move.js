@@ -208,8 +208,9 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
             // never through another bot's body (several bots planned the same cell and pushed each other off a cliff, or jumped in the same column, owner 2026-11-23)
             if (view.rules.occupied && (view.rules.occupied(x, y, z) || view.rules.occupied(x, y + 1, z))) return;
             if (move === 'pillar' && view.rules.columnBusy && view.rules.columnBusy(x, z)) return;
-            // no bridge over a fall into lava or the void (chained bridges over the Nether's lava sea: seven falls of 45 blocks into it, live 2026-11-23 gb1 w5)
-            if (move === 'bridge' && view.deadly(x, y - 1, z)) return;
+            // a bridge over a fall into lava or the void costs more (it is walked sneaking, see follow; refused outright, a site over the Nether's lava sea had no way at all,
+            // live 2026-11-23 gb5 w4; walked upright, seven bots fell off such bridges, gb1 w5)
+            if (move === 'bridge' && view.deadly(x, y - 1, z)) extraCost += COST.bridge;
             const t = c.t + (extra.place ? 1 : 0);
             if (t > temps) return;
             const g = c.g + cost + extraCost, k = key(x, y, z);
@@ -579,7 +580,9 @@ class Mover {
                 // every run that passed a pit made the crew crawl, owner 2026-11-23)
                 const nx = route[i + 1], pv = route[i - 1], turn = !nx || !pv || (nx.x - c.x !== c.x - pv.x) || (nx.z - c.z !== c.z - pv.z);
                 const hot = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => lavaAt(c.x + dx, c.y - 1, c.z + dz) || lavaAt(c.x + dx, c.y, c.z + dz));
-                const careful = route[i].move !== 'drop' && route[i].move !== 'swim' && c.y >= f.y && (hot || ((last || turn) && d < 1.2 && (isEdgy(c) || isEdgy(f))));
+                // beside a deadly fall (lava, the void, 20 down): always sneaking
+                const fatal = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => v.free(c.x + dx, c.y - 1, c.z + dz) && v.deadly(c.x + dx, c.y - 1, c.z + dz));
+                const careful = route[i].move !== 'drop' && route[i].move !== 'swim' && c.y >= f.y && (hot || fatal || ((last || turn) && d < 1.2 && (isEdgy(c) || isEdgy(f))));
                 b.setControlState('sneak', careful || (last && d < 0.6 && route[i].move !== 'drop' && c.y >= f.y));          // a careful last step, but never before a drop (sneak stops at the edge)
                 await sleep(50);
             }
