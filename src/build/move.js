@@ -60,8 +60,11 @@ class View {
         v = false;
         // two cells around the body, from two under the feet to three over them: the Nether's lava runs several cells in seconds and falls from above (bots pillaring beside it
         // burned, four deaths on one world, live 2026-11-22 sW w5); fire only where the body is
+        // lava at the floor's level beside the floor cannot flow up into the body: allowed (a lava lake is filled from its shore; forbidding it left every fill without a stance,
+        // live 2026-11-22 sA2 w5); the follower sneaks beside it
         for (let dy = -2; dy <= 3 && !v; dy++) for (let dx = -2; dx <= 2 && !v; dx++) for (let dz = -2; dz <= 2; dz++) {
             if (Math.abs(dx) + Math.abs(dz) > 2) continue;
+            if (dy < 0 && (dx || dz)) continue;
             const b = this.raw(x + dx, y + dy, z + dz);
             if (b && (b.name === 'lava' || (b.name === 'fire' && !dx && !dz && dy >= -1 && dy <= 1))) { v = true; break; }
         }
@@ -339,7 +342,8 @@ class Mover {
         // two deaths on one Nether world, live 2026-11-22 sZ w6); sneaking stops at the edge
         const v = new View(b, this.rules), edgy = new Map();
         const deep = (x, y, z) => { if (!v.fits(x, y, z)) return false; for (let k = 1; k <= 4; k++) if (!v.free(x, y - k, z)) return false; return true; };
-        const isEdgy = (c) => { const k = key(c.x, c.y, c.z); if (!edgy.has(k)) edgy.set(k, [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]].some(([dx, dz]) => deep(c.x + dx, c.y, c.z + dz))); return edgy.get(k); };
+        const lavaAt = (x, y, z) => { const q = v.raw(x, y, z); return !!q && q.name === 'lava'; };
+        const isEdgy = (c) => { const k = key(c.x, c.y, c.z); if (!edgy.has(k)) edgy.set(k, [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]].some(([dx, dz]) => deep(c.x + dx, c.y, c.z + dz) || lavaAt(c.x + dx, c.y - 1, c.z + dz) || lavaAt(c.x + dx, c.y, c.z + dz))); return edgy.get(k); };
         try {
             while (i <= i1 && !cancel.cancelled) {
                 const c = route[i], last = i === i1, p = b.entity.position, dx = c.x + 0.5 - p.x, dz = c.z + 0.5 - p.z, d = Math.hypot(dx, dz);
