@@ -20,7 +20,7 @@ const MAX_FAILS = 8;               // tries of one cell before it is parked (rep
 const BATCH = 64;                  // tasks per claim (everything within reach of the stance: walking was the largest share of the time, live 2026-11-22)
 const ROUNDS = 3;                  // extra rounds for parked cells before the build ends with them reported
 const STALL_MS = 40000;            // nothing ready for anybody this long while work is left: the ordering rules are relaxed (a dependency that cannot be met)
-const STAGE_OF = { seal: 'prepare', fill: 'prepare', clear: 'prepare', place: 'place', fix: 'place', pour: 'late', ignite: 'late', untemp: 'cleanup' };
+const STAGE_OF = { seal: 'prepare', fill: 'prepare', clear: 'prepare', place: 'place', fix: 'place', scaffold: 'place', pour: 'late', ignite: 'late', untemp: 'cleanup' };
 const ORDER = ['prepare', 'place', 'late', 'cleanup'];
 const key = (x, y, z) => `${x},${y},${z}`;
 
@@ -56,7 +56,7 @@ class BuildJob {
         this.temps = new Set();            // temporary blocks placed outside the box ('x,y,z')
         this.tempItem = opts.tempItem || null;
         this.time = { walk: 0, dig: 0, place: 0, trip: 0, idle: 0, claim: 0 };
-        this.stats = { placed: 0, cleared: 0, sealed: 0, filled: 0, fixed: 0, poured: 0, lit: 0, untemp: 0, failed: 0, surveys: 0, escapes: 0, trips: 0 };
+        this.stats = { placed: 0, cleared: 0, scaffolds: 0, sealed: 0, filled: 0, fixed: 0, poured: 0, lit: 0, untemp: 0, failed: 0, surveys: 0, escapes: 0, trips: 0 };
     }
 
     // ---- surveys ---------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -105,7 +105,7 @@ class BuildJob {
         try { await this.surveying; } finally { this.surveying = null; }
     }
 
-    _itemOf(tk) { if (tk.kind === 'fill' || tk.kind === 'seal') return this.tempItem || this.sealItem; if (tk.kind === 'ignite') return 'flint_and_steel'; const r = tk.i >= 0 ? this.t.recipeOf(tk) : null; return r && r.item; }
+    _itemOf(tk) { if (tk.kind === 'fill' || tk.kind === 'seal' || tk.kind === 'scaffold') return this.tempItem || this.sealItem; if (tk.kind === 'ignite') return 'flint_and_steel'; const r = tk.i >= 0 ? this.t.recipeOf(tk) : null; return r && r.item; }
     _itemOk(tk) { if (tk.kind === 'clear' || tk.kind === 'fix') return true; const it = this._itemOf(tk); return !it || this.available.has(it); }
 
     _finish(sv) {
@@ -141,10 +141,13 @@ class BuildJob {
         if (this.parked.has(tk.k) || (this.cool.get(tk.k) || 0) > now) return false;
         if (STAGE_OF[tk.kind] !== this.stage) {
             // placing overlaps clearing: a block goes in as soon as its own neighbourhood is cleared (a few hard cells anywhere held the whole build in the prepare stage, live 2026-11-22)
-            if (!(this.stage === 'prepare' && (tk.kind === 'place' || tk.kind === 'fix') && this._clearAround(tk))) return false;
+            if (!(this.stage === 'prepare' && (tk.kind === 'place' || tk.kind === 'fix' || tk.kind === 'scaffold') && this._clearAround(tk))) return false;
         }
         if (this.relaxed) return true;
+        if (tk.kind === 'scaffold') return true;
         if (tk.kind === 'clear') {
+            // a scaffold stays while a block beside it still waits to be placed against it
+            if (this.scaffolds && this.scaffolds.has(tk.k) && [[0, 1, 0], [0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]].some(([dx, dy, dz]) => { const o = this.tasks.get(key(tk.x + dx, tk.y + dy, tk.z + dz)); return o && o.kind === 'place'; })) return false;
             // natural leaves fall by themselves once the logs near them are gone (a player cuts the trunk, not the crown): they wait while a log stands within six
             const here = seen(bot, tk);
             if (here && /_leaves$/.test(here.name) && here.props.persistent !== 'true' && this._logNear(bot, tk)) return false;
@@ -185,6 +188,22 @@ class BuildJob {
         for (const o of this.tasks.values()) { if (o.kind !== 'fill' && o.kind !== 'seal') continue; const k = `${Math.floor(o.x / 8)},${Math.floor(o.y / 8)},${Math.floor(o.z / 8)}`; (g.get(k) || g.set(k, []).get(k)).push(o); }
         this._fg = g; this._fgTasks = this.tasks; this._fgAt = now;
         return g;
+    }
+
+    /** A scaffold task in a cell beside tk that is to end up empty (below first), unless one is there already. */
+    _scaffoldFor(tk) {
+        for (const [dx, dy, dz] of [[0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]]) {
+            const c = { x: tk.x + dx, y: tk.y + dy, z: tk.z + dz }, k = key(c.x, c.y, c.z);
+            if (this.parked.has(k)) continue;
+            if (this.tasks.has(k)) { if (this.tasks.get(k).kind === 'scaffold') return false; continue; }
+            if (this.t.inside(c.x, c.y, c.z) && !this.t.isAir(this.t.idx(c.x, c.y, c.z))) continue;
+            const s = { k, x: c.x, y: c.y, z: c.z, i: -1, kind: 'scaffold' };
+            this.tasks.set(k, s);
+            const bk = `${Math.floor(c.x / 8)},${Math.floor(c.y / 8)},${Math.floor(c.z / 8)}`; (this.buckets.get(bk) || this.buckets.set(bk, []).get(bk)).push(s);
+            this.log(`scaffold at ${k} for ${tk.kind} ${tk.k} (${S.bare(this.t.wantOf(tk).name)})`);
+            return true;
+        }
+        return false;
     }
 
     /** A log within six cells (leaves near one do not decay). */
@@ -338,7 +357,7 @@ class BuildJob {
             // a block to place with nothing beside it (a part of the build in the air): it is clicked onto the top of the pillar the bot stands on, so only stances whose pillar
             // top touches the cell can do it (ranked by pillar height, they never made the first twelve: 4 495 cells parked, live 2026-11-22 sB2 w2)
             const AIRY = (h) => !h || S.AIR.has(h.name) || h.name === 'water' || h.name === 'lava';
-            const lonely = seed.kind === 'place' && [[0, 1, 0], [0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]].every(([dx, dy, dz]) => AIRY(seen(bot, { x: seed.x + dx, y: seed.y + dy, z: seed.z + dz })));
+            const lonely = (seed.kind === 'place' || seed.kind === 'scaffold') && [[0, 1, 0], [0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]].every(([dx, dy, dz]) => AIRY(seen(bot, { x: seed.x + dx, y: seed.y + dy, z: seed.z + dz })));
             for (const f of stationsAround(seed, this.o.reach, down)) {
                 if (cands.length >= 40) break;
                 if (blocked(f.x, f.y, f.z) || blocked(f.x, f.y + 1, f.z) || bodyCovers(f, seed)) { rej.blocked++; continue; }
@@ -376,6 +395,9 @@ class BuildJob {
             }
             if (!best) {
                 this.cool.set(seed.k, now + 6000);
+                // a block in the air whose own orientation no pillar edge gives (a chest faces the player): a scaffold block beside it first, in a cell that stays empty in the
+                // end, below it if that can be; the block then goes against the scaffold from any side (Nether chests over the lava sea were parked, live 2026-11-22 sG2 w6)
+                if (lonely && seed.kind === 'place' && this._scaffoldFor(seed)) { this.noStance.delete(seed.k); continue; }
                 // a task no stance reaches is parked after a few looks (it waits for the next round, when the build has changed what can be reached): a handful of hidden cells
                 // held the whole build in the prepare stage (live 2026-11-22 sv8)
                 const ns = this.noStance.get(seed.k) || now; this.noStance.set(seed.k, ns);
@@ -428,13 +450,15 @@ class BuildJob {
         if (k === 'clear' || k === 'untemp') { const c = P.clickable(world, tk, f); return c || null; }
         if (k === 'fix') { const c = P.clickable(world, tk, f); return c ? { click: c } : null; }
         if (k === 'seal' || k === 'fill') { const it = this.tempItem; if (!it) return null; return P.ways(world, tk, { name: it, props: {} }, it, [f], { max: 1 })[0] || null; }
-        if (k === 'place') {
-            const r = this.t.recipeOf(tk); if (!r || !r.item) return null;
-            const w = P.ways(world, tk, this.t.wantOf(tk), r.item, [f], { max: 1 })[0];
+        if (k === 'place' || k === 'scaffold') {
+            let want, item;
+            if (k === 'scaffold') { item = this.tempItem; if (!item) return null; want = { name: item, props: {} }; }
+            else { const r = this.t.recipeOf(tk); if (!r || !r.item) return null; want = this.t.wantOf(tk); item = r.item; }
+            const w = P.ways(world, tk, want, item, [f], { max: 1 })[0];
             if (w) return w;
             // beside the top of the block it stands on (a cell in the air): leaning over the edge toward it
             const dx = tk.x - f.x, dz = tk.z - f.z;
-            if (tk.y === f.y - 1 && Math.abs(dx) + Math.abs(dz) === 1) return P.ways(world, tk, this.t.wantOf(tk), r.item, [{ ...f, lean: [dx, dz] }], { max: 1 })[0] || null;
+            if (tk.y === f.y - 1 && Math.abs(dx) + Math.abs(dz) === 1) return P.ways(world, tk, want, item, [{ ...f, lean: [dx, dz] }], { max: 1 })[0] || null;
             return null;
         }
         if (k === 'ignite') { const at = tk.portal ? tk.portal.light : { x: tk.x, y: tk.y - 1, z: tk.z }; const c = P.clickable(world, at, f, { faces: ['up'] }); return c ? { light: at, click: c } : null; }
@@ -447,7 +471,7 @@ class BuildJob {
         for (const { tk, ok, why } of results) {
             this.claims.delete(tk.k);
             if (ok && tk.after) { const o = this.tasks.get(tk.k); if (o) { o.kind = tk.after; delete o.after; this.cool.set(tk.k, now + 500); } this.stats.cleared++; continue; }
-            if (ok) { this.tasks.delete(tk.k); this.stats[{ seal: 'sealed', fill: 'filled', clear: 'cleared', place: 'placed', fix: 'fixed', pour: 'poured', ignite: 'lit', untemp: 'untemp' }[tk.kind]]++; if (tk.kind === 'untemp') this.temps.delete(tk.k); if (tk.kind === 'fill' || tk.kind === 'seal') this.fluidLeft = [...this.tasks.values()].some((q) => q.kind === 'fill' || q.kind === 'seal'); if (tk.kind === 'place' || tk.kind === 'fix' || tk.kind === 'clear') this._lowered(tk); continue; }
+            if (ok) { this.tasks.delete(tk.k); this.stats[{ seal: 'sealed', fill: 'filled', clear: 'cleared', scaffold: 'scaffolds', place: 'placed', fix: 'fixed', pour: 'poured', ignite: 'lit', untemp: 'untemp' }[tk.kind]]++; if (tk.kind === 'untemp') this.temps.delete(tk.k); if (tk.kind === 'scaffold') { (this.scaffolds = this.scaffolds || new Set()).add(tk.k); if (!this.t.inside(tk.x, tk.y, tk.z)) this.temps.add(tk.k); } if (tk.kind === 'fill' || tk.kind === 'seal') this.fluidLeft = [...this.tasks.values()].some((q) => q.kind === 'fill' || q.kind === 'seal'); if (tk.kind === 'place' || tk.kind === 'fix' || tk.kind === 'clear') this._lowered(tk); continue; }
             if (why === 'skipped') {
                 // skipped over and over (out of reach, its own floor, no item at hand) counts as a failure in the end: a task skipped for ever held a stage (live 2026-11-22)
                 const sk = (this.skips.get(tk.k) || 0) + 1; this.skips.set(tk.k, sk);
