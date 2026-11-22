@@ -382,7 +382,10 @@ class BuildJob {
             if (this.ready(tk, bot, now)) ready.push(tk);
         }
         const lo = this.stage === 'place' ? this.frontier : -Infinity, hi = this.stage === 'place' ? this.frontier + this.o.window : Infinity;
+        const tScan = Date.now();
         for (const { k } of keys) {
+            // the scan is synchronous: at most 60 ms of it per claim (eight bots claiming over 17 000 tasks blocked every bot's keep-alive for seconds, live 2026-11-23 fx3 profile)
+            if (Date.now() - tScan > 60) break;
             const [, by] = k.split(',').map(Number);
             if (by * G > hi || by * G + G - 1 < lo) continue;
             // done tasks leave their bucket here (kept, 23 000 cleared cells filled the scan budget and a claim saw 5 ready tasks out of thousands, live 2026-11-22 sD2)

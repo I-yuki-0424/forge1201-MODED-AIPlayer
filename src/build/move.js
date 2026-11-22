@@ -93,15 +93,24 @@ class View {
         (this.lavaNear = this.lavaNear || new Map()).set(k, v);
         return v;
     }
-    /** Is there lava (or fire) in any 8x8x8 region the box touches? Each region is scanned once per view. */
+    /**
+     * Is there lava (or fire) in any 8x8x8 region the box touches? A region is scanned by state ids (blockAt builds a Block with its biome for each of 512 cells: the scans were a
+     * sixth of all CPU in the Nether, live 2026-11-23 fx3 profile) and the answer is kept 30 s per bot, shared by its views.
+     */
     _lavaRegions(x0, y0, z0, x1, y1, z1) {
-        const R = 8, reg = this.regions || (this.regions = new Map());
+        const R = 8, reg = lavaCache(this.bot);
         for (let rx = Math.floor(x0 / R); rx <= Math.floor(x1 / R); rx++) for (let ry = Math.floor(y0 / R); ry <= Math.floor(y1 / R); ry++) for (let rz = Math.floor(z0 / R); rz <= Math.floor(z1 / R); rz++) {
             const k = `${rx},${ry},${rz}`;
             let has = reg.get(k);
             if (has === undefined) {
                 has = false;
-                for (let x = rx * R; x < rx * R + R && !has; x++) for (let y = ry * R; y < ry * R + R && !has; y++) for (let z = rz * R; z < rz * R + R; z++) { const b = this.bot.blockAt(new Vec3(x, y, z), false); if (b && (b.name === 'lava' || b.name === 'fire')) { has = true; break; } }
+                const w = this.bot.world, hot = w && this.bot.registry ? hotStates(this.bot) : null, p = new Vec3(0, 0, 0);
+                for (let x = rx * R; x < rx * R + R && !has; x++) for (let y = ry * R; y < ry * R + R && !has; y++) for (let z = rz * R; z < rz * R + R; z++) {
+                    p.x = x; p.y = y; p.z = z;
+                    if (!hot) { const b = this.bot.blockAt(p, false); if (b && (b.name === 'lava' || b.name === 'fire')) { has = true; break; } continue; }
+                    let id; try { id = w.getBlockStateId(p); } catch (_) { id = undefined; }
+                    if (id !== undefined && hot.has(id)) { has = true; break; }
+                }
                 reg.set(k, has);
             }
             if (has) return true;
@@ -119,6 +128,22 @@ class View {
         const tool = toolFor(this.bot, b);
         try { return Math.ceil(b.digTime(tool ? tool.type : null, false, false, false, [], {}) / 50) + 2; } catch (_) { return 40; }
     }
+}
+
+/** The state ids of lava and fire (any level) for a bot's registry. */
+const HOT = new WeakMap();
+function hotStates(bot) {
+    let s = HOT.get(bot.registry); if (s) return s;
+    s = new Set();
+    for (const n of ['lava', 'fire', 'soul_fire']) { const b = bot.registry.blocksByName[n]; if (b) for (let i = b.minStateId; i <= b.maxStateId; i++) s.add(i); }
+    HOT.set(bot.registry, s); return s;
+}
+/** A bot's lava regions ('rx,ry,rz' -> bool), dropped every 30 s (lava flows; a dug cell can open onto it). */
+const LAVA = new WeakMap();
+function lavaCache(bot) {
+    let c = LAVA.get(bot); const now = Date.now();
+    if (!c || now - c.at > 30000) { c = { at: now, m: new Map() }; LAVA.set(bot, c); }
+    return c.m;
 }
 
 /**
