@@ -58,7 +58,13 @@ class View {
         const k = key(x, y, z); let v = this.lavaNear && this.lavaNear.get(k);
         if (v !== undefined) return v;
         v = false;
-        for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [1, 1, 0], [-1, 1, 0], [0, 1, 1], [0, 1, -1], [0, -1, 0], [0, -2, 0], [0, 2, 0]]) { const b = this.raw(x + dx, y + dy, z + dz); if (b && (b.name === 'lava' || b.name === 'fire')) { v = true; break; } }
+        // two cells around the body, from two under the feet to three over them: the Nether's lava runs several cells in seconds and falls from above (bots pillaring beside it
+        // burned, four deaths on one world, live 2026-11-22 sW w5); fire only where the body is
+        for (let dy = -2; dy <= 3 && !v; dy++) for (let dx = -2; dx <= 2 && !v; dx++) for (let dz = -2; dz <= 2; dz++) {
+            if (Math.abs(dx) + Math.abs(dz) > 2) continue;
+            const b = this.raw(x + dx, y + dy, z + dz);
+            if (b && (b.name === 'lava' || (b.name === 'fire' && !dx && !dz && dy >= -1 && dy <= 1))) { v = true; break; }
+        }
         (this.lavaNear = this.lavaNear || new Map()).set(k, v);
         return v;
     }

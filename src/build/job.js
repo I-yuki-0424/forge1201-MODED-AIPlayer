@@ -8,7 +8,8 @@
 //   late      fluids poured and portals and fires lit, when every block stands
 //   settle    a few seconds for the circuit, then one more survey: nothing left = done
 const S = require('./state');
-const { survey } = require('./survey');
+const SV = require('./survey');
+const { survey } = SV;
 const { seen, eyeOf, boxDist } = require('./world');
 const { View, feet } = require('./move');
 const P = require('./place');
@@ -266,7 +267,10 @@ class BuildJob {
                 scanned++;
                 if (!this.tasks.has(tk.k) || this.claims.has(tk.k)) continue;
                 // already as it should be (dug on someone's way, leaves that decayed, a block another bot put there): done, not offered (a clear task on air found no stance and was parked, live 2026-11-22)
+                if (tk.after) { const h = seen(bot, tk); if (h && (S.AIR.has(h.name) || SV.REPLACEABLE.test(h.name))) { tk.kind = tk.after; delete tk.after; } }
                 if (this._already(tk, bot)) { this.tasks.delete(tk.k); this._lowered(tk); continue; }
+                // a wrong block where one is to be placed (rubble left, a block pushed or dropped there): dug out first, then placed (nobody removed it and the cell was parked, live 2026-11-22 sW w2)
+                if (tk.kind === 'place') { const h = seen(bot, tk); if (h && !S.AIR.has(h.name) && !SV.REPLACEABLE.test(h.name) && !SV.FLUID(h)) { tk.kind = 'clear'; tk.after = 'place'; } }
                 if (this.ready(tk, bot, now)) ready.push(tk);
             }
             if (ready.length >= 300 || scanned >= 6000) break;
@@ -313,10 +317,11 @@ class BuildJob {
         for (const seed of doable.slice(0, 12)) {
             if (Date.now() - t0 > 250) break;
             let best = null;
-            const cands = [], rej = { blocked: 0, solid: 0, unsupported: 0, far: 0, way: 0 };
+            const cands = [], rej = { blocked: 0, lava: 0, solid: 0, unsupported: 0, far: 0, way: 0 };
             for (const f of stationsAround(seed, this.o.reach, down)) {
                 if (cands.length >= 40) break;
                 if (blocked(f.x, f.y, f.z) || blocked(f.x, f.y + 1, f.z) || bodyCovers(f, seed)) { rej.blocked++; continue; }
+                if (view.nearLava(f.x, f.y, f.z)) { rej.lava++; continue; }                 // the mover never goes there: offered, it cost a 4 s search each time
                 // clearing: a stance may be inside rock that is to be cleared anyway (a box sunk in rock has no open cell near its top layer); the walk digs its way in
                 const dug = !view.fits(f.x, f.y, f.z);
                 if (dug && !(down && [f.y, f.y + 1].every((y) => view.free(f.x, y, f.z) || (this.tasks.get(key(f.x, y, f.z)) || {}).kind === 'clear'))) { rej.solid++; continue; }
@@ -412,6 +417,7 @@ class BuildJob {
     report(name, results, now = Date.now()) {
         for (const { tk, ok, why } of results) {
             this.claims.delete(tk.k);
+            if (ok && tk.after) { const o = this.tasks.get(tk.k); if (o) { o.kind = tk.after; delete o.after; this.cool.set(tk.k, now + 500); } this.stats.cleared++; continue; }
             if (ok) { this.tasks.delete(tk.k); this.stats[{ seal: 'sealed', fill: 'filled', clear: 'cleared', place: 'placed', fix: 'fixed', pour: 'poured', ignite: 'lit', untemp: 'untemp' }[tk.kind]]++; if (tk.kind === 'untemp') this.temps.delete(tk.k); if (tk.kind === 'fill' || tk.kind === 'seal') this.fluidLeft = [...this.tasks.values()].some((q) => q.kind === 'fill' || q.kind === 'seal'); if (tk.kind === 'place' || tk.kind === 'fix' || tk.kind === 'clear') this._lowered(tk); continue; }
             if (why === 'skipped') {
                 // skipped over and over (out of reach, its own floor, no item at hand) counts as a failure in the end: a task skipped for ever held a stage (live 2026-11-22)

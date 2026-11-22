@@ -221,6 +221,9 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
                 return { ended: 'finished' };
             }
             if (!bot.entity || bot._client.ended) return { ended: 'disconnected' };
+            // respawned in another dimension (a death in the Nether respawns in the Overworld): the job's cells are not in this world; the bot leaves the crew until a player brings it back
+            // (it walked the Nether's coordinates in the Overworld for an hour, live 2026-11-22 sW w6)
+            if (bot.game) { const d0 = (job.dims || (job.dims = new Map())).get(name); if (d0 === undefined) job.dims.set(name, bot.game.dimension); else if (d0 !== bot.game.dimension) { job.log(`${name} is in ${bot.game.dimension} now, not ${d0} (respawned after a death): it leaves the crew`); return { ended: 'wrong_dimension' }; } }
             // the supply: read once by one bot (the next one tries when a read fails)
             if (job.available === null) {
                 job.supplyTried = job.supplyTried || new Set();
