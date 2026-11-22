@@ -53,7 +53,9 @@ class BuildJob {
         this.available = opts.available || null;
         this.sealItem = opts.sealItem || 'smooth_stone';
         this.lit = new Set();
-        this.temps = new Set();            // temporary blocks placed outside the box ('x,y,z')
+        this.temps = new Map();            // temporary blocks a mover placed ('x,y,z' -> { how: pillar | bridge | temp, by, name, t }); scaffolds (supports for a placement) are apart
+        this.untemps = new Set();          // their untemp tasks: offered in every stage, not only at the end (thousands stood on the site, owner 2026-11-23 problem 2)
+        this.sector = new Map();           // bot -> its share of the box's ground plan (a pit's lane: the same bot works the same piece, owner 2026-11-23 problem 3)
         this.tempItem = opts.tempItem || null;
         this.time = { walk: 0, dig: 0, place: 0, trip: 0, idle: 0, claim: 0 };
         this.stats = { placed: 0, cleared: 0, scaffolds: 0, sealed: 0, filled: 0, fixed: 0, poured: 0, lit: 0, untemp: 0, failed: 0, surveys: 0, escapes: 0, trips: 0 };
@@ -74,13 +76,15 @@ class BuildJob {
             // (once the late stage has poured, fluids stay: a block put back afterwards next to them is placed into a finished basin)
             if (!this.pouredOnce && sv.tasks.some((tk) => STAGE_OF[tk.kind] === 'prepare' || STAGE_OF[tk.kind] === 'place')) for (const tk of sv.kept) sv.tasks.push(tk);
             // temporary blocks outside the box (pillars, bridges) that still stand: taken away at the end
-            for (const k of this.temps) { const [x, y, z] = k.split(',').map(Number); if (this.t.inside(x, y, z)) { this.temps.delete(k); continue; } const h = seen(bot, { x, y, z }); if (!h) continue; if (h.name !== this.tempItem) { this.temps.delete(k); continue; } sv.tasks.push({ k, kind: 'untemp', i: -1, x, y, z }); }
+            // (inside the box only where the cell is to be empty: elsewhere the survey's own clear-then-place task has it)
+            for (const [k, m] of this.temps) { const [x, y, z] = k.split(',').map(Number); if (this.t.inside(x, y, z) && !this.t.isAir(this.t.idx(x, y, z))) { this.temps.delete(k); continue; } const h = seen(bot, { x, y, z }); if (!h) continue; if (h.name !== (m.name || this.tempItem)) { this.temps.delete(k); continue; } sv.tasks.push({ k, kind: 'untemp', i: -1, x, y, z }); }
             for (const tk of sv.tasks) {
                 if (this.parked.has(tk.k)) continue;
                 if (tk.kind !== 'seal' && tk.kind !== 'ignite' && this.available && !this._itemOk(tk)) { this.parked.set(tk.k, `missing_item ${this._itemOf(tk)}`); continue; }
                 tasks.set(tk.k, tk);
             }
             this.tasks = tasks;
+            this.untemps = new Set([...tasks.values()].filter((tk) => tk.kind === 'untemp'));
             this.fluidLeft = [...tasks.values()].some((tk) => tk.kind === 'fill' || tk.kind === 'seal');
             this.buckets = new Map();
             for (const tk of tasks.values()) { const k = `${Math.floor(tk.x / 8)},${Math.floor(tk.y / 8)},${Math.floor(tk.z / 8)}`; (this.buckets.get(k) || this.buckets.set(k, []).get(k)).push(tk); }
@@ -139,6 +143,7 @@ class BuildJob {
     /** Is task `tk` ready in `bot`'s view of the world? (`pending`: cells this bot has just sent a placement for and not read back yet: they count as standing.) */
     ready(tk, bot, now, pending = null, soft = false) {
         if (this.parked.has(tk.k) || (this.cool.get(tk.k) || 0) > now) return false;
+        if (tk.kind === 'untemp') return !this.tasks.has(key(tk.x, tk.y + 1, tk.z)) || this.tasks.get(key(tk.x, tk.y + 1, tk.z)).kind !== 'untemp';      // any stage; the top of a stack first
         if (STAGE_OF[tk.kind] !== this.stage) {
             // placing overlaps clearing: a block goes in as soon as its own neighbourhood is cleared (a few hard cells anywhere held the whole build in the prepare stage, live 2026-11-22)
             if (!(this.stage === 'prepare' && (tk.kind === 'place' || tk.kind === 'fix' || tk.kind === 'scaffold') && this._clearAround(tk))) return false;
@@ -309,6 +314,51 @@ class BuildJob {
         };
     }
 
+    // ---- temporary blocks -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+    /** A mover placed a temporary block (a pillar or bridge for walking; its own pillar it digs down itself when it leaves, the rest becomes an untemp task once nobody uses it). */
+    addTemp(c, how, by, name) { if (this.t.inside(c.x, c.y, c.z) && !this.t.isAir(this.t.idx(c.x, c.y, c.z))) return; this.temps.set(key(c.x, c.y, c.z), { how, by, name, t: Date.now() }); }
+    dropTemp(c) { const k = key(c.x, c.y, c.z); this.temps.delete(k); const tk = this.tasks.get(k); if (tk && tk.kind === 'untemp') { this.tasks.delete(k); this.untemps.delete(tk); } }
+
+    /**
+     * Temporary blocks nobody stands on or above any more (no bot's body, stance or claim in their column) become untemp tasks after a few seconds, in any stage: walking blocks are not
+     * kept (owner 2026-11-23: pillars and bridges for moving need no reuse). Scaffolds, the supports a placement needs, are not temps and stay while a block waits against them.
+     */
+    _offerTemps(now) {
+        if (now - (this._offerAt || 0) < 3000 || !this.temps.size) return;
+        this._offerAt = now;
+        const cols = []; for (const b of this.bots.values()) { if (b.pos) cols.push(b.pos); if (b.station) cols.push(b.station[0]); }
+        for (const [k, m] of this.temps) {
+            if (this.tasks.has(k) || now - m.t < 8000) continue;
+            const [x, y, z] = k.split(',').map(Number);
+            if (cols.some((p) => Math.abs(p.x - x) <= 0 && Math.abs(p.z - z) <= 0 && p.y > y && p.y <= y + 80)) continue;
+            const tk = { k, kind: 'untemp', i: -1, x, y, z };
+            this.tasks.set(k, tk); this.untemps.add(tk);
+        }
+    }
+
+    // ---- sectors -----------------------------------------------------------------------------------------------------------------------------------------------------------
+
+    /**
+     * The bot's sector: the box's ground plan cut into one piece per crew member (columns x rows, pieces as square as the box allows), given once in the order the bots first claim
+     * (a bot keeps its piece; a piece whose bot is gone is helped like any other). Eight bots seeded by the lowest or highest cell anywhere crowded one corner of the box, several on
+     * the same cell, and their stances moved a few cells at each claim (owner 2026-11-23, problems 3 and 9).
+     */
+    sectorOf(name) {
+        if (!this.sector.has(name)) {
+            const n = Math.max(this.bots.size, this.sector.size + 1, 1), b = this.t.box;
+            if (!this._grid || this._grid.n < n) {
+                let best = null;
+                for (let c = 1; c <= n; c++) { const r = Math.ceil(n / c), a = (b.sx / c) / (b.sz / r), cost = Math.abs(Math.log(a)) + (c * r - n) * 0.8; if (!best || cost < best.cost) best = { c, r, cost }; }
+                this._grid = { n, c: best.c, r: best.r };
+            }
+            const used = new Set(this.sector.values()), idx = [...Array(this._grid.c * this._grid.r).keys()].find((i) => !used.has(i)) ?? this.sector.size % (this._grid.c * this._grid.r);
+            this.sector.set(name, idx);
+        }
+        const { c, r } = this._grid, i = this.sector.get(name), col = i % c, row = Math.floor(i / c) % r, b = this.t.box;
+        return { x0: b.x + Math.floor(col * b.sx / c), x1: b.x + Math.floor((col + 1) * b.sx / c) - 1, z0: b.z + Math.floor(row * b.sz / r), z1: b.z + Math.floor((row + 1) * b.sz / r) - 1 };
+    }
+
     // ---- claims --------------------------------------------------------------------------------------------------------------------------------------------------------------
 
     /**
@@ -320,7 +370,17 @@ class BuildJob {
     claim(bot, name, now = Date.now(), has = () => Infinity) {
         const me = feet(bot), others = [...this.bots.entries()].filter(([n, b]) => n !== name && b.station).map(([, b]) => b.station[0]);
         const ready = [], G = 8; let scanned = 0;
-        const keys = [...this.buckets.keys()].map((k) => { const [x, y, z] = k.split(',').map(Number); return { k, d: Math.hypot(x * G + G / 2 - me.x, (y * G + G / 2 - me.y) * 1.5, z * G + G / 2 - me.z) }; }).sort((a, b) => a.d - b.d);
+        this._offerTemps(now);
+        const sec = this.sectorOf(name), inSec = (tk) => tk.x >= sec.x0 && tk.x <= sec.x1 && tk.z >= sec.z0 && tk.z <= sec.z1;
+        // the bot's own sector first, nearest first within it; the rest of the box after it (helping where a sector is done or its bot is gone)
+        const keys = [...this.buckets.keys()].map((k) => { const [x, y, z] = k.split(',').map(Number), mine = x * G + G - 1 >= sec.x0 && x * G <= sec.x1 && z * G + G - 1 >= sec.z0 && z * G <= sec.z1; return { k, d: Math.hypot(x * G + G / 2 - me.x, (y * G + G / 2 - me.y) * 1.5, z * G + G / 2 - me.z) + (mine ? 0 : 1000) }; }).sort((a, b) => a.d - b.d);
+        // temporary blocks to take away near the bot, in any stage
+        for (const tk of [...this.untemps]) {
+            if (this.tasks.get(tk.k) !== tk) { this.untemps.delete(tk); continue; }
+            if (this.claims.has(tk.k) || Math.hypot(tk.x - me.x, tk.y - me.y, tk.z - me.z) > 24) continue;
+            if (this._already(tk, bot)) { this.tasks.delete(tk.k); this.untemps.delete(tk); this.temps.delete(tk.k); continue; }
+            if (this.ready(tk, bot, now)) ready.push(tk);
+        }
         const lo = this.stage === 'place' ? this.frontier : -Infinity, hi = this.stage === 'place' ? this.frontier + this.o.window : Infinity;
         for (const { k } of keys) {
             const [, by] = k.split(',').map(Number);
@@ -329,7 +389,7 @@ class BuildJob {
             const live = this.buckets.get(k).filter((tk) => this.tasks.get(tk.k) === tk);
             if (live.length) this.buckets.set(k, live); else { this.buckets.delete(k); continue; }
             for (const tk of live) {
-                if (this.claims.has(tk.k)) continue;
+                if (this.claims.has(tk.k) || tk.kind === 'untemp') continue;
                 scanned++;
                 // the cheap reasons first (map lookups only): most of a box to clear lies under cells still to clear, most of a box to build above the window; the costly
                 // checks (the world's blocks) only for the rest (6 000 costly checks per claim saw 5 ready tasks out of 28 000, the ready top layer out of reach, live 2026-11-22 sM2)
@@ -345,6 +405,7 @@ class BuildJob {
             if (ready.length >= 300 || scanned >= 60000) break;
         }
         if (!ready.length) {
+            this.nothingWhy = `nothing ready in stage ${this.stage} (${this.tasks.size} tasks, ${this.claims.size} claimed by others, frontier ${Number.isFinite(this.frontier) ? this.frontier : '-'}, parked ${this.parked.size})`;
             if (!this.claims.size && this.tasks.size && !this.relaxed) {
                 if (!this.stallSince) this.stallSince = now;
                 else if (now - this.stallSince > STALL_MS) {
@@ -372,7 +433,13 @@ class BuildJob {
         }
         const down = this.stage === 'prepare';
         const crowd = (tk) => others.reduce((s, o) => s + (Math.hypot(o.x - tk.x, o.z - tk.z, (o.y - tk.y) / 2) < 6 ? 1 : 0), 0);
-        const seedScore = (tk) => (tk.kind === 'place' || tk.kind === 'fix' ? 2000 + tk.y * 3 : (down ? -tk.y : tk.y) * 3) + Math.hypot(tk.x - me.x, tk.y - me.y, tk.z - me.z) * 0.25 + crowd(tk) * 25 + (tk.kind === 'seal' || tk.kind === 'fill' ? -1000 : 0);
+        // own sector first (400 outweighs any height or distance), then the layer (top-down clearing, bottom-up placing), then nearness: a bot works on where it is; a second bot
+        // within six cells costs as much as ten layers; temporary blocks near the bot go first (they are in someone's way)
+        const seedScore = (tk) => {
+            const d = Math.hypot(tk.x - me.x, tk.y - me.y, tk.z - me.z);
+            if (tk.kind === 'untemp') return d <= 8 ? -3000 + d : 1000 + d * 2;
+            return (tk.kind === 'place' || tk.kind === 'fix' ? 2000 + tk.y * 3 : (down ? -tk.y : tk.y) * 2) + d * 0.6 + crowd(tk) * 30 + (inSec(tk) ? 0 : 400) + (tk.kind === 'seal' || tk.kind === 'fill' ? -1000 : 0);
+        };
         doable.sort((a, b) => seedScore(a) - seedScore(b));
         const view = new View(bot, { canDig: () => false }), blocked = this.standBlocked(name);
         // a spatial index of the doable tasks: a stance is first ranked by how many it has within reach (cheap); the click search (place.ways: rays and the vanilla model) runs only for
@@ -408,6 +475,10 @@ class BuildJob {
                         const br = this._bridgeFrom(view, f);
                         if (!br) { rej.unsupported++; continue; }
                         h = 4 + br;
+                    } else {
+                        // a pillar only through cells a block can go into (a stance over built wire or torches had a pillar the server refused: owner 2026-11-23 problem 1)
+                        let okp = true; for (let j = 1; j <= h && okp; j++) if (!view.placeable(f.x, f.y - j, f.z)) okp = false;
+                        if (!okp) { rej.unsupported++; continue; }
                     }
                 }
                 if (lonely && (standing || dug || wet || Math.abs(f.x - seed.x) + Math.abs(f.y - 1 - seed.y) + Math.abs(f.z - seed.z) !== 1)) { rej.nothingToClick++; continue; }
@@ -423,6 +494,7 @@ class BuildJob {
                 if (!way) { rej.way++; continue; }
                 const batch = [{ ...seed, way }];
                 for (const tk of c.reach) { if (tk === seed || batch.length >= BATCH) continue; const w = this._way(world, tk, c.f); if (w) batch.push({ ...tk, way: w }); }
+                if (down && seed.kind === 'clear') this._deepen(bot, world, c.f, batch, floors);
                 best = { f: c.f, batch };
                 break;
             }
@@ -481,7 +553,41 @@ class BuildJob {
         const over = new Map();
         if (bodyAt) { over.set(`${bodyAt.x},${bodyAt.y},${bodyAt.z}`, P.AIR); over.set(`${bodyAt.x},${bodyAt.y + 1},${bodyAt.z}`, P.AIR); }
         if (pillarAt) over.set(`${pillarAt.x},${pillarAt.y - 1},${pillarAt.z}`, { name: this.tempItem || 'dirt', props: {}, shapes: [[0, 0, 0, 1, 1, 1]] });
-        return P.botWorld(bot, over);
+        const w = P.botWorld(bot, over); w.over = over;
+        return w;
+    }
+
+    /**
+     * Clearing from one stance as a player does it: everything within reach, top-down, not only the top layer that is ready now. A cell under cells to clear joins the claim when
+     * every one of those is in the claim before it (they are dug first; the world for the sight test has them dug). The bot then works a block of the ground from one stance instead
+     * of moving a few cells for each layer (owner 2026-11-23, problem 3). Never the column under its own feet or the floor of another bot; never next to a fluid; not natural leaves.
+     */
+    _deepen(bot, world, f, batch, floors) {
+        const inB = new Set(batch.map((t) => t.k)), eye = eyeOf({ x: f.x + 0.5, y: f.y, z: f.z + 0.5 }), cand = [];
+        for (const t of batch) if (t.kind === 'clear') world.over.set(t.k, P.AIR);
+        for (let dy = 5; dy >= -2; dy--) for (let dx = -5; dx <= 5; dx++) for (let dz = -5; dz <= 5; dz++) {
+            const x = f.x + dx, y = f.y + dy, z = f.z + dz, k = key(x, y, z), tk = this.tasks.get(k);
+            if (!tk || tk.kind !== 'clear' || tk.after || inB.has(k) || this.claims.has(k) || this.parked.has(k) || floors.has(k)) continue;
+            if (x === f.x && z === f.z && y < f.y) continue;
+            if (bodyCovers(f, tk) || boxDist(eye, tk) > this.o.reach) continue;
+            cand.push(tk);
+        }
+        cand.sort((a, b) => b.y - a.y);
+        const WET = (h) => h && (h.name === 'water' || h.name === 'lava' || h.props.waterlogged === 'true');
+        let added = 0;
+        for (const tk of cand) {
+            if (batch.length >= BATCH) break;
+            let held = false;
+            for (let ax = -1; ax <= 1 && !held; ax++) for (let az = -1; az <= 1; az++) { const up = this.tasks.get(key(tk.x + ax, tk.y + 1, tk.z + az)); if (up && up.kind === 'clear' && !this.parked.has(up.k) && !inB.has(up.k) && up.leaf !== true) { held = true; break; } }
+            if (held) continue;
+            const h = seen(bot, tk);
+            if (!h || (/_leaves$/.test(h.name) && h.props.persistent !== 'true')) continue;
+            if ([[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]].some(([dx, dy, dz]) => WET(seen(bot, { x: tk.x + dx, y: tk.y + dy, z: tk.z + dz })))) continue;
+            const w = P.clickable(world, tk, f);
+            if (!w) continue;
+            batch.push({ ...tk, way: w }); inB.add(tk.k); world.over.set(tk.k, P.AIR); added++;
+        }
+        return added;
     }
 
     /** How a task is done from stance f: a click (place.ways) for blocks, a face in sight for digging, or true for work that brings its own aim. Null: not from here. */

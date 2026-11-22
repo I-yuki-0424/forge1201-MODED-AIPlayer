@@ -27,7 +27,7 @@ function fakeBot(world, loaded = { x0: -100, x1: 100, y0: -64, y1: 320, z0: -100
         blockAt(p) {
             if (p.x < loaded.x0 || p.x > loaded.x1 || p.z < loaded.z0 || p.z > loaded.z1) return null;
             const s = world.get(`${p.x},${p.y},${p.z}`) || { name: 'air', props: {} };
-            const empty = /^(air|water|lava|nether_portal|short_grass)$/.test(s.name);
+            const empty = s.empty || /^(air|water|lava|nether_portal|short_grass|redstone_wire)$/.test(s.name);
             return { name: s.name, getProperties: () => s.props || {}, boundingBox: empty ? 'empty' : 'block', shapes: empty ? [] : (s.shapes || [[0, 0, 0, 1, 1, 1]]) };
         },
     };
@@ -236,5 +236,53 @@ test('the owner\'s blueprints: every cell has a recipe or is the world\'s (air, 
 });
 
 
+console.log('owner 2026-11-23 problems');
+test('no pillar or bridge into a cell that holds redstone wire (problem 1); powder snow is dug, never walked into (problem 6)', async () => {
+    const w = new Map(); for (let x = -5; x <= 5; x++) for (let z = -5; z <= 5; z++) w.set(`${x},-1,${z}`, { name: 'stone' });
+    w.set('0,0,0', { name: 'redstone_wire' });
+    const bot = fakeBot(w), view = new M.View(bot, { canDig: () => true });
+    assert(!view.placeable(0, 0, 0) && view.placeable(1, 0, 0), 'wire is no place for a block, air is');
+    const up = await M.plan(view, { x: 0, y: 0, z: 0 }, (x, y, z) => y >= 2, { x: 0, y: 2, z: 0 }, { temps: 8 });
+    assert(up, 'a plan'); assert.notStrictEqual(up[1].move, 'pillar', 'it steps off the wire before it pillars');
+    for (const q of up) if (q.move === 'pillar') assert(!(q.x === 0 && q.z === 0 && q.y === 1), 'no pillar block into the wire cell');
+    const w2 = new Map(); for (let x = -5; x <= 10; x++) for (let z = -1; z <= 1; z++) w2.set(`${x},-1,${z}`, { name: 'stone' });
+    for (let z = -1; z <= 1; z++) { w2.set(`3,0,${z}`, { name: 'powder_snow', empty: true }); w2.set(`3,1,${z}`, { name: 'powder_snow', empty: true }); }
+    const v2 = new M.View(fakeBot(w2), { canDig: () => true });
+    assert.strictEqual(v2.kind(3, 0, 0), 'solid');
+    const r = await M.plan(v2, { x: 0, y: 0, z: 0 }, (x, y, z) => x === 6 && z === 0, { x: 6, y: 0, z: 0 }, { temps: 0 });
+    assert(r && r.some((q) => q.dig && q.dig.some((d) => d.x === 3)), 'the snow is dug through');
+});
+test('sectors: one piece of the ground plan per bot, kept; the pieces cover the box without overlap (problems 3, 9)', () => {
+    const t = new Target(tiny(), { x: 0, y: 64, z: 0 });
+    t.box = { x: 0, y: 64, z: 0, sx: 48, sy: 30, sz: 48 };
+    const job = new BuildJob(t, {});
+    const names = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']; for (const nm of names) job.bots.set(nm, { station: null });
+    const cells = new Map();
+    for (const nm of names) { const r = job.sectorOf(nm); for (let x = r.x0; x <= r.x1; x++) for (let z = r.z0; z <= r.z1; z++) { assert(!cells.has(`${x},${z}`), 'no overlap'); cells.set(`${x},${z}`, nm); } }
+    assert.strictEqual(cells.size, 48 * 48, 'the whole plan');
+    assert.deepStrictEqual(job.sectorOf('c'), job.sectorOf('c'), 'kept');
+});
+test('temporary blocks for walking become untemp tasks once nobody is on them, in any stage (problem 2)', () => {
+    const t = new Target(tiny(), { x: 10, y: 64, z: 10 });
+    const job = new BuildJob(t, {}); job.stage = 'prepare';
+    job.addTemp({ x: 0, y: 70, z: 0 }, 'pillar', 'a', 'dirt'); job.addTemp({ x: 0, y: 71, z: 0 }, 'pillar', 'a', 'dirt'); job.addTemp({ x: 5, y: 70, z: 5 }, 'bridge', 'a', 'dirt');
+    job.bots.set('a', { station: [{ x: 5, y: 71, z: 5 }], pos: { x: 5, y: 71, z: 5 } });
+    for (const m of job.temps.values()) m.t -= 10000;
+    job._offerTemps(Date.now());
+    assert(job.tasks.has('0,70,0') && job.tasks.has('0,71,0'), 'the pillar nobody stands on');
+    assert(!job.tasks.has('5,70,5'), 'not the block a bot stands on');
+    const bot = fakeBot(new Map([['0,70,0', { name: 'dirt' }], ['0,71,0', { name: 'dirt' }]]));
+    assert(job.ready(job.tasks.get('0,71,0'), bot, Date.now()), 'the top, in the prepare stage');
+    assert(!job.ready(job.tasks.get('0,70,0'), bot, Date.now()), 'not under another one');
+    job.dropTemp({ x: 0, y: 71, z: 0 }); assert(!job.tasks.has('0,71,0') && !job.temps.has('0,71,0'));
+});
+test('the display gives every walking bot its share of the path pieces (problem 4)', () => {
+    const { framePieces } = require('../src/work/display/overlay');
+    const bots = [];
+    for (let i = 0; i < 8; i++) { const cells = []; for (let k = 0; k < 400; k++) cells.push([i * 3 + (k % 2), 70 + (k % 3), k]); bots.push({ name: `b${i}`, color: i, dim: 'overworld', pos: { x: i * 3, y: 70, z: 0 }, path: { cells, at: Date.now() } }); }
+    const out = framePieces({ bots, lanes: [], tags: [], viewers: [{ dim: 'overworld', x: 10, z: 10 }] }, { on: true, paths: true, lanes: true, tags: true });
+    const by = new Map(); for (const k of out.keys()) { const v = out.get(k); by.set(v.piece.c, (by.get(v.piece.c) || 0) + 1); }
+    assert.strictEqual(by.size, 8, `all eight bots drawn (${[...by.entries()].join(' ')})`);
+});
 
 (async () => { for (const [name, fn] of queue) { await fn(); n++; console.log(`  ok ${name}`); } console.log(`test_build2_pure: ${n} passed`); })().catch((e) => { console.error(e); process.exit(1); });

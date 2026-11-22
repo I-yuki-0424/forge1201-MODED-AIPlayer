@@ -14,8 +14,11 @@ const key = (x, y, z) => `${x},${y},${z}`;
 // 2026-11-22 sK2 w5); the support's side face is in sight from there
 const LEAN = 0.6;
 const CLIMB = /^(vine|ladder|scaffolding|twisting_vines|twisting_vines_plant|weeping_vines|weeping_vines_plant|cave_vines|cave_vines_plant)$/;
-const AVOID_IN = /^(lava|fire|soul_fire|nether_portal|end_portal|end_gateway|cobweb|sweet_berry_bush|powder_snow|bubble_column|wither_rose|magma_block|campfire|soul_campfire|pointed_dripstone|cactus|moving_piston)$/;
+const AVOID_IN = /^(lava|fire|soul_fire|nether_portal|end_portal|end_gateway|cobweb|sweet_berry_bush|bubble_column|wither_rose|magma_block|campfire|soul_campfire|pointed_dripstone|cactus|moving_piston)$/;
 const NO_STAND = /^(magma_block|campfire|soul_campfire|cactus|.*_fence|.*_wall|.*_fence_gate|pointed_dripstone|honey_block|slime_block|powder_snow|scaffolding|.*_bed|hopper|composter)$/;
+// cells a temporary block can go into (vanilla canBeReplaced): a pillar or bridge block into a cell holding redstone wire, a torch, a rail or a repeater is refused by the
+// server, and a bot standing in a wire cell pillared in vain for minutes (owner 2026-11-23, problem 1)
+const PLACEABLE = /^(air|cave_air|void_air|water|short_grass|tall_grass|fern|large_fern|dead_bush|bush|short_dry_grass|tall_dry_grass|vine|glow_lichen|snow|seagrass|tall_seagrass|crimson_roots|warped_roots|nether_sprouts|hanging_roots|leaf_litter)$/;
 const H = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
 const COST = { walk: 4.6, diag: 6.5, up: 9, drop: 5, pillar: 14, bridge: 40, temp: 6, swim: 8, lava: 60 };
 
@@ -44,12 +47,21 @@ class View {
         if (AVOID_IN.test(b.name)) return 'avoid';
         // climbable plants have no collision box but catch a walking body (it climbs and gets nowhere: 307 failed walks in a jungle, live 2026-11-22 sJ2 w3): broken on the way
         if (CLIMB.test(b.name)) return 'solid';
+        // powder snow swallows a body (it sinks and cannot get out by walking: a crew stood stuck in a snowfield, owner 2026-11-23 problem 6): an obstacle that is dug, never walked into
+        if (b.name === 'powder_snow') return 'solid';
         // falling water (a waterfall) carries a body down: no route goes through it (six bots drowned swimming up one, live 2026-11-22 sN2 w2)
         if (b.name === 'water') { const lv = Number((b.getProperties() || {}).level || 0); if (lv >= 8) return 'avoid'; }
         if (b.boundingBox === 'empty') return b.name === 'water' ? 'water' : 'free';
         return 'solid';
     }
     free(x, y, z) { const k = this.kind(x, y, z); return k === 'free' || k === 'water'; }
+    /** Can a temporary block be put into this cell (it is empty or holds something a placement replaces)? */
+    placeable(x, y, z) {
+        const o = this.over.get(key(x, y, z));
+        if (o) return o === 'free';
+        const b = this.raw(x, y, z);
+        return !!b && PLACEABLE.test(b.name);
+    }
     fits(x, y, z) { return this.free(x, y, z) && this.free(x, y + 1, z); }
     /** Can a body stand on the block at (x, y, z) (its top at the cell's top)? */
     stands(x, y, z) {
@@ -122,8 +134,8 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
     const inBox = (x, y, z) => !box || (x >= box.x0 && x <= box.x1 && y >= box.y0 && y <= box.y1 && z >= box.z0 && z <= box.z1);
     let n = 0, spent = 0, slice = Date.now();
     while (open.size && n++ < maxNodes) {
-        // a long search gives the event loop back every 1500 nodes and ends after `budgetMs` of its own time (a synchronous search froze the work console for 25 s, live 2026-11-22)
-        if (n % 1500 === 0) { spent += Date.now() - slice; if (spent > budgetMs) { plan.last = { why: 'time', nodes: n }; return null; } await new Promise((r) => setImmediate(r)); slice = Date.now(); }
+        // a long search gives the event loop back every 500 nodes (1500 kept eight bots' keep-alives waiting: ping over 20 ms, owner 2026-11-23 problem 5) and ends after `budgetMs` of its own time (a synchronous search froze the work console for 25 s, live 2026-11-22)
+        if (n % 500 === 0) { spent += Date.now() - slice; if (spent > budgetMs) { plan.last = { why: 'time', nodes: n }; return null; } await new Promise((r) => setImmediate(r)); slice = Date.now(); }
         const c = open.pop();
         if (goal(c.x, c.y, c.z)) { const out = []; for (let q = c; q; q = q.p) out.push({ x: q.x, y: q.y, z: q.z, move: q.move, dig: q.dig || null, place: q.place || null }); return out.reverse(); }
         if ((best.get(key(c.x, c.y, c.z)) ?? Infinity) < c.g) continue;
@@ -157,7 +169,7 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
                 // drop down 1..3 onto something
                 let landed = false;
                 for (let k = 1; k <= 3 && !diag; k++) { if (!view.free(x, c.y - k, z)) { if (view.stands(x, c.y - k, z)) { add(x, c.y - k + 1, z, COST.drop + k, 'drop'); landed = true; } break; } }
-                if (!landed && !diag) { if (view.free(x, c.y - 1, z) && view.kind(x, c.y - 1, z) !== 'water' && view.stands(c.x, c.y - 1, c.z) && P.full(blk(view, c.x, c.y - 1, c.z))) add(x, c.y, z, COST.bridge + COST.temp, 'bridge', { place: { x, y: c.y - 1, z } }); }
+                if (!landed && !diag) { if (view.placeable(x, c.y - 1, z) && view.kind(x, c.y - 1, z) !== 'water' && view.stands(c.x, c.y - 1, c.z) && P.full(blk(view, c.x, c.y - 1, c.z))) add(x, c.y, z, COST.bridge + COST.temp, 'bridge', { place: { x, y: c.y - 1, z } }); }
                 continue;
             }
             if (diag) continue;
@@ -172,8 +184,8 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
                 add(x, c.y, z, cost, 'walk', { dig });
             }
         }
-        // pillar up on a temporary block (head room first, broken when diggable)
-        if (temps > c.t && view.kind(c.x, c.y + 2, c.z) !== 'avoid' && (headFree || view.diggable(c.x, c.y + 2, c.z))) add(c.x, c.y + 1, c.z, COST.pillar + COST.temp + (headFree ? 0 : view.digTicks(c.x, c.y + 2, c.z)), 'pillar', { place: { x: c.x, y: c.y, z: c.z }, dig: headFree ? null : [{ x: c.x, y: c.y + 2, z: c.z }] });
+        // pillar up on a temporary block (head room first, broken when diggable), only from a cell the block can go into
+        if (temps > c.t && view.placeable(c.x, c.y, c.z) && view.kind(c.x, c.y + 2, c.z) !== 'avoid' && (headFree || view.diggable(c.x, c.y + 2, c.z))) add(c.x, c.y + 1, c.z, COST.pillar + COST.temp + (headFree ? 0 : view.digTicks(c.x, c.y + 2, c.z)), 'pillar', { place: { x: c.x, y: c.y, z: c.z }, dig: headFree ? null : [{ x: c.x, y: c.y + 2, z: c.z }] });
         // dig down one (the block under the feet), onto the one under it
         if (view.diggable(c.x, c.y - 1, c.z) && view.stands(c.x, c.y - 2, c.z)) add(c.x, c.y - 1, c.z, COST.drop + view.digTicks(c.x, c.y - 1, c.z), 'down', { dig: [{ x: c.x, y: c.y - 1, z: c.z }] });
     }
@@ -197,7 +209,39 @@ function feet(bot) { const p = bot.entity.position; return { x: Math.floor(p.x),
 
 /** The mover of one bot. */
 class Mover {
-    constructor(bot, rules, { log = () => {} } = {}) { this.bot = bot; this.rules = rules; this.log = log; this.trace = []; }
+    constructor(bot, rules, { log = () => {} } = {}) { this.bot = bot; this.rules = rules; this.log = log; this.trace = []; this.mine = new Map(); }
+    /** A temporary block this mover put at c (`how`: pillar, bridge, temp): its own, taken down by unpillar() when it leaves; the caller is told (onTemp) for the rest. */
+    _temp(c, how) { const b = this.bot.blockAt(new Vec3(c.x, c.y, c.z), false); this.mine.set(key(c.x, c.y, c.z), b ? b.name : null); if (this.rules.onTemp) this.rules.onTemp(c, how); }
+
+    /**
+     * Standing on its own pillar and going somewhere else: dig it down from the top, a block at a time (one-block falls, no damage), as a player does, before the walk. A pillar left
+     * standing after every climb flooded the site with temporary blocks (owner 2026-11-23, problem 2). Stops at anything that is not its own block, over a gap, or when the next
+     * stance is on top of this pillar or beside its top (then the pillar is used again). Returns the blocks taken down.
+     */
+    async unpillar(to, goal, cancel) {
+        let n = 0;
+        while (n < 80 && !cancel.cancelled) {
+            const f = feet(this.bot), k = key(f.x, f.y - 1, f.z), name = this.mine.get(k);
+            if (name === undefined || goal(f.x, f.y, f.z)) break;
+            if (to && Math.abs(to.x - f.x) <= 1 && Math.abs(to.z - f.z) <= 1 && to.y >= f.y - 1) break;
+            const b = this.bot.blockAt(new Vec3(f.x, f.y - 1, f.z), false);
+            if (!b || (name && b.name !== name)) { this.mine.delete(k); break; }
+            const v = this.view();
+            if (!v.stands(f.x, f.y - 2, f.z) || v.nearLava(f.x, f.y - 1, f.z)) break;          // a gap or lava under it: the crew's untemp task takes it later
+            if (!(await this.dig({ x: f.x, y: f.y - 1, z: f.z }))) break;
+            this.mine.delete(k); if (this.rules.onUntemp) this.rules.onUntemp({ x: f.x, y: f.y - 1, z: f.z });
+            for (let i = 0; i < 20 && feet(this.bot).y > f.y - 1; i++) await sleep(50);
+            n++;
+        }
+        if (n) this.note(`unpillar ${n}`);
+        return n;
+    }
+
+    /** Powder snow in the body's cells (the bot sank into it): dug out, the bot climbs out by the plan. */
+    async unsink() {
+        const f = feet(this.bot);
+        for (const y of [f.y + 1, f.y]) { const b = this.bot.blockAt(new Vec3(f.x, y, f.z), false); if (b && b.name === 'powder_snow') await this.dig({ x: f.x, y, z: f.z }); }
+    }
     view() { return new View(this.bot, this.rules); }
     /** The last moves and digs (kept for a death's report). */
     note(what) { const p = this.bot.entity && this.bot.entity.position; this.trace.push(`${new Date().toISOString().slice(11, 19)} ${what}${p ? ` @${p.x.toFixed(1)},${p.y.toFixed(1)},${p.z.toFixed(1)}` : ''}`); if (this.trace.length > 8) this.trace.shift(); }
@@ -312,7 +356,7 @@ class Mover {
         const w = P.ways(world, c, { name: item, props: {} }, item, st, { max: 1 })[0] || P.ways(world, c, { name: item, props: {} }, item, st, { max: 1, sneakAlways: true })[0];
         if (!w) return false;
         await this.click(w.n, w.face, w.hit, { sneak: w.sneak });
-        for (let i = 0; i < 10; i++) { const bb = this.bot.blockAt(new Vec3(c.x, c.y, c.z), false); if (bb && bb.boundingBox === 'block') { this.rules.onTemp(c); return true; } await sleep(50); }
+        for (let i = 0; i < 10; i++) { const bb = this.bot.blockAt(new Vec3(c.x, c.y, c.z), false); if (bb && bb.boundingBox === 'block') { this._temp(c, 'temp'); return true; } await sleep(50); }
         return false;
     }
 
@@ -355,7 +399,7 @@ class Mover {
         b.setControlState('jump', false);
         for (let i = 0; i < 30; i++) { await sleep(50); if (b.entity.onGround && b.entity.position.y >= c.y - 0.01) break; }
         const bb = b.blockAt(new Vec3(below.x, below.y, below.z), false);
-        if (bb && bb.boundingBox === 'block') this.rules.onTemp(below);
+        if (bb && bb.boundingBox === 'block') this._temp(below, 'pillar');
         return feet(b).y === c.y;
     }
 
@@ -400,7 +444,7 @@ class Mover {
             }
             const bb = b.blockAt(new Vec3(s.place.x, s.place.y, s.place.z), false);
             if (!bb || bb.boundingBox !== 'block') return { ok: false, why: 'bridge place' };
-            this.rules.onTemp(s.place);
+            this._temp(s.place, 'bridge');
             return (await this.walkTo(s)) ? { ok: true } : { ok: false, why: 'bridge walk' };
         }
         return { ok: false, why: `unknown move ${s.move}` };
@@ -455,6 +499,8 @@ class Mover {
     async goto(to, { goal = null, cancel = { cancelled: false }, tries = 6, maxNodes = 40000, box = null } = {}) {
         const g = goal || ((x, y, z) => x === to.x && y === to.y && z === to.z);
         let steps = 0, last = null;
+        await this.unsink();
+        await this.unpillar(to, g, cancel);
         for (let t = 0; t < tries && !cancel.cancelled; t++) {
             const start = feet(this.bot);
             if (g(start.x, start.y, start.z)) return { ok: true, steps };

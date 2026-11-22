@@ -54,15 +54,21 @@ async function main() {
         await sleep(NETHER ? 6000 : 9000);
         if (NETHER) break;
         // counted when the site's chunks are in: a draw judged on a third of its surface had no ground at its middle (live 2026-11-22 sK2 w3)
-        let wet = 0, n = 0, want = 0;
+        // powder snow anywhere in the top three blocks of the surface: the draw is refused (bots sank into a snowfield and stood stuck, owner 2026-11-23 problem 6); the margin of 8
+        // around the footprint counts too (the crew walks there)
+        let wet = 0, n = 0, want = 0, snowy = 0;
         for (let tries = 0; tries < 4; tries++) {
-            wet = 0; n = 0; want = 0;
-            for (let x = cx - Math.floor(sx / 2); x < cx + sx / 2; x += 4) for (let z = cz - Math.floor(sz / 2); z < cz + sz / 2; z += 4) { want++; for (let y = 200; y > -60; y--) { const b = at(x, y, z); if (b && b !== 'air' && !/leaves|log/.test(b)) { n++; if (/water|ice|kelp|seagrass/.test(b)) wet++; break; } } }
-            console.log(`[build_t] site draw ${draw}: ${cx} ${cz}, ${wet}/${n} of the surface is water`);
+            wet = 0; n = 0; want = 0; snowy = 0;
+            for (let x = cx - Math.floor(sx / 2) - 8; x < cx + sx / 2 + 8; x += 4) for (let z = cz - Math.floor(sz / 2) - 8; z < cz + sz / 2 + 8; z += 4) {
+                const foot = x >= cx - Math.floor(sx / 2) && x < cx + sx / 2 && z >= cz - Math.floor(sz / 2) && z < cz + sz / 2;
+                if (foot) want++;
+                for (let y = 200; y > -60; y--) { const b = at(x, y, z); if (b && b !== 'air' && !/leaves|log/.test(b)) { if (foot) { n++; if (/water|ice|kelp|seagrass/.test(b)) wet++; } if ([0, 1, 2].some((d) => at(x, y - d, z) === 'powder_snow')) snowy++; break; } }
+            }
+            console.log(`[build_t] site draw ${draw}: ${cx} ${cz}, ${wet}/${n} of the surface is water, ${snowy} columns of powder snow`);
             if (n >= 0.9 * want && groundYAt(cx, cz) !== null) break;
             await sleep(4000);
         }
-        if (n && n >= 0.9 * want && wet / n <= 0.1 && groundYAt(cx, cz) !== null) break;
+        if (n && n >= 0.9 * want && wet / n <= 0.1 && !snowy && groundYAt(cx, cz) !== null) break;
     }
     const GROUNDLESS = /^(air|cave_air|void_air|.*_leaves|.*_log|.*_wood|vine|short_grass|tall_grass|fern|large_fern|.*_flower|dandelion|poppy|snow|water|lava|bamboo|sugar_cane)$/;
     const groundY = (x, z, top) => { for (let y = top; y > (NETHER ? 32 : -60); y--) { const n = at(x, y, z); if (n && !GROUNDLESS.test(n)) return y; } return null; };
@@ -134,6 +140,8 @@ async function main() {
         console.log(`[build_t] ${who} is on the server: the build starts`);
         await T.say(S0, `build_t: the build starts now (site ${M.x} ${M.y} ${M.z}${NETHER ? ' in the nether' : ''}, chest ${C.x} ${C.y} ${C.z})`);
     }
+    // the event loop's delay (a blocked loop delays every bot's keep-alive: the ping the owner sees, problem 5)
+    const lag = require('perf_hooks').monitorEventLoopDelay({ resolution: 20 }); lag.enable();
     const t0 = Date.now(); let state = 'control', job = null, err = null;
     if (!T.CONTROL) {
         try {
@@ -142,7 +150,7 @@ async function main() {
             let last = 0;
             while (Date.now() - t0 < LIMIT_MIN * 60000) {
                 if (job.state === 'finished' || job.state === 'cancelled') { state = job.state; break; }
-                if (Date.now() - last > 60000) { last = Date.now(); const s = job.impl.build.status(); console.log(`[progress ${Math.round((Date.now() - t0) / 60000)} min] stage ${s.stage} right ${s.right}/${s.total} work ${JSON.stringify(s.work)} claimed ${s.claimed} parked ${s.parked} frontier ${s.frontier} time ${JSON.stringify(s.time)} stats ${JSON.stringify(s.stats)}`); }
+                if (Date.now() - last > 60000) { last = Date.now(); const s = job.impl.build.status(); const lagMs = (lag.max / 1e6).toFixed(0), lagP = (lag.percentile(99) / 1e6).toFixed(0); lag.reset(); console.log(`[progress ${Math.round((Date.now() - t0) / 60000)} min] lag max ${lagMs} ms p99 ${lagP} ms stage ${s.stage} right ${s.right}/${s.total} work ${JSON.stringify(s.work)} claimed ${s.claimed} parked ${s.parked} frontier ${s.frontier} time ${JSON.stringify(s.time)} stats ${JSON.stringify(s.stats)}`); }
                 await sleep(2000);
             }
             if (state === 'control') state = 'timeout';

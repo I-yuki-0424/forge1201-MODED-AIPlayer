@@ -13,7 +13,8 @@ const dimensions = require('../world/dimensions');
 const DEFAULTS = Object.freeze({ on: true, paths: true, lanes: true, tags: true });
 const FRAME_MS = 1000;
 const NEAR = 110;                           // blocks (X-Z) from a viewer in the same dimension: farther pieces are not drawn (and so stay inside loaded chunks)
-const PATH_STALE_MS = 25000;                // a path nobody has refreshed for this long is not shown
+const PATH_STALE_MS = 25000;
+const PATH_AHEAD = 48;                     // cells of a way ahead of the bot that are drawn                // a path nobody has refreshed for this long is not shown
 const CAP = { paths: 420, lanes: 520, tags: 120 };       // pieces per layer on the whole server
 const PER_FRAME = 70;                       // summon + kill commands per frame
 const SWEEP_MS = 60000;
@@ -28,15 +29,19 @@ function framePieces(state, cfg) {
         const k = shapes.keyOf(dim, p); if (out.has(k)) return;
         out.set(k, { dim, piece: p, layer }); count[layer]++;
     };
-    if (cfg.paths) for (const b of state.bots) {
-        if (!b.path || !b.path.cells.length || !b.pos) continue;
+    // every bot gets an equal share of the path layer, and only the next PATH_AHEAD cells of its way are drawn: the first bots' long winding paths took the whole cap and only
+    // three of eight bots were shown (owner 2026-11-23, problem 4)
+    const walking = cfg.paths ? state.bots.filter((b) => b.path && b.path.cells.length && b.pos) : [];
+    const share = walking.length ? Math.max(4, Math.floor(CAP.paths / walking.length)) : 0;
+    for (const b of walking) {
         const dim = b.dim || 'overworld', pts = b.path.cells.map(([x, y, z]) => [x + 0.5, y + 0.15, z + 0.5]);
         let i = 0, best = Infinity;                                                        // the part of the path ahead of the bot
         pts.forEach((c, k) => { const d = Math.hypot(c[0] - b.pos.x, c[1] - b.pos.y, c[2] - b.pos.z); if (d < best) { best = d; i = k; } });
         if (!near(dim, pts[i][0], pts[i][2])) continue;
-        for (const [a, c] of shapes.runs(pts.slice(i))) add('paths', dim, shapes.piece(a, c, shapes.T_PATH, b.color, true));
-        const e = pts[pts.length - 1];
+        const ahead = pts.slice(i, i + PATH_AHEAD), e = ahead[ahead.length - 1];
+        const runs = shapes.runs(ahead).slice(0, share - 1);
         add('paths', dim, shapes.piece([e[0], e[1] + 0.35, e[2]], [e[0], e[1] + 0.95, e[2]], shapes.T_MARK, b.color, true));
+        for (const [a, c] of runs) add('paths', dim, shapes.piece(a, c, shapes.T_PATH, b.color, true));
     }
     if (cfg.lanes) for (const l of state.lanes) {
         const dim = l.dim || 'overworld', cx = (l.box.x0 + l.box.x1 + 1) / 2, cz = (l.box.z0 + l.box.z1 + 1) / 2;

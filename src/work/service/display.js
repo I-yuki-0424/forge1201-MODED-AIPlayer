@@ -58,6 +58,9 @@ class DisplayPart {
                 for (const [name, r] of per) lanes.push({ job: job.id, id: `claim ${name}`, dim, color: colorOf.has(name) ? colorOf.get(name) : 0, box: { x0: r.x0, x1: r.x1, z0: r.z0, z1: r.z1 }, rim: r.y1, activeY: r.y0 });
                 // the whole box last (the layer has a cap: the claims, small and changing, come first); white, its dashed rim at the top and at the frontier layer
                 lanes.push({ job: job.id, id: 'build', dim, color: 7, box: { x0: tb.x, x1: tb.x + tb.sx - 1, z0: tb.z, z1: tb.z + tb.sz - 1 }, rim: tb.y + tb.sy - 1, activeY: Number.isFinite(B.frontier) ? B.frontier : tb.y });
+                // each bot's sector (its share of the ground plan), one dashed outline at the frontier layer in the bot's colour (after the box: the cap drops these first)
+                const fy = Number.isFinite(B.frontier) ? B.frontier : tb.y;
+                if (B.sector && B.sectorOf) for (const name of B.sector.keys()) { const r = B.sectorOf(name); lanes.push({ job: job.id, id: `sector ${name}`, dim, color: colorOf.has(name) ? colorOf.get(name) : 0, box: r, rim: fy, activeY: fy }); }
             } else {
                 const b = this._jobBox(job); if (b && Number.isFinite(b.x0)) lanes.push({ job: job.id, id: 'build', dim: job.spec.dim || 'overworld', color: k++, box: b, rim: b.y1, activeY: b.y0 });
             }
