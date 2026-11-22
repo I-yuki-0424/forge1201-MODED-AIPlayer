@@ -169,7 +169,9 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
     // height to gain costs about a pillar step each (a weaker estimate searched whole hillsides before climbing 17 blocks to a tree top, live 2026-11-22)
     // weighted (a quicker search, a little longer way): a goal in the air is reached over a bridge at ten times a walk's cost, which an estimate at walking cost hid: the search
     // filled 30 000 cells of a Nether cliff and never bridged out to the site (owner 2026-11-23, problem 4 of list 2)
-    const air = temps > 0 && !view.stands(h.x, h.y - 1, h.z) && view.free(h.x, h.y - 1, h.z), W = air ? 2.5 : 1.3;
+    // (and a goal inside rock: every cell on the way is a dig, three times a walk; the search spread through the netherrack sideways and never climbed the shaft, live
+    // 2026-11-23 gb1 w6)
+    const air = temps > 0 && !view.stands(h.x, h.y - 1, h.z) && view.free(h.x, h.y - 1, h.z), rock = !view.fits(h.x, h.y, h.z), W = air || rock ? 2.5 : 1.3;
     const hh = (x, y, z) => W * ((Math.abs(x - h.x) + Math.abs(z - h.z)) * COST.walk * 0.9 + (h.y > y ? (h.y - y) * (temps > 0 ? COST.pillar + COST.temp : COST.up) * 0.9 : (y - h.y) * COST.drop * 0.5));
     open.push({ x: start.x, y: start.y, z: start.z, g: 0, f: hh(start.x, start.y, start.z), t: 0, p: null, move: 'start' });
     best.set(key(start.x, start.y, start.z), 0);
