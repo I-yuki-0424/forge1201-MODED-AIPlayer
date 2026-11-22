@@ -198,7 +198,8 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
             const wetThere = view.kind(x, y, z) === 'water';
             if (!(wetHere || wetThere)) continue;
             if (!wetThere && !view.stands(x, y - 1, z)) continue;
-            add(x, y, z, COST.swim, 'swim');
+            // at the surface: a cell whose head is under water costs a dive (routes dived to the sea floor and the bot came up for air again and again, owner 2026-11-23)
+            add(x, y, z, COST.swim + (view.kind(x, y + 1, z) === 'water' ? 30 : 0) + (dy < 0 ? 10 : 0), 'swim');
         }
         for (const [dx, dz] of H) {
             const x = c.x + dx, z = c.z + dz, diag = dx && dz;
@@ -327,7 +328,7 @@ class Mover {
         const world = P.botWorld(this.bot), me = feet(this.bot);
         const w = P.ways(world, c, { name, props }, name, [me], { max: 1 })[0] || P.ways(world, c, { name, props }, name, [me], { max: 1, sneakAlways: true })[0];
         if (!w) return `no face in sight from ${me.x},${me.y},${me.z}`;
-        await this.click(w.n, w.face, w.hit, { sneak: w.sneak });
+        await this.click(w.n, w.face, w.hit, { sneak: w.sneak, aim: w.aim || null });
         for (let i = 0; i < 10; i++) { const bb = this.bot.blockAt(new Vec3(c.x, c.y, c.z), false); if (bb && bb.name === name) return true; await sleep(50); }
         const bb = this.bot.blockAt(new Vec3(c.x, c.y, c.z), false);
         return `clicked face ${w.face} of ${w.n.join(',')}, the cell holds ${bb && bb.name}`;
@@ -390,10 +391,11 @@ class Mover {
     }
 
     /** A click on face `face` of block n at point `hit` (a vanilla use packet), looking at the point first. */
-    async click(n, face, hit, { sneak = false, keepSneak = false } = {}) {
+    async click(n, face, hit, { sneak = false, keepSneak = false, aim = null } = {}) {
         const b = this.bot;
         if (sneak) { b.setControlState('sneak', true); await sleep(60); }
-        await this.lookAtPoint(new Vec3(hit[0], hit[1], hit[2]));
+        // `aim`: an exact rotation for the block's facing (flexible placement, place.js); else the eye looks at the hit point
+        if (aim) await this.look(aim.yaw, aim.pitch); else await this.lookAtPoint(new Vec3(hit[0], hit[1], hit[2]));
         b._client.write('block_place', { hand: 0, location: new Vec3(n[0], n[1], n[2]), direction: V.FACE[face], cursorX: hit[0] - n[0], cursorY: hit[1] - n[1], cursorZ: hit[2] - n[2], insideBlock: false, worldBorderHit: false, sequence: (this.seq = (this.seq || 0) + 1) });
         b.swingArm();
         await sleep(120);
@@ -408,7 +410,7 @@ class Mover {
         const st = [me];
         const w = P.ways(world, c, { name: item, props: {} }, item, st, { max: 1 })[0] || P.ways(world, c, { name: item, props: {} }, item, st, { max: 1, sneakAlways: true })[0];
         if (!w) return false;
-        await this.click(w.n, w.face, w.hit, { sneak: w.sneak });
+        await this.click(w.n, w.face, w.hit, { sneak: w.sneak, aim: w.aim || null });
         for (let i = 0; i < 10; i++) { const bb = this.bot.blockAt(new Vec3(c.x, c.y, c.z), false); if (bb && bb.boundingBox === 'block') { this._temp(c, 'temp'); return true; } await sleep(50); }
         return false;
     }

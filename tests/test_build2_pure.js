@@ -103,7 +103,8 @@ test('the click search: a face the eye sees first, the state vanilla gives, with
     const st = []; for (let x = -3; x <= 3; x++) for (let z = -3; z <= 3; z++) st.push({ x, y: 0, z });
     st.sort((a, b) => Math.hypot(a.x, a.z) - Math.hypot(b.x, b.z));
     const w = P.ways(world, { x: 0, y: 0, z: 0 }, { name: 'repeater', props: { facing: 'north', delay: '3' } }, 'repeater', st)[0];
-    assert(w && w.face === 'up' && w.station.z < 0, 'a repeater facing north is placed looking south, from the north');
+    assert(w && w.face === 'up' && (w.station.z < 0 || w.aim), 'a repeater facing north: looking south from the north, or with the exact look (flexible placement)');
+    if (w.aim) assert(Math.abs(Math.cos(w.aim.yaw) + 1) < 1e-6 || Math.abs(Math.cos(w.aim.yaw) - 1) < 1e-6, 'the exact look is a cardinal');
     assert(!P.ways(world, { x: 0, y: 2, z: 0 }, { name: 'stone', props: {} }, 'stone', st).length, 'nothing to click on in the air');
     // a wall between the eye and the face: not that station
     m.set('0,0,-1', stone); m.set('0,1,-1', stone);
@@ -286,6 +287,19 @@ test('the display gives every walking bot its share of the path pieces (problem 
     const out = framePieces({ bots, lanes: [], tags: [], viewers: [{ dim: 'overworld', x: 10, z: 10 }] }, { on: true, paths: true, lanes: true, tags: true });
     const by = new Map(); for (const k of out.keys()) { const v = out.get(k); by.set(v.piece.c, (by.get(v.piece.c) || 0) + 1); }
     assert.strictEqual(by.size, 8, `all eight bots drawn (${[...by.entries()].join(' ')})`);
+});
+
+test('flexible placement: a comparator facing east from a stance whose own look gives north (list 3 problem 1)', () => {
+    const w = new Map(); for (let x = -4; x <= 4; x++) for (let z = -4; z <= 4; z++) w.set(`${x},0,${z}`, { name: 'stone' });
+    const bot = fakeBot(w), world = P.botWorld(bot);
+    const want = { name: 'comparator', props: { facing: 'east', mode: 'compare', powered: 'false' } };
+    const st = [{ x: 0, y: 1, z: -2 }];
+    const plain = P.ways(world, { x: 0, y: 1, z: 0 }, want, 'comparator', st, { max: 1 })[0];
+    assert(plain, 'a way');
+    const lk = plain.aim ? [-Math.sin(plain.aim.yaw), 0, -Math.cos(plain.aim.yaw)] : plain.look;
+    assert.strictEqual(V.predict('comparator', { face: plain.face, hitY: plain.hit[1] - 1, look: lk, sneak: false, at: () => null, solid: () => true }).props.facing, 'east');
+    assert(plain.aim, 'the exact look is sent');
+    assert(Math.abs(Math.atan2(-lk[0], -lk[2]) - plain.aim.yaw) < 1e-9);
 });
 
 (async () => { for (const [name, fn] of queue) { await fn(); n++; console.log(`  ok ${name}`); } console.log(`test_build2_pure: ${n} passed`); })().catch((e) => { console.error(e); process.exit(1); });

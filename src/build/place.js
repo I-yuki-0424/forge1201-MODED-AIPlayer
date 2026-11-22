@@ -73,6 +73,9 @@ function sturdy(b, towards) {
  * Ways to put `want` ({name, props}, normalised) into cell T with `item`, from the feet cells `stations` (nearest first): [{ station, face, n: [x,y,z] (the clicked block),
  * hit: [x,y,z], look: [dx,dy,dz], sneak }], at most `max`. Empty when no station sees a face that gives the state (a support is missing, or the state needs another stance).
  */
+// exact looks for flexible placement: the four cardinals level, and each tilted to almost straight down and up (a pure vertical has no horizontal facing)
+const EXACT = (() => { const out = []; for (const [x, z] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) { out.push([x, 0, z]); out.push([x * 0.02, -1, z * 0.02]); out.push([x * 0.02, 1, z * 0.02]); } return out; })();
+
 function ways(world, T, want, item, stations, { max = 1, reach = REACH, sneakAlways = false } = {}) {
     const out = [], wantD = S.decidedProps(want.name, want.props);
     const at = (dx, dy, dz) => world.block(T.x + dx, T.y + dy, T.z + dz);
@@ -101,16 +104,23 @@ function ways(world, T, want, item, stations, { max = 1, reach = REACH, sneakAlw
                 const hit = rayFirst(world, eye, p);
                 if (!hit || hit.unknown || hit.cell[0] !== N[0] || hit.cell[1] !== N[1] || hit.cell[2] !== N[2]) continue;
                 if (!hit.prev || hit.prev[0] !== T.x || hit.prev[1] !== T.y || hit.prev[2] !== T.z) continue;     // the ray reaches the face through the target cell itself
-                const got = V.predict(item, { face: F, hitY: p[1] - T.y, look, sneak, at, solid });
-                if (!got || S.bare(got.name) !== S.bare(want.name)) continue;
-                const gp = got.props;
-                let ok = true;
-                for (const [k, val] of Object.entries(wantD)) {
-                    if (!PLACED.has(k)) continue;                    // clicks set the others afterwards (open, note, delay, mode), or they are the block's default (level, candles ...)
-                    if (gp[k] === undefined || (gp[k] !== val && !(k === 'type' && /chest$/.test(want.name) && val === 'right' && gp[k] === 'single'))) { ok = false; break; }
+                // the look sent with the click: the eye's own ray to the hit point, else one of the exact looks (a cardinal, level or straight up/down), as Tweakeroo's
+                // flexible placement does: the server takes the facing from the player's rotation and checks only the face and the hit point (comparators whose facing a ray at
+                // an angle never gave were tried for hours, owner 2026-11-23 list 3 problem 1)
+                let aim = null, good = null;
+                for (const lk of [look, ...EXACT]) {
+                    const got = V.predict(item, { face: F, hitY: p[1] - T.y, look: lk, sneak, at, solid });
+                    if (!got || S.bare(got.name) !== S.bare(want.name)) continue;
+                    const gp = got.props;
+                    let ok = true;
+                    for (const [k, val] of Object.entries(wantD)) {
+                        if (!PLACED.has(k)) continue;                    // clicks set the others afterwards (open, note, delay, mode), or they are the block's default (level, candles ...)
+                        if (gp[k] === undefined || (gp[k] !== val && !(k === 'type' && /chest$/.test(want.name) && val === 'right' && gp[k] === 'single'))) { ok = false; break; }
+                    }
+                    if (ok) { good = lk; if (lk !== look) aim = { yaw: Math.atan2(-lk[0], -lk[2]), pitch: Math.atan2(lk[1], Math.hypot(lk[0], lk[2])) }; break; }
                 }
-                if (!ok) continue;
-                out.push({ station: s, face: F, n: N, hit: p, look, sneak, lean: s.lean || null });
+                if (!good) continue;
+                out.push({ station: s, face: F, n: N, hit: p, look: good, sneak, lean: s.lean || null, aim });
                 if (out.length >= max) return out;
                 break;
             }

@@ -88,7 +88,7 @@ function holds(job, bot, tk) {
 }
 
 /** A click with the held item: look at the hit point (the server applies a look a tick after it arrives), then the use packet. */
-async function click(mv, way) { if (way.lean) await mv.lean(way.lean[0], way.lean[1]); try { await mv.click(way.n || way.at, way.face, way.hit, { sneak: !!way.sneak, keepSneak: !!way.lean }); } finally { if (way.lean) await mv.unlean(); } }
+async function click(mv, way) { if (way.lean) await mv.lean(way.lean[0], way.lean[1]); try { await mv.click(way.n || way.at, way.face, way.hit, { sneak: !!way.sneak, keepSneak: !!way.lean, aim: way.aim || null }); } finally { if (way.lean) await mv.unlean(); } }
 
 /** Do one claim from its stance. Returns results for job.report. */
 async function work(job, name, bot, mv, cl, cancel) {
@@ -387,6 +387,7 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
     const mv = new Mover(bot, rules(job, bot), { log: job.log });
     const onDeath = () => { const p = bot.entity && bot.entity.position, f = p ? feet(bot) : null, around = f ? [-1, 0, 1].map((dy) => (seen(bot, { x: f.x, y: f.y + dy, z: f.z }) || {}).name).join('/') : '?'; job.stats.deaths = (job.stats.deaths || 0) + 1; job.log(`${name} died at ${f ? `${f.x},${f.y},${f.z}` : '?'} (${around}), stage ${job.stage}; last: ${mv.trace.join(' | ')}`); };
     bot.on('death', onDeath);
+    bot.__builderOwns = true;                // the fall and breath reflexes stay out of a builder's way (work/bot/reflex.js)
     let idle = 0;
     // the watchdog: the last time this bot got something done (a task that held, a supply trip that brought something); EVACUATE_MS without while there is work: off the site
     const progress = () => { (job.progressAt || (job.progressAt = new Map())).set(name, Date.now()); };
@@ -472,7 +473,7 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
             job.report(name, res);
         }
         return { ended: 'cancelled' };
-    } finally { bot.removeListener('death', onDeath); job.leave(name); for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sneak', 'sprint']) bot.setControlState(k, false); }
+    } finally { bot.removeListener('death', onDeath); bot.__builderOwns = false; job.leave(name); for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sneak', 'sprint']) bot.setControlState(k, false); }
 }
 
 module.exports = { drive, work, holds, rules, pour, escape, needsFor, boxSpot };

@@ -23,6 +23,8 @@ const STALL_MS = 40000;            // nothing ready for anybody this long while 
 const STAGE_OF = { seal: 'prepare', fill: 'prepare', clear: 'prepare', place: 'place', fix: 'place', scaffold: 'place', pour: 'late', ignite: 'late', untemp: 'cleanup' };
 const ORDER = ['prepare', 'place', 'late', 'cleanup'];
 const key = (x, y, z) => `${x},${y},${z}`;
+// natural ground a stance may be dug into (outside the box)
+const TERRAIN = /^(dirt|grass_block|coarse_dirt|podzol|rooted_dirt|mud|clay|stone|deepslate|cobblestone|andesite|diorite|granite|tuff|calcite|gravel|sand|red_sand|sandstone|red_sandstone|terracotta|[a-z_]+_terracotta|netherrack|basalt|blackstone|soul_sand|soul_soil|crimson_nylium|warped_nylium|snow_block|moss_block|[a-z_]*_ore|end_stone|smooth_basalt|dripstone_block)$/;
 // blocks that are full cubes (the click search may count one the claim places before as standing)
 const FULL = /^(stone|smooth_stone|cobblestone|stone_bricks|glass|dirt|netherrack|obsidian|blackstone|basalt|polished_.*|.*_planks|.*_concrete|.*_terracotta|.*_wool|redstone_block|iron_block|gold_block|diamond_block|emerald_block|lapis_block|coal_block|quartz_block|.*_stained_glass|tinted_glass|sandstone|end_stone|purpur_block|deepslate.*|tuff|calcite|andesite|diorite|granite|bricks|mud_bricks|.*_log|.*_wood)$/;
 
@@ -477,7 +479,10 @@ class BuildJob {
                 if (view.nearLava(f.x, f.y, f.z)) { rej.lava++; continue; }                 // the mover never goes there: offered, it cost a 4 s search each time
                 // clearing: a stance may be inside rock that is to be cleared anyway (a box sunk in rock has no open cell near its top layer); the walk digs its way in
                 const dug = !view.fits(f.x, f.y, f.z);
-                if (dug && !(down && [f.y, f.y + 1].every((y) => view.free(f.x, y, f.z) || (this.tasks.get(key(f.x, y, f.z)) || {}).kind === 'clear'))) { rej.solid++; continue; }
+                // a stance dug into the ground: cells to clear anyway, or natural terrain outside the box (the edge cells of a box sunk in rock had no stance and everything
+                // under them stayed unmined, owner 2026-11-23 list 3 problem 2); never a built cell; on a floor
+                const diggableAt = (y) => { if (view.free(f.x, y, f.z) || (this.tasks.get(key(f.x, y, f.z)) || {}).kind === 'clear') return true; if (this.t.inside(f.x, y, f.z)) return false; const q = view.raw(f.x, y, f.z); return !!q && TERRAIN.test(q.name); };
+                if (dug && !([f.y, f.y + 1].every(diggableAt) && (view.stands(f.x, f.y - 1, f.z) || view.kind(f.x, f.y - 1, f.z) === 'solid'))) { rej.solid++; continue; }
                 const wet = view.kind(f.x, f.y, f.z) === 'water';
                 const standing = wet || dug || view.stands(f.x, f.y - 1, f.z);
                 let h = 0;

@@ -13,6 +13,7 @@ const P = require('../../src/build/place');
 const { Target } = require('../../src/build/target');
 const strip = T.strip, sleep = T.sleep;
 
+let aimed = 0, aimedOk = 0;
 (async () => {
     const files = (process.env.LITEMATIC || '/app/tests/fixtures/iron-farm-34.litematic,/app/tests/fixtures/iron-farm-34-nether-side-main.litematic').split(',');
     const states = new Map();
@@ -59,6 +60,7 @@ const strip = T.strip, sleep = T.sleep;
             if (process.env.ONLY) console.log(`[debug] ${k} tall=${tall} stations ${stations.length} ways ${JSON.stringify(ways[0] || null)}`);
             if (!ways.length) { if (tall) fails.push(`${k}: no way found (floor or high)`); continue; }
             const w = ways[0];
+            if (w.aim) aimed = (aimed || 0) + 1;
             await srv.cmd(`tp ${name} ${w.station.x + 0.5} ${w.station.y} ${w.station.z + 0.5}`);
             await sleep(700);
             const def = bot.registry.itemsByName[item];
@@ -88,13 +90,14 @@ const strip = T.strip, sleep = T.sleep;
             }
             const ok = /passed/.test(strip(await srv.cmd(`execute if block ${Tc.x} ${Tc.y} ${Tc.z} ${S.str(n, want)}`)));
             if (process.env.ONLY) { const bb = bot.blockAt(new Vec3(Tc.x, Tc.y, Tc.z)); console.log(`[debug] result ${ok} sees ${bb && bb.name} held ${bot.heldItem && bot.heldItem.name} pos ${bot.entity.position}`); }
-            if (ok) { pass++; break; }
+            if (ok) { pass++; if (w.aim) aimedOk = (aimedOk || 0) + 1; break; }
             const b = bot.blockAt(new Vec3(Tc.x, Tc.y, Tc.z));
+            if (w.aim) console.log(`[aim-fail] ${k} tall=${tall} -> ${b ? b.name + JSON.stringify(b.getProperties()) : '?'} face ${w.face} look ${w.look.map((v) => v.toFixed(2))}`);
             if (tall) fails.push(`${k} -> sees ${b ? b.name + JSON.stringify(b.getProperties()) : '?'} via face ${w.face} of ${w.n} sneak ${w.sneak} look ${w.look.map((v) => v.toFixed(2))}`);
             void def;
         }
     }
-    console.log(`[place] ${pass}/${states.size} states right by survival clicks`);
+    console.log(`[place] ${pass}/${states.size} states right by survival clicks; ${aimedOk || 0} of ${aimed || 0} exact-look (flexible) placements right`);
     for (const f of fails) console.log('  FAIL', f);
     bot.quit(); await sleep(300); process.exit(0);
 })().catch((e) => { console.error('ERR', e); process.exit(2); });

@@ -182,10 +182,13 @@ function attach(bot, { world, enabled = () => true, onEvent = () => {} } = {}) {
         if (bot.__noReflexUntil && Date.now() < bot.__noReflexUntil) return;                       // a forced fall (service/force.js): the bot is meant to drop
         const e = bot.entity;
         if (!e.isInWater) wet = 0;
-        if (!e.onGround && e.velocity && e.velocity.y < -0.55 && !e.isInWater) {
+        // a structure builder's bot (src/build) has its own fall, edge and breath rules: the fall reflex placed untracked blocks under it 797 times in one run and the breath reflex
+        // swam it up while its plan swam it down, over and over (owner 2026-11-23); lava and fights stay
+        const own = !!bot.__builderOwns;
+        if (!own && !e.onGround && e.velocity && e.velocity.y < -0.55 && !e.isInWater) {
             const f = feet(), d = dropBelow(kind, f.x, f.y, f.z);
             if (d !== null && d >= FALL_MIN) { st.active = true; bot.__preempt = true; bot.__lastReflex = Date.now(); st.fired++; st.since = Date.now(); fall(d).catch(() => done('fall', { error: true })); }
-        } else if (e.isInWater && headWet() && ++wet >= 160) { wet = 0; st.active = true; bot.__preempt = true; bot.__lastReflex = Date.now(); st.fired++; st.since = Date.now(); breath().catch(() => done('breath', { error: true })); }
+        } else if (!own && e.isInWater && headWet() && ++wet >= 160) { wet = 0; st.active = true; bot.__preempt = true; bot.__lastReflex = Date.now(); st.fired++; st.since = Date.now(); breath().catch(() => done('breath', { error: true })); }
         else if (inLava()) { st.active = true; bot.__preempt = true; bot.__lastReflex = Date.now(); st.fired++; st.since = Date.now(); lava().catch(() => done('lava', { error: true })); }
         else if (bot.health > 0 && (++fightTick % 4 === 0)) { const f = foe(); if (f) { st.active = true; bot.__preempt = true; bot.__lastReflex = Date.now(); st.fired++; st.since = Date.now(); fight(f).catch(() => done('fight', { error: true })); } }
     };
