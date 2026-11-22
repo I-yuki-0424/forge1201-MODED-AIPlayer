@@ -70,6 +70,22 @@ function underCrew(job, bot, x, y, z) {
     return false;
 }
 
+/** What bounds a region of reachable cells: the blocks next to its cells that are not in it, by kind (for the log). */
+function edgeOf(mv, cells) {
+    const v = mv.view(), by = {};
+    let n = 0;
+    for (const k of cells) {
+        if (n > 4000) break;
+        const [x, y, z] = k.split(',').map(Number);
+        for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]]) {
+            const q = `${x + dx},${y + dy},${z + dz}`; if (cells.has(q)) continue; n++;
+            const b = v.raw(x + dx, y + dy, z + dz), kd = v.kind(x + dx, y + dy, z + dz), w = `${kd}:${b ? b.name : '?'}${kd === 'solid' && !v.diggable(x + dx, y + dy, z + dz) ? '(keep)' : ''}${v.nearLava(x + dx, y + dy, z + dz) ? '(lava)' : ''}`;
+            by[w] = (by[w] || 0) + 1;
+        }
+    }
+    return JSON.stringify(Object.entries(by).sort((a, b) => b[1] - a[1]).slice(0, 10));
+}
+
 /** The live positions of the other bots of the crew. */
 function crewAt(job, bot) {
     const out = [];
@@ -460,9 +476,12 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
                 continue;
             }
             // nothing for it in the pocket it is in: out of the pocket now (past lava at a cost, never into it), not after minutes of trying
-            if (!cl && job.pocketed && job.pocketed.delete(name) && job.reachOf && job.reachOf.has(name) && job.reachOf.get(name).from === `${feet(bot).x},${feet(bot).y},${feet(bot).z}`) {
+            if (!cl && job.pocketed && job.pocketed.delete(name) && job.reachOf && job.reachOf.has(name) && job.reachOf.get(name).from === `${feet(bot).x},${feet(bot).y},${feet(bot).z}` && !((job.pocketBack && job.pocketBack.get(name) || 0) > Date.now())) {
                 job.log(`${name}: nothing to do in the ${job.reachOf.get(name).cells.size} cells it can reach: out of the pocket`);
-                const pocket = job.reachOf.get(name).cells; job.reachOf.delete(name); await escape(job, name, bot, mv, cancel, pocket); continue;
+                const pocket = job.reachOf.get(name).cells; job.reachOf.delete(name);
+                // a failed way out is not tried again for two minutes (306 tries in a row from one pocket, live 2026-11-23 fz3 w2); the evacuation watchdog has the rest
+                if (!(await escape(job, name, bot, mv, cancel, pocket))) { (job.pocketBack || (job.pocketBack = new Map())).set(name, Date.now() + 120000); job.log(`${name}: the pocket's edge: ${edgeOf(mv, pocket)}`); }
+                continue;
             }
             if (!cl) {
                 idle++; const ti = Date.now();
