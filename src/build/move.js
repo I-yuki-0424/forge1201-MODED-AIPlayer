@@ -67,7 +67,12 @@ class View {
         const b = this.raw(x, y, z);
         return !!b && this.rules.canDig(x, y, z, b);
     }
-    digTicks(x, y, z) { const b = this.raw(x, y, z); if (!b) return Infinity; try { return Math.ceil(this.bot.digTime(b) / 50) + 2; } catch (_) { return 40; } }
+    // with the tool the dig will use, not what the hand holds now (priced with a held bed or dirt, stone cost 150 ticks and a 9-block tunnel lost to searching 30 000 surface cells, live 2026-11-22)
+    digTicks(x, y, z) {
+        const b = this.raw(x, y, z); if (!b) return Infinity;
+        const tool = toolFor(this.bot, b);
+        try { return Math.ceil(b.digTime(tool ? tool.type : null, false, false, false, [], {}) / 50) + 2; } catch (_) { return 40; }
+    }
 }
 
 /**
@@ -143,6 +148,16 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
 }
 const blk = (view, x, y, z) => { const b = view.raw(x, y, z); return b ? { name: b.name, props: {}, shapes: b.shapes || [] } : null; };
 
+/** The tool for block (its material: mineable/pickaxe, shovel, axe, hoe; shears for leaves, wool, cobwebs), the best tier the bot carries, or null. */
+const TIER = ['netherite', 'diamond', 'iron', 'golden', 'stone', 'wooden'];
+function toolFor(bot, block) {
+    const m = String(block.material || ''), cls = /pickaxe/.test(m) ? 'pickaxe' : /shovel/.test(m) ? 'shovel' : /axe/.test(m) ? 'axe' : /hoe/.test(m) ? 'hoe' : /leaves|wool|cobweb/.test(block.name) ? 'shears' : null;
+    if (!cls) return null;
+    const cand = bot.inventory.items().filter((i) => (cls === 'shears' ? i.name === 'shears' : i.name.endsWith('_' + cls)));
+    cand.sort((x, y) => TIER.indexOf(x.name.split('_')[0]) - TIER.indexOf(y.name.split('_')[0]));
+    return cand[0] || null;
+}
+
 /** The feet cell of the bot. */
 function feet(bot) { const p = bot.entity.position; return { x: Math.floor(p.x), y: Math.floor(p.y + 0.16), z: Math.floor(p.z) }; }      // + 0.16: standing on a block a little lower than a full one (soul sand 0.875) is standing on its cell
 
@@ -189,10 +204,7 @@ class Mover {
     async dig(c) {
         const b = this.bot, block = b.blockAt(new Vec3(c.x, c.y, c.z), false);
         if (!block || block.boundingBox === 'empty' && block.name !== 'fire') return true;
-        const m = String(block.material || ''), cls = /pickaxe/.test(m) ? 'pickaxe' : /shovel/.test(m) ? 'shovel' : /axe/.test(m) ? 'axe' : /hoe/.test(m) ? 'hoe' : /leaves|wool|cobweb/.test(block.name) ? 'shears' : null;
-        const TIER = ['netherite', 'diamond', 'iron', 'golden', 'stone', 'wooden'];
-        let tool = null;
-        if (cls) { const cand = b.inventory.items().filter((i) => (cls === 'shears' ? i.name === 'shears' : i.name.endsWith('_' + cls))); cand.sort((x, y) => TIER.indexOf(x.name.split('_')[0]) - TIER.indexOf(y.name.split('_')[0])); tool = cand[0] || null; }
+        const tool = toolFor(b, block);
         if (tool && (!b.heldItem || b.heldItem.name !== tool.name)) { try { await b.equip(tool, 'hand'); } catch (_) { /* the hand it has */ } }
         else if (!tool && b.heldItem && /(_sword|_pickaxe|_axe|_shovel|_hoe)$/.test(b.heldItem.name) === false) { /* any item: breaking by hand is the same */ }
         try { await b.dig(block, true); } catch (e) { return false; }
