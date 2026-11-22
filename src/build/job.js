@@ -321,10 +321,10 @@ class BuildJob {
                 if (tk.kind === 'clear' && !this.relaxed && this.stage === 'prepare' && this._covered(tk, bot)) continue;
                 if ((tk.kind === 'place' || tk.kind === 'fix') && !this.relaxed && this.stage === 'place' && tk.y > this.frontier + this.o.window) continue;
                 // already as it should be (dug on someone's way, leaves that decayed, a block another bot put there): done, not offered (a clear task on air found no stance and was parked, live 2026-11-22)
-                if (tk.after) { const h = seen(bot, tk); if (h && (S.AIR.has(h.name) || SV.REPLACEABLE.test(h.name))) { tk.kind = tk.after; delete tk.after; } }
+                if (tk.after) { const h = seen(bot, tk); if (h && S.AIR.has(h.name)) { tk.kind = tk.after; delete tk.after; } }
                 if (this._already(tk, bot)) { this.tasks.delete(tk.k); this._lowered(tk); continue; }
                 // a wrong block where one is to be placed (rubble left, a block pushed or dropped there): dug out first, then placed (nobody removed it and the cell was parked, live 2026-11-22 sW w2)
-                if (tk.kind === 'place') { const h = seen(bot, tk); if (h && !S.AIR.has(h.name) && !SV.REPLACEABLE.test(h.name) && !SV.FLUID(h)) { tk.kind = 'clear'; tk.after = 'place'; } }
+                if (tk.kind === 'place') { const h = seen(bot, tk); if (h && !S.AIR.has(h.name) && !SV.FLUID(h)) { tk.kind = 'clear'; tk.after = 'place'; } }          // grass, snow too: the ray of a click stops in them (parked smooth stone on short grass, live 2026-11-22 sN2 w3)
                 if (this.ready(tk, bot, now)) ready.push(tk);
             }
             if (ready.length >= 300 || scanned >= 60000) break;
@@ -434,8 +434,15 @@ class BuildJob {
         { const need = {}; for (const tk of ready) { if (doable.includes(tk)) continue; const it = item(tk); if (it) need[it] = (need[it] || 0) + 1; } if (Object.keys(need).length) return { need }; }
         if (now - (this.diagAt || 0) > 30000) {
             this.diagAt = now;
-            const why = {}; let n = 0;
-            for (const tk of this.tasks.values()) { if (n++ > 4000) break; const w = this.whyNot(tk, bot, now).replace(/ \d.*$/, '').replace(/waits for .*/, 'waits for a dependency').replace(/next to .*/, 'next to a fluid'); why[w] = (why[w] || 0) + 1; }
+            // every task by the cheap reasons, the costly reason for the first 4000 of the rest
+            const why = { claimed: 0, 'under a cell to clear': 0, 'above the window': 0 }; let n = 0;
+            for (const tk of this.tasks.values()) {
+                if (this.claims.has(tk.k)) { why.claimed++; continue; }
+                if (tk.kind === 'clear' && this._covered(tk, bot)) { why['under a cell to clear']++; continue; }
+                if ((tk.kind === 'place' || tk.kind === 'fix') && this.stage === 'place' && tk.y > this.frontier + this.o.window) { why['above the window']++; continue; }
+                if (n++ > 4000) { why['not looked at'] = (why['not looked at'] || 0) + 1; continue; }
+                const w = this.whyNot(tk, bot, now).replace(/ \d.*$/, '').replace(/waits for .*/, 'waits for a dependency').replace(/next to .*/, 'next to a fluid'); why[w] = (why[w] || 0) + 1;
+            }
             this.log(`claim by ${name}: ${ready.length} ready, ${doable.length} doable with what it carries, no stance for the first ${Math.min(12, doable.length)} (${doable.slice(0, 3).map((t) => `${t.kind} ${t.k}`).join(', ')}); the others: ${JSON.stringify(why)}; frontier ${this.frontier}`);
         }
         return null;

@@ -412,7 +412,7 @@ class Mover {
                 if (b.entity.onGround && !cells.has(key(f.x, f.y, f.z)) && !cells.has(key(f.x, f.y - 1, f.z)) && ![...cells].some((k) => { const [x, y, z] = k.split(',').map(Number); return Math.abs(x - f.x) <= 1 && Math.abs(z - f.z) <= 1 && Math.abs(y - f.y) <= 1; })) return { i, why: `off the route at ${f.x},${f.y},${f.z}` };
                 v.cache.clear(); if (v.lavaNear) v.lavaNear.clear();
                 if (breath && b.entity.isInWater && typeof b.oxygenLevel === 'number' && b.oxygenLevel <= 8) return { i, why: 'out of breath' };
-                if (['walk', 'up'].includes(route[i].move) && floorGone(c)) return { i, why: `the floor at ${c.x},${c.y - 1},${c.z} is gone` };
+                if (['walk', 'up', 'drop'].includes(route[i].move) && floorGone(c)) return { i, why: `the floor at ${c.x},${c.y - 1},${c.z} is gone` };
                 if (d < (last ? 0.15 : 0.35) && (Math.abs(p.y - c.y) < 0.6 || (b.entity.isInWater && route[i].move === 'swim' && Math.abs(p.y - c.y) < 1.0))) { i++; t0 = Date.now(); stuck = 0; lastD = Infinity; continue; }
                 if (Date.now() - t0 > 4000) { const nm = (dy) => { const q = b.blockAt(new Vec3(c.x, c.y + dy, c.z), false); return q ? q.name : '?'; }; return { i, why: `no progress toward ${c.x},${c.y},${c.z} (${route[i].move}; there ${nm(-1)}/${nm(0)}/${nm(1)}; bot at ${p.x.toFixed(1)},${p.y.toFixed(1)},${p.z.toFixed(1)} ground ${b.entity.onGround})` }; }
                 if (d > lastD - 0.005) stuck++; else stuck = 0;
