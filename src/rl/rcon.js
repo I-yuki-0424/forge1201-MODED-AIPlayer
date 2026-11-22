@@ -70,6 +70,20 @@ class Rcon {
             const key = this.pending.has(p.id) ? p.id : (p.id === -1 ? [...this.pending.keys()][0] : undefined);
             const w = this.pending.get(key);
             if (!w) continue;
+            // a command's reply comes in packets of at most 4096 bytes: gathered until the marker sent after the command is answered (the server answers in order)
+            if (w.parts) {
+                w.parts.push(p.body);
+                // a part shorter than the server's 4096 characters is the last one: done; a full one may have more after it: the marker asks
+                if (p.body.length < 4096) { if (!w.markerSent) { this.pending.delete(key); clearTimeout(w.timer); w.resolve({ id: key, type: TYPE_EXEC, body: w.parts.join('') }); } }
+                else if (!w.markerSent) { w.markerSent = true; this.pending.set(w.marker, w.mk); this.sock.write(encode(w.marker, 0, '')); }
+                continue;
+            }
+            if (w.marker) {
+                const m = this.pending.get(w.marker);
+                this.pending.delete(key); clearTimeout(w.timer);
+                if (m) { this.pending.delete(w.marker); clearTimeout(m.timer); m.resolve({ id: w.marker, type: TYPE_EXEC, body: m.parts.join('') }); }
+                continue;
+            }
             // The server answers an auth request with an empty type-0 packet first, then the type-2 result.
             if (w.type === TYPE_AUTH && p.type !== TYPE_EXEC) continue;
             this.pending.delete(key);
@@ -93,11 +107,25 @@ class Rcon {
         });
     }
 
-    /** Run one console command and return its text output. Commands are issued one at a time by the caller. */
+    /**
+     * Run one console command and return its whole text output. The server splits a reply longer than 4096 bytes over several packets; the first one alone cut a shulker box's
+     * contents off mid-string ("snbt: unterminated string at 4053", 2026-11-22). A part shorter than 4096 characters ends the reply; after a full part a second request of an
+     * unknown type is sent: the server answers it with "Unknown request 0" after the last part of the command's reply, and that answer ends the reply.
+     */
     async command(cmd) {
         if (!this.sock) throw new Error('rcon: not connected');
-        const reply = await this._request(this.nextId++, TYPE_EXEC, cmd, this.opts.timeoutMs);
-        return reply.body;
+        const id = this.nextId++, marker = this.nextId++, { timeoutMs } = this.opts;
+        return new Promise((resolve, reject) => {
+            const fail = (e) => { this.pending.delete(id); this.pending.delete(marker); reject(e); };
+            const main = { type: TYPE_EXEC, parts: [], resolve: (p) => resolve(p.body), reject: fail };
+            // a server that ignores the marker: what arrived by the timeout is the reply
+            main.timer = setTimeout(() => { if (main.parts.length) { this.pending.delete(id); this.pending.delete(marker); resolve(main.parts.join('')); } else fail(new Error(`rcon: timeout after ${timeoutMs} ms`)); }, timeoutMs);
+            // the marker goes out only after a full first part, as a write of its own: written together with the command, the server's RCON thread (one packet per read)
+            // lost track of the stream and closed the connection
+            main.marker = marker; main.mk = { type: 0, marker: id, resolve: () => {}, reject: fail, timer: null };
+            this.pending.set(id, main);
+            this.sock.write(encode(id, TYPE_EXEC, cmd));
+        });
     }
 
     close() { if (this.sock) this.sock.destroy(); this.sock = null; }
