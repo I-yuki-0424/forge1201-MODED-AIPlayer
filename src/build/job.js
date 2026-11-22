@@ -397,7 +397,7 @@ class BuildJob {
      * The seed is the lowest (placing) / highest (clearing) ready task near the bot and away from the others; the station is one from which a survival player's click (place.js)
      * or dig reaches the seed, the one that reaches the most other ready tasks wins.
      */
-    claim(bot, name, now = Date.now(), has = () => Infinity) {
+    claim(bot, name, now = Date.now(), has = () => Infinity, skip = () => false) {
         const me = feet(bot), others = [...this.bots.entries()].filter(([n, b]) => n !== name && b.station).map(([, b]) => b.station[0]);
         const ready = [], G = 8; let scanned = 0;
         this._offerTemps(now, bot);
@@ -455,7 +455,9 @@ class BuildJob {
             if (ready.some((tk) => (tk.kind === 'clear' || tk.kind === 'untemp') && tk.k === key(me.x, me.y - 1, me.z))) return { moveOff: true };
             // only cells under bots' feet are ready (temporary blocks they stand on): as good as nothing ready, so the stall rule still applies
             if (ready.every((tk) => tk.kind === 'clear' || tk.kind === 'untemp')) { this.nothingWhy = `only cells under bots' feet are ready (${ready.length})`; this._stall(bot, now); return null; }
-            const need = {}; for (const tk of ready.slice(0, 200)) { if (tk.kind === 'fix' || tk.kind === 'clear') continue; const it = item(tk); if (it) need[it] = (need[it] || 0) + 1; }
+            // items the chest is out of (`skip`) are not asked for: other bots carry them and place those cells
+            const need = {}; for (const tk of ready.slice(0, 200)) { if (tk.kind === 'fix' || tk.kind === 'clear') continue; const it = item(tk); if (it && !skip(it)) need[it] = (need[it] || 0) + 1; }
+            if (!Object.keys(need).length) { this.nothingWhy = `the ready work needs items other bots carry (${[...new Set(ready.slice(0, 50).map(item).filter(Boolean))].slice(0, 4).join(', ')})`; return null; }
             return { need };
         }
         const down = this.stage === 'prepare';
@@ -560,7 +562,7 @@ class BuildJob {
         if (inReach && outOfReach) (this.pocketed || (this.pocketed = new Set())).add(name);
         this.lastClaimInfo = `no stance: scanned ${scanned}, ready ${ready.length}, doable ${doable.length}, ${Date.now() - t0} ms in seeds`;
         // what can be done with what it carries reaches nowhere, but ready work waits for items: fetch them (a crew stood idle with ready blocks and empty packs, live 2026-11-22)
-        { const need = {}; for (const tk of ready) { if (doable.includes(tk)) continue; const it = item(tk); if (it) need[it] = (need[it] || 0) + 1; } if (Object.keys(need).length) return { need }; }
+        { const need = {}; for (const tk of ready) { if (doable.includes(tk)) continue; const it = item(tk); if (it && !skip(it)) need[it] = (need[it] || 0) + 1; } if (Object.keys(need).length) return { need }; }
         if (now - (this.diagAt || 0) > 30000) {
             this.diagAt = now;
             // every task by the cheap reasons, the costly reason for the first 4000 of the rest

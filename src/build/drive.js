@@ -304,8 +304,7 @@ async function supplyTrip(job, name, bot, mv, need, cancel) {
         if (ks.length && Date.now() - (job.noFetchAt || 0) > 60000) { job.noFetchAt = Date.now(); job.log(`${name}: nothing to fetch for ${ks.slice(0, 4).join(', ')}: ${ks.slice(0, 4).map((k) => `${k} out until ${job.outOf && job.outOf.get(k) ? new Date(job.outOf.get(k)).toISOString().slice(11, 19) : '-'}, supply ${(job.supply && job.supply.totals[k]) || 0}, carried ${SUP.carried(bot)[k] || 0}`).join('; ')}`); }
         // items no container holds any more: the tasks that need them are parked (they come back in the next round) and the window moves on (a few cells of snow and grass held
         // the crew idle, live 2026-11-23 fy1 w1)
-        const out = ks.filter((k) => job.outOf && (job.outOf.get(k) || 0) > Date.now());
-        if (out.length === ks.length) job.parkItems(out);
+        // (items no container holds any more are in other bots' packs: those bots place them; this bot's claims leave such cells alone, see `skip` in the claim)
         return false;
     }
     // wait for the chest away from it (a box broken beside the chest drops as an item: a bot standing there picks it up and the box is gone from the supply)
@@ -459,7 +458,7 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
             const base = needsFor(job, bot, {});
             if (Object.keys(base).length && job.stage !== 'settle' && !(job.lastTrip && Date.now() - job.lastTrip.get(name) < 60000)) { (job.lastTrip = job.lastTrip || new Map()).set(name, Date.now()); const tt = Date.now(); await supplyTrip(job, name, bot, mv, {}, within(cancel, 180000)); job.time.trip += Date.now() - tt; continue; }
             const have = SUP.carried(bot);
-            const tc = Date.now(); const cl = job.claim(bot, name, Date.now(), (it) => have[it] || 0); const dc = Date.now() - tc; job.time.claim += dc; if (dc > 400) job.log(`${name}: claim took ${dc} ms (${job.lastClaimInfo || ''})`);
+            const tc = Date.now(); const cl = job.claim(bot, name, Date.now(), (it) => have[it] || 0, (it) => !!job.outOf && (job.outOf.get(it) || 0) > Date.now() && !(have[it] > 0)); const dc = Date.now() - tc; job.time.claim += dc; if (dc > 400) job.log(`${name}: claim took ${dc} ms (${job.lastClaimInfo || ''})`);
             { const w = !cl ? 'nothing' : cl.need ? `need ${Object.keys(cl.need).slice(0, 3).join('+')}` : cl.moveOff ? 'move off' : 'work'; const o = job.claimWhy || (job.claimWhy = {}); o[w] = (o[w] || 0) + 1;
               if (Date.now() - (job.claimWhyAt || 0) > 60000) { job.claimWhyAt = Date.now(); job.log(`claims in the last minute: ${JSON.stringify(o)}`); job.claimWhy = {}; } }
             if (cl && cl.moveOff) {
