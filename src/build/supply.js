@@ -89,7 +89,19 @@ async function fetch(bot, site, needs, mover, spot, { log = () => {}, depot = []
         finally { bot.closeWindow(w); await sleep(250); }
     };
     // 1. the depot boxes already standing
-    for (const c of depot) { if (!still().length || freeSlots(bot) <= 1) { complete = false; break; } const b = bot.blockAt(new Vec3(c.x, c.y, c.z)); if (!b || !SHULKER.test(b.name)) continue; try { await takeFrom(c); } catch (e) { complete = false; log(`supply: depot box at ${c.x},${c.y},${c.z}: ${e.message}`); } }
+    for (const c of depot) {
+        if (!still().length || freeSlots(bot) <= 1) { complete = false; break; }
+        const b = bot.blockAt(new Vec3(c.x, c.y, c.z)); if (!b || !SHULKER.test(b.name)) continue;
+        try { await takeFrom(c); } catch (e) {
+            // a box opens only into a free lid cell: a block someone put there (a pillar, rubble) is dug away and the box tried once more (the crew's whole stock of dirt sat in a
+            // box that never opened, live 2026-11-23 fy3 w5)
+            const L = { x: c.x + (c.fx || 0), y: c.y + (c.fy ?? 1), z: c.z + (c.fz || 0) }, lid = bot.blockAt(new Vec3(L.x, L.y, L.z));
+            let again = false;
+            if (lid && lid.boundingBox === 'block' && !SHULKER.test(lid.name) && !/chest|barrel/.test(lid.name)) { log(`supply: depot box at ${c.x},${c.y},${c.z} is shut by ${lid.name} at ${L.x},${L.y},${L.z}: dug away`); again = await mover.dig(L); }
+            if (again) { try { await takeFrom(c); continue; } catch (_) { /* reported below */ } }
+            complete = false; log(`supply: depot box at ${c.x},${c.y},${c.z}: ${e.message}`);
+        }
+    }
     if (!still().length) return { got, short: {}, absent: [] };
     // 2. loose stacks in the chest, and which boxes hold the rest
     let win = await open(bot, site);

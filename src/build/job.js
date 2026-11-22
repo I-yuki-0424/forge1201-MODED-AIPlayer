@@ -457,6 +457,8 @@ class BuildJob {
         };
         doable.sort((a, b) => seedScore(a) - seedScore(b));
         const view = new View(bot, { canDig: () => false }), blocked = this.standBlocked(name);
+        // the cells this bot can reach, when a search from where it stands found them all (move.js plan region): only stances among them
+        const R = this.reachOf && this.reachOf.get(name), inReach = R && R.from === key(me.x, me.y, me.z) ? (f) => R.cells.has(key(f.x, f.y, f.z)) : null;
         // a spatial index of the doable tasks: a stance is first ranked by how many it has within reach (cheap); the click search (place.ways: rays and the vanilla model) runs only for
         // the best few (live 2026-11-21 sv5: the search for every stance and task blocked the process 4.5 s per claim)
         const grid = new Map(), g = (v) => Math.floor(v / 4);
@@ -476,6 +478,7 @@ class BuildJob {
             for (const f of stationsAround(seed, this.o.reach, down)) {
                 if (cands.length >= 40) break;
                 if (blocked(f.x, f.y, f.z) || blocked(f.x, f.y + 1, f.z) || bodyCovers(f, seed) || this.avoided(name, f)) { rej.blocked++; continue; }
+                if (inReach && !inReach(f)) { rej.unreachable = (rej.unreachable || 0) + 1; continue; }
                 if (view.nearLava(f.x, f.y, f.z)) { rej.lava++; continue; }                 // the mover never goes there: offered, it cost a 4 s search each time
                 // clearing: a stance may be inside rock that is to be cleared anyway (a box sunk in rock has no open cell near its top layer); the walk digs its way in
                 const dug = !view.fits(f.x, f.y, f.z);

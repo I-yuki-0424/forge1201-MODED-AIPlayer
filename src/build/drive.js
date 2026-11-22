@@ -35,6 +35,8 @@ function rules(job, bot) {
         temp: () => { const inv = bot.inventory.items(); if (job.tempItem && inv.some((i) => i.name === job.tempItem)) return job.tempItem; const r = SUP.TEMPS.find((t) => !job.t.items.has(t) && inv.some((i) => i.name === t)); return r || null; },
         mayDig: (x, y, z) => !underCrew(job, bot, x, y, z),
         occupied: (x, y, z) => crewAt(job, bot).some((q) => Math.floor(q.x) === x && Math.floor(q.z) === z && Math.floor(q.y + 0.16) === y),
+        // cells no temporary block may go into: a depot box's lid cell, the cells over the chests and the respawn anchor (a pillar block on a box's lid shut it for good)
+        noTemp: (x, y, z) => (job.depot || []).some((d) => d.x + (d.fx || 0) === x && d.y + (d.fy ?? 1) === y && d.z + (d.fz || 0) === z) || (job.sites || []).some((c) => Math.abs(c.x - x) <= 1 && Math.abs(c.z - z) <= 1 && y === c.y + 1) || (!!job.anchorAt && job.anchorAt.x === x && job.anchorAt.z === z && job.anchorAt.y + 1 === y),
         columnBusy: (x, z) => { const c = job.columns && job.columns.get(`${x},${z}`); return !!c && c.by !== bot.username && c.until > Date.now(); },
         onPillar: (c) => { (job.columns || (job.columns = new Map())).set(`${c.x},${c.z}`, { by: bot.username, until: Date.now() + 20000 }); },
         onTemp: (c, how) => { const b = seen(bot, c); job.addTemp(c, how || 'temp', bot.username, b ? b.name : null); },
@@ -104,6 +106,9 @@ async function work(job, name, bot, mv, cl, cancel) {
         const n = (job.noPath.get(name) || 0) + 1; job.noPath.set(name, n);
         job.log(`${name}: no way to ${cl.station.x} ${cl.station.y} ${cl.station.z} (${r.why}, ${n} in a row)`);
         job.avoid(name, cl.station);
+        // searched out: the cells it can reach from here are known; claims offer it only stances among them until it moves (a bot in a pocket ringed by lava was sent 27 times
+        // to stances outside it, live 2026-11-23 fy3 w5)
+        if (r.region && r.from) (job.reachOf || (job.reachOf = new Map())).set(name, { from: `${r.from.x},${r.from.y},${r.from.z}`, cells: r.region });
         if (n >= 2) tell(job, name, bot, 'stuck', `no way to ${cl.station.x} ${cl.station.y} ${cl.station.z} (${String(r.why).slice(0, 90)}), ${n} in a row`);
         if (r.nodes !== undefined && r.nodes < 80) { job.noPath.set(name, 0); await escape(job, name, bot, mv, cancel); }
         return results;
@@ -165,14 +170,15 @@ async function pour(job, bot, mv, L) {
 }
 
 /** A bot that cannot walk anywhere (closed in) breaks its way up and out, through whatever is in the way; the next survey puts built cells back. */
-async function escape(job, name, bot, mv, cancel) {
+async function escape(job, name, bot, mv, cancel, pocket = null) {
     const f = feet(bot), b = job.t.box, loose = { canDig: (x, y, z, blk) => !UNBREAKABLE.test(blk.name) && !CONTAINER.test(blk.name), temp: mv.rules.temp, onTemp: mv.rules.onTemp };
     const m2 = new Mover(bot, { ...loose, onUntemp: mv.rules.onUntemp });
     m2.mine = mv.mine;
     // out sideways to the nearest open cell three or more away at about the same height: never up to the top of the box (a 60-high box made every closed-in bot build a pillar
     // of 60 that the crew then climbed and tore down, for an hour: owner 2026-11-23); the plan's costs prefer walking and digging to pillaring
     job.stats.escapes++;
-    const r = await m2.goto(f, { goal: (x, y, z) => Math.hypot(x - f.x, z - f.z) >= 3 && Math.abs(y - f.y) <= 2, cancel, maxNodes: 20000, lavaCost: COST_LAVA });
+    // (out of a pocket: to a cell outside the cells it could reach, `pocket`)
+    const r = await m2.goto(f, { goal: pocket ? (x, y, z) => !pocket.has(`${x},${y},${z}`) : (x, y, z) => Math.hypot(x - f.x, z - f.z) >= 3 && Math.abs(y - f.y) <= 2, cancel, maxNodes: 20000, lavaCost: COST_LAVA });
     job.log(`${name}: closed in at ${f.x} ${f.y} ${f.z}: ${r.ok ? 'out' : 'no way out (' + r.why + ')'}`);
     if (!r.ok) tell(job, name, bot, 'stuck', `closed in at ${f.x} ${f.y} ${f.z}, no way out (${String(r.why).slice(0, 80)})`);
     return r.ok;
@@ -450,6 +456,11 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
                 const tt = Date.now(); const got = await supplyTrip(job, name, bot, mv, cl.need, within(cancel, 180000)); job.time.trip += Date.now() - tt;
                 if (!got) job.tripBack.set(name, Date.now() + 30000); else progress();
                 continue;
+            }
+            // nothing for it in the pocket it is in: out of the pocket now (past lava at a cost, never into it), not after minutes of trying
+            if (!cl && job.reachOf && job.reachOf.has(name) && job.reachOf.get(name).from === `${feet(bot).x},${feet(bot).y},${feet(bot).z}`) {
+                job.log(`${name}: nothing to do in the ${job.reachOf.get(name).cells.size} cells it can reach: out of the pocket`);
+                const pocket = job.reachOf.get(name).cells; job.reachOf.delete(name); await escape(job, name, bot, mv, cancel, pocket); continue;
             }
             if (!cl) {
                 idle++; const ti = Date.now();

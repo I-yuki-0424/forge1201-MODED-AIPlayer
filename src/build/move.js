@@ -57,6 +57,7 @@ class View {
     free(x, y, z) { const k = this.kind(x, y, z); return k === 'free' || k === 'water'; }
     /** Can a temporary block be put into this cell (it is empty or holds something a placement replaces)? */
     placeable(x, y, z) {
+        if (this.rules.noTemp && this.rules.noTemp(x, y, z)) return false;
         const o = this.over.get(key(x, y, z));
         if (o) return o === 'free';
         const b = this.raw(x, y, z);
@@ -230,7 +231,8 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
         // dig down one (the block under the feet), onto the one under it
         if (view.diggable(c.x, c.y - 1, c.z) && view.stands(c.x, c.y - 2, c.z)) add(c.x, c.y - 1, c.z, COST.drop + view.digTicks(c.x, c.y - 1, c.z), 'down', { dig: [{ x: c.x, y: c.y - 1, z: c.z }] });
     }
-    plan.last = { why: open.size ? 'nodes' : 'no more cells', nodes: n };
+    // searched out: every cell the bot can get to from here (the caller offers it only stances among them)
+    plan.last = { why: open.size ? 'nodes' : 'no more cells', nodes: n, region: open.size ? null : best };
     return null;
 }
 const blk = (view, x, y, z) => { const b = view.raw(x, y, z); return b ? { name: b.name, props: {}, shapes: b.shapes || [] } : null; };
@@ -574,7 +576,7 @@ class Mover {
                 // nothing at all from where the bot believes it is (its picture of its own position is off: live 2026-11-22 the server had it on the chest, the bot a cell higher):
                 // a jump lets the physics and the server's correction settle it, then plan again
                 if (l.nodes <= 2 && t < tries - 1) { this.bot.setControlState('jump', true); await sleep(350); this.bot.setControlState('jump', false); await sleep(700); continue; }
-                return { ok: false, nodes: l.nodes, why: `no plan (${l.why}, ${l.nodes} cells from ${start.x},${start.y},${start.z}; ${temps} ${this.rules.temp()}; goal ${view.kind(to.x, to.y, to.z)}/${view.kind(to.x, to.y + 1, to.z)} over ${view.kind(to.x, to.y - 1, to.z)}${view.stands(to.x, to.y - 1, to.z) ? ' stands' : ''}${view.nearLava(to.x, to.y, to.z) ? ' lava' : ''})`, from: start, steps };
+                return { ok: false, nodes: l.nodes, region: l.region ? new Set(l.region.keys()) : null, why: `no plan (${l.why}, ${l.nodes} cells from ${start.x},${start.y},${start.z}; ${temps} ${this.rules.temp()}; goal ${view.kind(to.x, to.y, to.z)}/${view.kind(to.x, to.y + 1, to.z)} over ${view.kind(to.x, to.y - 1, to.z)}${view.stands(to.x, to.y - 1, to.z) ? ' stands' : ''}${view.nearLava(to.x, to.y, to.z) ? ' lava' : ''})`, from: start, steps };
             }
             // the planned way for the in-game display (service/display.js draws it in the bot's colour)
             if (typeof this.bot.__onPhase === 'function') { try { this.bot.__onPhase({ phase: 'walk', cells: route.map((c) => [c.x, c.y, c.z]) }); } catch (_) { /* display only */ } }
