@@ -29,7 +29,7 @@ async function connectRcon() {
 
 /** A work service with the PRODUCTION settings (experts, router, move3, pitExpert on; teleport off) and `names` bots online. */
 async function openService(shared, names, settings = {}) {
-    const svc = new WorkService({ dataDir: process.env.DATA_DIR ? (fs.mkdirSync(process.env.DATA_DIR, { recursive: true }), process.env.DATA_DIR) : fs.mkdtempSync('/tmp/real-live-'), host: process.env.MC_HOST || 'real', port: Number(process.env.MC_PORT) || 25565, maxBots: Math.max(4, names.length), reconnectMs: 4000, display: !!(process.env.WAIT_FOR || process.env.DISPLAY === "1"), rcon: shared });          // the in-game display when someone watches (WAIT_FOR / DISPLAY=1); off otherwise (it shares the RCON link with the judge)
+    const svc = new WorkService({ dataDir: process.env.DATA_DIR ? (fs.mkdirSync(process.env.DATA_DIR, { recursive: true }), process.env.DATA_DIR) : fs.mkdtempSync('/tmp/real-live-'), host: process.env.MC_HOST || 'real', port: Number(process.env.MC_PORT) || 25565, maxBots: Math.max(4, names.length), reconnectMs: 4000, display: process.env.DISPLAY !== "0", rcon: shared });          // the in-game display on (it draws only while a player is on the server; off only with DISPLAY=0: runs without WAIT_FOR had none, owner 2026-11-23)
     svc.settings.autoKit = false; Object.assign(svc.settings, settings);
     for (const n of names) svc.addBot(n);
     const t0 = Date.now();

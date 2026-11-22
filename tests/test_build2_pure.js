@@ -187,7 +187,10 @@ test('job: stages in order, clearing top-down and never next to a fluid, placing
     assert(job.ready(tk('11,65,11'), bot, now, new Set(['11,64,11'])), 'unless that stone was just sent');
     assert(job.ready(tk('10,66,10'), bot, now), 'inside the window (two layers over the lowest open one)');
     // a claim: a station whose body covers none of the cells it reaches, the tasks bottom-up
-    assert(job.claim(bot, 'b1', now, () => 0).need, 'without the items the claim asks for them');
+    // without the items: the wrong block where glass belongs is dug out (place-stage work since 2026-11-23), then the claim asks for the items
+    const c0 = job.claim(bot, 'b1', now, () => 0);
+    assert(c0.need || (c0.tasks && c0.tasks.every((q) => q.kind === 'clear' && q.after === 'place')), 'without the items: the wrong block first, or the items asked for');
+    if (c0.tasks) { job.release('b1', c0.tasks); job.bots.set('b1', { station: null }); }
     const cl = job.claim(bot, 'b1', now, () => 64);
     assert(cl && cl.tasks && cl.tasks.length, 'a claim with the items');
     for (const q of cl.tasks) { assert(!(q.x === cl.station.x && q.z === cl.station.z && (q.y === cl.station.y || q.y === cl.station.y + 1))); assert(q.way, 'every claimed task has its click or dig'); }

@@ -173,6 +173,9 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
             // every side may get out past it at a high cost (`lavaCost`, escapes only: one stood boxed in for good, live 2026-11-23 fx1 w4)
             let extraCost = 0;
             if (view.nearLava(x, y, z)) { if (!lavaCost) return; extraCost = lavaCost; }
+            // never through another bot's body (several bots planned the same cell and pushed each other off a cliff, or jumped in the same column, owner 2026-11-23)
+            if (view.rules.occupied && (view.rules.occupied(x, y, z) || view.rules.occupied(x, y + 1, z))) return;
+            if (move === 'pillar' && view.rules.columnBusy && view.rules.columnBusy(x, z)) return;
             const t = c.t + (extra.place ? 1 : 0);
             if (t > temps) return;
             const g = c.g + cost + extraCost, k = key(x, y, z);
@@ -266,6 +269,19 @@ class Mover {
         }
         if (n) this.note(`unpillar ${n}`);
         return n;
+    }
+
+    /**
+     * Waiting or idle: two cells from every other bot and not beside a drop (bots waiting at a Nether start on a cliff pushed one over, owner 2026-11-23). `others`: their positions.
+     */
+    async spread(others) {
+        const p = this.bot.entity.position, close = others.filter((q) => Math.hypot(q.x - p.x, q.z - p.z) < 1.6 && Math.abs(q.y - p.y) < 2);
+        if (!close.length) return false;
+        const f = feet(this.bot), v = this.view();
+        const edgy = (x, y, z) => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => { for (let k = 1; k <= 3; k++) if (!v.free(x + dx, y - k, z + dz)) return false; return true; });
+        const ok = (x, y, z) => v.fits(x, y, z) && v.stands(x, y - 1, z) && !edgy(x, y, z) && !v.nearLava(x, y, z) && others.every((q) => Math.hypot(q.x - (x + 0.5), q.z - (z + 0.5)) >= 2);
+        const r = await this.goto(f, { goal: (x, y, z) => Math.hypot(x - f.x, z - f.z) >= 2 && Math.abs(y - f.y) <= 1 && ok(x, y, z), maxNodes: 3000, tries: 1 });
+        return r.ok;
     }
 
     /** Powder snow in the body's cells (the bot sank into it): dug out, the bot climbs out by the plan. */
@@ -441,7 +457,7 @@ class Mover {
         if (s.move === 'up') return (await this.walkTo(s, { jump: true })) ? { ok: true } : { ok: false, why: 'up' };
         if (s.move === 'drop') { const ok = await this.walkTo(s, { timeout: 3500 }); return ok ? { ok: true } : { ok: false, why: 'drop' }; }
         if (s.move === 'down') { for (let i = 0; i < 30 && feet(this.bot).y > s.y; i++) await sleep(50); return feet(this.bot).y === s.y ? { ok: true } : { ok: false, why: 'down' }; }
-        if (s.move === 'pillar') return (await this.pillar(s)) ? { ok: true } : { ok: false, why: 'pillar' };
+        if (s.move === 'pillar') { if (this.rules.onPillar) this.rules.onPillar(s); return (await this.pillar(s)) ? { ok: true } : { ok: false, why: 'pillar' }; }
         if (s.move === 'bridge') {
             // sneak out over the edge (the body keeps 0.05 on the support), then click the support's side face toward the gap: its block goes under the next cell
             const b = this.bot, dx = s.x - prev.x, dz = s.z - prev.z, item = this.rules.temp();
@@ -515,7 +531,11 @@ class Mover {
                 const up = c.y > f.y && route[i].move === 'up', wet = b.entity.isInWater;
                 // in water: up (jump) to rise or to stay at the surface, nothing to sink
                 b.setControlState('jump', wet ? c.y >= f.y : ((up && d < 1.4 && b.entity.onGround) || (stuck > 6 && b.entity.onGround && c.y >= f.y)));
-                const careful = route[i].move !== 'drop' && route[i].move !== 'swim' && c.y >= f.y && (isEdgy(c) || isEdgy(f));
+                // sneaking only where momentum can carry the body over: the end of a straight run or a turn, next to a drop of four or more, and always next to lava (sneaking along
+                // every run that passed a pit made the crew crawl, owner 2026-11-23)
+                const nx = route[i + 1], pv = route[i - 1], turn = !nx || !pv || (nx.x - c.x !== c.x - pv.x) || (nx.z - c.z !== c.z - pv.z);
+                const hot = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => lavaAt(c.x + dx, c.y - 1, c.z + dz) || lavaAt(c.x + dx, c.y, c.z + dz));
+                const careful = route[i].move !== 'drop' && route[i].move !== 'swim' && c.y >= f.y && (hot || ((last || turn) && d < 1.2 && (isEdgy(c) || isEdgy(f))));
                 b.setControlState('sneak', careful || (last && d < 0.6 && route[i].move !== 'drop' && c.y >= f.y));          // a careful last step, but never before a drop (sneak stops at the edge)
                 await sleep(50);
             }
@@ -544,7 +564,7 @@ class Mover {
                 // nothing at all from where the bot believes it is (its picture of its own position is off: live 2026-11-22 the server had it on the chest, the bot a cell higher):
                 // a jump lets the physics and the server's correction settle it, then plan again
                 if (l.nodes <= 2 && t < tries - 1) { this.bot.setControlState('jump', true); await sleep(350); this.bot.setControlState('jump', false); await sleep(700); continue; }
-                return { ok: false, why: `no plan (${l.why}, ${l.nodes} cells from ${start.x},${start.y},${start.z}; ${temps} ${this.rules.temp()}; goal ${view.kind(to.x, to.y, to.z)}/${view.kind(to.x, to.y + 1, to.z)} over ${view.kind(to.x, to.y - 1, to.z)}${view.stands(to.x, to.y - 1, to.z) ? ' stands' : ''}${view.nearLava(to.x, to.y, to.z) ? ' lava' : ''})`, from: start, steps };
+                return { ok: false, nodes: l.nodes, why: `no plan (${l.why}, ${l.nodes} cells from ${start.x},${start.y},${start.z}; ${temps} ${this.rules.temp()}; goal ${view.kind(to.x, to.y, to.z)}/${view.kind(to.x, to.y + 1, to.z)} over ${view.kind(to.x, to.y - 1, to.z)}${view.stands(to.x, to.y - 1, to.z) ? ' stands' : ''}${view.nearLava(to.x, to.y, to.z) ? ' lava' : ''})`, from: start, steps };
             }
             // the planned way for the in-game display (service/display.js draws it in the bot's colour)
             if (typeof this.bot.__onPhase === 'function') { try { this.bot.__onPhase({ phase: 'walk', cells: route.map((c) => [c.x, c.y, c.z]) }); } catch (_) { /* display only */ } }

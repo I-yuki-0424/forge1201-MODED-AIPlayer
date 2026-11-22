@@ -23,6 +23,8 @@ const STALL_MS = 40000;            // nothing ready for anybody this long while 
 const STAGE_OF = { seal: 'prepare', fill: 'prepare', clear: 'prepare', place: 'place', fix: 'place', scaffold: 'place', pour: 'late', ignite: 'late', untemp: 'cleanup' };
 const ORDER = ['prepare', 'place', 'late', 'cleanup'];
 const key = (x, y, z) => `${x},${y},${z}`;
+// blocks that are full cubes (the click search may count one the claim places before as standing)
+const FULL = /^(stone|smooth_stone|cobblestone|stone_bricks|glass|dirt|netherrack|obsidian|blackstone|basalt|polished_.*|.*_planks|.*_concrete|.*_terracotta|.*_wool|redstone_block|iron_block|gold_block|diamond_block|emerald_block|lapis_block|coal_block|quartz_block|.*_stained_glass|tinted_glass|sandstone|end_stone|purpur_block|deepslate.*|tuff|calcite|andesite|diorite|granite|bricks|mud_bricks|.*_log|.*_wood)$/;
 
 class BuildJob {
     /**
@@ -144,7 +146,8 @@ class BuildJob {
     ready(tk, bot, now, pending = null, soft = false) {
         if (this.parked.has(tk.k) || (this.cool.get(tk.k) || 0) > now) return false;
         if (tk.kind === 'untemp') return !this.tasks.has(key(tk.x, tk.y + 1, tk.z)) || this.tasks.get(key(tk.x, tk.y + 1, tk.z)).kind !== 'untemp';      // any stage; the top of a stack first
-        if (STAGE_OF[tk.kind] !== this.stage) {
+        // a wrong block dug out of a cell to place (kind clear, `after` place) belongs to the place stage: it was never ready there and held the crew idle for good (live 2026-11-23 fx1 w1)
+        if (STAGE_OF[tk.kind] !== this.stage && !(tk.after && STAGE_OF[tk.after] === this.stage)) {
             // placing overlaps clearing: a block goes in as soon as its own neighbourhood is cleared (a few hard cells anywhere held the whole build in the prepare stage, live 2026-11-22)
             if (!(this.stage === 'prepare' && (tk.kind === 'place' || tk.kind === 'fix' || tk.kind === 'scaffold') && this._clearAround(tk))) return false;
         }
@@ -337,6 +340,10 @@ class BuildJob {
         }
     }
 
+    /** A stance `name` found no way to: not offered to it again for three minutes. */
+    avoid(name, f) { const m = this.bad || (this.bad = new Map()); let s = m.get(name); if (!s) m.set(name, (s = new Map())); s.set(key(f.x, f.y, f.z), Date.now() + 180000); }
+    avoided(name, f) { const s = this.bad && this.bad.get(name); if (!s) return false; const k = key(f.x, f.y, f.z), t = s.get(k); if (!t) return false; if (t < Date.now()) { s.delete(k); return false; } return true; }
+
     // ---- sectors -----------------------------------------------------------------------------------------------------------------------------------------------------------
 
     /**
@@ -409,15 +416,7 @@ class BuildJob {
         }
         if (!ready.length) {
             this.nothingWhy = `nothing ready in stage ${this.stage} (${this.tasks.size} tasks, ${this.claims.size} claimed by others, frontier ${Number.isFinite(this.frontier) ? this.frontier : '-'}, parked ${this.parked.size})`;
-            if (!this.claims.size && this.tasks.size && !this.relaxed) {
-                if (!this.stallSince) this.stallSince = now;
-                else if (now - this.stallSince > STALL_MS) {
-                    this.relaxed = true;
-                    const why = {}; const ex = [];
-                    for (const tk of this.tasks.values()) { const w = this.whyNot(tk, bot, now); const k = w.replace(/ \d.*$/, '').replace(/waits for .*/, 'waits'); why[k] = (why[k] || 0) + 1; if (ex.length < 6 && /waits/.test(w)) ex.push(`${tk.k} ${tk.i >= 0 ? S.bare(this.t.wantOf(tk).name) : tk.kind} ${w}`); }
-                    this.log(`stall in ${this.stage} (${this.tasks.size} tasks, none ready for ${Math.round((now - this.stallSince) / 1000)} s): order rules relaxed until the next survey; why ${JSON.stringify(why)}; e.g. ${ex.join(' | ')}`);
-                }
-            }
+            this._stall(bot, now);
             return null;
         }
         this.stallSince = 0;
@@ -430,7 +429,8 @@ class BuildJob {
         if (!doable.length) {
             // the work left is under bots' feet: the one standing on it steps off (idle bots stood on the last cells to clear for half an hour, live 2026-11-22 sI w2)
             if (ready.some((tk) => (tk.kind === 'clear' || tk.kind === 'untemp') && tk.k === key(me.x, me.y - 1, me.z))) return { moveOff: true };
-            if (ready.every((tk) => tk.kind === 'clear' || tk.kind === 'untemp')) return null;
+            // only cells under bots' feet are ready (temporary blocks they stand on): as good as nothing ready, so the stall rule still applies
+            if (ready.every((tk) => tk.kind === 'clear' || tk.kind === 'untemp')) { this.nothingWhy = `only cells under bots' feet are ready (${ready.length})`; this._stall(bot, now); return null; }
             const need = {}; for (const tk of ready.slice(0, 200)) { if (tk.kind === 'fix' || tk.kind === 'clear') continue; const it = item(tk); if (it) need[it] = (need[it] || 0) + 1; }
             return { need };
         }
@@ -440,7 +440,7 @@ class BuildJob {
         // within six cells costs as much as ten layers; temporary blocks near the bot go first (they are in someone's way)
         const seedScore = (tk) => {
             const d = Math.hypot(tk.x - me.x, tk.y - me.y, tk.z - me.z);
-            if (tk.kind === 'untemp') return d <= 8 ? -3000 + d : 1000 + d * 2;
+            if (tk.kind === 'untemp') return d <= 6 ? 1500 + d : 2600 + d * 2;          // after the real work unless right beside the bot (at -3000 the crew gathered on every leftover pillar, owner 2026-11-23)
             return (tk.kind === 'place' || tk.kind === 'fix' ? 2000 + tk.y * 3 : (down ? -tk.y : tk.y) * 2) + d * 0.6 + crowd(tk) * 30 + (inSec(tk) ? 0 : 400) + (tk.kind === 'seal' || tk.kind === 'fill' ? -1000 : 0);
         };
         doable.sort((a, b) => seedScore(a) - seedScore(b));
@@ -463,7 +463,7 @@ class BuildJob {
             const lonely = (seed.kind === 'place' || seed.kind === 'scaffold') && [[0, 1, 0], [0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]].every(([dx, dy, dz]) => AIRY(seen(bot, { x: seed.x + dx, y: seed.y + dy, z: seed.z + dz })));
             for (const f of stationsAround(seed, this.o.reach, down)) {
                 if (cands.length >= 40) break;
-                if (blocked(f.x, f.y, f.z) || blocked(f.x, f.y + 1, f.z) || bodyCovers(f, seed)) { rej.blocked++; continue; }
+                if (blocked(f.x, f.y, f.z) || blocked(f.x, f.y + 1, f.z) || bodyCovers(f, seed) || this.avoided(name, f)) { rej.blocked++; continue; }
                 if (view.nearLava(f.x, f.y, f.z)) { rej.lava++; continue; }                 // the mover never goes there: offered, it cost a 4 s search each time
                 // clearing: a stance may be inside rock that is to be cleared anyway (a box sunk in rock has no open cell near its top layer); the walk digs its way in
                 const dug = !view.fits(f.x, f.y, f.z);
@@ -484,6 +484,8 @@ class BuildJob {
                         if (!okp) { rej.unsupported++; continue; }
                     }
                 }
+                // a temporary block is taken away only from where the bot can stand now: a new pillar to reach an old one made pillars without end (owner 2026-11-23)
+                if (seed.kind === 'untemp' && !standing) { rej.unsupported++; continue; }
                 if (lonely && (standing || dug || wet || Math.abs(f.x - seed.x) + Math.abs(f.y - 1 - seed.y) + Math.abs(f.z - seed.z) !== 1)) { rej.nothingToClick++; continue; }
                 const eye = eyeOf({ x: f.x + 0.5, y: f.y, z: f.z + 0.5 });
                 if (boxDist(eye, seed) > this.o.reach) { rej.far++; continue; }
@@ -498,6 +500,7 @@ class BuildJob {
                 const batch = [{ ...seed, way }];
                 for (const tk of c.reach) { if (tk === seed || batch.length >= BATCH) continue; const w = this._way(world, tk, c.f); if (w) batch.push({ ...tk, way: w }); }
                 if (down && seed.kind === 'clear') this._deepen(bot, world, c.f, batch, floors);
+                if (seed.kind === 'place') this._widen(bot, world, c.f, batch, has, now);
                 best = { f: c.f, batch };
                 break;
             }
@@ -513,10 +516,11 @@ class BuildJob {
                 continue;
             }
             this.lastClaimInfo = `scanned ${scanned}, ready ${ready.length}, doable ${doable.length}, seeds to here ${doable.indexOf(seed) + 1}, batch ${best.batch.length}, ${Date.now() - t0} ms in seeds`;
-            const tasks = best.batch.sort((a, b) => ((a.kind === 'clear') !== (b.kind === 'clear') ? (a.kind === 'clear' ? -1 : 1) : 0) || (a.kind === 'clear' ? b.y - a.y : a.y - b.y) || a.x - b.x || a.z - b.z);
+            // never the stance's own floor (it is not dug from on top of it)
+            const tasks = best.batch.filter((tk) => !((tk.kind === 'clear' || tk.kind === 'untemp') && tk.x === best.f.x && tk.z === best.f.z && tk.y === best.f.y - 1)).sort((a, b) => ((a.kind === 'clear') !== (b.kind === 'clear') ? (a.kind === 'clear' ? -1 : 1) : 0) || (a.kind === 'clear' ? b.y - a.y : a.y - b.y) || a.x - b.x || a.z - b.z);
+            if (!tasks.length) { this.cool.set(seed.k, now + 3000); continue; }
             for (const tk of tasks) this.claims.set(tk.k, name);
             this.bots.set(name, { station: [best.f, { x: best.f.x, y: best.f.y + 1, z: best.f.z }], pos: me });
-            for (const tk of tasks) if ((tk.kind === 'clear' || tk.kind === 'untemp') && tk.x === best.f.x && tk.z === best.f.z && tk.y === best.f.y - 1) tk.way = null;      // its own floor: not from there
             return { station: best.f, tasks };
         }
         this.lastClaimInfo = `no stance: scanned ${scanned}, ready ${ready.length}, doable ${doable.length}, ${Date.now() - t0} ms in seeds`;
@@ -536,6 +540,49 @@ class BuildJob {
             this.log(`claim by ${name}: ${ready.length} ready, ${doable.length} doable with what it carries, no stance for the first ${Math.min(12, doable.length)} (${doable.slice(0, 3).map((t) => `${t.kind} ${t.k}`).join(', ')}); the others: ${JSON.stringify(why)}; frontier ${this.frontier}`);
         }
         return null;
+    }
+
+    /** Nothing ready for anybody for STALL_MS while work is left: the ordering rules are relaxed until the next survey (a dependency that cannot be met). */
+    _stall(bot, now) {
+        if (!this.claims.size && this.tasks.size && !this.relaxed) {
+            if (!this.stallSince) this.stallSince = now;
+            else if (now - this.stallSince > STALL_MS) {
+                this.relaxed = true;
+                const why = {}; const ex = [];
+                for (const tk of this.tasks.values()) { const w = this.whyNot(tk, bot, now); const k = w.replace(/ \d.*$/, '').replace(/waits for .*/, 'waits'); why[k] = (why[k] || 0) + 1; if (ex.length < 6 && /waits/.test(w)) ex.push(`${tk.k} ${tk.i >= 0 ? S.bare(this.t.wantOf(tk).name) : tk.kind} ${w}`); }
+                this.log(`stall in ${this.stage} (${this.tasks.size} tasks, none ready for ${Math.round((now - this.stallSince) / 1000)} s): order rules relaxed until the next survey; why ${JSON.stringify(why)}; e.g. ${ex.join(' | ')}`);
+            }
+        }
+    }
+
+    /**
+     * Placing from one stance as a player does it: every block in reach whose supports stand or are in the claim before it (bottom-up), not only the ones that were ready when the
+     * claim began. One block per stance was the rule in layers of thin parts (owner 2026-11-23). The claim's own blocks count as standing for the click search when they are full cubes.
+     */
+    _widen(bot, world, f, batch, has, now) {
+        const inB = new Set(batch.map((t) => t.k)), eye = eyeOf({ x: f.x + 0.5, y: f.y, z: f.z + 0.5 }), cand = [];
+        const cube = (tk) => { const w = this.t.wantOf(tk); if (w && FULL.test(S.bare(w.name))) world.over.set(tk.k, { name: S.bare(w.name), props: {}, shapes: [[0, 0, 0, 1, 1, 1]] }); };
+        for (const t of batch) if (t.kind === 'place') cube(t);
+        const top = this.relaxed ? Infinity : this.frontier + this.o.window;
+        for (let dy = -5; dy <= 4; dy++) for (let dx = -5; dx <= 5; dx++) for (let dz = -5; dz <= 5; dz++) {
+            const x = f.x + dx, y = f.y + dy, z = f.z + dz, k = key(x, y, z), tk = this.tasks.get(k);
+            if (!tk || tk.kind !== 'place' || tk.y > top || inB.has(k) || this.claims.has(k) || this.parked.has(k) || (this.cool.get(k) || 0) > now) continue;
+            if (bodyCovers(f, tk) || boxDist(eye, tk) > this.o.reach) continue;
+            const it = this._itemOf(tk); if (it && !(has(it) > 0)) continue;
+            cand.push(tk);
+        }
+        cand.sort((a, b) => a.y - b.y || Math.hypot(a.x - f.x, a.z - f.z) - Math.hypot(b.x - f.x, b.z - f.z));
+        let added = 0;
+        for (let pass = 0; pass < 2; pass++) for (const tk of cand) {
+            if (batch.length >= BATCH) break;
+            if (inB.has(tk.k)) continue;
+            const h = seen(bot, tk); if (!h || !(S.AIR.has(h.name) || SV.REPLACEABLE.test(h.name))) continue;
+            if (!this.ready(tk, bot, now, inB)) continue;
+            const w = this._way(world, tk, f);
+            if (!w) continue;
+            batch.push({ ...tk, way: w }); inB.add(tk.k); cube(tk); added++;
+        }
+        return added;
     }
 
     /** How far (cells) a stance in the air is from ground at its own height that a bridge can start from, in a straight line over free cells; null when none within 24. */
@@ -568,10 +615,11 @@ class BuildJob {
     _deepen(bot, world, f, batch, floors) {
         const inB = new Set(batch.map((t) => t.k)), eye = eyeOf({ x: f.x + 0.5, y: f.y, z: f.z + 0.5 }), cand = [];
         for (const t of batch) if (t.kind === 'clear') world.over.set(t.k, P.AIR);
-        for (let dy = 5; dy >= -2; dy--) for (let dx = -5; dx <= 5; dx++) for (let dz = -5; dz <= 5; dz++) {
+        for (let dy = 5; dy >= -1; dy--) for (let dx = -5; dx <= 5; dx++) for (let dz = -5; dz <= 5; dz++) {
             const x = f.x + dx, y = f.y + dy, z = f.z + dz, k = key(x, y, z), tk = this.tasks.get(k);
             if (!tk || tk.kind !== 'clear' || tk.after || inB.has(k) || this.claims.has(k) || this.parked.has(k) || floors.has(k)) continue;
-            if (x === f.x && z === f.z && y < f.y) continue;
+            // never below the floor, and not the floor ring around the stance (bots dug the ground out around themselves and stood on a lone column, owner 2026-11-23)
+            if (y < f.y - 1 || (y === f.y - 1 && Math.abs(x - f.x) <= 1 && Math.abs(z - f.z) <= 1)) continue;
             if (bodyCovers(f, tk) || boxDist(eye, tk) > this.o.reach) continue;
             cand.push(tk);
         }

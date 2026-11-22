@@ -13,7 +13,7 @@ const SUP = require('./supply');
 const COST_LAVA = 60;                // escapes and evacuations may pass beside lava (never into it) at this cost per cell
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const UNBREAKABLE = /^(bedrock|barrier|end_portal_frame|end_portal|end_gateway|nether_portal|command_block|chain_command_block|repeating_command_block|structure_block|jigsaw|reinforced_deepslate|light)$/;
-const CONTAINER = /(chest|barrel|shulker_box|hopper|dropper|dispenser|furnace|smoker|crafter|_bed|lectern|brewing_stand|decorated_pot)$/;
+const CONTAINER = /(chest|barrel|shulker_box|hopper|dropper|dispenser|furnace|smoker|crafter|_bed|lectern|brewing_stand|decorated_pot|respawn_anchor)$/;
 const FLUID = (h) => h && (h.name === 'water' || h.name === 'lava' || h.props.waterlogged === 'true');
 const key = (x, y, z) => `${x},${y},${z}`;
 
@@ -34,6 +34,9 @@ function rules(job, bot) {
         // the temporary block: the supply's, or rubble the bot dug up (dirt, cobblestone, netherrack: what a player builds scaffolds with)
         temp: () => { const inv = bot.inventory.items(); if (job.tempItem && inv.some((i) => i.name === job.tempItem)) return job.tempItem; const r = SUP.TEMPS.find((t) => !job.t.items.has(t) && inv.some((i) => i.name === t)); return r || null; },
         mayDig: (x, y, z) => !underCrew(job, bot, x, y, z),
+        occupied: (x, y, z) => crewAt(job, bot).some((q) => Math.floor(q.x) === x && Math.floor(q.z) === z && Math.floor(q.y + 0.16) === y),
+        columnBusy: (x, z) => { const c = job.columns && job.columns.get(`${x},${z}`); return !!c && c.by !== bot.username && c.until > Date.now(); },
+        onPillar: (c) => { (job.columns || (job.columns = new Map())).set(`${c.x},${c.z}`, { by: bot.username, until: Date.now() + 20000 }); },
         onTemp: (c, how) => { const b = seen(bot, c); job.addTemp(c, how || 'temp', bot.username, b ? b.name : null); },
         onUntemp: (c) => { job.dropTemp(c); job.stats.untemp++; },
     };
@@ -64,6 +67,13 @@ function underCrew(job, bot, x, y, z) {
     return false;
 }
 
+/** The live positions of the other bots of the crew. */
+function crewAt(job, bot) {
+    const out = [];
+    for (const p of Object.values(bot.players || {})) if (p && p.entity && p.username !== bot.username && job.bots.has(p.username)) out.push(p.entity.position);
+    return out;
+}
+
 /** Is task tk's cell right now? */
 function holds(job, bot, tk) {
     const h = seen(bot, tk);
@@ -89,10 +99,13 @@ async function work(job, name, bot, mv, cl, cancel) {
     if (!r.ok) {
         // a stance the bot cannot get to counts against its tasks (as 'skipped' they came back for ever: live 2026-11-22 sD w2, 22 tree tops for 40 minutes)
         for (const tk of cl.tasks) results.push({ tk, ok: false, why: `no way to the stance ${cl.station.x},${cl.station.y},${cl.station.z} (${r.why})` });
+        // decided at once, not after a count of failures (owner 2026-11-23: retrying, then escaping upward, wasted most of the time): a search that found next to no cells means
+        // the bot is closed in (it digs out sideways now); otherwise the stance is out of this bot's reach and is not offered to it again for three minutes
         const n = (job.noPath.get(name) || 0) + 1; job.noPath.set(name, n);
         job.log(`${name}: no way to ${cl.station.x} ${cl.station.y} ${cl.station.z} (${r.why}, ${n} in a row)`);
+        job.avoid(name, cl.station);
         if (n >= 2) tell(job, name, bot, 'stuck', `no way to ${cl.station.x} ${cl.station.y} ${cl.station.z} (${String(r.why).slice(0, 90)}), ${n} in a row`);
-        if (n >= 4) { job.noPath.set(name, 0); await escape(job, name, bot, mv, cancel); }
+        if (r.nodes !== undefined && r.nodes < 80) { job.noPath.set(name, 0); await escape(job, name, bot, mv, cancel); }
         return results;
     }
     job.noPath.set(name, 0);
@@ -154,9 +167,10 @@ async function escape(job, name, bot, mv, cancel) {
     const f = feet(bot), b = job.t.box, loose = { canDig: (x, y, z, blk) => !UNBREAKABLE.test(blk.name) && !CONTAINER.test(blk.name), temp: mv.rules.temp, onTemp: mv.rules.onTemp };
     const m2 = new Mover(bot, { ...loose, onUntemp: mv.rules.onUntemp });
     m2.mine = mv.mine;
-    const top = Math.max(f.y + 2, b.y + b.sy + 1);
+    // out sideways to the nearest open cell three or more away at about the same height: never up to the top of the box (a 60-high box made every closed-in bot build a pillar
+    // of 60 that the crew then climbed and tore down, for an hour: owner 2026-11-23); the plan's costs prefer walking and digging to pillaring
     job.stats.escapes++;
-    const r = await m2.goto({ x: f.x, y: top, z: f.z }, { goal: (x, y, z) => y >= top || !job.t.inside(x, y - 1, z) && Math.hypot(x - f.x, z - f.z) > 3, cancel, maxNodes: 20000, lavaCost: COST_LAVA });
+    const r = await m2.goto(f, { goal: (x, y, z) => Math.hypot(x - f.x, z - f.z) >= 3 && Math.abs(y - f.y) <= 2, cancel, maxNodes: 20000, lavaCost: COST_LAVA });
     job.log(`${name}: closed in at ${f.x} ${f.y} ${f.z}: ${r.ok ? 'out' : 'no way out (' + r.why + ')'}`);
     if (!r.ok) tell(job, name, bot, 'stuck', `closed in at ${f.x} ${f.y} ${f.z}, no way out (${String(r.why).slice(0, 80)})`);
     return r.ok;
@@ -197,6 +211,48 @@ function tell(job, name, bot, state, detail, force = false) {
 }
 const untell = (job, name) => { if (job.told) job.told.delete(name); };
 
+/**
+ * The Nether's respawn point: one bot sets a respawn anchor down beside the materials chest and charges it with glowstone; every bot clicks it with an empty hand (its spawn is set
+ * there). All survival actions with items from the chest. Without it a bot that died in the Nether woke in the Overworld and the crew was left behind there (owner 2026-11-23).
+ */
+const inNether = (bot) => /nether/.test(String(bot.game && bot.game.dimension));
+async function anchor(job, name, bot, mv, cancel) {
+    if (!inNether(bot) || !job.available || !job.available.has('respawn_anchor') || !job.sites[0]) return;
+    if (job.spawnSet && job.spawnSet.has(name) && !(job.anchorAt && charges(bot, job.anchorAt) < 2 && bot.inventory.items().some((i) => i.name === 'glowstone'))) return;
+    if (!job.anchorAt) {
+        if (job.anchorBusy) return;                      // another bot sets it down; this one works meanwhile
+        job.anchorBusy = name;
+        try {
+            await supplyTrip(job, name, bot, mv, { respawn_anchor: 1, glowstone: 8 }, within(cancel, 180000));
+            if (!bot.inventory.items().some((i) => i.name === 'respawn_anchor')) { job.anchorFails = (job.anchorFails || 0) + 1; job.log(`${name}: no respawn anchor from the chest (${job.anchorFails})`); if (job.anchorFails >= 3) job.available.delete('respawn_anchor'); return; }
+            const c = job.sites[0], v = mv.view(), me = feet(bot), spots = [];
+            for (let r = 2; r <= 4; r++) for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) for (const dy of [0, 1, -1]) {
+                if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+                const q = { x: c.x + dx, y: c.y + dy, z: c.z + dz };
+                if (job.t.inside(q.x, q.y, q.z) || (job.depot || []).some((d) => Math.abs(d.x - q.x) + Math.abs(d.y - q.y) + Math.abs(d.z - q.z) <= 1) || job.sites.some((s0) => Math.abs(s0.x - q.x) <= 1 && Math.abs(s0.z - q.z) <= 1 && Math.abs(s0.y - q.y) <= 1)) continue;
+                if (!v.free(q.x, q.y, q.z) || !v.free(q.x, q.y + 1, q.z) || !v.stands(q.x, q.y - 1, q.z) || (q.x === me.x && q.z === me.z)) continue;
+                spots.push(q);
+            }
+            for (const q of spots.slice(0, 8)) {
+                await mv.goto(q, { goal: (x, y, z) => Math.hypot(x + 0.5 - (q.x + 0.5), y + 1.62 - (q.y + 0.5), z + 0.5 - (q.z + 0.5)) <= 4 && Math.hypot(x - q.x, z - q.z) >= 1.5, cancel, maxNodes: 6000 });
+                if ((await mv.placeItem('respawn_anchor', q)) === true) { job.anchorAt = q; job.log(`${name}: respawn anchor set down at ${q.x} ${q.y} ${q.z}`); break; }
+            }
+            if (!job.anchorAt) { job.anchorFails = (job.anchorFails || 0) + 1; job.log(`${name}: no cell for the respawn anchor took it (${spots.length} tried)`); if (job.anchorFails >= 3) job.available.delete('respawn_anchor'); return; }
+        } finally { job.anchorBusy = null; }
+    }
+    const a = job.anchorAt;
+    const r = await mv.goto(a, { goal: (x, y, z) => Math.hypot(x + 0.5 - (a.x + 0.5), y + 1.62 - (a.y + 0.5), z + 0.5 - (a.z + 0.5)) <= 4 && Math.hypot(x - a.x, z - a.z) >= 1.5, cancel, maxNodes: 20000 });
+    if (!r.ok) { job.log(`${name}: no way to the respawn anchor (${r.why})`); return; }
+    if (charges(bot, a) < 4 && !bot.inventory.items().some((i) => i.name === 'glowstone')) await supplyTrip(job, name, bot, mv, { glowstone: 4 }, within(cancel, 120000));
+    for (let i = 0; i < 4 && charges(bot, a) < 4 && (await mv.hold('glowstone')); i++) { await mv.click([a.x, a.y, a.z], 'up', [a.x + 0.5, a.y + 1, a.z + 0.5]); await sleep(150); }
+    if (charges(bot, a) < 1) { job.log(`${name}: the respawn anchor has no charge`); return; }
+    await mv.holdNothing();
+    await mv.click([a.x, a.y, a.z], 'up', [a.x + 0.5, a.y + 1, a.z + 0.5]);
+    (job.spawnSet || (job.spawnSet = new Set())).add(name);
+    job.log(`${name}: spawn set at the respawn anchor (${charges(bot, a)} charges)`);
+}
+const charges = (bot, a) => { const b = bot.blockAt(new Vec3(a.x, a.y, a.z), false); return b && b.name === 'respawn_anchor' ? Number((b.getProperties() || {}).charges || 0) : -1; };
+
 /** The crew's items: what the box needs (counted down by what stands), the temporary block, tools. */
 function needsFor(job, bot, need) {
     const have = SUP.carried(bot), out = {};
@@ -222,7 +278,7 @@ async function supplyTrip(job, name, bot, mv, need, cancel) {
         tell(job, name, bot, 'wait', `the materials chest is in use by ${job.chestBusy}`);
         await mv.goto(site, { goal: (x, y, z) => Math.hypot(x - site.x, z - site.z) >= 5 && Math.hypot(x - site.x, z - site.z) <= 9, cancel, maxNodes: 15000 });
         const t0 = Date.now();
-        while (job.chestBusy && job.chestBusy !== name && !cancel.cancelled && Date.now() - t0 < 90000) await sleep(500);
+        while (job.chestBusy && job.chestBusy !== name && !cancel.cancelled && Date.now() - t0 < 90000) { await mv.spread(crewAt(job, bot)); await sleep(500); }
         if (job.chestBusy && job.chestBusy !== name) { job.log(`${name}: the chest is still held by ${job.chestBusy} after 90 s: not waiting longer`); return false; }
     }
     job.chestBusy = name;
@@ -360,8 +416,8 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
                 }
                 await job.supplyReading; await sleep(200); continue;
             }
+            if (inNether(bot) && job.available.has('respawn_anchor') && !(job.spawnSet && job.spawnSet.has(name)) && !job.anchorBusy) await anchor(job, name, bot, mv, cancel);
             if (job.exhausted()) { await job.resurvey(bot, `${name}: stage ${job.stage} done`); continue; }
-            await SUP.dropRubble(bot, keepRubble(job));
             // tools and temporary blocks before the work needs them
             const base = needsFor(job, bot, {});
             if (Object.keys(base).length && job.stage !== 'settle' && !(job.lastTrip && Date.now() - job.lastTrip.get(name) < 60000)) { (job.lastTrip = job.lastTrip || new Map()).set(name, Date.now()); const tt = Date.now(); await supplyTrip(job, name, bot, mv, {}, within(cancel, 180000)); job.time.trip += Date.now() - tt; continue; }
@@ -377,7 +433,7 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
             if (cl && cl.need) {
                 // a trip that brought nothing is not repeated at once (the supply is short of it, or the chest is out of reach): a pause, other bots go meanwhile
                 const back = (job.tripBack = job.tripBack || new Map()).get(name) || 0;
-                if (Date.now() < back) { tell(job, name, bot, 'wait', `needs ${Object.keys(cl.need).slice(0, 4).join(', ')}; the last trip brought none`); progress(); const ti = Date.now(); await sleep(1000); job.time.idle += Date.now() - ti; continue; }
+                if (Date.now() < back) { await mv.spread(crewAt(job, bot)); tell(job, name, bot, 'wait', `needs ${Object.keys(cl.need).slice(0, 4).join(', ')}; the last trip brought none`); progress(); const ti = Date.now(); await sleep(1000); job.time.idle += Date.now() - ti; continue; }
                 const tt = Date.now(); const got = await supplyTrip(job, name, bot, mv, cl.need, within(cancel, 180000)); job.time.trip += Date.now() - tt;
                 if (!got) job.tripBack.set(name, Date.now() + 30000); else progress();
                 continue;
@@ -385,10 +441,19 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
             if (!cl) {
                 idle++; const ti = Date.now();
                 if (idle > 25 && job.stage !== 'settle') { tell(job, name, bot, 'idle', job.nothingWhy || job.lastClaimInfo || 'no task found'); progress(); }        // idle with nothing to do is not stuck
+                if (idle % 5 === 1) await mv.spread(crewAt(job, bot));
                 await sleep(job.stage === 'settle' ? 1000 : 400); job.time.idle += Date.now() - ti; continue;
             }
             idle = 0;
             // a claim has three minutes (a walk or a dig that never ends does not hold the bot, its claims or its stance for good)
+            // rubble out of a full pack just before the walk to the stance, thrown away from it, at most every 30 s (dropped where the bot then waited, it was picked up again
+            // at once, over and over: owner 2026-11-23)
+            if (SUP.freeSlots(bot) < 6 && Date.now() - (job.tossAt && job.tossAt.get(name) || 0) > 30000) {
+                (job.tossAt || (job.tossAt = new Map())).set(name, Date.now());
+                const p = bot.entity.position, dx = cl.station.x + 0.5 - p.x, dz = cl.station.z + 0.5 - p.z;
+                try { await bot.look(Math.atan2(dx, dz), 0.3, true); } catch (_) { /* the look is a nicety */ }
+                await SUP.dropRubble(bot, keepRubble(job));
+            }
             const res = await work(job, name, bot, mv, cl, within(cancel, 180000));
             if (res.some((r) => r.ok)) { progress(); untell(job, name); }
             if (process.env.BUILD_TRACE) { const by = {}; for (const r of res) { const k = `${r.tk.kind}:${r.ok ? 'ok' : String(r.why).replace(/-?\d+/g, '#').slice(0, 50)}`; by[k] = (by[k] || 0) + 1; } job.log(`[trace] ${name} at ${cl.station.x},${cl.station.y},${cl.station.z} (${cl.tasks.length} tasks): ${JSON.stringify(by)}`); }
