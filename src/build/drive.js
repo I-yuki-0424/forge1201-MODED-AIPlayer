@@ -254,7 +254,7 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
             const base = needsFor(job, bot, {});
             if (Object.keys(base).length && job.stage !== 'settle' && !(job.lastTrip && Date.now() - job.lastTrip.get(name) < 60000)) { (job.lastTrip = job.lastTrip || new Map()).set(name, Date.now()); const tt = Date.now(); await supplyTrip(job, name, bot, mv, {}, cancel); job.time.trip += Date.now() - tt; continue; }
             const have = SUP.carried(bot);
-            const tc = Date.now(); const cl = job.claim(bot, name, Date.now(), (it) => have[it] || 0); job.time.claim += Date.now() - tc;
+            const tc = Date.now(); const cl = job.claim(bot, name, Date.now(), (it) => have[it] || 0); const dc = Date.now() - tc; job.time.claim += dc; if (dc > 400) job.log(`${name}: claim took ${dc} ms (${job.lastClaimInfo || ''})`);
             if (cl && cl.moveOff) {
                 const f = feet(bot), floor = (x, y, z) => job.tasks.get(`${x},${y - 1},${z}`);
                 await mv.goto(f, { goal: (x, y, z) => Math.hypot(x - f.x, z - f.z) >= 2 && !(floor(x, y, z) && ['clear', 'untemp'].includes(floor(x, y, z).kind)), cancel, maxNodes: 4000 });

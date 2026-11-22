@@ -116,9 +116,13 @@ function ways(world, T, want, item, stations, { max = 1, reach = REACH, sneakAlw
 }
 
 /** A face of cell T's own block the eye at station s sees first (for clicks on a placed block: notes, delays, opening), or null. */
+// what the crosshair hits on a block with no collision box (grass, flowers, mushrooms, leaf litter, torches): its outline, about this box (with no box at all such a block was never
+// "in sight", its clear task never got a stance, and the layers under it waited, live 2026-11-22 sY)
+const OUTLINE = [[0.25, 0, 0.25, 0.75, 0.5, 0.75]];
 function clickable(world, T, s, { reach = REACH, faces = null } = {}) {
-    const blk = world.block(T.x, T.y, T.z);
-    if (isAir(blk)) return null;
+    let blk = world.block(T.x, T.y, T.z);
+    if (isAir(blk) || isFluid(blk)) return null;
+    if (!Array.isArray(blk.shapes) || !blk.shapes.length) blk = { ...blk, shapes: OUTLINE };
     const eye = [s.x + 0.5, s.y + EYE, s.z + 0.5];
     for (const F of faces || V.DIRS) {
         const face = faceOf(blk, F); if (!face) continue;
