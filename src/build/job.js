@@ -601,7 +601,8 @@ class BuildJob {
 
     /** Nothing ready for anybody for STALL_MS while work is left: the ordering rules are relaxed until the next survey (a dependency that cannot be met). */
     _stall(bot, now) {
-        if (!this.claims.size && this.tasks.size && !this.relaxed) {
+        // (at most one bot working: one bot's claim kept the stall rule off while seven stood idle)
+        if (new Set(this.claims.values()).size <= 1 && this.tasks.size && !this.relaxed) {
             if (!this.stallSince) this.stallSince = now;
             else if (now - this.stallSince > STALL_MS) {
                 this.relaxed = true;
