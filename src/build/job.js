@@ -111,6 +111,8 @@ class BuildJob {
                 this.settleAt = Date.now() + 4000;
             } else this.stage = stage;
             if (stage === 'late') this.pouredOnce = true;
+            // areas cut before the first survey (a supply trip asked for the area's bill first) were cut on no work at all: cut again now that the work is known
+            if (this._parts && this._parts.uniform && this.tasks.size) { this._parts = null; this._tileSec = null; }
             this._frontier();
         })();
         try { await this.surveying; } finally { this.surveying = null; }
@@ -467,7 +469,7 @@ class BuildJob {
     _planSectors(n) {
         const b = this.t.box, nx = Math.ceil(b.sx / TILE), nz = Math.ceil(b.sz / TILE), w = new Float64Array(nx * nz);
         for (const tk of this.tasks.values()) { if (!this.t.inside(tk.x, tk.y, tk.z)) continue; w[Math.floor((tk.x - b.x) / TILE) + Math.floor((tk.z - b.z) / TILE) * nx] += tk.kind === 'place' || tk.kind === 'fix' ? 1 : tk.kind === 'clear' ? 0.25 : 0; }
-        if (!w.some((v) => v > 0)) w.fill(1);
+        const uniform = !w.some((v) => v > 0); if (uniform) w.fill(1);
         const parts = [], at = new Int16Array(nx * nz).fill(-1);
         const sum = (x0, x1, z0, z1) => { let t = 0; for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) t += w[x + z * nx]; return t; };
         const cut = (x0, x1, z0, z1, k) => {
@@ -492,7 +494,7 @@ class BuildJob {
             if (best.ax === 'x') { cut(x0, best.i, z0, z1, kl); cut(best.i + 1, x1, z0, z1, k - kl); } else { cut(x0, x1, z0, best.i, kl); cut(x0, x1, best.i + 1, z1, k - kl); }
         };
         cut(0, nx - 1, 0, nz - 1, n);
-        this._parts = parts; this._tileSec = { nx, nz, at };
+        this._parts = parts; parts.uniform = uniform; this._tileSec = { nx, nz, at };
         this.log(`areas for ${n} bots: ${parts.map((p) => `${p.x0}..${p.x1}/${p.z0}..${p.z1} (${Math.round(p.work)})`).join(', ')}`);
     }
 

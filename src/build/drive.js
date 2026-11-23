@@ -550,7 +550,8 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
                 }
                 await job.supplyReading; await sleep(200); continue;
             }
-            if (inNether(bot) && job.available.has('respawn_anchor') && !(job.spawnSet && job.spawnSet.has(name)) && !job.anchorBusy) await anchor(job, name, bot, mv, cancel);
+            // (at most every two minutes per bot: without glowstone it went for it on every turn of the loop, 107 trips, live 2026-11-23 ha5 w1)
+            if (inNether(bot) && job.available.has('respawn_anchor') && !(job.spawnSet && job.spawnSet.has(name)) && !job.anchorBusy && Date.now() - ((job.anchorTry && job.anchorTry.get(name)) || 0) > 120000) { (job.anchorTry || (job.anchorTry = new Map())).set(name, Date.now()); await anchor(job, name, bot, mv, cancel); }
             if (job.exhausted()) { await job.resurvey(bot, `${name}: stage ${job.stage} done`); continue; }
             // tools and temporary blocks before the work needs them
             const base = needsFor(job, bot, {});

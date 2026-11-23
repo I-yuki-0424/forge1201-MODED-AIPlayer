@@ -48,7 +48,15 @@ async function shift(bot, slot) { await bot.clickWindow(slot, 0, 1); await sleep
 async function take(bot, w, it, n) {
     // whole stacks by shift-click only: a partial withdraw on the 26.1 server moved several stacks (832 smooth stone for 282, live 2026-11-23 ha2 w4); a stack is taken while
     // at least a quarter of it is wanted (scarce items: `needs` is already the bot's share)
-    if (n * 4 < it.count && it.count > 4) return 0;
+    if (n * 4 < it.count && it.count > 4) {
+        // a small part of a stack (4 glowstone of 48, 1 torch of 23): a partial withdraw, checked against the pack (a quarter rule without it left a Nether anchor uncharged
+        // for good, 107 trips, live 2026-11-23 ha5 w1)
+        const c0 = carried(bot)[it.name] || 0;
+        try { await w.withdraw(it.type, null, n); } catch (_) { return 0; }
+        await sleep(250);
+        const got = (carried(bot)[it.name] || 0) - c0;
+        return got > 0 ? got : n;
+    }
     await shift(bot, it.slot); return it.count;
 }
 
