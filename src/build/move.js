@@ -253,8 +253,9 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
                 continue;
             }
             if (diag) continue;
-            // step up one
-            if (headFree && view.fits(x, c.y + 1, z) && view.stands(x, c.y, z)) { add(x, c.y + 1, z, COST.up, 'up'); continue; }
+            // step up one; a jump at the edge of a drop of five or more costs as much as six pillar steps: from the top of a pillar the jump onto the next column missed and the
+            // bot fell 20 blocks into the dug box, three deaths in four minutes (live 2026-11-23 ha7 w1); the plan pillars one higher and walks across level instead
+            if (headFree && view.fits(x, c.y + 1, z) && view.stands(x, c.y, z)) { add(x, c.y + 1, z, COST.up + (edgeDrop(view, c, 5) ? 120 : 0), 'up'); continue; }
             // dig a step up: the block in front stays as the step, the two over it and the one over the head go (a bot without blocks at the bottom of a hole two deep beside the
             // chest had no way at all, live 2026-11-23 gd1 w6)
             if (view.stands(x, c.y, z) && !view.free(x, c.y, z)) {
@@ -282,6 +283,11 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
     plan.last = { why: open.size ? 'nodes' : 'no more cells', nodes: n, region: open.size ? null : best, best };
     if (out) Object.assign(out, plan.last);
     return null;
+}
+/** Is cell c beside a drop of `k` or more (a horizontal neighbour free for k cells under the feet level)? */
+function edgeDrop(view, c, k) {
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { let j = 1; while (j <= k && view.free(c.x + dx, c.y - j, c.z + dz)) j++; if (j > k) return true; }
+    return false;
 }
 const blk = (view, x, y, z) => { const b = view.raw(x, y, z); return b ? { name: b.name, props: {}, shapes: b.shapes || [] } : null; };
 

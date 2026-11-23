@@ -587,7 +587,9 @@ class BuildJob {
         const seedScore = (tk) => {
             const d = Math.hypot(tk.x - me.x, tk.y - me.y, tk.z - me.z);
             if (tk.kind === 'untemp') return 2600 + d * 2;          // after the real work, always (at -3000 the crew gathered on every leftover pillar, owner 2026-11-23; even beside the bot it took most claims from placing, ge1 w3)
-            return (tk.kind === 'place' || tk.kind === 'fix' ? 2000 + tk.y * 3 : (down ? -tk.y : tk.y) * 2) + d * 0.6 + crowd(tk) * 30 + (inSec(tk) ? 0 : 400) + (tk.kind === 'seal' || tk.kind === 'fill' ? -1000 : 0);
+            // a cell that found no stance a moment ago goes after every other one (the same twelve stance-less cells were the only seeds tried, 38 empty claims a minute with
+            // 290 doable cells, live 2026-11-23 ha7 w3)
+            return (tk.kind === 'place' || tk.kind === 'fix' ? 2000 + tk.y * 3 : (down ? -tk.y : tk.y) * 2) + d * 0.6 + crowd(tk) * 30 + (inSec(tk) ? 0 : 400) + (tk.kind === 'seal' || tk.kind === 'fill' ? -1000 : 0) + (this.noStance.has(tk.k) ? 5000 : 0);
         };
         doable.sort((a, b) => seedScore(a) - seedScore(b));
         const view = new View(bot, { canDig: () => false }), blocked = this.standBlocked(name);
