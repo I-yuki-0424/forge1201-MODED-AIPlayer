@@ -591,7 +591,8 @@ class BuildJob {
         const seedScore = (tk) => {
             const d = Math.hypot(tk.x - me.x, tk.y - me.y, tk.z - me.z);
             // near the bot now (six cells): taken at once, between the real work (kept for after it, they stood on the site to the end: owner 2026-11-23 V4)
-            if (tk.kind === 'untemp') return d < 6 ? 1500 + d * 2 : 2600 + d * 2;          // after the real work, always (at -3000 the crew gathered on every leftover pillar, owner 2026-11-23; even beside the bot it took most claims from placing, ge1 w3)
+            // (within three: at six, walks to take one block each were most claims and walking 65 % of bot time, live 2026-11-23 ha10 w3)
+            if (tk.kind === 'untemp') return d <= 3 ? 1500 + d * 2 : 2600 + d * 2;          // after the real work, always (at -3000 the crew gathered on every leftover pillar, owner 2026-11-23; even beside the bot it took most claims from placing, ge1 w3)
             // a cell that found no stance a moment ago goes after every other one (the same twelve stance-less cells were the only seeds tried, 38 empty claims a minute with
             // 290 doable cells, live 2026-11-23 ha7 w3)
             return (tk.kind === 'place' || tk.kind === 'fix' ? 2000 + tk.y * 3 : (down ? -tk.y : tk.y) * 2) + d * 0.6 + crowd(tk) * 30 + (inSec(tk) ? 0 : 400) + (tk.kind === 'seal' || tk.kind === 'fill' ? -1000 : 0) + (this.noStance.has(tk.k) ? 5000 : 0);
@@ -679,7 +680,7 @@ class BuildJob {
                 // stances the model calls unsupported: the nearest three are given to the planner (drive.js) before the cell is counted against
                 // (at most six questions a minute per bot: a Nether crew asked 1 017 of them and never worked, live 2026-11-23 ha9 w2)
                 const pb = this.probeLog || (this.probeLog = new Map()), pl = (pb.get(name) || []).filter((t) => now - t < 60000); pb.set(name, pl);
-                if (probe && probe.length && !cands.length && pl.length < 6) { const q = this.probes || (this.probes = new Map()); const l = q.get(name) || []; for (const f of probe.slice(0, 3)) if (l.length < 3 && this.reachKnown(name, f) === undefined) { l.push(f); pl.push(now); } q.set(name, l); probe = null; if (l.length) continue; }
+                if (probe && probe.length && pl.length < 6) { const q = this.probes || (this.probes = new Map()); const l = q.get(name) || []; for (const f of probe.slice(0, 3)) if (l.length < 3 && this.reachKnown(name, f) === undefined) { l.push(f); pl.push(now); } q.set(name, l); probe = null; if (l.length) continue; }
                 // out of this bot's reach only (it is in a pocket): nothing against the cell, another bot may reach it (one bot's pocket parked 570 cells for the crew, live
                 // 2026-11-23 gb4 w6)
                 if (rej.unreachable && !cands.length) continue;
