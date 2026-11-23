@@ -408,7 +408,8 @@ async function bedSpawn(job, name, bot, mv, cancel) {
             for (const q of spots.slice(0, 10)) {
                 const g = await mv.goto(q.back, { cancel, maxNodes: 6000, tries: 2 });
                 if (!g.ok) { why.push(`no way behind ${q.x},${q.y},${q.z}`); continue; }
-                const pr = await mv.placeItem(SPAWN_BED, q, { facing: q.facing });
+                let pr = await mv.placeItem(SPAWN_BED, q, { facing: q.facing });
+                if (pr !== true && /no face in sight/.test(String(pr))) pr = await mv.placeItem(SPAWN_BED, q);          // (the click search found no look for that facing: any side, the head cell is free on every side here)
                 if (pr === true) { job.bedAt = q; job.log(`${name}: spawn bed set down at ${q.x} ${q.y} ${q.z} facing ${q.facing}`); break; }
                 why.push(`${q.x},${q.y},${q.z}: ${pr}`);
             }
