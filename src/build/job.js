@@ -273,6 +273,9 @@ class BuildJob {
             // a cell over it that no stance has reached for 20 s does not hold it (it is dug from the side, the one over it stays; not under sand or gravel, which would fall):
             // 14 unreachable top cells held 20 349 under them, live 2026-11-23 gd2 w5
             const ns = this.noStance.get(up.k); if (ns && Date.now() - ns > 20000 && !up.falls) continue;
+            // a cell over it that waits only because a fluid is beside it does not hold it either: dug under, it stays and keeps holding the fluid back (four such cells under the
+            // Nether's ceiling held 19 258, live 2026-11-23 gg1 w4)
+            if (!up.falls) { if (!up.wetAt || Date.now() - up.wetAt > 10000) { up.wet = wetAround(bot, up); up.wetAt = Date.now(); } if (up.wet) continue; }
             return true;
         }
         return false;
