@@ -46,8 +46,10 @@ async function shift(bot, slot) { await bot.clickWindow(slot, 0, 1); await sleep
 /** Take n of stack `it` from window w: the whole stack by shift-click, part of it by clicks (a bot that took whole stacks took every repeater and torch; the rest of the crew
  * found none and stood idle, live 2026-11-22 sE2). Returns the count taken. */
 async function take(bot, w, it, n) {
-    if (n >= it.count) { await shift(bot, it.slot); return it.count; }
-    try { await w.withdraw(it.type, null, n); await sleep(80); return n; } catch (_) { await shift(bot, it.slot); return it.count; }
+    // whole stacks by shift-click only: a partial withdraw on the 26.1 server moved several stacks (832 smooth stone for 282, live 2026-11-23 ha2 w4); a stack is taken while
+    // at least a quarter of it is wanted (scarce items: `needs` is already the bot's share)
+    if (n * 4 < it.count && it.count > 4) return 0;
+    await shift(bot, it.slot); return it.count;
 }
 
 /** What the containers hold: { totals: {item: n}, read, failed } (opened one by one, nothing moved). `reach(c)` brings the bot within reach of container c. */
@@ -99,7 +101,9 @@ async function fetch(bot, site, needs, mover, spot, { log = () => {}, depot = []
     let retired = 0;                      // empty depot boxes picked up on this trip (they go back into the chest)
     const still = () => Object.entries(want).filter(([, n]) => n > 0);
     // what is still wanted is counted from the pack, not from what the clicks meant to move (stale windows moved several stacks per click: 832 smooth stone for 282, ha2 w4)
-    const took = (name) => { if (want[name] !== undefined) want[name] = Math.max(0, needs[name] - ((carried(bot)[name] || 0) - (before[name] || 0))); };
+    // counted by what was clicked (the pack's own count lags the clicks: counted from it, one bot took 14 pickaxes and another 1 088 dirt, live 2026-11-23 ha3 w2); `reconcile` at
+    // the end hands back whole stacks over the need
+    const took = (name, n) => { if (want[name] !== undefined) want[name] = Math.max(0, want[name] - n); };
     const saw = (name, n) => { if (needs[name] !== undefined) present[name] = (present[name] || 0) + n; };
     const lock = (c) => { const k = `${c.x},${c.y},${c.z}`, h = locks.get(k); if (h && h.by !== me && h.until > Date.now()) return false; locks.set(k, { by: me, until: Date.now() + 30000 }); return true; };
     const unlock = (c) => { const k = `${c.x},${c.y},${c.z}`; if ((locks.get(k) || {}).by === me) locks.delete(k); };
@@ -116,7 +120,7 @@ async function fetch(bot, site, needs, mover, spot, { log = () => {}, depot = []
         const w = await open(bot, c);
         try {
             const names = new Set();
-            for (const it of w.containerItems()) { saw(it.name, it.count); if (freeSlots(bot) <= 1 || !still().length) continue; if (want[it.name] > 0 && (!SHULKER.test(it.name) || emptyBox(bot, it))) { await take(bot, w, it, want[it.name]); await sleep(60); took(it.name); names.add(it.name); } }
+            for (const it of w.containerItems()) { saw(it.name, it.count); if (freeSlots(bot) <= 1 || !still().length) continue; if (want[it.name] > 0 && (!SHULKER.test(it.name) || emptyBox(bot, it))) { took(it.name, await take(bot, w, it, want[it.name])); names.add(it.name); } }
             await sleep(300); for (const n of names) await giveBack(w, n);
             await sleep(120); c.holds = counts(w);
         } finally { bot.closeWindow(w); await sleep(250); }
@@ -162,9 +166,9 @@ async function fetch(bot, site, needs, mover, spot, { log = () => {}, depot = []
             for (const it of win.containerItems()) {
                 if (SHULKER.test(it.name) && !emptyBox(bot, it)) for (const [k, n] of Object.entries(boxHolds(bot, it))) saw(k, n); else saw(it.name, it.count);
                 if (freeSlots(bot) <= 1) continue;
-                if (emptyBox(bot, it) && want[it.name] > 0) { await take(bot, win, it, want[it.name]); await sleep(60); took(it.name); continue; }
+                if (emptyBox(bot, it) && want[it.name] > 0) { took(it.name, await take(bot, win, it, want[it.name])); continue; }
                 if (SHULKER.test(it.name)) { const h = boxHolds(bot, it), score = still().reduce((a, [k, n]) => a + Math.min(n, h[k] || 0) * (TOOL.test(k) ? 1000 : 1), 0); if (score > 0) useful.push({ slot: it.slot, h, score }); }          // tools first (bots dug stone by hand for minutes)
-                else if (want[it.name] > 0) { await take(bot, win, it, want[it.name]); await sleep(60); took(it.name); }
+                else if (want[it.name] > 0) took(it.name, await take(bot, win, it, want[it.name]));
             }
             await sleep(300); for (const n of Object.keys(needs)) if (!SUP_TOOLISH.test(n)) await giveBack(win, n);
         } finally { bot.closeWindow(win); await sleep(250); }
@@ -188,6 +192,10 @@ async function fetch(bot, site, needs, mover, spot, { log = () => {}, depot = []
     }
     // emptied boxes back into the chest (they are the supply's, and the Nether blueprint builds with shulker boxes)
     if (retired && (await waitLock(site, 20000))) { try { await near(bot, mover, site); await depositEmpty(bot, site, retired); } catch (e) { log(`supply: empty boxes not put back: ${e.message}`); } finally { unlock(site); } }
+    // whole stacks over the need go back into the chest (whatever the windows did)
+    await sleep(400);
+    { const c0 = carried(bot), over = Object.keys(needs).filter((k) => !SUP_TOOLISH.test(k) && (c0[k] || 0) - (before[k] || 0) - needs[k] >= stackOf(bot, k));
+      if (over.length && (await waitLock(site, 20000))) { try { await near(bot, mover, site); const w = await open(bot, site); try { for (const k of over) await giveBack(w, k); } finally { bot.closeWindow(w); await sleep(250); } log(`supply: surplus of ${over.join(', ')} handed back`); } catch (e) { log(`supply: surplus not handed back: ${e.message}`); } finally { unlock(site); } } }
     const after = carried(bot), got = {};
     for (const [k, n] of Object.entries(after)) if (n > (before[k] || 0) && needs[k] !== undefined) got[k] = n - (before[k] || 0);          // (not what it picked up on the way)
     const short = {}; for (const [k, n] of Object.entries(needs)) if (n - (got[k] || 0) > 0) short[k] = n - (got[k] || 0);

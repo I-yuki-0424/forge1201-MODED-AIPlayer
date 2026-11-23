@@ -575,6 +575,7 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
             // the cells it can reach from here, by the mover's own moves (job.claim offers stances among them); again after a move or 15 s
             { const f0 = feet(bot), fk = `${f0.x},${f0.y},${f0.z}`, F = job.floods && job.floods.get(name); if (!F || F.from !== fk || Date.now() - F.at > 30000) { const tf = Date.now(); (job.floods || (job.floods = new Map())).set(name, await mv.flood()); job.time.claim += Date.now() - tf; } }
             // items this bot's last trip came back without are not asked for by it for a minute: it works on what it has instead of waiting (owner 2026-11-23 list 4 problem 5)
+            { const t = mv.rules.temp(); (job.tempsOf || (job.tempsOf = new Map())).set(name, t ? have[t] || 0 : 0); }
             const mySkip = (job.noItem && job.noItem.get(name)) || new Map();
             const tc = Date.now(); const cl = job.claim(bot, name, Date.now(), (it) => have[it] || 0, (it) => (!!job.outOf && (job.outOf.get(it) || 0) > Date.now() && !(have[it] > 0)) || (mySkip.get(it) || 0) > Date.now()); const dc = Date.now() - tc; job.time.claim += dc; if (dc > 400) job.log(`${name}: claim took ${dc} ms (${job.lastClaimInfo || ''})`);
             { const w = !cl ? 'nothing' : cl.need ? `need ${Object.keys(cl.need).slice(0, 3).join('+')}` : cl.moveOff ? 'move off' : 'work'; const o = job.claimWhy || (job.claimWhy = {}); o[w] = (o[w] || 0) + 1;

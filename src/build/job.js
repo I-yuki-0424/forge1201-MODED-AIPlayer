@@ -624,6 +624,8 @@ class BuildJob {
                 const wet = view.kind(f.x, f.y, f.z) === 'water';
                 const standing = wet || dug || view.stands(f.x, f.y - 1, f.z);
                 let h = 0;
+                // a stance in the air needs temporary blocks: a bot with none is never sent to one (bots without blocks were sent 61 times in a row, live 2026-11-23 ha3 w2)
+                if (!standing && !((this.tempsOf && this.tempsOf.get(name)) > 0)) { rej.unsupported++; continue; }
                 if (!standing) {
                     h = 1; while (h <= 65 && view.free(f.x, f.y - 1 - h, f.z) && !view.stands(f.x, f.y - 1 - h, f.z)) h++;
                     if (h > 64 || !view.stands(f.x, f.y - 1 - h, f.z)) {

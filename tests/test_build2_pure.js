@@ -172,6 +172,7 @@ test('job: stages in order, clearing top-down and never next to a fluid, placing
     w.set('10,65,10', { name: 'stone' }); w.set('11,65,10', { name: 'stone' }); w.set('11,66,10', { name: 'dirt' });     // terrain in air cells; a wrong block where glass belongs (placed over later)
     w.set('12,65,12', { name: 'stone' }); w.set('13,65,12', { name: 'lava', props: { level: '0' } });     // next to lava outside: sealed first
     const bot = fakeBot(w), job = new BuildJob(t, { available: new Set(['stone', 'repeater', 'glass', 'smooth_stone']) });
+    job.tempsOf = new Map([['b1', 64]]);          // the bot carries temporary blocks (a bot without any gets no stance in the air)
     await job.resurvey(bot, 'test');
     assert.strictEqual(job.stage, 'prepare');
     const now = Date.now(), tk = (k) => job.tasks.get(k);
