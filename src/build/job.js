@@ -677,7 +677,9 @@ class BuildJob {
             }
             if (!best) {
                 // stances the model calls unsupported: the nearest three are given to the planner (drive.js) before the cell is counted against
-                if (probe && probe.length && !cands.length) { const q = this.probes || (this.probes = new Map()); const l = q.get(name) || []; for (const f of probe.slice(0, 3)) if (l.length < 6 && this.reachKnown(name, f) === undefined) l.push(f); q.set(name, l); probe = null; if (l.length) continue; }
+                // (at most six questions a minute per bot: a Nether crew asked 1 017 of them and never worked, live 2026-11-23 ha9 w2)
+                const pb = this.probeLog || (this.probeLog = new Map()), pl = (pb.get(name) || []).filter((t) => now - t < 60000); pb.set(name, pl);
+                if (probe && probe.length && !cands.length && pl.length < 6) { const q = this.probes || (this.probes = new Map()); const l = q.get(name) || []; for (const f of probe.slice(0, 3)) if (l.length < 3 && this.reachKnown(name, f) === undefined) { l.push(f); pl.push(now); } q.set(name, l); probe = null; if (l.length) continue; }
                 // out of this bot's reach only (it is in a pocket): nothing against the cell, another bot may reach it (one bot's pocket parked 570 cells for the crew, live
                 // 2026-11-23 gb4 w6)
                 if (rej.unreachable && !cands.length) continue;
