@@ -172,3 +172,38 @@ escapes never dig a block holding back a fluid; lava that can run within two of 
 random offset wedged the crew).
 
 Best rates seen: Overworld iron-farm-34 52 blocks/min (gg1 w2, 883 in 17 min), clearing 26 000 blocks in 40 min. No build has finished yet.
+
+## Handover 2026-11-23 13:30 JST (session ended by the owner: "nothing has progressed")
+
+**Where it stands.** Still no survival build has finished. Since the 2026-11-22 handover about 70 commits (`git log --grep TASK:20261121-073 --since 2026-11-23`) fixed the owner's three
+problem lists and ~40 causes found live; the owner judges the result as no progress, and by the acceptance test (a finished, cell-correct build) that is right.
+`npm test` green 2026-11-23 11:25; deployed to the fabric26 consoles (3031-3033 answer 200).
+
+**Last batch gh1 (started 10:37, LIMIT_MIN 200, ends ~14:00), at 172 min:**
+
+| world | blueprint | placed | place left | parked | deaths |
+| :-- | :-- | --: | --: | --: | --: |
+| 1 (25591) | easy-ironfarm, 4 bots | 1170 | 3 | 179 | 0 |
+| 2 (25592) | iron-farm-34 | 1711 | 5530 | 495 | 0 |
+| 3 (25593) | iron-farm-34 | 2724 | 4709 | 237 | 4 |
+| 4 (25594) | nether-side-main | 917 | 155 | 127 | 3 |
+| 5 (25595) | nether-side-main | 416 | 247 | 831 | 1 |
+| 6 (25596) | nether-side-main | 202 | 900 | 299 | 1 |
+
+World 1 is the closest: 3 blocks left, but the stage stays `prepare` because a clear task (192,85,-259) and its neighbours have no stance, and 179 cells are parked (torches,
+wall signs, trapdoors, temp blocks in the air: "no stance reaches it"). Parked cells are retried only in the end rounds (`ROUNDS`), which never start while the stage does not advance.
+
+**What to look at first (in this order).**
+1. Stances for cells in the air over non-standable built blocks (walls, hoppers, glass, trapdoors): this is where the small farm ends and most parking comes from. `job.claim`
+   rejects them as `unsupported` (no pillar column to ground, `_bridgeFrom` only straight lines). Needed: stances on pillars in neighbouring free columns, standing on built tops,
+   bridges that turn.
+2. The stage machine: a few clear tasks without a stance keep the stage `prepare` for good; parked cells should be retried while the build runs, not only in the end rounds.
+3. Placing pace: place claims average 2-3 blocks; supply trips are a large share of bot time (one bot at the chest at a time).
+4. Nether: sites over the lava sea / under lava ceilings clear safely now but place slowly; deaths 1-4 per run remain (lava).
+5. The owner's architecture point: the builder's remedies are still its own rules in `src/build/`, not the command-stack router (`src/stack/router.js`).
+
+**How to run.** `scripts/t26/batch.sh RUN "2 3" "4 5 6"` (no WAIT_FOR: the owner wants runs to start at once; display on by default, `DISPLAY=0` off) and for world 1
+`scripts/t26/up.sh 1 --new && scripts/t26/run.sh 1 build_t.js LITEMATIC=/app/tests/fixtures/easy-ironfarm-fixd.litematic BOTS=4 LIMIT_MIN=200 RUN=x`. Per-minute log lines:
+`claims in the last minute ... tasks per claim; place claims N: ready/doable/batch`, `[progress]` with `lag max/p99`. `PROFILE_AT=N` writes a CPU profile. Server death causes:
+`docker logs forgeaip-t26-N | grep "Bd.. (tried|fell|...)"`. Probe of placement rules: `scripts/t26/run.sh N place_probe.js` (153/154, 36/39 flexible).
+Logs: /mnt/data/forgeaip-play/t26/out/gh1-w*.log. Uncommitted `docker/bot.Dockerfile` and `docker/compose.yaml` are not this task's and were left alone.
