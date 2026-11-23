@@ -19,6 +19,8 @@ const NO_STAND = /^(magma_block|campfire|soul_campfire|cactus|.*_fence|.*_wall|.
 // cells a temporary block can go into (vanilla canBeReplaced): a pillar or bridge block into a cell holding redstone wire, a torch, a rail or a repeater is refused by the
 // server, and a bot standing in a wire cell pillared in vain for minutes (owner 2026-11-23, problem 1)
 const PLACEABLE = /^(air|cave_air|void_air|water|short_grass|tall_grass|fern|large_fern|dead_bush|bush|short_dry_grass|tall_dry_grass|vine|glow_lichen|snow|seagrass|tall_seagrass|crimson_roots|warped_roots|nether_sprouts|hanging_roots|leaf_litter)$/;
+// blocks whose collision box the server offsets at random (the client's physics misplaces it)
+const OFFSET = /^(bamboo|bamboo_sapling|pointed_dripstone)$/;
 const H = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
 const COST = { walk: 4.6, diag: 6.5, up: 9, drop: 5, pillar: 14, bridge: 40, temp: 6, swim: 8, lava: 60 };
 
@@ -343,6 +345,12 @@ class Mover {
     async unsink() {
         const f = feet(this.bot);
         for (const y of [f.y + 1, f.y]) { const b = this.bot.blockAt(new Vec3(f.x, y, f.z), false); if (b && b.name === 'powder_snow') await this.dig({ x: f.x, y, z: f.z }); }
+        // bamboo and dripstone: the server shifts their boxes by a random offset the client's physics does not know, so a bot beside them is wedged where nothing is (eight bots
+        // stood "no progress" in a bamboo jungle for half an hour, live 2026-11-23 gf1 w2): those in its own cells and the four around them are cut first
+        for (const [dx, dz] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) for (const y of [f.y, f.y + 1]) {
+            const b = this.bot.blockAt(new Vec3(f.x + dx, y, f.z + dz), false);
+            if (b && OFFSET.test(b.name) && (!this.rules.mayDig || this.rules.mayDig(f.x + dx, y, f.z + dz))) await this.dig({ x: f.x + dx, y, z: f.z + dz });
+        }
     }
     view() { return new View(this.bot, this.rules); }
     /** The last moves and digs (kept for a death's report). */
