@@ -234,3 +234,9 @@ stock because a box was busy (bots dug stone by hand); a bench reached by a drop
 
 Measured at 20 min (ha5, before the last fixes): Overworld crews placed 535-1 445 blocks (gh1's best whole run: 2 750 in 200 min), trips about 10 % of bot time, 0 deaths, 0
 evacuations, lag p99 80-120 ms. Nether crews: clearing 1 500-2 600 of 7 000-27 000 cells in 20 min.
+
+Batches ha6-ha8 (each started after the fixes before it, every crew restarted): falls into the dug box came from routes over terrain other bots were clearing (no route stands on
+a block another bot has claimed, no bot digs under another's current route) and from jumps off pillar tops (a step up at the edge of a drop of five costs six pillar steps); the
+claim tried only twelve seeds, the same stance-less ones each time (they now go last); the harness took an ocean site after 30 failed draws (it refuses now). ha7 at 20 min: 0
+deaths over 12 crews, Overworld 540-1 860 placed. What slows the crews after ~30 min (ha8 w3, 1 560 -> 1 580 placed in four minutes): cells in the air whose stances are all
+`unsupported` (442-545 rejections per parked cell: no pillar column to ground over built blocks, no straight bridge), the handover's open point 1. No build has finished yet.
