@@ -268,3 +268,13 @@ temporary blocks kept, 48 stacks in the test chest; a spawn bed beside the chest
 pillar right after each stance's work; a spare pickaxe, tools worn at a fifth of their life; the harness refuses Nether boxes whose lower third is under 40 % rock.
 ha12 at 25 min: best Overworld crews 1 257-1 500 placed, untemp 1 400-3 200 per crew, 0-1 deaths; the spawn bed was set on world 3 (8/8 bots) but found no cell on
 world 1 ("no cell took the spawn bed", 12-14 tried: open); a bamboo forest site (w1) kept the crew at its chest (plans of 30 000 cells did not get 30 cells into it).
+
+### Visual checks round 3 (2026-11-24 00:20 JST), batches ha13-ha16
+
+Owner: temporary blocks fewer but still many (V11: one block to stand on and one to place against should be enough); bots idle near the chest (V12); no bed found and many
+dead bots at the world spawn; a Nether site inside a fortress (V14). Fixes: where the blueprint has a plain full block (smooth stone, glass, obsidian ...) a pillar or bridge
+uses that block, so the climb builds the structure and leaves nothing (`rules.buildBlock`, no temporary block counted in the plan); stances on temporary blocks over one
+high rank below every other; the spawn bed is set down from behind its foot (any side as a fallback) and a spawn counts as set only when the server says so (`set_spawn` over the
+hotbar), again after a `spawnReset`; a builder short of air surfaces first (four drowned, ha13); the harness refuses Nether sites with fortress blocks. Found on the way: the
+first air check froze a crew's process for minutes (out of the water the surfacing returned at once and the loop never yielded; found with a live stack via the inspector,
+`kill -USR1` + Debugger.pause). ha15 at 25 min: 0 deaths on all crews, the spawn bed confirmed on 6 of 8 Overworld crews, best crews 1 350-1 630 placed.
