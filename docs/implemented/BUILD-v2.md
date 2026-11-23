@@ -160,3 +160,15 @@ Measured (fy runs, 2026-11-23): Nether event-loop p99 868 -> 89-365 ms, blocks o
 | Nether crew into the air at once | stances outside a lava-ringed pocket offered again and again | a searched-out plan gives the cells a bot can reach; claims offer only stances among them; with nothing there the bot leaves the pocket (once; then 2 min back-off) |
 | sinking and floating in the sea | the breath reflex swam up while the builder's plan dived | the fall and breath reflexes are off for builder bots (lava and fight stay); swimming under the surface costs a dive |
 | found live | 22 lava deaths: temporary blocks holding back lava were taken away; a stall's relaxed order dropped the fluid rule; lava pockets sealed in rock could not be filled; one bot took all scarce items; one dirt beside 400 cobblestone made pillars impossible; bridges rebuilt 2 230 times | untemp never beside a fluid, the fluid rule survives relaxing, sealed lava is opened from above and filled through the hole, fluid tasks are never parked, the fair share per trip, the temporary block is the plain block carried most, temps kept 90 s after last use, the stall rule applies while at most one bot works, a parked dependency does not hold a block |
+
+### Runs gb-gh (2026-11-23 06:00-10:40): what the live runs showed after list 3
+
+Each line a cause found in a run and its fix (git log TASK:20261121-073): chained bridges (the plan stood on its own temporary block), falls up to five for a healthy bot; bridges
+over deadly falls only at a cost and walked sneaking; the weighted estimate toward goals in rock; stances outside one bot's reach count nothing against a cell; walls clicked on
+their 1.0 outline; the plan digs a step up (a bot without blocks in a hole); the place window four layers; fluid tasks never parked; a cover with no stance for 20 s, or waiting
+only on a fluid beside it, does not hold the cells under it; a pillar that failed is not planned in that cell for two minutes; items the chest is out of are handed back by
+bots that do not need them; a trip takes what the bot's sector needs for eight layers; untemp always after the real work and never while ready blocks wait for items;
+escapes never dig a block holding back a fluid; lava that can run within two of a clearing batch drops the claim; bamboo and dripstone around a bot are cut (their
+random offset wedged the crew).
+
+Best rates seen: Overworld iron-farm-34 52 blocks/min (gg1 w2, 883 in 17 min), clearing 26 000 blocks in 40 min. No build has finished yet.
