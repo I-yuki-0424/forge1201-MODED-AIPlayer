@@ -386,6 +386,20 @@ class BuildJob {
         if (n) { this.log(`parked ${n} cells: the supply is out of ${items.join(', ')}`); this._frontier(); }
     }
 
+    /** What the cells of `name`'s sector need over the next eight layers ({item: count}): a supply trip takes it at once (one trip per item made trips a third of all bot
+     *  time, live 2026-11-23 gg1 w3). Computed at most every 30 s per bot. */
+    sectorNeeds(name) {
+        const c = this._sn || (this._sn = new Map()), hit = c.get(name), now = Date.now();
+        if (hit && now - hit.at < 30000) return hit.need;
+        const sec = this.sectorOf(name), top = (Number.isFinite(this.frontier) ? this.frontier : -Infinity) + 8, need = {};
+        for (const tk of this.tasks.values()) {
+            if (tk.kind !== 'place' || tk.y > top || tk.x < sec.x0 || tk.x > sec.x1 || tk.z < sec.z0 || tk.z > sec.z1) continue;
+            const it = this._itemOf(tk); if (it) need[it] = (need[it] || 0) + 1;
+        }
+        c.set(name, { at: now, need });
+        return need;
+    }
+
     /** A stance `name` found no way to: not offered to it again for three minutes. */
     avoid(name, f) { const m = this.bad || (this.bad = new Map()); let s = m.get(name); if (!s) m.set(name, (s = new Map())); s.set(key(f.x, f.y, f.z), Date.now() + 180000); }
     avoided(name, f) { const s = this.bad && this.bad.get(name); if (!s) return false; const k = key(f.x, f.y, f.z), t = s.get(k); if (!t) return false; if (t < Date.now()) { s.delete(k); return false; } return true; }

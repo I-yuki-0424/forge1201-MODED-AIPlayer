@@ -350,7 +350,10 @@ async function supplyTrip(job, name, bot, mv, need, cancel) {
         if (bot.inventory.items().some((i) => /shulker_box$/.test(i.name))) await SUP.putBack(bot, site);          // boxes it carries (picked up somewhere) go back first
         const spot = () => boxSpot(job, bot, site, mv);
         await SUP.dropRubble(bot, keepRubble(job), { minFree: 12 });          // room in the pack first (a pack full of rubble brought nothing back)
-        const wants = needsFor(job, bot, need);
+        // what the ready work asks for, and what its sector needs over the next layers (each capped by the fair share in needsFor)
+        const sn = job.sectorNeeds ? job.sectorNeeds(name) : {}, all = { ...sn };
+        for (const [k, n] of Object.entries(need)) all[k] = Math.max(all[k] || 0, n);
+        const wants = needsFor(job, bot, all);
         job.depot = job.depot || [];
         const res = await SUP.fetch(bot, site, wants, mv, spot, { log: job.log, depot: job.depot });
         job.stats.trips++;
@@ -489,7 +492,8 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
             if (job.outOf && job.sites[0] && Date.now() - (job.handAt && job.handAt.get(name) || 0) > 60000) {
                 (job.handAt || (job.handAt = new Map())).set(name, Date.now());
                 const mine = (job.used && job.used.get(name)) || new Map(), inv = SUP.carried(bot);
-                const give = [...job.outOf.entries()].filter(([it, t]) => t > Date.now() && inv[it] > 0 && Date.now() - (mine.get(it) || 0) > 120000).map(([it]) => it);
+                const sn = job.sectorNeeds ? job.sectorNeeds(name) : {};          // not what its own sector still needs (items went back and forth, 24 hand-backs in 28 min, gg1 w3)
+                const give = [...job.outOf.entries()].filter(([it, t]) => t > Date.now() && inv[it] > 0 && !(sn[it] > 0) && Date.now() - (mine.get(it) || 0) > 120000).map(([it]) => it);
                 if (give.length && !job.chestBusy) {
                     job.chestBusy = name;
                     try {
