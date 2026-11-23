@@ -340,7 +340,8 @@ async function supplyTrip(job, name, bot, mv, need, cancel) {
         tell(job, name, bot, 'wait', `the materials chest is in use by ${job.chestBusy}`);
         await mv.goto(site, { goal: (x, y, z) => Math.hypot(x - site.x, z - site.z) >= 5 && Math.hypot(x - site.x, z - site.z) <= 9, cancel, maxNodes: 15000 });
         const t0 = Date.now();
-        while (job.chestBusy && job.chestBusy !== name && !cancel.cancelled && Date.now() - t0 < 90000) { await mv.spread(crewAt(job, bot)); await sleep(500); }
+        // (waiting in line is not being stuck: the watchdog evacuated bots that waited for the chest, live 2026-11-23 gh1 w3)
+        while (job.chestBusy && job.chestBusy !== name && !cancel.cancelled && Date.now() - t0 < 90000) { if (job.progressAt) job.progressAt.set(name, Date.now()); await mv.spread(crewAt(job, bot)); await sleep(500); }
         if (job.chestBusy && job.chestBusy !== name) { job.log(`${name}: the chest is still held by ${job.chestBusy} after 90 s: not waiting longer`); return false; }
     }
     job.chestBusy = name;
