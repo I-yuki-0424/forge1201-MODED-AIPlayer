@@ -71,6 +71,9 @@ class View {
         const o = this.over.get(key(x, y, z));
         if (o === 'solid') return true;
         if (o) return false;
+        // a block another bot has claimed to dig is gone in a moment: no route stands on it (bots walked over terrain the crew was clearing and fell 25-32 blocks into the
+        // dug box, live 2026-11-23 ha6 w4)
+        if (this.rules.doomed && this.rules.doomed(x, y, z)) return false;
         const b = this.raw(x, y, z);
         if (!b || b.boundingBox !== 'block' || NO_STAND.test(b.name)) return false;
         const top = Math.max(...(b.shapes || []).map((s) => s[4]));
@@ -661,6 +664,8 @@ class Mover {
                 if (l.nodes <= 2 && t < tries - 1) { this.bot.setControlState('jump', true); await sleep(350); this.bot.setControlState('jump', false); await sleep(700); continue; }
                 return { ok: false, nodes: l.nodes, region: l.region ? new Set(l.region.keys()) : null, why: `no plan (${l.why}, ${l.nodes} cells from ${start.x},${start.y},${start.z}; ${temps} ${this.rules.temp()}; goal ${view.kind(to.x, to.y, to.z)}/${view.kind(to.x, to.y + 1, to.z)} over ${view.kind(to.x, to.y - 1, to.z)}${view.stands(to.x, to.y - 1, to.z) ? ' stands' : ''}${view.nearLava(to.x, to.y, to.z) ? ' lava' : ''})`, from: start, steps };
             }
+            // the blocks the route stands on: the crew does not dig them while the bot walks (job, drive.js rules.onRoute)
+            if (this.rules.onRoute) this.rules.onRoute(route);
             // the planned way for the in-game display (service/display.js draws it in the bot's colour)
             if (typeof this.bot.__onPhase === 'function') { try { this.bot.__onPhase({ phase: 'walk', cells: route.map((c) => [c.x, c.y, c.z]) }); } catch (_) { /* display only */ } }
             let i = 1, broke = false;
