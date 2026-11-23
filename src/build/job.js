@@ -474,6 +474,12 @@ class BuildJob {
         const floors = new Set([...this.bots.values()].map((b) => b.pos && key(b.pos.x, b.pos.y - 1, b.pos.z)).concat([...this.bots.values()].filter((b) => b.station).map((b) => key(b.station[0].x, b.station[0].y - 1, b.station[0].z))));
         floors.add(key(me.x, me.y - 1, me.z));
         const doable = ready.filter((tk) => { if ((tk.kind === 'clear' || tk.kind === 'untemp') && floors.has(tk.k)) return false; const it = item(tk); return !it || tk.kind === 'clear' || tk.kind === 'fix' || tk.kind === 'untemp' || has(it) > 0; });
+        // only temporary blocks to take away, while blocks wait for items this bot does not carry: it fetches the items first (with an untemp always doable, no bot went for
+        // materials and the crew took 110 temporary blocks a minute away while it placed 25, live 2026-11-23 gf1 w3)
+        if (doable.length && doable.every((tk) => tk.kind === 'untemp')) {
+            const need = {}; for (const tk of ready.slice(0, 200)) { if (tk.kind !== 'place' || doable.includes(tk)) continue; const it = item(tk); if (it && !skip(it)) need[it] = (need[it] || 0) + 1; }
+            if (Object.keys(need).length) return { need };
+        }
         if (!doable.length) {
             // the work left is under bots' feet: the one standing on it steps off (idle bots stood on the last cells to clear for half an hour, live 2026-11-22 sI w2)
             if (ready.some((tk) => (tk.kind === 'clear' || tk.kind === 'untemp') && tk.k === key(me.x, me.y - 1, me.z))) return { moveOff: true };
