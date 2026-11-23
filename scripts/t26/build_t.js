@@ -124,7 +124,7 @@ async function main() {
     for (const [tool, n] of [['diamond_pickaxe', BOTS * 3 + Math.ceil(vol / 1500)], ['diamond_shovel', BOTS * 2 + Math.ceil(vol / 8000)], ['diamond_axe', BOTS * 3]]) items.set(tool, n);
     // the Nether: a respawn anchor and glowstone (a bot that dies there respawns at the anchor, not in the Overworld: the crew of a Nether run was left behind there, owner 2026-11-23)
     if (NETHER) { items.set('respawn_anchor', 2); items.set('glowstone', 48); }
-    else items.set('red_bed', 2);          // the crew's respawn point beside the chest (a bot that died woke at the world's spawn, hundreds of blocks away)
+    else items.set('red_bed', 4);          // the crew's respawn point beside the chest (a bot that died woke at the world's spawn, hundreds of blocks away)
     const stacks = []; for (const [it, n] of items) { const st = STACK(it); for (let r = Math.max(1, n); r > 0; r -= st) stacks.push({ it, n: Math.min(st, r) }); }
     // shulker boxes the blueprint uses go loose into the chest (vanilla keeps a shulker box out of another one)
     const loose = stacks.filter((st) => SUP.SHULKER.test(st.it)), packed = stacks.filter((st) => !SUP.SHULKER.test(st.it));

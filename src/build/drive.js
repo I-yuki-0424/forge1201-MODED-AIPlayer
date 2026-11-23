@@ -411,6 +411,9 @@ async function bedSpawn(job, name, bot, mv, cancel) {
                 let pr = await mv.placeItem(SPAWN_BED, q, { facing: q.facing });
                 if (pr !== true && /no face in sight/.test(String(pr))) pr = await mv.placeItem(SPAWN_BED, q);          // (the click search found no look for that facing: any side, the head cell is free on every side here)
                 if (pr === true) { job.bedAt = q; job.log(`${name}: spawn bed set down at ${q.x} ${q.y} ${q.z} facing ${q.facing}`); break; }
+                // a click on grass beside the cell puts the bed into the grass's cell: it stands, a cell off (the crew used up its beds "failing", live 2026-11-24 ha16)
+                { let at = null; for (let dx = -3; dx <= 3 && !at; dx++) for (let dy = -1; dy <= 1 && !at; dy++) for (let dz = -3; dz <= 3 && !at; dz++) { const b = bot.blockAt(new Vec3(q.x + dx, q.y + dy, q.z + dz), false); if (b && b.name === SPAWN_BED) at = { x: q.x + dx, y: q.y + dy, z: q.z + dz }; }
+                  if (at) { job.bedAt = at; job.log(`${name}: spawn bed set down at ${at.x} ${at.y} ${at.z} (a cell off ${q.x},${q.y},${q.z})`); break; } }
                 why.push(`${q.x},${q.y},${q.z}: ${pr}`);
             }
             if (!job.bedAt && why.length) job.log(`${name}: spawn bed not set down: ${why.slice(0, 4).join('; ')}`);
