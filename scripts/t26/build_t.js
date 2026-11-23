@@ -23,14 +23,16 @@ const P = require('../../src/build/pistons');
 
 const NETHER = (process.env.DIM || 'overworld') === 'nether', BOTS = Math.min(12, Math.max(1, Number(process.env.BOTS || 8))), LIMIT_MIN = Number(process.env.LIMIT_MIN || 120);
 const FILE = process.env.LITEMATIC || '/app/tests/fixtures/iron-farm-34.litematic';
-const names = Array.from({ length: BOTS }, (_, i) => `Bd${T.WORLD}${'abcdefghijkl'[i]}`);
+// CREW=k (0..3): several crews build at once on one world, each its own site far from the others (sample efficiency, owner 2026-11-23 list 4 problem 9)
+const CREW = Math.max(0, Math.min(3, Number(process.env.CREW || 0)));
+const names = Array.from({ length: BOTS }, (_, i) => `Bd${T.WORLD}${CREW ? 'mnpq'[CREW - 1] : ''}${'abcdefghijkl'[i]}`);
 const sleep = T.sleep, strip = T.strip;
 const rnd = T.rng(Number(process.env.SEED_SITE || Date.now() % 1e9));
 const dimCmd = (c) => (NETHER ? (/^execute /.test(c) ? c.replace(/^execute /, 'execute in minecraft:the_nether ') : `execute in minecraft:the_nether run ${c}`) : c);
 const STACK = (it) => (/(_bed|_bucket|flint_and_steel|shulker_box|_sword|_pickaxe|_shovel|_axe)$/.test(it) ? 1 : /(_sign|snowball|egg|ender_pearl)$/.test(it) ? 16 : 64);
 
 async function main() {
-    const rep = T.reporter(NETHER ? 'build_t_nether' : 'build_t');
+    const rep = T.reporter(`${NETHER ? 'build_t_nether' : 'build_t'}${CREW ? `-c${CREW}` : ''}`);
     const { S: S0, svc, seed } = await T.open(names, { teleport: 'off', autoKit: false });
     const srv = { cmd: (c) => S0.cmd(dimCmd(c)), must: (c) => S0.must(dimCmd(c)) };
     const bot0 = () => svc.bots.get(names[0]).bot;
@@ -48,7 +50,7 @@ async function main() {
     let cx, cz;
     const groundYAt = (x, z) => { for (let y = 200; y > -60; y--) { const b = at(x, y, z); if (b && !/^(air|cave_air|void_air|.*_leaves|.*_log|vine|short_grass|tall_grass|snow)$/.test(b)) return y; } return null; };
     for (let draw = 0; draw < 30; draw++) {
-        const ang = rnd() * Math.PI * 2, dist = 40 + rnd() * 60 + draw * 60;
+        const ang = CREW * 2.4 + rnd() * 1.2, dist = 40 + rnd() * 60 + draw * 60 + CREW * 160;
         cx = Math.floor((NETHER ? sp.x / 8 : sp.x) + Math.cos(ang) * dist); cz = Math.floor((NETHER ? sp.z / 8 : sp.z) + Math.sin(ang) * dist);
         await srv.must(`tp ${names[0]} ${cx + 0.5} ${NETHER ? 100 : 250} ${cz + 0.5}`);
         await sleep(NETHER ? 6000 : 9000);

@@ -181,7 +181,7 @@ function lavaCache(bot) {
  * A plan from the bot's feet cell to a cell `goal(x, y, z)` accepts (h: a heuristic point). Returns [{ x, y, z, move, dig: [cells], place: cell | null }] (the first entry is the start) or null.
  * `temps`: how many temporary blocks the plan may use.
  */
-async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = null, budgetMs = 4000, lavaCost = 0, maxDrop = 4 } = {}) {
+async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = null, budgetMs = 4000, lavaCost = 0, maxDrop = 4, flood = false, out = null } = {}) {
     const open = new Heap(), best = new Map();
     // height to gain costs about a pillar step each (a weaker estimate searched whole hillsides before climbing 17 blocks to a tree top, live 2026-11-22)
     // weighted (a quicker search, a little longer way): a goal in the air is reached over a bridge at ten times a walk's cost, which an estimate at walking cost hid: the search
@@ -189,7 +189,8 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
     // (and a goal inside rock: every cell on the way is a dig, three times a walk; the search spread through the netherrack sideways and never climbed the shaft, live
     // 2026-11-23 gb1 w6)
     const air = temps > 0 && !view.stands(h.x, h.y - 1, h.z) && view.free(h.x, h.y - 1, h.z), rock = !view.fits(h.x, h.y, h.z), W = air || rock ? 2.5 : 1.3;
-    const hh = (x, y, z) => W * ((Math.abs(x - h.x) + Math.abs(z - h.z)) * COST.walk * 0.9 + (h.y > y ? (h.y - y) * (temps > 0 ? COST.pillar + COST.temp : COST.up) * 0.9 : (y - h.y) * COST.drop * 0.5));
+    // flood: no goal, no estimate (Dijkstra): every cell the bot can get to within maxNodes, with its cost (the claim offers stances only among them, Mover.flood)
+    const hh = flood ? () => 0 : (x, y, z) => W * ((Math.abs(x - h.x) + Math.abs(z - h.z)) * COST.walk * 0.9 + (h.y > y ? (h.y - y) * (temps > 0 ? COST.pillar + COST.temp : COST.up) * 0.9 : (y - h.y) * COST.drop * 0.5));
     open.push({ x: start.x, y: start.y, z: start.z, g: 0, f: hh(start.x, start.y, start.z), t: 0, p: null, move: 'start' });
     best.set(key(start.x, start.y, start.z), 0);
     const inBox = (x, y, z) => !box || (x >= box.x0 && x <= box.x1 && y >= box.y0 && y <= box.y1 && z >= box.z0 && z <= box.z1);
@@ -197,7 +198,7 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
     while (open.size && n++ < maxNodes) {
         // a long search gives the event loop back after 25 ms of its own time and ends after `budgetMs` of it (by node counts, a slice beside the Nether's lava, where every cell
         // looks at 78 others, held all eight bots for 1.5-6 s: ping, owner 2026-11-23 problem 5; a synchronous search froze the work console for 25 s, live 2026-11-22)
-        if (n % 32 === 0 && Date.now() - slice > 25) { spent += Date.now() - slice; if (spent > budgetMs) { plan.last = { why: 'time', nodes: n }; return null; } await new Promise((r) => setImmediate(r)); slice = Date.now(); }
+        if (n % 32 === 0 && Date.now() - slice > 25) { spent += Date.now() - slice; if (spent > budgetMs) { plan.last = { why: 'time', nodes: n, best }; if (out) Object.assign(out, plan.last); return null; } await new Promise((r) => setImmediate(r)); slice = Date.now(); }
         const c = open.pop();
         if (goal(c.x, c.y, c.z)) { const out = []; for (let q = c; q; q = q.p) out.push({ x: q.x, y: q.y, z: q.z, move: q.move, dig: q.dig || null, place: q.place || null }); return out.reverse(); }
         if ((best.get(key(c.x, c.y, c.z)) ?? Infinity) < c.g) continue;
@@ -275,7 +276,8 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
         if (view.diggable(c.x, c.y - 1, c.z) && view.stands(c.x, c.y - 2, c.z)) add(c.x, c.y - 1, c.z, COST.drop + view.digTicks(c.x, c.y - 1, c.z), 'down', { dig: [{ x: c.x, y: c.y - 1, z: c.z }] });
     }
     // searched out: every cell the bot can get to from here (the caller offers it only stances among them)
-    plan.last = { why: open.size ? 'nodes' : 'no more cells', nodes: n, region: open.size ? null : best };
+    plan.last = { why: open.size ? 'nodes' : 'no more cells', nodes: n, region: open.size ? null : best, best };
+    if (out) Object.assign(out, plan.last);
     return null;
 }
 const blk = (view, x, y, z) => { const b = view.raw(x, y, z); return b ? { name: b.name, props: {}, shapes: b.shapes || [] } : null; };
@@ -353,6 +355,19 @@ class Mover {
         }
     }
     view() { return new View(this.bot, this.rules); }
+
+    /**
+     * Every cell the bot can get to from where it stands, by the same moves and rules as goto (a flood without a goal, up to maxNodes): { from: 'x,y,z', cost: Map('x,y,z' -> cost),
+     * complete } (complete: searched out, nothing else is reachable). The claim offers stances among these cells: stances chosen by the claim's own picture of the terrain were
+     * cells the planner then searched 30 000 cells for in vain, 2 000-5 400 times a run (live 2026-11-23 gh1, owner list 4 problem 5).
+     */
+    async flood({ maxNodes = 6000, budgetMs = 400 } = {}) {
+        const start = feet(this.bot), view = new View(this.bot, this.rules), t = this.rules.temp();
+        const temps = t ? this.bot.inventory.items().filter((i) => i.name === t).reduce((a, i) => a + i.count, 0) : 0;
+        const l = {};          // its own record: plan.last is shared by every bot's searches in this process
+        await plan(view, start, () => false, start, { maxNodes, temps, budgetMs, maxDrop: (this.bot.health || 0) >= 16 ? 6 : 4, flood: true, out: l });
+        return { from: key(start.x, start.y, start.z), cost: l.best || new Map(), complete: !!l.region, at: Date.now() };
+    }
     /** The last moves and digs (kept for a death's report). */
     note(what) { const p = this.bot.entity && this.bot.entity.position; this.trace.push(`${new Date().toISOString().slice(11, 19)} ${what}${p ? ` @${p.x.toFixed(1)},${p.y.toFixed(1)},${p.z.toFixed(1)}` : ''}`); if (this.trace.length > 8) this.trace.shift(); }
 
@@ -498,6 +513,10 @@ class Mover {
         const p = b.entity.position;
         if (Math.hypot(below.x + 0.5 - p.x, below.z + 0.5 - p.z) > 0.2) await this.walkTo(below, { sneak: true, timeout: 1500 });          // from the cell's centre, or the block lands in the body
         await this.look(b.entity.yaw, -Math.PI / 2);
+        // the block under the feet is clicked: a trapdoor, door, gate, chest ... opens instead of taking the block (a bot on a trapdoor opened it, fell through and stood stuck,
+        // owner 2026-11-23 list 4 problem 1); sneaking, a click places against it as a player does
+        const under = b.blockAt(new Vec3(below.x, below.y - 1, below.z), false), sneak = !!under && V.INTERACTIVE.test(under.name);
+        if (sneak) { b.setControlState('sneak', true); await sleep(60); }
         b.setControlState('jump', true);
         let placed = false;
         for (let i = 0; i < 30 && !placed; i++) {
@@ -509,6 +528,7 @@ class Mover {
         }
         b.setControlState('jump', false);
         for (let i = 0; i < 30; i++) { await sleep(50); if (b.entity.onGround && b.entity.position.y >= c.y - 0.01) break; }
+        if (sneak) b.setControlState('sneak', false);
         const bb = b.blockAt(new Vec3(below.x, below.y, below.z), false);
         if (bb && bb.boundingBox === 'block') this._temp(below, 'pillar');
         return feet(b).y === c.y;

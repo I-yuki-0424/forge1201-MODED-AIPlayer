@@ -266,6 +266,39 @@ test('sectors: one piece of the ground plan per bot, kept; the pieces cover the 
     assert.strictEqual(cells.size, 48 * 48, 'the whole plan');
     assert.deepStrictEqual(job.sectorOf('c'), job.sectorOf('c'), 'kept');
 });
+test('areas: cut where the work is sparse, about equal work each; the layer window is local (list 4 problem 4)', () => {
+    const t = new Target(tiny(), { x: 0, y: 64, z: 0 });
+    t.box = { x: 0, y: 64, z: 0, sx: 40, sy: 30, sz: 8 };
+    t.inside = (x, y, z) => x >= 0 && x < 40 && z >= 0 && z < 8 && y >= 64 && y < 94;
+    const job = new BuildJob(t, {});
+    // two dense units (x 0..11 and x 28..39), nothing between them: the cut falls into the gap, not through a unit
+    for (const x0 of [0, 28]) for (let x = x0; x < x0 + 12; x++) for (let z = 0; z < 8; z++) for (let y = 64; y < 70; y++) job.tasks.set(`${x},${y},${z}`, { k: `${x},${y},${z}`, kind: 'place', x, y, z, i: -1 });
+    job.bots.set('a', { station: null }); job.bots.set('b', { station: null });
+    const a = job.sectorOf('a'), b = job.sectorOf('b');
+    assert(a.x1 >= 11 && a.x1 < 28 && b.x0 > 11 && b.x0 <= 28, `cut in the gap: ${JSON.stringify([a, b])}`);
+    // the window: a column of the second unit may go up to its own lowest open layer + 4, whatever the first unit's lowest layer is
+    for (let x = 28; x < 40; x++) for (let z = 0; z < 8; z++) for (let y = 64; y < 68; y++) job.tasks.delete(`${x},${y},${z}`);
+    job._frontier();
+    assert.strictEqual(job.frontier, 64, 'the global frontier is the first unit\'s');
+    assert.strictEqual(job.topAt(34, 4), 68 + job.win(), 'the second unit: its own low layer');
+    assert.strictEqual(job.topAt(2, 4), 64 + job.win(), 'the first unit: its own');
+    assert.strictEqual(job.topAt(20, 4), Infinity, 'nothing to place around the gap');
+});
+test('parked cells come back while the build runs once the crew has nothing ready (gh1 w1)', () => {
+    const t = new Target(tiny(), { x: 10, y: 64, z: 10 });
+    const job = new BuildJob(t, {});
+    const tk = { k: '1,70,1', kind: 'place', x: 1, y: 70, z: 1, i: -1 };
+    job.tasks.set(tk.k, tk); job._park(tk, 'no stance'); job.tasks.delete(tk.k);
+    assert.strictEqual(job._revive(Date.now()), 0, 'not at once');
+    job.parkedTk.get(tk.k).at -= 200000; job._reviveAt = 0;
+    assert.strictEqual(job._revive(Date.now()), 1); assert(job.tasks.has(tk.k) && !job.parked.has(tk.k));
+});
+test('merit: tasks that held count up, failures and empty supply turns down (list 4 problem 6)', () => {
+    const job = new BuildJob(new Target(tiny(), { x: 0, y: 64, z: 0 }), {});
+    job.report('good', [{ tk: { k: 'a', kind: 'clear' }, ok: true }, { tk: { k: 'b', kind: 'clear' }, ok: true }]);
+    job.report('bad', [{ tk: { k: 'c', kind: 'clear' }, ok: false, why: 'x' }]); job.record('bad').empty.push(Date.now());
+    assert(job.merit('good') > job.merit('bad'));
+});
 test('temporary blocks for walking become untemp tasks once nobody is on them, in any stage (problem 2)', () => {
     const t = new Target(tiny(), { x: 10, y: 64, z: 10 });
     const job = new BuildJob(t, {}); job.stage = 'prepare';

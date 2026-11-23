@@ -10,13 +10,13 @@ services:
     container_name: forgeaip-t26-${N}
     restart: "no"
     stop_grace_period: 60s
-    mem_limit: 4g
-    cpus: 2
+    mem_limit: ${MEM_LIMIT:-4g}          # several crews on one world (scripts/t26/multi.sh): more
+    cpus: ${CPUS:-2}
     environment:
       EULA: "TRUE"
       TYPE: FABRIC
       VERSION: "26.1.2"
-      MEMORY: 3000M
+      MEMORY: ${HEAP:-3000M}
       USE_AIKAR_FLAGS: "true"
       LEVEL_TYPE: minecraft:normal
       SEED: ${SEED:-}

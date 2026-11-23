@@ -78,69 +78,112 @@ async function putBack(bot, site) {
     finally { bot.closeWindow(win); }
 }
 
+/** How many of `name` one slot holds. */
+function stackOf(bot, name) { const r = bot.registry && bot.registry.itemsByName[name]; return r ? r.stackSize || 64 : 64; }
+const counts = (w) => { const o = {}; for (const it of w.containerItems()) o[it.name] = (o[it.name] || 0) + it.count; return o; };
+
 /**
- * Fill the pack from the container at `site` with `needs` ({item: count}, as much as fits). Shulker boxes are set down beside the chest as a DEPOT and stay there while the build
- * runs (`depot`: the cells of boxes already standing, shared by the crew); the bots take from them like from a chest. Nothing is dropped, so nothing can be lost (a box broken
- * beside the chest fell into the Nether's lava with what was left in it, live 2026-11-22). The boxes go back into the chest at the end (`repack`).
- * `mover`: the bot's Mover; `spot()`: a free cell for the next depot box. Returns { got: {item: n}, short: {item: n} }.
+ * Fill the pack from the container at `site` with `needs` ({item: count}, as much as fits). Shulker boxes are set down beside the chest as a DEPOT and stay there while they hold
+ * something (`depot`: shared by the crew, each with what it was last seen holding, `holds`); the bots take from them like from a chest. A box that holds nothing the bot wants is
+ * not opened, and a box emptied is broken by the bot that emptied it, picked up and put back into the chest (empty boxes stood round the chest in heaps, were opened by every
+ * bot on every trip and held the turn at the supply, owner 2026-11-23 list 4 problems 2 and 3). Several bots fetch at once: one bot per box (`locks`), the chest open to all.
+ * What it got is counted from the pack (another bot may have taken a stack a moment before). `mover`: the bot's Mover; `spot()`: a free cell for the next depot box.
+ * Returns { got: {item: n}, short: {item: n}, absent: [item] }.
  */
-async function fetch(bot, site, needs, mover, spot, { log = () => {}, depot = [] } = {}) {
-    const got = {}, want = { ...needs }, present = {};
+async function fetch(bot, site, needs, mover, spot, { log = () => {}, depot = [], locks = new Map(), me = bot.username, cancel = { cancelled: false } } = {}) {
+    const before = carried(bot), want = { ...needs }, present = {};
+    const end = Date.now() + 120000;          // a trip has two minutes at the supply; the turn goes to the next bot
+    const over = () => cancel.cancelled || Date.now() > end;
     let complete = true;                  // every container that may hold the items was looked into (only then is an item missing from all of them "absent")
+    let retired = 0;                      // empty depot boxes picked up on this trip (they go back into the chest)
     const still = () => Object.entries(want).filter(([, n]) => n > 0);
-    const took = (name, n) => { got[name] = (got[name] || 0) + n; if (want[name] !== undefined) want[name] = Math.max(0, want[name] - n); };
+    const took = (name, n) => { if (want[name] !== undefined) want[name] = Math.max(0, want[name] - n); };
     const saw = (name, n) => { if (needs[name] !== undefined) present[name] = (present[name] || 0) + n; };
+    const lock = (c) => { const k = `${c.x},${c.y},${c.z}`, h = locks.get(k); if (h && h.by !== me && h.until > Date.now()) return false; locks.set(k, { by: me, until: Date.now() + 30000 }); return true; };
+    const unlock = (c) => { const k = `${c.x},${c.y},${c.z}`; if ((locks.get(k) || {}).by === me) locks.delete(k); };
     const takeFrom = async (c) => {
         await near(bot, mover, c);
         const w = await open(bot, c);
-        try { for (const it of w.containerItems()) { saw(it.name, it.count); if (freeSlots(bot) <= 1 || !still().length) continue; if (want[it.name] > 0 && (!SHULKER.test(it.name) || emptyBox(bot, it))) took(it.name, await take(bot, w, it, want[it.name])); } }
-        finally { bot.closeWindow(w); await sleep(250); }
+        try {
+            for (const it of w.containerItems()) { saw(it.name, it.count); if (freeSlots(bot) <= 1 || !still().length) continue; if (want[it.name] > 0 && (!SHULKER.test(it.name) || emptyBox(bot, it))) took(it.name, await take(bot, w, it, want[it.name])); }
+            await sleep(120); c.holds = counts(w);
+        } finally { bot.closeWindow(w); await sleep(250); }
     };
-    // 1. the depot boxes already standing
-    for (const c of depot) {
-        if (!still().length || freeSlots(bot) <= 1) { complete = false; break; }
-        const b = bot.blockAt(new Vec3(c.x, c.y, c.z)); if (!b || !SHULKER.test(b.name)) continue;
+    // an emptied box: broken (the bot is beside it, the drop lands in its reach), picked up, out of the depot
+    const retire = async (c) => {
+        const n0 = bot.inventory.items().filter((i) => SHULKER.test(i.name)).length;
+        if (!(await mover.dig(c))) return;
+        for (let i = 0; i < 30 && bot.inventory.items().filter((x) => SHULKER.test(x.name)).length <= n0; i++) await sleep(100);
+        const k = depot.indexOf(c); if (k >= 0) depot.splice(k, 1);
+        if (bot.inventory.items().filter((x) => SHULKER.test(x.name)).length > n0) retired++; else log(`supply: the emptied box from ${c.x},${c.y},${c.z} was not picked up`);
+    };
+    const useBox = async (c) => {
         try { await takeFrom(c); } catch (e) {
             // a box opens only into a free lid cell: a block someone put there (a pillar, rubble) is dug away and the box tried once more (the crew's whole stock of dirt sat in a
             // box that never opened, live 2026-11-23 fy3 w5)
             const L = { x: c.x + (c.fx || 0), y: c.y + (c.fy ?? 1), z: c.z + (c.fz || 0) }, lid = bot.blockAt(new Vec3(L.x, L.y, L.z));
             let again = false;
             if (lid && lid.boundingBox === 'block' && !SHULKER.test(lid.name) && !/chest|barrel/.test(lid.name)) { log(`supply: depot box at ${c.x},${c.y},${c.z} is shut by ${lid.name} at ${L.x},${L.y},${L.z}: dug away`); again = await mover.dig(L); }
-            if (again) { try { await takeFrom(c); continue; } catch (_) { /* reported below */ } }
-            complete = false; log(`supply: depot box at ${c.x},${c.y},${c.z}: ${e.message}`);
+            if (again) { try { await takeFrom(c); } catch (_) { again = false; } }
+            if (!again) { complete = false; log(`supply: depot box at ${c.x},${c.y},${c.z}: ${e.message}`); return; }
         }
+        if (c.holds && !Object.keys(c.holds).length) await retire(c);
+    };
+    // 1. the depot boxes already standing: only those that hold something it wants (or were never looked into), one bot per box
+    for (const c of [...depot]) {
+        if (!still().length || freeSlots(bot) <= 1 || over()) { complete = false; break; }
+        const b = bot.blockAt(new Vec3(c.x, c.y, c.z)); if (!b || !SHULKER.test(b.name)) { depot.splice(depot.indexOf(c), 1); continue; }
+        if (c.holds) { for (const [k, n] of Object.entries(c.holds)) saw(k, n); if (!still().some(([k]) => c.holds[k] > 0)) { if (!Object.keys(c.holds).length && lock(c)) { try { await near(bot, mover, c); await retire(c); } finally { unlock(c); } } continue; } }
+        if (!lock(c)) { complete = false; continue; }
+        try { await useBox(c); } finally { unlock(c); }
     }
-    if (!still().length) return { got, short: {}, absent: [] };
     // 2. loose stacks in the chest, and which boxes hold the rest
-    let win = await open(bot, site);
-    if (!win.containerItems().length) complete = false;
     const useful = [];
-    try {
-        for (const it of win.containerItems()) {
-            if (SHULKER.test(it.name) && !emptyBox(bot, it)) for (const [k, n] of Object.entries(boxHolds(bot, it))) saw(k, n); else saw(it.name, it.count);
-            if (freeSlots(bot) <= 1) continue;
-            if (emptyBox(bot, it) && want[it.name] > 0) { took(it.name, await take(bot, win, it, want[it.name])); continue; }
-            if (SHULKER.test(it.name)) { const h = boxHolds(bot, it), score = still().reduce((a, [k, n]) => a + Math.min(n, h[k] || 0), 0); if (score > 0) useful.push({ slot: it.slot, h, score }); }
-            else if (want[it.name] > 0) took(it.name, await take(bot, win, it, want[it.name]));
-        }
-    } finally { bot.closeWindow(win); await sleep(250); }
+    if (still().length && freeSlots(bot) > 1 && !over()) {
+        await near(bot, mover, site);
+        const win = await open(bot, site);
+        if (!win.containerItems().length) complete = false;
+        try {
+            for (const it of win.containerItems()) {
+                if (SHULKER.test(it.name) && !emptyBox(bot, it)) for (const [k, n] of Object.entries(boxHolds(bot, it))) saw(k, n); else saw(it.name, it.count);
+                if (freeSlots(bot) <= 1) continue;
+                if (emptyBox(bot, it) && want[it.name] > 0) { took(it.name, await take(bot, win, it, want[it.name])); continue; }
+                if (SHULKER.test(it.name)) { const h = boxHolds(bot, it), score = still().reduce((a, [k, n]) => a + Math.min(n, h[k] || 0), 0); if (score > 0) useful.push({ slot: it.slot, h, score }); }
+                else if (want[it.name] > 0) took(it.name, await take(bot, win, it, want[it.name]));
+            }
+        } finally { bot.closeWindow(win); await sleep(250); }
+    } else if (still().length) complete = false;
     // 3. a box out of the chest into the depot, then taken from
     useful.sort((a, b) => b.score - a.score);
     for (const bx of useful) {
-        if (!still().length || freeSlots(bot) <= 2) break;
+        if (!still().length || freeSlots(bot) <= 2 || over()) break;
+        if (!still().some(([k]) => bx.h[k] > 0)) continue;          // what it held was taken from other boxes meanwhile
         const n0 = boxes(bot).length;
         await near(bot, mover, site);                 // back beside the chest (the last box may have been set down a few cells away)
-        win = await open(bot, site);
-        try { await shift(bot, bx.slot); } finally { bot.closeWindow(win); await sleep(250); }
+        let win = await open(bot, site);
+        try { const cur = win.slots[bx.slot]; if (cur && SHULKER.test(cur.name) && !emptyBox(bot, cur)) await shift(bot, bx.slot); } finally { bot.closeWindow(win); await sleep(250); }
         const box = boxes(bot).find((i) => i.slot !== undefined);
-        if (!box || boxes(bot).length <= n0) { log(`supply: the box in slot ${bx.slot} did not come out`); continue; }
+        if (!box || boxes(bot).length <= n0) { log(`supply: the box in slot ${bx.slot} did not come out (another bot took it)`); continue; }
         const at = await spot(), pr = at ? await mover.placeItem(box.name, at, { facing: at.facing || 'up' }) : 'no free cell for the depot';          // facing up: a box opens toward its facing (one set down sideways against rock never opened, live 2026-11-22)
         if (pr !== true) { log(`supply: could not set a box down${at ? ` at ${at.x},${at.y},${at.z}` : ''}: ${pr}`); await near(bot, mover, site); await putBack(bot, site); break; }
-        depot.push(at);
-        try { await takeFrom(at); } catch (e) { log(`supply: the box at ${at.x},${at.y},${at.z} did not open: ${e.message}`); }
+        const c = { ...at, holds: { ...bx.h } };
+        depot.push(c);
+        if (lock(c)) { try { await useBox(c); } finally { unlock(c); } }
     }
+    // emptied boxes back into the chest (they are the supply's, and the Nether blueprint builds with shulker boxes)
+    if (retired) { try { await near(bot, mover, site); await depositEmpty(bot, site, retired); } catch (e) { log(`supply: empty boxes not put back: ${e.message}`); } }
+    const after = carried(bot), got = {};
+    for (const [k, n] of Object.entries(after)) if (n > (before[k] || 0) && !SHULKER.test(k)) got[k] = n - (before[k] || 0);
+    const short = {}; for (const [k, n] of Object.entries(needs)) if (n - (got[k] || 0) > 0) short[k] = n - (got[k] || 0);
     // absent: what none of the containers holds any more (only these are "out of stock"; a full pack is not the chest being empty)
-    return { got, short: Object.fromEntries(still()), absent: complete ? Object.keys(needs).filter((k) => !present[k] && !got[k]) : [] };
+    return { got, short, absent: complete ? Object.keys(needs).filter((k) => !present[k] && !got[k]) : [] };
+}
+
+/** Up to n empty shulker boxes from the pack into the container at site. */
+async function depositEmpty(bot, site, n) {
+    const win = await open(bot, site);
+    try { for (const it of bot.inventory.items()) { if (n <= 0) break; if (!emptyBox(bot, it)) continue; await shift(bot, win.inventoryStart + (it.slot - 9)); n -= it.count; } }
+    finally { bot.closeWindow(win); await sleep(250); }
 }
 
 /** The end of a build: every depot box broken (the bot next to it: the drop lands in its reach) and put back into the chest. Returns the boxes not brought back. */
@@ -175,4 +218,4 @@ async function dropRubble(bot, keep, { minFree = 6 } = {}) {
 const TEMPS = ['dirt', 'cobblestone', 'pumpkin', 'netherrack', 'cobbled_deepslate', 'stone', 'andesite', 'diorite', 'granite', 'oak_planks', 'spruce_planks', 'birch_planks'];
 const tempFrom = (totals, used) => TEMPS.find((s) => totals[s] > 0 && !used.has(s)) || null;
 
-module.exports = { readSupply, fetch, repack, putBack, deposit, dropRubble, boxHolds, carried, freeSlots, tempFrom, TEMPS, SHULKER, TOOL };
+module.exports = { readSupply, fetch, repack, putBack, deposit, depositEmpty, dropRubble, boxHolds, carried, freeSlots, stackOf, tempFrom, TEMPS, SHULKER, TOOL };

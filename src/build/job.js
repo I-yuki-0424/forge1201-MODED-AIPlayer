@@ -19,6 +19,9 @@ const WINDOW = 4;                  // layers above the lowest open one that may 
 const MAX_FAILS = 8;               // tries of one cell before it is parked (reported, not tried again until the next round)
 const BATCH = 64;                  // tasks per claim (everything within reach of the stance: walking was the largest share of the time, live 2026-11-22)
 const ROUNDS = 3;                  // extra rounds for parked cells before the build ends with them reported
+const PER_SECTOR = 2;              // bots working in one area at a time (its own bot and one helper; the rest wait out of the way: eight bots crowded a one-chunk Nether build, owner 2026-11-23 list 4 problem 7)
+const TILE = 4;                    // columns per side of a tile: the ground plan's unit for areas and for the local layer window
+const REVIVE_MS = 90000;           // parked cells come back while the build runs (not only in the end rounds) once they have waited this long and the crew has nothing ready
 const STALL_MS = 40000;            // nothing ready for anybody this long while work is left: the ordering rules are relaxed (a dependency that cannot be met)
 const STAGE_OF = { seal: 'prepare', fill: 'prepare', clear: 'prepare', place: 'place', fix: 'place', scaffold: 'place', pour: 'late', ignite: 'late', untemp: 'cleanup' };
 const ORDER = ['prepare', 'place', 'late', 'cleanup'];
@@ -121,7 +124,7 @@ class BuildJob {
         if (this.parked.size && this.rounds < ROUNDS) {
             this.rounds++;
             this.log(`round ${this.rounds + 1}: ${this.parked.size} parked cells are tried again`);
-            this.parked.clear(); this.fails.clear(); this.cool.clear();
+            this.parked.clear(); this.fails.clear(); this.cool.clear(); if (this.parkedTk) this.parkedTk.clear();
             this.stage = 'survey';
             return;
         }
@@ -133,15 +136,24 @@ class BuildJob {
 
     /** The lowest layer that still has blocks to place (the window starts there), and the highest that still has blocks to clear. */
     _frontier() {
-        let f = Infinity, c = -Infinity; const now = Date.now();
+        let f = Infinity, c = -Infinity; const now = Date.now(), b = this.t.box, nx = Math.ceil(b.sx / TILE), nz = Math.ceil(b.sz / TILE), own = new Float64Array(nx * nz).fill(Infinity);
         for (const tk of this.tasks.values()) {
             if (this.parked.has(tk.k)) continue;
             // a cell no stance has reached for 15 s does not hold the window (four unreachable cells in the lowest layer left eight bots idle with 7 500 blocks above, live
             // 2026-11-23 fy1 w2); it is still offered and tried, and parked after two minutes
             const ns = this.noStance.get(tk.k); if (ns && now - ns > 15000 && (tk.kind === 'place' || tk.kind === 'fix')) continue;
             if ((tk.kind === 'place' || tk.kind === 'fix') && tk.y < f) f = tk.y;
+            if ((tk.kind === 'place' || tk.kind === 'fix') && this.t.inside(tk.x, tk.y, tk.z)) { const i = Math.floor((tk.x - b.x) / TILE) + Math.floor((tk.z - b.z) / TILE) * nx; if (tk.y < own[i]) own[i] = tk.y; }
             if (tk.kind === 'clear' && tk.y > c) c = tk.y;
         }
+        // each tile's window starts at the lowest open layer of the tile and its eight neighbours (a tower is not built up beside a part still open low down, whose stances it would hide)
+        const low = new Float64Array(nx * nz).fill(Infinity); let hi = -Infinity;
+        for (let tz = 0; tz < nz; tz++) for (let tx = 0; tx < nx; tx++) {
+            let m = Infinity;
+            for (let az = Math.max(0, tz - 1); az <= Math.min(nz - 1, tz + 1); az++) for (let ax = Math.max(0, tx - 1); ax <= Math.min(nx - 1, tx + 1); ax++) m = Math.min(m, own[ax + az * nx]);
+            low[tx + tz * nx] = m; if (Number.isFinite(m) && m > hi) hi = m;
+        }
+        this._local = { nx, nz, low }; this.frontierMax = hi; this._frontDirty = false; this._frontAt = Date.now();
         this.frontier = f; this.clearTop = c;
     }
 
@@ -188,7 +200,7 @@ class BuildJob {
             return true;
         }
         if (tk.kind === 'place' || tk.kind === 'fix') {
-            if (tk.y > this.frontier + this.win()) return false;
+            if (tk.y > this.topAt(tk.x, tk.z)) return false;
             const r = this.t.recipeOf(tk);
             if (tk.kind === 'place' && r) for (const d of r.deps) {
                 const x = tk.x + d[0], y = tk.y + d[1], z = tk.z + d[2];
@@ -211,6 +223,18 @@ class BuildJob {
     /** The window of layers over the frontier that may be placed now: two, five for 20 s after a claim found fewer ready cells than bots (a few stuck low cells held the crew idle
      *  with 7 500 blocks above, live 2026-11-23 gb1 w2); the dependencies still decide. */
     win() { return (this.winBoost || 0) > Date.now() ? this.o.window + 3 : this.o.window; }
+
+    /** The highest layer that may be placed now at column (x, z): the lowest open layer of its own tile and the eight around it, plus the window. A small part of the build (a 3x3
+     *  unit of smooth stone, slabs, a bed and a trapdoor) is built up to the reach of one stance while the rest of the box waits elsewhere: one global window of four layers
+     *  held every part at the height of the lowest open cell anywhere (owner 2026-11-23 list 4 problem 4). Infinity where nothing is left to place around the column. */
+    topAt(x, z) {
+        if (this._frontDirty && Date.now() - (this._frontAt || 0) > 1500) this._frontier();
+        const L = this._local, b = this.t.box;
+        if (!L) return this.frontier + this.win();
+        const tx = Math.floor((x - b.x) / TILE), tz = Math.floor((z - b.z) / TILE);
+        if (tx < 0 || tz < 0 || tx >= L.nx || tz >= L.nz) return Infinity;
+        return L.low[tx + tz * L.nx] + this.win();
+    }
 
     /** The fill and seal tasks by 8-cell grid square, rebuilt when the task map is replaced (a survey) or every 20 s (filled ones drop out by the identity check). */
     _fluidGrid() {
@@ -325,7 +349,7 @@ class BuildJob {
         if (this.parked.has(tk.k)) return 'parked';
         if ((this.cool.get(tk.k) || 0) > now) return 'cooling';
         if (STAGE_OF[tk.kind] !== this.stage && !(this.stage === 'prepare' && (tk.kind === 'place' || tk.kind === 'fix') && this._clearAround(tk))) return this.stage === 'prepare' && (tk.kind === 'place' || tk.kind === 'fix') ? 'clearing or fluids around it' : `stage ${STAGE_OF[tk.kind]}`;
-        if ((tk.kind === 'place' || tk.kind === 'fix') && tk.y > this.frontier + this.win()) return `above the window (frontier ${this.frontier})`;
+        if ((tk.kind === 'place' || tk.kind === 'fix') && tk.y > this.topAt(tk.x, tk.z)) return `above the window (local top ${this.topAt(tk.x, tk.z)})`;
         const r = tk.i >= 0 ? this.t.recipeOf(tk) : null;
         if (tk.kind === 'place' && r) for (const d of r.deps) {
             const x = tk.x + d[0], y = tk.y + d[1], z = tk.z + d[2], want = this.t.at(x, y, z), h = seen(bot, { x, y, z });
@@ -373,10 +397,13 @@ class BuildJob {
         for (const [k, m] of this.temps) {
             if (this.tasks.has(k)) continue;
             const [x, y, z] = k.split(',').map(Number);
+            // a scaffold stays while a block beside it waits to be placed against it
+            if (m.how === 'scaffold' && [[0, 1, 0], [0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]].some(([dx, dy, dz]) => { const o = this.tasks.get(key(x + dx, y + dy, z + dz)); return o && o.kind === 'place'; })) continue;
             // kept while the crew uses it (someone on it within 90 s): a bridge between the chest and the site taken away after each crossing was built again by the next bot,
             // 2 230 times on one Nether world (live 2026-11-23 fz3 w6)
             if (cols.some((p) => Math.abs(p.x - x) <= 0 && Math.abs(p.z - z) <= 0 && p.y > y && p.y <= y + 80)) { m.used = now; continue; }
-            if (now - Math.max(m.t, m.used || 0) < 90000) continue;
+            // taken away soon after the last use (owner 2026-11-23 list 4 problem 8: walking blocks are not worth keeping; with one supply trip per area the chest crossing is rare)
+            if (now - Math.max(m.t, m.used || 0) < 10000) continue;
             const tk = { k, kind: 'untemp', i: -1, x, y, z };
             this.tasks.set(k, tk); this.untemps.add(tk);
         }
@@ -394,9 +421,10 @@ class BuildJob {
     sectorNeeds(name) {
         const c = this._sn || (this._sn = new Map()), hit = c.get(name), now = Date.now();
         if (hit && now - hit.at < 30000) return hit.need;
-        const sec = this.sectorOf(name), top = (Number.isFinite(this.frontier) ? this.frontier : -Infinity) + 8, need = {};
+        // the whole area, every layer: a bot carries everything its area needs and makes one trip, not one per few layers (owner 2026-11-23 list 4 problem 4)
+        const sec = this.sectorOf(name), need = {};
         for (const tk of this.tasks.values()) {
-            if (tk.kind !== 'place' || tk.y > top || tk.x < sec.x0 || tk.x > sec.x1 || tk.z < sec.z0 || tk.z > sec.z1) continue;
+            if (tk.kind !== 'place' || tk.x < sec.x0 || tk.x > sec.x1 || tk.z < sec.z0 || tk.z > sec.z1) continue;
             const it = this._itemOf(tk); if (it) need[it] = (need[it] || 0) + 1;
         }
         c.set(name, { at: now, need });
@@ -415,18 +443,55 @@ class BuildJob {
      * the same cell, and their stances moved a few cells at each claim (owner 2026-11-23, problems 3 and 9).
      */
     sectorOf(name) {
-        if (!this.sector.has(name)) {
-            const n = Math.max(this.bots.size, this.sector.size + 1, 1), b = this.t.box;
-            if (!this._grid || this._grid.n < n) {
-                let best = null;
-                for (let c = 1; c <= n; c++) { const r = Math.ceil(n / c), a = (b.sx / c) / (b.sz / r), cost = Math.abs(Math.log(a)) + (c * r - n) * 0.8; if (!best || cost < best.cost) best = { c, r, cost }; }
-                this._grid = { n, c: best.c, r: best.r };
+        const n = Math.max(this.bots.size, this.sector.size + (this.sector.has(name) ? 0 : 1), 1);
+        if (!this._parts || this._parts.length < n) this._planSectors(n);
+        if (!this.sector.has(name)) { const used = new Set(this.sector.values()); this.sector.set(name, [...this._parts.keys()].find((i) => !used.has(i)) ?? this.sector.size % this._parts.length); }
+        return this._parts[this.sector.get(name)];
+    }
+
+    /** The area of column (x, z): its index in _parts, or -1 outside the box. */
+    sectorAt(x, z) {
+        const b = this.t.box, T = this._tileSec;
+        if (!T) return -1;
+        const tx = Math.floor((x - b.x) / TILE), tz = Math.floor((z - b.z) / TILE);
+        return tx < 0 || tz < 0 || tx >= T.nx || tz >= T.nz ? -1 : T.at[tx + tz * T.nx];
+    }
+
+    /**
+     * The areas: the box's ground plan cut in two again and again (k-d) into n pieces of about equal WORK (blocks to place count 1, blocks to clear a quarter), each cut on a line
+     * where the work is sparse: a cut is scored by how far it is from an even share and by how much work lies on both sides of it in the same rows (a unit cut in half). Equal
+     * pieces of ground cut the small 3x3 units of the Overworld farm apart and gave one bot all the work and another none (owner 2026-11-23 list 4 problem 4).
+     */
+    _planSectors(n) {
+        const b = this.t.box, nx = Math.ceil(b.sx / TILE), nz = Math.ceil(b.sz / TILE), w = new Float64Array(nx * nz);
+        for (const tk of this.tasks.values()) { if (!this.t.inside(tk.x, tk.y, tk.z)) continue; w[Math.floor((tk.x - b.x) / TILE) + Math.floor((tk.z - b.z) / TILE) * nx] += tk.kind === 'place' || tk.kind === 'fix' ? 1 : tk.kind === 'clear' ? 0.25 : 0; }
+        if (!w.some((v) => v > 0)) w.fill(1);
+        const parts = [], at = new Int16Array(nx * nz).fill(-1);
+        const sum = (x0, x1, z0, z1) => { let t = 0; for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) t += w[x + z * nx]; return t; };
+        const cut = (x0, x1, z0, z1, k) => {
+            if (k <= 1 || (x0 === x1 && z0 === z1)) { for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) at[x + z * nx] = parts.length; parts.push({ x0: b.x + x0 * TILE, x1: Math.min(b.x + b.sx - 1, b.x + (x1 + 1) * TILE - 1), z0: b.z + z0 * TILE, z1: Math.min(b.z + b.sz - 1, b.z + (z1 + 1) * TILE - 1), work: sum(x0, x1, z0, z1) }); return; }
+            const kl = Math.floor(k / 2), total = sum(x0, x1, z0, z1) || 1, frac = kl / k;
+            let best = null;
+            for (const ax of (x1 - x0 >= z1 - z0 ? ['x', 'z'] : ['z', 'x'])) {
+                const lo = ax === 'x' ? x0 : z0, hi = ax === 'x' ? x1 : z1;
+                if (hi === lo) continue;
+                const line = (i) => (ax === 'x' ? sum(i, i, z0, z1) : sum(x0, x1, i, i));
+                let left = 0;
+                for (let i = lo; i < hi; i++) {
+                    left += line(i);
+                    let across = 0;
+                    if (ax === 'x') for (let z = z0; z <= z1; z++) across += Math.min(w[i + z * nx], w[i + 1 + z * nx]); else for (let x = x0; x <= x1; x++) across += Math.min(w[x + i * nx], w[x + (i + 1) * nx]);
+                    const score = Math.abs(left / total - frac) * 4 + across / total;
+                    if (!best || score < best.score) best = { ax, i, score };
+                }
+                if (best) break;          // the longer side when it can be cut at all
             }
-            const used = new Set(this.sector.values()), idx = [...Array(this._grid.c * this._grid.r).keys()].find((i) => !used.has(i)) ?? this.sector.size % (this._grid.c * this._grid.r);
-            this.sector.set(name, idx);
-        }
-        const { c, r } = this._grid, i = this.sector.get(name), col = i % c, row = Math.floor(i / c) % r, b = this.t.box;
-        return { x0: b.x + Math.floor(col * b.sx / c), x1: b.x + Math.floor((col + 1) * b.sx / c) - 1, z0: b.z + Math.floor(row * b.sz / r), z1: b.z + Math.floor((row + 1) * b.sz / r) - 1 };
+            if (!best) { for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) at[x + z * nx] = parts.length; parts.push({ x0: b.x + x0 * TILE, x1: b.x + b.sx - 1, z0: b.z + z0 * TILE, z1: b.z + b.sz - 1, work: total }); return; }
+            if (best.ax === 'x') { cut(x0, best.i, z0, z1, kl); cut(best.i + 1, x1, z0, z1, k - kl); } else { cut(x0, x1, z0, best.i, kl); cut(x0, x1, best.i + 1, z1, k - kl); }
+        };
+        cut(0, nx - 1, 0, nz - 1, n);
+        this._parts = parts; this._tileSec = { nx, nz, at };
+        this.log(`areas for ${n} bots: ${parts.map((p) => `${p.x0}..${p.x1}/${p.z0}..${p.z1} (${Math.round(p.work)})`).join(', ')}`);
     }
 
     // ---- claims --------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -442,6 +507,9 @@ class BuildJob {
         const ready = [], G = 8; let scanned = 0;
         this._offerTemps(now, bot);
         const sec = this.sectorOf(name), inSec = (tk) => tk.x >= sec.x0 && tk.x <= sec.x1 && tk.z >= sec.z0 && tk.z <= sec.z1;
+        // bots at work per area (by their stances): an area with PER_SECTOR of them takes no more helpers (owner 2026-11-23 list 4 problem 7)
+        const busy = new Map(); for (const o of others) { const si = this.sectorAt(o.x, o.z); if (si >= 0) busy.set(si, (busy.get(si) || 0) + 1); }
+        const full = (tk) => { if (inSec(tk)) return false; const si = this.sectorAt(tk.x, tk.z); return si >= 0 && (busy.get(si) || 0) >= PER_SECTOR; };
         // the bot's own sector first, nearest first within it; the rest of the box after it (helping where a sector is done or its bot is gone)
         const keys = [...this.buckets.keys()].map((k) => { const [x, y, z] = k.split(',').map(Number), mine = x * G + G - 1 >= sec.x0 && x * G <= sec.x1 && z * G + G - 1 >= sec.z0 && z * G <= sec.z1; return { k, d: Math.hypot(x * G + G / 2 - me.x, (y * G + G / 2 - me.y) * 1.5, z * G + G / 2 - me.z) + (mine ? 0 : 1000) }; }).sort((a, b) => a.d - b.d);
         // temporary blocks to take away near the bot, in any stage
@@ -451,7 +519,7 @@ class BuildJob {
             if (this._already(tk, bot)) { this.tasks.delete(tk.k); this.untemps.delete(tk); this.temps.delete(tk.k); continue; }
             if (this.ready(tk, bot, now)) ready.push(tk);
         }
-        const lo = this.stage === 'place' ? this.frontier : -Infinity, hi = this.stage === 'place' ? this.frontier + this.win() : Infinity;
+        const lo = this.stage === 'place' ? this.frontier : -Infinity, hi = this.stage === 'place' ? this.frontierMax + this.win() : Infinity;
         const tScan = Date.now();
         for (const { k } of keys) {
             // the scan is synchronous: at most 60 ms of it per claim (eight bots claiming over 17 000 tasks blocked every bot's keep-alive for seconds, live 2026-11-23 fx3 profile)
@@ -462,14 +530,14 @@ class BuildJob {
             const live = this.buckets.get(k).filter((tk) => this.tasks.get(tk.k) === tk);
             if (live.length) this.buckets.set(k, live); else { this.buckets.delete(k); continue; }
             for (const tk of live) {
-                if (this.claims.has(tk.k) || tk.kind === 'untemp') continue;
+                if (this.claims.has(tk.k) || tk.kind === 'untemp' || full(tk)) continue;
                 scanned++;
                 // the cheap reasons first (map lookups only): most of a box to clear lies under cells still to clear, most of a box to build above the window; the costly
                 // checks (the world's blocks) only for the rest (6 000 costly checks per claim saw 5 ready tasks out of 28 000, the ready top layer out of reach, live 2026-11-22 sM2)
                 // (a covered cell is looked at again after 2 s: 14 000 of them checked on every claim used up the scan's 60 ms before it reached the ready ones, live 2026-11-23 fz4 w2)
                 if (tk.kind === 'clear' && !this.relaxed && this.stage === 'prepare') { if ((tk.covUntil || 0) > now) continue; if (this._covered(tk, bot)) { tk.covUntil = now + 2000; continue; } }
                 // (in every stage: in the prepare stage the scan read the world for 7 500 blocks above the window and ran out of time before the ready ones, live 2026-11-23 fz6 w2)
-                if ((tk.kind === 'place' || tk.kind === 'fix') && !this.relaxed && tk.y > this.frontier + this.win()) continue;
+                if ((tk.kind === 'place' || tk.kind === 'fix') && !this.relaxed && tk.y > this.topAt(tk.x, tk.z)) continue;
                 // already as it should be (dug on someone's way, leaves that decayed, a block another bot put there): done, not offered (a clear task on air found no stance and was parked, live 2026-11-22)
                 if (tk.after) { const h = seen(bot, tk); if (h && S.AIR.has(h.name)) { tk.kind = tk.after; delete tk.after; } }
                 if (this._already(tk, bot)) { this.tasks.delete(tk.k); this._lowered(tk); continue; }
@@ -480,6 +548,7 @@ class BuildJob {
             if (ready.length >= 300 || scanned >= 60000) break;
         }
         if (ready.length < this.bots.size && !this.relaxed && (this.winBoost || 0) < now) this.winBoost = now + 20000;
+        if (!ready.length && this._revive(now)) return null;
         if (!ready.length) {
             this.nothingWhy = `nothing ready in stage ${this.stage} (${this.tasks.size} tasks, ${this.claims.size} claimed by others, frontier ${Number.isFinite(this.frontier) ? this.frontier : '-'}, parked ${this.parked.size})`;
             this._stall(bot, now);
@@ -520,6 +589,9 @@ class BuildJob {
         const view = new View(bot, { canDig: () => false }), blocked = this.standBlocked(name);
         // the cells this bot can reach, when a search from where it stands found them all (move.js plan region): only stances among them
         const R = this.reachOf && this.reachOf.get(name), inReach = R && R.from === key(me.x, me.y, me.z) ? (f) => R.cells.has(key(f.x, f.y, f.z)) : null;
+        // the mover's own flood from where the bot stands (drive.js, Mover.flood): a stance in it is reachable at its cost; one outside a complete flood is not reachable at all;
+        // one outside an incomplete flood is unknown and ranks below the known ones (the claim's own picture of pillars and bridges sent bots to cells the planner never found)
+        const FL = this.floods && this.floods.get(name), fl = FL && FL.from === key(me.x, me.y, me.z) && now - FL.at < 20000 ? FL : null;
         // a spatial index of the doable tasks: a stance is first ranked by how many it has within reach (cheap); the click search (place.ways: rays and the vanilla model) runs only for
         // the best few (live 2026-11-21 sv5: the search for every stance and task blocked the process 4.5 s per claim)
         const grid = new Map(), g = (v) => Math.floor(v / 4);
@@ -540,6 +612,8 @@ class BuildJob {
                 if (cands.length >= 40) break;
                 if (blocked(f.x, f.y, f.z) || blocked(f.x, f.y + 1, f.z) || bodyCovers(f, seed) || this.avoided(name, f)) { rej.blocked++; continue; }
                 if (inReach && !inReach(f)) { rej.unreachable = (rej.unreachable || 0) + 1; outOfReach++; continue; }
+                const fc = fl ? fl.cost.get(key(f.x, f.y, f.z)) : undefined;
+                if (fl && fc === undefined && fl.complete) { rej.unreachable = (rej.unreachable || 0) + 1; outOfReach++; continue; }
                 if (view.nearLava(f.x, f.y, f.z)) { rej.lava++; continue; }                 // the mover never goes there: offered, it cost a 4 s search each time
                 // clearing: a stance may be inside rock that is to be cleared anyway (a box sunk in rock has no open cell near its top layer); the walk digs its way in
                 const dug = !view.fits(f.x, f.y, f.z);
@@ -569,7 +643,8 @@ class BuildJob {
                 const eye = eyeOf({ x: f.x + 0.5, y: f.y, z: f.z + 0.5 });
                 if (boxDist(eye, seed) > this.o.reach) { rej.far++; continue; }
                 const reach = near(eye).filter((tk) => !bodyCovers(f, tk));
-                cands.push({ f, standing, dug, reach, score: reach.length - Math.hypot(f.x - me.x, f.y - me.y, f.z - me.z) * 0.08 - (standing ? 0 : 10 + 3 * h) - (dug ? 20 : 0) });
+                const guess = Math.hypot(f.x - me.x, f.y - me.y, f.z - me.z) * 0.08 + (standing ? 0 : 10 + 3 * h) + (dug ? 20 : 0);
+                cands.push({ f, standing, dug, reach, score: reach.length - (fc !== undefined ? fc * 0.1 : guess + (fl ? 10 : 0)) });
             }
             cands.sort((a, b) => b.score - a.score);
             for (const c of cands.slice(0, 12)) {
@@ -599,7 +674,7 @@ class BuildJob {
                 // a fluid task is never parked (the cells next to it wait on it for good): it cools and is looked at again
                 if (seed.kind === 'fill' || seed.kind === 'seal') { this.cool.set(seed.k, now + 30000); continue; }
                 const ns = this.noStance.get(seed.k) || now; this.noStance.set(seed.k, ns);
-                if (now - ns > 60000) { this.parked.set(seed.k, `no stance (${cands.length} in range)`); this.tasks.delete(seed.k); this.log(`parked ${seed.kind} ${seed.k} (${seed.i >= 0 ? S.bare(this.t.wantOf(seed).name) : 'outside'}): no stance reaches it (${cands.length} stances in range; rejected ${JSON.stringify(rej)}; the cell holds ${(seen(bot, seed) || {}).name}; neighbours ${['up', 'down', 'north', 'south', 'west', 'east'].map((d, i) => { const o = [[0, 1, 0], [0, -1, 0], [0, 0, -1], [0, 0, 1], [-1, 0, 0], [1, 0, 0]][i], h = seen(bot, { x: seed.x + o[0], y: seed.y + o[1], z: seed.z + o[2] }); return `${d}:${h ? S.bare(h.name) : '?'}`; }).join(' ')})`); this._frontier(); }
+                if (now - ns > 60000) { this._park(seed, `no stance (${cands.length} in range)`); this.tasks.delete(seed.k); this.log(`parked ${seed.kind} ${seed.k} (${seed.i >= 0 ? S.bare(this.t.wantOf(seed).name) : 'outside'}): no stance reaches it (${cands.length} stances in range; rejected ${JSON.stringify(rej)}; the cell holds ${(seen(bot, seed) || {}).name}; neighbours ${['up', 'down', 'north', 'south', 'west', 'east'].map((d, i) => { const o = [[0, 1, 0], [0, -1, 0], [0, 0, -1], [0, 0, 1], [-1, 0, 0], [1, 0, 0]][i], h = seen(bot, { x: seed.x + o[0], y: seed.y + o[1], z: seed.z + o[2] }); return `${d}:${h ? S.bare(h.name) : '?'}`; }).join(' ')})`); this._frontier(); }
                 continue;
             }
             this.lastClaimInfo = `scanned ${scanned}, ready ${ready.length}, doable ${doable.length}, seeds to here ${doable.indexOf(seed) + 1}, batch ${best.batch.length}, ${Date.now() - t0} ms in seeds`;
@@ -626,7 +701,7 @@ class BuildJob {
             for (const tk of this.tasks.values()) {
                 if (this.claims.has(tk.k)) { why.claimed++; continue; }
                 if (tk.kind === 'clear' && this._covered(tk, bot)) { why['under a cell to clear']++; continue; }
-                if ((tk.kind === 'place' || tk.kind === 'fix') && this.stage === 'place' && tk.y > this.frontier + this.win()) { why['above the window']++; continue; }
+                if ((tk.kind === 'place' || tk.kind === 'fix') && this.stage === 'place' && tk.y > this.topAt(tk.x, tk.z)) { why['above the window']++; continue; }
                 if (n++ > 4000) { why['not looked at'] = (why['not looked at'] || 0) + 1; continue; }
                 const w = this.whyNot(tk, bot, now).replace(/ \d.*$/, '').replace(/waits for .*/, 'waits for a dependency').replace(/next to .*/, 'next to a fluid'); why[w] = (why[w] || 0) + 1;
             }
@@ -657,10 +732,9 @@ class BuildJob {
         const inB = new Set(batch.map((t) => t.k)), eye = eyeOf({ x: f.x + 0.5, y: f.y, z: f.z + 0.5 }), cand = [];
         const cube = (tk) => { const w = this.t.wantOf(tk); if (w && FULL.test(S.bare(w.name))) world.over.set(tk.k, { name: S.bare(w.name), props: {}, shapes: [[0, 0, 0, 1, 1, 1]] }); };
         for (const t of batch) if (t.kind === 'place') cube(t);
-        const top = this.relaxed ? Infinity : this.frontier + this.win();
         for (let dy = -5; dy <= 4; dy++) for (let dx = -5; dx <= 5; dx++) for (let dz = -5; dz <= 5; dz++) {
             const x = f.x + dx, y = f.y + dy, z = f.z + dz, k = key(x, y, z), tk = this.tasks.get(k);
-            if (!tk || tk.kind !== 'place' || tk.y > top || inB.has(k) || this.claims.has(k) || this.parked.has(k) || (this.cool.get(k) || 0) > now) continue;
+            if (!tk || tk.kind !== 'place' || (!this.relaxed && tk.y > this.topAt(x, z)) || inB.has(k) || this.claims.has(k) || this.parked.has(k) || (this.cool.get(k) || 0) > now) continue;
             if (bodyCovers(f, tk) || boxDist(eye, tk) > this.o.reach) continue;
             const it = this._itemOf(tk); if (it && !(has(it) > 0)) continue;
             cand.push(tk);
@@ -763,11 +837,13 @@ class BuildJob {
 
     /** The bot is done with its claim: what held, what did not. */
     report(name, results, now = Date.now()) {
+        const rec = this.record(name);
+        for (const { ok, why } of results) { if (ok) rec.ok.push(now); else if (why !== 'skipped') rec.bad.push(now); }
         for (const { tk, ok, why } of results) {
             this.claims.delete(tk.k);
             if (ok && tk.after) { const o = this.tasks.get(tk.k); if (o) { o.kind = tk.after; delete o.after; this.cool.set(tk.k, now + 500); } this.stats.cleared++; continue; }
             if (ok && tk.kind === 'place') { const it = this._itemOf(tk); if (it) { const u = this.used || (this.used = new Map()); (u.get(name) || u.set(name, new Map()).get(name)).set(it, now); } }
-            if (ok) { this.tasks.delete(tk.k); this.stats[{ seal: 'sealed', fill: 'filled', clear: 'cleared', scaffold: 'scaffolds', place: 'placed', fix: 'fixed', pour: 'poured', ignite: 'lit', untemp: 'untemp' }[tk.kind]]++; if (tk.kind === 'untemp') this.temps.delete(tk.k); if (tk.kind === 'scaffold') { (this.scaffolds = this.scaffolds || new Set()).add(tk.k); if (!this.t.inside(tk.x, tk.y, tk.z)) this.temps.add(tk.k); } if (tk.kind === 'fill' || tk.kind === 'seal') this.fluidLeft = [...this.tasks.values()].some((q) => q.kind === 'fill' || q.kind === 'seal'); if (tk.kind === 'place' || tk.kind === 'fix' || tk.kind === 'clear') this._lowered(tk); continue; }
+            if (ok) { this.tasks.delete(tk.k); this.stats[{ seal: 'sealed', fill: 'filled', clear: 'cleared', scaffold: 'scaffolds', place: 'placed', fix: 'fixed', pour: 'poured', ignite: 'lit', untemp: 'untemp' }[tk.kind]]++; if (tk.kind === 'untemp') this.temps.delete(tk.k); if (tk.kind === 'scaffold') { (this.scaffolds = this.scaffolds || new Set()).add(tk.k); if (!this.t.inside(tk.x, tk.y, tk.z)) this.temps.set(tk.k, { how: 'scaffold', by: name, name: this.tempItem, t: now }); } if (tk.kind === 'fill' || tk.kind === 'seal') this.fluidLeft = [...this.tasks.values()].some((q) => q.kind === 'fill' || q.kind === 'seal'); if (tk.kind === 'place' || tk.kind === 'fix' || tk.kind === 'clear') this._lowered(tk); continue; }
             if (why === 'skipped') {
                 // skipped over and over (out of reach, its own floor, no item at hand) counts as a failure in the end: a task skipped for ever held a stage (live 2026-11-22)
                 const sk = (this.skips.get(tk.k) || 0) + 1; this.skips.set(tk.k, sk);
@@ -779,12 +855,48 @@ class BuildJob {
             this.cool.set(tk.k, now + 2000 * Math.min(n, 5));
             // a fluid task is never parked (everything beside it waits on it: 10 275 cells under 17 cells next to lava whose fills were parked, live 2026-11-23 gb5 w5)
             if (n >= MAX_FAILS && (tk.kind === 'fill' || tk.kind === 'seal')) { this.fails.set(tk.k, 0); this.cool.set(tk.k, now + 60000); continue; }
-            if (n >= MAX_FAILS) { this.parked.set(tk.k, why || 'failed'); this.tasks.delete(tk.k); this.log(`parked ${tk.kind} ${tk.k} after ${n} tries: ${why}`); this._frontier(); }
+            if (n >= MAX_FAILS) { this._park(tk, why || 'failed'); this.tasks.delete(tk.k); this.log(`parked ${tk.kind} ${tk.k} after ${n} tries: ${why}`); this._frontier(); }
         }
     }
+    /** Park a task (it waits; `_revive` brings it back while the build runs). */
+    _park(tk, why) { this.parked.set(tk.k, why); (this.parkedTk || (this.parkedTk = new Map())).set(tk.k, { tk, at: Date.now() }); }
+
+    /**
+     * Parked cells (no stance, failed) back into the work once they have waited REVIVE_MS and the crew finds nothing ready: the build has changed around them since (a support stands,
+     * a bot moved away). They came back only in the end rounds, which never started while a few clear tasks held the stage: a farm with 3 blocks left stood still for an hour with
+     * 179 parked cells (live 2026-11-23 gh1 w1).
+     */
+    _revive(now) {
+        if (!this.parkedTk || !this.parkedTk.size || now - (this._reviveAt || 0) < 30000) return 0;
+        this._reviveAt = now;
+        let n = 0;
+        for (const [k, { tk, at }] of this.parkedTk) {
+            if (now - at < REVIVE_MS || this.tasks.has(k)) continue;
+            this.parkedTk.delete(k); this.parked.delete(k); this.fails.delete(k); this.noStance.delete(k); this.cool.delete(k); this.skips.delete(k);
+            this.tasks.set(k, tk);
+            const bk = `${Math.floor(tk.x / 8)},${Math.floor(tk.y / 8)},${Math.floor(tk.z / 8)}`; (this.buckets.get(bk) || this.buckets.set(bk, []).get(bk)).push(tk);
+            if (tk.kind === 'untemp') this.untemps.add(tk);
+            n++;
+        }
+        if (n) { this.log(`${n} parked cells are tried again (the crew had nothing ready)`); this._frontier(); }
+        return n;
+    }
+
+    /** The bot's record over the last ten minutes: tasks that held, tasks that failed, supply turns that brought nothing. The supply's queue serves the best record first. */
+    record(name) { const m = this.recs || (this.recs = new Map()); let r = m.get(name); if (!r) m.set(name, (r = { ok: [], bad: [], empty: [] })); const t = Date.now() - 600000; for (const a of [r.ok, r.bad, r.empty]) while (a.length && a[0] < t) a.shift(); return r; }
+    merit(name) { const r = this.record(name); return r.ok.length - 2 * r.bad.length - 20 * r.empty.length; }
+
+    /** The whole crew's need of each item ({item: count of place tasks}), for the fair share of scarce items (computed at most every 30 s). */
+    crewNeeds() {
+        if (this._cn && Date.now() - this._cn.at < 30000) return this._cn.need;
+        const need = {}; for (const tk of this.tasks.values()) { if (tk.kind !== 'place') continue; const it = this._itemOf(tk); if (it) need[it] = (need[it] || 0) + 1; }
+        this._cn = { at: Date.now(), need };
+        return need;
+    }
+
     release(name, tasks) { for (const tk of tasks) if (this.claims.get(tk.k) === name) this.claims.delete(tk.k); }
     leave(name) { for (const [k, n] of this.claims) if (n === name) this.claims.delete(k); this.bots.delete(name); }
-    _lowered(tk) { if (tk.y === this.frontier || tk.y === this.clearTop) this._frontier(); }
+    _lowered(tk) { if (tk.kind === 'place' || tk.kind === 'fix') this._frontDirty = true; if (tk.y === this.frontier || tk.y === this.clearTop) this._frontier(); }
 
     /** Nothing left in the current stage (no task, none claimed): time for a survey. */
     exhausted() {
