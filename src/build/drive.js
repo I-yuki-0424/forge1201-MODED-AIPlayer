@@ -645,7 +645,9 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
             }
             if (!bot.entity || bot._client.ended) return { ended: 'disconnected' };
             // short of air: up to the surface first (the breath reflex is off for builders; four bots drowned retrying a one-cell step in water, live 2026-11-24 ha13 w3)
-            if (typeof bot.oxygenLevel === 'number' && bot.oxygenLevel < 12) { job.log(`${name}: air ${bot.oxygenLevel}: to the surface`); await mv.surface(cancel); continue; }
+            // (only in water, and with a real pause after it: out of the water the call returned at once, the loop never gave the event loop a turn, the air level never
+            // came back and the whole crew's process froze for minutes, live 2026-11-24 ha15 w4)
+            if (typeof bot.oxygenLevel === 'number' && bot.oxygenLevel < 12 && bot.entity && bot.entity.isInWater && Date.now() - ((job.surfAt && job.surfAt.get(name)) || 0) > 3000) { (job.surfAt || (job.surfAt = new Map())).set(name, Date.now()); job.log(`${name}: air ${bot.oxygenLevel}: to the surface`); await mv.surface(cancel); await sleep(300); continue; }
             // respawned in another dimension (a death in the Nether respawns in the Overworld): the job's cells are not in this world; the bot leaves the crew until a player brings it back
             // (it walked the Nether's coordinates in the Overworld for an hour, live 2026-11-22 sW w6)
             if (bot.game) { const d0 = (job.dims || (job.dims = new Map())).get(name); if (d0 === undefined) job.dims.set(name, bot.game.dimension); else if (d0 !== bot.game.dimension) { job.log(`${name} is in ${bot.game.dimension} now, not ${d0} (respawned after a death): it leaves the crew`); return { ended: 'wrong_dimension' }; } }
