@@ -47,7 +47,7 @@ async function main() {
     await S0.must(`gamemode spectator ${names[0]}`);                                                   // the site is looked at from above (setup only: no fall)
     const at = (x, y, z) => { const b = scout.blockAt(new Vec3(x, y, z)); return b ? b.name : null; };
     // a site on land (Overworld: a farm is not built in the sea; at most a tenth of the footprint's surface water), up to twelve draws
-    let cx, cz;
+    let cx, cz, dry = false;
     const groundYAt = (x, z) => { for (let y = 200; y > -60; y--) { const b = at(x, y, z); if (b && !/^(air|cave_air|void_air|.*_leaves|.*_log|vine|short_grass|tall_grass|snow)$/.test(b)) return y; } return null; };
     for (let draw = 0; draw < 30; draw++) {
         const ang = CREW * 2.4 + rnd() * 1.2, dist = 40 + rnd() * 60 + draw * 60 + CREW * 160;
@@ -70,8 +70,10 @@ async function main() {
             if (n >= 0.9 * want && groundYAt(cx, cz) !== null) break;
             await sleep(4000);
         }
-        if (n && n >= 0.9 * want && wet / n <= 0.1 && !snowy && groundYAt(cx, cz) !== null) break;
+        if (n && n >= 0.9 * want && wet / n <= 0.1 && !snowy && groundYAt(cx, cz) !== null) { dry = true; break; }
     }
+    // no draw was dry land: the run does not start in the sea (two crews got ocean sites with 55 000 cells of water to fill and drowned, live 2026-11-23 ha8); multi.sh draws again
+    if (!NETHER && !dry) throw new Error('no dry site in 30 draws');
     const GROUNDLESS = /^(air|cave_air|void_air|.*_leaves|.*_log|.*_wood|vine|short_grass|tall_grass|fern|large_fern|.*_flower|dandelion|poppy|snow|water|lava|bamboo|sugar_cane)$/;
     const groundY = (x, z, top) => { for (let y = top; y > (NETHER ? 32 : -60); y--) { const n = at(x, y, z); if (n && !GROUNDLESS.test(n)) return y; } return null; };
     let y0;
