@@ -9,6 +9,7 @@ const { Mover, View, feet } = require('./move');
 const { seen } = require('./world');
 const { clicksFor, REPLACEABLE } = require('./survey');
 const SUP = require('./supply');
+const { FULL } = require('./job');
 
 const COST_LAVA = 60;                // escapes and evacuations may pass beside lava (never into it) at this cost per cell
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -35,6 +36,8 @@ function rules(job, bot) {
         // (the kind it carries most of: one dirt left beside 400 cobblestone made every pillar impossible, a crew sat under its stances for half an hour, live 2026-11-23 fz1 w2)
         temp: () => { const n = {}; for (const i of bot.inventory.items()) if (SUP.TEMPS.includes(i.name) && !job.t.items.has(i.name)) n[i.name] = (n[i.name] || 0) + i.count; let best = null; for (const [k, c] of Object.entries(n)) if (!best || c > n[best] || (c === n[best] && k === job.tempItem)) best = k; return best; },
         mayDig: (x, y, z) => !underCrew(job, bot, x, y, z) && !onRouteOfOther(job, bot.username, x, y, z),
+        // the item to climb or bridge with in cell (x, y, z) when the blueprint has a plain full block there and the bot carries it: the climb builds the structure
+        buildBlock: (x, y, z) => { const it = ownBlockItem(job, x, y, z); if (!it) return null; return bot.inventory.items().some((i) => i.name === it) ? it : null; },
         // a block another bot is about to dig (its claim): not stood on by a plan
         doomed: (x, y, z) => { const k = `${x},${y},${z}`, by = job.claims.get(k); if (!by || by === bot.username) return false; const t = job.tasks.get(k); return !!t && (t.kind === 'clear' || t.kind === 'untemp'); },
         onRoute: (route) => { (job.routes || (job.routes = new Map())).set(bot.username, { floors: new Set(route.map((c) => `${c.x},${c.y - 1},${c.z}`)), until: Date.now() + 30000 }); },
@@ -106,6 +109,15 @@ function lavaWithin(bot, c, r) {
         for (const [ex, ey, ez] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]]) { q2.x = p.x + ex; q2.y = p.y + ey; q2.z = p.z + ez; const o = bot.blockAt(q2, false); if (o && o.boundingBox === 'empty' && o.name !== 'lava') return true; }
     }
     return false;
+}
+
+/** The item of a plain full block (no state of its own: smooth stone, glass, obsidian ...) the blueprint has in cell (x, y, z), or null. */
+function ownBlockItem(job, x, y, z) {
+    if (!job.t.inside(x, y, z)) return null;
+    const i = job.t.idx(x, y, z); if (job.t.isAir(i)) return null;
+    const w = job.t.stateOf(i), n = S.bare(w.name);
+    if (!FULL.test(n) || Object.keys(S.decidedProps(w.name, w.props) || {}).length) return null;
+    const r = job.t.recipe[i]; return r && r.item && !r.deps.length ? r.item : r && r.item && r.deps.every((d) => d[1] === -1 && d[0] === 0 && d[2] === 0) ? r.item : null;
 }
 
 /** Is (x, y, z) a block another bot's current route stands on (planned in the last 30 s)? */
@@ -381,20 +393,26 @@ async function bedSpawn(job, name, bot, mv, cancel) {
         job.anchorBusy = name;
         try {
             if (!bot.inventory.items().some((i) => i.name === SPAWN_BED)) await supplyTrip(job, name, bot, mv, { [SPAWN_BED]: 1 }, within(cancel, 180000));
-            if (!bot.inventory.items().some((i) => i.name === SPAWN_BED)) { job.bedFails = (job.bedFails || 0) + 1; if (job.bedFails >= 3) job.available.delete(SPAWN_BED); return; }
+            if (!bot.inventory.items().some((i) => i.name === SPAWN_BED)) { job.bedFails = (job.bedFails || 0) + 1; job.log(`${name}: no spawn bed from the chest (${job.bedFails})`); if (job.bedFails >= 6) job.available.delete(SPAWN_BED); return; }
             const c = job.sites[0], v = mv.view(), me = feet(bot), spots = [];
-            for (let r = 3; r <= 6; r++) for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) for (const dy of [0, 1, -1]) {
+            // a cell and the one beside it (the head, where the bot looks) free and on a floor; the bot stands behind the foot, looking along the bed (a click from any side made
+            // the bed's head point into rock: "no cell took the spawn bed" on most worlds, owner 2026-11-24)
+            const DIR = { east: [1, 0], west: [-1, 0], south: [0, 1], north: [0, -1] }, ok = (x, y, z) => v.free(x, y, z) && v.free(x, y + 1, z) && v.stands(x, y - 1, z) && !job.t.inside(x, y, z);
+            for (let r = 2; r <= 8; r++) for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) for (const dy of [0, 1, -1, 2, -2]) {
                 if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
                 const q = { x: c.x + dx, y: c.y + dy, z: c.z + dz };
-                if (job.t.inside(q.x, q.y, q.z) || (q.x === me.x && q.z === me.z)) continue;
-                // the bed's other half goes where the bot looks: every side of the cell free and on a floor
-                if (![[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].every(([ax, az]) => v.free(q.x + ax, q.y, q.z + az) && v.free(q.x + ax, q.y + 1, q.z + az) && v.stands(q.x + ax, q.y - 1, q.z + az))) continue;
-                spots.push(q);
+                if (!ok(q.x, q.y, q.z)) continue;
+                for (const [facing, [fx, fz]] of Object.entries(DIR)) if (ok(q.x + fx, q.y, q.z + fz) && ok(q.x - fx, q.y, q.z - fz)) spots.push({ ...q, facing, back: { x: q.x - fx, y: q.y, z: q.z - fz } });
             }
-            for (const q of spots.slice(0, 6)) {
-                await mv.goto(q, { goal: (x, y, z) => Math.hypot(x + 0.5 - (q.x + 0.5), y + 1.62 - (q.y + 0.5), z + 0.5 - (q.z + 0.5)) <= 4 && Math.hypot(x - q.x, z - q.z) >= 2.5, cancel, maxNodes: 6000 });
-                if ((await mv.placeItem(SPAWN_BED, q)) === true) { job.bedAt = q; job.log(`${name}: spawn bed set down at ${q.x} ${q.y} ${q.z}`); break; }
+            const why = [];
+            for (const q of spots.slice(0, 10)) {
+                const g = await mv.goto(q.back, { cancel, maxNodes: 6000, tries: 2 });
+                if (!g.ok) { why.push(`no way behind ${q.x},${q.y},${q.z}`); continue; }
+                const pr = await mv.placeItem(SPAWN_BED, q, { facing: q.facing });
+                if (pr === true) { job.bedAt = q; job.log(`${name}: spawn bed set down at ${q.x} ${q.y} ${q.z} facing ${q.facing}`); break; }
+                why.push(`${q.x},${q.y},${q.z}: ${pr}`);
             }
+            if (!job.bedAt && why.length) job.log(`${name}: spawn bed not set down: ${why.slice(0, 4).join('; ')}`);
             if (!job.bedAt) { job.bedFails = (job.bedFails || 0) + 1; job.log(`${name}: no cell took the spawn bed (${spots.length} tried)`); if (job.bedFails >= 3) job.available.delete(SPAWN_BED); return; }
         } finally { job.anchorBusy = null; }
     }
@@ -590,6 +608,7 @@ async function bench(job, name, bot, mv, cancel) {
 async function drive(job, name, bot, { cancel = { cancelled: false }, supplySites = [] } = {}) {
     if (bot.game && !['survival', 'creative'].includes(bot.game.gameMode)) return { ended: 'wrong_mode' };
     job.sites = supplySites;
+    job.ownBlock = job.ownBlock || ((x, y, z) => !!ownBlockItem(job, x, y, z));
     if (!job.bots.has(name)) job.bots.set(name, { station: null, pos: feet(bot) });
     const mv = new Mover(bot, rules(job, bot), { log: job.log });
     const onDeath = () => { const p = bot.entity && bot.entity.position, f = p ? feet(bot) : null, around = f ? [-1, 0, 1].map((dy) => (seen(bot, { x: f.x, y: f.y + dy, z: f.z }) || {}).name).join('/') : '?'; job.stats.deaths = (job.stats.deaths || 0) + 1; job.log(`${name} died at ${f ? `${f.x},${f.y},${f.z}` : '?'} (${around}), stage ${job.stage}; last: ${mv.trace.join(' | ')}`); };

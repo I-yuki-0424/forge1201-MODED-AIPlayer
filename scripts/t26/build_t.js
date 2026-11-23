@@ -82,9 +82,12 @@ async function main() {
         // to build down from: a crew placed nothing in 165 min, owner's visual check V8, ha11 w1): the lower third of the box at least 40 % rock
         for (let t = 0; t < 12; t++) {
             y0 = 40 + Math.floor(rnd() * 40);
-            let rock = 0, n = 0;
+            let rock = 0, n = 0, fort = 0;
             for (let x = cx - Math.floor(sx / 2); x < cx + sx / 2; x += 3) for (let z = cz - Math.floor(sz / 2); z < cz + sz / 2; z += 3) for (let y = y0; y < y0 + sy / 3; y += 3) { const b = at(x, y, z); n++; if (b && !/^(air|cave_air|void_air|lava|fire)$/.test(b)) rock++; }
-            console.log(`[build_t] nether height ${y0}: ${rock}/${n} of the lower third is rock`);
+            // not in a fortress (its pillars stood in the box and the chest in its hall, owner's visual check V14)
+            for (let x = cx - Math.floor(sx / 2) - 8; x < cx + sx / 2 + 8; x += 2) for (let z = cz - Math.floor(sz / 2) - 8; z < cz + sz / 2 + 8; z += 2) for (let y = y0 - 4; y < y0 + sy; y += 2) if (/nether_brick/.test(at(x, y, z) || '')) fort++;
+            console.log(`[build_t] nether height ${y0}: ${rock}/${n} of the lower third is rock, ${fort} fortress blocks around the box`);
+            if (fort > 0) throw new Error('no dry site in 30 draws (nether: a fortress at the site)');
             if (rock >= 0.4 * n) break;
             if (t === 11) throw new Error('no dry site in 30 draws (nether: open air over the lava sea)');
         }

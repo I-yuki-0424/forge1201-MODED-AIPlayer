@@ -637,9 +637,12 @@ class BuildJob {
                 const standing = wet || dug || view.stands(f.x, f.y - 1, f.z);
                 let h = 0;
                 // a stance in the air needs temporary blocks: a bot with none is never sent to one (bots without blocks were sent 61 times in a row, live 2026-11-23 ha3 w2)
-                if (!standing && !((this.tempsOf && this.tempsOf.get(name)) > 0)) { rej.unsupported++; continue; }
+                // a column of the blueprint's own plain blocks under the stance is climbed by building it (no temporary block, nothing left behind: owner 2026-11-23 V11)
+                let ownCol = false;
+                if (!standing && this.ownBlock) { let j = 1; while (j <= 12 && view.free(f.x, f.y - j, f.z) && this.ownBlock(f.x, f.y - j, f.z)) j++; ownCol = j > 1 && view.stands(f.x, f.y - j, f.z); }
+                if (!standing && !ownCol && !((this.tempsOf && this.tempsOf.get(name)) > 0)) { rej.unsupported++; continue; }
                 // the planner's own answer for this cell (drive.js asks it for stances the model below calls unsupported): reachable by any mix of pillars and turning bridges
-                const known = standing ? undefined : fc !== undefined ? fc : this.reachKnown(name, f);          // (in the flood: reachable too)
+                const known = standing ? undefined : ownCol ? 1 : fc !== undefined ? fc : this.reachKnown(name, f);          // (in the flood: reachable too)
                 if (known === false) { rej.unsupported++; continue; }
                 if (known !== undefined) h = Math.min(20, Math.ceil(known / 3));
                 else if (!standing) {
@@ -661,8 +664,10 @@ class BuildJob {
                 const eye = eyeOf({ x: f.x + 0.5, y: f.y, z: f.z + 0.5 });
                 if (boxDist(eye, seed) > this.o.reach) { rej.far++; continue; }
                 const reach = near(eye).filter((tk) => !bodyCovers(f, tk));
-                const guess = Math.hypot(f.x - me.x, f.y - me.y, f.z - me.z) * 0.08 + (standing ? 0 : 10 + 3 * h) + (dug ? 20 : 0);
-                cands.push({ f, standing, dug, reach, score: reach.length - (fc !== undefined ? fc * 0.1 : guess + (fl ? 10 : 0)) });
+                const guess = Math.hypot(f.x - me.x, f.y - me.y, f.z - me.z) * 0.08 + (standing || ownCol ? 0 : 10 + 3 * h) + (dug ? 20 : 0);
+                // a stance on temporary blocks more than one high ranks below every stance on the ground, on the build, or on one block (owner 2026-11-23 V11)
+                const tall = !standing && !ownCol && h > 1 ? 15 + 4 * h : 0;
+                cands.push({ f, standing, dug, reach, score: reach.length - tall - (fc !== undefined ? fc * 0.1 : guess + (fl ? 10 : 0)) });
             }
             cands.sort((a, b) => b.score - a.score);
             for (const c of cands.slice(0, 12)) {
@@ -958,4 +963,4 @@ function stationsAround(c, reach, down) {
     return out.sort((a, b) => a.s - b.s);
 }
 
-module.exports = { BuildJob, REACH, STAGE_OF };
+module.exports = { BuildJob, REACH, STAGE_OF, FULL };

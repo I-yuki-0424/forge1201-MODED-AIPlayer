@@ -217,7 +217,9 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
             // a bridge over a fall into lava or the void costs more (it is walked sneaking, see follow; refused outright, a site over the Nether's lava sea had no way at all,
             // live 2026-11-23 gb5 w4; walked upright, seven bots fell off such bridges, gb1 w5)
             if (move === 'bridge' && view.deadly(x, y - 1, z)) extraCost += COST.bridge;
-            const t = c.t + (extra.place ? 1 : 0);
+            // a block placed where the blueprint has a plain full block is the build itself, not a temporary block (rules.buildBlock): it costs no temporary block
+            const own = !!extra.place && !!view.rules.buildBlock && !!view.rules.buildBlock(extra.place.x, extra.place.y, extra.place.z);
+            const t = c.t + (extra.place && !own ? 1 : 0);
             if (t > temps) return;
             const g = c.g + cost + extraCost, k = key(x, y, z);
             if (g >= (best.get(k) ?? Infinity)) return;
@@ -275,7 +277,7 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
             }
         }
         // pillar up on a temporary block (head room first, broken when diggable), only from a cell the block can go into
-        if (temps > c.t && !(view.rules.noPillar && view.rules.noPillar(c.x, c.y, c.z)) && view.placeable(c.x, c.y, c.z) && view.kind(c.x, c.y + 2, c.z) !== 'avoid' && (headFree || view.diggable(c.x, c.y + 2, c.z))) add(c.x, c.y + 1, c.z, COST.pillar + COST.temp + (headFree ? 0 : view.digTicks(c.x, c.y + 2, c.z)), 'pillar', { place: { x: c.x, y: c.y, z: c.z }, dig: headFree ? null : [{ x: c.x, y: c.y + 2, z: c.z }] });
+        if ((temps > c.t || (view.rules.buildBlock && view.rules.buildBlock(c.x, c.y, c.z))) && !(view.rules.noPillar && view.rules.noPillar(c.x, c.y, c.z)) && view.placeable(c.x, c.y, c.z) && view.kind(c.x, c.y + 2, c.z) !== 'avoid' && (headFree || view.diggable(c.x, c.y + 2, c.z))) add(c.x, c.y + 1, c.z, COST.pillar + COST.temp + (headFree ? 0 : view.digTicks(c.x, c.y + 2, c.z)), 'pillar', { place: { x: c.x, y: c.y, z: c.z }, dig: headFree ? null : [{ x: c.x, y: c.y + 2, z: c.z }] });
         // dig down one (the block under the feet), onto the one under it
         if (view.diggable(c.x, c.y - 1, c.z) && view.stands(c.x, c.y - 2, c.z)) add(c.x, c.y - 1, c.z, COST.drop + view.digTicks(c.x, c.y - 1, c.z), 'down', { dig: [{ x: c.x, y: c.y - 1, z: c.z }] });
     }
@@ -542,7 +544,7 @@ class Mover {
 
     /** Pillar: jump and put the temporary block into the cell the feet leave. */
     async pillar(c) {
-        const b = this.bot, below = { x: c.x, y: c.y - 1, z: c.z }, item = this.rules.temp();
+        const b = this.bot, below = { x: c.x, y: c.y - 1, z: c.z }, own = this.rules.buildBlock ? this.rules.buildBlock(below.x, below.y, below.z) : null, item = own || this.rules.temp();
         if (!item || !(await this.hold(item))) return false;
         const p = b.entity.position;
         if (Math.hypot(below.x + 0.5 - p.x, below.z + 0.5 - p.z) > 0.2) await this.walkTo(below, { sneak: true, timeout: 1500 });          // from the cell's centre, or the block lands in the body
@@ -564,7 +566,7 @@ class Mover {
         for (let i = 0; i < 30; i++) { await sleep(50); if (b.entity.onGround && b.entity.position.y >= c.y - 0.01) break; }
         if (sneak) b.setControlState('sneak', false);
         const bb = b.blockAt(new Vec3(below.x, below.y, below.z), false);
-        if (bb && bb.boundingBox === 'block') this._temp(below, 'pillar');
+        if (bb && bb.boundingBox === 'block' && !own) this._temp(below, 'pillar');          // (the blueprint's own block stays: it is the build)
         return feet(b).y === c.y;
     }
 
@@ -584,7 +586,7 @@ class Mover {
         }
         if (s.move === 'bridge') {
             // sneak out over the edge (the body keeps 0.05 on the support), then click the support's side face toward the gap: its block goes under the next cell
-            const b = this.bot, dx = s.x - prev.x, dz = s.z - prev.z, item = this.rules.temp();
+            const b = this.bot, dx = s.x - prev.x, dz = s.z - prev.z, own = this.rules.buildBlock ? this.rules.buildBlock(s.place.x, s.place.y, s.place.z) : null, item = own || this.rules.temp();
             if (!item || !(await this.hold(item))) return { ok: false, why: 'bridge: no temporary block' };
             const edge = { x: prev.x + 0.5 + dx * LEAN, z: prev.z + 0.5 + dz * LEAN };
             b.setControlState('sneak', true);
@@ -615,7 +617,7 @@ class Mover {
             }
             const bb = b.blockAt(new Vec3(s.place.x, s.place.y, s.place.z), false);
             if (!bb || bb.boundingBox !== 'block') return { ok: false, why: 'bridge place' };
-            this._temp(s.place, 'bridge');
+            if (!own) this._temp(s.place, 'bridge');
             return (await this.walkTo(s)) ? { ok: true } : { ok: false, why: 'bridge walk' };
         }
         return { ok: false, why: `unknown move ${s.move}` };
