@@ -15,7 +15,7 @@ const { View, feet } = require('./move');
 const P = require('./place');
 
 const REACH = 4.4;                 // eye to the cell's box (a vanilla client picks within 4.5)
-const WINDOW = 4;                  // layers above the lowest open one that may be placed at the same time (2 left 1.8 tasks per place claim in thin layers, a pillar for each, live 2026-11-23 gc1 w3)
+const WINDOW = 7;                  // (7: what one stance reaches, eye +-4.4, owner list 4 problem 4; 4 held 3 900 cells above the local window, live ha4 w2) layers above the lowest open one that may be placed at the same time (2 left 1.8 tasks per place claim in thin layers, a pillar for each, live 2026-11-23 gc1 w3)
 const MAX_FAILS = 8;               // tries of one cell before it is parked (reported, not tried again until the next round)
 const BATCH = 64;                  // tasks per claim (everything within reach of the stance: walking was the largest share of the time, live 2026-11-22)
 const ROUNDS = 3;                  // extra rounds for parked cells before the build ends with them reported
@@ -402,6 +402,8 @@ class BuildJob {
             // kept while the crew uses it (someone on it within 90 s): a bridge between the chest and the site taken away after each crossing was built again by the next bot,
             // 2 230 times on one Nether world (live 2026-11-23 fz3 w6)
             if (cols.some((p) => Math.abs(p.x - x) <= 0 && Math.abs(p.z - z) <= 0 && p.y > y && p.y <= y + 80)) { m.used = now; continue; }
+            // and while a bot is near it (four cells, about its height): a bridge dug beside a bot that was still walking it dropped the bot 25 blocks (live 2026-11-23 ha4 w4)
+            if (cols.some((p) => Math.abs(p.x - x) <= 4 && Math.abs(p.z - z) <= 4 && p.y >= y - 1 && p.y <= y + 5)) { m.used = now; continue; }
             // taken away soon after the last use (owner 2026-11-23 list 4 problem 8: walking blocks are not worth keeping; with one supply trip per area the chest crossing is rare)
             if (now - Math.max(m.t, m.used || 0) < 10000) continue;
             const tk = { k, kind: 'untemp', i: -1, x, y, z };
