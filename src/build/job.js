@@ -598,7 +598,9 @@ class BuildJob {
             return (tk.kind === 'place' || tk.kind === 'fix' ? 2000 + tk.y * 3 : (down ? -tk.y : tk.y) * 2) + d * 0.6 + crowd(tk) * 30 + (inSec(tk) ? 0 : 400) + (tk.kind === 'seal' || tk.kind === 'fill' ? -1000 : 0) + (this.noStance.has(tk.k) ? 5000 : 0);
         };
         doable.sort((a, b) => seedScore(a) - seedScore(b));
-        const view = new View(bot, { canDig: () => false }), blocked = this.standBlocked(name);
+        // the stance cells are judged with the bot's own mover rules (what it may dig, blocks about to go, cells no temporary block may take): judged with rules of its own,
+        // the claim sent a bot 30 000 cells of search to a cell three above it that the mover may not dig (live 2026-11-24 ha18 w2)
+        const MR = this.moverRules && this.moverRules.get(name), view = new View(bot, MR || { canDig: () => false }), blocked = this.standBlocked(name);
         // the cells this bot can reach, when a search from where it stands found them all (move.js plan region): only stances among them
         const R = this.reachOf && this.reachOf.get(name), inReach = R && R.from === key(me.x, me.y, me.z) ? (f) => R.cells.has(key(f.x, f.y, f.z)) : null;
         // the mover's own flood from where the bot stands (drive.js, Mover.flood): a stance in it is reachable at its cost; one outside a complete flood is not reachable at all;
@@ -631,7 +633,7 @@ class BuildJob {
                 const dug = !view.fits(f.x, f.y, f.z);
                 // a stance dug into the ground: cells to clear anyway, or natural terrain outside the box (the edge cells of a box sunk in rock had no stance and everything
                 // under them stayed unmined, owner 2026-11-23 list 3 problem 2); never a built cell; on a floor
-                const diggableAt = (y) => { if (view.free(f.x, y, f.z) || (this.tasks.get(key(f.x, y, f.z)) || {}).kind === 'clear') return true; if (this.t.inside(f.x, y, f.z)) return false; const q = view.raw(f.x, y, f.z); return !!q && TERRAIN.test(q.name); };
+                const diggableAt = (y) => { if (view.free(f.x, y, f.z)) return true; if (MR && !view.diggable(f.x, y, f.z)) return false; if ((this.tasks.get(key(f.x, y, f.z)) || {}).kind === 'clear') return true; if (this.t.inside(f.x, y, f.z)) return false; const q = view.raw(f.x, y, f.z); return !!q && TERRAIN.test(q.name); };
                 if (dug && !([f.y, f.y + 1].every(diggableAt) && (view.stands(f.x, f.y - 1, f.z) || view.kind(f.x, f.y - 1, f.z) === 'solid'))) { rej.solid++; continue; }
                 const wet = view.kind(f.x, f.y, f.z) === 'water';
                 const standing = wet || dug || view.stands(f.x, f.y - 1, f.z);

@@ -107,6 +107,7 @@ async function fetch(bot, site, needs, mover, spot, { log = () => {}, depot = []
     const over = () => cancel.cancelled || Date.now() > end;
     let complete = true;                  // every container that may hold the items was looked into (only then is an item missing from all of them "absent")
     let retired = 0;                      // empty depot boxes picked up on this trip (they go back into the chest)
+    let reshelve = false;                 // a full box taken up (it did not open): back into the chest at the end of the trip
     const still = () => Object.entries(want).filter(([, n]) => n > 0);
     // what is still wanted is counted from the pack, not from what the clicks meant to move (stale windows moved several stacks per click: 832 smooth stone for 282, ha2 w4)
     // counted by what was clicked (the pack's own count lags the clicks: counted from it, one bot took 14 pickaxes and another 1 088 dirt, live 2026-11-23 ha3 w2); `reconcile` at
@@ -149,7 +150,14 @@ async function fetch(bot, site, needs, mover, spot, { log = () => {}, depot = []
             let again = false;
             if (lid && lid.boundingBox === 'block' && !SHULKER.test(lid.name) && !/chest|barrel/.test(lid.name)) { log(`supply: depot box at ${c.x},${c.y},${c.z} is shut by ${lid.name} at ${L.x},${L.y},${L.z}: dug away`); again = await mover.dig(L); }
             if (again) { try { await takeFrom(c); } catch (_) { again = false; } }
-            if (!again) { complete = false; log(`supply: depot box at ${c.x},${c.y},${c.z}: ${e.message}`); return; }
+            if (!again) {
+                complete = false; log(`supply: depot box at ${c.x},${c.y},${c.z}: ${e.message}`);
+                // a box that does not open (something on its lid we may not dig, a bot on it): broken with what it holds (a shulker box keeps it), picked up and put back into
+                // the chest, from where the next trip sets it down somewhere free (the crew's last dirt sat in a box that never opened: trips came back empty, live 2026-11-24 ha18 w4)
+                const n0 = boxes(bot).length;
+                if (await mover.dig(c)) { for (let i = 0; i < 30 && boxes(bot).length <= n0; i++) await sleep(100); const k = depot.indexOf(c); if (k >= 0) depot.splice(k, 1); if (boxes(bot).length > n0) { reshelve = true; log(`supply: the box from ${c.x},${c.y},${c.z} was taken up to be set down again`); } }
+                return;
+            }
         }
         if (c.holds && !Object.keys(c.holds).length) await retire(c);
     };
@@ -199,6 +207,7 @@ async function fetch(bot, site, needs, mover, spot, { log = () => {}, depot = []
         if (lock(c)) { try { await useBox(c); } finally { unlock(c); } }
     }
     // emptied boxes back into the chest (they are the supply's, and the Nether blueprint builds with shulker boxes)
+    if (reshelve && (await waitLock(site, 20000))) { try { await near(bot, mover, site); await putBack(bot, site); } catch (e) { log(`supply: the box not put back: ${e.message}`); } finally { unlock(site); } }
     if (retired && (await waitLock(site, 20000))) { try { await near(bot, mover, site); await depositEmpty(bot, site, retired); } catch (e) { log(`supply: empty boxes not put back: ${e.message}`); } finally { unlock(site); } }
     // whole stacks over the need go back into the chest (whatever the windows did)
     await sleep(400);

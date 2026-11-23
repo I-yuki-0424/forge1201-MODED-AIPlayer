@@ -197,12 +197,14 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
     open.push({ x: start.x, y: start.y, z: start.z, g: 0, f: hh(start.x, start.y, start.z), t: 0, p: null, move: 'start' });
     best.set(key(start.x, start.y, start.z), 0);
     const inBox = (x, y, z) => !box || (x >= box.x0 && x <= box.x1 && y >= box.y0 && y <= box.y1 && z >= box.z0 && z <= box.z1);
-    let n = 0, spent = 0, slice = Date.now();
+    let n = 0, spent = 0, slice = Date.now(), closest = null;
     while (open.size && n++ < maxNodes) {
         // a long search gives the event loop back after 25 ms of its own time and ends after `budgetMs` of it (by node counts, a slice beside the Nether's lava, where every cell
         // looks at 78 others, held all eight bots for 1.5-6 s: ping, owner 2026-11-23 problem 5; a synchronous search froze the work console for 25 s, live 2026-11-22)
-        if (n % 32 === 0 && Date.now() - slice > 25) { spent += Date.now() - slice; if (spent > budgetMs) { plan.last = { why: 'time', nodes: n, best }; if (out) Object.assign(out, plan.last); return null; } await new Promise((r) => setImmediate(r)); slice = Date.now(); }
+        if (n % 32 === 0 && Date.now() - slice > 25) { spent += Date.now() - slice; if (spent > budgetMs) { plan.last = { why: 'time', nodes: n, best, closest }; if (out) Object.assign(out, plan.last); return null; } await new Promise((r) => setImmediate(r)); slice = Date.now(); }
         const c = open.pop();
+        // the cell closest to the estimate's point (for the log: where a failed search got stuck)
+        { const d = Math.abs(c.x - h.x) + Math.abs(c.y - h.y) * 1.5 + Math.abs(c.z - h.z); if (!closest || d < closest.d) closest = { x: c.x, y: c.y, z: c.z, d, t: c.t, g: Math.round(c.g) }; }
         if (goal(c.x, c.y, c.z)) { const out = []; for (let q = c; q; q = q.p) out.push({ x: q.x, y: q.y, z: q.z, move: q.move, dig: q.dig || null, place: q.place || null }); return out.reverse(); }
         if ((best.get(key(c.x, c.y, c.z)) ?? Infinity) < c.g) continue;
         const add = (x, y, z, cost, move, extra = {}) => {
@@ -282,7 +284,7 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
         if (view.diggable(c.x, c.y - 1, c.z) && view.stands(c.x, c.y - 2, c.z)) add(c.x, c.y - 1, c.z, COST.drop + view.digTicks(c.x, c.y - 1, c.z), 'down', { dig: [{ x: c.x, y: c.y - 1, z: c.z }] });
     }
     // searched out: every cell the bot can get to from here (the caller offers it only stances among them)
-    plan.last = { why: open.size ? 'nodes' : 'no more cells', nodes: n, region: open.size ? null : best, best };
+    plan.last = { why: open.size ? 'nodes' : 'no more cells', nodes: n, region: open.size ? null : best, best, closest };
     if (out) Object.assign(out, plan.last);
     return null;
 }
@@ -692,10 +694,20 @@ class Mover {
             const route = await plan(view, start, g, to, { maxNodes, temps, box, lavaCost, maxDrop });
             if (!route) {
                 const l = plan.last || {};
+                // which of the crew's rules made the search fail (at most once a minute per bot): the plan again without one rule at a time; the first that finds a way is logged
+                if ((l.why === 'nodes' || l.why === 'time') && Date.now() - (this.diagAt || 0) > 60000) {
+                    this.diagAt = Date.now();
+                    for (const drop of ['doomed', 'occupied', 'columnBusy', 'noPillar', 'noTemp']) {
+                        if (!this.rules[drop]) continue;
+                        const r2 = { ...this.rules }; delete r2[drop];
+                        const o2 = {}, ok = await plan(new View(this.bot, r2), start, g, to, { maxNodes, temps, box, lavaCost, maxDrop, budgetMs: 1500, out: o2 });
+                        if (ok) { this.log(`[diag] ${this.bot.username}: no way to ${to.x},${to.y},${to.z} with the crew's rules, a way of ${ok.length} steps without '${drop}'`); break; }
+                    }
+                }
                 // nothing at all from where the bot believes it is (its picture of its own position is off: live 2026-11-22 the server had it on the chest, the bot a cell higher):
                 // a jump lets the physics and the server's correction settle it, then plan again
                 if (l.nodes <= 2 && t < tries - 1) { this.bot.setControlState('jump', true); await sleep(350); this.bot.setControlState('jump', false); await sleep(700); continue; }
-                return { ok: false, nodes: l.nodes, region: l.region ? new Set(l.region.keys()) : null, why: `no plan (${l.why}, ${l.nodes} cells from ${start.x},${start.y},${start.z}; ${temps} ${this.rules.temp()}; goal ${view.kind(to.x, to.y, to.z)}/${view.kind(to.x, to.y + 1, to.z)} over ${view.kind(to.x, to.y - 1, to.z)}${view.stands(to.x, to.y - 1, to.z) ? ' stands' : ''}${view.nearLava(to.x, to.y, to.z) ? ' lava' : ''})`, from: start, steps };
+                return { ok: false, nodes: l.nodes, region: l.region ? new Set(l.region.keys()) : null, why: `no plan (${l.why}, ${l.nodes} cells from ${start.x},${start.y},${start.z}${l.closest ? `, closest ${l.closest.x},${l.closest.y},${l.closest.z} (${l.closest.t} temps)` : ''}; ${temps} ${this.rules.temp()}; goal ${view.kind(to.x, to.y, to.z)}/${view.kind(to.x, to.y + 1, to.z)} over ${view.kind(to.x, to.y - 1, to.z)}${view.stands(to.x, to.y - 1, to.z) ? ' stands' : ''}${view.nearLava(to.x, to.y, to.z) ? ' lava' : ''})`, from: start, steps };
             }
             // the blocks the route stands on: the crew does not dig them while the bot walks (job, drive.js rules.onRoute)
             if (this.rules.onRoute) this.rules.onRoute(route);

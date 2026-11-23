@@ -39,7 +39,9 @@ function rules(job, bot) {
         // the item to climb or bridge with in cell (x, y, z) when the blueprint has a plain full block there and the bot carries it: the climb builds the structure
         buildBlock: (x, y, z) => { const it = ownBlockItem(job, x, y, z); if (!it) return null; return bot.inventory.items().some((i) => i.name === it) ? it : null; },
         // a block another bot is about to dig (its claim): not stood on by a plan
-        doomed: (x, y, z) => { const k = `${x},${y},${z}`, by = job.claims.get(k); if (!by || by === bot.username) return false; const t = job.tasks.get(k); return !!t && (t.kind === 'clear' || t.kind === 'untemp'); },
+        // (only when that bot's stance is within reach of it: every block of the other bots' 64-task claims counted, and large parts of the ground dropped out of the plans:
+        // 30 000-cell searches failed where a plan of 45 steps existed, probe 2026-11-24 ha18 w2)
+        doomed: (x, y, z) => { const k = `${x},${y},${z}`, by = job.claims.get(k); if (!by || by === bot.username) return false; const t = job.tasks.get(k); if (!t || !(t.kind === 'clear' || t.kind === 'untemp')) return false; const o = job.bots.get(by), st = o && o.station && o.station[0]; return !!st && Math.abs(st.x - x) <= 5 && Math.abs(st.z - z) <= 5 && Math.abs(st.y - y) <= 6; },
         onRoute: (route) => { (job.routes || (job.routes = new Map())).set(bot.username, { floors: new Set(route.map((c) => `${c.x},${c.y - 1},${c.z}`)), until: Date.now() + 30000 }); },
         occupied: (x, y, z) => crewAt(job, bot).some((q) => Math.floor(q.x) === x && Math.floor(q.z) === z && Math.floor(q.y + 0.16) === y),
         // cells no temporary block may go into: a depot box's lid cell, the cells over the chests and the respawn anchor (a pillar block on a box's lid shut it for good)
@@ -620,6 +622,7 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
     job.ownBlock = job.ownBlock || ((x, y, z) => !!ownBlockItem(job, x, y, z));
     if (!job.bots.has(name)) job.bots.set(name, { station: null, pos: feet(bot) });
     const mv = new Mover(bot, rules(job, bot), { log: job.log });
+    (job.moverRules || (job.moverRules = new Map())).set(name, mv.rules);          // the claim judges stances by these
     const onDeath = () => { const p = bot.entity && bot.entity.position, f = p ? feet(bot) : null, around = f ? [-1, 0, 1].map((dy) => (seen(bot, { x: f.x, y: f.y + dy, z: f.z }) || {}).name).join('/') : '?'; job.stats.deaths = (job.stats.deaths || 0) + 1; job.log(`${name} died at ${f ? `${f.x},${f.y},${f.z}` : '?'} (${around}), stage ${job.stage}; last: ${mv.trace.join(' | ')}`); };
     bot.on('death', onDeath);
     // the server dropped the spawn point (the bed broken or shut in): set again
