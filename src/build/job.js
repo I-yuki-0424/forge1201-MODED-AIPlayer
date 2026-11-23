@@ -658,12 +658,16 @@ class BuildJob {
 
     /** How far (cells) a stance in the air is from ground at its own height that a bridge can start from, in a straight line over free cells; null when none within 24. */
     _bridgeFrom(view, f) {
-        for (let k = 1; k <= 24; k++) for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        // ground at the stance's height, or up to eight lower (a pillar there first), up to 48 cells away in a straight line over free cells (a box over the Nether's lava sea had
+        // every stance "unsupported" with its cliff 30 away, live 2026-11-23 gf1 w5)
+        for (let k = 1; k <= 48; k++) for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
             const x = f.x + dx * k, z = f.z + dz * k;
-            if (view.stands(x, f.y - 1, z) && view.fits(x, f.y, z)) {
-                let ok = true;
-                for (let j = 1; j < k && ok; j++) { const xx = f.x + dx * j, zz = f.z + dz * j; if (!view.fits(xx, f.y, zz) || view.kind(xx, f.y - 1, zz) !== 'free') ok = false; }
-                if (ok) return k;
+            let line = true;
+            for (let j = 1; j < k && line; j++) { const xx = f.x + dx * j, zz = f.z + dz * j; if (!view.fits(xx, f.y, zz) || view.kind(xx, f.y - 1, zz) !== 'free') line = false; }
+            if (!line) break;
+            for (let dy = 0; dy <= 8; dy++) {
+                if (!view.fits(x, f.y - dy, z)) break;
+                if (view.stands(x, f.y - 1 - dy, z)) return k + dy * 2;
             }
         }
         return null;
