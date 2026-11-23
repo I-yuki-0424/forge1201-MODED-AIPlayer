@@ -53,7 +53,7 @@ function rules(job, bot) {
  * supply's temporary block and the rubble of a hill: kept whole, 26 stacks of it filled the pack and every supply trip came back empty (live 2026-11-22 tr8).
  */
 function keepRubble(job) {
-    let temps = 192;
+    let temps = 320;          // five stacks (at three the crew threw away its blocks after clearing and stood at the chest without any: live 2026-11-23 ha11 w3)
     return (n, count) => {
         if (SUP.TEMPS.includes(n) && !job.t.items.has(n)) { if (temps <= 0) return false; temps -= count; return true; }
         return job.t.items.has(n) || job.available.has(n);
@@ -209,6 +209,8 @@ async function work(job, name, bot, mv, cl, cancel) {
     await sleep(250);
     for (const tk of done) { const h = holds(job, bot, tk); results.push({ tk, ok: h.ok, why: h.why }); }
     await unscaffold(job, bot, mv);
+    // its own pillar down at once, the stance's work done (owner 2026-11-23 V7: temporary blocks go as soon as they have served)
+    { const tu = Date.now(); await mv.unpillar(null, () => false, cancel); job.time.walk += Date.now() - tu; }
     return results;
 }
 
@@ -367,6 +369,46 @@ async function anchor(job, name, bot, mv, cancel) {
     (job.spawnSet || (job.spawnSet = new Set())).add(name);
     job.log(`${name}: spawn set at the respawn anchor (${charges(bot, a)} charges)`);
 }
+/**
+ * The Overworld's respawn point: a bed (from the supply, not the blueprint's) set down beside the chest; every bot clicks it with an empty hand (by day that sets the spawn).
+ * Without it a bot that died woke at the world's spawn, hundreds of blocks away, and stood at another crew's chest for the rest of the run (live 2026-11-23 ha11 w3).
+ */
+const SPAWN_BED = 'red_bed';
+async function bedSpawn(job, name, bot, mv, cancel) {
+    if (inNether(bot) || !job.available || !job.available.has(SPAWN_BED) || !job.sites[0]) return;
+    if (!job.bedAt) {
+        if (job.anchorBusy) return;
+        job.anchorBusy = name;
+        try {
+            if (!bot.inventory.items().some((i) => i.name === SPAWN_BED)) await supplyTrip(job, name, bot, mv, { [SPAWN_BED]: 1 }, within(cancel, 180000));
+            if (!bot.inventory.items().some((i) => i.name === SPAWN_BED)) { job.bedFails = (job.bedFails || 0) + 1; if (job.bedFails >= 3) job.available.delete(SPAWN_BED); return; }
+            const c = job.sites[0], v = mv.view(), me = feet(bot), spots = [];
+            for (let r = 3; r <= 6; r++) for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) for (const dy of [0, 1, -1]) {
+                if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+                const q = { x: c.x + dx, y: c.y + dy, z: c.z + dz };
+                if (job.t.inside(q.x, q.y, q.z) || (q.x === me.x && q.z === me.z)) continue;
+                // the bed's other half goes where the bot looks: every side of the cell free and on a floor
+                if (![[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].every(([ax, az]) => v.free(q.x + ax, q.y, q.z + az) && v.free(q.x + ax, q.y + 1, q.z + az) && v.stands(q.x + ax, q.y - 1, q.z + az))) continue;
+                spots.push(q);
+            }
+            for (const q of spots.slice(0, 6)) {
+                await mv.goto(q, { goal: (x, y, z) => Math.hypot(x + 0.5 - (q.x + 0.5), y + 1.62 - (q.y + 0.5), z + 0.5 - (q.z + 0.5)) <= 4 && Math.hypot(x - q.x, z - q.z) >= 2.5, cancel, maxNodes: 6000 });
+                if ((await mv.placeItem(SPAWN_BED, q)) === true) { job.bedAt = q; job.log(`${name}: spawn bed set down at ${q.x} ${q.y} ${q.z}`); break; }
+            }
+            if (!job.bedAt) { job.bedFails = (job.bedFails || 0) + 1; job.log(`${name}: no cell took the spawn bed (${spots.length} tried)`); if (job.bedFails >= 3) job.available.delete(SPAWN_BED); return; }
+        } finally { job.anchorBusy = null; }
+    }
+    const a = job.bedAt;
+    const r = await mv.goto(a, { goal: (x, y, z) => Math.hypot(x + 0.5 - (a.x + 0.5), y + 1.62 - (a.y + 0.5), z + 0.5 - (a.z + 0.5)) <= 4 && Math.hypot(x - a.x, z - a.z) >= 1.5, cancel, maxNodes: 20000 });
+    if (!r.ok) { job.log(`${name}: no way to the spawn bed (${r.why})`); return; }
+    const b = bot.blockAt(new Vec3(a.x, a.y, a.z), false);
+    if (!b || !/_bed$/.test(b.name)) { job.log(`${name}: the spawn bed at ${a.x} ${a.y} ${a.z} is gone`); job.bedAt = null; return; }
+    await mv.holdNothing();
+    await mv.click([a.x, a.y, a.z], 'up', [a.x + 0.5, a.y + 0.5625, a.z + 0.5]);
+    (job.spawnSet || (job.spawnSet = new Set())).add(name);
+    job.log(`${name}: spawn set at the bed`);
+}
+
 const charges = (bot, a) => { const b = bot.blockAt(new Vec3(a.x, a.y, a.z), false); return b && b.name === 'respawn_anchor' ? Number((b.getProperties() || {}).charges || 0) : -1; };
 
 /**
@@ -384,12 +426,13 @@ function needsFor(job, bot, need) {
         const want = cap - (have[it] || 0); if (want > 0) out[it] = want;
     }
     const temps = SUP.TEMPS.filter((t) => !job.t.items.has(t)).reduce((a, t) => a + (have[t] || 0), 0);
-    if (job.tempItem && temps < 64) out[job.tempItem] = 192 - temps;
-    for (const tool of ['pickaxe', 'shovel', 'axe']) if (!bot.inventory.items().some((i) => i.name.endsWith('_' + tool) && !worn(bot, i))) { const best = job.supply && Object.keys(job.supply.totals).find((k) => k.endsWith('_' + tool)); if (best) out[best] = 1; }
+    if (job.tempItem && temps < 128) out[job.tempItem] = 320 - temps;
+    // tools with a margin: a spare pickaxe in the pack, worn at a fifth of its life (bots dug on by hand when the only one broke mid-claim, owner 2026-11-23 V10)
+    for (const tool of ['pickaxe', 'shovel', 'axe']) { const n = bot.inventory.items().filter((i) => i.name.endsWith('_' + tool) && !worn(bot, i)).length, want = tool === 'pickaxe' ? 2 : 1; if (n < want) { const best = job.supply && Object.keys(job.supply.totals).find((k) => k.endsWith('_' + tool)); if (best) out[best] = want - n; } }
     for (const k of Object.keys(out)) if ((job.outOf && job.outOf.get(k) || 0) > Date.now()) delete out[k];          // the chest ran out of it a while ago: not fetched again yet (tools too: the filter ran before they were added)
     return out;
 }
-function worn(bot, it) { const max = (bot.registry.itemsByName[it.name] || {}).maxDurability; if (!max) return false; const dmg = (it.components || []).find((c) => c && c.type === 'damage'); const d = dmg ? Number(dmg.data) : (it.durabilityUsed || 0); return max - d < 12; }
+function worn(bot, it) { const max = (bot.registry.itemsByName[it.name] || {}).maxDurability; if (!max) return false; const dmg = (it.components || []).find((c) => c && c.type === 'damage'); const d = dmg ? Number(dmg.data) : (it.durabilityUsed || 0); return max - d < Math.max(12, max * 0.2); }
 
 /** One trip to the materials containers (one bot at a container at a time). */
 async function supplyTrip(job, name, bot, mv, need, cancel) {
@@ -592,6 +635,9 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
                 await job.supplyReading; await sleep(200); continue;
             }
             // (at most every two minutes per bot: without glowstone it went for it on every turn of the loop, 107 trips, live 2026-11-23 ha5 w1)
+            if (!inNether(bot) && job.available.has(SPAWN_BED) && !(job.spawnSet && job.spawnSet.has(name)) && !job.anchorBusy && Date.now() - ((job.anchorTry && job.anchorTry.get(name)) || 0) > 120000) { (job.anchorTry || (job.anchorTry = new Map())).set(name, Date.now()); await bedSpawn(job, name, bot, mv, cancel); }
+            // far from its site (it woke at the world's spawn after a death): it leaves the crew instead of working another crew's site (live 2026-11-23 ha11 w3)
+            { const b0 = job.t.box, p = bot.entity.position, d = Math.hypot(p.x - (b0.x + b0.sx / 2), p.z - (b0.z + b0.sz / 2)); if (d > 200) { job.log(`${name} is ${Math.round(d)} blocks from the site (respawned far away): it leaves the crew`); return { ended: 'too_far' }; } }
             if (inNether(bot) && job.available.has('respawn_anchor') && !(job.spawnSet && job.spawnSet.has(name)) && !job.anchorBusy && Date.now() - ((job.anchorTry && job.anchorTry.get(name)) || 0) > 120000) { (job.anchorTry || (job.anchorTry = new Map())).set(name, Date.now()); await anchor(job, name, bot, mv, cancel); }
             if (job.exhausted()) { await job.resurvey(bot, `${name}: stage ${job.stage} done`); continue; }
             // tools and temporary blocks before the work needs them

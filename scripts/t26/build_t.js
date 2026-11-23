@@ -77,7 +77,18 @@ async function main() {
     const GROUNDLESS = /^(air|cave_air|void_air|.*_leaves|.*_log|.*_wood|vine|short_grass|tall_grass|fern|large_fern|.*_flower|dandelion|poppy|snow|water|lava|bamboo|sugar_cane)$/;
     const groundY = (x, z, top) => { for (let y = top; y > (NETHER ? 32 : -60); y--) { const n = at(x, y, z); if (n && !GROUNDLESS.test(n)) return y; } return null; };
     let y0;
-    if (NETHER) y0 = 40 + Math.floor(rnd() * 40);                                                       // somewhere inside the Nether's rock, above the lava sea, under the roof
+    if (NETHER) {
+        // somewhere inside the Nether's rock, above the lava sea, under the roof; not a box hanging in the open over the lava sea (nothing to stand on or pillar from, nothing
+        // to build down from: a crew placed nothing in 165 min, owner's visual check V8, ha11 w1): the lower third of the box at least 40 % rock
+        for (let t = 0; t < 12; t++) {
+            y0 = 40 + Math.floor(rnd() * 40);
+            let rock = 0, n = 0;
+            for (let x = cx - Math.floor(sx / 2); x < cx + sx / 2; x += 3) for (let z = cz - Math.floor(sz / 2); z < cz + sz / 2; z += 3) for (let y = y0; y < y0 + sy / 3; y += 3) { const b = at(x, y, z); n++; if (b && !/^(air|cave_air|void_air|lava|fire)$/.test(b)) rock++; }
+            console.log(`[build_t] nether height ${y0}: ${rock}/${n} of the lower third is rock`);
+            if (rock >= 0.4 * n) break;
+            if (t === 11) throw new Error('no dry site in 30 draws (nether: open air over the lava sea)');
+        }
+    }
     else { const g = groundY(cx, cz, 200); if (g === null) throw new Error('no ground under the site'); y0 = g + Math.floor(rnd() * 4) - 2; }
     const M = { x: cx - Math.floor(sx / 2), y: y0, z: cz - Math.floor(sz / 2) };
     const pos = { x: M.x - placed0.origin.x, y: M.y - placed0.origin.y, z: M.z - placed0.origin.z };
@@ -103,13 +114,14 @@ async function main() {
     const items = new Map([...target.items].map(([k, n]) => [k, Math.ceil(n * 1.05)]));
     if (target.portals.length) items.set('flint_and_steel', Math.max(items.get('flint_and_steel') || 0, 2 + Math.ceil(target.portals.length / 20)));
     // temporary blocks (pillars, bridges, supports, fluid fills): the first scaffold block the blueprint does not use (a blueprint with dirt in it left the crew without any)
-    { const tmp = SUP.TEMPS.find((n) => !items.has(n)); items.set(tmp, Number(process.env.TEMPS || 64 * 24)); }
+    { const tmp = SUP.TEMPS.find((n) => !items.has(n)); items.set(tmp, Number(process.env.TEMPS || 64 * 48)); }          // (24 stacks ran out: the crew stood at the chest with 1-4 blocks each, ha11 w3)
     // tools by the work, not only by the crew: a diamond pickaxe lasts 1 561 blocks; a two-bot Nether crew had 6 for about 25 000 cells of netherrack and dug with bare hands
     // (owner 2026-11-23 V5). The box's volume bounds what is dug.
     const vol = sx * sy * sz;
     for (const [tool, n] of [['diamond_pickaxe', BOTS * 3 + Math.ceil(vol / 1500)], ['diamond_shovel', BOTS * 2 + Math.ceil(vol / 8000)], ['diamond_axe', BOTS * 3]]) items.set(tool, n);
     // the Nether: a respawn anchor and glowstone (a bot that dies there respawns at the anchor, not in the Overworld: the crew of a Nether run was left behind there, owner 2026-11-23)
     if (NETHER) { items.set('respawn_anchor', 2); items.set('glowstone', 48); }
+    else items.set('red_bed', 2);          // the crew's respawn point beside the chest (a bot that died woke at the world's spawn, hundreds of blocks away)
     const stacks = []; for (const [it, n] of items) { const st = STACK(it); for (let r = Math.max(1, n); r > 0; r -= st) stacks.push({ it, n: Math.min(st, r) }); }
     // shulker boxes the blueprint uses go loose into the chest (vanilla keeps a shulker box out of another one)
     const loose = stacks.filter((st) => SUP.SHULKER.test(st.it)), packed = stacks.filter((st) => !SUP.SHULKER.test(st.it));
