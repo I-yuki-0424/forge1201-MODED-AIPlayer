@@ -240,3 +240,20 @@ a block another bot has claimed, no bot digs under another's current route) and 
 claim tried only twelve seeds, the same stance-less ones each time (they now go last); the harness took an ocean site after 30 failed draws (it refuses now). ha7 at 20 min: 0
 deaths over 12 crews, Overworld 540-1 860 placed. What slows the crews after ~30 min (ha8 w3, 1 560 -> 1 580 placed in four minutes): cells in the air whose stances are all
 `unsupported` (442-545 rejections per parked cell: no pillar column to ground over built blocks, no straight bridge), the handover's open point 1. No build has finished yet.
+
+### Owner's visual checks V1-V6 and two more problems (2026-11-23 evening), batches ha9-ha11
+
+| Check | Seen by the owner | Fix |
+| :-- | :-- | :-- |
+| V1 | two Nether bots on netherrack, one floating a little, the way out open | a bot whose walk makes no progress while it is off the ground (a gap too low for the body: the server's crawl pose, unknown to the bot's physics) digs out the cells round its head and jumps (`unwedge`, logged `wedged at`); ha10-ha11: 0-5 per crew, none stayed stuck |
+| V2 | no heap of empty boxes | (works) |
+| V3 | units rarely whole: a bed or trapdoor missing | parked blocks say "no way to the stance"; see the open point below |
+| V4 | many temporary columns beside the units | the mover climbs down its pillar whenever it leaves it (unless the next stance is on the same column), breaks its bridge blocks behind it, temps within three cells are taken between the work: about 2 000 taken back per crew in 25 min (ha11) |
+| V5 | Nether bots digging with bare hands | tools by the volume to dig (`build_t`: pickaxes = 3 per bot + box volume / 1 500) |
+| V6 | no jumping between pillar tops | (works) |
+| Bd4f | shut in by the blueprint's glass around its own cell | no block that leaves the bot's own cell without a side or the top open (`shutsIn`) |
+| tiers | the upper tiers of the Nether gate hardly built | stances the claim's model calls unsupported are asked of the planner (`Mover.canReach`, at most six a minute per bot); in ha10-ha11 none of them was reachable either: open |
+
+Open, as measured on ha10/ha11: the place pace halves after ~25 min (to 26-34 blocks a minute) on cells in the air whose stances are all `unsupported` (435-485 rejections per
+parked cell) and that the planner cannot reach within 20 000 cells either; walking is 65 % of bot time. The next step is a builder's way up the structure itself (stairs of
+temporary blocks inside the box, standing on built tops) rather than more searching.
