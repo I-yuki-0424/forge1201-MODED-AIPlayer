@@ -386,7 +386,8 @@ async function supplyTrip(job, name, bot, mv, need, cancel) {
         for (const k of Object.keys(res.got)) if (job.outOf) job.outOf.delete(k);
         if (Object.keys(res.short).length && !Object.keys(res.got).length) tell(job, name, bot, 'supply', `came back without ${Object.keys(res.short).slice(0, 4).join(', ')}${(res.absent || []).length ? ` (none left: ${res.absent.slice(0, 3).join(', ')})` : ''}`);
         // a tool the trip came back without is not asked for again for ten minutes (bots walked to the chest every minute for an axe it did not give, live 2026-11-22 sR2 w3)
-        for (const k of Object.keys(wants)) if (SUP.TOOL.test(k) && !res.got[k]) (job.outOf = job.outOf || new Map()).set(k, Date.now() + 600000);
+        // (only when no container has any: a box another bot had open is not 'out', bots dug stone by hand for ten minutes, live 2026-11-23 ha2 w4)
+        for (const k of Object.keys(wants)) if (SUP.TOOL.test(k) && !res.got[k] && (res.absent || []).includes(k)) (job.outOf = job.outOf || new Map()).set(k, Date.now() + 600000);
         if (!Object.keys(res.got).length) job.record(name).empty.push(Date.now());
         return Object.keys(res.got).length > 0;
     } catch (e) { job.log(`${name}: supply trip failed: ${e.message}`); return false; }
@@ -490,10 +491,11 @@ function pickBoxSpot(job, bot, c, digging, only = null, { far = false } = {}) {
 async function bench(job, name, bot, mv, cancel) {
     const b = job.t.box, c = job.sites[0] || feet(bot), others = crewAt(job, bot), v = mv.view();
     const off = (x, z) => x < b.x - 2 || x > b.x + b.sx + 1 || z < b.z - 2 || z > b.z + b.sz + 1;
-    const goal = (x, y, z) => { const d = Math.hypot(x - c.x, z - c.z); return d >= 6 && d <= 14 && off(x, z) && !v.nearLava(x, y, z) && others.every((q) => Math.hypot(q.x - (x + 0.5), q.z - (z + 0.5)) >= 2.5); };
+    // at about the chest's height (a Nether bench reached by a drop was a pit the bot could not leave, live 2026-11-23 ha2 w1)
+    const goal = (x, y, z) => { const d = Math.hypot(x - c.x, z - c.z); return d >= 6 && d <= 14 && Math.abs(y - c.y) <= 2 && off(x, z) && !v.nearLava(x, y, z) && others.every((q) => Math.hypot(q.x - (x + 0.5), q.z - (z + 0.5)) >= 2.5); };
     const f = feet(bot);
     if (goal(f.x, f.y, f.z)) return true;
-    const r = await mv.goto(c, { goal, cancel, maxNodes: 12000, tries: 2 });
+    const r = await mv.goto(c, { goal, cancel, maxNodes: 12000, tries: 2, maxDrop: 3 });
     job.log(`${name}: to the bench ${r.ok ? `at ${feet(bot).x} ${feet(bot).y} ${feet(bot).z}` : `failed (${String(r.why).slice(0, 80)})`}`);
     return r.ok;
 }
@@ -571,7 +573,7 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
             }
             const have = SUP.carried(bot);
             // the cells it can reach from here, by the mover's own moves (job.claim offers stances among them); again after a move or 15 s
-            { const f0 = feet(bot), fk = `${f0.x},${f0.y},${f0.z}`, F = job.floods && job.floods.get(name); if (!F || F.from !== fk || Date.now() - F.at > 15000) { const tf = Date.now(); (job.floods || (job.floods = new Map())).set(name, await mv.flood()); job.time.claim += Date.now() - tf; } }
+            { const f0 = feet(bot), fk = `${f0.x},${f0.y},${f0.z}`, F = job.floods && job.floods.get(name); if (!F || F.from !== fk || Date.now() - F.at > 30000) { const tf = Date.now(); (job.floods || (job.floods = new Map())).set(name, await mv.flood()); job.time.claim += Date.now() - tf; } }
             // items this bot's last trip came back without are not asked for by it for a minute: it works on what it has instead of waiting (owner 2026-11-23 list 4 problem 5)
             const mySkip = (job.noItem && job.noItem.get(name)) || new Map();
             const tc = Date.now(); const cl = job.claim(bot, name, Date.now(), (it) => have[it] || 0, (it) => (!!job.outOf && (job.outOf.get(it) || 0) > Date.now() && !(have[it] > 0)) || (mySkip.get(it) || 0) > Date.now()); const dc = Date.now() - tc; job.time.claim += dc; if (dc > 400) job.log(`${name}: claim took ${dc} ms (${job.lastClaimInfo || ''})`);

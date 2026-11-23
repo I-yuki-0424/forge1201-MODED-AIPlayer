@@ -98,7 +98,8 @@ async function fetch(bot, site, needs, mover, spot, { log = () => {}, depot = []
     let complete = true;                  // every container that may hold the items was looked into (only then is an item missing from all of them "absent")
     let retired = 0;                      // empty depot boxes picked up on this trip (they go back into the chest)
     const still = () => Object.entries(want).filter(([, n]) => n > 0);
-    const took = (name, n) => { if (want[name] !== undefined) want[name] = Math.max(0, want[name] - n); };
+    // what is still wanted is counted from the pack, not from what the clicks meant to move (stale windows moved several stacks per click: 832 smooth stone for 282, ha2 w4)
+    const took = (name) => { if (want[name] !== undefined) want[name] = Math.max(0, needs[name] - ((carried(bot)[name] || 0) - (before[name] || 0))); };
     const saw = (name, n) => { if (needs[name] !== undefined) present[name] = (present[name] || 0) + n; };
     const lock = (c) => { const k = `${c.x},${c.y},${c.z}`, h = locks.get(k); if (h && h.by !== me && h.until > Date.now()) return false; locks.set(k, { by: me, until: Date.now() + 30000 }); return true; };
     const unlock = (c) => { const k = `${c.x},${c.y},${c.z}`; if ((locks.get(k) || {}).by === me) locks.delete(k); };
@@ -115,8 +116,8 @@ async function fetch(bot, site, needs, mover, spot, { log = () => {}, depot = []
         const w = await open(bot, c);
         try {
             const names = new Set();
-            for (const it of w.containerItems()) { saw(it.name, it.count); if (freeSlots(bot) <= 1 || !still().length) continue; if (want[it.name] > 0 && (!SHULKER.test(it.name) || emptyBox(bot, it))) { took(it.name, await take(bot, w, it, want[it.name])); names.add(it.name); } }
-            await sleep(120); for (const n of names) await giveBack(w, n);
+            for (const it of w.containerItems()) { saw(it.name, it.count); if (freeSlots(bot) <= 1 || !still().length) continue; if (want[it.name] > 0 && (!SHULKER.test(it.name) || emptyBox(bot, it))) { await take(bot, w, it, want[it.name]); await sleep(60); took(it.name); names.add(it.name); } }
+            await sleep(300); for (const n of names) await giveBack(w, n);
             await sleep(120); c.holds = counts(w);
         } finally { bot.closeWindow(w); await sleep(250); }
     };
@@ -141,7 +142,8 @@ async function fetch(bot, site, needs, mover, spot, { log = () => {}, depot = []
         if (c.holds && !Object.keys(c.holds).length) await retire(c);
     };
     // 1. the depot boxes already standing: only those that hold something it wants (or were never looked into), one bot per box
-    for (const c of [...depot]) {
+    const toolFirst = (c) => (c.holds && still().some(([k]) => TOOL.test(k) && c.holds[k] > 0) ? 0 : 1);
+    for (const c of [...depot].sort((a, b) => toolFirst(a) - toolFirst(b))) {
         if (!still().length || freeSlots(bot) <= 1 || over()) { complete = false; break; }
         const b = bot.blockAt(new Vec3(c.x, c.y, c.z)); if (!b || !SHULKER.test(b.name)) { depot.splice(depot.indexOf(c), 1); continue; }
         if (c.holds) { for (const [k, n] of Object.entries(c.holds)) saw(k, n); if (!still().some(([k]) => c.holds[k] > 0)) { if (!Object.keys(c.holds).length && lock(c)) { try { await near(bot, mover, c); await retire(c); } finally { unlock(c); } } continue; } }
@@ -160,11 +162,11 @@ async function fetch(bot, site, needs, mover, spot, { log = () => {}, depot = []
             for (const it of win.containerItems()) {
                 if (SHULKER.test(it.name) && !emptyBox(bot, it)) for (const [k, n] of Object.entries(boxHolds(bot, it))) saw(k, n); else saw(it.name, it.count);
                 if (freeSlots(bot) <= 1) continue;
-                if (emptyBox(bot, it) && want[it.name] > 0) { took(it.name, await take(bot, win, it, want[it.name])); continue; }
-                if (SHULKER.test(it.name)) { const h = boxHolds(bot, it), score = still().reduce((a, [k, n]) => a + Math.min(n, h[k] || 0), 0); if (score > 0) useful.push({ slot: it.slot, h, score }); }
-                else if (want[it.name] > 0) took(it.name, await take(bot, win, it, want[it.name]));
+                if (emptyBox(bot, it) && want[it.name] > 0) { await take(bot, win, it, want[it.name]); await sleep(60); took(it.name); continue; }
+                if (SHULKER.test(it.name)) { const h = boxHolds(bot, it), score = still().reduce((a, [k, n]) => a + Math.min(n, h[k] || 0) * (TOOL.test(k) ? 1000 : 1), 0); if (score > 0) useful.push({ slot: it.slot, h, score }); }          // tools first (bots dug stone by hand for minutes)
+                else if (want[it.name] > 0) { await take(bot, win, it, want[it.name]); await sleep(60); took(it.name); }
             }
-            await sleep(120); for (const n of Object.keys(needs)) if (!SUP_TOOLISH.test(n)) await giveBack(win, n);
+            await sleep(300); for (const n of Object.keys(needs)) if (!SUP_TOOLISH.test(n)) await giveBack(win, n);
         } finally { bot.closeWindow(win); await sleep(250); }
     } finally { unlock(site); } else if (still().length) complete = false;
     // 3. a box out of the chest into the depot, then taken from

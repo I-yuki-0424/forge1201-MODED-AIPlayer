@@ -8,7 +8,7 @@ for w in $WS; do (
   CPUS=${CPUS:-3} MEM_LIMIT=${MEM_LIMIT:-6g} HEAP=${HEAP:-5000M} "$R/scripts/t26/up.sh" "$w" --new > "$D/$RUN-w$w-up.log" 2>&1 || exit 1
   for ((k = 0; k < OW; k++)); do
     ( for try in 1 2 3; do timeout 14000 "$R/scripts/t26/run.sh" "$w" build_t.js LITEMATIC=/app/tests/fixtures/iron-farm-34.litematic BOTS=8 CREW=$k LIMIT_MIN=${LIMIT_MIN:-200} RUN="$RUN" > "$D/$RUN-w${w}c$k.log" 2>&1
-        grep -q "no place for the chest\|no ground under the site" "$D/$RUN-w${w}c$k.log" || break; done ) &          # a site without room for the chest: another draw
+        grep -q "no place for the chest\|no ground under the site\|Error: rcon" "$D/$RUN-w${w}c$k.log" || break; done ) &          # a site without room for the chest: another draw
     sleep 20          # crews set up one after the other (site draw, chest fill by RCON)
   done
   for ((k = OW; k < OW + NE; k++)); do

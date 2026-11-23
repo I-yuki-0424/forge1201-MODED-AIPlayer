@@ -591,7 +591,7 @@ class BuildJob {
         const R = this.reachOf && this.reachOf.get(name), inReach = R && R.from === key(me.x, me.y, me.z) ? (f) => R.cells.has(key(f.x, f.y, f.z)) : null;
         // the mover's own flood from where the bot stands (drive.js, Mover.flood): a stance in it is reachable at its cost; one outside a complete flood is not reachable at all;
         // one outside an incomplete flood is unknown and ranks below the known ones (the claim's own picture of pillars and bridges sent bots to cells the planner never found)
-        const FL = this.floods && this.floods.get(name), fl = FL && FL.from === key(me.x, me.y, me.z) && now - FL.at < 20000 ? FL : null;
+        const FL = this.floods && this.floods.get(name), fl = FL && FL.from === key(me.x, me.y, me.z) && now - FL.at < 40000 ? FL : null;
         // a spatial index of the doable tasks: a stance is first ranked by how many it has within reach (cheap); the click search (place.ways: rays and the vanilla model) runs only for
         // the best few (live 2026-11-21 sv5: the search for every stance and task blocked the process 4.5 s per claim)
         const grid = new Map(), g = (v) => Math.floor(v / 4);
@@ -609,7 +609,7 @@ class BuildJob {
             const AIRY = (h) => !h || S.AIR.has(h.name) || h.name === 'water' || h.name === 'lava';
             const lonely = (seed.kind === 'place' || seed.kind === 'scaffold') && [[0, 1, 0], [0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]].every(([dx, dy, dz]) => AIRY(seen(bot, { x: seed.x + dx, y: seed.y + dy, z: seed.z + dz })));
             for (const f of stationsAround(seed, this.o.reach, down)) {
-                if (cands.length >= 40) break;
+                if (cands.length >= 40 || Date.now() - t0 > 400) break;          // (1.7 s claims in a pocket blocked every bot's keep-alive, live 2026-11-23 ha2 w1)
                 if (blocked(f.x, f.y, f.z) || blocked(f.x, f.y + 1, f.z) || bodyCovers(f, seed) || this.avoided(name, f)) { rej.blocked++; continue; }
                 if (inReach && !inReach(f)) { rej.unreachable = (rej.unreachable || 0) + 1; outOfReach++; continue; }
                 const fc = fl ? fl.cost.get(key(f.x, f.y, f.z)) : undefined;
@@ -691,6 +691,8 @@ class BuildJob {
         this._stall(bot, now);            // ready work that no stance reaches counts as nothing ready for the stall rule (a single unreachable cell kept a crew idle)
         // ready work there is, but only out of the bot's reach: it is in a pocket (drive.js takes it out)
         if (inReach && outOfReach) (this.pocketed || (this.pocketed = new Set())).add(name);
+        // the flood was searched out and the work lies outside it: a pocket too (drive.js takes the bot out); a bot on a Nether bench pocket was offered 470 tasks it could not reach
+        else if (fl && fl.complete && outOfReach) { (this.pocketed || (this.pocketed = new Set())).add(name); (this.reachOf || (this.reachOf = new Map())).set(name, { from: fl.from, cells: new Set(fl.cost.keys()) }); }
         this.lastClaimInfo = `no stance: scanned ${scanned}, ready ${ready.length}, doable ${doable.length}, ${Date.now() - t0} ms in seeds`;
         // what can be done with what it carries reaches nowhere, but ready work waits for items: fetch them (a crew stood idle with ready blocks and empty packs, live 2026-11-22)
         { const need = {}; for (const tk of ready) { if (doable.includes(tk)) continue; const it = item(tk); if (it && !skip(it)) need[it] = (need[it] || 0) + 1; } if (Object.keys(need).length) return { need }; }

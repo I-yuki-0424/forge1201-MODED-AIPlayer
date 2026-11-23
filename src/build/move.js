@@ -361,7 +361,7 @@ class Mover {
      * complete } (complete: searched out, nothing else is reachable). The claim offers stances among these cells: stances chosen by the claim's own picture of the terrain were
      * cells the planner then searched 30 000 cells for in vain, 2 000-5 400 times a run (live 2026-11-23 gh1, owner list 4 problem 5).
      */
-    async flood({ maxNodes = 6000, budgetMs = 400 } = {}) {
+    async flood({ maxNodes = 4000, budgetMs = 250 } = {}) {
         const start = feet(this.bot), view = new View(this.bot, this.rules), t = this.rules.temp();
         const temps = t ? this.bot.inventory.items().filter((i) => i.name === t).reduce((a, i) => a + i.count, 0) : 0;
         const l = {};          // its own record: plan.last is shared by every bot's searches in this process
@@ -641,7 +641,7 @@ class Mover {
     /**
      * Go to a cell `goal` accepts (or `to` itself). Plans, follows, re-plans when the bot leaves the plan (up to `tries`). { ok, why, steps }.
      */
-    async goto(to, { goal = null, cancel = { cancelled: false }, tries = 6, maxNodes = 40000, box = null, lavaCost = 0 } = {}) {
+    async goto(to, { goal = null, cancel = { cancelled: false }, tries = 6, maxNodes = 40000, box = null, lavaCost = 0, maxDrop: md = null } = {}) {
         const g = goal || ((x, y, z) => x === to.x && y === to.y && z === to.z);
         let steps = 0, last = null;
         await this.unsink();
@@ -652,7 +652,7 @@ class Mover {
             const view = new View(this.bot, this.rules), temps = this.rules.temp() ? this.bot.inventory.items().filter((i) => i.name === this.rules.temp()).reduce((a, i) => a + i.count, 0) : 0;
             // the bot's own cell not loaded yet (after a teleport, a respawn): wait for the chunks
             if (view.kind(start.x, start.y, start.z) === 'unknown') { await sleep(1000); continue; }
-            const maxDrop = (this.bot.health || 0) >= 16 ? 6 : 4;          // k: the floor k cells under the feet, a fall of k - 1 (three without damage)
+            const maxDrop = md ?? ((this.bot.health || 0) >= 16 ? 6 : 4);          // k: the floor k cells under the feet, a fall of k - 1 (three without damage)
             const route = await plan(view, start, g, to, { maxNodes, temps, box, lavaCost, maxDrop });
             if (!route) {
                 const l = plan.last || {};
