@@ -422,7 +422,12 @@ async function bedSpawn(job, name, bot, mv, cancel) {
     const b = bot.blockAt(new Vec3(a.x, a.y, a.z), false);
     if (!b || !/_bed$/.test(b.name)) { job.log(`${name}: the spawn bed at ${a.x} ${a.y} ${a.z} is gone`); job.bedAt = null; return; }
     await mv.holdNothing();
-    await mv.click([a.x, a.y, a.z], 'up', [a.x + 0.5, a.y + 0.5625, a.z + 0.5]);
+    // counted only when the server says so (a click taken for done left a bot without a spawn point: it woke 248 blocks away, live 2026-11-24 ha13 w1)
+    let said = false; const hear = (m) => { const t = String((m && (m.translate || (m.json && m.json.translate))) || m || ''); if (/set_spawn|respawn point set|spawn point set/i.test(t + ' ' + String(m && m.toString ? m.toString() : ''))) said = true; };
+    bot.on('message', hear); bot.on('actionBar', hear);          // (the server says it over the hotbar)
+    try { for (let k = 0; k < 3 && !said; k++) { await mv.click([a.x, a.y, a.z], 'up', [a.x + 0.5, a.y + 0.5625, a.z + 0.5]); for (let i = 0; i < 15 && !said; i++) await sleep(100); } }
+    finally { bot.removeListener('message', hear); bot.removeListener('actionBar', hear); }
+    if (!said) { job.log(`${name}: the bed was clicked, but the server did not say the spawn is set`); return; }
     (job.spawnSet || (job.spawnSet = new Set())).add(name);
     job.log(`${name}: spawn set at the bed`);
 }
@@ -613,6 +618,9 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
     const mv = new Mover(bot, rules(job, bot), { log: job.log });
     const onDeath = () => { const p = bot.entity && bot.entity.position, f = p ? feet(bot) : null, around = f ? [-1, 0, 1].map((dy) => (seen(bot, { x: f.x, y: f.y + dy, z: f.z }) || {}).name).join('/') : '?'; job.stats.deaths = (job.stats.deaths || 0) + 1; job.log(`${name} died at ${f ? `${f.x},${f.y},${f.z}` : '?'} (${around}), stage ${job.stage}; last: ${mv.trace.join(' | ')}`); };
     bot.on('death', onDeath);
+    // the server dropped the spawn point (the bed broken or shut in): set again
+    const onReset = () => { if (job.spawnSet) job.spawnSet.delete(name); if (job.anchorTry) job.anchorTry.delete(name); job.log(`${name}: the server reset its spawn point`); };
+    bot.on('spawnReset', onReset);
     bot.__builderOwns = true;                // the fall and breath reflexes stay out of a builder's way (work/bot/reflex.js)
     let idle = 0;
     // the watchdog: the last time this bot got something done (a task that held, a supply trip that brought something); EVACUATE_MS without while there is work: off the site
@@ -635,6 +643,8 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
                 return { ended: 'finished' };
             }
             if (!bot.entity || bot._client.ended) return { ended: 'disconnected' };
+            // short of air: up to the surface first (the breath reflex is off for builders; four bots drowned retrying a one-cell step in water, live 2026-11-24 ha13 w3)
+            if (typeof bot.oxygenLevel === 'number' && bot.oxygenLevel < 12) { job.log(`${name}: air ${bot.oxygenLevel}: to the surface`); await mv.surface(cancel); continue; }
             // respawned in another dimension (a death in the Nether respawns in the Overworld): the job's cells are not in this world; the bot leaves the crew until a player brings it back
             // (it walked the Nether's coordinates in the Overworld for an hour, live 2026-11-22 sW w6)
             if (bot.game) { const d0 = (job.dims || (job.dims = new Map())).get(name); if (d0 === undefined) job.dims.set(name, bot.game.dimension); else if (d0 !== bot.game.dimension) { job.log(`${name} is in ${bot.game.dimension} now, not ${d0} (respawned after a death): it leaves the crew`); return { ended: 'wrong_dimension' }; } }
@@ -740,7 +750,7 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
             job.report(name, res);
         }
         return { ended: 'cancelled' };
-    } finally { bot.removeListener('death', onDeath); bot.__builderOwns = false; job.leave(name); for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sneak', 'sprint']) bot.setControlState(k, false); }
+    } finally { bot.removeListener('death', onDeath); bot.removeListener('spawnReset', onReset); bot.__builderOwns = false; job.leave(name); for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sneak', 'sprint']) bot.setControlState(k, false); }
 }
 
 module.exports = { drive, work, holds, rules, pour, escape, needsFor, boxSpot, bench };
