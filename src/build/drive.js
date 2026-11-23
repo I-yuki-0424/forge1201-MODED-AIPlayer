@@ -86,6 +86,15 @@ function edgeOf(mv, cells) {
     return JSON.stringify(Object.entries(by).sort((a, b) => b[1] - a[1]).slice(0, 10));
 }
 
+/** Does the block at (x, y, z) hold back a fluid (water or lava beside or over it)? Never dug, not even on the way out (an escape dug into lava: five deaths, live 2026-11-23 ge1 w4). */
+function holdsFluid(bot, x, y, z, view = null) {
+    for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]]) {
+        const q = view ? view.raw(x + dx, y + dy, z + dz) : bot.blockAt(new Vec3(x + dx, y + dy, z + dz), false);
+        if (q && (q.name === 'water' || q.name === 'lava' || String((q.getProperties() || {}).waterlogged) === 'true')) return true;
+    }
+    return false;
+}
+
 /** The live positions of the other bots of the crew. */
 function crewAt(job, bot) {
     const out = [];
@@ -189,7 +198,7 @@ async function pour(job, bot, mv, L) {
 
 /** A bot that cannot walk anywhere (closed in) breaks its way up and out, through whatever is in the way; the next survey puts built cells back. */
 async function escape(job, name, bot, mv, cancel, pocket = null) {
-    const f = feet(bot), b = job.t.box, loose = { canDig: (x, y, z, blk) => !UNBREAKABLE.test(blk.name) && !CONTAINER.test(blk.name), temp: mv.rules.temp, onTemp: mv.rules.onTemp };
+    const f = feet(bot), b = job.t.box, loose = { canDig: (x, y, z, blk, view = null) => !UNBREAKABLE.test(blk.name) && !CONTAINER.test(blk.name) && !holdsFluid(bot, x, y, z, view), temp: mv.rules.temp, onTemp: mv.rules.onTemp };
     const m2 = new Mover(bot, { ...loose, onUntemp: mv.rules.onUntemp });
     m2.mine = mv.mine;
     // out sideways to the nearest open cell three or more away at about the same height: never up to the top of the box (a 60-high box made every closed-in bot build a pillar
@@ -213,7 +222,7 @@ async function evacuate(job, name, bot, mv, cancel, why) {
     job.stats.evacuations = (job.stats.evacuations || 0) + 1;
     job.log(`${name}: evacuated from ${f.x} ${f.y} ${f.z}: ${why}`);
     tell(job, name, bot, 'evacuate', `${why}; leaving the site from ${f.x} ${f.y} ${f.z}`, true);
-    const loose = { canDig: (x, y, z, blk) => !UNBREAKABLE.test(blk.name) && !CONTAINER.test(blk.name), temp: mv.rules.temp, onTemp: mv.rules.onTemp, onUntemp: mv.rules.onUntemp };
+    const loose = { canDig: (x, y, z, blk, view = null) => !UNBREAKABLE.test(blk.name) && !CONTAINER.test(blk.name) && !holdsFluid(bot, x, y, z, view), temp: mv.rules.temp, onTemp: mv.rules.onTemp, onUntemp: mv.rules.onUntemp };
     const m2 = new Mover(bot, loose); m2.mine = mv.mine;
     const out = (x, y, z) => (x < b.x - 1 || x > b.x + b.sx || z < b.z - 1 || z > b.z + b.sz);
     const nearest = { x: Math.min(Math.max(f.x, b.x - 3), b.x + b.sx + 2), y: f.y, z: Math.min(Math.max(f.z, b.z - 3), b.z + b.sz + 2) };
