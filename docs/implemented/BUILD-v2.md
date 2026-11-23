@@ -257,3 +257,14 @@ deaths over 12 crews, Overworld 540-1 860 placed. What slows the crews after ~30
 Open, as measured on ha10/ha11: the place pace halves after ~25 min (to 26-34 blocks a minute) on cells in the air whose stances are all `unsupported` (435-485 rejections per
 parked cell) and that the planner cannot reach within 20 000 cells either; walking is 65 % of bot time. The next step is a builder's way up the structure itself (stairs of
 temporary blocks inside the box, standing on built tops) rather than more searching.
+
+### Visual checks round 2 (2026-11-23 night), batch ha12
+
+Seen by the owner: temporary blocks still left (V7); a Nether crew idle in front of lava (V8); bots digging on with bare hands after their tool broke (V10); on 25593 most bots
+standing at the chest. Causes from the logs (ha11): the chest's temporary blocks ran out (deaths drop them, bots threw away rubble over three stacks) and the crew stood at the
+chest with 1-4 blocks each, so no pillar and no stance; dead Overworld bots respawned at the world spawn, beside the other crew's chest 300 blocks away, and could not plan
+back; the V8 site hung in the open over the lava sea (34 353 of 35 840 cells already right, every stance unsupported, nothing to build down from). Fixes: five stacks of
+temporary blocks kept, 48 stacks in the test chest; a spawn bed beside the chest (Overworld), a bot over 200 blocks from its site leaves the crew; the bot climbs down its own
+pillar right after each stance's work; a spare pickaxe, tools worn at a fifth of their life; the harness refuses Nether boxes whose lower third is under 40 % rock.
+ha12 at 25 min: best Overworld crews 1 257-1 500 placed, untemp 1 400-3 200 per crew, 0-1 deaths; the spawn bed was set on world 3 (8/8 bots) but found no cell on
+world 1 ("no cell took the spawn bed", 12-14 tried: open); a bamboo forest site (w1) kept the crew at its chest (plans of 30 000 cells did not get 30 cells into it).
