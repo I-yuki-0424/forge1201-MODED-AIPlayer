@@ -207,3 +207,30 @@ wall signs, trapdoors, temp blocks in the air: "no stance reaches it"). Parked c
 `claims in the last minute ... tasks per claim; place claims N: ready/doable/batch`, `[progress]` with `lag max/p99`. `PROFILE_AT=N` writes a CPU profile. Server death causes:
 `docker logs forgeaip-t26-N | grep "Bd.. (tried|fell|...)"`. Probe of placement rules: `scripts/t26/run.sh N place_probe.js` (153/154, 36/39 flexible).
 Logs: /mnt/data/forgeaip-play/t26/out/gh1-w*.log. Uncommitted `docker/bot.Dockerfile` and `docker/compose.yaml` are not this task's and were left alone.
+
+## Owner's problem list 4 (2026-11-23 afternoon) and the batches ha1-ha6
+
+Where the waiting came from (problem 5), measured on gh1 (`/mnt/data/forgeaip-play/t26/out/gh1-w*.log`): no movement by raw commands (the mover uses inputs; a pillar sends the vanilla
+use packet). Three sources: the supply (trips 30-55 % of bot time on the Overworld worlds, one bot at the chest, 402 waits of 90 s on w3), the router's stances (873-5 436
+"no way to" per world: the claim's picture of pillars and bridges disagreed with the planner's, a stance 3-4 cells away searched 30 000 cells in vain) and the division / window
+(1.8-3 blocks per place claim: one global four-layer window held every part at the lowest open layer anywhere).
+
+| # | Problem | Cause | Fix |
+| :-- | :-- | :-- | :-- |
+| 1 | stuck on a trapdoor | the pillar clicks the block under the feet without sneaking: a trapdoor opens | `Mover.pillar` sneaks when that block is interactive (`V.INTERACTIVE`) |
+| 2, 3 | heaps of empty shulker boxes, one bot holds the supply | depot boxes were opened on every trip whatever they held, never taken away | depot entries carry their contents (`holds`); boxes without a wanted item are not opened; an emptied box is broken by the bot that emptied it, picked up and put back into the chest |
+| 4 | placing by layers of areas | equal ground pieces; a global window; one trip per few layers | areas: k-d cuts of 4x4-column tiles weighted by work, each cut where both sides have little work in the same rows (`job._planSectors`); window per tile (`job.topAt`: lowest open layer of the tile and its 8 neighbours + 7, one stance's reach); a trip takes the whole area's bill (scarce items by share, beds at most 9) |
+| 5 | standing still | see above | stances only among the cells the mover's own flood reached (`Mover.flood`, Dijkstra over the planner's moves); no stance in the air for a bot without temporary blocks; a trip that brought nothing makes the bot skip those items for a minute instead of waiting |
+| 6 | first come at the chest | one lock for the whole supply | `enterSupply`: two bots at a time, the best record first (`job.merit`: tasks held - 2 x failures - 20 x empty trips, last ten minutes); one bot per depot box and in the chest (its window's slots go stale), boxes in parallel |
+| 7 | old code still running | — | every fix: all worlds made new and every crew restarted (ha1 ... ha6) |
+| 7' | crowding | no cap per area | at most two bots per area (`PER_SECTOR`); a bot with nothing goes to a bench off the box at the chest's height; Nether crews are two bots |
+| 8 | temporary blocks at the end | walking blocks kept 90 s, scaffolds until the end | walking blocks taken 10 s after the last use (never while a bot is within four cells); scaffolds dug by the stance that used them as soon as no block beside them waits (`unscaffold`) |
+| 9 | sample efficiency | one crew per world | `scripts/t26/multi.sh RUN "1 2 3 4" OW NE`: OW crews of 8 and NE Nether crews of 2 per world, each on its own site (`build_t.js CREW=k`); 16 crews overloaded the host (load 18 on 12 cores, plans ran out of time), 12 (2+1 per world, server 3 CPUs / 6 GB) run at load ~11 |
+| 10 | visual checks | — | requested from the owner with coordinates (see the session report) |
+
+Found in the batches themselves and fixed: concurrent withdraws moved whole stacks (1 152 smooth stone for 364; counting from the pack lagged the clicks: 14 pickaxes, 1 088 dirt
+for one bot) -> whole stacks by shift-click counted by the click, a checked partial withdraw for small parts, surplus stacks handed back at the end of a trip; tools marked out of
+stock because a box was busy (bots dug stone by hand); a bench reached by a drop in the Nether was a pit; parked cells now come back after 90 s while the crew finds nothing ready.
+
+Measured at 20 min (ha5, before the last fixes): Overworld crews placed 535-1 445 blocks (gh1's best whole run: 2 750 in 200 min), trips about 10 % of bot time, 0 deaths, 0
+evacuations, lag p99 80-120 ms. Nether crews: clearing 1 500-2 600 of 7 000-27 000 cells in 20 min.
