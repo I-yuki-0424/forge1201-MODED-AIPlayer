@@ -95,6 +95,16 @@ function holdsFluid(bot, x, y, z, view = null) {
     return false;
 }
 
+/** Lava that can run (an open cell beside or under it) within r (Chebyshev) of cell c, read now from the world; lava sealed in rock does not count. */
+function lavaWithin(bot, c, r) {
+    const p = new Vec3(0, 0, 0), q2 = new Vec3(0, 0, 0);
+    for (let dx = -r; dx <= r; dx++) for (let dy = -r; dy <= r; dy++) for (let dz = -r; dz <= r; dz++) {
+        p.x = c.x + dx; p.y = c.y + dy; p.z = c.z + dz; const q = bot.blockAt(p, false); if (!q || q.name !== 'lava') continue;
+        for (const [ex, ey, ez] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]]) { q2.x = p.x + ex; q2.y = p.y + ey; q2.z = p.z + ez; const o = bot.blockAt(q2, false); if (o && o.boundingBox === 'empty' && o.name !== 'lava') return true; }
+    }
+    return false;
+}
+
 /** The live positions of the other bots of the crew. */
 function crewAt(job, bot) {
     const out = [];
@@ -153,6 +163,14 @@ async function work(job, name, bot, mv, cl, cancel) {
         // a temporary block with a crew member anywhere above it in its column is not taken (a pillar dug out under a bot on its top: falls of 40 blocks, live 2026-11-23 fy3)
         if (tk.kind === 'untemp' && [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]].some(([dx, dy, dz]) => FLUID(seen(bot, { x: tk.x + dx, y: tk.y + dy, z: tk.z + dz })))) { results.push({ tk, ok: false, why: 'skipped' }); continue; }          // it holds back a fluid now
         if (tk.kind === 'untemp' && crewAt(job, bot).concat([bot.entity.position]).some((q) => Math.floor(q.x) === tk.x && Math.floor(q.z) === tk.z && q.y > tk.y && q.y < tk.y + 90)) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
+        // lava within two of the cell or of the bot, now (it runs in through cells opened a moment ago, from a pool two or three away: seven deaths in clearing batches,
+        // live 2026-11-23 gf1 w5/w6): the rest of the claim is dropped and the bot steps away from it
+        if ((tk.kind === 'clear' || tk.kind === 'untemp') && (lavaWithin(bot, tk, 2) || lavaWithin(bot, feet(bot), 2))) {
+            for (const rest of cl.tasks.slice(cl.tasks.indexOf(tk))) results.push({ tk: rest, ok: false, why: 'skipped' });
+            const f0 = feet(bot); job.log(`${name}: lava near ${tk.x},${tk.y},${tk.z}: the claim is dropped`);
+            await mv.goto(f0, { goal: (x, y, z) => Math.hypot(x - f0.x, z - f0.z) >= 3 && !lavaWithin(bot, { x, y, z }, 3), cancel, maxNodes: 4000, tries: 1 });
+            break;
+        }
         if (tk.kind === 'clear' || tk.kind === 'untemp') { if (S.AIR.has(h.name)) { results.push({ tk, ok: true }); continue; } if (underCrew(job, bot, tk.x, tk.y, tk.z)) { results.push({ tk, ok: false, why: 'skipped' }); continue; } const td = Date.now(); await mv.dig(tk); job.time.dig += Date.now() - td; done.push(tk); continue; }
         if (tk.kind === 'seal' || tk.kind === 'fill' || tk.kind === 'scaffold') { if (!(await mv.hold(mv.rules.temp() || job.tempItem))) { results.push({ tk, ok: false, why: 'skipped' }); continue; } await click(mv, way); done.push(tk); continue; }
         if (tk.kind === 'fix') { await mv.holdNothing(); await mv.click([tk.x, tk.y, tk.z], way.click.face, way.click.hit); for (let k = 1; k < tk.clicks; k++) await mv.click([tk.x, tk.y, tk.z], way.click.face, way.click.hit); done.push(tk); continue; }
