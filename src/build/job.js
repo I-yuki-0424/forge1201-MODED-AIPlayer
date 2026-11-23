@@ -435,6 +435,10 @@ class BuildJob {
         return need;
     }
 
+    /** What the planner said about stance f for bot `name` (true/cost, false) in the last minute, or undefined. */
+    reachKnown(name, f) { const m = this.known && this.known.get(name); if (!m) return undefined; const r = m.get(key(f.x, f.y, f.z)); if (!r || r.until < Date.now()) return undefined; return r.cost === null ? false : r.cost; }
+    setReach(name, f, cost) { const m = this.known || (this.known = new Map()); let s = m.get(name); if (!s) m.set(name, (s = new Map())); if (s.size > 4000) s.clear(); s.set(key(f.x, f.y, f.z), { cost, until: Date.now() + 60000 }); }
+
     /** A stance `name` found no way to: not offered to it again for three minutes. */
     avoid(name, f) { const m = this.bad || (this.bad = new Map()); let s = m.get(name); if (!s) m.set(name, (s = new Map())); s.set(key(f.x, f.y, f.z), Date.now() + 180000); }
     avoided(name, f) { const s = this.bad && this.bad.get(name); if (!s) return false; const k = key(f.x, f.y, f.z), t = s.get(k); if (!t) return false; if (t < Date.now()) { s.delete(k); return false; } return true; }
@@ -586,7 +590,8 @@ class BuildJob {
         // within six cells costs as much as ten layers; temporary blocks near the bot go first (they are in someone's way)
         const seedScore = (tk) => {
             const d = Math.hypot(tk.x - me.x, tk.y - me.y, tk.z - me.z);
-            if (tk.kind === 'untemp') return 2600 + d * 2;          // after the real work, always (at -3000 the crew gathered on every leftover pillar, owner 2026-11-23; even beside the bot it took most claims from placing, ge1 w3)
+            // near the bot now (six cells): taken at once, between the real work (kept for after it, they stood on the site to the end: owner 2026-11-23 V4)
+            if (tk.kind === 'untemp') return d < 6 ? 1500 + d * 2 : 2600 + d * 2;          // after the real work, always (at -3000 the crew gathered on every leftover pillar, owner 2026-11-23; even beside the bot it took most claims from placing, ge1 w3)
             // a cell that found no stance a moment ago goes after every other one (the same twelve stance-less cells were the only seeds tried, 38 empty claims a minute with
             // 290 doable cells, live 2026-11-23 ha7 w3)
             return (tk.kind === 'place' || tk.kind === 'fix' ? 2000 + tk.y * 3 : (down ? -tk.y : tk.y) * 2) + d * 0.6 + crowd(tk) * 30 + (inSec(tk) ? 0 : 400) + (tk.kind === 'seal' || tk.kind === 'fill' ? -1000 : 0) + (this.noStance.has(tk.k) ? 5000 : 0);
@@ -605,7 +610,7 @@ class BuildJob {
         const near = (eye) => { const out = []; for (let gx = g(eye.x - 5); gx <= g(eye.x + 5); gx++) for (let gy = g(eye.y - 5); gy <= g(eye.y + 5); gy++) for (let gz = g(eye.z - 5); gz <= g(eye.z + 5); gz++) { const l = grid.get(`${gx},${gy},${gz}`); if (l) for (const tk of l) if (boxDist(eye, tk) <= this.o.reach) out.push(tk); } return out; };
         // seeds until one has a stance, within a quarter second (three seeds and five stances each left bots idle with hundreds of ready tasks: the best-ranked stances were inside
         // rock, where the line of sight is blocked, live 2026-11-22 sV)
-        const t0 = Date.now(); let outOfReach = 0;
+        const t0 = Date.now(); let outOfReach = 0, probe = null;
         for (const seed of doable.slice(0, 12)) {
             if (Date.now() - t0 > 250) break;
             let best = null;
@@ -632,17 +637,21 @@ class BuildJob {
                 let h = 0;
                 // a stance in the air needs temporary blocks: a bot with none is never sent to one (bots without blocks were sent 61 times in a row, live 2026-11-23 ha3 w2)
                 if (!standing && !((this.tempsOf && this.tempsOf.get(name)) > 0)) { rej.unsupported++; continue; }
-                if (!standing) {
+                // the planner's own answer for this cell (drive.js asks it for stances the model below calls unsupported): reachable by any mix of pillars and turning bridges
+                const known = standing ? undefined : fc !== undefined ? fc : this.reachKnown(name, f);          // (in the flood: reachable too)
+                if (known === false) { rej.unsupported++; continue; }
+                if (known !== undefined) h = Math.min(20, Math.ceil(known / 3));
+                else if (!standing) {
                     h = 1; while (h <= 65 && view.free(f.x, f.y - 1 - h, f.z) && !view.stands(f.x, f.y - 1 - h, f.z)) h++;
                     if (h > 64 || !view.stands(f.x, f.y - 1 - h, f.z)) {
                         // nothing to pillar from (a box over a cavern, over the Nether's lava sea): a bridge of temporary blocks from ground at the same height, at most 24 cells away
                         const br = this._bridgeFrom(view, f);
-                        if (!br) { rej.unsupported++; continue; }
+                        if (!br) { rej.unsupported++; (probe || (probe = [])).push(f); continue; }
                         h = 4 + br;
                     } else {
                         // a pillar only through cells a block can go into (a stance over built wire or torches had a pillar the server refused: owner 2026-11-23 problem 1)
                         let okp = true; for (let j = 1; j <= h && okp; j++) if (!view.placeable(f.x, f.y - j, f.z)) okp = false;
-                        if (!okp) { rej.unsupported++; continue; }
+                        if (!okp) { rej.unsupported++; (probe || (probe = [])).push(f); continue; }
                     }
                 }
                 // a temporary block is taken away only from where the bot can stand now: a new pillar to reach an old one made pillars without end (owner 2026-11-23)
@@ -667,6 +676,8 @@ class BuildJob {
                 break;
             }
             if (!best) {
+                // stances the model calls unsupported: the nearest three are given to the planner (drive.js) before the cell is counted against
+                if (probe && probe.length && !cands.length) { const q = this.probes || (this.probes = new Map()); const l = q.get(name) || []; for (const f of probe.slice(0, 3)) if (l.length < 6 && this.reachKnown(name, f) === undefined) l.push(f); q.set(name, l); probe = null; if (l.length) continue; }
                 // out of this bot's reach only (it is in a pocket): nothing against the cell, another bot may reach it (one bot's pocket parked 570 cells for the crew, live
                 // 2026-11-23 gb4 w6)
                 if (rej.unreachable && !cands.length) continue;

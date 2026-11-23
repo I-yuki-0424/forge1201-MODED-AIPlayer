@@ -158,6 +158,9 @@ async function work(job, name, bot, mv, cl, cancel) {
         if (r.region && r.from) (job.reachOf || (job.reachOf = new Map())).set(name, { from: `${r.from.x},${r.from.y},${r.from.z}`, cells: r.region });
         if (n >= 2) tell(job, name, bot, 'stuck', `no way to ${cl.station.x} ${cl.station.y} ${cl.station.z} (${String(r.why).slice(0, 90)}), ${n} in a row`);
         if (r.nodes !== undefined && r.nodes < 80) { job.noPath.set(name, 0); await escape(job, name, bot, mv, cancel); }
+        // wedged: the walk makes no progress and the body is off the ground (a gap too low for the body: the server's crawl pose, which the bot's physics does not know;
+        // owner 2026-11-23 V1 and Bd4f boxed in by glass): the cells round the head are dug out (whatever they are; the survey puts built cells back) and it jumps
+        if (/no progress/.test(String(r.why)) && bot.entity && !bot.entity.onGround && !bot.entity.isInWater) await unwedge(job, name, bot, mv);
         return results;
     }
     job.noPath.set(name, 0);
@@ -192,6 +195,9 @@ async function work(job, name, bot, mv, cl, cancel) {
             if (S.matches(job.t.wantOf(tk), h)) { results.push({ tk, ok: true }); continue; }
             if (!(S.AIR.has(h.name) || REPLACEABLE.test(h.name) || h.name === 'water' || h.name === 'lava')) { await mv.dig(tk); }
             if (!(await mv.hold(rr.item))) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
+            // never the block that leaves the bot's own cell without a way out (Bd4f set glass on all four sides on a piston, as the blueprint has it, and was shut in: owner
+            // 2026-11-23); that block is placed from another stance
+            if (shutsIn(bot, tk)) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
             const tp = Date.now(); await click(mv, way); job.time.place += Date.now() - tp;
             // clicks after the placement (note, delay, mode, open), counted from what the cell holds now
             await sleep(120);
@@ -227,6 +233,16 @@ async function unscaffold(job, bot, mv) {
     return n;
 }
 
+/** Would a block in cell c leave the bot's body (feet cell f, head f+1) without a way out: no side with both cells open, and nothing open over the head? */
+function shutsIn(bot, c) {
+    const f = feet(bot), at = (x, y, z) => (x === c.x && y === c.y && z === c.z) ? false : (() => { const b = bot.blockAt(new Vec3(x, y, z), false); return !!b && b.boundingBox === 'empty'; })();
+    const near = Math.abs(c.x - f.x) <= 1 && Math.abs(c.z - f.z) <= 1 && c.y >= f.y && c.y <= f.y + 2;
+    if (!near) return false;
+    const up = at(f.x, f.y + 2, f.z) && at(f.x, f.y + 3, f.z);
+    const side = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => at(f.x + dx, f.y, f.z + dz) && at(f.x + dx, f.y + 1, f.z + dz));
+    return !up && !side;
+}
+
 /** Pour the lava (or water) bucket into cell L: aim at a full neighbour's face that the ray reaches through L (the server traces the bucket's ray itself). */
 async function pour(job, bot, mv, L) {
     const r = job.t.recipeOf(L);
@@ -245,6 +261,20 @@ async function pour(job, bot, mv, L) {
         return true;
     }
     return false;
+}
+
+async function unwedge(job, name, bot, mv) {
+    const f = feet(bot), dug = [];
+    job.stats.unwedged = (job.stats.unwedged || 0) + 1;
+    for (const [dx, dy, dz] of [[0, 1, 0], [0, 2, 0], [1, 1, 0], [-1, 1, 0], [0, 1, 1], [0, 1, -1], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]]) {
+        const c = { x: f.x + dx, y: f.y + dy, z: f.z + dz }, b = bot.blockAt(new Vec3(c.x, c.y, c.z), false);
+        if (!b || b.boundingBox !== 'block' || UNBREAKABLE.test(b.name) || CONTAINER.test(b.name) || holdsFluid(bot, c.x, c.y, c.z)) continue;
+        if (dy === 0 && dug.length >= 2) break;                    // the head's cells first; the sides at the feet only when that was not enough
+        if (await mv.dig(c)) dug.push(`${b.name}@${c.x},${c.y},${c.z}`);
+    }
+    bot.setControlState('jump', true); await sleep(400); bot.setControlState('jump', false); await sleep(400);
+    job.log(`${name}: wedged at ${f.x} ${f.y} ${f.z} (off the ground, no progress): dug ${dug.join(' ') || 'nothing'}; now ${bot.entity.onGround ? 'on the ground' : 'still off it'} at ${feet(bot).x} ${feet(bot).y} ${feet(bot).z}`);
+    tell(job, name, bot, 'stuck', `wedged at ${f.x} ${f.y} ${f.z}: dug ${dug.length} cells round the head`);
 }
 
 /** A bot that cannot walk anywhere (closed in) breaks its way up and out, through whatever is in the way; the next survey puts built cells back. */
@@ -612,6 +642,13 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
                 const pocket = job.reachOf.get(name).cells; job.reachOf.delete(name);
                 // a failed way out is not tried again for two minutes (306 tries in a row from one pocket, live 2026-11-23 fz3 w2); the evacuation watchdog has the rest
                 if (!(await escape(job, name, bot, mv, cancel, pocket))) { (job.pocketBack || (job.pocketBack = new Map())).set(name, Date.now() + 120000); job.log(`${name}: the pocket's edge: ${edgeOf(mv, pocket)}`); }
+                continue;
+            }
+            // stances the claim's model could not support: the planner is asked (pillars, turning bridges, built tops), then the claim runs again with its answers
+            if (!cl && job.probes && job.probes.get(name) && job.probes.get(name).length) {
+                const l = job.probes.get(name); job.probes.delete(name); const tq = Date.now(); let ok = 0;
+                for (const f of l.slice(0, 3)) { const c = await mv.canReach(f); job.setReach(name, f, c); if (c !== null) ok++; }
+                job.time.claim += Date.now() - tq; job.stats.probes = (job.stats.probes || 0) + l.length; job.stats.probesOk = (job.stats.probesOk || 0) + ok;
                 continue;
             }
             if (!cl) {

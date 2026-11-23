@@ -104,7 +104,10 @@ async function main() {
     if (target.portals.length) items.set('flint_and_steel', Math.max(items.get('flint_and_steel') || 0, 2 + Math.ceil(target.portals.length / 20)));
     // temporary blocks (pillars, bridges, supports, fluid fills): the first scaffold block the blueprint does not use (a blueprint with dirt in it left the crew without any)
     { const tmp = SUP.TEMPS.find((n) => !items.has(n)); items.set(tmp, Number(process.env.TEMPS || 64 * 24)); }
-    for (const [tool, n] of [['diamond_pickaxe', BOTS * 3], ['diamond_shovel', BOTS * 2], ['diamond_axe', BOTS * 3]]) items.set(tool, n);
+    // tools by the work, not only by the crew: a diamond pickaxe lasts 1 561 blocks; a two-bot Nether crew had 6 for about 25 000 cells of netherrack and dug with bare hands
+    // (owner 2026-11-23 V5). The box's volume bounds what is dug.
+    const vol = sx * sy * sz;
+    for (const [tool, n] of [['diamond_pickaxe', BOTS * 3 + Math.ceil(vol / 1500)], ['diamond_shovel', BOTS * 2 + Math.ceil(vol / 8000)], ['diamond_axe', BOTS * 3]]) items.set(tool, n);
     // the Nether: a respawn anchor and glowstone (a bot that dies there respawns at the anchor, not in the Overworld: the crew of a Nether run was left behind there, owner 2026-11-23)
     if (NETHER) { items.set('respawn_anchor', 2); items.set('glowstone', 48); }
     const stacks = []; for (const [it, n] of items) { const st = STACK(it); for (let r = Math.max(1, n); r > 0; r -= st) stacks.push({ it, n: Math.min(st, r) }); }

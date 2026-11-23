@@ -311,8 +311,31 @@ class Mover {
         // a pillar that failed in a cell is not planned there again for two minutes (one was tried 13 times in a row, live 2026-11-23 gd1 w2)
         this.rules = { ...rules, noPillar: (x, y, z) => (this.badPillar.get(key(x, y, z)) || 0) > Date.now() };
     }
+    /** After a bridge step onto route[i-1] from prev: prev's floor, this mover's own bridge block over air that the rest of the route does not stand on, is dug. */
+    async _behind(prev, route, i) {
+        if (!prev) return false;
+        const c = { x: prev.x, y: prev.y - 1, z: prev.z }, k = key(c.x, c.y, c.z);
+        if ((this.mineHow && this.mineHow.get(k)) !== 'bridge' || !this.mine.has(k)) return false;
+        if (route.slice(i).some((q) => q.x === c.x && q.z === c.z && q.y - 1 === c.y)) return false;
+        const v = this.view();
+        if (!v.free(c.x, c.y - 1, c.z)) return false;                          // over ground it is a step, not a bridge: left to the crew
+        if (this.rules.mayDig && !this.rules.mayDig(c.x, c.y, c.z)) return false;
+        if ([[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]].some(([dx, dy, dz]) => { const q = v.raw(c.x + dx, c.y + dy, c.z + dz); return q && (q.name === 'water' || q.name === 'lava'); })) return false;
+        if (!(await this.dig(c))) return false;
+        this.mine.delete(k); this.mineHow.delete(k); if (this.rules.onUntemp) this.rules.onUntemp(c);
+        return true;
+    }
+
+    /** Can the bot get to cell `to` from where it stands (the planner itself, no move)? The route's cost, or null. */
+    async canReach(to, { maxNodes = 20000, budgetMs = 1500 } = {}) {
+        const start = feet(this.bot), view = new View(this.bot, this.rules), t = this.rules.temp();
+        const temps = t ? this.bot.inventory.items().filter((i) => i.name === t).reduce((a, i) => a + i.count, 0) : 0;
+        const r = await plan(view, start, (x, y, z) => x === to.x && y === to.y && z === to.z, to, { maxNodes, temps, budgetMs, maxDrop: (this.bot.health || 0) >= 16 ? 6 : 4, out: {} });
+        return r ? r.length : null;
+    }
+
     /** A temporary block this mover put at c (`how`: pillar, bridge, temp): its own, taken down by unpillar() when it leaves; the caller is told (onTemp) for the rest. */
-    _temp(c, how) { const b = this.bot.blockAt(new Vec3(c.x, c.y, c.z), false); this.mine.set(key(c.x, c.y, c.z), b ? b.name : null); if (this.rules.onTemp) this.rules.onTemp(c, how); }
+    _temp(c, how) { const b = this.bot.blockAt(new Vec3(c.x, c.y, c.z), false); this.mine.set(key(c.x, c.y, c.z), b ? b.name : null); (this.mineHow || (this.mineHow = new Map())).set(key(c.x, c.y, c.z), how); if (this.rules.onTemp) this.rules.onTemp(c, how); }
 
     /**
      * Standing on its own pillar and going somewhere else: dig it down from the top, a block at a time (one-block falls, no damage), as a player does, before the walk. A pillar left
@@ -324,7 +347,9 @@ class Mover {
         while (n < 80 && !cancel.cancelled) {
             const f = feet(this.bot), k = key(f.x, f.y - 1, f.z), name = this.mine.get(k);
             if (name === undefined || goal(f.x, f.y, f.z)) break;
-            if (to && Math.abs(to.x - f.x) <= 1 && Math.abs(to.z - f.z) <= 1 && to.y >= f.y - 1) break;
+            // only a next stance on this same column keeps the pillar: one left for a stance beside its top became a column the crew never took down (owner 2026-11-23,
+            // visual check V4: columns stood beside every unit)
+            if (to && to.x === f.x && to.z === f.z && to.y >= f.y - 1) break;
             const b = this.bot.blockAt(new Vec3(f.x, f.y - 1, f.z), false);
             if (!b || (name && b.name !== name)) { this.mine.delete(k); break; }
             const v = this.view();
@@ -690,6 +715,8 @@ class Mover {
                 const r = await this.step(route[i - 1], s), at = feet(this.bot);
                 if (!r.ok || at.x !== s.x || at.z !== s.z || at.y !== s.y) { last = r.ok ? `ended at ${at.x},${at.y},${at.z} not ${s.x},${s.y},${s.z} (${s.move})` : r.why; broke = true; break; }
                 steps++; i++;
+                // the bridge block behind is broken as the bot goes on (as a player does: no bridge is left standing; owner 2026-11-23 V4)
+                if (s.move === 'bridge') await this._behind(route[i - 2], route, i);
             }
             if (!broke && !cancel.cancelled) { const f = feet(this.bot); if (g(f.x, f.y, f.z)) return { ok: true, steps }; }
         }
