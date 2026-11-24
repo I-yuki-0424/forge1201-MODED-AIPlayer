@@ -168,7 +168,7 @@ test('pool: a giver serving a request is not asked again; an expired request is 
     const pool = crew({ a: {}, b: { hopper: 9 }, e: {} }, { a: [0, 70, 0], b: [3, 70, 0], e: [6, 70, 0] });
     const r = pool.open('a', 'b', { hopper: 2 });
     assert.strictEqual(pool.offers('e', { hopper: 1 }).length, 0);
-    r.at = Date.now() - 100000;
+    r.at = Date.now() - 130000;
     assert.strictEqual(pool.forGiver('b'), null);
     assert.strictEqual(pool.offers('e', { hopper: 1 })[0].to, 'b');
     assert.strictEqual(pool.status().failed, 1);

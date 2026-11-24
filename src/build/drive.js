@@ -667,7 +667,7 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
     job.ownBlock = job.ownBlock || ((x, y, z) => !!ownBlockItem(job, x, y, z));
     if (!job.bots.has(name)) job.bots.set(name, { station: null, pos: feet(bot) });
     const mv = new Mover(bot, rules(job, bot), { log: job.log });
-    if (PEER) { job.pool = job.pool || new Pool(job); job.pool.join(name, bot); mv.between = () => job.pool.serve(name); }
+    if (PEER) { job.pool = job.pool || new Pool(job); job.pool.join(name, bot, mv); mv.between = () => job.pool.serve(name); }
     bot.__mine = mv.mine;          // its own temporary blocks (rules.doomed lets it stand on them)
     (job.moverRules || (job.moverRules = new Map())).set(name, mv.rules);          // the claim judges stances by these
     const onDeath = () => { const p = bot.entity && bot.entity.position, f = p ? feet(bot) : null, around = f ? [-1, 0, 1].map((dy) => (seen(bot, { x: f.x, y: f.y + dy, z: f.z }) || {}).name).join('/') : '?'; job.stats.deaths = (job.stats.deaths || 0) + 1; const gs = mv.guard && mv.guard.lastStop; job.log(`${name} died at ${f ? `${f.x},${f.y},${f.z}` : '?'} (${around}), stage ${job.stage}${gs ? `; fall guard last held it ${Math.round((Date.now() - gs.at) / 1000)} s ago at ${gs.x},${gs.y},${gs.z}` : ''}; last: ${mv.trace.join(' | ')}`); };
@@ -794,7 +794,7 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
                     const now = Date.now(), out = Object.keys(cl.need).some((it) => job.outOf && (job.outOf.get(it) || 0) > now), site = job.sites[0], p = bot.entity.position;
                     const dChest = site ? Math.hypot(site.x - p.x, site.z - p.z) + Math.abs(site.y - p.y) * 2 : Infinity, best = job.pool.offers(name, cl.need)[0];
                     if (best && (out || best.dist < dChest * 0.6)) {
-                        const tp = Date.now(); const r = await job.pool.ask(name, mv, cl.need, within(cancel, 100000)); job.time.peer = (job.time.peer || 0) + Date.now() - tp;
+                        const tp = Date.now(); const r = await job.pool.ask(name, mv, cl.need, within(cancel, 130000)); job.time.peer = (job.time.peer || 0) + Date.now() - tp;
                         if (Object.keys(r.got).length) { progress(); continue; }
                     }
                 }

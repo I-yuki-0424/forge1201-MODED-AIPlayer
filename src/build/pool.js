@@ -14,12 +14,12 @@ const NEAR = { xz: 12, y: 8 };                  // the cells whose items a bot k
 // the giver throws when the asker stands this far from it (horizontally, about level): a toss thrown level flies about two and a half cells and lands at the asker's feet,
 // out of the giver's own reach (from beside it the giver took its toss back, live 2026-11-25 hb6; aimed down from 2.3-3.2 it fell between the two, hb1)
 const REACH = [1.8, 3.3];
-const TTL = 90000;                              // a request not served in this time is dropped (the asker goes to the chest)
+const TTL = 120000;                             // a request not served in this time is dropped (the asker goes to the chest)
 const MAX_DIST = 48;                            // no colleague further than this is asked (the walk is longer than a trip)
 
 class Pool {
     constructor(job) { this.job = job; this.bots = new Map(); this.reqs = new Map(); this.seq = 0; this.cache = new Map(); this.stats = { asked: 0, served: 0, items: 0, failed: 0, ms: 0 }; }
-    join(name, bot) { this.bots.set(name, bot); }
+    join(name, bot, mv = null) { this.bots.set(name, bot); (this.movers || (this.movers = new Map())).set(name, mv); }
     leave(name) { this.bots.delete(name); for (const r of this.reqs.values()) if (r.from === name || r.to === name) this.close(r, 'failed', `${name} left`); }
 
     /** What `name` keeps for itself: the items of the place tasks near it and of the tasks it has claimed ({item: count}), at most every 5 s. */
@@ -128,13 +128,25 @@ class Pool {
 
     /** A giver asked for, waiting for its asker who is on the way and near (it does not walk off its cell meanwhile). At most `ms`. */
     async hold(name, cancel, ms = 15000) {
-        const end = Date.now() + ms;
+        let end = Date.now() + ms;
         for (;;) {
             const r = this.forGiver(name);
             if (!r || cancel.cancelled || Date.now() > end) return;
             const me = this.bots.get(name), asker = this.bots.get(r.from);
             if (!me || !me.entity || !asker || !asker.entity) return;
-            if (me.entity.position.distanceTo(asker.entity.position) > 14) return;          // still far: the giver works on, the asker catches up with it
+            // the asker found no way up to the giver (a giver at work on a pillar or a floor in the air has no cell two to three from it that the asker can reach: 26 of hb7's
+            // requests failed so): the giver goes to the asker, who waits where it stands
+            const mv = this.movers && this.movers.get(name);
+            if (r.blocked && mv && !r.fetching) {
+                r.fetching = true;
+                const a = asker.entity.position, af = { x: Math.floor(a.x), y: Math.floor(a.y + 0.16), z: Math.floor(a.z) };
+                this.job.log(`pool: ${name} goes to ${r.from}, who cannot get up to it`);
+                const res = await mv.goto(af, { goal: near(af, mv.view()), cancel: { get cancelled() { return cancel.cancelled || r.state !== 'coming'; } }, maxNodes: 20000, tries: 3 });
+                if (!res.ok) { this.close(r, 'failed', `neither could get to the other (${String(res.why).slice(0, 80)})`); return; }
+                end = Date.now() + 10000;          // there: a moment to throw (a third bot beside the asker passes)
+                continue;
+            }
+            if (!r.blocked && me.entity.position.distanceTo(asker.entity.position) > 14) return;          // still far: the giver works on, the asker catches up with it
             if (await this.serve(name)) return;
             await sleep(250);
         }
@@ -176,7 +188,13 @@ class Pool {
                 const g = giver.entity.position, gf = { x: Math.floor(g.x), y: Math.floor(g.y + 0.16), z: Math.floor(g.z) }, f = feet(bot), v = mv.view();
                 if (near(gf, v)(f.x, f.y, f.z)) { for (let i = 0; i < 40 && r.state === 'coming' && !cancel.cancelled; i++) await sleep(250); continue; }
                 const res = await mv.goto(gf, { goal: near(gf, v), cancel: { get cancelled() { return cancel.cancelled || r.state !== 'coming'; } }, maxNodes: 15000, tries: 2 });
-                if (!res.ok && r.state === 'coming') log(`pool: ${name} on the way to ${r.to}: ${String(res.why).slice(0, 100)}`);
+                if (!res.ok && r.state === 'coming') {
+                    log(`pool: ${name} on the way to ${r.to}: ${String(res.why).slice(0, 100)}; it waits for ${r.to} to come`);
+                    // no way up to the giver: it comes to the asker (hold), the asker stays where it is until the toss or the request's time is up
+                    r.blocked = true;
+                    while (r.state === 'coming' && !cancel.cancelled && Date.now() - t0 < TTL) await sleep(250);
+                    break;
+                }
             }
             if (r.state === 'coming') { this.close(r, 'failed', cancel.cancelled ? 'cancelled' : 'did not meet'); return { got: {}, tried: true }; }
             if (r.state !== 'tossed') return { got: got(), tried: true };
