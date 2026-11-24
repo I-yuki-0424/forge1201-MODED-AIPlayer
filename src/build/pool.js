@@ -11,9 +11,9 @@ const SUP = require('./supply');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const NEAR = { xz: 12, y: 8 };                  // the cells whose items a bot keeps for itself
-// the giver throws when the asker's feet are this close to its own: a toss aimed at the feet lands about a cell ahead (at 2.3-3.2 the items fell between the two and nobody
-// picked them up, live 2026-11-25 hb1 w4)
-const REACH = 2.2;
+// the giver throws when the asker stands this far from it (horizontally, about level): a toss thrown level flies about two and a half cells and lands at the asker's feet,
+// out of the giver's own reach (from beside it the giver took its toss back, live 2026-11-25 hb6; aimed down from 2.3-3.2 it fell between the two, hb1)
+const REACH = [1.8, 3.3];
 const TTL = 90000;                              // a request not served in this time is dropped (the asker goes to the chest)
 const MAX_DIST = 48;                            // no colleague further than this is asked (the walk is longer than a trip)
 
@@ -100,13 +100,13 @@ class Pool {
         if (!bot || !bot.entity) { this.close(r, 'failed', 'giver gone'); return false; }
         if (!asker || !asker.entity) { this.close(r, 'failed', 'asker gone'); return false; }
         const p = bot.entity.position, q = asker.entity.position;
-        if (Math.hypot(q.x - p.x, q.z - p.z) > REACH || Math.abs(q.y - p.y) > 1.5) return false;
+        { const d = Math.hypot(q.x - p.x, q.z - p.z); if (d < REACH[0] || d > REACH[1] || Math.abs(q.y - p.y) > 1.2) return false; }
         // a third bot beside the asker picks the toss up as soon as the asker (items lay among the crew and eight bots took a share, live 2026-11-25 hb3): the giver waits a
         // few seconds for it to pass
         r.readyAt = r.readyAt || Date.now();
         if (Date.now() - r.readyAt < 8000) for (const [n, o] of this.bots) { if (n === name || n === r.from || !o.entity) continue; const w = o.entity.position; if (Math.hypot(w.x - q.x, w.z - q.z) < 1.8 && Math.abs(w.y - q.y) < 2) return false; }
         for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sprint']) bot.setControlState(k, false);
-        const e = p.offset(0, bot.entity.eyeHeight || 1.62, 0), t = q.offset(0, 0.2, 0);
+        const e = p.offset(0, bot.entity.eyeHeight || 1.62, 0), t = q.offset(0, 1.1, 0);          // at the asker's body: about level
         try { await bot.look(Math.atan2(-(t.x - e.x), -(t.z - e.z)), Math.atan2(t.y - e.y, Math.hypot(t.x - e.x, t.z - e.z)), true); await sleep(120); } catch (_) { /* the look is a nicety */ }
         const sent = {}, c0 = SUP.carried(bot);
         for (const [it, n0] of Object.entries(r.items)) {
@@ -146,8 +146,9 @@ class Pool {
         let pick = null;
         for (const o of offers) {
             const g = this.bots.get(o.to).entity.position, gf = { x: Math.floor(g.x), y: Math.floor(g.y + 0.16), z: Math.floor(g.z) };
-            if (near(gf)(feet(bot).x, feet(bot).y, feet(bot).z)) { pick = o; break; }
-            if ((await mv.canReachGoal(near(gf), gf, { maxNodes: 6000, budgetMs: 600 })) !== null) { pick = o; break; }
+            const v = mv.view();
+            if (near(gf, v)(feet(bot).x, feet(bot).y, feet(bot).z)) { pick = o; break; }
+            if ((await mv.canReachGoal(near(gf, v), gf, { maxNodes: 6000, budgetMs: 600 })) !== null) { pick = o; break; }
         }
         if (!pick) return { got: {}, tried: false };
         const r = this.open(name, pick.to, pick.items), before = SUP.carried(bot), t0 = Date.now();
@@ -167,9 +168,9 @@ class Pool {
             for (let k = 0; k < 10 && r.state === 'coming' && !cancel.cancelled && Date.now() - t0 < TTL - 10000; k++) {
                 const giver = this.bots.get(r.to);
                 if (!giver || !giver.entity) { this.close(r, 'failed', 'giver gone'); break; }
-                const g = giver.entity.position, gf = { x: Math.floor(g.x), y: Math.floor(g.y + 0.16), z: Math.floor(g.z) }, f = feet(bot);
-                if (near(gf)(f.x, f.y, f.z)) { for (let i = 0; i < 40 && r.state === 'coming' && !cancel.cancelled; i++) await sleep(250); continue; }
-                const res = await mv.goto(gf, { goal: near(gf), cancel: { get cancelled() { return cancel.cancelled || r.state !== 'coming'; } }, maxNodes: 15000, tries: 2 });
+                const g = giver.entity.position, gf = { x: Math.floor(g.x), y: Math.floor(g.y + 0.16), z: Math.floor(g.z) }, f = feet(bot), v = mv.view();
+                if (near(gf, v)(f.x, f.y, f.z)) { for (let i = 0; i < 40 && r.state === 'coming' && !cancel.cancelled; i++) await sleep(250); continue; }
+                const res = await mv.goto(gf, { goal: near(gf, v), cancel: { get cancelled() { return cancel.cancelled || r.state !== 'coming'; } }, maxNodes: 15000, tries: 2 });
                 if (!res.ok && r.state === 'coming') log(`pool: ${name} on the way to ${r.to}: ${String(res.why).slice(0, 100)}`);
             }
             if (r.state === 'coming') { this.close(r, 'failed', cancel.cancelled ? 'cancelled' : 'did not meet'); return { got: {}, tried: true }; }
@@ -213,7 +214,18 @@ async function throwOut(bot, it, n, spare) {
     return sent;
 }
 
-/** A cell for the asker: beside the giver (the eight around it, not its own column), at about its height. */
-function near(gf) { return (x, y, z) => Math.hypot(x - gf.x, z - gf.z) <= 1.5 && Math.abs(y - gf.y) <= 1 && !(x === gf.x && z === gf.z); }
+/**
+ * A cell for the asker: two to three cells from the giver (horizontally), at about its height, nothing between them at the height the toss flies (the cell half way, at the
+ * giver's feet and head): the toss lands there.
+ */
+function near(gf, view = null) {
+    return (x, y, z) => {
+        const d = Math.hypot(x - gf.x, z - gf.z);
+        if (d < 2 || d > 3.1 || Math.abs(y - gf.y) > 1) return false;
+        if (!view) return true;
+        const mx = Math.round((x + gf.x) / 2), mz = Math.round((z + gf.z) / 2);
+        return view.free(mx, gf.y, mz) && view.free(mx, gf.y + 1, mz);
+    };
+}
 
 module.exports = { Pool, near, REACH, TTL };
