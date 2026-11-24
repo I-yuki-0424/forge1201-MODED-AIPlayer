@@ -11,7 +11,9 @@ const SUP = require('./supply');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const NEAR = { xz: 12, y: 8 };                  // the cells whose items a bot keeps for itself
-const REACH = 3.2;                              // the giver throws when the asker's feet are this close to its own (the toss lands about two ahead)
+// the giver throws when the asker's feet are this close to its own: a toss aimed at the feet lands about a cell ahead (at 2.3-3.2 the items fell between the two and nobody
+// picked them up, live 2026-11-25 hb1 w4)
+const REACH = 2.2;
 const TTL = 90000;                              // a request not served in this time is dropped (the asker goes to the chest)
 const MAX_DIST = 48;                            // no colleague further than this is asked (the walk is longer than a trip)
 
@@ -101,13 +103,15 @@ class Pool {
         for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sprint']) bot.setControlState(k, false);
         const e = p.offset(0, bot.entity.eyeHeight || 1.62, 0), t = q.offset(0, 0.2, 0);
         try { await bot.look(Math.atan2(-(t.x - e.x), -(t.z - e.z)), Math.atan2(t.y - e.y, Math.hypot(t.x - e.x, t.z - e.z)), true); await sleep(120); } catch (_) { /* the look is a nicety */ }
-        const sent = {};
+        const sent = {}, c0 = SUP.carried(bot);
         for (const [it, n0] of Object.entries(r.items)) {
             const n = Math.min(n0, this.spare(name, it)), reg = bot.registry.itemsByName[it];
             if (n <= 0 || !reg) continue;
             try { await bot.toss(reg.id, null, n); sent[it] = n; } catch (err) { this.job.log(`pool: ${name} could not throw ${n} ${it}: ${err.message}`); }
         }
         if (!Object.keys(sent).length) { this.close(r, 'failed', 'nothing left to spare'); return false; }
+        await sleep(150);
+        { const c1 = SUP.carried(bot), off = Object.keys(sent).filter((it) => (c0[it] || 0) - (c1[it] || 0) <= 0); if (off.length) this.job.log(`pool: ${name}'s toss of ${off.join(', ')} left its pack unchanged`); }
         r.state = 'tossed'; r.sent = sent; r.tossAt = Date.now();
         return true;
     }
@@ -142,6 +146,10 @@ class Pool {
         }
         if (!pick) return { got: {}, tried: false };
         const r = this.open(name, pick.to, pick.items), before = SUP.carried(bot), t0 = Date.now();
+        // item entities lying about before the request are not the giver's toss; who picks the toss up is logged (the giver itself, a third bot, nobody)
+        const old = new Set(Object.keys(bot.entities)), takers = {};
+        const onCollect = (collector, collected) => { if (collected && collected.name === 'item' && !old.has(String(collected.id)) && collector) { const n = collector.username || collector.name || '?'; takers[n] = (takers[n] || 0) + 1; } };
+        bot.on('playerCollect', onCollect);
         log(`pool: ${name} asks ${pick.to} for ${JSON.stringify(pick.items)} (${Math.round(pick.dist)} away)`);
         const got = () => { const now = SUP.carried(bot), o = {}; for (const it of Object.keys(r.items)) { const d = (now[it] || 0) - (before[it] || 0); if (d > 0) o[it] = d; } return o; };
         const full = () => Object.entries(r.items).every(([it, n]) => (got()[it] || 0) >= Math.min(n, (r.sent || {})[it] ?? n));
@@ -160,27 +168,23 @@ class Pool {
             // the pickup: the server gives the items after two seconds to the nearest body; the asker walks onto what is left lying
             for (let i = 0; i < 16 && !full(); i++) await sleep(250);
             for (let k = 0; k < 3 && !full() && !cancel.cancelled; k++) {
-                const lying = Object.values(bot.entities).filter((e) => e.name === 'item' && e.position.distanceTo(bot.entity.position) < 6 && wanted(e, r.items)).sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))[0];
+                const lying = Object.values(bot.entities).filter((e) => e.name === 'item' && !old.has(String(e.id)) && e.position.distanceTo(bot.entity.position) < 6).sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))[0];
                 if (!lying) break;
                 const c = { x: Math.floor(lying.position.x), y: Math.floor(lying.position.y + 0.2), z: Math.floor(lying.position.z) };
                 await mv.goto(c, { goal: (x, y, z) => Math.abs(x - c.x) <= 0 && Math.abs(z - c.z) <= 0 && Math.abs(y - c.y) <= 1, cancel, maxNodes: 3000, tries: 1 });
                 for (let i = 0; i < 6 && !full(); i++) await sleep(200);
             }
             r.got = got();
-            this.close(r, Object.keys(r.got).length ? 'done' : 'failed', Object.keys(r.got).length ? '' : 'nothing picked up');
+            const who = Object.keys(takers).length ? `; picked up by ${JSON.stringify(takers)}` : '', left = Object.values(bot.entities).filter((e) => e.name === 'item' && !old.has(String(e.id)) && e.position.distanceTo(bot.entity.position) < 8).length;
+            this.close(r, Object.keys(r.got).length ? 'done' : 'failed', Object.keys(r.got).length ? '' : `nothing picked up${who}${left ? `, ${left} item entities lying near` : ''}`);
             return { got: r.got, tried: true };
-        } finally { if (r.state === 'coming' || r.state === 'tossed') this.close(r, 'failed', 'ended'); }
+        } finally { bot.removeListener('playerCollect', onCollect); if (r.state === 'coming' || r.state === 'tossed') this.close(r, 'failed', 'ended'); }
     }
 
     status() { return { ...this.stats, open: this.reqs.size }; }
 }
 
-/** A cell for the asker: within two of the giver (not its cells), at about its height. */
-function near(gf) { return (x, y, z) => Math.hypot(x - gf.x, z - gf.z) <= 2.3 && Math.abs(y - gf.y) <= 1 && !(x === gf.x && z === gf.z); }
-
-/** Is the dropped item entity e one of `items`? */
-function wanted(e, items) {
-    try { const it = e.getDroppedItem && e.getDroppedItem(); return !!it && items[it.name] !== undefined; } catch (_) { return false; }
-}
+/** A cell for the asker: beside the giver (the eight around it, not its own column), at about its height. */
+function near(gf) { return (x, y, z) => Math.hypot(x - gf.x, z - gf.z) <= 1.5 && Math.abs(y - gf.y) <= 1 && !(x === gf.x && z === gf.z); }
 
 module.exports = { Pool, near, REACH, TTL };
