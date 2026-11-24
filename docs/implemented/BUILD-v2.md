@@ -300,3 +300,10 @@ reserved pillar columns, failed-pillar cells).
 | a few low cells held their tiles' window (3 925 of 4 425 cells above it) | a cell lowest in its tile for three minutes no longer holds the window |
 
 Measured: ha21 at 55 min 1 794-2 247 placed per Overworld crew; ha25 2 132-2 808; ha26 at 30 min up to 2 107. No build has finished yet.
+
+ha26 ran 120 min on the code above: the best crew placed 6 571 of 6 920 (w4 c0, 349 left), five crews 4 400-5 600; then every crew flattened. Causes and fixes (ha27-ha28):
+drops onto temporary blocks due to be taken away (a temporary block with an untemp task is never stood on; no drop lands on another bot's temporary block); bots boxed in by
+the others' blocks (no block that boxes in any crew member; a search of two cells or fewer digs out and escapes); in the tail, 1 080 temporary blocks took all but four claims a
+minute (a nearby one ranks as a placing at the same distance) while 187 of 234 ready cells waited for items nobody fetched (a bot whose ready placing mostly needs items it lacks
+fetches them); temporary columns with no stance beside their top are claimed from on top and dug down under the bot (`unpillar({ any: true })`).
+ha28 at 30 min: 0-1 deaths per crew, the best Overworld crews 2 083-2 464 placed.
