@@ -582,6 +582,10 @@ class BuildJob {
         const floors = new Set([...this.bots.values()].map((b) => b.pos && key(b.pos.x, b.pos.y - 1, b.pos.z)).concat([...this.bots.values()].filter((b) => b.station).map((b) => key(b.station[0].x, b.station[0].y - 1, b.station[0].z))));
         floors.add(key(me.x, me.y - 1, me.z));
         const doable = ready.filter((tk) => { if ((tk.kind === 'clear' || tk.kind === 'untemp') && floors.has(tk.k)) return false; const it = item(tk); return !it || tk.kind === 'clear' || tk.kind === 'fix' || tk.kind === 'untemp' || has(it) > 0; });
+        // most of the ready placing needs items this bot does not carry and it can do little else: it fetches them (a crew took temporary blocks away while 187 of 234 ready
+        // cells waited for items nobody went for, ha26 w4)
+        { const dp = doable.filter((tk) => tk.kind === 'place').length, wait = ready.filter((tk) => tk.kind === 'place' && !doable.includes(tk));
+          if (wait.length >= 30 && dp < 10) { const need = {}; for (const tk of wait.slice(0, 200)) { const it = item(tk); if (it && !skip(it)) need[it] = (need[it] || 0) + 1; } if (Object.keys(need).length) return { need }; } }
         // only temporary blocks to take away, while blocks wait for items this bot does not carry: it fetches the items first (with an untemp always doable, no bot went for
         // materials and the crew took 110 temporary blocks a minute away while it placed 25, live 2026-11-23 gf1 w3)
         if (doable.length && doable.every((tk) => tk.kind === 'untemp')) {
@@ -606,7 +610,8 @@ class BuildJob {
             const d = Math.hypot(tk.x - me.x, tk.y - me.y, tk.z - me.z);
             // near the bot now (six cells): taken at once, between the real work (kept for after it, they stood on the site to the end: owner 2026-11-23 V4)
             // (within three: at six, walks to take one block each were most claims and walking 65 % of bot time, live 2026-11-23 ha10 w3)
-            if (tk.kind === 'untemp') return d <= 3 ? 1500 + d * 2 : 2600 + d * 2;          // after the real work, always (at -3000 the crew gathered on every leftover pillar, owner 2026-11-23; even beside the bot it took most claims from placing, ge1 w3)
+            // (as a placing at the same distance, not before every placing: at 1 500 a crew with 1 080 of them took four placing claims a minute, ha26 w4)
+            if (tk.kind === 'untemp') return d <= 3 ? 2000 + tk.y + d * 2 : 2600 + d * 2;          // after the real work, always (at -3000 the crew gathered on every leftover pillar, owner 2026-11-23; even beside the bot it took most claims from placing, ge1 w3)
             // a cell that found no stance a moment ago goes after every other one (the same twelve stance-less cells were the only seeds tried, 38 empty claims a minute with
             // 290 doable cells, live 2026-11-23 ha7 w3)
             // placing: the nearest cell first, a climb counting double, the layer only a little (the local window keeps the order): at three points a layer against 0.6 a cell,
