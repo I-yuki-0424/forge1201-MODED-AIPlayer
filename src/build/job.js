@@ -606,7 +606,10 @@ class BuildJob {
             if (tk.kind === 'untemp') return d <= 3 ? 1500 + d * 2 : 2600 + d * 2;          // after the real work, always (at -3000 the crew gathered on every leftover pillar, owner 2026-11-23; even beside the bot it took most claims from placing, ge1 w3)
             // a cell that found no stance a moment ago goes after every other one (the same twelve stance-less cells were the only seeds tried, 38 empty claims a minute with
             // 290 doable cells, live 2026-11-23 ha7 w3)
-            return (tk.kind === 'place' || tk.kind === 'fix' ? 2000 + tk.y * 3 : (down ? -tk.y : tk.y) * 2) + d * 0.6 + crowd(tk) * 30 + (inSec(tk) ? 0 : 400) + (tk.kind === 'seal' || tk.kind === 'fill' ? -1000 : 0) + (this.noStance.has(tk.k) ? 5000 : 0);
+            // placing: the nearest cell first, a climb counting double, the layer only a little (the local window keeps the order): at three points a layer against 0.6 a cell,
+            // a bot on a floor 20 up went five layers down elsewhere for its next stance and climbed back; walking was 65 % of bot time and claims placed two blocks (ha24)
+            const dv = Math.hypot(tk.x - me.x, (tk.y - me.y) * 2, tk.z - me.z);
+            return (tk.kind === 'place' || tk.kind === 'fix' ? 2000 + tk.y + dv * 2 - d * 0.6 : (down ? -tk.y : tk.y) * 2) + d * 0.6 + crowd(tk) * 30 + (inSec(tk) ? 0 : 400) + (tk.kind === 'seal' || tk.kind === 'fill' ? -1000 : 0) + (this.noStance.has(tk.k) ? 5000 : 0);
         };
         doable.sort((a, b) => seedScore(a) - seedScore(b));
         // the stance cells are judged with the bot's own mover rules (what it may dig, blocks about to go, cells no temporary block may take): judged with rules of its own,

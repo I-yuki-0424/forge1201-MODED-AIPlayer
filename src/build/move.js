@@ -254,7 +254,7 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
                 // a bridge from a block under the feet, or from the temporary block this plan just put there (bridges were one cell long: the plan's view never had its own
                 // blocks, live 2026-11-23 ga4 w1)
                 const onTemp = !!c.place && c.place.x === c.x && c.place.y === c.y - 1 && c.place.z === c.z;
-                if (!landed && !diag) { if (view.placeable(x, c.y - 1, z) && view.kind(x, c.y - 1, z) !== 'water' && (onTemp || (view.stands(c.x, c.y - 1, c.z) && P.full(blk(view, c.x, c.y - 1, c.z))))) add(x, c.y, z, COST.bridge + COST.temp, 'bridge', { place: { x, y: c.y - 1, z } }); }
+                if (!landed && !diag) { if (view.placeable(x, c.y - 1, z) && view.kind(x, c.y - 1, z) !== 'water' && (onTemp || (view.stands(c.x, c.y - 1, c.z) && P.full(blk(view, c.x, c.y - 1, c.z))))) add(x, c.y, z, (view.rules.buildBlock && view.rules.buildBlock(x, c.y - 1, z)) ? 12 : COST.bridge + COST.temp, 'bridge', { place: { x, y: c.y - 1, z } });          // (a bridge of the blueprint's own block is the build: cheap) }
                 continue;
             }
             if (diag) continue;
