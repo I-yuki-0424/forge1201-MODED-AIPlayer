@@ -7,6 +7,7 @@
 const { Vec3 } = require('vec3');
 const P = require('./place');
 const V = require('./vanilla');
+const FG = require('./fallguard');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const key = (x, y, z) => `${x},${y},${z}`;
@@ -314,6 +315,8 @@ function feet(bot) { const p = bot.entity.position; return { x: Math.floor(p.x),
 class Mover {
     constructor(bot, rules, { log = () => {} } = {}) {
         this.bot = bot; this.log = log; this.trace = []; this.mine = new Map(); this.badPillar = new Map();
+        // under every move: no step sideways onto a fall of more than three (fallguard.js); planned drops open their columns (follow, step)
+        this.guard = FG.install(bot);
         // a pillar that failed in a cell is not planned there again for two minutes (one was tried 13 times in a row, live 2026-11-23 gd1 w2)
         this.rules = { ...rules, noPillar: (x, y, z) => (this.badPillar.get(key(x, y, z)) || 0) > Date.now() };
     }
@@ -337,6 +340,13 @@ class Mover {
         const start = feet(this.bot), view = new View(this.bot, this.rules), t = this.rules.temp();
         const temps = t ? this.bot.inventory.items().filter((i) => i.name === t).reduce((a, i) => a + i.count, 0) : 0;
         const r = await plan(view, start, (x, y, z) => x === to.x && y === to.y && z === to.z, to, { maxNodes, temps, budgetMs, maxDrop: (this.bot.health || 0) >= 16 ? 6 : 4, out: {} });
+        return r ? r.length : null;
+    }
+    /** Can the bot get to any cell `goal` accepts (estimated toward `to`)? The route's length, or null. */
+    async canReachGoal(goal, to, { maxNodes = 6000, budgetMs = 600 } = {}) {
+        const start = feet(this.bot), view = new View(this.bot, this.rules), t = this.rules.temp();
+        const temps = t ? this.bot.inventory.items().filter((i) => i.name === t).reduce((a, i) => a + i.count, 0) : 0;
+        const r = await plan(view, start, goal, to, { maxNodes, temps, budgetMs, maxDrop: (this.bot.health || 0) >= 16 ? 6 : 4, out: {} });
         return r ? r.length : null;
     }
 
@@ -584,7 +594,7 @@ class Mover {
         for (const d of s.dig || []) if (!(await this.dig(d))) return { ok: false, why: `dig ${d.x},${d.y},${d.z}` };
         if (s.move === 'walk') return (await this.walkTo(s)) ? { ok: true } : { ok: false, why: 'walk' };
         if (s.move === 'up') return (await this.walkTo(s, { jump: true })) ? { ok: true } : { ok: false, why: 'up' };
-        if (s.move === 'drop') { const ok = await this.walkTo(s, { timeout: 3500 }); return ok ? { ok: true } : { ok: false, why: 'drop' }; }
+        if (s.move === 'drop') { const ok = await FG.allowing(this.bot, [s], () => this.walkTo(s, { timeout: 3500 })); return ok ? { ok: true } : { ok: false, why: 'drop' }; }
         if (s.move === 'down') { for (let i = 0; i < 30 && feet(this.bot).y > s.y; i++) await sleep(50); return feet(this.bot).y === s.y ? { ok: true } : { ok: false, why: 'down' }; }
         if (s.move === 'pillar') {
             if (this.rules.onPillar) this.rules.onPillar(s);
@@ -636,7 +646,12 @@ class Mover {
      * Follow a run of ground moves (walk, diagonal, up, drop) without stopping in between: steer at the next cell's centre, take it when within 0.35 (the last one: 0.15),
      * jump just before a step up. Ends when the bot leaves the run's cells (the caller plans again). Returns the index reached.
      */
-    async follow(route, i0, i1, cancel, { breath = true } = {}) {
+    async follow(route, i0, i1, cancel, opts = {}) {
+        // the run's planned drops: their columns are open to the fall guard while it is walked
+        const drops = route.slice(i0, i1 + 1).filter((c) => c.move === 'drop');
+        return drops.length ? FG.allowing(this.bot, drops, () => this._follow(route, i0, i1, cancel, opts)) : this._follow(route, i0, i1, cancel, opts);
+    }
+    async _follow(route, i0, i1, cancel, { breath = true } = {}) {
         const b = this.bot, cells = new Set(route.slice(Math.max(0, i0 - 1), i1 + 1).map((c) => key(c.x, c.y, c.z)));
         let i = i0, t0 = Date.now(), stuck = 0, lastD = Infinity;
         // cells beside a drop of four or more: walked sneaking, as a player does (momentum at a corner or at the end of a run carried bots over the edge: falls of 14-39 blocks,
@@ -666,6 +681,9 @@ class Mover {
                 b.setControlState('forward', true);
                 b.setControlState('sprint', false);
                 const up = c.y > f.y && route[i].move === 'up', wet = b.entity.isInWater;
+                // a step up is jumped only with room for the head, looked at now (a block put there since the plan, a slab or a trapdoor over the take-off: the head hit it, the jump
+                // fell short and the bot came down beside its cell, owner 2026-11-24): the run ends and the plan is made again
+                if (up && d < 1.4 && b.entity.onGround && (!v.free(f.x, f.y + 2, f.z) || !v.fits(c.x, c.y, c.z) || !v.stands(c.x, c.y - 1, c.z))) return { i, why: `no room to jump to ${c.x},${c.y},${c.z} (over the head ${(v.raw(f.x, f.y + 2, f.z) || {}).name || '?'}, there ${(v.raw(c.x, c.y, c.z) || {}).name || '?'}/${(v.raw(c.x, c.y + 1, c.z) || {}).name || '?'} on ${(v.raw(c.x, c.y - 1, c.z) || {}).name || '?'})` };
                 // in water: up (jump) to rise or to stay at the surface, nothing to sink
                 b.setControlState('jump', wet ? c.y >= f.y : ((up && d < 1.4 && b.entity.onGround) || (stuck > 6 && b.entity.onGround && c.y >= f.y)));
                 // sneaking only where momentum can carry the body over: the end of a straight run or a turn, next to a drop of four or more, and always next to lava (sneaking along

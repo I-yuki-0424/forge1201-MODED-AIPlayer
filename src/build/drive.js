@@ -9,6 +9,9 @@ const { Mover, View, feet } = require('./move');
 const { seen } = require('./world');
 const { clicksFor, REPLACEABLE } = require('./survey');
 const SUP = require('./supply');
+const { Pool } = require('./pool');
+// the crew's shared pool: bots hand items to each other on request (pool.js); BUILD_PEER=0 goes back to the chest only, with hand-backs
+const PEER = process.env.BUILD_PEER !== '0';
 const { FULL } = require('./job');
 
 const COST_LAVA = 60;                // escapes and evacuations may pass beside lava (never into it) at this cost per cell
@@ -187,6 +190,8 @@ async function work(job, name, bot, mv, cl, cancel) {
     const done = [];
     for (const tk of cl.tasks) {
         if (cancel.cancelled) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
+        // a colleague who asked for items and has come up: thrown over between two tasks (the giver stays at its stance)
+        if (job.pool) await job.pool.serve(name);
         // the stance moved (a pillar ends a cell off): the way is found again from where the bot stands
         let way = at(tk);
         if (here.x !== cl.station.x || here.y !== cl.station.y || here.z !== cl.station.z) way = job._way(require('./place').botWorld(bot), tk, here);
@@ -660,9 +665,10 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
     job.ownBlock = job.ownBlock || ((x, y, z) => !!ownBlockItem(job, x, y, z));
     if (!job.bots.has(name)) job.bots.set(name, { station: null, pos: feet(bot) });
     const mv = new Mover(bot, rules(job, bot), { log: job.log });
+    if (PEER) { job.pool = job.pool || new Pool(job); job.pool.join(name, bot); }
     bot.__mine = mv.mine;          // its own temporary blocks (rules.doomed lets it stand on them)
     (job.moverRules || (job.moverRules = new Map())).set(name, mv.rules);          // the claim judges stances by these
-    const onDeath = () => { const p = bot.entity && bot.entity.position, f = p ? feet(bot) : null, around = f ? [-1, 0, 1].map((dy) => (seen(bot, { x: f.x, y: f.y + dy, z: f.z }) || {}).name).join('/') : '?'; job.stats.deaths = (job.stats.deaths || 0) + 1; job.log(`${name} died at ${f ? `${f.x},${f.y},${f.z}` : '?'} (${around}), stage ${job.stage}; last: ${mv.trace.join(' | ')}`); };
+    const onDeath = () => { const p = bot.entity && bot.entity.position, f = p ? feet(bot) : null, around = f ? [-1, 0, 1].map((dy) => (seen(bot, { x: f.x, y: f.y + dy, z: f.z }) || {}).name).join('/') : '?'; job.stats.deaths = (job.stats.deaths || 0) + 1; const gs = mv.guard && mv.guard.lastStop; job.log(`${name} died at ${f ? `${f.x},${f.y},${f.z}` : '?'} (${around}), stage ${job.stage}${gs ? `; fall guard last held it ${Math.round((Date.now() - gs.at) / 1000)} s ago at ${gs.x},${gs.y},${gs.z}` : ''}; last: ${mv.trace.join(' | ')}`); };
     bot.on('death', onDeath);
     // the server dropped the spawn point (the bed broken or shut in): set again
     const onReset = () => { if (job.spawnSet) job.spawnSet.delete(name); if (job.anchorTry) job.anchorTry.delete(name); job.log(`${name}: the server reset its spawn point`); };
@@ -717,13 +723,18 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
             { const b0 = job.t.box, p = bot.entity.position, d = Math.hypot(p.x - (b0.x + b0.sx / 2), p.z - (b0.z + b0.sz / 2)); if (d > 200) { job.log(`${name} is ${Math.round(d)} blocks from the site (respawned far away): it leaves the crew`); return { ended: 'too_far' }; } }
             if (inNether(bot) && job.available.has('respawn_anchor') && !(job.spawnSet && job.spawnSet.has(name)) && !job.anchorBusy && Date.now() - ((job.anchorTry && job.anchorTry.get(name)) || 0) > 120000) { (job.anchorTry || (job.anchorTry = new Map())).set(name, Date.now()); await anchor(job, name, bot, mv, cancel); }
             if (job.exhausted()) { await job.resurvey(bot, `${name}: stage ${job.stage} done`); continue; }
+            // the fall guard's count (ticks it held a body back from a fall) and the pool's, for the progress line
+            if (mv.guard) { (job.guardStops || (job.guardStops = new Map())).set(name, mv.guard.stops); job.stats.guard = [...job.guardStops.values()].reduce((a, n) => a + n, 0); }
+            // asked for items by a colleague on its way here: it waits for it a moment and throws them over (not off to another stance meanwhile)
+            if (job.pool) { await job.pool.hold(name, cancel); const ps = job.pool.status(); job.stats.pool = `${ps.served}/${ps.asked} ${ps.items}it`; }
             // tools and temporary blocks before the work needs them
             const base = needsFor(job, bot, {});
             if (Object.keys(base).length && job.stage !== 'settle' && !(job.lastTrip && Date.now() - job.lastTrip.get(name) < 60000)) { (job.lastTrip = job.lastTrip || new Map()).set(name, Date.now()); const tt = Date.now(); await supplyTrip(job, name, bot, mv, {}, within(cancel, 180000)); job.time.trip += Date.now() - tt; continue; }
             // a handover: items the chest is out of that this bot carries and has not placed for two minutes go back into the chest for the bots that need them (four
             // bots each held what the others' cells needed and the chest was empty, live 2026-11-23 gd1 w1)
             // (every two minutes, and only stacks worth the walk: at 30 s, 151 hand-back walks were 40 % of the crew's time in the tail, ha29 w2)
-            if (job.outOf && job.sites[0] && Date.now() - (job.handAt && job.handAt.get(name) || 0) > 120000) {
+            // (not with the shared pool: a colleague asks for what it needs and gets it thrown over, nothing goes back into the chest just in case)
+            if (!job.pool && job.outOf && job.sites[0] && Date.now() - (job.handAt && job.handAt.get(name) || 0) > 120000) {
                 (job.handAt || (job.handAt = new Map())).set(name, Date.now());
                 const mine = (job.used && job.used.get(name)) || new Map(), inv = SUP.carried(bot);
                 let sn = job.sectorNeeds ? job.sectorNeeds(name) : {};          // not what its own sector still needs (items went back and forth, 24 hand-backs in 28 min, gg1 w3)
@@ -746,7 +757,9 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
             // items this bot's last trip came back without are not asked for by it for a minute: it works on what it has instead of waiting (owner 2026-11-23 list 4 problem 5)
             { const t = mv.rules.temp(); (job.tempsOf || (job.tempsOf = new Map())).set(name, t ? have[t] || 0 : 0); }
             const mySkip = (job.noItem && job.noItem.get(name)) || new Map();
-            const tc = Date.now(); const cl = job.claim(bot, name, Date.now(), (it) => have[it] || 0, (it) => (!!job.outOf && (job.outOf.get(it) || 0) > Date.now() && !(have[it] > 0)) || (mySkip.get(it) || 0) > Date.now()); const dc = Date.now() - tc; job.time.claim += dc; if (dc > 400) job.log(`${name}: claim took ${dc} ms (${job.lastClaimInfo || ''})`);
+            const tc = Date.now(); const spareMemo = new Map(), peerHas = (it) => { if (!job.pool) return false; if (!spareMemo.has(it)) spareMemo.set(it, job.pool.canSpare(name, it)); return spareMemo.get(it); };
+            // (an item the chest is out of that a colleague can spare is asked for, not left to the bots that carry it: they work elsewhere, ha28-ha30 tails)
+            const cl = job.claim(bot, name, Date.now(), (it) => have[it] || 0, (it) => (!!job.outOf && (job.outOf.get(it) || 0) > Date.now() && !(have[it] > 0) && !peerHas(it)) || (mySkip.get(it) || 0) > Date.now()); const dc = Date.now() - tc; job.time.claim += dc; if (dc > 400) job.log(`${name}: claim took ${dc} ms (${job.lastClaimInfo || ''})`);
             { const w = !cl ? 'nothing' : cl.need ? `need ${Object.keys(cl.need).slice(0, 3).join('+')}` : cl.moveOff ? 'move off' : 'work'; const o = job.claimWhy || (job.claimWhy = {}); o[w] = (o[w] || 0) + 1;
               if (cl && cl.tasks) { job.claimTasks = (job.claimTasks || 0) + cl.tasks.length; job.claimTasksN = (job.claimTasksN || 0) + 1; }
               if (Date.now() - (job.claimWhyAt || 0) > 60000) { job.claimWhyAt = Date.now(); const ps = job.pstat; job.log(`claims in the last minute: ${JSON.stringify(o)}; ${job.claimTasksN ? (job.claimTasks / job.claimTasksN).toFixed(1) : 0} tasks per claim${ps && ps.n ? `; place claims ${ps.n}: ready ${(ps.ready / ps.n).toFixed(0)}, doable ${(ps.doable / ps.n).toFixed(0)}, batch ${(ps.batch / ps.n).toFixed(1)}` : ''}`); job.pstat = null; job.claimWhy = {}; job.claimTasks = 0; job.claimTasksN = 0; } }
@@ -764,6 +777,15 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
                 const tq = Date.now(); await quarry(job, name, bot, mv, cancel); job.time.dig += Date.now() - tq; progress(); continue;
             }
             if (cl && cl.need) {
+                // a colleague first when the chest is out of an item it can spare, or when it is much nearer than the chest
+                if (job.pool) {
+                    const now = Date.now(), out = Object.keys(cl.need).some((it) => job.outOf && (job.outOf.get(it) || 0) > now), site = job.sites[0], p = bot.entity.position;
+                    const dChest = site ? Math.hypot(site.x - p.x, site.z - p.z) + Math.abs(site.y - p.y) * 2 : Infinity, best = job.pool.offers(name, cl.need)[0];
+                    if (best && (out || best.dist < dChest * 0.6)) {
+                        const tp = Date.now(); const r = await job.pool.ask(name, mv, cl.need, within(cancel, 100000)); job.time.peer = (job.time.peer || 0) + Date.now() - tp;
+                        if (Object.keys(r.got).length) { progress(); continue; }
+                    }
+                }
                 const tt = Date.now(); const got = await supplyTrip(job, name, bot, mv, cl.need, within(cancel, 180000)); job.time.trip += Date.now() - tt;
                 // a trip that brought nothing: those items are skipped by this bot for a minute (it does other work or waits off the site), never waited for in front of the chest
                 if (!got) { const m = (job.noItem || (job.noItem = new Map())).get(name) || new Map(); for (const it of Object.keys(cl.need)) m.set(it, Date.now() + 60000); job.noItem.set(name, m); } else progress();
@@ -808,7 +830,7 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
             job.report(name, res);
         }
         return { ended: 'cancelled' };
-    } finally { bot.removeListener('death', onDeath); bot.removeListener('spawnReset', onReset); bot.__builderOwns = false; job.leave(name); for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sneak', 'sprint']) bot.setControlState(k, false); }
+    } finally { bot.removeListener('death', onDeath); bot.removeListener('spawnReset', onReset); bot.__builderOwns = false; job.leave(name); if (job.pool) job.pool.leave(name); for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sneak', 'sprint']) bot.setControlState(k, false); }
 }
 
 module.exports = { drive, work, holds, rules, pour, escape, needsFor, boxSpot, bench };

@@ -64,7 +64,7 @@ class BuildJob {
         this.untemps = new Set();          // their untemp tasks: offered in every stage, not only at the end (thousands stood on the site, owner 2026-11-23 problem 2)
         this.sector = new Map();           // bot -> its share of the box's ground plan (a pit's lane: the same bot works the same piece, owner 2026-11-23 problem 3)
         this.tempItem = opts.tempItem || null;
-        this.time = { walk: 0, dig: 0, place: 0, trip: 0, idle: 0, claim: 0 };
+        this.time = { walk: 0, dig: 0, place: 0, trip: 0, idle: 0, claim: 0, peer: 0 };
         this.stats = { placed: 0, cleared: 0, scaffolds: 0, sealed: 0, filled: 0, fixed: 0, poured: 0, lit: 0, untemp: 0, failed: 0, surveys: 0, escapes: 0, trips: 0 };
     }
 
