@@ -12,5 +12,5 @@ done
 sleep 2
 for c in $(docker ps --format '{{.Names}}' | grep '^live-t26-'); do docker kill "$c" >/dev/null 2>&1; done
 for w in $WS; do "$R/scripts/t26/dev.sh" "$w" stop >/dev/null 2>&1; done
-left=$(docker ps --format '{{.Names}}' | grep -c '^live-t26-\|^forgeaip-t26-dev-')
+for i in 1 2 3 4 5 6 7 8 9 10; do left=$(docker ps --format '{{.Names}}' | grep -c '^live-t26-\|^forgeaip-t26-dev-'); [ "$left" = 0 ] && break; sleep 1; done
 echo "stopped $RUN; harness containers and watchers left: $left"

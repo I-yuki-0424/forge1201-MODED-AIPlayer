@@ -401,7 +401,9 @@ What the live batches found (T26 worlds 1-4, two Overworld crews of eight and on
 | hb6 | from beside it, the giver took its own toss back | the asker stands two to three away with a clear line; the toss is thrown level |
 | hb6 | a killed batch's `up.sh` started the watchers again and the next batch did not start | `scripts/t26/stop.sh RUN` (children, containers by name, watchers) |
 
-Measured so far: hb6 at 25 min, no deaths on any of the 12 crews (ha30: 54 deaths in 150 min, all falls onto the ground); Overworld crews placed 782-2 259 (ha30 at 25 min:
+hb7 (60 min, on the code up to cf2ca92f): no deaths on any of the eight Overworld crews by minute 58 (ha30 by minute 58: 18 deaths on its eight), at the same pace (mean
+3 588 placed against ha30's 3 581); hand-overs 99 done of 173 asked (57 %); of 13 tosses nobody got, 7 were taken back by the giver (it walked on between its moves: since ac6f3bb4 it
+stands still until the asker has the stack). Measured before that: hb6 at 25 min, no deaths on any of the 12 crews (ha30: 54 deaths in 150 min, all falls onto the ground); Overworld crews placed 782-2 259 (ha30 at 25 min:
 345-2 347); 29 of 45 hand-overs done (64 %). The tail (the last 5-20 %, where every earlier run stopped) has not been reached on this code yet: the batches were cut short for
 the fixes and by the 03:00-06:00 reboot window.
 
