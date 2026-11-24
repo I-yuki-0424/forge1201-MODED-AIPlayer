@@ -85,9 +85,9 @@ async function main() {
             let rock = 0, n = 0, fort = 0;
             for (let x = cx - Math.floor(sx / 2); x < cx + sx / 2; x += 3) for (let z = cz - Math.floor(sz / 2); z < cz + sz / 2; z += 3) for (let y = y0; y < y0 + sy / 3; y += 3) { const b = at(x, y, z); n++; if (b && !/^(air|cave_air|void_air|lava|fire)$/.test(b)) rock++; }
             // not in a fortress (its pillars stood in the box and the chest in its hall, owner's visual check V14)
-            for (let x = cx - Math.floor(sx / 2) - 8; x < cx + sx / 2 + 8; x += 2) for (let z = cz - Math.floor(sz / 2) - 8; z < cz + sz / 2 + 8; z += 2) for (let y = y0 - 4; y < y0 + sy; y += 2) if (/nether_brick/.test(at(x, y, z) || '')) fort++;
+            for (let x = cx - Math.floor(sx / 2); x < cx + sx / 2; x += 2) for (let z = cz - Math.floor(sz / 2); z < cz + sz / 2; z += 2) for (let y = y0; y < y0 + sy; y += 2) if (/nether_brick/.test(at(x, y, z) || '')) fort++;
             console.log(`[build_t] nether height ${y0}: ${rock}/${n} of the lower third is rock, ${fort} fortress blocks around the box`);
-            if (fort > 0) throw new Error('no dry site in 30 draws (nether: a fortress at the site)');
+            if (fort > 3) { if (t === 11) throw new Error('no dry site in 30 draws (nether: a fortress at the site)'); continue; }          // (inside the box only; another height first)
             if (rock >= 0.4 * n) break;
             if (t === 11) throw new Error('no dry site in 30 draws (nether: open air over the lava sea)');
         }

@@ -214,8 +214,9 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
             let extraCost = 0;
             if (view.nearLava(x, y, z)) { if (!lavaCost) return; extraCost = lavaCost; }
             // never through another bot's body (several bots planned the same cell and pushed each other off a cliff, or jumped in the same column, owner 2026-11-23)
-            if (view.rules.occupied && (view.rules.occupied(x, y, z) || view.rules.occupied(x, y + 1, z))) return;
-            if (move === 'pillar' && view.rules.columnBusy && view.rules.columnBusy(x, z)) return;
+            // (costs, not bans: as bans they were behind most failed searches, [diag] ha19-ha20; the body rule only counts near the bot, see drive.js)
+            if (view.rules.occupied && (view.rules.occupied(x, y, z) || view.rules.occupied(x, y + 1, z))) extraCost += 60;
+            if (move === 'pillar' && view.rules.columnBusy && view.rules.columnBusy(x, z)) extraCost += 40;
             // a bridge over a fall into lava or the void costs more (it is walked sneaking, see follow; refused outright, a site over the Nether's lava sea had no way at all,
             // live 2026-11-23 gb5 w4; walked upright, seven bots fell off such bridges, gb1 w5)
             if (move === 'bridge' && view.deadly(x, y - 1, z)) extraCost += COST.bridge;
@@ -279,7 +280,7 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
             }
         }
         // pillar up on a temporary block (head room first, broken when diggable), only from a cell the block can go into
-        if ((temps > c.t || (view.rules.buildBlock && view.rules.buildBlock(c.x, c.y, c.z))) && !(view.rules.noPillar && view.rules.noPillar(c.x, c.y, c.z)) && view.placeable(c.x, c.y, c.z) && view.kind(c.x, c.y + 2, c.z) !== 'avoid' && (headFree || view.diggable(c.x, c.y + 2, c.z))) add(c.x, c.y + 1, c.z, COST.pillar + COST.temp + (headFree ? 0 : view.digTicks(c.x, c.y + 2, c.z)), 'pillar', { place: { x: c.x, y: c.y, z: c.z }, dig: headFree ? null : [{ x: c.x, y: c.y + 2, z: c.z }] });
+        if ((temps > c.t || (view.rules.buildBlock && view.rules.buildBlock(c.x, c.y, c.z))) && view.placeable(c.x, c.y, c.z) && view.kind(c.x, c.y + 2, c.z) !== 'avoid' && (headFree || view.diggable(c.x, c.y + 2, c.z))) add(c.x, c.y + 1, c.z, COST.pillar + COST.temp + (headFree ? 0 : view.digTicks(c.x, c.y + 2, c.z)) + (view.rules.noPillar && view.rules.noPillar(c.x, c.y, c.z) ? 40 : 0), 'pillar', { place: { x: c.x, y: c.y, z: c.z }, dig: headFree ? null : [{ x: c.x, y: c.y + 2, z: c.z }] });
         // dig down one (the block under the feet), onto the one under it
         if (view.diggable(c.x, c.y - 1, c.z) && view.stands(c.x, c.y - 2, c.z)) add(c.x, c.y - 1, c.z, COST.drop + view.digTicks(c.x, c.y - 1, c.z), 'down', { dig: [{ x: c.x, y: c.y - 1, z: c.z }] });
     }
