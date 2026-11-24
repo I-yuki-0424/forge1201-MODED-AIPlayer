@@ -307,3 +307,9 @@ the others' blocks (no block that boxes in any crew member; a search of two cell
 minute (a nearby one ranks as a placing at the same distance) while 187 of 234 ready cells waited for items nobody fetched (a bot whose ready placing mostly needs items it lacks
 fetches them); temporary columns with no stance beside their top are claimed from on top and dug down under the bot (`unpillar({ any: true })`).
 ha28 at 30 min: 0-1 deaths per crew, the best Overworld crews 2 083-2 464 placed.
+
+End of 2026-11-24 (batches ha29-ha30): the tail fixes (hand-back by nearby need, fetch rule, drops onto others' temporary blocks, hand-backs every two minutes and only
+stacks worth the walk) did not lift the tail: ha30 at 120 min, best crews 5 342-5 911 placed (ha28: 5 600-6 127 at 132 min), the last 1 000-3 000 blocks at 10-20 a minute.
+Between minutes 100 and 120 supply trips and hand-backs were about 40 % of bot time, walking about 35 %. Open for the next session: the supply in the tail (items spread over
+eight packs; a shared pool or a bot that collects for the others), deaths in the tail (5-10 per crew, falls from structures over 100), the Nether crews' many single-item trips
+(about 30 item types for two bots). No build has finished yet.
