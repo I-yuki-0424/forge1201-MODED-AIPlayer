@@ -313,3 +313,48 @@ stacks worth the walk) did not lift the tail: ha30 at 120 min, best crews 5 342-
 Between minutes 100 and 120 supply trips and hand-backs were about 40 % of bot time, walking about 35 %. Open for the next session: the supply in the tail (items spread over
 eight packs; a shared pool or a bot that collects for the others), deaths in the tail (5-10 per crew, falls from structures over 100), the Nether crews' many single-item trips
 (about 30 item types for two bots). No build has finished yet.
+
+## Handover 2026-11-24 23:00 JST (session ended by the owner: too large; the next one starts here)
+
+**Where it stands.** No survival build has finished (the acceptance test: a finished, cell-correct build). The blocks in the air are no longer the blocker: the best Overworld
+crews place 80-95 % of iron-farm-34 (about 6 900 blocks) in about two hours, against 25-40 % on 2026-11-23. The last 5-20 % (the tail) is where every run stops.
+`npm test` green 2026-11-24 21:05; deployed to the fabric26 consoles (3031-3033 answer 200); `main` = `origin/main` (commit 39cd87c3 and this handover).
+
+**Last batch ha30** (scripts/t26/multi.sh, 150 min, every crew FAIL by the server's judge):
+
+| crew | blueprint | placed | left | deaths |
+| :-- | :-- | --: | --: | --: |
+| w3 c1 | iron-farm-34 | 6 128 | 762 | 5 |
+| w4 c1 | iron-farm-34 | 5 572 | 1 168 | 5 |
+| w1 c1 | iron-farm-34 | 5 521 | 1 210 | 3 |
+| w3 c0, w2 c0, w4 c0, w1 c0 | iron-farm-34 | 4 016-5 154 | 1 676-2 865 | 8-13 |
+| w2 c1 | iron-farm-34 | 3 660 | 2 964 | 1 (heavy clearing site) |
+| w1 c2, w3 c2 | nether-side-main | 962-967 | 167-182 | 0 |
+| w4 c2, w2 c2 | nether-side-main | 0-590 | 512-1 049 | 0 |
+
+Best runs so far: ha26 w4 c0 6 571 placed, 349 left at 120 min; ha28 five crews 5 000-6 127 at 132 min.
+
+**What to look at first (in this order).**
+1. Supply in the tail: items are spread over eight packs; between minutes 100 and 120 of ha30 trips and hand-backs were about 40 % of bot time. Two fixes (hand-back by nearby
+   need, fetch rule) did not lift the pace. Idea: one shared pool (the chest) kept full by a collecting bot, or bots handing items to each other directly (vanilla: a toss).
+2. Deaths in the tail: 5-13 per Overworld crew, falls from structures over 100 (temporary blocks taken away under routes, drops). `died at ... last:` lines give the moves.
+3. Nether crews: two bots, about 30 item types, many single-item trips; the lowest cells are often chests and hoppers with no stance.
+4. The owner's temporary-block standard (V11): "one block to stand on and one to place against". Today: blueprint blocks are used for climbs where the blueprint has a plain
+   full block; other temporary blocks stay while work is near (about 1 500-2 300 per crew queued for removal in the tail). Not met yet.
+
+**How to run.** `LIMIT_MIN=150 scripts/t26/multi.sh RUN "1 2 3 4" 2 1` (per world two Overworld crews of 8 and one Nether crew of 2; servers 3 CPUs / 6 GB; 16 crews overload
+the 12-core host). Before a new batch: kill the old one by PID (`ps -eo pid,args | grep "t26/multi.sh RUN"`, never `pkill -f` with a pattern that matches your own shell) and
+containers by name (`docker ps --format '{{.Names}}' | grep ^live-t26-`), then `scripts/t26/dev.sh N stop` for every world (leftover watchers keep the volumes in use and
+`up.sh --new` refuses). The owner's rule: after a fix, every crew restarts on the new code. Keep runs out of the 03:00-06:00 reboot window.
+
+**Diagnostics.** Per-minute `[progress N min]` (placed, work left, time split, deaths); `claims in the last minute` (place claims, ready/doable/batch); `lowest cells left: ...` (the
+cells that hold the window and why); `[diag] ... a way without '<rule>'` (which crew rule made a search fail); `scripts/t26/run.sh N plan_probe.js FROM=x,y,z TO=x,y,z
+[TEMPS=n] [BOX=...]` (the planner from a spectator on the live world); a frozen process: `docker exec C kill -USR1 1` and Debugger.pause over 127.0.0.1:9229 from a container in
+its network (node 20: `--experimental-websocket`). Server deaths: `docker logs forgeaip-t26-N | grep "fell from"`. Check test exit codes directly (a pipe into `tail` hid a
+failing test once).
+
+**Servers.** T26 worlds 1-4 on the tailnet (100.77.246.23:25591-25594) left up with the ha30 sites; worlds 5-6 down. The owner is the only operator (Seia_Y). One ha30 harness
+container (`live-t26-1-*`) was still running at 23:00; stop it by name if it has not exited. Uncommitted `docker/bot.Dockerfile` and `docker/compose.yaml` are not this task's.
+
+**Where the details are.** This file's sections from "Owner's problem list 4" on; knowledge-DB LLM-records/2026-11-23-...-owner-s-problem-list-4-... and
+LLM-records/2026-11-24-...-blocks-in-the-air-...
