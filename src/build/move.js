@@ -362,6 +362,8 @@ class Mover {
             const v = this.view();
             if (!v.stands(f.x, f.y - 2, f.z) || v.nearLava(f.x, f.y - 1, f.z)) break;          // a gap or lava under it: the crew's untemp task takes it later
             if ([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => { const q = v.raw(f.x + dx, f.y - 1, f.z + dz); return q && (q.name === 'water' || q.name === 'lava'); })) break;      // it holds back a fluid
+            // never a block another bot's route stands on (a bot climbed down its pillar while another walked across its top: falls of 25, live 2026-11-24 ha22 w1)
+            if (this.rules.mayDig && !this.rules.mayDig(f.x, f.y - 1, f.z)) break;
             if (!(await this.dig({ x: f.x, y: f.y - 1, z: f.z }))) break;
             this.mine.delete(k); if (this.rules.onUntemp) this.rules.onUntemp({ x: f.x, y: f.y - 1, z: f.z });
             for (let i = 0; i < 20 && feet(this.bot).y > f.y - 1; i++) await sleep(50);

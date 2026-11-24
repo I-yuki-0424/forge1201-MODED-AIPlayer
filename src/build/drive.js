@@ -244,7 +244,7 @@ async function unscaffold(job, bot, mv) {
         if ([[0, 1, 0], [0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]].some(([dx, dy, dz]) => { const o = job.tasks.get(key(x + dx, y + dy, z + dz)); return o && o.kind === 'place'; })) continue;
         const h = seen(bot, { x, y, z });
         if (!h || S.AIR.has(h.name)) { job.scaffolds.delete(k); job.temps.delete(k); continue; }
-        if (underCrew(job, bot, x, y, z) || holdsFluid(bot, x, y, z)) continue;
+        if (underCrew(job, bot, x, y, z) || onRouteOfOther(job, bot.username, x, y, z) || holdsFluid(bot, x, y, z)) continue;
         const me = feet(bot); if (me.x === x && me.z === z && me.y === y + 1) continue;          // not its own floor
         if (await mv.dig({ x, y, z })) { job.scaffolds.delete(k); job.dropTemp({ x, y, z }); const t = job.tasks.get(k); if (t && (t.kind === 'clear' || t.kind === 'untemp')) job.tasks.delete(k); job.stats.untemp++; n++; }
     }
