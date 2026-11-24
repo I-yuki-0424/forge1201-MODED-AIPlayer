@@ -582,7 +582,7 @@ class Mover {
         if (s.move === 'pillar') {
             if (this.rules.onPillar) this.rules.onPillar(s);
             if (await this.pillar(s)) return { ok: true };
-            this.badPillar.set(key(prev.x, prev.y, prev.z), Date.now() + 120000);
+            this.badPillar.set(key(prev.x, prev.y, prev.z), Date.now() + 45000);          // (45 s: at two minutes it made 8 of the failed searches, [diag] ha19)
             const nm = (y) => { const q = this.bot.blockAt(new Vec3(prev.x, y, prev.z), false); return q ? q.name : '?'; };
             return { ok: false, why: `pillar (in ${nm(prev.y)}, under ${nm(prev.y - 1)}, over the head ${nm(prev.y + 2)})` };
         }

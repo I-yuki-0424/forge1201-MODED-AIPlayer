@@ -117,7 +117,7 @@ async function main() {
     const items = new Map([...target.items].map(([k, n]) => [k, Math.ceil(n * 1.05)]));
     if (target.portals.length) items.set('flint_and_steel', Math.max(items.get('flint_and_steel') || 0, 2 + Math.ceil(target.portals.length / 20)));
     // temporary blocks (pillars, bridges, supports, fluid fills): the first scaffold block the blueprint does not use (a blueprint with dirt in it left the crew without any)
-    { const tmp = SUP.TEMPS.find((n) => !items.has(n)); items.set(tmp, Number(process.env.TEMPS || 64 * 48)); }          // (24 stacks ran out: the crew stood at the chest with 1-4 blocks each, ha11 w3)
+    { const tmp = SUP.TEMPS.find((n) => !items.has(n)); items.set(tmp, Number(process.env.TEMPS || 64 * 96)); }          // (48 stacks ran out after 16 min, ha19: bridge blocks broken behind fall to the ground and are lost)          // (24 stacks ran out: the crew stood at the chest with 1-4 blocks each, ha11 w3)
     // tools by the work, not only by the crew: a diamond pickaxe lasts 1 561 blocks; a two-bot Nether crew had 6 for about 25 000 cells of netherrack and dug with bare hands
     // (owner 2026-11-23 V5). The box's volume bounds what is dug.
     const vol = sx * sy * sz;

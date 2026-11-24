@@ -43,7 +43,8 @@ function rules(job, bot) {
         // 30 000-cell searches failed where a plan of 45 steps existed, probe 2026-11-24 ha18 w2)
         doomed: (x, y, z) => { const k = `${x},${y},${z}`, by = job.claims.get(k); if (!by || by === bot.username) return false; const t = job.tasks.get(k); if (!t || !(t.kind === 'clear' || t.kind === 'untemp')) return false; const o = job.bots.get(by), st = o && o.station && o.station[0]; return !!st && Math.abs(st.x - x) <= 5 && Math.abs(st.z - z) <= 5 && Math.abs(st.y - y) <= 6; },
         onRoute: (route) => { (job.routes || (job.routes = new Map())).set(bot.username, { floors: new Set(route.map((c) => `${c.x},${c.y - 1},${c.z}`)), until: Date.now() + 30000 }); },
-        occupied: (x, y, z) => crewAt(job, bot).some((q) => Math.floor(q.x) === x && Math.floor(q.z) === z && Math.floor(q.y + 0.16) === y),
+        // only near this bot (four cells): a body farther away moves before the bot gets there; every body on the map made the most failed searches ('occupied', [diag] ha19)
+        occupied: (x, y, z) => { const p = bot.entity.position; if (Math.abs(x + 0.5 - p.x) > 4 || Math.abs(z + 0.5 - p.z) > 4 || Math.abs(y - p.y) > 4) return false; return crewAt(job, bot).some((q) => Math.floor(q.x) === x && Math.floor(q.z) === z && Math.floor(q.y + 0.16) === y); },
         // cells no temporary block may go into: a depot box's lid cell, the cells over the chests and the respawn anchor (a pillar block on a box's lid shut it for good)
         noTemp: (x, y, z) => (job.depot || []).some((d) => d.x + (d.fx || 0) === x && d.y + (d.fy ?? 1) === y && d.z + (d.fz || 0) === z) || (job.sites || []).some((c) => Math.abs(c.x - x) <= 1 && Math.abs(c.z - z) <= 1 && y === c.y + 1) || (!!job.anchorAt && job.anchorAt.x === x && job.anchorAt.z === z && job.anchorAt.y + 1 === y),
         columnBusy: (x, z) => { const c = job.columns && job.columns.get(`${x},${z}`); return !!c && c.by !== bot.username && c.until > Date.now(); },
@@ -600,6 +601,30 @@ function pickBoxSpot(job, bot, c, digging, only = null, { far = false } = {}) {
     return null;
 }
 
+/** Dig up to 96 natural blocks (dirt, stone, netherrack ...) outside the box near the chest, standing on the ground, never under the crew or beside a fluid: temporary blocks. */
+const QUARRY = /^(dirt|grass_block|coarse_dirt|podzol|rooted_dirt|stone|cobblestone|andesite|diorite|granite|tuff|deepslate|cobbled_deepslate|netherrack|blackstone|basalt)$/;
+async function quarry(job, name, bot, mv, cancel) {
+    const b = job.t.box, c = job.sites[0] || feet(bot), v = mv.view(), out = [];
+    const off = (x, z) => x < b.x - 3 || x > b.x + b.sx + 2 || z < b.z - 3 || z > b.z + b.sz + 2;
+    for (let dx = -14; dx <= 14; dx++) for (let dz = -14; dz <= 14; dz++) for (let dy = -3; dy <= 1; dy++) {
+        const x = c.x + dx, y = c.y + dy, z = c.z + dz; if (!off(x, z) || Math.abs(dx) + Math.abs(dz) < 4) continue;
+        const q = v.raw(x, y, z); if (!q || !QUARRY.test(q.name) || !v.free(x, y + 1, z) || holdsFluid(bot, x, y, z)) continue;
+        out.push({ x, y, z, d: Math.hypot(dx, dz) });
+    }
+    out.sort((p, q) => p.d - q.d);
+    let got = 0; const t0 = Date.now();
+    for (const q of out) {
+        if (got >= 96 || cancel.cancelled || Date.now() - t0 > 150000) break;
+        if (underCrew(job, bot, q.x, q.y, q.z)) continue;
+        const r = await mv.goto(q, { goal: (x, y, z) => Math.hypot(x + 0.5 - (q.x + 0.5), y + 1.62 - (q.y + 0.5), z + 0.5 - (q.z + 0.5)) <= 4 && !(x === q.x && z === q.z), cancel, maxNodes: 4000, tries: 1 });
+        if (!r.ok) continue;
+        if (await mv.dig(q)) { got++; await mv.goto(q, { maxNodes: 400, tries: 1, cancel }); }          // into the dug cell: the drop is picked up there
+    }
+    await sleep(800);
+    job.log(`${name}: dug ${got} blocks of natural ground near the chest for temporary blocks (the chest has none)`);
+    return got;
+}
+
 /** A waiting cell off the box (two or more outside its footprint), six to fourteen from the chest, standing, away from lava and from the other bots. */
 async function bench(job, name, bot, mv, cancel) {
     const b = job.t.box, c = job.sites[0] || feet(bot), others = crewAt(job, bot), v = mv.view();
@@ -713,6 +738,12 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
                 // no way off: the cell under it waits 20 s (an instant failure, repeated without a pause, spun 1 258 times a minute and froze every bot for 17 s, live 2026-11-23 fy1 w4)
                 if (!r.ok) { job.cool.set(`${f.x},${f.y - 1},${f.z}`, Date.now() + 20000); await sleep(500); }
                 continue;
+            }
+            // out of temporary blocks and the chest out of them too: dig natural ground near the chest for them (a survival player's way: blocks bridged and dug high up fall
+            // to the ground and are lost, the chest ran out after 16 min, ha19)
+            if (job.tempItem && (SUP.carried(bot)[job.tempItem] || 0) + SUP.TEMPS.filter((t) => t !== job.tempItem && !job.t.items.has(t)).reduce((a, t) => a + (SUP.carried(bot)[t] || 0), 0) < 32 && job.outOf && (job.outOf.get(job.tempItem) || 0) > Date.now() && Date.now() - ((job.quarryAt && job.quarryAt.get(name)) || 0) > 60000) {
+                (job.quarryAt || (job.quarryAt = new Map())).set(name, Date.now());
+                const tq = Date.now(); await quarry(job, name, bot, mv, cancel); job.time.dig += Date.now() - tq; progress(); continue;
             }
             if (cl && cl.need) {
                 const tt = Date.now(); const got = await supplyTrip(job, name, bot, mv, cl.need, within(cancel, 180000)); job.time.trip += Date.now() - tt;
