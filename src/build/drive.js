@@ -215,7 +215,7 @@ async function work(job, name, bot, mv, cl, cancel) {
             if (!(await mv.hold(rr.item))) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
             // never the block that leaves the bot's own cell without a way out (Bd4f set glass on all four sides on a piston, as the blueprint has it, and was shut in: owner
             // 2026-11-23); that block is placed from another stance
-            if (shutsIn(bot, tk)) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
+            if (shutsIn(bot, tk) || crewAt(job, bot).some((q) => shutsInAt(bot, { x: Math.floor(q.x), y: Math.floor(q.y + 0.16), z: Math.floor(q.z) }, tk))) { results.push({ tk, ok: false, why: 'skipped' }); continue; }          // (any crew member: bots were boxed in by the others' blocks, ha26 w4)
             const tp = Date.now(); await click(mv, way); job.time.place += Date.now() - tp;
             // clicks after the placement (note, delay, mode, open), counted from what the cell holds now
             await sleep(120);
@@ -255,8 +255,9 @@ async function unscaffold(job, bot, mv) {
 }
 
 /** Would a block in cell c leave the bot's body (feet cell f, head f+1) without a way out: no side with both cells open, and nothing open over the head? */
-function shutsIn(bot, c) {
-    const f = feet(bot), at = (x, y, z) => (x === c.x && y === c.y && z === c.z) ? false : (() => { const b = bot.blockAt(new Vec3(x, y, z), false); return !!b && b.boundingBox === 'empty'; })();
+function shutsIn(bot, c) { return shutsInAt(bot, feet(bot), c); }
+function shutsInAt(bot, f, c) {
+    const at = (x, y, z) => (x === c.x && y === c.y && z === c.z) ? false : (() => { const b = bot.blockAt(new Vec3(x, y, z), false); return !!b && b.boundingBox === 'empty'; })();
     const near = Math.abs(c.x - f.x) <= 1 && Math.abs(c.z - f.z) <= 1 && c.y >= f.y && c.y <= f.y + 2;
     if (!near) return false;
     const up = at(f.x, f.y + 2, f.z) && at(f.x, f.y + 3, f.z);
@@ -485,7 +486,12 @@ async function supplyTrip(job, name, bot, mv, need, cancel) {
     if (!(await enterSupply(job, name, bot, mv, site, cancel))) { job.log(`${name}: no turn at the supply within 60 s (${[...job.gate.inside].join(', ')} at it)`); return false; }
     try {
         const r = await mv.goto(site, { goal: nearContainer(site), cancel, maxNodes: 40000 });
-        if (!r.ok) { job.log(`${name}: no way to the materials at ${site.x} ${site.y} ${site.z} (${r.why})${r.region && Date.now() - (job.edgeAt || 0) > 60000 ? (job.edgeAt = Date.now(), `; edge ${edgeOf(mv, r.region)}`) : ''}`); return false; }
+        if (!r.ok) {
+            job.log(`${name}: no way to the materials at ${site.x} ${site.y} ${site.z} (${r.why})${r.region && Date.now() - (job.edgeAt || 0) > 60000 ? (job.edgeAt = Date.now(), `; edge ${edgeOf(mv, r.region)}`) : ''}`);
+            // boxed in (the search found next to no cells): dig out round the head and out of it (bots stood boxed in by the build for the rest of the run, ha26 w4)
+            if (r.nodes !== undefined && r.nodes <= 2) { await unwedge(job, name, bot, mv); await escape(job, name, bot, mv, cancel); }
+            return false;
+        }
         if (bot.inventory.items().some((i) => /shulker_box$/.test(i.name))) await SUP.putBack(bot, site);          // boxes it carries (picked up somewhere) go back first
         const spot = () => boxSpot(job, bot, site, mv);
         await SUP.dropRubble(bot, keepRubble(job), { minFree: 12 });          // room in the pack first (a pack full of rubble brought nothing back)
