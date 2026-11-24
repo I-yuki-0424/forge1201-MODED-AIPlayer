@@ -250,7 +250,7 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
                 // drop down onto something: up to three, or up to `maxDrop` for a healthy bot at a cost for the damage (a bot on a plateau with four-block drops all round had
                 // no way down, live 2026-11-23 ga4 w1)
                 let landed = false;
-                for (let k = 1; k <= maxDrop && !diag; k++) { if (!view.free(x, c.y - k, z)) { if (view.stands(x, c.y - k, z) && view.kind(x, c.y - k + 1, z) !== 'water' || view.kind(x, c.y - k + 1, z) === 'water') { add(x, c.y - k + 1, z, COST.drop + k + (k > 4 ? (k - 4) * 15 : 0), 'drop'); landed = true; } break; } }
+                for (let k = 1; k <= maxDrop && !diag; k++) { if (!view.free(x, c.y - k, z)) { if (k > 1 && view.rules.othersTemp && view.rules.othersTemp(x, c.y - k, z)) break; if (view.stands(x, c.y - k, z) && view.kind(x, c.y - k + 1, z) !== 'water' || view.kind(x, c.y - k + 1, z) === 'water') { add(x, c.y - k + 1, z, COST.drop + k + (k > 4 ? (k - 4) * 15 : 0), 'drop'); landed = true; } break; } }
                 // a bridge from a block under the feet, or from the temporary block this plan just put there (bridges were one cell long: the plan's view never had its own
                 // blocks, live 2026-11-23 ga4 w1)
                 const onTemp = !!c.place && c.place.x === c.x && c.place.y === c.y - 1 && c.place.z === c.z;

@@ -35,13 +35,16 @@ function rules(job, bot) {
         // the temporary block: the supply's, or rubble the bot dug up (dirt, cobblestone, netherrack: what a player builds scaffolds with)
         // (the kind it carries most of: one dirt left beside 400 cobblestone made every pillar impossible, a crew sat under its stances for half an hour, live 2026-11-23 fz1 w2)
         temp: () => { const n = {}; for (const i of bot.inventory.items()) if (SUP.TEMPS.includes(i.name) && !job.t.items.has(i.name)) n[i.name] = (n[i.name] || 0) + i.count; let best = null; for (const [k, c] of Object.entries(n)) if (!best || c > n[best] || (c === n[best] && k === job.tempItem)) best = k; return best; },
+        // another bot's temporary block (no drop lands on one: it may be gone when the bot arrives)
+        othersTemp: (x, y, z) => { const k = `${x},${y},${z}`; const m = job.temps.get(k); return !!m && m.by !== bot.username; },
         mayDig: (x, y, z) => !underCrew(job, bot, x, y, z) && !onRouteOfOther(job, bot.username, x, y, z),
         // the item to climb or bridge with in cell (x, y, z) when the blueprint has a plain full block there and the bot carries it: the climb builds the structure
         buildBlock: (x, y, z) => { const it = ownBlockItem(job, x, y, z); if (!it) return null; return bot.inventory.items().some((i) => i.name === it) ? it : null; },
         // a block another bot is about to dig (its claim): not stood on by a plan
         // (only when that bot's stance is within reach of it: every block of the other bots' 64-task claims counted, and large parts of the ground dropped out of the plans:
         // 30 000-cell searches failed where a plan of 45 steps existed, probe 2026-11-24 ha18 w2)
-        doomed: (x, y, z) => { const k = `${x},${y},${z}`, by = job.claims.get(k); if (!by || by === bot.username) return false; const t = job.tasks.get(k); if (!t || !(t.kind === 'clear' || t.kind === 'untemp')) return false; const o = job.bots.get(by), st = o && o.station && o.station[0]; return !!st && Math.abs(st.x - x) <= 5 && Math.abs(st.z - z) <= 5 && Math.abs(st.y - y) <= 6; },
+        // (a temporary block due to be taken away is never stood on, whoever holds it: bots dropped onto such blocks as they went and fell 20, ha26 w3)
+        doomed: (x, y, z) => { const k = `${x},${y},${z}`, t0 = job.tasks.get(k); if (t0 && t0.kind === 'untemp' && !(bot.__mine && bot.__mine.has(k))) return true; const by = job.claims.get(k); if (!by || by === bot.username) return false; const t = t0; if (!t || !(t.kind === 'clear' || t.kind === 'untemp')) return false; const o = job.bots.get(by), st = o && o.station && o.station[0]; return !!st && Math.abs(st.x - x) <= 5 && Math.abs(st.z - z) <= 5 && Math.abs(st.y - y) <= 6; },
         onRoute: (route) => { (job.routes || (job.routes = new Map())).set(bot.username, { floors: new Set(route.map((c) => `${c.x},${c.y - 1},${c.z}`)), until: Date.now() + 30000 }); },
         // only near this bot (four cells): a body farther away moves before the bot gets there; every body on the map made the most failed searches ('occupied', [diag] ha19)
         occupied: (x, y, z) => { const p = bot.entity.position; if (Math.abs(x + 0.5 - p.x) > 4 || Math.abs(z + 0.5 - p.z) > 4 || Math.abs(y - p.y) > 4) return false; return crewAt(job, bot).some((q) => Math.floor(q.x) === x && Math.floor(q.z) === z && Math.floor(q.y + 0.16) === y); },
@@ -648,6 +651,7 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
     job.ownBlock = job.ownBlock || ((x, y, z) => !!ownBlockItem(job, x, y, z));
     if (!job.bots.has(name)) job.bots.set(name, { station: null, pos: feet(bot) });
     const mv = new Mover(bot, rules(job, bot), { log: job.log });
+    bot.__mine = mv.mine;          // its own temporary blocks (rules.doomed lets it stand on them)
     (job.moverRules || (job.moverRules = new Map())).set(name, mv.rules);          // the claim judges stances by these
     const onDeath = () => { const p = bot.entity && bot.entity.position, f = p ? feet(bot) : null, around = f ? [-1, 0, 1].map((dy) => (seen(bot, { x: f.x, y: f.y + dy, z: f.z }) || {}).name).join('/') : '?'; job.stats.deaths = (job.stats.deaths || 0) + 1; job.log(`${name} died at ${f ? `${f.x},${f.y},${f.z}` : '?'} (${around}), stage ${job.stage}; last: ${mv.trace.join(' | ')}`); };
     bot.on('death', onDeath);
