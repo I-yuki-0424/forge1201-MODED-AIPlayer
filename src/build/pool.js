@@ -118,6 +118,10 @@ class Pool {
         await sleep(150);
         { const c1 = SUP.carried(bot), off = Object.keys(sent).filter((it) => (c0[it] || 0) - (c1[it] || 0) <= 0); if (off.length) this.job.log(`pool: ${name}'s toss of ${off.join(', ')} left its pack unchanged`); }
         r.state = 'tossed'; r.sent = sent; r.tossAt = Date.now();
+        // standing still until the asker has it: the server gives a thrown stack to whoever touches it after two seconds, and a giver that walked on (between the moves of its
+        // route) crossed its own toss and took it back (live 2026-11-25 hb7)
+        for (let i = 0; i < 14 && SUP.carried(asker)[Object.keys(sent)[0]] === undefined; i++) await sleep(200);
+        for (let i = 0; i < 4; i++) await sleep(200);
         return true;
     }
 

@@ -726,7 +726,17 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
             if (inNether(bot) && job.available.has('respawn_anchor') && !(job.spawnSet && job.spawnSet.has(name)) && !job.anchorBusy && Date.now() - ((job.anchorTry && job.anchorTry.get(name)) || 0) > 120000) { (job.anchorTry || (job.anchorTry = new Map())).set(name, Date.now()); await anchor(job, name, bot, mv, cancel); }
             if (job.exhausted()) { await job.resurvey(bot, `${name}: stage ${job.stage} done`); continue; }
             // the fall guard's count (ticks it held a body back from a fall) and the pool's, for the progress line
-            if (mv.guard) { (job.guardStops || (job.guardStops = new Map())).set(name, mv.guard.stops); job.stats.guard = [...job.guardStops.values()].reduce((a, n) => a + n, 0); }
+            if (mv.guard) {
+                (job.guardStops || (job.guardStops = new Map())).set(name, mv.guard.stops); job.stats.guard = [...job.guardStops.values()].reduce((a, n) => a + n, 0);
+                // a bot the guard held back for long (it keeps pushing at an edge its plan says it may cross): where, and what is under it, once a minute
+                const gm = job.guardMin || (job.guardMin = new Map()), g0 = gm.get(name);
+                if (!g0) gm.set(name, { at: Date.now(), n: mv.guard.stops });
+                else if (Date.now() - g0.at > 60000) {
+                    const d = mv.guard.stops - g0.n, ls = mv.guard.lastStop, p = bot.entity.position;
+                    if (d > 200 && ls) { const col = (x, z) => [0, 1, 2, 3].map((k) => (seen(bot, { x, y: ls.y - k, z }) || {}).name || '?').join('/'); job.log(`[guard] ${name} held ${d} ticks in the last minute; last at ${ls.x},${ls.y},${ls.z} (under it ${col(ls.x, ls.z)}), the bot at ${p.x.toFixed(2)},${p.y.toFixed(2)},${p.z.toFixed(2)} (under it ${col(Math.floor(p.x), Math.floor(p.z))}); ${mv.trace.slice(-2).join(' | ')}`); }
+                    gm.set(name, { at: Date.now(), n: mv.guard.stops });
+                }
+            }
             // asked for items by a colleague on its way here: it waits for it a moment and throws them over (not off to another stance meanwhile)
             if (job.pool) { await job.pool.hold(name, cancel); const ps = job.pool.status(); job.stats.pool = `${ps.served}/${ps.asked} ${ps.items}it`; }
             // tools and temporary blocks before the work needs them
