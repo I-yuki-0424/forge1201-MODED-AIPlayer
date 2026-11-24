@@ -108,7 +108,7 @@ class Pool {
         for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sprint']) bot.setControlState(k, false);
         const e = p.offset(0, bot.entity.eyeHeight || 1.62, 0), t = q.offset(0, 1.1, 0);          // at the asker's body: about level
         try { await bot.look(Math.atan2(-(t.x - e.x), -(t.z - e.z)), Math.atan2(t.y - e.y, Math.hypot(t.x - e.x, t.z - e.z)), true); await sleep(120); } catch (_) { /* the look is a nicety */ }
-        const sent = {}, c0 = SUP.carried(bot);
+        const sent = {}, c0 = SUP.carried(bot), a0 = SUP.carried(asker);
         for (const [it, n0] of Object.entries(r.items)) {
             const sp = this.spare(name, it), n = Math.min(n0, sp);
             if (n <= 0) continue;
@@ -120,8 +120,9 @@ class Pool {
         r.state = 'tossed'; r.sent = sent; r.tossAt = Date.now();
         // standing still until the asker has it: the server gives a thrown stack to whoever touches it after two seconds, and a giver that walked on (between the moves of its
         // route) crossed its own toss and took it back (live 2026-11-25 hb7)
-        for (let i = 0; i < 14 && SUP.carried(asker)[Object.keys(sent)[0]] === undefined; i++) await sleep(200);
-        for (let i = 0; i < 4; i++) await sleep(200);
+        const first = Object.keys(sent)[0];
+        for (let i = 0; i < 18 && (SUP.carried(asker)[first] || 0) <= (a0[first] || 0); i++) await sleep(200);
+        await sleep(400);
         return true;
     }
 
