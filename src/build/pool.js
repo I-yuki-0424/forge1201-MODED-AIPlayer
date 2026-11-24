@@ -117,7 +117,7 @@ class Pool {
         if (!Object.keys(sent).length) { this.close(r, 'failed', 'nothing left to spare'); return false; }
         await sleep(150);
         { const c1 = SUP.carried(bot), off = Object.keys(sent).filter((it) => (c0[it] || 0) - (c1[it] || 0) <= 0); if (off.length) this.job.log(`pool: ${name}'s toss of ${off.join(', ')} left its pack unchanged`); }
-        r.state = 'tossed'; r.sent = sent; r.tossAt = Date.now();
+        r.state = 'tossed'; r.sent = sent; r.tossAt = Date.now(); r.tossFrom = p.clone();
         // standing still until the asker has it: the server gives a thrown stack to whoever touches it after two seconds, and a giver that walked on (between the moves of its
         // route) crossed its own toss and took it back (live 2026-11-25 hb7)
         const first = Object.keys(sent)[0];
@@ -174,7 +174,7 @@ class Pool {
         // live 2026-11-25 hb4)
         const spawned = new Map(), takers = {};
         const onSpawn = (e) => { if (e && e.name === 'item') spawned.set(String(e.id), Date.now()); };
-        const isToss = (e) => { const t = spawned.get(String(e.id)), g = this.bots.get(r.to); return t !== undefined && r.tossAt && t >= r.tossAt - 1500 && t <= r.tossAt + 3000 && (!g || !g.entity || e.position.distanceTo(g.entity.position) < 5); };
+        const isToss = (e) => { const t = spawned.get(String(e.id)); return t !== undefined && r.tossAt && t >= r.tossAt - 1500 && t <= r.tossAt + 3000 && (!r.tossFrom || e.position.distanceTo(r.tossFrom) < 6); };
         const onCollect = (collector, collected) => { if (collected && collected.name === 'item' && isToss(collected) && collector) { const n = collector.username || collector.name || '?'; takers[n] = (takers[n] || 0) + 1; } };
         bot.on('entitySpawn', onSpawn); bot.on('playerCollect', onCollect);
         log(`pool: ${name} asks ${pick.to} for ${JSON.stringify(pick.items)} (${Math.round(pick.dist)} away)`);
