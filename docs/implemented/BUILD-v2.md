@@ -410,3 +410,15 @@ the fixes and by the 03:00-06:00 reboot window.
 How to run: `LIMIT_MIN=150 scripts/t26/multi.sh RUN "1 2 3 4" 2 1`; stop with `scripts/t26/stop.sh RUN`. In the `[progress N min]` line: `stats.guard` (ticks the guard held a
 body back), `stats.pool` (served/asked, items), `time.peer`. Per request: `pool: A <- B {...}: done | failed (did not meet | nothing picked up; picked up by {...})`. A death
 line names the guard's last hold and, in its trace, the tasks done at the stance.
+
+**hc1, the long batch (2026-11-25 06:05, 210 min, all fixes up to 041ba61d), at 150 min:** no deaths on any of the 12 crews (ha30: 54 in 150 min, all falls). Overworld crews
+placed 4 064-6 471 of about 6 900; place tasks left 96-510 on seven of the eight crews (2 552 on one heavy site); ha30's best at 150 min had 762 left. Hand-overs: 878 done of
+1 259 asked (70 %; failures: 249 nothing picked up, 59 did not meet, 48 nothing left to spare, 17 expired). Time at 150 min per Overworld crew: walking 27 600-39 300 bot-seconds,
+chest trips 8 600-14 500, hand-overs 2 300-7 300. No build finished.
+
+**What stops the tail now (it is no longer supply or falls).** In the best crew (w2 c0) the 96 place tasks left did not change for the last 30 minutes while the crew took
+temporary blocks away (3 900 -> 5 700 taken; 970-1 900 still queued per crew). The cells left are ready but have no stance: for example the hopper at 235,78,-97 (world 2)
+sits between smooth stone under it and the glass already placed over it, with open floor beside it, so no click gives its facing; the order of the build locked it in. Two open
+problems for the next session: (1) cells the build order closes in before they are placed (hoppers, a lever and redstone under a block placed first): the order rules
+(`job.ready`) or a dig-and-replace of the closing block; (2) the temporary blocks (the owner's special issue). The console deploy of this code: 2026-11-25 08:50
+(fabric26 consoles 3031-3033 restarted; 200 on the tailnet, 403 for proxy headers without an Access assertion).
