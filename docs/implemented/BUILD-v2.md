@@ -278,3 +278,25 @@ high rank below every other; the spawn bed is set down from behind its foot (any
 hotbar), again after a `spawnReset`; a builder short of air surfaces first (four drowned, ha13); the harness refuses Nether sites with fortress blocks. Found on the way: the
 first air check froze a crew's process for minutes (out of the water the surfacing returned at once and the loop never yielded; found with a live stack via the inspector,
 `kill -USR1` + Debugger.pause). ha15 at 25 min: 0 deaths on all crews, the spawn bed confirmed on 6 of 8 Overworld crews, best crews 1 350-1 630 placed.
+
+### Blocks in the air (2026-11-24 morning, owner away; batches ha18-ha26)
+
+Offline analysis of iron-farm-34 built bottom-up: every block has a supported stance within reach; 353 layer parts (3 917 cells) touch nothing below and each needs one first
+block from a touching pillar or bridge (the rest grow against it). The planner itself solves a 25-high floating platform in 33-70 ms. On the live worlds the failures came from
+elsewhere, found with `scripts/t26/plan_probe.js` (a spectator runs the builder's planner from a failing bot's cell: plans of 45-54 steps where the crew's planner gave up after
+30 000 cells) and a self-diagnosis in `Mover.goto` (`[diag] ... a way without '<rule>'`: the crew rules behind the failures were other bots' bodies, blocks claimed by others,
+reserved pillar columns, failed-pillar cells).
+
+| Cause | Fix |
+| :-- | :-- |
+| the claim judged stances by rules of its own (a stance three above the bot it may not dig) | the claim uses the bot's mover rules (`job.moverRules`) |
+| every block of other bots' 64-task claims was not standable | "doomed" only within the claimer's reach |
+| bodies anywhere, reserved columns, failed-pillar cells were bans | bodies only within four cells; all three are costs in the plan |
+| a depot box that never opened held the last dirt; blocks broken high up fall and are lost | the box is taken up and put back; 96 stacks in the test chest; a bot without blocks digs natural ground near the chest |
+| pillars built again for every stance (64-84 claims a minute, 2-5 placing; mid-air digging falls) | a temporary block stays while placing is left around it; the pillar is kept for a next stance within five cells |
+| climbing down while another bot crossed the pillar's top | unpillar and scaffold removal respect other bots' routes |
+| only straight bridges in the claim | a per-level breadth-first search for bridges that turn |
+| seeds by the lowest layer: bots left a floor 20 up for a cell five layers down elsewhere | seeds by nearness (a climb counts double); a bridge step with the blueprint's own block is cheap, so floors are laid by walking over them |
+| a few low cells held their tiles' window (3 925 of 4 425 cells above it) | a cell lowest in its tile for three minutes no longer holds the window |
+
+Measured: ha21 at 55 min 1 794-2 247 placed per Overworld crew; ha25 2 132-2 808; ha26 at 30 min up to 2 107. No build has finished yet.
