@@ -625,6 +625,23 @@ class BuildJob {
         // seeds until one has a stance, within a quarter second (three seeds and five stances each left bots idle with hundreds of ready tasks: the best-ranked stances were inside
         // rock, where the line of sight is blocked, live 2026-11-22 sV)
         const t0 = Date.now(); let outOfReach = 0, probe = null;
+        // bridges that turn: per level L, the distance (bridge cells) from anything a bot can stand on at that level to each free cell at L, over free cells with room for the
+        // body above (one breadth-first search per level and claim, 40 around the first stance asked); a stance in the air at L + 1 is supported when it is reached
+        const bms = new Map();
+        const bridgeMap = (L, f) => {
+            let m = bms.get(L);
+            if (!m) {
+                m = new Map(); bms.set(L, m); const q = [], R = 40, cx = f.x, cz = f.z;
+                for (let dx = -R; dx <= R; dx++) for (let dz = -R; dz <= R; dz++) { const x = cx + dx, z = cz + dz; if (view.stands(x, L, z) && view.fits(x, L + 1, z)) { m.set(`${x},${z}`, 0); q.push([x, z]); } }
+                for (let i = 0; i < q.length && i < 20000; i++) {
+                    const [x, z] = q[i], d = m.get(`${x},${z}`);
+                    if (d >= 40) continue;
+                    for (const [ax, az] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const X = x + ax, Z = z + az, k = `${X},${Z}`; if (m.has(k) || Math.abs(X - cx) > R || Math.abs(Z - cz) > R) continue; if (!view.placeable(X, L, Z) || !view.fits(X, L + 1, Z)) continue; m.set(k, d + 1); q.push([X, Z]); }
+                }
+            }
+            const d = m.get(`${f.x},${f.z}`);
+            return d ? d : null;
+        };
         for (const seed of doable.slice(0, 12)) {
             if (Date.now() - t0 > 250) break;
             let best = null;
@@ -662,7 +679,7 @@ class BuildJob {
                     h = 1; while (h <= 65 && view.free(f.x, f.y - 1 - h, f.z) && !view.stands(f.x, f.y - 1 - h, f.z)) h++;
                     if (h > 64 || !view.stands(f.x, f.y - 1 - h, f.z)) {
                         // nothing to pillar from (a box over a cavern, over the Nether's lava sea): a bridge of temporary blocks from ground at the same height, at most 24 cells away
-                        const br = this._bridgeFrom(view, f);
+                        const br = this._bridgeFrom(view, f) || bridgeMap(f.y - 1, f);
                         if (!br) { rej.unsupported++; (probe || (probe = [])).push(f); continue; }
                         h = 4 + br;
                     } else {
