@@ -667,7 +667,7 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
     job.ownBlock = job.ownBlock || ((x, y, z) => !!ownBlockItem(job, x, y, z));
     if (!job.bots.has(name)) job.bots.set(name, { station: null, pos: feet(bot) });
     const mv = new Mover(bot, rules(job, bot), { log: job.log });
-    if (PEER) { job.pool = job.pool || new Pool(job); job.pool.join(name, bot); }
+    if (PEER) { job.pool = job.pool || new Pool(job); job.pool.join(name, bot); mv.between = () => job.pool.serve(name); }
     bot.__mine = mv.mine;          // its own temporary blocks (rules.doomed lets it stand on them)
     (job.moverRules || (job.moverRules = new Map())).set(name, mv.rules);          // the claim judges stances by these
     const onDeath = () => { const p = bot.entity && bot.entity.position, f = p ? feet(bot) : null, around = f ? [-1, 0, 1].map((dy) => (seen(bot, { x: f.x, y: f.y + dy, z: f.z }) || {}).name).join('/') : '?'; job.stats.deaths = (job.stats.deaths || 0) + 1; const gs = mv.guard && mv.guard.lastStop; job.log(`${name} died at ${f ? `${f.x},${f.y},${f.z}` : '?'} (${around}), stage ${job.stage}${gs ? `; fall guard last held it ${Math.round((Date.now() - gs.at) / 1000)} s ago at ${gs.x},${gs.y},${gs.z}` : ''}; last: ${mv.trace.join(' | ')}`); };

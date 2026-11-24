@@ -744,6 +744,8 @@ class Mover {
             let i = 1, broke = false;
             while (i < route.length && !cancel.cancelled) {
                 const s = route[i];
+                // between two moves: the owner's hook (a colleague beside it waiting for items is served, pool.js), at most every two seconds
+                if (this.between && Date.now() - (this.betweenAt || 0) > 2000) { this.betweenAt = Date.now(); try { await this.between(); } catch (_) { /* a hook never breaks the walk */ } }
                 if (['walk', 'up', 'drop', 'swim'].includes(s.move) && !(s.dig && s.dig.length)) {
                     let j = i; while (j + 1 < route.length && ['walk', 'up', 'drop', 'swim'].includes(route[j + 1].move) && !(route[j + 1].dig && route[j + 1].dig.length)) j++;
                     this.note(`follow ${route[i - 1].x},${route[i - 1].y},${route[i - 1].z}->${route[j].x},${route[j].y},${route[j].z} (${j - i + 1} cells: ${route.slice(i, j + 1).map((c) => c.move[0]).join('')})`);

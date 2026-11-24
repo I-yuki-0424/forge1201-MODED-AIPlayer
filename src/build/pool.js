@@ -152,15 +152,19 @@ class Pool {
         if (!pick) return { got: {}, tried: false };
         const r = this.open(name, pick.to, pick.items), before = SUP.carried(bot), t0 = Date.now();
         // item entities lying about before the request are not the giver's toss; who picks the toss up is logged (the giver itself, a third bot, nobody)
-        const old = new Set(Object.keys(bot.entities)), takers = {};
-        const onCollect = (collector, collected) => { if (collected && collected.name === 'item' && !old.has(String(collected.id)) && collector) { const n = collector.username || collector.name || '?'; takers[n] = (takers[n] || 0) + 1; } };
-        bot.on('playerCollect', onCollect);
+        // the toss: item entities that appear when it is thrown, beside the giver (rubble lies about wherever the crew digs: the asker walked to that and others took the toss,
+        // live 2026-11-25 hb4)
+        const spawned = new Map(), takers = {};
+        const onSpawn = (e) => { if (e && e.name === 'item') spawned.set(String(e.id), Date.now()); };
+        const isToss = (e) => { const t = spawned.get(String(e.id)), g = this.bots.get(r.to); return t !== undefined && r.tossAt && t >= r.tossAt - 1500 && t <= r.tossAt + 3000 && (!g || !g.entity || e.position.distanceTo(g.entity.position) < 5); };
+        const onCollect = (collector, collected) => { if (collected && collected.name === 'item' && isToss(collected) && collector) { const n = collector.username || collector.name || '?'; takers[n] = (takers[n] || 0) + 1; } };
+        bot.on('entitySpawn', onSpawn); bot.on('playerCollect', onCollect);
         log(`pool: ${name} asks ${pick.to} for ${JSON.stringify(pick.items)} (${Math.round(pick.dist)} away)`);
         const got = () => { const now = SUP.carried(bot), o = {}; for (const it of Object.keys(r.items)) { const d = (now[it] || 0) - (before[it] || 0); if (d > 0) o[it] = d; } return o; };
         const full = () => Object.entries(r.items).every(([it, n]) => (got()[it] || 0) >= Math.min(n, (r.sent || {})[it] ?? n));
         try {
-            // up to the giver (it may move between its stances: followed, four tries)
-            for (let k = 0; k < 4 && r.state === 'coming' && !cancel.cancelled && Date.now() - t0 < TTL - 10000; k++) {
+            // up to the giver (it may move between its stances: followed until the request's time is up; at four tries the asker gave up while the giver was on a pillar, hb4)
+            for (let k = 0; k < 10 && r.state === 'coming' && !cancel.cancelled && Date.now() - t0 < TTL - 10000; k++) {
                 const giver = this.bots.get(r.to);
                 if (!giver || !giver.entity) { this.close(r, 'failed', 'giver gone'); break; }
                 const g = giver.entity.position, gf = { x: Math.floor(g.x), y: Math.floor(g.y + 0.16), z: Math.floor(g.z) }, f = feet(bot);
@@ -173,7 +177,7 @@ class Pool {
             // the pickup: the server gives the items after two seconds to the nearest body; the asker stands on them by then (it walks onto each stack as it lands)
             for (let i = 0; i < 3 && !full(); i++) await sleep(250);
             for (let k = 0; k < 4 && !full() && !cancel.cancelled; k++) {
-                const lying = Object.values(bot.entities).filter((e) => e.name === 'item' && !old.has(String(e.id)) && e.position.distanceTo(bot.entity.position) < 6).sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))[0];
+                const lying = Object.values(bot.entities).filter((e) => e.name === 'item' && isToss(e) && e.position.distanceTo(bot.entity.position) < 6).sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))[0];
                 if (!lying) break;
                 const c = { x: Math.floor(lying.position.x), y: Math.floor(lying.position.y + 0.2), z: Math.floor(lying.position.z) }, f = feet(bot);
                 if (f.x === c.x && f.z === c.z) { for (let i = 0; i < 12 && !full(); i++) await sleep(200); continue; }
@@ -181,10 +185,10 @@ class Pool {
                 for (let i = 0; i < 6 && !full(); i++) await sleep(200);
             }
             r.got = got();
-            const who = Object.keys(takers).length ? `; picked up by ${JSON.stringify(takers)}` : '', left = Object.values(bot.entities).filter((e) => e.name === 'item' && !old.has(String(e.id)) && e.position.distanceTo(bot.entity.position) < 8).length;
+            const who = Object.keys(takers).length ? `; picked up by ${JSON.stringify(takers)}` : '', left = Object.values(bot.entities).filter((e) => e.name === 'item' && isToss(e) && e.position.distanceTo(bot.entity.position) < 8).length;
             this.close(r, Object.keys(r.got).length ? 'done' : 'failed', Object.keys(r.got).length ? '' : `nothing picked up${who}${left ? `, ${left} item entities lying near` : ''}`);
             return { got: r.got, tried: true };
-        } finally { bot.removeListener('playerCollect', onCollect); if (r.state === 'coming' || r.state === 'tossed') this.close(r, 'failed', 'ended'); }
+        } finally { bot.removeListener('entitySpawn', onSpawn); bot.removeListener('playerCollect', onCollect); if (r.state === 'coming' || r.state === 'tossed') this.close(r, 'failed', 'ended'); }
     }
 
     status() { return { ...this.stats, open: this.reqs.size }; }
