@@ -36,6 +36,7 @@ function rules(job, bot) {
         // (the kind it carries most of: one dirt left beside 400 cobblestone made every pillar impossible, a crew sat under its stances for half an hour, live 2026-11-23 fz1 w2)
         temp: () => { const n = {}; for (const i of bot.inventory.items()) if (SUP.TEMPS.includes(i.name) && !job.t.items.has(i.name)) n[i.name] = (n[i.name] || 0) + i.count; let best = null; for (const [k, c] of Object.entries(n)) if (!best || c > n[best] || (c === n[best] && k === job.tempItem)) best = k; return best; },
         // another bot's temporary block (no drop lands on one: it may be gone when the bot arrives)
+        isTemp: (x, y, z) => job.temps.has(`${x},${y},${z}`),
         othersTemp: (x, y, z) => { const k = `${x},${y},${z}`; const m = job.temps.get(k); return !!m && m.by !== bot.username; },
         mayDig: (x, y, z) => !underCrew(job, bot, x, y, z) && !onRouteOfOther(job, bot.username, x, y, z),
         // the item to climb or bridge with in cell (x, y, z) when the blueprint has a plain full block there and the bot carries it: the climb builds the structure
@@ -191,10 +192,10 @@ async function work(job, name, bot, mv, cl, cancel) {
         if (here.x !== cl.station.x || here.y !== cl.station.y || here.z !== cl.station.z) way = job._way(require('./place').botWorld(bot), tk, here);
         const h = seen(bot, tk);
         if (!h || !way) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
-        { const me = feet(bot); if ((tk.kind === 'clear' || tk.kind === 'untemp') && tk.x === me.x && tk.z === me.z && tk.y === me.y - 1) { results.push({ tk, ok: false, why: 'skipped' }); continue; } }
+        { const me = feet(bot); if (!tk.descend && (tk.kind === 'clear' || tk.kind === 'untemp') && tk.x === me.x && tk.z === me.z && tk.y === me.y - 1) { results.push({ tk, ok: false, why: 'skipped' }); continue; } }
         // a temporary block with a crew member anywhere above it in its column is not taken (a pillar dug out under a bot on its top: falls of 40 blocks, live 2026-11-23 fy3)
         if (tk.kind === 'untemp' && [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]].some(([dx, dy, dz]) => FLUID(seen(bot, { x: tk.x + dx, y: tk.y + dy, z: tk.z + dz })))) { results.push({ tk, ok: false, why: 'skipped' }); continue; }          // it holds back a fluid now
-        if (tk.kind === 'untemp' && crewAt(job, bot).concat([bot.entity.position]).some((q) => Math.floor(q.x) === tk.x && Math.floor(q.z) === tk.z && q.y > tk.y && q.y < tk.y + 90)) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
+        if (tk.kind === 'untemp' && crewAt(job, bot).concat(tk.descend ? [] : [bot.entity.position]).some((q) => Math.floor(q.x) === tk.x && Math.floor(q.z) === tk.z && q.y > tk.y && q.y < tk.y + 90)) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
         // lava within two of the cell or of the bot, now (it runs in through cells opened a moment ago, from a pool two or three away: seven deaths in clearing batches,
         // live 2026-11-23 gf1 w5/w6): the rest of the claim is dropped and the bot steps away from it
         if ((tk.kind === 'clear' || tk.kind === 'untemp') && (lavaWithin(bot, tk, 2) || lavaWithin(bot, feet(bot), 2))) {
@@ -203,6 +204,8 @@ async function work(job, name, bot, mv, cl, cancel) {
             await mv.goto(f0, { goal: (x, y, z) => Math.hypot(x - f0.x, z - f0.z) >= 3 && !lavaWithin(bot, { x, y, z }, 3), cancel, maxNodes: 4000, tries: 1 });
             break;
         }
+        // a column of temporary blocks dug down from on its top (no stance beside it: the claim put the bot on it)
+        if (tk.kind === 'untemp' && tk.descend) { const n0 = job.stats.untemp; await mv.unpillar(null, () => false, cancel, { any: true }); results.push({ tk, ...holds(job, bot, tk) }); job.log(`${name}: dug the column at ${tk.x},${tk.z} down from its top (${job.stats.untemp - n0} blocks)`); continue; }
         if (tk.kind === 'clear' || tk.kind === 'untemp') { if (S.AIR.has(h.name)) { results.push({ tk, ok: true }); continue; } if (underCrew(job, bot, tk.x, tk.y, tk.z) || onRouteOfOther(job, name, tk.x, tk.y, tk.z)) { results.push({ tk, ok: false, why: 'skipped' }); continue; } const td = Date.now(); await mv.dig(tk); job.time.dig += Date.now() - td; done.push(tk); continue; }
         if (tk.kind === 'seal' || tk.kind === 'fill' || tk.kind === 'scaffold') { if (!(await mv.hold(mv.rules.temp() || job.tempItem))) { results.push({ tk, ok: false, why: 'skipped' }); continue; } await click(mv, way); done.push(tk); continue; }
         if (tk.kind === 'fix') { await mv.holdNothing(); await mv.click([tk.x, tk.y, tk.z], way.click.face, way.click.hit); for (let k = 1; k < tk.clicks; k++) await mv.click([tk.x, tk.y, tk.z], way.click.face, way.click.hit); done.push(tk); continue; }

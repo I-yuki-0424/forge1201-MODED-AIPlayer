@@ -722,6 +722,12 @@ class BuildJob {
                 best = { f: c.f, batch };
                 break;
             }
+            // a temporary block at the top of a column with no stance beside it: the bot climbs onto it and digs the column down under itself (1 080 of them waited at the
+            // end of the best run, most with every stance unsupported, ha26 w4)
+            if (!best && seed.kind === 'untemp' && view.fits(seed.x, seed.y + 1, seed.z) && !blocked(seed.x, seed.y + 1, seed.z) && !(inReach && !inReach({ x: seed.x, y: seed.y + 1, z: seed.z }))) {
+                const f = { x: seed.x, y: seed.y + 1, z: seed.z }, fc2 = fl ? fl.cost.get(key(f.x, f.y, f.z)) : undefined;
+                if (!(fl && fl.complete && fc2 === undefined)) { best = { f, batch: [{ ...seed, way: true, descend: true }] }; }
+            }
             if (!best) {
                 // stances the model calls unsupported: the nearest three are given to the planner (drive.js) before the cell is counted against
                 // (at most six questions a minute per bot: a Nether crew asked 1 017 of them and never worked, live 2026-11-23 ha9 w2)
@@ -748,7 +754,7 @@ class BuildJob {
             this.lastClaimInfo = `scanned ${scanned}, ready ${ready.length}, doable ${doable.length}, seeds to here ${doable.indexOf(seed) + 1}, batch ${best.batch.length}, ${Date.now() - t0} ms in seeds`;
             if (seed.kind === 'place') { const q = this.pstat || (this.pstat = { n: 0, ready: 0, doable: 0, reach: 0, batch: 0 }); q.n++; q.ready += ready.length; q.doable += doable.length; q.batch += best.batch.length; }
             // never the stance's own floor (it is not dug from on top of it)
-            const tasks = best.batch.filter((tk) => !((tk.kind === 'clear' || tk.kind === 'untemp') && tk.x === best.f.x && tk.z === best.f.z && tk.y === best.f.y - 1)).sort((a, b) => ((a.kind === 'clear') !== (b.kind === 'clear') ? (a.kind === 'clear' ? -1 : 1) : 0) || (a.kind === 'clear' ? b.y - a.y : a.y - b.y) || a.x - b.x || a.z - b.z);
+            const tasks = best.batch.filter((tk) => tk.descend || !((tk.kind === 'clear' || tk.kind === 'untemp') && tk.x === best.f.x && tk.z === best.f.z && tk.y === best.f.y - 1)).sort((a, b) => ((a.kind === 'clear') !== (b.kind === 'clear') ? (a.kind === 'clear' ? -1 : 1) : 0) || (a.kind === 'clear' ? b.y - a.y : a.y - b.y) || a.x - b.x || a.z - b.z);
             if (!tasks.length) { this.cool.set(seed.k, now + 3000); continue; }
             this.stallSince = 0;
             for (const tk of tasks) this.claims.set(tk.k, name);

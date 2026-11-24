@@ -348,10 +348,11 @@ class Mover {
      * standing after every climb flooded the site with temporary blocks (owner 2026-11-23, problem 2). Stops at anything that is not its own block, over a gap, or when the next
      * stance is on top of this pillar or beside its top (then the pillar is used again). Returns the blocks taken down.
      */
-    async unpillar(to, goal, cancel) {
+    async unpillar(to, goal, cancel, { any = false } = {}) {
         let n = 0;
         while (n < 80 && !cancel.cancelled) {
-            const f = feet(this.bot), k = key(f.x, f.y - 1, f.z), name = this.mine.get(k);
+            // (any: every temporary block of the crew, rules.isTemp; a column nobody could take down from beside its top is dug down from on it)
+            const f = feet(this.bot), k = key(f.x, f.y - 1, f.z), name = this.mine.has(k) ? this.mine.get(k) : (any && this.rules.isTemp && this.rules.isTemp(f.x, f.y - 1, f.z) ? null : undefined);
             if (name === undefined || goal(f.x, f.y, f.z)) break;
             // only a next stance on this same column keeps the pillar: one left for a stance beside its top became a column the crew never took down (owner 2026-11-23,
             // visual check V4: columns stood beside every unit)
