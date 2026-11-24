@@ -47,14 +47,31 @@ async function main() {
     await S0.must(`gamemode spectator ${names[0]}`);                                                   // the site is looked at from above (setup only: no fall)
     const at = (x, y, z) => { const b = scout.blockAt(new Vec3(x, y, z)); return b ? b.name : null; };
     // a site on land (Overworld: a farm is not built in the sea; at most a tenth of the footprint's surface water), up to twelve draws
-    let cx, cz, dry = false;
+    let cx, cz, dry = false, nY = null, y0;
+    const netherY = () => {
+        // somewhere inside the Nether's rock, above the lava sea, under the roof; not a box hanging in the open over the lava sea (nothing to stand on or pillar from, nothing
+        // to build down from: a crew placed nothing in 165 min, owner's visual check V8, ha11 w1): the lower third of the box at least 40 % rock
+        for (let t = 0; t < 8; t++) {
+            y0 = 40 + Math.floor(rnd() * 40);
+            let rock = 0, n = 0, fort = 0;
+            for (let x = cx - Math.floor(sx / 2); x < cx + sx / 2; x += 3) for (let z = cz - Math.floor(sz / 2); z < cz + sz / 2; z += 3) for (let y = y0; y < y0 + sy / 3; y += 3) { const b = at(x, y, z); n++; if (b && !/^(air|cave_air|void_air|lava|fire)$/.test(b)) rock++; }
+            // not in a fortress (its pillars stood in the box and the chest in its hall, owner's visual check V14)
+            for (let x = cx - Math.floor(sx / 2); x < cx + sx / 2; x += 2) for (let z = cz - Math.floor(sz / 2); z < cz + sz / 2; z += 2) for (let y = y0; y < y0 + sy; y += 2) if (/nether_brick/.test(at(x, y, z) || '')) fort++;
+            console.log(`[build_t] nether height ${y0}: ${rock}/${n} of the lower third is rock, ${fort} fortress blocks around the box`);
+            if (fort > 3) continue;          // (inside the box only; another height first)
+            if (rock >= 0.4 * n) return y0;
+        }
+            return null;
+    };
+
     const groundYAt = (x, z) => { for (let y = 200; y > -60; y--) { const b = at(x, y, z); if (b && !/^(air|cave_air|void_air|.*_leaves|.*_log|vine|short_grass|tall_grass|snow)$/.test(b)) return y; } return null; };
     for (let draw = 0; draw < 30; draw++) {
         const ang = CREW * 2.4 + rnd() * 1.2, dist = 40 + rnd() * 60 + draw * 60 + CREW * 160;
         cx = Math.floor((NETHER ? sp.x / 8 : sp.x) + Math.cos(ang) * dist); cz = Math.floor((NETHER ? sp.z / 8 : sp.z) + Math.sin(ang) * dist);
         await srv.must(`tp ${names[0]} ${cx + 0.5} ${NETHER ? 100 : 250} ${cz + 0.5}`);
         await sleep(NETHER ? 6000 : 9000);
-        if (NETHER) break;
+        // the Nether: a height inside rock at this position, or the next position (the height alone was drawn again and again over one lava cavern, ha25)
+        if (NETHER) { nY = netherY(); if (nY !== null) break; continue; }
         // counted when the site's chunks are in: a draw judged on a third of its surface had no ground at its middle (live 2026-11-22 sK2 w3)
         // powder snow anywhere in the top three blocks of the surface: the draw is refused (bots sank into a snowfield and stood stuck, owner 2026-11-23 problem 6); the margin of 8
         // around the footprint counts too (the crew walks there)
@@ -76,22 +93,7 @@ async function main() {
     if (!NETHER && !dry) throw new Error('no dry site in 30 draws');
     const GROUNDLESS = /^(air|cave_air|void_air|.*_leaves|.*_log|.*_wood|vine|short_grass|tall_grass|fern|large_fern|.*_flower|dandelion|poppy|snow|water|lava|bamboo|sugar_cane)$/;
     const groundY = (x, z, top) => { for (let y = top; y > (NETHER ? 32 : -60); y--) { const n = at(x, y, z); if (n && !GROUNDLESS.test(n)) return y; } return null; };
-    let y0;
-    if (NETHER) {
-        // somewhere inside the Nether's rock, above the lava sea, under the roof; not a box hanging in the open over the lava sea (nothing to stand on or pillar from, nothing
-        // to build down from: a crew placed nothing in 165 min, owner's visual check V8, ha11 w1): the lower third of the box at least 40 % rock
-        for (let t = 0; t < 12; t++) {
-            y0 = 40 + Math.floor(rnd() * 40);
-            let rock = 0, n = 0, fort = 0;
-            for (let x = cx - Math.floor(sx / 2); x < cx + sx / 2; x += 3) for (let z = cz - Math.floor(sz / 2); z < cz + sz / 2; z += 3) for (let y = y0; y < y0 + sy / 3; y += 3) { const b = at(x, y, z); n++; if (b && !/^(air|cave_air|void_air|lava|fire)$/.test(b)) rock++; }
-            // not in a fortress (its pillars stood in the box and the chest in its hall, owner's visual check V14)
-            for (let x = cx - Math.floor(sx / 2); x < cx + sx / 2; x += 2) for (let z = cz - Math.floor(sz / 2); z < cz + sz / 2; z += 2) for (let y = y0; y < y0 + sy; y += 2) if (/nether_brick/.test(at(x, y, z) || '')) fort++;
-            console.log(`[build_t] nether height ${y0}: ${rock}/${n} of the lower third is rock, ${fort} fortress blocks around the box`);
-            if (fort > 3) { if (t === 11) throw new Error('no dry site in 30 draws (nether: a fortress at the site)'); continue; }          // (inside the box only; another height first)
-            if (rock >= 0.4 * n) break;
-            if (t === 11) throw new Error('no dry site in 30 draws (nether: open air over the lava sea)');
-        }
-    }
+    if (NETHER) { if (nY === null) throw new Error('no dry site in 30 draws (nether: open air over the lava sea or a fortress)'); y0 = nY; }
     else { const g = groundY(cx, cz, 200); if (g === null) throw new Error('no ground under the site'); y0 = g + Math.floor(rnd() * 4) - 2; }
     const M = { x: cx - Math.floor(sx / 2), y: y0, z: cz - Math.floor(sz / 2) };
     const pos = { x: M.x - placed0.origin.x, y: M.y - placed0.origin.y, z: M.z - placed0.origin.z };
