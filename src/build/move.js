@@ -355,6 +355,8 @@ class Mover {
             // only a next stance on this same column keeps the pillar: one left for a stance beside its top became a column the crew never took down (owner 2026-11-23,
             // visual check V4: columns stood beside every unit)
             if (to && to.x === f.x && to.z === f.z && to.y >= f.y - 1) break;
+            // nor a next stance near it at about its height (a bridge or a step from its top: climbing down and up again for each stance was most of the crews' time, ha21)
+            if (to && Math.abs(to.x - f.x) <= 5 && Math.abs(to.z - f.z) <= 5 && Math.abs(to.y - f.y) <= 3) break;
             const b = this.bot.blockAt(new Vec3(f.x, f.y - 1, f.z), false);
             if (!b || (name && b.name !== name)) { this.mine.delete(k); break; }
             const v = this.view();

@@ -225,7 +225,8 @@ async function work(job, name, bot, mv, cl, cancel) {
     for (const tk of done) { const h = holds(job, bot, tk); results.push({ tk, ok: h.ok, why: h.why }); }
     await unscaffold(job, bot, mv);
     // its own pillar down at once, the stance's work done (owner 2026-11-23 V7: temporary blocks go as soon as they have served)
-    { const tu = Date.now(); await mv.unpillar(null, () => false, cancel); job.time.walk += Date.now() - tu; }
+    // (unless placing is left around the stance: the next claim is from here or beside it, and the column would be built again)
+    if (!job.workNear(feet(bot))) { const tu = Date.now(); await mv.unpillar(null, () => false, cancel); job.time.walk += Date.now() - tu; }
     return results;
 }
 

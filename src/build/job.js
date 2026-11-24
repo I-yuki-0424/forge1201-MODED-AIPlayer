@@ -395,6 +395,7 @@ class BuildJob {
         if (now - (this._offerAt || 0) < 3000 || !this.temps.size) return;
         this._offerAt = now;
         const cols = []; for (const b of this.bots.values()) { if (b.pos) cols.push(b.pos); if (b.station) cols.push(b.station[0]); }
+        let workB = null;          // 4-cell buckets that still hold placing (built at the first temporary block that asks)
         if (bot) for (const p of Object.values(bot.players || {})) if (p && p.entity && this.bots.has(p.username)) { const q = p.entity.position; cols.push({ x: Math.floor(q.x), y: Math.floor(q.y + 0.16), z: Math.floor(q.z) }); }
         for (const [k, m] of this.temps) {
             if (this.tasks.has(k)) continue;
@@ -408,9 +409,19 @@ class BuildJob {
             if (cols.some((p) => Math.abs(p.x - x) <= 4 && Math.abs(p.z - z) <= 4 && p.y >= y - 1 && p.y <= y + 5)) { m.used = now; continue; }
             // taken away soon after the last use (owner 2026-11-23 list 4 problem 8: walking blocks are not worth keeping; with one supply trip per area the chest crossing is rare)
             if (now - Math.max(m.t, m.used || 0) < 10000) continue;
+            // but not while placing is left around it: taken down after every stance, columns 25 high were built again for the next one and most claims were taking blocks
+            // away (64-84 claims a minute, 2-5 of them placing; falls of 25 from digging in mid-air, live 2026-11-24 ha21 w4)
+            if (!workB) { workB = new Set(); for (const t of this.tasks.values()) if ((t.kind === 'place' || t.kind === 'scaffold') && !this.parked.has(t.k)) workB.add(`${t.x >> 2},${t.y >> 2},${t.z >> 2}`); }
+            { let near = false; for (let a = -1; a <= 1 && !near; a++) for (let b2 = -1; b2 <= 1 && !near; b2++) for (let c2 = -1; c2 <= 0 && !near; c2++) if (workB.has(`${(x >> 2) + a},${(y >> 2) + c2},${(z >> 2) + b2}`)) near = true; if (near) { m.used = now; continue; } }
             const tk = { k, kind: 'untemp', i: -1, x, y, z };
             this.tasks.set(k, tk); this.untemps.add(tk);
         }
+    }
+
+    /** Is there placing left around cell c (five cells across, four down to three up), so that a temporary block there still serves? */
+    workNear(c) {
+        for (let dx = -5; dx <= 5; dx++) for (let dz = -5; dz <= 5; dz++) for (let dy = -4; dy <= 3; dy++) { const t = this.tasks.get(key(c.x + dx, c.y + dy, c.z + dz)); if (t && (t.kind === 'place' || t.kind === 'scaffold') && !this.parked.has(t.k)) return true; }
+        return false;
     }
 
     /** Park the place tasks that need items the supply is out of (tried again next round). */
