@@ -138,16 +138,19 @@ class BuildJob {
 
     /** The lowest layer that still has blocks to place (the window starts there), and the highest that still has blocks to clear. */
     _frontier() {
-        let f = Infinity, c = -Infinity; const now = Date.now(), b = this.t.box, nx = Math.ceil(b.sx / TILE), nz = Math.ceil(b.sz / TILE), own = new Float64Array(nx * nz).fill(Infinity);
+        let f = Infinity, c = -Infinity; const now = Date.now(), b = this.t.box, nx = Math.ceil(b.sx / TILE), nz = Math.ceil(b.sz / TILE), own = new Float64Array(nx * nz).fill(Infinity), lowTk = new Array(nx * nz);
         for (const tk of this.tasks.values()) {
             if (this.parked.has(tk.k)) continue;
             // a cell no stance has reached for 15 s does not hold the window (four unreachable cells in the lowest layer left eight bots idle with 7 500 blocks above, live
             // 2026-11-23 fy1 w2); it is still offered and tried, and parked after two minutes
             const ns = this.noStance.get(tk.k); if (ns && now - ns > 15000 && (tk.kind === 'place' || tk.kind === 'fix')) continue;
             if ((tk.kind === 'place' || tk.kind === 'fix') && tk.y < f) f = tk.y;
-            if ((tk.kind === 'place' || tk.kind === 'fix') && this.t.inside(tk.x, tk.y, tk.z)) { const i = Math.floor((tk.x - b.x) / TILE) + Math.floor((tk.z - b.z) / TILE) * nx; if (tk.y < own[i]) own[i] = tk.y; }
+            // a cell that has been its tile's lowest for three minutes without being placed (a dependency, an item, a stance it does not get) no longer holds the tile's window;
+            // it is still offered and tried (3 925 of 4 425 cells waited above the window behind a few such cells, live 2026-11-24 ha25 w2)
+            if ((tk.kind === 'place' || tk.kind === 'fix') && this.t.inside(tk.x, tk.y, tk.z) && !(tk.lowSince && now - tk.lowSince > 180000)) { const i = Math.floor((tk.x - b.x) / TILE) + Math.floor((tk.z - b.z) / TILE) * nx; if (tk.y < own[i]) { own[i] = tk.y; lowTk[i] = tk; } }
             if (tk.kind === 'clear' && tk.y > c) c = tk.y;
         }
+        for (const t of lowTk) if (t && !t.lowSince) t.lowSince = now;
         // each tile's window starts at the lowest open layer of the tile and its eight neighbours (a tower is not built up beside a part still open low down, whose stances it would hide)
         const low = new Float64Array(nx * nz).fill(Infinity); let hi = -Infinity;
         for (let tz = 0; tz < nz; tz++) for (let tx = 0; tx < nx; tx++) {
@@ -767,6 +770,7 @@ class BuildJob {
                 if (n++ > 4000) { why['not looked at'] = (why['not looked at'] || 0) + 1; continue; }
                 const w = this.whyNot(tk, bot, now).replace(/ \d.*$/, '').replace(/waits for .*/, 'waits for a dependency').replace(/next to .*/, 'next to a fluid'); why[w] = (why[w] || 0) + 1;
             }
+            { const low = [...this.tasks.values()].filter((t) => t.kind === 'place' && !this.parked.has(t.k)).sort((a, b2) => a.y - b2.y).slice(0, 5); this.log(`lowest cells left: ${low.map((t) => `${t.k} ${t.i >= 0 ? S.bare(this.t.wantOf(t).name) : ''} (${this.whyNot(t, bot, now).slice(0, 60)}${this.claims.has(t.k) ? ', claimed' : ''}${this.noStance.has(t.k) ? ', no stance' : ''}${this.fails.get(t.k) ? ', x' + this.fails.get(t.k) : ''})`).join(' | ')}`); }
             this.log(`claim by ${name}: ${ready.length} ready, ${doable.length} doable with what it carries, no stance for the first ${Math.min(12, doable.length)} (${doable.slice(0, 3).map((t) => `${t.kind} ${t.k}`).join(', ')}); the others: ${JSON.stringify(why)}; frontier ${this.frontier}`);
         }
         return null;
