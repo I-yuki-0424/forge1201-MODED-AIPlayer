@@ -30,10 +30,15 @@ The crew is creative (the owner's server is creative). A creative player flies a
 | `target.js` | the box in world coordinates, every cell's target (air included), recipes, portals (one lighting each), the item list |
 | `survey.js` | the box against the target, read from a bot's view: `seal` (fluid outside next to the box), `fill` (fluid inside that must go), `clear`, `place`, `fix` (clicks only), `pour`, `ignite` |
 | `job.js` | one build shared by the crew: stages, claims (a station and the tasks it reaches), readiness (order rules), failures, parking, rounds, the stall breaker |
-| `drive.js` | one bot: claim, fly, do the batch grouped by look, clicks, read back, report; pours along a ray the server traces itself; portal lighting; the supply read |
-| `fly.js` | where a body fits, A* through free cells (26 neighbours, no corner cutting), tunnels through terrain when there is no free way, motion by position packets |
-| `act.js` | the hand: creative slots, aim (one tick), use, dig, use item, read back |
-| `supply.js` | what the materials containers hold, shulker boxes included (their `container` component), without moving anything |
+| `drive.js` | one bot: supply trips, claim, walk to the stance, do the batch grouped by look, clicks, read back, report; pours along a ray the server traces itself; portal lighting; the supply read |
+| `place.js` | where a survival player stands and what it clicks to put a state into a cell: a face its eye sees first along the look ray, within reach, that vanilla's rules turn into the wanted state |
+| `vanilla.js` | vanilla's placement rules as a forward model (26.1): the state a click on a face at a hit point gives |
+| `world.js` | reading the world through a bot: a cell's state, the eye, eye-to-box distance |
+| `pistons.js` | a piston in the other phase than the blueprint's snapshot: the cells in front of it count as right |
+| `supply.js` | what the materials containers hold, shulker boxes included (their `container` component); a survival bot's trip to fill its pack (depot boxes) |
+| `move.js` | survival movement: the plan over standing cells (walk, step up, drop, pillar, bridge, dig) and its execution with the bot's own inputs (`Mover`) |
+| `fallguard.js` | under every move: a body on support never moves sideways onto a fall over three or onto lava (it wraps the bot's physics tick); planned drops open their columns to their planned depth (2026-11-25) |
+| `pool.js` | the crew's shared pool: a bot asks the colleague that can spare an item, walks up beside it and the colleague throws the stacks over (2026-11-25) |
 
 The work console runs it as the job kind `construct` (`src/work/service/construct.js`); `createBuildFromPlacement` (the Litematica page) picks it when every bot of the crew is in creative mode (`_builderFor`; `spec.builder` overrides), the old builder (`src/work/builder/`, `jobs/build.js`) stays for survival crews.
 

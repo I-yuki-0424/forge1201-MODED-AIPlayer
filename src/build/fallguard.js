@@ -74,7 +74,11 @@ function install(bot, { maxFall = 3 } = {}) {
             if (held(world, x, s.pos.y, z, g.maxFall)) return out;
             if (!held(world, x0, y0, z0, g.maxFall)) return out;          // already falling (a block taken from under it, a planned drop): not this guard's business
             if (g.allow) for (const [cx, cz] of columns(x, z)) { const d = g.allow.get(`${cx},${cz}`); if (d !== undefined && heldIn(world, cx, cz, s.pos.y, d, x, z)) return out; }
-            s.pos.x = x0; s.pos.z = z0; s.vel.x = 0; s.vel.z = 0;
+            // the part of the move along one axis that still holds the body is kept (it slides along the edge): undone as a whole, a bot perched on the rim of a block with a
+            // step toward its target that also left the rim stood there for minutes (7 484 ticks held, live 2026-11-25 hb4 w1)
+            if (held(world, x, s.pos.y, z0, g.maxFall)) { s.pos.z = z0; s.vel.z = 0; }
+            else if (held(world, x0, s.pos.y, z, g.maxFall)) { s.pos.x = x0; s.vel.x = 0; }
+            else { s.pos.x = x0; s.pos.z = z0; s.vel.x = 0; s.vel.z = 0; }
             g.stops++; g.lastStop = { at: Date.now(), x: Math.floor(x), y: Math.floor(s.pos.y), z: Math.floor(z) };
         } catch (_) { /* the guard never breaks the physics tick */ }
         return out;

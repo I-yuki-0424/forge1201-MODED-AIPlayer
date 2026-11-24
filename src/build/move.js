@@ -426,7 +426,7 @@ class Mover {
         return { from: key(start.x, start.y, start.z), cost: l.best || new Map(), complete: !!l.region, at: Date.now() };
     }
     /** The last moves and digs (kept for a death's report). */
-    note(what) { const p = this.bot.entity && this.bot.entity.position; this.trace.push(`${new Date().toISOString().slice(11, 19)} ${what}${p ? ` @${p.x.toFixed(1)},${p.y.toFixed(1)},${p.z.toFixed(1)}` : ''}`); if (this.trace.length > 8) this.trace.shift(); }
+    note(what) { const p = this.bot.entity && this.bot.entity.position; this.trace.push(`${new Date().toISOString().slice(11, 19)} ${what}${p ? ` @${p.x.toFixed(1)},${p.y.toFixed(1)},${p.z.toFixed(1)}` : ''}`); if (this.trace.length > 14) this.trace.shift(); }
 
     /** Look along (yaw, pitch) and let the server have it (it applies a look a tick after it arrives). */
     async look(yaw, pitch) { await this.bot.look(yaw, pitch, true); await sleep(110); }

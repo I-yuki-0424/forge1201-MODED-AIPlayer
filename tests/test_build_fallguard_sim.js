@@ -128,6 +128,15 @@ test('an open trapdoor (a plate along one side of its cell) is no floor: held at
     assert.strictEqual(v.stands(0, 20, 0), true);
 });
 
+test('perched on the rim of a block, a step that also leaves the rim slides along it to the next floor', () => {
+    // a floor block at (0, 20, 1) and the target floor at (1, 20, 0); the body over (0, 0) with 0.01 of its box on (0, 1)'s rim, heading east and a little north
+    const cells = { ...column(0, 1, 0, 20), ...column(1, 0, 0, 20) };
+    const bot = simBot(scene(cells), new Vec3(0.5, 21, 0.71));
+    FG.install(bot); bot.entity.yaw = EAST + 0.3; bot.set({ forward: true });
+    bot.tick(40);
+    assert.ok(bot.entity.position.x > 1 && bot.entity.position.y > 20.9, `at ${bot.entity.position}`);
+});
+
 test('held(): an unloaded column counts as held', () => {
     assert.strictEqual(FG.held({ getBlock: () => null }, 0.5, 70, 0.5, 3), true);
 });
