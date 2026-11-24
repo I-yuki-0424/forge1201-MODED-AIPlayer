@@ -112,6 +112,22 @@ test('a step down of three is walked; lava one down is not', () => {
     assert.ok(b2.entity.position.x < 1.31 && b2.entity.position.y > 20.9, `at ${b2.entity.position}`);
 });
 
+test('an open trapdoor (a plate along one side of its cell) is no floor: held at the edge; the planner does not stand on it either', () => {
+    const tdState = Block.fromProperties(registry.blocksByName.spruce_trapdoor.id, { facing: 'west', half: 'top', open: true, powered: false, waterlogged: false }, 0).stateId;
+    const cells = column(0, 0, 0, 20);
+    const base = scene(cells), w = { getBlock: (p) => { if (Math.floor(p.x) === 1 && Math.floor(p.y) === 20 && Math.floor(p.z) === 0) { const b = Block.fromStateId(tdState, 0); b.position = new Vec3(1, 20, 0); return b; } return base.getBlock(p); } };
+    for (const guarded of [true, false]) {
+        const bot = simBot(w, new Vec3(0.5, 21, 0.5));
+        if (guarded) FG.install(bot);
+        bot.entity.yaw = EAST; bot.set({ forward: true }); bot.tick(60);
+        if (guarded) assert.ok(bot.entity.position.y > 20.9, `fell to ${bot.entity.position.y}`); else assert.ok(bot.entity.position.y < 20, 'the control did not fall through');
+    }
+    const M = require('../src/build/move');
+    const v = new M.View({ blockAt: (p) => w.getBlock(p) }, {});
+    assert.strictEqual(v.stands(1, 20, 0), false);
+    assert.strictEqual(v.stands(0, 20, 0), true);
+});
+
 test('held(): an unloaded column counts as held', () => {
     assert.strictEqual(FG.held({ getBlock: () => null }, 0.5, 70, 0.5, 3), true);
 });

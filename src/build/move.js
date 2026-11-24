@@ -77,8 +77,10 @@ class View {
         if (this.rules.doomed && this.rules.doomed(x, y, z)) return false;
         const b = this.raw(x, y, z);
         if (!b || b.boundingBox !== 'block' || NO_STAND.test(b.name)) return false;
-        const top = Math.max(...(b.shapes || []).map((s) => s[4]));
-        return top >= 0.85 && top <= 1 + 1e-6;                    // a full top, or nearly (soul sand, mud, a dirt path, farmland, a chest)
+        const shapes = b.shapes || [], top = Math.max(...shapes.map((s) => s[4]));
+        // a full top, or nearly (soul sand, mud, a dirt path, farmland, a chest), under the middle of the cell where the body stands: an open trapdoor is a plate along one
+        // side with its top at 1, and four bots stepped onto one and fell through (live 2026-11-25 hb3 w1)
+        return top >= 0.85 && top <= 1 + 1e-6 && shapes.some((s) => s[4] >= 0.85 && s[0] < 0.8 && s[3] > 0.2 && s[2] < 0.8 && s[5] > 0.2);
     }
     /** Lava beside the body's two cells (a slip or a flow takes the bot) or under the feet (one or two down: a fall). Lava next to the floor block is no danger. */
     nearLava(x, y, z) {

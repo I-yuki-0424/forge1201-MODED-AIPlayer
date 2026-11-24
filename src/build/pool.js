@@ -30,7 +30,8 @@ class Pool {
         if (bot && bot.entity) {
             const me = feet(bot);
             for (const tk of job.tasks.values()) {
-                if (tk.kind !== 'place') continue;
+                // (not for parked cells or cells that found no stance: items kept for an area's unreachable cells left 277 of 304 ready cells waiting, ha28 w1)
+                if (tk.kind !== 'place' || (job.parked && job.parked.has(tk.k)) || (job.noStance && now - (job.noStance.get(tk.k) ?? now) > 15000)) continue;
                 const mine = job.claims.get(tk.k) === name;
                 if (!mine && (Math.abs(tk.x - me.x) > NEAR.xz || Math.abs(tk.z - me.z) > NEAR.xz || Math.abs(tk.y - me.y) > NEAR.y)) continue;
                 const it = job._itemOf(tk); if (it) need[it] = (need[it] || 0) + 1;
@@ -100,6 +101,10 @@ class Pool {
         if (!asker || !asker.entity) { this.close(r, 'failed', 'asker gone'); return false; }
         const p = bot.entity.position, q = asker.entity.position;
         if (Math.hypot(q.x - p.x, q.z - p.z) > REACH || Math.abs(q.y - p.y) > 1.5) return false;
+        // a third bot beside the asker picks the toss up as soon as the asker (items lay among the crew and eight bots took a share, live 2026-11-25 hb3): the giver waits a
+        // few seconds for it to pass
+        r.readyAt = r.readyAt || Date.now();
+        if (Date.now() - r.readyAt < 8000) for (const [n, o] of this.bots) { if (n === name || n === r.from || !o.entity) continue; const w = o.entity.position; if (Math.hypot(w.x - q.x, w.z - q.z) < 1.8 && Math.abs(w.y - q.y) < 2) return false; }
         for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sprint']) bot.setControlState(k, false);
         const e = p.offset(0, bot.entity.eyeHeight || 1.62, 0), t = q.offset(0, 0.2, 0);
         try { await bot.look(Math.atan2(-(t.x - e.x), -(t.z - e.z)), Math.atan2(t.y - e.y, Math.hypot(t.x - e.x, t.z - e.z)), true); await sleep(120); } catch (_) { /* the look is a nicety */ }
@@ -165,12 +170,13 @@ class Pool {
             }
             if (r.state === 'coming') { this.close(r, 'failed', cancel.cancelled ? 'cancelled' : 'did not meet'); return { got: {}, tried: true }; }
             if (r.state !== 'tossed') return { got: got(), tried: true };
-            // the pickup: the server gives the items after two seconds to the nearest body; the asker walks onto what is left lying
-            for (let i = 0; i < 16 && !full(); i++) await sleep(250);
-            for (let k = 0; k < 3 && !full() && !cancel.cancelled; k++) {
+            // the pickup: the server gives the items after two seconds to the nearest body; the asker stands on them by then (it walks onto each stack as it lands)
+            for (let i = 0; i < 3 && !full(); i++) await sleep(250);
+            for (let k = 0; k < 4 && !full() && !cancel.cancelled; k++) {
                 const lying = Object.values(bot.entities).filter((e) => e.name === 'item' && !old.has(String(e.id)) && e.position.distanceTo(bot.entity.position) < 6).sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))[0];
                 if (!lying) break;
-                const c = { x: Math.floor(lying.position.x), y: Math.floor(lying.position.y + 0.2), z: Math.floor(lying.position.z) };
+                const c = { x: Math.floor(lying.position.x), y: Math.floor(lying.position.y + 0.2), z: Math.floor(lying.position.z) }, f = feet(bot);
+                if (f.x === c.x && f.z === c.z) { for (let i = 0; i < 12 && !full(); i++) await sleep(200); continue; }
                 await mv.goto(c, { goal: (x, y, z) => Math.abs(x - c.x) <= 0 && Math.abs(z - c.z) <= 0 && Math.abs(y - c.y) <= 1, cancel, maxNodes: 3000, tries: 1 });
                 for (let i = 0; i < 6 && !full(); i++) await sleep(200);
             }

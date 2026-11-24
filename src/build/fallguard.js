@@ -20,7 +20,7 @@ const HALF = 0.3;
  * (a fall into water does no damage); an unloaded cell counts as held (nothing is known, nothing is stopped).
  */
 function held(world, x, y, z, depth) {
-    for (const [cx, cz] of columns(x, z)) if (heldIn(world, cx, cz, y, depth)) return true;
+    for (const [cx, cz] of columns(x, z)) if (heldIn(world, cx, cz, y, depth, x, z)) return true;
     return false;
 }
 /** The cell columns a body's box at (x, z) covers. */
@@ -29,8 +29,13 @@ function columns(x, z) {
     for (let cx = x0; cx <= x1; cx++) for (let cz = z0; cz <= z1; cz++) out.push([cx, cz]);
     return out;
 }
-/** Does column (cx, cz) hold a body with its feet at y within `depth`? */
-function heldIn(world, cx, cz, y, depth) {
+/**
+ * Does column (cx, cz) hold a body with its feet at (x, y, z) within `depth`? Only block shapes under the body's box count: an open trapdoor is a plate along one side of its
+ * cell, and four bots that stepped onto one fell through it (live 2026-11-25 hb3 w1).
+ */
+function heldIn(world, cx, cz, y, depth, x = cx + 0.5, z = cz + 0.5) {
+    const fx0 = x - HALF - cx, fx1 = x + HALF - cx, fz0 = z - HALF - cz, fz1 = z + HALF - cz;          // the box in the cell's own coordinates
+    const under = (sh) => sh[0] < fx1 - 1e-4 && sh[3] > fx0 + 1e-4 && sh[2] < fz1 - 1e-4 && sh[5] > fz0 + 1e-4;
     const p = new Vec3(0, 0, 0);
     for (let cy = Math.floor(y + 1e-3); cy >= Math.floor(y) - depth - 1; cy--) {
         p.set(cx, cy, cz);
@@ -38,7 +43,7 @@ function heldIn(world, cx, cz, y, depth) {
         if (!b) return true;
         if (b.name === 'water' || b.name === 'bubble_column') return y - (cy + 1) <= depth + 1;
         if (HURTS.test(b.name)) return false;
-        const shapes = b.shapes || [];
+        const shapes = (b.shapes || []).filter(under);
         if (!shapes.length) continue;
         const t = cy + Math.max(...shapes.map((s) => s[4]));
         if (t > y + 0.01) continue;                       // a block beside the body (it is in this column above the feet): the collision handles it, look further down
@@ -68,7 +73,7 @@ function install(bot, { maxFall = 3 } = {}) {
             if (x === x0 && z === z0) return out;
             if (held(world, x, s.pos.y, z, g.maxFall)) return out;
             if (!held(world, x0, y0, z0, g.maxFall)) return out;          // already falling (a block taken from under it, a planned drop): not this guard's business
-            if (g.allow) for (const [cx, cz] of columns(x, z)) { const d = g.allow.get(`${cx},${cz}`); if (d !== undefined && heldIn(world, cx, cz, s.pos.y, d)) return out; }
+            if (g.allow) for (const [cx, cz] of columns(x, z)) { const d = g.allow.get(`${cx},${cz}`); if (d !== undefined && heldIn(world, cx, cz, s.pos.y, d, x, z)) return out; }
             s.pos.x = x0; s.pos.z = z0; s.vel.x = 0; s.vel.z = 0;
             g.stops++; g.lastStop = { at: Date.now(), x: Math.floor(x), y: Math.floor(s.pos.y), z: Math.floor(z) };
         } catch (_) { /* the guard never breaks the physics tick */ }
