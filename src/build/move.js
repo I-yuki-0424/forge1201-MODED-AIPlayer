@@ -594,7 +594,7 @@ class Mover {
         for (const d of s.dig || []) if (!(await this.dig(d))) return { ok: false, why: `dig ${d.x},${d.y},${d.z}` };
         if (s.move === 'walk') return (await this.walkTo(s)) ? { ok: true } : { ok: false, why: 'walk' };
         if (s.move === 'up') return (await this.walkTo(s, { jump: true })) ? { ok: true } : { ok: false, why: 'up' };
-        if (s.move === 'drop') { const ok = await FG.allowing(this.bot, [s], () => this.walkTo(s, { timeout: 3500 })); return ok ? { ok: true } : { ok: false, why: 'drop' }; }
+        if (s.move === 'drop') { const ok = await FG.allowing(this.bot, [{ x: s.x, z: s.z, depth: prev.y - s.y + 0.5 }], () => this.walkTo(s, { timeout: 3500 })); return ok ? { ok: true } : { ok: false, why: 'drop' }; }
         if (s.move === 'down') { for (let i = 0; i < 30 && feet(this.bot).y > s.y; i++) await sleep(50); return feet(this.bot).y === s.y ? { ok: true } : { ok: false, why: 'down' }; }
         if (s.move === 'pillar') {
             if (this.rules.onPillar) this.rules.onPillar(s);
@@ -648,7 +648,8 @@ class Mover {
      */
     async follow(route, i0, i1, cancel, opts = {}) {
         // the run's planned drops: their columns are open to the fall guard while it is walked
-        const drops = route.slice(i0, i1 + 1).filter((c) => c.move === 'drop');
+        // (each only as deep as planned: a landing gone since the plan holds the body at the edge)
+        const drops = []; for (let k = Math.max(1, i0); k <= i1; k++) if (route[k].move === 'drop') drops.push({ x: route[k].x, z: route[k].z, depth: route[k - 1].y - route[k].y + 0.5 });
         return drops.length ? FG.allowing(this.bot, drops, () => this._follow(route, i0, i1, cancel, opts)) : this._follow(route, i0, i1, cancel, opts);
     }
     async _follow(route, i0, i1, cancel, { breath = true } = {}) {

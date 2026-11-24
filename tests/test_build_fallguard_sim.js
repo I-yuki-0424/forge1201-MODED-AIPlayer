@@ -90,9 +90,17 @@ test('a planned drop: the open column lets the body fall', async () => {
     const cells = column(0, 0, 0, 20); column(1, 0, 0, 15, 'stone', cells);
     const w = scene(cells), bot = simBot(w, new Vec3(0.5, 21, 0.5));
     FG.install(bot); bot.entity.yaw = EAST;
-    await FG.allowing(bot, [{ x: 1, z: 0 }], async () => { bot.set({ forward: true }); bot.tick(15); bot.set({ forward: false }); bot.tick(40); });
+    await FG.allowing(bot, [{ x: 1, z: 0, depth: 5.5 }], async () => { bot.set({ forward: true }); bot.tick(15); bot.set({ forward: false }); bot.tick(40); });
     assert.ok(bot.entity.position.y < 17 && bot.entity.position.x > 1, `at ${bot.entity.position}`);
     assert.strictEqual(bot.__fallGuard.allow, null);
+});
+
+test('a planned drop whose landing is gone: held at the edge', async () => {
+    const cells = column(0, 0, 0, 20); column(1, 0, 0, 5, 'stone', cells);          // planned onto 15, the column now ends at 5
+    const w = scene(cells), bot = simBot(w, new Vec3(0.5, 21, 0.5));
+    FG.install(bot); bot.entity.yaw = EAST;
+    await FG.allowing(bot, [{ x: 1, z: 0, depth: 5.5 }], async () => { bot.set({ forward: true }); bot.tick(30); bot.set({ forward: false }); bot.tick(20); });
+    assert.ok(bot.entity.position.y > 20.9, `fell to ${bot.entity.position.y}`);
 });
 
 test('a step down of three is walked; lava one down is not', () => {

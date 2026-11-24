@@ -105,9 +105,9 @@ class Pool {
         try { await bot.look(Math.atan2(-(t.x - e.x), -(t.z - e.z)), Math.atan2(t.y - e.y, Math.hypot(t.x - e.x, t.z - e.z)), true); await sleep(120); } catch (_) { /* the look is a nicety */ }
         const sent = {}, c0 = SUP.carried(bot);
         for (const [it, n0] of Object.entries(r.items)) {
-            const n = Math.min(n0, this.spare(name, it)), reg = bot.registry.itemsByName[it];
-            if (n <= 0 || !reg) continue;
-            try { await bot.toss(reg.id, null, n); sent[it] = n; } catch (err) { this.job.log(`pool: ${name} could not throw ${n} ${it}: ${err.message}`); }
+            const sp = this.spare(name, it), n = Math.min(n0, sp);
+            if (n <= 0) continue;
+            try { const k = await throwOut(bot, it, n, sp); if (k > 0) sent[it] = k; } catch (err) { this.job.log(`pool: ${name} could not throw ${n} ${it}: ${err.message}`); }
         }
         if (!Object.keys(sent).length) { this.close(r, 'failed', 'nothing left to spare'); return false; }
         await sleep(150);
@@ -182,6 +182,25 @@ class Pool {
     }
 
     status() { return { ...this.stats, open: this.reqs.size }; }
+}
+
+/**
+ * Throw `n` of item `it` (at most `spare`): whole stacks, each one item entity that lands at the asker's feet; a part of a stack goes item by item (one entity per item, spread
+ * over the ground: 26 obsidian thrown that way were picked up by four bots, live 2026-11-25 hb2 w1), so only for up to 16 and only when no whole stack fits. Returns the count.
+ */
+async function throwOut(bot, it, n, spare) {
+    let sent = 0;
+    const stacks = bot.inventory.items().filter((i) => i.name === it).sort((a, b) => b.count - a.count);
+    for (const st of stacks) {
+        if (sent >= n) break;
+        if (st.count > spare - sent) continue;
+        await bot.tossStack(st); sent += st.count; await sleep(100);
+    }
+    if (sent < Math.min(n, 16)) {
+        const k = Math.min(n - sent, 16), reg = bot.registry.itemsByName[it];
+        if (reg && k > 0) { await bot.toss(reg.id, null, k); sent += k; }
+    }
+    return sent;
 }
 
 /** A cell for the asker: beside the giver (the eight around it, not its own column), at about its height. */

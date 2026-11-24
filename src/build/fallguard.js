@@ -8,7 +8,8 @@
 // planned as safe that is not (a block gone since the plan, a corner cut) is walked upright. Bots slipped off structures from early in every run and died of it in the tail
 // (owner 2026-11-24, instruction 2).
 //
-// A planned drop is let through: the mover names the columns it may fall into (`allow`), for the time of that move.
+// A planned drop is let through: the mover names the columns it may fall into and how far (`allow`), for the time of that move; a drop whose landing is not there when the
+// body steps off is held like any other (five bots died one after the other dropping onto a temporary block that was gone, live 2026-11-25 hb2 w1).
 const { Vec3 } = require('vec3');
 
 const HURTS = /^(lava|magma_block|fire|soul_fire|campfire|soul_campfire|cactus|sweet_berry_bush|wither_rose|pointed_dripstone|powder_snow)$/;
@@ -19,29 +20,36 @@ const HALF = 0.3;
  * (a fall into water does no damage); an unloaded cell counts as held (nothing is known, nothing is stopped).
  */
 function held(world, x, y, z, depth) {
-    const x0 = Math.floor(x - HALF + 1e-4), x1 = Math.floor(x + HALF - 1e-4), z0 = Math.floor(z - HALF + 1e-4), z1 = Math.floor(z + HALF - 1e-4);
-    const top = Math.floor(y + 1e-3), bottom = Math.floor(y) - depth - 1, p = new Vec3(0, 0, 0);
-    for (let cx = x0; cx <= x1; cx++) for (let cz = z0; cz <= z1; cz++) {
-        for (let cy = top; cy >= bottom; cy--) {
-            p.set(cx, cy, cz);
-            const b = world.getBlock(p);
-            if (!b) return true;
-            if (b.name === 'water' || b.name === 'bubble_column') { if (y - (cy + 1) <= depth + 1) return true; break; }
-            if (HURTS.test(b.name)) break;
-            const shapes = b.shapes || [];
-            if (!shapes.length) continue;
-            const t = cy + Math.max(...shapes.map((s) => s[4]));
-            if (t > y + 0.01) continue;                       // a block beside the body (it is in this column above the feet): the collision handles it, look further down
-            if (y - t <= depth) return true;
-            break;                                            // the first floor under the feet is too far down: this column does not hold the body
-        }
+    for (const [cx, cz] of columns(x, z)) if (heldIn(world, cx, cz, y, depth)) return true;
+    return false;
+}
+/** The cell columns a body's box at (x, z) covers. */
+function columns(x, z) {
+    const x0 = Math.floor(x - HALF + 1e-4), x1 = Math.floor(x + HALF - 1e-4), z0 = Math.floor(z - HALF + 1e-4), z1 = Math.floor(z + HALF - 1e-4), out = [];
+    for (let cx = x0; cx <= x1; cx++) for (let cz = z0; cz <= z1; cz++) out.push([cx, cz]);
+    return out;
+}
+/** Does column (cx, cz) hold a body with its feet at y within `depth`? */
+function heldIn(world, cx, cz, y, depth) {
+    const p = new Vec3(0, 0, 0);
+    for (let cy = Math.floor(y + 1e-3); cy >= Math.floor(y) - depth - 1; cy--) {
+        p.set(cx, cy, cz);
+        const b = world.getBlock(p);
+        if (!b) return true;
+        if (b.name === 'water' || b.name === 'bubble_column') return y - (cy + 1) <= depth + 1;
+        if (HURTS.test(b.name)) return false;
+        const shapes = b.shapes || [];
+        if (!shapes.length) continue;
+        const t = cy + Math.max(...shapes.map((s) => s[4]));
+        if (t > y + 0.01) continue;                       // a block beside the body (it is in this column above the feet): the collision handles it, look further down
+        return y - t <= depth;                            // the first floor under the feet: near enough, or this column does not hold the body
     }
     return false;
 }
 
 /**
- * Install the guard on a bot (once; later calls return the same guard). guard.allow: null or a Set of 'x,z' columns a planned drop may fall into; guard.on: false switches it
- * off; guard.stops: how many ticks it held a body back (for the logs).
+ * Install the guard on a bot (once; later calls return the same guard). guard.allow: null or a Map 'x,z' -> depth of the columns a planned drop may fall into and how far;
+ * guard.on: false switches it off; guard.stops: how many ticks it held a body back (for the logs).
  */
 function install(bot, { maxFall = 3 } = {}) {
     if (bot.__fallGuard) return bot.__fallGuard;
@@ -60,7 +68,7 @@ function install(bot, { maxFall = 3 } = {}) {
             if (x === x0 && z === z0) return out;
             if (held(world, x, s.pos.y, z, g.maxFall)) return out;
             if (!held(world, x0, y0, z0, g.maxFall)) return out;          // already falling (a block taken from under it, a planned drop): not this guard's business
-            if (g.allow) { for (let cx = Math.floor(x - HALF); cx <= Math.floor(x + HALF); cx++) for (let cz = Math.floor(z - HALF); cz <= Math.floor(z + HALF); cz++) if (g.allow.has(`${cx},${cz}`)) return out; }
+            if (g.allow) for (const [cx, cz] of columns(x, z)) { const d = g.allow.get(`${cx},${cz}`); if (d !== undefined && heldIn(world, cx, cz, s.pos.y, d)) return out; }
             s.pos.x = x0; s.pos.z = z0; s.vel.x = 0; s.vel.z = 0;
             g.stops++; g.lastStop = { at: Date.now(), x: Math.floor(x), y: Math.floor(s.pos.y), z: Math.floor(z) };
         } catch (_) { /* the guard never breaks the physics tick */ }
@@ -70,14 +78,14 @@ function install(bot, { maxFall = 3 } = {}) {
     return g;
 }
 
-/** Run fn with the columns `cols` ('x,z' strings or {x, z}) open for a planned fall; the guard closes them again afterwards. */
+/** Run fn with the columns `cols` ({x, z, depth}: a fall of at most `depth`) open for a planned drop; the guard closes them again afterwards. */
 async function allowing(bot, cols, fn) {
     const g = bot.__fallGuard;
     if (!g) return fn();
-    const prev = g.allow, set = new Set(prev || []);
-    for (const c of cols) set.add(typeof c === 'string' ? c : `${c.x},${c.z}`);
-    g.allow = set;
+    const prev = g.allow, m = new Map(prev || []);
+    for (const c of cols) { const k = `${c.x},${c.z}`; m.set(k, Math.max(m.get(k) || 0, c.depth ?? g.maxFall)); }
+    g.allow = m;
     try { return await fn(); } finally { g.allow = prev; }
 }
 
-module.exports = { install, allowing, held, HURTS };
+module.exports = { install, allowing, held, heldIn, HURTS };
