@@ -363,3 +363,48 @@ container (`live-t26-1-*`) was still running at 23:00; stop it by name if it has
 
 **Where the details are.** This file's sections from "Owner's problem list 4" on; knowledge-DB LLM-records/2026-11-23-...-owner-s-problem-list-4-... and
 LLM-records/2026-11-24-...-blocks-in-the-air-...
+
+## Shared pool and fall guard (2026-11-24 night to 2026-11-25; the owner's instructions after the handover)
+
+The owner's three instructions: (1) in the tail the materials are scattered and the supply turns unstable: make them one shared pool, and let a bot ask a working colleague
+for items instead of going through the chest every time; (2) falls from height are a lack of robustness in movement, not in pathfinding (a cell that is safe with Shift is
+fallen off when jumped onto; a jump that looks possible hits the head and the bot falls), and they happen from early on, not only in the tail; (3) temporary blocks stay a
+special issue, not for this session. Done when materials are shared and handed over properly and builds succeed stably.
+
+**The shared pool (`src/build/pool.js`).** What a bot carries beyond what the cells near it need (place tasks within 12 across and 8 up or down, not parked, with a stance, and
+its own claims) is the crew's. A bot whose ready work waits for items asks the colleague that can spare the most of them nearest to it (a climb counts double, at most 48 away;
+never tools, shulker boxes or the temporary block), walks to a cell two to three from it with a clear line between them, and the colleague throws whole stacks over, level, so
+they land at the asker's feet and out of its own reach (vanilla `toss`; the server gives the items to whoever touches them after two seconds). The giver serves between its
+tasks and between its moves, and waits for an asker that is near; it does not throw while a third bot stands beside the asker. A colleague is asked first when the chest is out
+of an item it can spare or when it is much nearer than the chest (0.6 of the chest's distance); otherwise the trip goes to the chest as before. Items the chest is out of that
+a colleague can spare are no longer left to the bots that carry them (the claim's `skip`). The hand-backs to the chest are off (`BUILD_PEER=0` brings the old way back).
+
+**The fall guard (`src/build/fallguard.js`).** The bot's position is computed by its own client physics (prismarine-physics) and the server takes it; the guard wraps that
+tick (`bot.physics.simulatePlayer`). When a body held by a floor (a block shape under its box within three below; water counts; lava, magma, fire, cactus do not) would move
+sideways to where nothing holds it, the part of the move that still holds it is kept (it slides along the edge) and the rest is undone. It holds whatever the controls do: the
+momentum of a landing on a pillar top, a jump cut short by the head, an upright corner, a push. Sneaking does not do this: it works only on the ground, and the mover sneaks
+only where it expects an edge. A planned drop opens its column only to its planned depth: a landing that is gone when the body steps off holds it at the edge. Before a step
+up the mover now looks at the head room over the take-off and at the landing cell (`Mover.follow`), and a cell is standable only with its top under the middle of the cell
+(`View.stands`). Tests: `tests/test_build_fallguard_sim.js` on prismarine-physics, each case checked to fall without the guard.
+
+What the live batches found (T26 worlds 1-4, two Overworld crews of eight and one Nether crew of two per world; every crew restarted on each fix):
+
+| Batch | Found | Fix |
+| :-- | :-- | :-- |
+| hb1 | the asker stood 2.3-3.2 away and the toss, aimed down, fell between the two; the walk onto lying items read the item's metadata (unreliable on 26.1) | (then) the asker beside the giver; any new item entity walked onto |
+| hb2 | a toss of part of a stack drops the items one by one: 26 obsidian lay spread out and four bots picked them up | whole stacks; part of a stack only up to 16 |
+| hb2 | five bots in a row dropped onto a temporary block that was gone (a planned drop opened its column to any depth) | a drop opens its column to its planned depth |
+| hb3 | four bots on two crews stepped onto an open trapdoor of the blueprint (a plate along one side with its top at 1) and fell through: planner and guard both took it for a floor | support only under the body: `View.stands` and the guard |
+| hb3 | askers walked to rubble (blocks dug nearby) and the crew took the toss | the toss is told by when and where its entities appear; no toss while a third bot is beside the asker |
+| hb4 | a bot perched on the rim of a block; each step toward its target also left the rim; the guard undid it for minutes (7 484 ticks) | keep the part of the step that still holds the body |
+| hb4 | askers gave up after four chases while the giver climbed between stances | the giver serves between its own moves; the asker follows until the request's time is up |
+| hb6 | from beside it, the giver took its own toss back | the asker stands two to three away with a clear line; the toss is thrown level |
+| hb6 | a killed batch's `up.sh` started the watchers again and the next batch did not start | `scripts/t26/stop.sh RUN` (children, containers by name, watchers) |
+
+Measured so far: hb6 at 25 min, no deaths on any of the 12 crews (ha30: 54 deaths in 150 min, all falls onto the ground); Overworld crews placed 782-2 259 (ha30 at 25 min:
+345-2 347); 29 of 45 hand-overs done (64 %). The tail (the last 5-20 %, where every earlier run stopped) has not been reached on this code yet: the batches were cut short for
+the fixes and by the 03:00-06:00 reboot window.
+
+How to run: `LIMIT_MIN=150 scripts/t26/multi.sh RUN "1 2 3 4" 2 1`; stop with `scripts/t26/stop.sh RUN`. In the `[progress N min]` line: `stats.guard` (ticks the guard held a
+body back), `stats.pool` (served/asked, items), `time.peer`. Per request: `pool: A <- B {...}: done | failed (did not meet | nothing picked up; picked up by {...})`. A death
+line names the guard's last hold and, in its trace, the tasks done at the stance.
