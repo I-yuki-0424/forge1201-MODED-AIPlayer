@@ -208,6 +208,8 @@ class Pool {
                 await mv.goto(c, { goal: (x, y, z) => Math.abs(x - c.x) <= 0 && Math.abs(z - c.z) <= 0 && Math.abs(y - c.y) <= 1, cancel, maxNodes: 3000, tries: 1 });
                 for (let i = 0; i < 6 && !full(); i++) await sleep(200);
             }
+            // the pack's count can come a moment after the pickup (10 of hc1's 32 failed hand-overs had the asker among the takers): looked at again for three seconds
+            for (let i = 0; i < 15 && !Object.keys(got()).length; i++) await sleep(200);
             r.got = got();
             const who = Object.keys(takers).length ? `; picked up by ${JSON.stringify(takers)}` : '', left = Object.values(bot.entities).filter((e) => e.name === 'item' && isToss(e) && e.position.distanceTo(bot.entity.position) < 8).length;
             this.close(r, Object.keys(r.got).length ? 'done' : 'failed', Object.keys(r.got).length ? '' : `nothing picked up${who}${left ? `, ${left} item entities lying near` : ''}`);
