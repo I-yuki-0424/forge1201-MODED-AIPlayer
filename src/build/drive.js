@@ -722,10 +722,12 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
             if (Object.keys(base).length && job.stage !== 'settle' && !(job.lastTrip && Date.now() - job.lastTrip.get(name) < 60000)) { (job.lastTrip = job.lastTrip || new Map()).set(name, Date.now()); const tt = Date.now(); await supplyTrip(job, name, bot, mv, {}, within(cancel, 180000)); job.time.trip += Date.now() - tt; continue; }
             // a handover: items the chest is out of that this bot carries and has not placed for two minutes go back into the chest for the bots that need them (four
             // bots each held what the others' cells needed and the chest was empty, live 2026-11-23 gd1 w1)
-            if (job.outOf && job.sites[0] && Date.now() - (job.handAt && job.handAt.get(name) || 0) > 60000) {
+            if (job.outOf && job.sites[0] && Date.now() - (job.handAt && job.handAt.get(name) || 0) > 30000) {
                 (job.handAt || (job.handAt = new Map())).set(name, Date.now());
                 const mine = (job.used && job.used.get(name)) || new Map(), inv = SUP.carried(bot);
-                const sn = job.sectorNeeds ? job.sectorNeeds(name) : {};          // not what its own sector still needs (items went back and forth, 24 hand-backs in 28 min, gg1 w3)
+                let sn = job.sectorNeeds ? job.sectorNeeds(name) : {};          // not what its own sector still needs (items went back and forth, 24 hand-backs in 28 min, gg1 w3)
+                // in the tail only what the cells near it need: items kept for an area's cells nobody reaches left the chest empty while 277 of 304 ready cells waited for them (ha28 w1)
+                { let left = 0; for (const t of job.tasks.values()) if (t.kind === 'place') left++; if (left < 2000) { const me = feet(bot); sn = {}; for (const t of job.tasks.values()) { if (t.kind !== 'place' || Math.abs(t.x - me.x) > 12 || Math.abs(t.z - me.z) > 12 || Math.abs(t.y - me.y) > 8) continue; const it = job._itemOf(t); if (it) sn[it] = (sn[it] || 0) + 1; } } }
                 const give = [...job.outOf.entries()].filter(([it, t]) => t > Date.now() && inv[it] > 0 && !(sn[it] > 0) && Date.now() - (mine.get(it) || 0) > 120000).map(([it]) => it);
                 if (give.length && (!job.gate || job.gate.inside.size < SUPPLY_PAR)) {
                     (job.gate || (job.gate = { inside: new Set(), wait: new Map() })).inside.add(name);
