@@ -76,6 +76,15 @@ const readModel = (n) => MODELS[n] || null;
         assert.strictEqual(models.itemSpec('minecraft:grass_block', readModel).elements[0].faces.up.tint, 0x91bd59, 'the grass top is tinted, the side is not');
         assert.strictEqual(models.itemSpec('minecraft:grass_block', readModel).elements[0].faces.north.tint, null);
         assert.strictEqual(models.tintOf('minecraft:water_bucket', 0), null, 'a water bucket is its own texture, not tinted blue');
+        // 1.21.4+ (the 26.x servers): block items have only an item definition (items/<id>.json) naming the block model; tints come from it
+        const defs = { smooth_stone_slab: { model: { type: 'minecraft:model', model: 'minecraft:block/smooth_stone_slab' } }, grass_block: { model: { type: 'minecraft:model', model: 'minecraft:block/grass_block', tints: [{ type: 'minecraft:grass', downfall: 1, temperature: 0.5 }] } },
+            oak_leaves: { model: { type: 'minecraft:model', model: 'minecraft:block/grass_block', tints: [{ type: 'minecraft:constant', value: -12012264 }] } }, compass: { model: { type: 'minecraft:condition', on_true: { type: 'minecraft:model', model: 'minecraft:item/x' }, on_false: { type: 'minecraft:model', model: 'minecraft:item/diamond_pickaxe' } } } };
+        const MODELS26 = Object.fromEntries(Object.entries(MODELS).filter(([k]) => !/^item\/(smooth_stone_slab|grass_block)$/.test(k)));
+        const s26 = models.itemSpec('minecraft:smooth_stone_slab', (n) => MODELS26[n] || null, (n) => defs[n] || null);
+        assert.strictEqual(s26.kind, 'block'); assert.deepStrictEqual(s26.elements[0].to, [16, 8, 16]);
+        assert.strictEqual(models.itemSpec('minecraft:grass_block', (n) => MODELS26[n] || null, (n) => defs[n] || null).elements[0].faces.up.tint, 0x91bd59);
+        assert.strictEqual(models.itemSpec('minecraft:oak_leaves', (n) => MODELS26[n] || null, (n) => defs[n] || null).elements[0].faces.up.tint, -12012264 & 0xffffff);
+        assert.strictEqual(models.itemSpec('minecraft:compass', readModel, (n) => defs[n] || null).layers[0].tex, 'item/diamond_pickaxe', 'a condition shows its default (on_false) model');
         assert.deepStrictEqual(models.itemSpec('create:cogwheel', readModel), { kind: 'none' }); assert.deepStrictEqual(models.itemSpec('../../etc', readModel), { kind: 'none' });
         assert.strictEqual(models.nameOf('minecraft:smooth_stone_slab', { 'block.minecraft.smooth_stone_slab': 'Smooth Stone Slab' }), 'Smooth Stone Slab');
         assert.strictEqual(models.nameOf('minecraft:diamond_pickaxe', { 'item.minecraft.diamond_pickaxe': 'Diamond Pickaxe', 'block.minecraft.diamond_pickaxe': 'x' }), 'Diamond Pickaxe');

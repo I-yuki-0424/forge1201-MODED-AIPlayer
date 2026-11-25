@@ -13,7 +13,7 @@ const models = require('./models');
 const MANIFEST = 'https://piston-meta.mojang.com/mc/game/version_manifest_v2.json';
 const HOSTS = new Set(['piston-meta.mojang.com', 'piston-data.mojang.com', 'launchermeta.mojang.com', 'launcher.mojang.com']);
 const VERSION = /^\d{1,2}\.\d{1,3}(\.\d{1,3})?$/;
-const TAKE = /^assets\/minecraft\/(models\/(block|item)\/[a-z0-9_/]{1,80}\.json|textures\/(block|item)\/[a-z0-9_/]{1,80}\.png|lang\/en_us\.json)$/;
+const TAKE = /^assets\/minecraft\/(models\/(block|item)\/[a-z0-9_/]{1,80}\.json|items\/[a-z0-9_]{1,80}\.json|textures\/(block|item)\/[a-z0-9_/]{1,80}\.png|lang\/en_us\.json)$/;      // items/: 1.21.4+ item definitions
 const MAX_JAR = 96 * 1024 * 1024;
 
 /** GET a URL of one of Mojang's hosts (https only, no redirect elsewhere), at most `max` bytes. */
@@ -98,6 +98,10 @@ class AssetStore {
         if (!/^(block|item)\/[a-z0-9_/]{1,80}$/.test(name) || !f.startsWith(path.join(d, 'models') + path.sep)) return null;
         try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (_) { return null; }
     }
+    _readItemDef(d, name) {
+        if (!/^[a-z0-9_]{1,80}$/.test(name)) return null;
+        try { return JSON.parse(fs.readFileSync(path.join(d, 'items', `${name}.json`), 'utf8')); } catch (_) { return null; }
+    }
     _lang(d) { if (!this.langs.has(d)) { let l = {}; try { l = JSON.parse(fs.readFileSync(path.join(d, 'lang', 'en_us.json'), 'utf8')); } catch (_) { /* no names */ } this.langs.set(d, l); } return this.langs.get(d); }
 
     /** Specs and names of item ids: { ready, icons: { id: { name, ...spec } } } (ready false while the version is being fetched). */
@@ -106,7 +110,7 @@ class AssetStore {
         const out = {};
         for (const id of ids) {
             const k = `${d}|${id}`;
-            if (!this.specs.has(k)) { const s = models.itemSpec(id, (n) => this._readModel(d, n)); this.specs.set(k, { name: models.nameOf(id, this._lang(d)), ...s }); }
+            if (!this.specs.has(k)) { const s = models.itemSpec(id, (n) => this._readModel(d, n), (n) => this._readItemDef(d, n)); this.specs.set(k, { name: models.nameOf(id, this._lang(d)), ...s }); }
             out[id] = this.specs.get(k);
         }
         return { ready: true, icons: out };

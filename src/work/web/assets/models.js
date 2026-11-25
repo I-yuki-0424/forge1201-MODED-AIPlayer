@@ -41,11 +41,33 @@ function chain(path, readModel) {
     return { textures, elements, end, resolve };
 }
 
-/** The spec of item `id` (minecraft:smooth_stone_slab). Mod items have no model here: kind none. */
-function itemSpec(id, readModel) {
+/**
+ * 1.21.4 and later name an item's model in items/<id>.json ({ model: { type: 'minecraft:model', model: 'minecraft:block/x', tints } }, or a select / condition / range_dispatch
+ * of such models: the fallback, else the first case, is what an inventory shows by default); block items have no models/item file there any more. Returns
+ * { path, tints } or null.
+ */
+function fromItemDef(def) {
+    let m = def && def.model;
+    for (let i = 0; i < 6 && m && m.type !== 'minecraft:model' && m.type !== 'model'; i++) m = m.fallback || (m.cases && m.cases[0] && m.cases[0].model) || m.on_false || (m.entries && m.entries[0] && m.entries[0].model) || null;
+    if (!m || typeof m.model !== 'string') return null;
+    const tints = (m.tints || []).map((t) => (t && /constant$/.test(t.type) && Number.isInteger(t.value) ? t.value & 0xffffff : t && /grass$/.test(t.type) ? 0x91bd59 : t && /foliage$/.test(t.type) ? 0x48b518 : t && /dye$/.test(t.type) && Number.isInteger(t.default) ? t.default & 0xffffff : null));
+    return { path: m.model.replace(/^minecraft:/, ''), tints };
+}
+
+/** The spec of item `id` (minecraft:smooth_stone_slab). Mod items have no model here: kind none. `readItemDef('x')` reads items/x.json (1.21.4+), or is null. */
+function itemSpec(id, readModel, readItemDef = null) {
     const m = /^(?:minecraft:)?([a-z0-9_]{1,64})$/.exec(String(id));
     if (!m) return { kind: 'none' };
-    const c = chain(`item/${m[1]}`, readModel);
+    const def = readItemDef ? fromItemDef(readItemDef(m[1])) : null;
+    if (def) { const s = specOf(id, chain(def.path, readModel)); if (def.tints.length) tintSpec(s, def.tints); return s; }
+    return specOf(id, chain(`item/${m[1]}`, readModel));
+}
+/** Apply the tints of an item definition (tintindex -> colour) to a spec. */
+function tintSpec(s, tints) {
+    if (s.kind === 'flat') s.layers.forEach((l, i) => { if (tints[i] !== undefined && tints[i] !== null) l.tint = tints[i]; });
+    if (s.kind === 'block') for (const e of s.elements) for (const f of Object.values(e.faces)) if (f.tintindex !== undefined && tints[f.tintindex] !== undefined) f.tint = tints[f.tintindex];
+}
+function specOf(id, c) {
     if (c.end === 'generated' || (!c.elements && c.textures.layer0)) {
         const layers = [];
         for (let i = 0; i < 8 && c.textures[`layer${i}`]; i++) { const tex = c.resolve(`#layer${i}`); if (tex) layers.push({ tex, tint: tintOf(id, i) }); }
@@ -56,7 +78,7 @@ function itemSpec(id, readModel) {
             const faces = {};
             for (const [dir, f] of Object.entries(e.faces || {})) {
                 const tex = c.resolve(f.texture); if (!tex) continue;
-                faces[dir] = { tex, ...(Array.isArray(f.uv) ? { uv: f.uv } : {}), ...(f.rotation ? { rotation: f.rotation } : {}), tint: f.tintindex !== undefined ? tintOf(id, f.tintindex) : null };
+                faces[dir] = { tex, ...(Array.isArray(f.uv) ? { uv: f.uv } : {}), ...(f.rotation ? { rotation: f.rotation } : {}), ...(f.tintindex !== undefined ? { tintindex: f.tintindex } : {}), tint: f.tintindex !== undefined ? tintOf(id, f.tintindex) : null };
             }
             return { from: e.from, to: e.to, ...(e.rotation ? { rotation: e.rotation } : {}), faces };
         }).filter((e) => Array.isArray(e.from) && Array.isArray(e.to) && Object.keys(e.faces).length);
@@ -74,4 +96,4 @@ function nameOf(id, lang) {
     return (lang && (lang[`item.minecraft.${n}`] || lang[`block.minecraft.${n}`])) || null;
 }
 
-module.exports = { itemSpec, nameOf, tintOf, chain, texPath };
+module.exports = { itemSpec, nameOf, tintOf, chain, texPath, fromItemDef };
