@@ -9,7 +9,8 @@ const LIVE_ICONS = new Set();
 if (window.Icons) Icons.onChange(() => { for (const e of LIVE_ICONS) { if (!e.cv.isConnected) { LIVE_ICONS.delete(e); continue; } if (e.paint()) LIVE_ICONS.delete(e); } });
 
 /** What a stack is called: the game's name (the server's item registry, else the client jar's names), then its id. */
-const itemName = (item) => item.name || (window.Icons && Icons.spec(item.id) && Icons.spec(item.id).name) || item.id.replace(/^minecraft:/, '').replace(/_/g, ' ');
+// (a mod item has neither: its own name without the namespace, which the tooltip and the line under the pane give with the id)
+const itemName = (item) => item.name || (window.Icons && Icons.spec(item.id) && Icons.spec(item.id).name) || item.id.replace(/^[^:]*:/, '').replace(/_/g, ' ');
 const itemText = (item) => `${itemName(item)}${item.label ? ` "${item.label}"` : ''} ×${item.count} · ${item.id}${item.max ? ` · ${item.max - (item.damage || 0)} of ${item.max} uses left` : ''}${item.enchanted ? ' · enchanted' : ''}`;
 
 function slotTile(pane, slot, item, label) {

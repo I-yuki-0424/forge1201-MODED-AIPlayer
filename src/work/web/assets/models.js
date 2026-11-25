@@ -18,8 +18,7 @@ function tintOf(id, index) {
     if (/leaves$|^vine$/.test(n)) return 0x48b518;
     if (/^(grass_block|short_grass|grass|tall_grass|fern|large_fern|sugar_cane|pink_petals)$/.test(n)) return 0x91bd59;
     if (/^leather_(helmet|chestplate|leggings|boots|horse_armor)$|^wolf_armor$/.test(n)) return index === 0 ? 0xa06540 : null;
-    if (/water/.test(n)) return 0x3f76e4;
-    return null;
+    return null;            // (no water rule: /water/ matched water_bucket and painted the whole bucket blue; no item model tints water)
 }
 
 const texPath = (t) => { const s = String(t).replace(/^minecraft:/, ''); return /^(block|item)\/[a-z0-9_/]{1,80}$/.test(s) && !s.includes('..') ? s : null; };

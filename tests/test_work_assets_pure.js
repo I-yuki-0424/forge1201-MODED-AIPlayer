@@ -75,6 +75,7 @@ const readModel = (n) => MODELS[n] || null;
         const chest = models.itemSpec('minecraft:chest', readModel); assert.ok(chest.approx && chest.elements[0].faces.up.tex === 'block/oak_planks');
         assert.strictEqual(models.itemSpec('minecraft:grass_block', readModel).elements[0].faces.up.tint, 0x91bd59, 'the grass top is tinted, the side is not');
         assert.strictEqual(models.itemSpec('minecraft:grass_block', readModel).elements[0].faces.north.tint, null);
+        assert.strictEqual(models.tintOf('minecraft:water_bucket', 0), null, 'a water bucket is its own texture, not tinted blue');
         assert.deepStrictEqual(models.itemSpec('create:cogwheel', readModel), { kind: 'none' }); assert.deepStrictEqual(models.itemSpec('../../etc', readModel), { kind: 'none' });
         assert.strictEqual(models.nameOf('minecraft:smooth_stone_slab', { 'block.minecraft.smooth_stone_slab': 'Smooth Stone Slab' }), 'Smooth Stone Slab');
         assert.strictEqual(models.nameOf('minecraft:diamond_pickaxe', { 'item.minecraft.diamond_pickaxe': 'Diamond Pickaxe', 'block.minecraft.diamond_pickaxe': 'x' }), 'Diamond Pickaxe');
