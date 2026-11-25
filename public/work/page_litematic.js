@@ -3,21 +3,27 @@
 // and the build job. Everything is built with the DOM helpers of ui.js (textContent only); the server validates.
 function litematicPage() {
     let list = [], sel = null, check = null, stock = null, busy = false;
-    const selBots = new Set(), listBox = h('div', { class: 'list' }), infoBox = h('div'), checkBox = h('div'), stockBox = h('div'), bchips = h('span', { class: 'chips' });
+    const selBots = new KeptSet('litematic.bots'), listBox = h('div', { class: 'list' }), infoBox = h('div'), checkBox = h('div'), stockBox = h('div'), bchips = h('span', { class: 'chips' });
     const ox = h('input', { type: 'number', class: 'num', placeholder: 'x' }), oy = h('input', { type: 'number', class: 'num', placeholder: 'y' }), oz = h('input', { type: 'number', class: 'num', placeholder: 'z' });
     const bname = h('input', { placeholder: 'optional', maxlength: 40 });
+    Keep.fields('litematic', { ox, oy, oz, name: bname });
     const origin = () => { const v = [ox, oy, oz].map((i) => num(i.value)); if (v.every(Number.isNaN)) return undefined; if (v.some(Number.isNaN)) throw new Error('give x, y and z of the origin, or leave all three empty (the placement as Litematica shows it)'); return { x: v[0], y: v[1], z: v[2] }; };
     const spec = (start) => { const o = origin(); return { placement: sel.id, ...(o ? { origin: o } : {}), name: bname.value.trim() || undefined, bots: [...selBots], start }; };
 
     async function load() {
         try { list = await api('GET', '/api/litematic/placements'); } catch (e) { list = []; listBox.replaceChildren(h('div', { class: 'warn', text: e.message })); return; }
         if (sel && !list.some((p) => p.id === sel.id)) { sel = null; infoBox.replaceChildren(); }
+        const kept = !sel && Keep.get('litematic.placement'), again = kept && list.find((p) => p.id === kept);          // the placement chosen last time
+        if (again) { select(again); return load2(); }
+        return load2();
+    }
+    function load2() {
         listBox.replaceChildren(...(list.length ? list.map((p) => h('div', { class: sel && sel.id === p.id ? 'on' : '', onclick: () => select(p) }, h('span', { text: p.name || p.fileName }),
             h('span', { class: 'muted small', text: `${p.dimension.replace('minecraft:', '')} · ${p.pos ? `${p.pos.x} ${p.pos.y} ${p.pos.z}` : '?'}${p.owner ? ' · ' + p.owner : ''}` })))
             : [h('div', { class: 'muted', text: 'The server shares no placement. In Litematica: load the schematic, create a placement, then Syncmatica "share" it (the bots see it after a few seconds).' })]));
     }
     function select(p) {
-        sel = p; check = null; checkBox.replaceChildren();
+        sel = p; check = null; checkBox.replaceChildren(); Keep.set('litematic.placement', p.id);
         $$('.list > div', listBox).forEach((d) => d.classList.toggle('on', d.firstChild.textContent === (p.name || p.fileName)));
         infoBox.replaceChildren(h('div', { class: 'row' }, h('strong', { text: p.name || p.fileName }), h('span', { class: 'muted', text: `${p.dimension.replace('minecraft:', '')} · at ${p.pos ? `${p.pos.x} ${p.pos.y} ${p.pos.z}` : '?'} · rotation ${p.rotation} · mirror ${p.mirror} · ${p.subRegions} sub-region${p.subRegions === 1 ? '' : 's'}` })),
             h('p', { class: 'muted small', text: `file ${p.fileName} · owner ${p.owner || '?'} · last changed by ${p.lastModifiedBy || '?'}` }));

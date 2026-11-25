@@ -41,19 +41,31 @@ class OperatorPart {
         return out;
     }
 
-    /** Top solid block (not leaves or logs) at x,z from the chunks a bot has loaded; null when nothing is loaded there. */
-    surface(x, z) {
+    /**
+     * Top solid block (not leaves or logs) at x,z in dimension `dim`: from the chunks any bot in that dimension has loaded (live), else from the saved region file
+     * (world/column.js, as new as the last save). Before 2026-11-25 only the first online bot was asked, in whatever dimension it was, so "Top = ground" failed for
+     * any area away from that one bot (owner list 5 Small 3).
+     */
+    surface(x, z, dim = 'overworld') {
         int(x, 'x'); int(z, 'z');
-        const rec = [...this.bots.values()].find((r) => r.state === 'online' && r.bot);
-        need(rec, 'no bot online to read the terrain', 503);
-        const w = require('../../skills/world').fromBot(rec.bot);
-        if (w.kindAt(x, 64, z) === 'unknown') return { y: null, why: 'chunk not loaded near any bot' };
-        for (let y = MAX_Y; y >= MIN_Y; y--) {
-            if (w.kindAt(x, y, z) !== 'solid') continue;
-            if (/leaves|_log$|_wood$/.test(w.nameAt(x, y, z) || '')) continue;
-            return { y, block: w.nameAt(x, y, z) };
+        const dimensions = require('../world/dimensions'), d = dimensions.canon(dim);
+        need(d, 'dim: overworld, nether, end or a dimension id');
+        for (const rec of this.bots.values()) {
+            if (rec.state !== 'online' || !rec.bot || (dimensions.canon(rec.bot.game && rec.bot.game.dimension) || 'overworld') !== d) continue;
+            const w = require('../../skills/world').fromBot(rec.bot);
+            if (w.kindAt(x, 64, z) === 'unknown') continue;
+            for (let y = MAX_Y; y >= MIN_Y; y--) {
+                if (w.kindAt(x, y, z) !== 'solid') continue;
+                if (/leaves|_log$|_wood$/.test(w.nameAt(x, y, z) || '')) continue;
+                return { y, block: w.nameAt(x, y, z), from: rec.name };
+            }
+            return { y: null, why: 'no ground' };
         }
-        return { y: null, why: 'no ground' };
+        if (this.maps && this.maps.available) {
+            let top = null; try { top = require('../world/column').topAt(this.maps._dir(d), x, z); } catch (_) { /* unreadable chunk */ }
+            if (top) return { ...top, from: 'saved world' };
+        }
+        return { y: null, why: 'no bot has that chunk loaded and the saved world has no ground there' };
     }
 
     /** Bring a bot's inventory up to the kit minimums with `give` (operator action through RCON). */

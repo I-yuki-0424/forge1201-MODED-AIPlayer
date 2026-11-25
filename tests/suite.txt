@@ -75,3 +75,4 @@ tests/test_build2_pure.js
 tests/test_build_fallguard_sim.js
 tests/test_build_unblock_pure.js
 tests/test_build_display_pure.js
+tests/test_work_page_pure.js

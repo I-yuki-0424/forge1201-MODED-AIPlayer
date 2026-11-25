@@ -17,10 +17,12 @@ function placePage() {
     const slice = sliceControl(() => mv);
     const dimPick = dimPicker((d) => { if (mv) { mv.setDim(d); Tiles.loadIndex(d).then(() => mv.fit()); } preview(); });
     const dimNow = () => dimPick.get();
-    const picked = new Set(); let kind = 'wall', mv = null, last = null, timer = 0, seq = 0;
+    const picked = new KeptSet('place.bots'); let kind = Keep.get('place.kind', 'wall'), mv = null, last = null, timer = 0, seq = 0;
+    Keep.fields('place', { ...f, block, name });
     const kindBtns = KINDS.map(([k, t]) => h('button', { class: 'btn', type: 'button', onclick: () => setKind(k) }, t));
     function setKind(k) {
-        kind = k; kindBtns.forEach((b, i) => b.classList.toggle('primary', KINDS[i][0] === k));
+        if (!KINDS.some((x) => x[0] === k)) k = 'wall';
+        kind = k; Keep.set('place.kind', k); kindBtns.forEach((b, i) => b.classList.toggle('primary', KINDS[i][0] === k));
         explain.textContent = KINDS.find((x) => x[0] === k)[2];
         f.height.disabled = k === 'floor'; if (mv) mv.snapMode = false;
         preview();
@@ -74,39 +76,36 @@ function placePage() {
         const a = mv && mv.sel && mv.sel.anchor ? mv.sel.anchor : [b.x0, b.z0], e = mv && mv.sel ? [mv.sel.x, mv.sel.z] : [b.x1, b.z1];
         if (kind === 'wall') { const alongX = Math.abs(e[0] - a[0]) >= Math.abs(e[1] - a[1]); f.x0.value = a[0]; f.z0.value = a[1]; f.x1.value = alongX ? e[0] : a[0]; f.z1.value = alongX ? a[1] : e[1]; }
         else { f.x0.value = b.x0; f.x1.value = b.x1; f.z0.value = b.z0; f.z1.value = b.z1; }
+        for (const k of ['x0', 'x1', 'z0', 'z1']) f[k].dispatchEvent(new Event('change'));          // kept for the next visit
         if (mv) { mv.sel = null; mv.fixed = null; }                          // the preview draws the result; the blue rectangle would only confuse for a wall
         preview();
     };
     const groundY = async () => {
         const s = ['x0', 'z0', 'x1', 'z1'].map((k) => num(f[k].value)); if (s.some(Number.isNaN)) throw new Error('choose the place first');
-        const ys = [];
-        for (const [x, z] of [[s[0], s[1]], [s[2], s[3]], [(s[0] + s[2]) >> 1, (s[1] + s[3]) >> 1]]) { const r = await api('GET', `/api/surface?x=${x}&z=${z}`); if (r.y !== null) ys.push(r.y); }
-        if (!ys.length) throw new Error('no bot has that terrain loaded: type the level y');
-        return Math.max(...ys);
+        return groundTop({ x0: Math.min(s[0], s[2]), x1: Math.max(s[0], s[2]), z0: Math.min(s[1], s[3]), z1: Math.max(s[1], s[3]) }, dimNow());
     };
-    const onGround = act(async () => { f.y.value = (await groundY()) + 1; preview(); }, 'level y = one above the highest ground found');
-    const replaceTop = act(async () => { f.y.value = await groundY(); preview(); }, 'level y = the highest ground block (it is replaced)');
+    const onGround = act(async () => { f.y.value = (await groundY()) + 1; f.y.dispatchEvent(new Event('change')); preview(); }, 'level y = one above the highest ground found');
+    const replaceTop = act(async () => { f.y.value = await groundY(); f.y.dispatchEvent(new Event('change')); preview(); }, 'level y = the highest ground block (it is replaced)');
     const create = (start) => act(async () => {
         const s = spec(); if (!s) throw new Error('choose the place and the level y'); if (!last || !last.ok) throw new Error(last ? last.why : 'the layout is not valid yet');
-        return api('POST', '/api/jobs/layout', { ...s, name: name.value.trim() || undefined, bots: [...picked], start });
+        return api('POST', '/api/jobs/layout', { ...s, name: name.value.trim() || undefined, bots: [...picked].filter((n) => S && S.bots.some((x) => x.name === n)), start });
     }, (r) => `job ${r.id} created${start ? ' and started' : ''}`);
     const el = h('div', { class: 'grid-12' },
-        h('div', { class: 'span-8' }, panel('Choose the place', [h('p', { class: 'muted small', text: 'Drag over the map (single blocks). Right-drag or Ctrl-drag pans; the wheel zooms. For a wall drag along the line it should follow; the green marks show start and end. The numbers on the right can be typed too.' }), host], { actions: [h('button', { class: 'btn small', onclick: () => mv && mv.fit() }, 'Fit')] })),
+        h('div', { class: 'span-8' }, panel('Choose the place', [h('p', { class: 'muted small', text: 'Drag over the map (single blocks). Right-drag or Ctrl-drag pans; the wheel zooms. For a wall drag along the line it should follow; the green marks show start and end. The numbers on the right can be typed too.' }), host], { actions: [h('button', { class: 'btn small', onclick: () => mv && mv.fit() }, 'Fit'), ...mapTools(() => mv)] })),
         h('div', { class: 'span-4' }, panel('Place blocks', [
             h('div', { class: 'row tight' }, kindBtns), explain,
             h('div', { class: 'grid-form' }, field('x from', f.x0), field('x to', f.x1), field('z from', f.z0), field('z to', f.z1), field('level y', f.y), field('height', f.height)),
             h('div', { class: 'row' }, h('button', { class: 'btn small', onclick: onGround }, 'On the ground'), h('button', { class: 'btn small', onclick: replaceTop }, 'Replace the top layer')),
             field('Dimension', h('span', { class: 'row tight' }, dimPick.el, slice.el), 'the heights allowed are those of the dimension; the bots are taken there before they start'), field('Block', block, 'any block the bots can place; mod blocks by their full name'), blocks, info, sideBox, field('Name', name), h('div', { class: 'field' }, h('span', { class: 'field-label', text: 'Bots (none ticked: every idle bot)' }), chips, botRangePicker(chips)),
             h('div', { class: 'row' }, h('button', { class: 'btn', onclick: create(false) }, 'Create (paused)'), h('button', { class: 'btn primary', onclick: create(true) }, icon('play', 13), ' Create and start'))])));
-    setKind('wall');
+    setKind(kind);
     return {
         el,
         onShow() {
-            if (!mv) { mv = makeMap(host, { select: true, onSelect: fromSel, onSlice: (y) => slice.set(y), layers: { jobs: true, bots: true, players: true } }); mv.snapMode = false; Tiles.loadIndex('overworld').then(() => { mv.fitSize(); mv.fit(); }); } else mv.fitSize();
+            if (!mv) { mv = makeMap(host, { select: true, keep: 'place', onSelect: fromSel, onSlice: (y) => slice.set(y), layers: { jobs: true, bots: true, players: true } }); mv.snapMode = false; showMap(mv, dimPick, slice).then(preview); } else mv.fitSize();
             preview();
         },
         update(s) {
-            for (const n of [...picked]) if (!s.bots.some((b) => b.name === n)) picked.delete(n);
             chips.replaceChildren(...(s.bots.length ? s.bots.map((b) => h('label', { class: `chip${picked.has(b.name) ? '' : ' off'}` }, h('input', { type: 'checkbox', checked: picked.has(b.name), onchange: (e) => { e.target.checked ? picked.add(b.name) : picked.delete(b.name); e.target.parentElement.classList.toggle('off', !e.target.checked); } }), `${b.name}${b.job ? ' (busy)' : ''}`)) : [h('span', { class: 'muted', text: 'no bots yet' })]));
             if (mv) mv.redraw();
         },

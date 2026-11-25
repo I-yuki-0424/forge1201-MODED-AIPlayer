@@ -1,7 +1,9 @@
 'use strict';
 // Bots page (AWS-style: filter, bulk actions, table, detail pane with tabs).
 function botsPage() {
-    const selection = new Set(); let focus = null, tab = 'commands', filterText = '', stateFilter = '';
+    // the ticked bots, the bot in the detail pane, its tab and the filters are kept for the next visit (ui.js Keep)
+    const selection = new KeptSet('bots.selection'); let focus = Keep.get('bots.focus'), tab = Keep.get('bots.tab', 'commands'), filterText = '', stateFilter = '';
+    const remember = () => { Keep.set('bots.focus', focus); Keep.set('bots.tab', tab); };
     const tableBox = h('div', { class: 'table-wrap' }), bulk = h('span', { class: 'row tight' }), detail = h('div', { class: 'detail-pane' });
     const filter = h('input', { class: 'search', placeholder: 'Filter bots', oninput: (e) => { filterText = e.target.value.toLowerCase(); render(); } });
     const stateSel = h('select', { class: 'sel', onchange: (e) => { stateFilter = e.target.value; render(); } }, [['', 'All states'], ['online', 'online'], ['offline', 'offline'], ['connecting', 'connecting']].map(([v, t]) => h('option', { value: v, text: t })));
@@ -11,17 +13,18 @@ function botsPage() {
             h('div', { class: 'row' }, field('Name prefix', prefix), field('How many', count), h('button', { class: 'btn primary', onclick: act(async () => { const r = await api('POST', '/api/bots', { prefix: prefix.value.trim(), count: num(count.value) }); m.close(); return r; }, (r) => `${r.added.length} bots added`) }, 'Add batch')),
             h('p', { class: 'muted small', text: 'Bots log in under their own name (offline mode: the network is the access control) and start in survival with an empty inventory.' })]);
     };
-    const bulkBtn = (label, fn, cls = '') => h('button', { class: `btn small ${cls}`, onclick: fn }, label);
+    Keep.fields('bots', { filter, state: stateSel }); filterText = filter.value.toLowerCase(); stateFilter = stateSel.value;
+    const bulkBtn =(label, fn, cls = '') => h('button', { class: `btn small ${cls}`, onclick: fn }, label);
     const targets = () => {
         const online = S ? S.bots.filter((b) => b.state === 'online').map((b) => b.name) : [];
         return [{ value: 'all', label: `All bots (${online.length})`, names: online }, { value: 'selected', label: `Selected (${selection.size})`, names: [...selection] }, ...(S ? S.bots : []).map((b) => ({ value: `bot:${b.name}`, label: b.name, names: [b.name] }))];
     };
-    const cmdPanel = CommandPanel({ targets, S: getS, players: getPlayers });
+    const cmdPanel = CommandPanel({ targets, S: getS, players: getPlayers, keep: 'bots.cmd' });
     const tabs = h('div', { class: 'tabs' }), tabBody = h('div', { class: 'tab-body' });
     let invPage = null;
     const TABS = [['commands', 'Commands'], ['summary', 'Summary'], ['inventory', 'Inventory'], ['history', 'History']];
     function renderTabs() {
-        tabs.replaceChildren(...TABS.map(([k, t]) => h('button', { class: `tab${tab === k ? ' on' : ''}`, onclick: () => { tab = k; renderTabs(); } }, k === 'commands' ? t : `${t}${focus ? ': ' + focus : ''}`)));
+        tabs.replaceChildren(...TABS.map(([k, t]) => h('button', { class: `tab${tab === k ? ' on' : ''}`, onclick: () => { tab = k; remember(); renderTabs(); } }, k === 'commands' ? t : `${t}${focus ? ': ' + focus : ''}`)));
         tabBody.replaceChildren();
         if (tab === 'commands') { cmdPanel.syncTargets(); tabBody.append(cmdPanel.el, statusTable()); return; }
         if (!focus) { tabBody.append(h('p', { class: 'muted', text: 'Click a bot in the table to see its details here.' })); return; }
@@ -46,7 +49,7 @@ function botsPage() {
     }
     function render() {
         if (!S) return;
-        tableBox.replaceChildren(botTable(S.bots, { selection, filter: (b) => (!filterText || b.name.toLowerCase().includes(filterText)) && (!stateFilter || b.state === stateFilter), onRow: (n) => { if (n) { focus = n; if (tab === 'commands') tab = 'summary'; } renderTabs(); render(); } }));
+        tableBox.replaceChildren(botTable(S.bots, { selection, filter: (b) => (!filterText || b.name.toLowerCase().includes(filterText)) && (!stateFilter || b.state === stateFilter), onRow: (n) => { if (n) { focus = n; if (tab === 'commands') tab = 'summary'; remember(); } renderTabs(); render(); } }));
         const sel = [...selection].filter((n) => S.bots.some((b) => b.name === n));
         bulk.replaceChildren(h('span', { class: 'muted small', text: sel.length ? `${sel.length} selected` : 'Select bots to act on several at once' }),
             sel.length ? [bulkBtn('Leave pit', act(async () => { for (const n of sel) { const b = S.bots.find((x) => x.name === n); if (b && b.inPit) await api('POST', `/api/bots/${n}/leave`, {}); } }, 'bots left the pit'), 'small'), bulkBtn('Stop commands', act(() => api('POST', '/api/commands', { bots: sel, command: 'stop', args: {} }), 'stop sent')), bulkBtn('Resume', act(async () => { for (const n of sel) await api('POST', `/api/bots/${n}/resume`, {}); }, 'resumed')),

@@ -68,6 +68,35 @@ async function api(method, url, body, raw) {
     return data;
 }
 
+// ---- what each page had chosen
+/**
+ * Per-viewer memory of a page's choices (owner 2026-11-25, list 5 Small 3: "each tab does not keep its previous selection"; the game's F12 view loads the page afresh
+ * each time it opens): fields, ticked bots, the map's view and area, kept in this browser's localStorage. Every access is wrapped: a private window or a web view
+ * without storage just starts empty. Nothing here is sent to the server.
+ */
+const Keep = {
+    get(k, d = null) { try { const v = localStorage.getItem(`wc_keep_${k}`); return v === null ? d : JSON.parse(v); } catch (_) { return d; } },
+    set(k, v) { try { localStorage.setItem(`wc_keep_${k}`, JSON.stringify(v)); } catch (_) { /* no storage: nothing kept */ } },
+    /** Bind form elements {name: element} of page `page`: their last values come back now and are saved on every change. */
+    fields(page, els) {
+        for (const [name, el] of Object.entries(els)) {
+            if (!el) continue;
+            const k = `${page}.${name}`, v = Keep.get(k);
+            if (v !== null) { if (el.type === 'checkbox') el.checked = !!v; else if (el.tagName !== 'SELECT' || [...el.options].some((o) => o.value === v)) el.value = v; }
+            const save = () => Keep.set(k, el.type === 'checkbox' ? el.checked : el.value);
+            el.addEventListener('change', save); el.addEventListener('input', save);
+        }
+    },
+};
+/** A Set that keeps itself (the ticked bots of a page). */
+class KeptSet extends Set {
+    constructor(key) { super(Keep.get(key, [])); this.key = key; }
+    add(v) { super.add(v); this._save(); return this; }
+    delete(v) { const r = super.delete(v); this._save(); return r; }
+    clear() { super.clear(); this._save(); }
+    _save() { if (this.key) Keep.set(this.key, [...this]); }               // (the constructor's own adds run before `key` is set: nothing is written back)
+}
+
 // ---- toast
 let toastTimer = null;
 function toast(msg, bad = false) {

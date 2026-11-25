@@ -3,12 +3,13 @@
 function structuresPage() {
     let selected = null, detail = null, ops = [];
     const listBox = h('div', { class: 'list' }), detailBox = h('div'), editBox = h('div', { class: 'hidden' }), buildBox = h('div', { class: 'hidden' });
-    const selBots = new Set();
+    const selBots = new KeptSet('structures.bots');
     async function load() {
         let list; try { list = await api('GET', '/api/structures'); } catch (e) { return toast(e.message, true); }
         listBox.replaceChildren(...(list.length ? list.map((s) => h('div', { class: s.name === selected ? 'on' : '', onclick: () => select(s.name) }, h('span', { text: s.name }), h('span', { class: 'muted small', text: s.error ? 'unreadable' : `${s.size.join('×')} · ${fmt(s.blocks)}${s.unknown && s.unknown.length ? ' ⚠' : ''}` }))) : [h('div', { class: 'muted', text: 'Empty. Upload a structure .nbt (structure block or Create schematic) or generate a part.' })]));
         mergeWith.replaceChildren(...list.filter((s) => !s.error).map((s) => h('option', { value: s.name, text: s.name })));
-        if (!selected && list.length && !list[0].error) await select(list[0].name);
+        const kept = !selected && Keep.get('structures.selected'), again = kept && list.find((s) => s.name === kept && !s.error);          // the structure chosen last time
+        if (!selected && again) await select(again.name); else if (!selected && list.length && !list[0].error) await select(list[0].name);
     }
     detailBox.append(h('p', { class: 'muted', text: 'Select a structure from the library, upload a .nbt, or generate a part.' }));
     const upload = h('input', { type: 'file', accept: '.nbt', class: 'hidden', onchange: act(async () => { const f = upload.files[0]; if (!f) return; const nm = f.name.replace(/\.nbt$/i, '').toLowerCase().replace(/[^a-z0-9_-]+/g, '_').replace(/^_+/, '').slice(0, 48) || 'structure'; const r = await api('POST', `/api/structures/${nm}${over.checked ? '?overwrite=1' : ''}`, undefined, await f.arrayBuffer()); upload.value = ''; await load(); await select(nm); return r; }, (r) => `uploaded ${r.name}: ${fmt(r.blocks)} blocks`, () => {}) });
@@ -32,7 +33,7 @@ function structuresPage() {
     }
     layerY.addEventListener('input', drawLayer);
     async function select(name) {
-        selected = name; ops = []; opsBox.value = '';
+        selected = name; ops = []; opsBox.value = ''; Keep.set('structures.selected', name);
         try { detail = await api('GET', `/api/structures/${name}`); } catch (e) { return toast(e.message, true); }
         $$('.list > div', listBox).forEach((d) => d.classList.toggle('on', d.firstChild.textContent === name));
         layerY.max = detail.size[1] - 1; layerY.value = 0;
@@ -56,6 +57,7 @@ function structuresPage() {
         h('div', { class: 'row' }, field('steps so far', opsBox), btn('Clear', () => { ops = []; opsBox.value = ''; }, 'ghost')),
         h('div', { class: 'row' }, field('save as', saveAs), h('label', { class: 'check' }, saveOver, 'overwrite'), h('button', { class: 'btn primary', onclick: save }, 'Save result'))])]);
     const bx = inp('x'), by = inp('y'), bz = inp('z'), brot = h('select', { class: 'sel' }, [0, 1, 2, 3].map((v) => h('option', { value: v, text: `${v * 90}°` }))), bmirror = h('input', { type: 'checkbox' }), bname = h('input', { placeholder: 'optional', maxlength: 60 }), bchips = h('span', { class: 'chips' });
+    Keep.fields('structures', { bx, by, bz, rot: brot, mirror: bmirror, name: bname });
     const buildCreate = (start) => act(async () => { const o = { x: num(bx.value), y: num(by.value), z: num(bz.value) }; if (Object.values(o).some(Number.isNaN)) throw new Error('set the origin'); const steps = []; if (bmirror.checked) steps.push({ op: 'mirror', axis: 'x' }); if (Number(brot.value)) steps.push({ op: 'rotate', turns: Number(brot.value) }); return api('POST', '/api/jobs/build', { structure: selected, origin: o, ops: steps, name: bname.value.trim() || undefined, bots: [...selBots], start }); }, (r) => `job ${r.id} created${start ? ' and started' : ''}`);
     buildBox.append(panel('Build', [
         h('div', { class: 'row' }, field('origin x', bx), field('y', by), field('z', bz), btn('Pick on map', async () => { const p = await pickPoint('Pick the origin (minimum corner)', getS, getPlayers); if (!p) return; bx.value = p.x; bz.value = p.z; try { const g = await api('GET', `/api/surface?x=${p.x}&z=${p.z}`); if (g.y !== null) by.value = g.y + 1; } catch (_) { /* y by hand */ } }), btn('= operator', act(async () => { const p = (await api('GET', '/api/players')).find((q) => !q.bot && q.pos); if (!p) throw new Error('no operator position'); bx.value = p.pos.x; by.value = p.pos.y; bz.value = p.pos.z; }, null, () => {}))),

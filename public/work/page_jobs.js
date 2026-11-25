@@ -1,7 +1,7 @@
 'use strict';
 // Jobs page.
 function jobsPage() {
-    const box = h('div'); let open = null, detail = null; const jobRange = {};
+    const box = h('div'); let open = Keep.get('jobs.open'), detail = null; const jobRange = {};          // the job whose details were open is opened again
     async function loadDetail() { if (!open) return; try { detail = await api('GET', `/api/jobs/${open}`); } catch (_) { detail = null; } }
     setInterval(async () => { if (session.csrf && open && currentPage === 'jobs') { await loadDetail(); render(); } }, 4000);
     function render() {
@@ -25,7 +25,7 @@ function jobsPage() {
             }
             if (p.stuck) row.append(h('button', { class: 'btn small', onclick: act(() => api('POST', `/api/jobs/${j.id}/repair`, {}), (r) => `${r.requeued} units queued again`) }, `Retry ${p.stuck} stuck`), j.auto && !ACTIVE.includes(j.state) ? h('span', { class: 'muted small', text: j.auto.gaveUp ? ` automatic retries used up (${j.auto.n} rounds)` : ` next automatic retry in ${j.auto.inS >= 90 ? Math.round(j.auto.inS / 60) + ' min' : j.auto.inS + ' s'} (round ${j.auto.n + 1} of ${j.auto.of})` }) : null);
             if (j.kind === 'build' && S.rcon && ACTIVE.includes(j.state)) row.append(h('button', { class: 'btn small', title: 'give the bots the blocks this build needs', onclick: act(() => api('POST', `/api/jobs/${j.id}/supply`, {}), 'materials given') }, 'Give materials'));
-            row.append(h('button', { class: 'btn small ghost', onclick: async () => { open = open === j.id ? null : j.id; detail = null; await loadDetail(); render(); } }, 'Details'));
+            row.append(h('button', { class: 'btn small ghost', onclick: async () => { open = open === j.id ? null : j.id; Keep.set('jobs.open', open); detail = null; await loadDetail(); render(); } }, 'Details'));
             if (!['running', 'paused'].includes(j.state)) row.append(h('button', { class: 'btn small ghost danger', onclick: act(() => api('DELETE', `/api/jobs/${j.id}`), 'deleted') }, 'Delete'));
             const body = [jobRow(j), h('div', { class: 'muted small', text: `bots: ${j.bots.join(', ') || 'none'}${j.diff !== null && j.diff !== undefined ? ` · missing blocks after the run: ${j.diff}` : ''} · box ${j.box.x0},${j.box.z0} → ${j.box.x1},${j.box.z1} y ${j.box.y0}..${j.box.y1}` }),
                 j.summary && j.summary.unsupported && j.summary.unsupported.length ? h('div', { class: 'warn small', text: `not placeable (not in the bots' registry): ${j.summary.unsupported.join(', ')}` }) : null,

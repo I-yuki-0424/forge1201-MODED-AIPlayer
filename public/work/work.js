@@ -50,10 +50,10 @@ function show(name) {
     if (S && pages[name].update) pages[name].update(S);
 }
 async function refreshState() { try { S = await api('GET', '/api/state'); } catch (_) { return; } sample(); renderChrome(); }
-async function refreshAll() { await refreshState(); const p = pages[currentPage]; if (p && p.update && S) p.update(S); }
+async function refreshAll() { await refreshState(); const p = pages[currentPage]; if (p && p.update && S) p.update(S); if (S) { syncMapTools(S); redrawMaps(); } }
 window.refreshAll = refreshAll;
 setInterval(() => { if (session.csrf) refreshAll(); }, 2000);
-async function refreshPlayers() { if (!session.csrf || !S || !S.rcon) return; try { players = await api('GET', '/api/players'); } catch (_) { players = []; } if (S) renderChrome(); const p = pages[currentPage]; if (p && p.players) p.players(); }
+async function refreshPlayers() { if (!session.csrf || !S || !S.rcon) return; try { players = await api('GET', '/api/players'); } catch (_) { players = []; } if (S) renderChrome(); const p = pages[currentPage]; if (p && p.players) p.players(); redrawMaps(); }
 setInterval(refreshPlayers, 6000);
 
 function sample() {

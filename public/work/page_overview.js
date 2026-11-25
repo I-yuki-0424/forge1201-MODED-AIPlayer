@@ -5,12 +5,12 @@ function overviewPage() {
     let mv = null;
     const el = h('div', { class: 'grid-12' },
         h('div', { class: 'span-12' }, tiles),
-        h('div', { class: 'span-8' }, panel('Map', mapHost, { actions: [h('button', { class: 'btn small', onclick: () => mv && mv.fit() }, 'Fit'), h('button', { class: 'btn small', onclick: () => show('map') }, 'Open')] })),
+        h('div', { class: 'span-8' }, panel('Map', mapHost, { actions: [...mapTools(() => mv), h('button', { class: 'btn small', onclick: () => mv && mv.fit() }, 'Fit'), h('button', { class: 'btn small', onclick: () => show('map') }, 'Open')] })),
         h('div', { class: 'span-4' }, panel('Jobs', jobsBox), panel('Activity', actBox)),
         h('div', { class: 'span-12' }, panel('Bots', botsBox, { actions: h('button', { class: 'btn small', onclick: () => show('bots') }, 'Manage') })));
     return {
         el,
-        onShow() { if (!mv) { mv = makeMap(mapHost, { layers: { jobs: true, bots: true, players: true } }); Tiles.loadIndex('overworld').then(() => { mv.fitSize(); mv.fit(); }); } else mv.fitSize(); },
+        onShow() { if (!mv) { mv = makeMap(mapHost, { keep: 'overview', layers: { jobs: true, bots: true, players: true } }); showMap(mv); } else mv.fitSize(); },
         update(s) {
             const on = s.bots.filter((b) => b.state === 'online').length, jobs = s.jobs.filter((j) => ACTIVE.includes(j.state)), done = jobs.reduce((n, j) => n + j.progress.done, 0), total = jobs.reduce((n, j) => n + j.progress.total, 0);
             const rate = HIST.t.length > 3 ? Math.max(0, (HIST.done[HIST.done.length - 1] - HIST.done[0]) / ((HIST.t[HIST.t.length - 1] - HIST.t[0]) / 60000)) : 0;

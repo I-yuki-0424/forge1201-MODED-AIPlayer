@@ -8,7 +8,7 @@ module.exports = (service) => async (req, url, m, p) => {
     if (m === 'GET' && p === '/api/log') return service.log.slice(-Number(url.searchParams.get('n') || 200));
     if (m === 'GET' && p === '/api/problems') return service.problemsView(Number(url.searchParams.get('n') || 100));
     if (m === 'GET' && p === '/api/players') return service.players();
-    if (m === 'GET' && p === '/api/surface') return service.surface(Number(url.searchParams.get('x')), Number(url.searchParams.get('z')));
+    if (m === 'GET' && p === '/api/surface') return service.surface(Number(url.searchParams.get('x')), Number(url.searchParams.get('z')), url.searchParams.get('dim') || 'overworld');
     if (m === 'POST' && p === '/api/settings') return service.setSettings(await json(req));
     // sites (tagged blocks by coordinates) and scripts
     if (m === 'GET' && p === '/api/sites') return service.listSites();

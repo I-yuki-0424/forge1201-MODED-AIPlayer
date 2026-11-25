@@ -20,14 +20,62 @@ const actText = (a) => { if (!a) return ''; const name = a.sub ? a.sub.name : a.
 const botActivity = (b) => { const base = b.retired ? 'waiting' : b.working ? `job ${b.job}` : b.cmd && b.cmd.status === 'running' ? `${b.cmd.name}${b.cmd.progress ? ` ${progText(b.cmd.progress)}` : '…'}` : b.state === 'online' ? 'idle' : b.state; return base + (b.act && b.working ? ` · ${actText(b.act)}` : b.phase && (b.cmd && b.cmd.status === 'running') ? ` · ${b.phase.name} ${b.phase.s}s` : '') + (b.reflex ? ` · ⚡ reflex ${b.reflex.kind} (${b.reflex.s}s ago)` : '') + (b.moved ? ` · ⇢ moved by the server ${b.moved.dist} blocks (${b.moved.why}, ${b.moved.s}s ago)` : '') + (b.problem ? ` · ⚠ ${b.problem.reason || b.problem.kind}${b.problem.cell ? ` ${[].concat(b.problem.cell).join(' ')}` : ''} (${b.problem.s}s ago)` : ''); };
 const posText = (p) => (p ? `${Math.round(p.x)}, ${Math.round(p.y)}, ${Math.round(p.z)}` : '-');
 
+// Every map of every page, redrawn on each state poll (owner 2026-11-25, list 5 Small 3: "the map is not updated on tabs other than Map": the Overview map never redrew,
+// and only the Map page had the save cadence and Refresh, so elsewhere the terrain waited for the server's own save, about every 5 minutes).
+const MAPS = new Set(), SAVE_SELS = new Set();
 function makeMap(canvasHost, o) {                       // canvas that follows the size of its container
     const cv = h('canvas', { class: 'map-canvas', width: 900, height: 420 }); canvasHost.append(cv);
     const mv = new MapView(cv, { state: getS, players: getPlayers, ...o });
     const fitSize = () => { const r = cv.getBoundingClientRect(); if (r.width > 10 && (Math.abs(cv.width - r.width) > 2 || Math.abs(cv.height - r.height) > 2)) { cv.width = Math.round(r.width); cv.height = Math.round(r.height); mv.redraw(); } };
     if (window.ResizeObserver) new ResizeObserver(fitSize).observe(cv);
     mv.fitSize = fitSize;
+    MAPS.add(mv);
+    if (o.keep) {                                       // the view (dimension, layer, centre, zoom) is kept for the next visit
+        mv.keepKey = `map.${o.keep}`; let t = 0; const draw = mv.draw.bind(mv);
+        mv.draw = () => { draw(); clearTimeout(t); t = setTimeout(() => Keep.set(mv.keepKey, { dim: mv.dim, top: mv.top, cx: mv.view.cx, cz: mv.view.cz, scale: mv.view.scale }), 400); };
+    }
     return mv;
 }
+/** The first look of a page's map: the view it had last time (and its dimension in the page's picker), else everything fitted. */
+function showMap(mv, dimPick = null, slice = null) {
+    const st = mv.keepKey ? Keep.get(mv.keepKey) : null;
+    if (st && Number.isFinite(st.cx) && Number.isFinite(st.cz) && Number.isFinite(st.scale)) {
+        mv.dim = typeof st.dim === 'string' ? st.dim : 'overworld'; mv.top = Number.isInteger(st.top) ? st.top : null;
+        if (dimPick) dimPick.set(mv.dim); if (slice) slice.set(mv.top);
+        Object.assign(mv.view, { cx: st.cx, cz: st.cz, scale: clamp(st.scale, 0.08, 48) });
+        return Tiles.loadIndex(mv.dim).then(() => { mv.fitSize(); mv.redraw(); });
+    }
+    if (dimPick) mv.dim = dimPick.get();
+    return Tiles.loadIndex(mv.dim).then(() => { mv.fitSize(); mv.fit(); });
+}
+/** Redraw the maps that are on screen (bots and players move with every poll). */
+function redrawMaps() { for (const mv of MAPS) if (mv.cv.isConnected && mv.cv.offsetParent !== null) mv.redraw(); }
+/**
+ * The map's own tools, the same on every page that has a map: how often the service asks the server to save (the map shows saved chunks) and Refresh now
+ * (save-all flush, then the map of the dimension shown is read again).
+ */
+function mapTools(getMap) {
+    const saveSel = h('select', { class: 'sel', 'aria-label': 'server saves for the map', title: 'How often the service asks the server to save its chunks, so that every map follows the bots (off = only the server\'s own saves, about every 5 minutes)' },
+        [['0', 'saves: server only'], ['30', 'saves: every 30 s'], ['60', 'saves: every 60 s'], ['120', 'saves: every 2 min'], ['300', 'saves: every 5 min']].map(([v, t]) => h('option', { value: v, text: t })));
+    saveSel.addEventListener('change', act(() => api('POST', '/api/settings', { mapSave: Number(saveSel.value) }), () => `map saves: ${saveSel.value === '0' ? 'only the server\'s own' : `every ${saveSel.value} s`}`));
+    SAVE_SELS.add(saveSel); if (S && S.settings) saveSel.value = String(S.settings.mapSave || 0);
+    const refresh = h('button', { class: 'btn small', title: 'save-all on the server, then read the map again from disk (the map shows saved chunks)' }, icon('refresh', 14), ' Refresh');
+    refresh.addEventListener('click', act(async () => { const mv = getMap(); await api('POST', '/api/map/refresh', {}); if (mv) { await Tiles.loadIndex(mv.dim, true); mv.redraw(); } }, 'the server saved its chunks; the map follows what is on disk'));
+    return [saveSel, refresh];
+}
+/**
+ * The highest ground of an X-Z box {x0, x1, z0, z1} in dimension `dim`: sampled on a grid (corners, centre and up to 5 x 5 points), each read live from a bot that has
+ * the chunk loaded, else from the saved world (/api/surface). Throws with the reason when no point has an answer.
+ */
+async function groundTop(b, dim) {
+    const xs = [...new Set([0, 1, 2, 3, 4].map((i) => Math.round(b.x0 + (b.x1 - b.x0) * i / 4)))], zs = [...new Set([0, 1, 2, 3, 4].map((i) => Math.round(b.z0 + (b.z1 - b.z0) * i / 4)))];
+    const ys = [], why = new Set();
+    for (const x of xs) for (const z of zs) { const r = await api('GET', `/api/surface?x=${x}&z=${z}&dim=${encodeURIComponent(dim || 'overworld')}`); if (r.y !== null && r.y !== undefined) ys.push(r.y); else if (r.why) why.add(r.why); }
+    if (!ys.length) throw new Error(`no ground found (${[...why].join('; ') || 'no answer'}): type the height`);
+    return Math.max(...ys);
+}
+/** Every map's save pulldown shows the service's setting (unless it is being changed). */
+function syncMapTools(s) { for (const sel of SAVE_SELS) if (document.activeElement !== sel) sel.value = String((s.settings && s.settings.mapSave) || 0); }
 /** Dimension pulldown (owner 2026-11-10): the three vanilla ones, and "other" for the id of a mod dimension (a text field appears). `.get()` is the dimension; `onchange(dim)` fires on a change. */
 function dimPicker(onchange) {
     const sel = h('select', { class: 'sel', 'aria-label': 'dimension' }, [...['overworld', 'nether', 'end'].map((d) => h('option', { value: d, text: d })), h('option', { value: '__other', text: 'other (mod dimension id)...' })]);

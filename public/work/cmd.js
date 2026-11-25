@@ -112,20 +112,23 @@ function CommandPanel(o) {
         targetSel.replaceChildren(...opts.map((t) => h('option', { value: t.value, text: t.label })));
         if (keep && opts.some((t) => t.value === prev)) targetSel.value = prev;
     }
-    function setCommand(name) { spec = (CATALOG || []).find((c) => c.name === name) || null; cmdSel.value = name; doc.textContent = spec ? spec.doc : ''; buildFields(); }
+    function setCommand(name) { spec = (CATALOG || []).find((c) => c.name === name) || null; cmdSel.value = name; doc.textContent = spec ? spec.doc : ''; if (o.keep && spec) Keep.set(`${o.keep}.command`, name); buildFields(); }
 
     const root = h('div', { class: 'cmdpanel' },
         h('div', { class: 'row' }, o.fixed ? null : field('Send to', targetSel), field('Command', cmdSel),
             h('span', { class: 'row tight cmd-quick' }, h('button', { class: 'btn', type: 'button', title: 'cancel what the bots are doing', onclick: () => { setCommand('stop'); send(); } }, 'Stop'), h('button', { class: 'btn', type: 'button', title: 'walk to the operator', onclick: () => { setCommand('come'); send(); } }, 'Come to me'))),
         doc, fields, items, dims,
         h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', onclick: send }, icon('play', 13), ' Send'), h('span', { class: 'muted small', text: 'Bots working on a job refuse commands: pause the job or take them off it.' })), result);
-    targetSel.addEventListener('change', () => { refreshItems(); if (spec && spec.args.some((a) => a.type === 'entity') && single()) entityRefresh && entityRefresh(); });
+    targetSel.addEventListener('change', () => { if (o.keep) Keep.set(`${o.keep}.target`, targetSel.value); refreshItems(); if (spec && spec.args.some((a) => a.type === 'entity') && single()) entityRefresh && entityRefresh(); });
     cmdSel.addEventListener('change', () => setCommand(cmdSel.value));
 
     loadCatalog().then((c) => {
         const groups = [...new Set(c.map((x) => x.group))];
         cmdSel.replaceChildren(...groups.map((g) => h('optgroup', { label: g }, c.filter((x) => x.group === g).map((x) => h('option', { value: x.name, text: x.name.replace(/_/g, ' ') })))));
-        syncTargets(false); setCommand('move_to'); refreshItems();
+        syncTargets(false);
+        const kt = o.keep && Keep.get(`${o.keep}.target`), kc = o.keep && Keep.get(`${o.keep}.command`);          // the target and the command chosen last time
+        if (kt && [...targetSel.options].some((x) => x.value === kt)) targetSel.value = kt;
+        setCommand(kc && c.some((x) => x.name === kc) ? kc : 'move_to'); refreshItems();
     }).catch((e) => toast(e.message, true));
     return { el: root, syncTargets, setCommand, refreshItems };
 }
