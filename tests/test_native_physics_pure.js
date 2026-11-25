@@ -243,10 +243,11 @@ const dir = path.join(__dirname, 'golden_native');
 for (const file of fs.existsSync(dir) ? fs.readdirSync(dir).filter((x) => x.endsWith('.jsonl')).sort() : []) {
     t(`golden trace ${file}`, () => {
         const tr = trace.parse(fs.readFileSync(path.join(dir, file), 'utf8'));
-        const tol = tr.header.tol ?? 1e-5;
+        // generated traces come from prismarine's double maths: 2e-5 (the float constants); traces of the game itself: 1e-5
+        const tol = /^generated:prismarine/.test(tr.hello.recorder) ? 2e-5 : 1e-5;
         const r = trace.replay(tr, { tol });
         assert.ok(r.ticks > 0, 'no ticks');
-        assert.strictEqual(r.firstOff, null, `${file}: off by ${r.worst.dpos} at tick ${r.worst.t} (tolerance ${tol}, source ${tr.header.source})`);
+        assert.strictEqual(r.firstOff, null, `${file}: off by ${r.worst.dpos} at tick ${r.worst.tick} (tolerance ${tol}, recorder ${tr.hello.recorder})`);
     });
 }
 

@@ -1,132 +1,103 @@
 'use strict';
-// Movement and command traces (TASK-20261125-076; the format is shared with TASK-20261125-078's simulator parity, docs/proposed/NATIVE-v1.md "Trace format").
-// A trace is JSON Lines: one header, then one line per event in tick order.
-//
-//   {"format":"forgeaip-trace","v":1,"mc":"1.21.1","dataVersion":3955,"source":"carpet-fake-player"|"bot"|"generated:<how>","player":"Nm7",
-//    "region":{"min":[x,y,z],"size":[sx,sy,sz],"palette":["minecraft:stone","minecraft:oak_slab[type=bottom,waterlogged=false]"],"cells":[0,0,1,...]},
-//    "start":{"pos":[x,y,z],"vel":[x,y,z],"yaw":deg,"pitch":deg,"onGround":true,"pose":"standing","fallDistance":0},
-//    "player_state":{"attr":{"movementSpeed":0.1,...},"food":20,"effects":{...},"feet":"leather_boots"|null}}
-//   {"k":"t","t":0,"in":{"keys":"F...S.."} | {"imp":{"xxa":0,"zza":1,"jumping":false,"sneak":false,"sprinting":true}},"yaw":deg,"pitch":deg,
-//    "pos":[x,y,z],"vel":[x,y,z],"onGround":bool}                   the state AFTER the tick (pos/vel as the source saw them)
-//   {"k":"e","t":5,"type":"block","pos":[x,y,z],"state":"minecraft:air"}                                 a world change before tick 5
-//   {"k":"e","t":9,"type":"velocity","vel":[x,y,z]} | {"type":"teleport","pos":[x,y,z]} | {"type":"attr", ...} | {"type":"effect", ...}
-//   {"k":"c","t":0,"name":"mine","args":{...},"end":42,"result":{"ok":true,"reason":null},"outcome":{...}}   a command and its server-observed outcome (078)
-//
-// Region cells: x fastest, then z, then y (as Litematica), indexes into `palette` (block states in the game's own syntax). Keys: the 7 movement keys as
-// in src/skills/runner.js' keyBits ('FBLRJSN', '.' = up). `imp` holds the impulses BEFORE LivingEntity.aiStep's x0.98.
+// Tick-level movement traces for the native physics (TASK-20261125-076) in the trace format TASK-20261125-078 put on main (docs/proposed/SIM-PARITY-v1.md
+// section 5, writer scripts/sim/record.js, format 1): one JSONL file per player, lines told apart by `t`. The world lines are 078's:
+//   {"t":"hello","format":1,"recorder":..,"bot":..,"version":"1.21.1","minY":..,"height":..,"dim":..,...,"ms":..}
+//   {"t":"st","id":<state id of that version>,"n":<block name>,"p":{properties}}
+//   {"t":"chunk","ms":..,"tick":..,"cx":..,"cz":..,"minY":..,"height":..,"enc":"u16le-deflate-b64","cells":..}   index ((y - minY) * 16 + z) * 16 + x
+//   {"t":"blk","ms":..,"tick":..,"p":[x,y,z],"s":<state id>}
+// and this task adds the `tick` line (proposed in that section; documented in docs/proposed/NATIVE-v1.md "Trace format"):
+//   {"t":"tick","ms":..,"tick":n,"row":[t, phase, keys, x, y, z, vx, vy, vz, yaw, pitch, onGround, slot]}
+// `row` has the shape of the runner's per-tick rows (src/skills/runner.js): keys 'FBLRJSNAU' ('.' = up, then Q / X), yaw / pitch in mineflayer's radians,
+// onGround 0/1. Unlike the runner's rows (state BEFORE the tick, rounded to 1e-3), a `tick` line holds the state AFTER the physics tick that ran with
+// `keys`, unrounded. The first `tick` line is the start state (its keys are not replayed); fall distance 0, standing pose and no sprint are assumed there,
+// so a trace starts from a body standing still or in free fall from rest.
+const zlib = require('zlib');
 const Vec3 = require('vec3');
 
+const FORMAT = 1;
 const KEYS = ['forward', 'back', 'left', 'right', 'jump', 'sprint', 'sneak'];
+const RAD = 180 / Math.PI;
 
 function parse(text) {
-    const lines = String(text).split('\n').map((l) => l.trim()).filter(Boolean).map((l, i) => { try { return JSON.parse(l); } catch (e) { throw new Error(`trace line ${i + 1}: ${e.message}`); } });
-    const [header, ...rest] = lines;
-    validateHeader(header);
-    let last = -1;
-    for (const r of rest) {
-        if (!['t', 'e', 'c'].includes(r.k)) throw new Error(`trace: unknown line kind ${JSON.stringify(r.k)}`);
-        if (!Number.isInteger(r.t) || r.t < 0) throw new Error('trace: every line needs a tick number t >= 0');
-        if (r.t < last) throw new Error(`trace: lines out of tick order at t=${r.t}`);
-        last = r.t;
-        if (r.k === 't' && !(Array.isArray(r.pos) && r.pos.length === 3)) throw new Error(`trace: tick ${r.t} has no pos`);
-    }
-    return { header, ticks: rest.filter((r) => r.k === 't'), events: rest.filter((r) => r.k === 'e'), commands: rest.filter((r) => r.k === 'c') };
+    const out = { hello: null, states: new Map(), chunks: [], blks: [], ticks: [] };
+    String(text).split('\n').forEach((l, i) => {
+        if (!l.trim()) return;
+        let o; try { o = JSON.parse(l); } catch (e) { throw new Error(`trace line ${i + 1}: ${e.message}`); }
+        if (o.t === 'hello') { if (out.hello) return; if (o.format !== FORMAT) throw new Error(`trace: format ${o.format}, this reader knows ${FORMAT}`); out.hello = o; }
+        else if (o.t === 'st') out.states.set(o.id, { n: o.n, p: o.p || {} });
+        else if (o.t === 'chunk') { if (o.enc !== 'u16le-deflate-b64') throw new Error(`trace: chunk encoding ${o.enc}`); out.chunks.push(o); }
+        else if (o.t === 'blk') out.blks.push(o);
+        else if (o.t === 'tick') { if (!Array.isArray(o.row) || o.row.length < 12) throw new Error(`trace line ${i + 1}: a tick row has 13 fields`); out.ticks.push(o); }
+        // cmd / res / spawn / death: the command-level lines of 078, not needed for movement
+    });
+    if (!out.hello) throw new Error('trace: no hello line');
+    if (!out.hello.version) throw new Error('trace: hello has no version');
+    return out;
 }
 
-function validateHeader(h) {
-    if (!h || h.format !== 'forgeaip-trace' || h.v !== 1) throw new Error('trace: header must have format "forgeaip-trace" and v 1');
-    if (typeof h.mc !== 'string' || !Number.isInteger(h.dataVersion)) throw new Error('trace: header needs mc and dataVersion');
-    const r = h.region;
-    if (!r || !Array.isArray(r.min) || !Array.isArray(r.size) || !Array.isArray(r.palette) || !Array.isArray(r.cells)) throw new Error('trace: header needs region {min, size, palette, cells}');
-    if (r.cells.length !== r.size[0] * r.size[1] * r.size[2]) throw new Error(`trace: region has ${r.cells.length} cells for size ${r.size.join('x')}`);
-    if (r.cells.some((c) => !Number.isInteger(c) || c < 0 || c >= r.palette.length)) throw new Error('trace: region cell outside the palette');
-    if (!h.start || !Array.isArray(h.start.pos)) throw new Error('trace: header needs start.pos');
-}
-
-/** "minecraft:oak_slab[type=bottom]" -> { name, props } */
-function parseState(s) {
-    const m = /^([a-z0-9_.-]+:)?([a-z0-9_/.-]+)(?:\[(.*)\])?$/.exec(String(s));
-    if (!m) throw new Error(`trace: bad block state ${s}`);
-    const props = {};
-    if (m[3]) for (const kv of m[3].split(',')) { const [k, v] = kv.split('='); props[k.trim()] = String(v).trim(); }
-    return { name: m[2], props };
-}
-
-/** The region as a world for the physics (prismarine interface), with the trace's block events applied as they come (`apply(t)`). Outside the region: air. */
-function regionWorld(header, registry) {
-    const Block = require('prismarine-block')(registry);
-    const sidOf = new Map();
-    const sid = (state) => {
-        if (sidOf.has(state)) return sidOf.get(state);
-        const { name, props } = parseState(state);
-        const b = registry.blocksByName[name];
-        if (!b) throw new Error(`trace: block ${name} is not in ${registry.version.minecraftVersion}`);
-        let id = b.defaultState;
-        if (Object.keys(props).length) {
-            id = null;
-            for (let i = b.minStateId; i <= b.maxStateId && id === null; i++) { const p = Block.fromStateId(i, 0).getProperties(); if (Object.entries(props).every(([k, v]) => String(p[k]) === v)) id = i; }
-            if (id === null) throw new Error(`trace: no state ${state}`);
-        }
-        sidOf.set(state, id);
-        return id;
-    };
-    const r = header.region, [sx, sy, sz] = r.size, [ox, oy, oz] = r.min;
-    const pal = r.palette.map(sid), cells = new Map(), air = sid('minecraft:air');
-    const key = (x, y, z) => `${x},${y},${z}`;
-    for (let y = 0, i = 0; y < sy; y++) for (let z = 0; z < sz; z++) for (let x = 0; x < sx; x++, i++) cells.set(key(ox + x, oy + y, oz + z), pal[r.cells[i]]);
-    return {
-        getBlock(p) {
-            const x = Math.floor(p.x), y = Math.floor(p.y), z = Math.floor(p.z);
-            const b = Block.fromStateId(cells.has(key(x, y, z)) ? cells.get(key(x, y, z)) : air, 0);
-            b.position = new Vec3(x, y, z);
-            return b;
-        },
-        set(pos, state) { cells.set(key(pos[0], pos[1], pos[2]), sid(state)); },
-    };
-}
-
-const keysOf = (s) => Object.fromEntries(KEYS.map((k, i) => [k, typeof s === 'string' ? s[i] !== '.' && s[i] !== undefined : !!(s && s[k])]));
+const decodeCells = (c) => new Uint16Array(new Uint8Array(zlib.inflateSync(Buffer.from(c.cells, 'base64'))).buffer);
+const encodeCells = (u16) => zlib.deflateSync(Buffer.from(u16.buffer, u16.byteOffset, u16.byteLength), { level: 1 }).toString('base64');
 
 /**
- * Replay the trace's inputs through the native physics (`Physics` of src/native/physics) over its region, tick by tick, and compare each tick's position
- * (and velocity where the trace has one). Returns { ticks, worst: {t, dpos, dvel}, firstOff: tick where |dpos| > tol (or null), rows }.
+ * The traced world for the physics (prismarine interface: getBlock(Vec3) -> Block, null outside the recorded chunks), with block updates applied up to
+ * a tick by `until(tick)`. State ids are checked against the `st` names (a trace of another version or registry is refused, not misread).
  */
-function replay(trace, { tol = 1e-5, registry } = {}) {
+function traceWorld(tr, registry) {
+    const Block = require('prismarine-block')(registry);
+    for (const [id, s] of tr.states) {
+        const b = registry.blocksByStateId[id];
+        if (s.n && (!b || b.name !== s.n)) throw new Error(`trace: state ${id} is ${s.n} in the trace but ${b ? b.name : 'unknown'} in ${registry.version.minecraftVersion}`);
+    }
+    const cols = new Map(), over = new Map();
+    for (const c of tr.chunks) cols.set(`${c.cx},${c.cz}`, { minY: c.minY, height: c.height, cells: decodeCells(c) });
+    const blks = [...tr.blks];
+    const sidAt = (x, y, z) => {
+        const k = `${x},${y},${z}`;
+        if (over.has(k)) return over.get(k);
+        const c = cols.get(`${x >> 4},${z >> 4}`);
+        if (!c || y < c.minY || y >= c.minY + c.height) return null;
+        return c.cells[((y - c.minY) * 16 + (z & 15)) * 16 + (x & 15)];
+    };
+    return {
+        getBlock(p) {
+            const x = Math.floor(p.x), y = Math.floor(p.y), z = Math.floor(p.z), s = sidAt(x, y, z);
+            if (s === null) return null;
+            const b = Block.fromStateId(s, 0); b.position = new Vec3(x, y, z); return b;
+        },
+        until(tick) { while (blks.length && blks[0].tick <= tick) { const e = blks.shift(); over.set(e.p.join(','), e.s); } },
+    };
+}
+
+const keysOf = (s) => Object.fromEntries(KEYS.map((k, i) => [k, typeof s === 'string' && s[i] !== undefined && s[i] !== '.']));
+
+/**
+ * Replay the trace's keys through the native physics over its world and compare every tick's position (and velocity) with the trace.
+ * Returns { ticks, worst: {tick, dpos, dvel}, firstOff (tick whose position is off by more than `tol`, or null), rows }.
+ */
+function replay(tr, { tol = 1e-5, registry } = {}) {
     const { Physics } = require('./physics');
     const { fresh } = require('./physics/player');
-    const reg = registry || require('prismarine-registry')(trace.header.mc);
-    const w = regionWorld(trace.header, reg), ph = Physics(reg);
-    const st = trace.header.start, ps = trace.header.player_state || {};
-    const s = fresh({ x: st.pos[0], y: st.pos[1], z: st.pos[2], vx: (st.vel || [0, 0, 0])[0], vy: (st.vel || [0, 0, 0])[1], vz: (st.vel || [0, 0, 0])[2],
-        yaw: st.yaw || 0, pitch: st.pitch || 0, onGround: !!st.onGround, pose: st.pose || 'standing', fallDistance: st.fallDistance || 0, food: ps.food ?? 20, walksOnPowderSnow: ps.feet === 'leather_boots' });
-    Object.assign(s.attr, ps.attr || {});
-    Object.assign(s.effects, ps.effects || {});
-    const ev = [...trace.events];
+    const reg = registry || require('prismarine-registry')(tr.hello.version);
+    const w = traceWorld(tr, reg), ph = Physics(reg);
+    if (tr.ticks.length < 2) return { ticks: 0, worst: { tick: -1, dpos: 0, dvel: 0 }, firstOff: null, rows: [] };
+    const r0 = tr.ticks[0].row;
+    const s = fresh({ x: r0[3], y: r0[4], z: r0[5], vx: r0[6], vy: r0[7], vz: r0[8], onGround: !!r0[11], minY: tr.hello.minY ?? -64, food: 20 });
     const rows = [];
-    let worst = { t: -1, dpos: 0, dvel: 0 }, firstOff = null;
-    for (const tk of trace.ticks) {
-        while (ev.length && ev[0].t <= tk.t) {
-            const e = ev.shift();
-            if (e.type === 'block') w.set(e.pos, e.state);
-            else if (e.type === 'velocity') { [s.vx, s.vy, s.vz] = e.vel; }
-            else if (e.type === 'teleport') { [s.x, s.y, s.z] = e.pos; }
-            else if (e.type === 'attr') Object.assign(s.attr, e.attr || {});
-            else if (e.type === 'effect') Object.assign(s.effects, e.effects || {});
-        }
-        if (tk.yaw !== undefined) s.yaw = tk.yaw;
-        if (tk.pitch !== undefined) s.pitch = tk.pitch;
-        if (tk.in && tk.in.imp) s.imp = tk.in.imp; else { s.imp = null; s.keys = keysOf(tk.in && tk.in.keys); }
+    let worst = { tick: -1, dpos: 0, dvel: 0 }, firstOff = null;
+    for (const tk of tr.ticks.slice(1)) {
+        const r = tk.row;
+        w.until(tk.tick);
+        s.yaw = Math.fround((Math.PI - r[9]) * RAD); s.pitch = Math.fround(-r[10] * RAD);
+        s.keys = keysOf(r[2]);
         ph.step(s, w);
-        const dpos = Math.hypot(s.x - tk.pos[0], s.y - tk.pos[1], s.z - tk.pos[2]);
-        const dvel = Array.isArray(tk.vel) ? Math.hypot(s.vx - tk.vel[0], s.vy - tk.vel[1], s.vz - tk.vel[2]) : 0;
-        rows.push({ t: tk.t, pos: [s.x, s.y, s.z], dpos, dvel, onGround: s.onGround });
-        if (dpos > worst.dpos) worst = { t: tk.t, dpos, dvel };
-        if (firstOff === null && dpos > tol) firstOff = tk.t;
+        const dpos = Math.hypot(s.x - r[3], s.y - r[4], s.z - r[5]), dvel = Math.hypot(s.vx - r[6], s.vy - r[7], s.vz - r[8]);
+        rows.push({ tick: tk.tick, pos: [s.x, s.y, s.z], dpos, dvel, onGround: s.onGround });
+        if (dpos > worst.dpos) worst = { tick: tk.tick, dpos, dvel };
+        if (firstOff === null && dpos > tol) firstOff = tk.tick;
     }
     return { ticks: rows.length, worst, firstOff, rows };
 }
 
-/** Write a trace (header + lines) as JSON Lines. */
-const format = (header, lines) => [header, ...lines].map((l) => JSON.stringify(l)).join('\n') + '\n';
+const lines = (objs) => objs.map((o) => JSON.stringify(o)).join('\n') + '\n';
 
-module.exports = { parse, validateHeader, parseState, regionWorld, replay, format, keysOf, KEYS };
+module.exports = { FORMAT, KEYS, parse, traceWorld, replay, keysOf, decodeCells, encodeCells, lines };

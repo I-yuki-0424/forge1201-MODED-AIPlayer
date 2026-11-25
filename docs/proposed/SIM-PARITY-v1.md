@@ -142,6 +142,13 @@ the runner's own record, one row per tick: `[t, phase, keys (FBLRJSNAU + Q/X), x
 **Proposal to 076:** its tick-level traces use the same `hello` / `st` / `chunk` / `blk` lines and per-tick rows of that shape (input
 frame, then the server-confirmed state), as a `tick` line kind for movement outside the runner; the replayers then share the world reader.
 
+**Adopted by 076 (format 1, no new fields):** `{"t":"tick","ms","tick","row":[t, phase, keys, x, y, z, vx, vy, vz, yaw, pitch, onGround, slot]}`.
+The row has the runner's shape and units (keys `FBLRJSNAU` then `Q`/`X`, yaw and pitch in mineflayer's radians, onGround 0/1), with two
+differences: the position and velocity are the state AFTER the physics tick that ran with `keys` (the runner records the state before it),
+and they are not rounded. The first `tick` line of a file is the start state (its keys are not replayed; fall distance 0, standing pose and
+no sprint are assumed). Reader and replayer: `src/native/trace.js` (`parse`, `traceWorld`, `replay`); generated examples and, after stage B,
+server traces in `tests/golden_native/` (npm test). Doc: `docs/proposed/NATIVE-v1.md`, "Trace format".
+
 ## 6. Testing backends: what each costs and what it can test (first measured estimate)
 
 Measured 2026-11-25 on the VPS (12 threads):
