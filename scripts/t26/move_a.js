@@ -18,8 +18,11 @@ const DIRS = [['E', 1, 0], ['W', -1, 0], ['S', 0, 1], ['N', 0, -1]], names = DIR
         const n = names[i], t = { x: sp.x + dx * DIST, z: sp.z + dz * DIST };
         const r = await T.command(svc, n, 'journey', t, LIMIT_MIN);
         const p = await T.posOf(S, n), off = p ? Math.round(Math.hypot(p.x - t.x - 0.5, p.z - t.z - 0.5)) : null;
+        // temporary blocks (pumpkins) the walk left: around where it ended (+-24) by a scan, along the way by the registry (TASK-20261125-075: none may be left)
+        const TB = require('../../src/work/bot/tempblocks'), q = p || t, area = { x0: Math.floor(q.x) - 24, x1: Math.floor(q.x) + 24, z0: Math.floor(q.z) - 24, z1: Math.floor(q.z) + 24, y0: Math.floor(q.y || 64) - 16, y1: Math.floor(q.y || 64) + 24 };
+        const tempScan = TB.scanBox(svc.bots.get(n).bot, area), tempsRegistered = svc.temps.list((r0) => r0.by === n).length;
         if (deaths.read) await deaths.read();
-        rep.trial(n, off !== null && off <= 4 && deaths[n] === 0 && !moves[n], { dir: d, target: t, at: p && [p.x, p.y, p.z].map(Math.round), off, deaths: deaths[n], serverMoves: moves[n] || 0, sec: r.sec, timeout: r.timeout, said: r.result });
+        rep.trial(n, off !== null && off <= 4 && deaths[n] === 0 && !moves[n], { tempScanLeft: tempScan.cells.length, tempScanCells: tempScan.cells.slice(0, 20), tempsRegistered, dir: d, target: t, at: p && [p.x, p.y, p.z].map(Math.round), off, deaths: deaths[n], serverMoves: moves[n] || 0, sec: r.sec, timeout: r.timeout, said: r.result });
     })());
     await Promise.all(runs);
     const k = rep.write({ seed, spawn: sp, dist: DIST });

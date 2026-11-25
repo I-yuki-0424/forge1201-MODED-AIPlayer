@@ -300,7 +300,8 @@ async function release(job, name, bot, mv, cancel, next = null, label = 'step') 
     const column = (e) => sameCol && e.x === me.x && e.z === me.z && e.y < me.y;
     const ownLife = (e) => e.how === 'seal' || e.how === 'fill' || e.how === 'scaffold' || e.how === 'fixture';
     let n = 0;
-    for (const e of L.of(name)) {
+    // top-down: the lower blocks of a column left beside the bot come into sight as the ones over them go
+    for (const e of L.of(name).sort((a, b) => b.y - a.y)) {
         if (cancel.cancelled) break;
         if (e.released || e.orphan || ownLife(e) || column(e)) continue;
         const c = { x: e.x, y: e.y, z: e.z }, h = seen(bot, c);
@@ -755,6 +756,8 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
     // the server's word on every block change this bot sees: confirms or ends temporary blocks, whoever placed or broke them (temps.js)
     const onBlock = (o, n) => { if (n && n.position && job.ledger.size) job.ledger.observe(n.position, n.name); };
     bot.on('blockUpdate', onBlock);
+    // once a second: how many of its temporary blocks stand beyond the column it stands on (the owner's two-per-bot standard, temps.js sample)
+    const sampler = setInterval(() => { try { if (bot.entity && job.ledger.size) job.ledger.sample(name, feet(bot)); } catch (_) { /* a sample is only a count */ } }, 1000);
     // the step is over: the bot's own temporary blocks go before it does anything else (release)
     const settle = (next = null, label = 'step') => release(job, name, bot, mv, cancel, next, label);
     // the server dropped the spawn point (the bed broken or shut in): set again
@@ -933,7 +936,7 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
             job.report(name, res);
         }
         return { ended: 'cancelled' };
-    } finally { bot.removeListener('death', onDeath); bot.removeListener('death', onDied); bot.removeListener('blockUpdate', onBlock); job.orphanOf(name, 'left the crew'); bot.removeListener('spawnReset', onReset); bot.__builderOwns = false; job.leave(name); if (job.pool) job.pool.leave(name); for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sneak', 'sprint']) bot.setControlState(k, false); }
+    } finally { bot.removeListener('death', onDeath); bot.removeListener('death', onDied); bot.removeListener('blockUpdate', onBlock); job.orphanOf(name, 'left the crew'); clearInterval(sampler); bot.removeListener('spawnReset', onReset); bot.__builderOwns = false; job.leave(name); if (job.pool) job.pool.leave(name); for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sneak', 'sprint']) bot.setControlState(k, false); }
 }
 
 module.exports = { drive, work, holds, rules, pour, escape, needsFor, boxSpot, bench, release, unscaffold };

@@ -26,6 +26,24 @@ class TempLedger {
         this.peak = new Map();         // bot -> most blocks in place at once since the last status()
         this.peakEver = new Map();
         this.over = { events: 0, how: {} };          // times a bot came to hold more than two, and what they were
+        // the owner's standard (list 5 Large 1, the orchestrator's ruling 2026-11-26): at most two per bot at any time, the column a bot stands on while it pillars counting as one
+        // structure in use; sampled once a second per bot (drive.js): the most beyond that column, and the seconds over two with what they were
+        this.loosePeak = new Map(); this.looseEver = new Map(); this.looseOver = { seconds: 0, how: {} };
+    }
+
+    /** Blocks of `by` that stand, beyond the column under its feet `f` (the pillar it stands on: one structure in use). */
+    loose(by, f) {
+        let n = 0; const hs = {};
+        for (const e of this.map.values()) if (e.by === by && e.state === 'placed' && !(f && e.x === f.x && e.z === f.z && e.y < f.y)) { n++; hs[e.how] = (hs[e.how] || 0) + 1; }
+        return { n, hs };
+    }
+    /** One sample of bot `by` standing at `f` (once a second). */
+    sample(by, f) {
+        const { n, hs } = this.loose(by, f);
+        if (n > (this.loosePeak.get(by) || 0)) this.loosePeak.set(by, n);
+        if (n > (this.looseEver.get(by) || 0)) this.looseEver.set(by, n);
+        if (n > 2) { this.looseOver.seconds++; const h = Object.entries(hs).map(([k, v]) => `${k}:${v}`).sort().join(','); this.looseOver.how[h] = (this.looseOver.how[h] || 0) + 1; }
+        return n;
     }
 
     /** A new step for bot `by` (what its blocks serve from now on). Returns its id. */
@@ -128,8 +146,8 @@ class TempLedger {
         let inPlace = 0, pending = 0, due = 0, kept = 0;
         for (const e of this.map.values()) { if (e.state === 'placed') inPlace++; else pending++; if (this.due(e)) due++; if (e.keep) kept++; }
         const max = (m) => { let b = null, v = 0; for (const [k, n] of m) if (n > v) { v = n; b = k; } return { bot: b, n: v }; };
-        const out = { inPlace, pending, due, kept, peak: max(this.peak), peakEver: max(this.peakEver), over2: this.over.events, n: { ...this.n, failed: { ...this.n.failed } }, byHow: { ...this.byHow } };
-        if (reset) this.peak.clear();
+        const out = { inPlace, pending, due, kept, loose: max(this.loosePeak), looseEver: max(this.looseEver), looseOver2s: this.looseOver.seconds, looseHow: { ...this.looseOver.how }, peak: max(this.peak), peakEver: max(this.peakEver), over2: this.over.events, n: { ...this.n, failed: { ...this.n.failed } }, byHow: { ...this.byHow } };
+        if (reset) { this.peak.clear(); this.loosePeak.clear(); }
         return out;
     }
 

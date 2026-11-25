@@ -57,6 +57,9 @@ const LIMIT_MIN = Number(process.env.LIMIT_MIN || 240), DEPTH = Number(process.e
     await T.kit(S, name, { blocks: 128, best: true });
     await T.sleep(2000);
     await T.say(S, `mine_b: ${name} strip-mines ${JSON.stringify(box)} (${W * W * (top - bottom + 1)} cells)`);
+    // temporary blocks (pumpkins) around the box before the job: the end scan counts only new ones (TASK-20261125-075)
+    const TB = require('../../src/work/bot/tempblocks'), scanArea = { x0: x0 - 12, x1: x1 + 12, z0: z0 - 12, z1: z1 + 12, y0: bottom - 4, y1: top + 24 };
+    const scan0 = TB.scanBox(bot, scanArea), before0 = new Set(scan0.cells.map((c) => `${c.x},${c.y},${c.z}`));
     const t0 = Date.now();
     let state = 'control';
     if (!T.CONTROL) {
@@ -73,8 +76,10 @@ const LIMIT_MIN = Number(process.env.LIMIT_MIN || 240), DEPTH = Number(process.e
     const left = await dirty();
     let jobEnd = null; try { const j = [...svc.jobs.values()][0]; if (j) { const v = svc.jobDetail(j.id); const jj = svc.jobs.get(j.id); jobEnd = { problems: (svc.problems && svc.problems.list || []).slice(-14).map((q) => JSON.stringify(q).slice(0, 420)), endReport: jj && jj.impl && jj.impl.plan && jj.impl.plan.endReport, progress: v.progress, stuck: v.stuck, report: JSON.stringify(v.report || {}).slice(0, 1200) }; } } catch (_) { /* informational */ }
     const tempsLeft = svc.temps.list((r) => r.x >= x0 - 2 && r.x <= x1 + 2 && r.z >= z0 - 2 && r.z <= z1 + 2).map((r) => [r.x, r.y, r.z, r.kind]);
+    const tempScan = TB.scanBox(svc.bots.get(name).bot, scanArea, null, before0);
+    console.log(`[temps] ${tempScan.cells.length} temporary blocks left around the box (${tempScan.unloaded} cells not loaded): ${JSON.stringify(tempScan.cells.slice(0, 20))}`);
     if (deaths.read) await deaths.read();
-    rep.trial(name, controlOk && left.length === 0 && !moves[name], { spawn: p0, pond, lakeFill: process.env.PIT_LAKE !== '0', method: process.env.METHOD || 'default', fluid, sec: Math.round((Date.now() - t0) / 1000), jobEnd, box, controlDirtyLayers: before.length, state, min: Math.round((Date.now() - t0) / 60000), dirtyLayers: left.length, firstDirty: left.slice(0, 12), registeredTempsLeft: tempsLeft.length, temps: tempsLeft.slice(0, 20), deaths: deaths[name], serverMoves: moves[name] || 0 });
+    rep.trial(name, controlOk && left.length === 0 && !moves[name], { tempScanLeft: tempScan.cells.length, tempScanCells: tempScan.cells.slice(0, 40), spawn: p0, pond, lakeFill: process.env.PIT_LAKE !== '0', method: process.env.METHOD || 'default', fluid, sec: Math.round((Date.now() - t0) / 1000), jobEnd, box, controlDirtyLayers: before.length, state, min: Math.round((Date.now() - t0) / 60000), dirtyLayers: left.length, firstDirty: left.slice(0, 12), registeredTempsLeft: tempsLeft.length, temps: tempsLeft.slice(0, 20), deaths: deaths[name], serverMoves: moves[name] || 0 });
     await S.cmd(`forceload remove ${x0} ${z0} ${x1} ${z1}`);
     const k = rep.write({ seed });
     await svc.stop(); process.exit(k ? 0 : 1);

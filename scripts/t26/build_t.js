@@ -242,14 +242,14 @@ function tempReport(bot, target, M, size, build, scan0) {
     }
     const table = build && build.ledger ? build.ledger.table(cells) : null, L = build && build.ledger ? build.ledger.status() : null;
     const inBox = cells.filter((c) => target.inside(c.x, c.y, c.z)).length;
-    return { cells, summary: { left: cells.length, inBox, outside: cells.length - inBox, unloaded: sc.unloaded, names: [...sc.names], table, ledger: L, peakByBot: build && build.ledger ? Object.fromEntries(build.ledger.peakEver) : null } };
+    return { cells, summary: { left: cells.length, inBox, outside: cells.length - inBox, unloaded: sc.unloaded, names: [...sc.names], table, ledger: L, peakByBot: build && build.ledger ? Object.fromEntries(build.ledger.peakEver) : null, looseByBot: build && build.ledger ? Object.fromEntries(build.ledger.looseEver) : null } };
 }
 
 /** The ledger's minute for the progress line: blocks standing, due, the most one bot held at once in the last minute (and ever), placements and removals so far. */
 function tempsLine(build) {
     if (!build || !build.ledger) return '{}';
     const s = build.ledger.status({ reset: true });
-    return JSON.stringify({ inPlace: s.inPlace, pending: s.pending, due: s.due, kept: s.kept, peak: s.peak, peakEver: s.peakEver, over2: s.over2, placed: s.n.placed, removed: s.n.removed, never: s.n.never, orphaned: s.n.orphaned, failed: s.n.failed, byHow: s.byHow });
+    return JSON.stringify({ inPlace: s.inPlace, pending: s.pending, due: s.due, kept: s.kept, loose: s.loose, looseEver: s.looseEver, looseOver2s: s.looseOver2s, looseHow: s.looseHow, peak: s.peak, peakEver: s.peakEver, over2: s.over2, placed: s.n.placed, removed: s.n.removed, never: s.n.never, orphaned: s.n.orphaned, failed: s.n.failed, byHow: s.byHow });
 }
 
 /**

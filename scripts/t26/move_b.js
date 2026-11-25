@@ -62,12 +62,17 @@ function findCave(bot, c, R = 56) {
     await T.kit(S, name);
     const start = await T.posOf(S, name);
     const skyAtStart = await T.seesSky(S, cave.x, cave.y, cave.z);
+    // temporary blocks (pumpkins) from the cave to the surface: the column over the cave +-24, scanned before and after (TASK-20261125-075: none may be left)
+    const TB = require('../../src/work/bot/tempblocks'), area = { x0: cave.x - 24, x1: cave.x + 24, z0: cave.z - 24, z1: cave.z + 24, y0: cave.y - 8, y1: cave.y + 140 };
+    const before0 = new Set(TB.scanBox(bot, area).cells.map((c) => `${c.x},${c.y},${c.z}`));
     await T.say(S, `move_b: ${name} starts in a cave at ${cave.x} ${cave.y} ${cave.z} (${cave.cells} cells of air)`);
     const r = await T.command(svc, name, process.env.CMD || 'surface', {}, LIMIT_MIN);
     const p = await T.posOf(S, name), f = p && { x: Math.floor(p.x), y: Math.floor(p.y + 0.01), z: Math.floor(p.z) };
     const sky = !!f && await T.seesSky(S, f.x, f.y, f.z);
+    const tempScan = TB.scanBox(svc.bots.get(name).bot, area, null, before0), tempsRegistered = svc.temps.list((q) => q.by === name).length;
+    console.log(`[temps] ${tempScan.cells.length} temporary blocks left from the cave to the surface (${tempScan.unloaded} not loaded), ${tempsRegistered} still registered: ${JSON.stringify(tempScan.cells.slice(0, 20))}`);
     if (deaths.read) await deaths.read();
-    rep.trial(name, sky && deaths[name] === 0 && !moves[name] && !skyAtStart, { cave, start: start && [start.x, start.y, start.z].map(Math.round), skyAtStart, at: f, sky, deaths: deaths[name], serverMoves: moves[name] || 0, sec: r.sec, timeout: r.timeout, said: r.result });
+    rep.trial(name, sky && deaths[name] === 0 && !moves[name] && !skyAtStart, { tempScanLeft: tempScan.cells.length, tempScanCells: tempScan.cells.slice(0, 40), tempsRegistered, cave, start: start && [start.x, start.y, start.z].map(Math.round), skyAtStart, at: f, sky, deaths: deaths[name], serverMoves: moves[name] || 0, sec: r.sec, timeout: r.timeout, said: r.result });
     const k = rep.write({ seed, spawn: sp });
     await svc.stop(); process.exit(k ? 0 : 1);
 })().catch((e) => { console.error(e); process.exit(2); });

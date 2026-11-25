@@ -95,6 +95,16 @@ test('peaks: the most blocks a bot held at once, and when it came to hold a thir
     assert.strictEqual(L.status().peakEver.n, 4);
 });
 
+test('the two-per-bot standard: the column under the bot is one structure in use; anything else beyond two is counted with what it was', () => {
+    const L = new TempLedger();
+    for (let y = 70; y < 76; y++) { L.intend({ x: 0, y, z: 0 }, 'pumpkin', 'pillar', 'a'); L.observe({ x: 0, y, z: 0 }, 'pumpkin'); }
+    assert.strictEqual(L.sample('a', { x: 0, y: 76, z: 0 }), 0, 'standing on its column of six');
+    for (const x of [1, 2, 3]) { L.intend({ x, y: 75, z: 0 }, 'pumpkin', 'bridge', 'a'); L.observe({ x, y: 75, z: 0 }, 'pumpkin'); }
+    assert.strictEqual(L.sample('a', { x: 3, y: 76, z: 0 }), 8, 'walked off it over a bridge: the old column and the bridge behind are loose (the block under its feet is its support)');
+    const s = L.status();
+    assert.deepStrictEqual(s.loose, { bot: 'a', n: 8 }); assert.strictEqual(s.looseOver2s, 1); assert.strictEqual(s.looseHow['bridge:2,pillar:6'], 1);
+});
+
 test('job: a block of a step that goes on is no task; released it is one at once, with placing and bots beside it (negative control: the old keep rules)', () => {
     const job = new BuildJob(new Target(tiny(), { x: 10, y: 64, z: 10 }), {}); job.stage = 'place';
     const c = { x: 0, y: 70, z: 0 };
@@ -192,6 +202,24 @@ test('the flood tells a cell reached on foot from one reached by placing blocks 
     await M.plan(v, { x: 0, y: 70, z: 0 }, () => false, { x: 0, y: 70, z: 0 }, { temps: 64, flood: true, maxNodes: 4000, out });
     assert.strictEqual(out.placed.get('2,70,2'), 0, 'ground: on foot');
     assert(out.best.has('4,74,0') && out.placed.get('4,74,0') > 0, `the column top only by a pillar beside it (${out.placed.get('4,74,0')})`);
+});
+
+test('a pillar left sideways is dug from beside it, top-down, as far as its faces are in sight (negative control: the old _behind only took bridge blocks over air)', async () => {
+    const M = require('../src/build/move');
+    const w = new Map(); for (let x = -3; x <= 4; x++) for (let z = -3; z <= 3; z++) w.set(`${x},69,${z}`, { name: 'stone' });
+    for (let y = 70; y <= 72; y++) w.set(`2,${y},0`, { name: 'stone' });                     // a floor three high beside the column
+    for (let y = 70; y <= 72; y++) w.set(`1,${y},0`, { name: 'pumpkin' });                   // its own pillar, left by stepping east onto the floor
+    const bot = fakeBot(w, { x: 2.5, y: 73, z: 0.5 }); bot.entity.onGround = true;
+    const mv = Object.create(M.Mover.prototype);
+    Object.assign(mv, { bot, mine: new Map([['1,70,0', 'pumpkin'], ['1,71,0', 'pumpkin'], ['1,72,0', 'pumpkin']]), mineHow: new Map([['1,70,0', 'pillar'], ['1,71,0', 'pillar'], ['1,72,0', 'pillar']]), rules: { canDig: () => true }, trace: [] });
+    const dug = []; mv.dig = async (c) => { w.delete(`${c.x},${c.y},${c.z}`); dug.push(c.y); return true; };
+    const route = [{ x: 1, y: 73, z: 0 }, { x: 2, y: 73, z: 0 }, { x: 3, y: 73, z: 0 }];
+    const n = await mv._behind(route[0], route, 2);
+    assert(n >= 2 && dug[0] === 72 && dug[1] === 71, `top-down: ${dug}`);
+    const old = (mv.mineHow.get('1,72,0') === 'bridge');                                     // the rule before: only a block placed as a bridge
+    assert(!old, 'negative control: a pillar block was never taken back by the old rule');
+    const keep = Object.create(M.Mover.prototype); Object.assign(keep, { bot, mine: new Map([['2,72,0', 'pumpkin']]), mineHow: new Map(), rules: {}, trace: [] }); keep.dig = mv.dig;
+    assert.strictEqual(await keep._behind({ x: 2, y: 73, z: 0 }, route, 2), 0, 'still on that column: nothing');
 });
 
 (async () => { for (const [name, fn] of queue) { await fn(); n++; console.log(`  ok ${name}`); } console.log(`test_build_temps_pure: ${n} passed`); })().catch((e) => { console.error(e); process.exit(1); });

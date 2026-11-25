@@ -101,7 +101,22 @@ function freeHeld(bot) {
     return [...have].map(([name, count]) => ({ name, count: count - reservedOf(bot, name) })).filter((i) => i.count > 0);
 }
 
+/**
+ * The cells of box {x0, x1, y0, y1, z0, z1} that hold one of `names` (default: the operator's temporary blocks) as `bot` sees them (the server's chunks as the client holds them);
+ * `before`: a Set of 'x,y,z' found before the run (natural pumpkins). The test worlds' end-of-run check (owner list 5 Large 1: zero temporary blocks). { cells, unloaded }.
+ */
+function scanBox(bot, box, names = null, before = null) {
+    const { Vec3 } = require('vec3'), want = new Set(names || only()), cells = []; let unloaded = 0; const v = new Vec3(0, 0, 0);
+    if (!want.size) return { cells, unloaded };
+    for (let x = box.x0; x <= box.x1; x++) for (let z = box.z0; z <= box.z1; z++) for (let y = box.y0; y <= box.y1; y++) {
+        v.x = x; v.y = y; v.z = z; const b = bot.blockAt(v, false);
+        if (!b) { unloaded++; continue; }
+        if (want.has(b.name) && !(before && before.has(`${x},${y},${z}`))) cells.push({ x, y, z, name: b.name });
+    }
+    return { cells, unloaded };
+}
+
 /** The operator's temporary blocks when they are the only ones (the test worlds), else []. */
 const only = () => (ONLY ? EXTRA.slice() : []);
 
-module.exports = { only, reservedOf, freeHeld, isTemp, order, choose, reserve, setExtra, preferred, RESERVE, LOW_MAX, GRAVITY, SHAPE, BASE, HAND };
+module.exports = { only, scanBox, reservedOf, freeHeld, isTemp, order, choose, reserve, setExtra, preferred, RESERVE, LOW_MAX, GRAVITY, SHAPE, BASE, HAND };

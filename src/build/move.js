@@ -324,19 +324,35 @@ class Mover {
         // a pillar that failed in a cell is not planned there again for two minutes (one was tried 13 times in a row, live 2026-11-23 gd1 w2)
         this.rules = { ...rules, noPillar: (x, y, z) => (this.badPillar.get(key(x, y, z)) || 0) > Date.now() };
     }
-    /** After a bridge step onto route[i-1] from prev: prev's floor, this mover's own bridge block over air that the rest of the route does not stand on, is dug. */
+    /** Does the bot stand on a temporary block of its own at cell c (the floor under c)? */
+    _ownFloor(c) { if (!c) return false; const k = key(c.x, c.y - 1, c.z); return this.mine.has(k) || !!(this.rules.ownTemp && this.rules.ownTemp(c.x, c.y - 1, c.z)); }
+
+    /**
+     * The bot has just stepped off cell prev onto route[i-1], sideways: prev's floor, if it is a temporary block of its own, and the column under it are dug from here, top-down,
+     * while each is in reach and its face in sight and the rest of the route does not stand on it, as a player takes back the pillar or the bridge it has just left. A bridge was
+     * dug behind only over air and a pillar left sideways stood for the crew (owner list 5 Large 1: two blocks per bot, the column it stands on counting as one). Returns the dug.
+     */
     async _behind(prev, route, i) {
-        if (!prev) return false;
-        const c = { x: prev.x, y: prev.y - 1, z: prev.z }, k = key(c.x, c.y, c.z);
-        if ((this.mineHow && this.mineHow.get(k)) !== 'bridge' || !this.mine.has(k)) return false;
-        if (route.slice(i).some((q) => q.x === c.x && q.z === c.z && q.y - 1 === c.y)) return false;
-        const v = this.view();
-        // (over ground too: "a step, left to the crew" was a block no step ever released, owner list 5 Large 1)
-        if (this.rules.mayDig && !this.rules.mayDig(c.x, c.y, c.z)) return false;
-        if ([[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]].some(([dx, dy, dz]) => { const q = v.raw(c.x + dx, c.y + dy, c.z + dz); return q && (q.name === 'water' || q.name === 'lava'); })) return false;
-        if (!(await this.dig(c))) { if (this.rules.onTempFail) this.rules.onTempFail(c, 'bridge behind: the dig failed'); return false; }
-        this.mine.delete(k); this.mineHow.delete(k); if (this.rules.onUntemp) this.rules.onUntemp(c);
-        return true;
+        if (!prev) return 0;
+        const at = feet(this.bot);
+        if (at.x === prev.x && at.z === prev.z) return 0;                                    // still on that column (a pillar step)
+        let n = 0;
+        for (let y = prev.y - 1; y > prev.y - 8; y--) {
+            const c = { x: prev.x, y, z: prev.z }, k = key(c.x, c.y, c.z);
+            if (!(this.mine.has(k) || (this.rules.ownTemp && this.rules.ownTemp(c.x, c.y, c.z)))) break;
+            if (route.slice(i).some((q) => q.x === c.x && q.z === c.z && q.y - 1 === c.y)) break;
+            const b = this.bot.blockAt(new Vec3(c.x, c.y, c.z), false); if (!b || b.boundingBox !== 'block') break;
+            if (this.rules.mayDig && !this.rules.mayDig(c.x, c.y, c.z)) break;
+            const v = this.view();
+            if ([[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]].some(([dx, dy, dz]) => { const q = v.raw(c.x + dx, c.y + dy, c.z + dz); return q && (q.name === 'water' || q.name === 'lava'); })) break;
+            const p = this.bot.entity.position, eye = { x: p.x, y: p.y + 1.62, z: p.z };
+            const dx = Math.max(c.x - eye.x, 0, eye.x - (c.x + 1)), dy = Math.max(c.y - eye.y, 0, eye.y - (c.y + 1)), dz = Math.max(c.z - eye.z, 0, eye.z - (c.z + 1));
+            if (Math.hypot(dx, dy, dz) > 4.4 || !P.clickable(P.botWorld(this.bot), c, feet(this.bot))) break;
+            if (!(await this.dig(c))) { if (this.rules.onTempFail) this.rules.onTempFail(c, 'left behind: the dig failed'); break; }
+            this.mine.delete(k); if (this.mineHow) this.mineHow.delete(k); if (this.rules.onUntemp) this.rules.onUntemp(c);
+            n++;
+        }
+        return n;
     }
 
     /** Can the bot get to cell `to` from where it stands (the planner itself, no move)? The route's cost, or null. */
@@ -739,20 +755,24 @@ class Mover {
                 // between two moves: the owner's hook (a colleague beside it waiting for items is served, pool.js), at most every two seconds
                 if (this.between && Date.now() - (this.betweenAt || 0) > 2000) { this.betweenAt = Date.now(); try { await this.between(); } catch (_) { /* a hook never breaks the walk */ } }
                 if (['walk', 'up', 'drop', 'swim'].includes(s.move) && !(s.dig && s.dig.length)) {
-                    let j = i; while (j + 1 < route.length && ['walk', 'up', 'drop', 'swim'].includes(route[j + 1].move) && !(route[j + 1].dig && route[j + 1].dig.length)) j++;
+                    // off a temporary block of its own: one cell, then that block (and its column) is taken back from beside it before the walk goes on
+                    const leaving = this._ownFloor(route[i - 1]);
+                    let j = i; while (!leaving && j + 1 < route.length && ['walk', 'up', 'drop', 'swim'].includes(route[j + 1].move) && !(route[j + 1].dig && route[j + 1].dig.length)) j++;
                     this.note(`follow ${route[i - 1].x},${route[i - 1].y},${route[i - 1].z}->${route[j].x},${route[j].y},${route[j].z} (${j - i + 1} cells: ${route.slice(i, j + 1).map((c) => c.move[0]).join('')})`);
                     const r = await this.follow(route, i, j, cancel);
                     if (r.why === 'out of breath') { await this.surface(cancel); last = 'out of breath'; broke = true; break; }
                     steps += r.i - i;
                     if (r.i <= j) { last = r.why; broke = true; break; }
-                    i = j + 1; continue;
+                    i = j + 1;
+                    if (leaving) await this._behind(route[i - 2], route, i);
+                    continue;
                 }
                 this.note(`${s.move} ${route[i - 1].x},${route[i - 1].y},${route[i - 1].z}->${s.x},${s.y},${s.z}${s.dig && s.dig.length ? ' dig' : ''}`);
                 const r = await this.step(route[i - 1], s), at = feet(this.bot);
                 if (!r.ok || at.x !== s.x || at.z !== s.z || at.y !== s.y) { last = r.ok ? `ended at ${at.x},${at.y},${at.z} not ${s.x},${s.y},${s.z} (${s.move})` : r.why; broke = true; break; }
                 steps++; i++;
-                // the bridge block behind is broken as the bot goes on (as a player does: no bridge is left standing; owner 2026-11-23 V4)
-                if (s.move === 'bridge') await this._behind(route[i - 2], route, i);
+                // the block behind (a bridge, a pillar left sideways) is broken as the bot goes on, as a player does (owner 2026-11-23 V4, list 5 Large 1)
+                if (s.move !== 'pillar') await this._behind(route[i - 2], route, i);
             }
             if (!broke && !cancel.cancelled) { const f = feet(this.bot); if (g(f.x, f.y, f.z)) return { ok: true, steps }; }
         }
