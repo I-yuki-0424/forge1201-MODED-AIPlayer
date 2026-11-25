@@ -239,12 +239,21 @@ function install() {
     const server = new Server();
     if (process.env.TRACE) console.log(`[front] ${server.world.loadTrace(process.env.TRACE)} chunks from ${process.env.TRACE}`);
     server.loadCapture(process.env.CAPTURE || `/out/simrec/capture-${VERSION}.jsonl`);
-    // clocks SPEED x faster: the physics poll every 50 / SPEED ms and performance.now running SPEED x (src/transport/time_scale.js does the same up to 10)
+    // One game clock for every bot, stepped, not scaled: every 50 / SPEED ms of wall time it advances exactly one tick (performance.now + 50 ms) and runs each
+    // bot's physics poll once. Scaling the wall clock instead (time_scale.js) let mineflayer's accumulator catch up several physics steps in one poll when the
+    // event loop lagged, and the action layer's runner, which counts 'physicsTick' events between its awaits, saw one tick for several steps: walks
+    // measured about 5 ticks short on move_b (mvb-r1 traces: one jump arc of four steps inside one counted tick). A late poll now slows the game instead.
     const { performance } = require('perf_hooks');
-    const now = performance.now.bind(performance), t0 = now();
-    performance.now = () => t0 + (now() - t0) * SPEED;
-    const si = global.setInterval;
-    global.setInterval = function scaled(fn, ms, ...rest) { return si.call(this, fn, fn && fn.name === 'doPhysics' ? ms / SPEED : ms, ...rest); };
+    let virtual = performance.now();
+    performance.now = () => virtual;
+    const si = global.setInterval, ci = global.clearInterval;
+    const polls = new Map(); let nextPoll = 1;
+    si.call(global, () => { virtual += 50; for (const fn of [...polls.values()]) { try { fn(); } catch (e) { console.error('[front] physics poll', e && e.message); } } }, Math.max(1, 50 / SPEED));
+    global.setInterval = function stepped(fn, ms, ...rest) {
+        if (fn && fn.name === 'doPhysics') { const h = { front: nextPoll++ }; polls.set(h.front, fn); return h; }
+        return si.call(this, fn, ms, ...rest);
+    };
+    global.clearInterval = function (h) { if (h && h.front) { polls.delete(h.front); return; } return ci.call(this, h); };
     const ts = require(path.join(ROOT, 'src/transport/time_scale.js'));
     ts.setTimeScale = () => SPEED;                                                     // the transport's own scaling is this one
     // every bot gets a fake client
