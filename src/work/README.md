@@ -66,7 +66,9 @@ escalation.js  request to the DPOD router (not wired into any job)
 | picking bots by number (from..to) | `botsInRange`, `_withRange` in `service/jobs.js`, `botRangePicker` in `public/work/widgets.js`, Jobs page |
 | one-off commands from the page | `service/commands.js` (forms: `operator/catalog.js`) |
 | anything that needs RCON (kit, players, terrain) | `service/operator.js` |
-| what is drawn in the game | `display/overlay.js` (what and when), `display/shapes.js` (lines), `service/display.js` (the data) |
+| what is drawn in the game / how long a path is shown | `display/overlay.js` (what and when: keyed by what it shows, updated in place), `display/shapes.js` (lines, summon / update commands), `service/display.js` (the data) / `display/paths.js` |
+| the inventory's pictures, names and durability bar / where the textures come from | `public/work/icons.js`, `public/work/inv.js` / `web/assets/store.js` (client jar, cache `WORK_ASSETS`), `web/assets/models.js`, `web/routes/assets.js` |
+| what a page remembers for the next visit | `Keep`, `KeptSet` in `public/work/ui.js`; map views `makeMap({keep})` / `showMap` in `public/work/widgets.js` |
 | a new HTTP route | `web/routes/*.js` (one file per area) and its test in `tests/test_work_console_pure.js` |
 | authentication, sessions, security headers | `web/server.js`, `web/http.js`, `web/access.js` |
 | the page | `public/work/page_<name>.js` (one per page), shared pieces in `ui.js` and `widgets.js` |
