@@ -394,7 +394,27 @@ test('time scale: mineflayer still polls physics with setInterval(doPhysics) on 
     const out = JSON.parse(await new Promise((res, rej) => execFile(process.execPath, ['-e', probe], { cwd: require('path').join(__dirname, '..'), env: { ...process.env, GAME_SPEED: '2' } }, (e, so) => (e ? rej(e) : res(so)))));
     assert.ok(out.wall > 800 && out.wall < 1400, `40 polls took ${out.wall} ms of wall time (expected ~1000 at 25 ms)`);
     assert.ok(Math.abs(out.clock / out.wall - 2) < 0.1, `clock/wall ${out.clock / out.wall}`);
-    assert.throws(() => require('../src/transport/time_scale').setTimeScale(11), /\[1, 10\]/);
+    assert.throws(() => require('../src/transport/time_scale').setTimeScale(11), /\[0.1, 10\]/);
+});
+
+test('time scale follows the server (set_ticking_state, /tick rate): the clock changes while the physics poll runs, stays continuous, and clamps what no client could keep', async () => {
+    // TASK-20261125-079: a vanilla client ticks at the rate the server announces; the bots do the same (fabric_bot.js follow). 20 polls at x1, then
+    // the server says 60 ticks/s: the next 30 polls come every ~16.7 ms and the clock runs x3; performance.now() never jumps.
+    const { execFile } = require('child_process');
+    const probe = `const { performance } = require('perf_hooks'); const EE = require('events'); const ts = require('./src/transport/time_scale');
+        const bot = { _client: new EE() }; ts.follow(bot); const log = []; const orig = console.log; console.log = (s) => log.push(s);
+        let n = 0, last = performance.now(), back = 0, t1, w1;
+        const id = setInterval(function doPhysics() { const now = performance.now(); if (now < last) back++; last = now; n++;
+            if (n === 20) { bot._client.emit('set_ticking_state', { tick_rate: 60, is_frozen: false }); t1 = performance.now(); w1 = Date.now(); }
+            if (n === 50) { clearInterval(id); const clock = performance.now() - t1, wall = Date.now() - w1;
+                bot._client.emit('set_ticking_state', { tick_rate: 1000, is_frozen: false }); const clamped = ts.scale;
+                orig(JSON.stringify({ clock, wall, back, clamped, said: log })); } }, 50);`;
+    const out = JSON.parse(await new Promise((res, rej) => execFile(process.execPath, ['-e', probe], { cwd: require('path').join(__dirname, '..'), env: { ...process.env, GAME_SPEED: '' } }, (e, so) => (e ? rej(e) : res(so)))));
+    assert.ok(out.wall > 350 && out.wall < 800, `30 polls at x3 took ${out.wall} ms of wall time (expected ~500)`);
+    assert.ok(Math.abs(out.clock / out.wall - 3) < 0.15, `clock/wall ${out.clock / out.wall}`);
+    assert.strictEqual(out.back, 0, 'performance.now() went backwards at the change');
+    assert.strictEqual(out.clamped, 10, 'a rate no client can keep is clamped to x10');
+    assert.ok(out.said.some((s) => /tick rate 60\/s: client clock x3/.test(s)) && out.said.some((s) => /clamped from x50/.test(s)), JSON.stringify(out.said));
 });
 
 test('sites (owner 2026-11-02): candidates in order, never reused (state survives a restart), 500+ from the partner, exhausted -> null', () => {

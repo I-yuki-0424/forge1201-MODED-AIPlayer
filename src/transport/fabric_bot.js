@@ -9,7 +9,8 @@ const { gameVersion } = require('./platform');
 
 /** createBot against a Fabric server. `host` is the plain host name. */
 function createBot({ host = 'localhost', port = 25565, username, viewDistance, checkTimeoutInterval }) {
-    require('./time_scale').fromEnv();    // GAME_SPEED: a server running tools/tickrate needs the client clock to match
+    const clock = require('./time_scale');
+    clock.fromEnv();                      // GAME_SPEED: the start value of the client clock
     const bot = mineflayer.createBot({
         host, port, username,
         version: gameVersion(),
@@ -19,6 +20,7 @@ function createBot({ host = 'localhost', port = 25565, username, viewDistance, c
         ...(viewDistance ? { viewDistance } : {}),
         ...(checkTimeoutInterval ? { checkTimeoutInterval } : {}),
     });
+    clock.follow(bot);                    // then the server's own tick rate (set_ticking_state, `/tick rate`): the bots tick as the server does
     bot.once('login', () => fixDigTime(bot));
     return bot;
 }
