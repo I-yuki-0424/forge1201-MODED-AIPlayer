@@ -169,7 +169,21 @@ are installed: if the game shows the conflict, one of the two has to go (owner's
 
 ## Test results on 1.21.1 next to the last 26.x ones
 
-PLACEHOLDER-RESULTS
+Every 1.21.1 run: three NEW random-seed worlds (`suite.sh`, worlds 1-3), graded by the server, the mineflayer physics/inventory/dig (TASK-076's native layer was not in these
+checkouts, or switched off with `NATIVE_*=0`), temporary blocks pumpkins, drops into the pack by the auto-pickup mod. The 26.x column is the last suite of that test on the T26 worlds
+(results in TEST-WORLDS-T26.md); the code differs between the two dates, so a difference is a lead, not a proof.
+
+| Test | 1.21.1 (run, seeds in TEST-WORLDS-T26.md) | Last 26.x | Reading |
+| :-- | :-- | :-- | :-- |
+| `place_a` | **12/12 = 100 %: success** (`pa-w121-a`), bridges of pumpkins | 12/12 (`pa-b`) | same |
+| `move_a` | **6/12 = 50 %: failure** (`ma-w121-a`): deaths at night and at sea, stuck at sea after a death | 8/12, 6/12, 6/12 (`ma-2000-f`, `-e`, `-d`) | the same failure classes on both: not a migration fault; open as before |
+| `move_b` | **3/3 = 100 %: success** (`move_b-w121-a`) | 2/3 (`mvb-d`) | passes on 1.21.1 |
+| `mine_a` | **10/12 = 83 %: failure** (`mine_a-w121-a`; w1 3/4, w2 3/4, w3 4/4). Mn3w1 started floating on deep water (water y 51-62 under it, 2000 blocks from the spawn) and found nothing to gather in reach; Mn3w2 sank into a lake while prospecting coal and looped the breath reflex until its harness was stopped at 01:18 after 63 min (to keep the reboot window free; its three passes are in the log, the world's JSON was not written: the suite's verdict shows worlds 1 and 3) | 12/12 (`mna-layer-a`, with 64 cobblestone in the kit) | both failures are water starts/lakes; 26.x's kit met the cobblestone goal by itself. Open (not version-specific in the evidence): a bot that starts or sinks in deep water |
+| `place_b` | **3/3 = 100 %: success** (`place_b-w121-a`, graded by hand from the three JSONs: the suite's grading line was lost to an edit of `suite.sh` during the run) | 3/3 (`pb-g`) | same |
+| `place_c` | **0/3: failure**, all three at the 20-minute limit (`place_c-w121-a`): 848, 1074 and 1043 of 1288 cells right at 18 min; the blueprint came through Syncmatica on all three (share, download, parse); controls fail as they must | 0/1 on each of three single-world runs (`dev-place_c_*`, 2026-11-19: timeouts at 20 min) | the same limit is missed on both; the build itself runs on 1.21.1 (TASK-081 owns the build) |
+| `mine_b` | running after the reboot window: `/mnt/data/forgeaip-play/t26/out/stageb/chain3.sh` (runs `mine_b-w121-a`, up to 240 min, from 06:10 after the build_t smoke) | 0/3 (`mnb-layer-a`) | |
+| `build_t` smoke | running from 06:10 (`build_t-w121-smoke`: 8 bots, iron-farm-34, 30 min, three worlds), same script | every crew FAIL in the 26.x batches (`hc1`, `hd1`) | |
+
 
 ## What other tasks must know
 
@@ -179,3 +193,15 @@ PLACEHOLDER-RESULTS
 - `gameVersion()` returns `false` for Fabric without `MC_VERSION` (mineflayer pings the server). The 26.x consoles set `MC_VERSION=26.1` and are unchanged.
 - `mine_a`'s cobblestone goal was met by the 26.x kit itself (64 cobblestone); with pumpkins in the kit it is a real goal now: compare the two versions' `mine_a` with that in mind.
 - Do not edit a test-world script while a suite runs it: bash reads a script as it goes, and the edit of `suite.sh` during `place_b-w121-a` cut the run's grading off (graded by hand).
+
+## Definition of done (OWNER-LIST-5.md) and where each item stands (2026-11-26 02:00 JST)
+
+| Item | State |
+| :-- | :-- |
+| 26.x frozen except creative, list in the doc | done (above; TEST-WORLDS-T26.md has the restart commands) |
+| `npm test` green | done (84 files, after the last rebase) |
+| each T26 test once on three new 1.21.1 worlds, next to the last 26.x result | done for place_a, move_a, move_b, mine_a, place_b, place_c; `mine_b` and the `build_t` smoke run after the reboot window (06:10, detached script above); no test fails only on 1.21.1 so far |
+| pumpkins and auto-pickup verified live | done (`version_probe.js` 9/9; place_a bridges are pumpkins) |
+| creative 1.21.1 server and console up, checked unauthenticated | done (25620 / 3034; identical answers to 3031; assets ready for 1.21.1) |
+| PC instance carried over with the lists | done; the first start crashed (Kotlin, fixed above); the owner starts it again |
+| this doc | done; the `mine_b` and `build_t` rows are filled when their runs end |
