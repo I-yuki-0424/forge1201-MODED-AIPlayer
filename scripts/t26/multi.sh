@@ -4,8 +4,9 @@
 # Every world is made new first, so no crew runs on old code. Logs: /mnt/data/forgeaip-play/t26/out/RUN-w<N>c<k>.log. Server: CPUS=3, 6 GB.
 set -u
 RUN=${1:?run}; WS=${2:?worlds}; OW=${3:-2}; NE=${4:-2}; D=/mnt/data/forgeaip-play/t26/out; R=$(cd "$(dirname "$0")/../.." && pwd)
+. "$R/scripts/t26/profile.sh"                       # tw_speed: the builds' game speed (SPEED-v1.md)
 for w in $WS; do (
-  CPUS=${CPUS:-3} MEM_LIMIT=${MEM_LIMIT:-6g} HEAP=${HEAP:-5000M} "$R/scripts/t26/up.sh" "$w" --new > "$D/$RUN-w$w-up.log" 2>&1 || exit 1
+  CPUS=${CPUS:-3} MEM_LIMIT=${MEM_LIMIT:-6g} HEAP=${HEAP:-5000M} SPEED=${SPEED:-$(tw_speed build_t)} "$R/scripts/t26/up.sh" "$w" --new > "$D/$RUN-w$w-up.log" 2>&1 || exit 1
   for ((k = 0; k < OW; k++)); do
     ( for try in 1 2 3; do timeout 14000 "$R/scripts/t26/run.sh" "$w" build_t.js LITEMATIC=/app/tests/fixtures/iron-farm-34.litematic BOTS=8 CREW=$k LIMIT_MIN=${LIMIT_MIN:-200} RUN="$RUN" > "$D/$RUN-w${w}c$k.log" 2>&1
         grep -q "no place for the chest\|no ground under the site\|no dry site\|Error: rcon" "$D/$RUN-w${w}c$k.log" || break; done ) &          # a site without room for the chest: another draw

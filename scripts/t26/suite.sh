@@ -7,8 +7,9 @@
 set -uo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/profile.sh"
 TEST=${1:?test}; shift; WORLDS=${1:-3}; [[ $WORLDS =~ ^[1-9]$ ]] && shift || WORLDS=3
+export SPEED=${SPEED:-$(tw_speed "$TEST")}             # the test's game speed (profile, SPEED-v1.md); up.sh sets it on every new world
 RUN=${RUN:-$TEST-$TW_TAG-$(date +%m%d-%H%M)}; F=${FIRST:-1}; LIST=$(seq "$F" $((F + WORLDS - 1))); OUT=$TW_HOME/out/$RUN; mkdir -p "$OUT"
-echo "$TW_PROFILE" > "$OUT/profile.txt"
+echo "$TW_PROFILE" > "$OUT/profile.txt"; echo "$SPEED" > "$OUT/speed.txt"
 if [ "${KEEP:-0}" != 1 ]; then i=0; read -ra SD <<< "${SEEDS:-}"; for N in $LIST; do S=(); [ -n "${SD[$i]:-}" ] && S=(--seed "${SD[$i]}"); i=$((i + 1)); "$TW_REPO/scripts/t26/up.sh" "$N" --new "${S[@]}" > "$OUT/up-w$N.log" 2>&1 & done; wait; fi
 UP=""; for N in $LIST; do if [ "${KEEP:-0}" = 1 ] || grep -q " up " "$OUT/up-w$N.log" 2>/dev/null; then grep -h " up " "$OUT/up-w$N.log" 2>/dev/null; UP="$UP $N"; else echo "world $N did not come up: $(tail -n 1 "$OUT/up-w$N.log" 2>/dev/null)"; fi; done
 for N in $UP; do "$TW_REPO/scripts/t26/run.sh" "$N" "$TEST.js" RUN="$RUN" "$@" > "$OUT/$TEST-w$N.log" 2>&1 & done; wait
