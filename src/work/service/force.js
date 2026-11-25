@@ -55,7 +55,10 @@ class ForcePart {
         try {
             const under = bot.blockAt(bot.entity.position.floored().offset(0, -1, 0));
             if (under && w.kindAt(f.x, f.y - 1, f.z) === 'solid' && !CONTAINER.test(under.name) && !this.isFixture(under.name, under.position.x, under.position.y, under.position.z)) {
-                try { await Promise.race([bot.dig(under, true), sleep(7000).then(() => { throw new Error('dig timed out'); })]); } catch (e) { try { bot.stopDigging(); } catch (_) { /* not digging */ } }
+                // the body's own attack on the block under the feet (its top face), as every dig of the action layer (TASK-20261125-076: no mineflayer bot.dig);
+                // `__preempt` stays set meanwhile, so no command takes the body back before the fall
+                await sleep(120);                 // the running command sees the preempt on its next tick and lets go of the keys
+                try { await require('../../skills/inputs').digCell(bot, under.position, { face: 1, maxMs: 7000 }); } catch (_) { /* the step-off below still runs */ }
                 await sleep(300);
                 if (!bot.entity.onGround || w.kindAt(f.x, f.y - 1, f.z) !== 'solid') return 'dug';
             }

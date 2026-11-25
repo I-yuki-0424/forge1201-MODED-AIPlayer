@@ -75,7 +75,8 @@ async function setSpawn(o) {
         if (!fresh || !BED.test(fresh.name)) return { ok: false, reason: 'invalid_target', detail: { why: 'the bed is gone', bed: bedPos } };
         await bot.lookAt(new Vec3(bedPos.x + 0.5, bedPos.y + 0.5, bedPos.z + 0.5), true).catch(() => {});
         let onSleep; const slept = new Promise((r) => { onSleep = () => r(true); bot.once('sleep', onSleep); });
-        try { await bot.activateBlock(fresh); } catch (e) { bot.removeListener('sleep', onSleep); return { ok: false, reason: 'not_confirmed', detail: { why: `the touch failed: ${String(e.message).slice(0, 80)}`, bed: bedPos } }; }
+        // the body's use button on the bed's top face (TASK-20261125-076: no mineflayer activateBlock, which sent the same click: top face, the middle of it)
+        try { await require('../../skills/inputs').activateCell(bot, bedPos, { blind: true }); } catch (e) { bot.removeListener('sleep', onSleep); return { ok: false, reason: 'not_confirmed', detail: { why: `the touch failed: ${String(e.message).slice(0, 80)}`, bed: bedPos } }; }
         const lay = await Promise.race([slept, sleep(1500).then(() => false)]);
         bot.removeListener('sleep', onSleep);
         if (bot.isSleeping) { await sleep(300); try { await bot.wake(); } catch (_) { /* already up */ } }         // the respawn point is set when lying down: do not sleep until morning

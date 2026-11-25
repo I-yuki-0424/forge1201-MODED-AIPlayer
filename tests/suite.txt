@@ -17,6 +17,7 @@ tests/test_mod_registry_pure.js
 tests/test_native_physics_pure.js
 tests/test_native_inventory_pure.js
 tests/test_native_container_sim.js
+tests/test_native_wire_pure.js
 tests/test_rl_v2_pure.js
 tests/test_damage_log_pure.js
 tests/test_work_pure.js
