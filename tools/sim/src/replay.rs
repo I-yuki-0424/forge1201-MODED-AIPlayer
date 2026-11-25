@@ -14,7 +14,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
 
 /// Commands the simulator models (the others are counted as `unsupported`: a coverage gap, not a divergence).
-pub const MODELLED: [&str; 8] = ["move_to", "mine", "tunnel", "place", "craft", "smelt", "eat", "equip"];
+pub const MODELLED: [&str; 11] = ["move_to", "mine", "tunnel", "place", "craft", "smelt", "eat", "equip", "move:pillar", "move:descend", "move:bridge"];
 /// Divergence categories (the task's list plus the ones the comparison needs); `unsupported` and `data` are reported apart.
 pub const CATEGORIES: [&str; 18] = ["movement_reach", "collision", "walk_time", "dig_time", "dig_rules", "placement_rules", "place_time", "fluids", "drops",
     "gravity_blocks", "hunger", "light", "recipes", "inventory_other", "blocks_other", "other_time", "world_clock", "random_drops"];
@@ -22,7 +22,7 @@ pub const CATEGORIES: [&str; 18] = ["movement_reach", "collision", "walk_time", 
 /// A change no command makes but the server's clocks do (random and scheduled ticks): leaves without a log nearby decay, grass and mycelium under
 /// an opaque block turn to dirt, dirt next to grass turns to grass, farmland dries, snow and ice melt, fire burns out.
 pub fn world_clock(from: &str, to: &str) -> bool {
-    (from.ends_with("_leaves") && to == "air") || (matches!(from, "grass_block" | "mycelium" | "podzol") && to == "dirt") || (from == "dirt" && matches!(to, "grass_block" | "mycelium"))
+    (from.ends_with("_leaves") && to == "air") || (from == "air" && crate::sim::gravity_block(to)) || (matches!(from, "grass_block" | "mycelium" | "podzol") && to == "dirt") || (from == "dirt" && matches!(to, "grass_block" | "mycelium"))
         || (from == "farmland" && to == "dirt") || (matches!(from, "snow" | "ice") && matches!(to, "air" | "water")) || (from == "fire" && to == "air")
 }
 /// Items a broken block drops only by chance (loot tables with a random chance), so one command's drop cannot be expected to match.
@@ -53,6 +53,10 @@ pub struct Cmd { pub id: u64, pub refid: Option<u64>, pub atomic: bool, pub env:
 /// One bot's trace.
 pub struct Trace {
     pub bot: String, pub version: String,
+    /// The test world's temporary block (hello `temp`; traces before it was recorded came from 1.21.1 test worlds: pumpkin).
+    pub temp: String,
+    /// Recorded on a test world of the harness (hello `world`): the server has the auto-pickup mod.
+    pub test_world: bool,
     pub states: HashMap<u32, String>,
     /// Vine faces per state id (from the `st` lines' properties).
     pub vine_bits: HashMap<u32, u8>,
@@ -76,14 +80,16 @@ fn b64(s: &str) -> Result<Vec<u8>, String> {
 
 impl Trace {
     pub fn parse(text: &str) -> Result<Trace, String> {
-        let mut t = Trace { bot: String::new(), version: String::new(), states: HashMap::new(), vine_bits: HashMap::new(), chunks: vec![], blks: vec![], cmds: vec![] };
+        let mut t = Trace { bot: String::new(), version: String::new(), temp: "pumpkin".into(), test_world: false, states: HashMap::new(), vine_bits: HashMap::new(), chunks: vec![], blks: vec![], cmds: vec![] };
         let mut open: HashMap<u64, Cmd> = HashMap::new();
         for (ln, line) in text.lines().enumerate() {
             if line.trim().is_empty() { continue; }
             let j = json::parse(line).map_err(|e| format!("line {}: {}", ln + 1, e))?;
             match j.get("t").s() {
                 "hello" => { if j.get("format").i() != 1 { return Err(format!("line {}: trace format {} (this replayer reads 1)", ln + 1, j.get("format").i())); }
-                    t.bot = j.get("bot").s().to_string(); t.version = j.get("version").s().to_string(); }
+                    t.bot = j.get("bot").s().to_string(); t.version = j.get("version").s().to_string();
+                    t.test_world = !j.get("world").is_null();
+                    if !j.get("temp").is_null() { t.temp = j.get("temp").s().trim_start_matches("minecraft:").to_string(); } }
                 "st" => {
                     let id = j.get("id").i() as u32;
                     if j.get("n").s() == "vine" {
@@ -177,6 +183,12 @@ pub struct Outcome { pub ok: bool, pub reason: String, pub ticks: Option<i64>, p
 pub struct Agree { pub outcome: bool, pub cell: bool, pub blocks: bool, pub inv: bool, pub ticks: bool, pub food: bool, pub clock: bool, pub random: bool }
 impl Agree { pub fn all(&self) -> bool { self.outcome && self.cell && self.blocks && self.inv } }
 
+/// Every cell a command names (x/y/z, a bridge's cells at its y): block changes near any of them belong to the command.
+fn arg_cells(a: &J) -> Vec<[i32; 3]> {
+    let mut v: Vec<[i32; 3]> = arg_cell(a).into_iter().collect();
+    for c in a.get("cells").arr() { v.push([c.get("x").i() as i32, a.get("y").i() as i32, c.get("z").i() as i32]); }
+    v
+}
 fn arg_cell(a: &J) -> Option<[i32; 3]> { if a.get("x").is_null() || a.get("y").is_null() || a.get("z").is_null() { None } else { Some([a.get("x").i() as i32, a.get("y").i() as i32, a.get("z").i() as i32]) } }
 fn dist2(a: [i32; 3], b: [i32; 3]) -> i32 { (a[0] - b[0]).pow(2) + (a[1] - b[1]).pow(2) + (a[2] - b[2]).pow(2) }
 fn delta(a: &BTreeMap<String, i64>, b: &BTreeMap<String, i64>) -> BTreeMap<String, i64> {
@@ -203,8 +215,14 @@ fn load_state(s: &mut Sim, st: &State, skipped: &mut BTreeMap<String, u32>) {
 }
 
 /// Run one command in the simulator. None = not modelled.
-fn sim_command(s: &mut Sim, name: &str, a: &J) -> Option<(bool, String, i64)> {
+fn sim_command(s: &mut Sim, name: &str, a: &J, temp: &str) -> Option<(bool, String, i64)> {
     let o = match name {
+        "move:pillar" => s.do_pillar(a.get("levels").i().max(1), temp),
+        "move:descend" => s.do_descend(a.get("levels").i().max(1), temp),
+        "move:bridge" | "run:bridge" => {
+            let cells: Vec<[i32; 2]> = a.get("cells").arr().iter().map(|c| [c.get("x").i() as i32, c.get("z").i() as i32]).collect();
+            s.do_bridge(a.get("y").i() as i32, &cells, a.get("keep").b() || a.get("road").b() || a.get("build").b(), temp)
+        }
         "move_to" => s.do_move(arg_cell(a)?),
         "mine" => s.do_mine_opts(arg_cell(a)?, a.get("collect").is_null() || a.get("collect").b(), a.get("blind").b()),
         "tunnel" => s.do_tunnel(a.get("dir").s(), a.get("dy").i() as i32),
@@ -231,10 +249,20 @@ fn sim_command(s: &mut Sim, name: &str, a: &J) -> Option<(bool, String, i64)> {
     Some((o.ok, o.reason.to_string(), o.ticks))
 }
 
+/// What another bot of the same run was doing: its command windows and the cells each one is about (start, end, the cells it names). A block
+/// change inside one bot's window that is nearer to another bot's concurrent command than to its own is the other bot's (four bots building
+/// bridges from one platform: place_a pa-r1).
+#[derive(Clone)]
+pub struct Win { pub t0: f64, pub t1: f64, pub cells: Vec<[i32; 3]> }
+pub fn windows(t: &Trace) -> Vec<Win> {
+    t.cmds.iter().map(|c| { let mut cells = arg_cells(&c.args); cells.push(c.before.cell()); cells.push(c.after.cell()); Win { t0: c.t0, t1: c.t1, cells } }).collect()
+}
+fn nearest(p: [i32; 3], cells: &[[i32; 3]]) -> i32 { cells.iter().map(|q| dist2(p, *q)).min().unwrap_or(i32::MAX) }
+
 /// A recorded world followed through time: the tile, the block updates in order, and a Sim holding the world at the cursor.
 pub struct Cursor { pub w: World, pub s: Sim, pub ev: usize }
 impl Cursor {
-    pub fn new(t: &Trace, d: Rc<Data>) -> Cursor { let w = world(t, &d); let mut s = Sim::new(d, w.tile.clone(), 1); s.vine = w.vine.clone(); s.astar = true; Cursor { w, s, ev: 0 } }
+    pub fn new(t: &Trace, d: Rc<Data>) -> Cursor { let w = world(t, &d); let mut s = Sim::new(d, w.tile.clone(), 1); s.vine = w.vine.clone(); s.astar = true; s.autopickup = t.test_world; Cursor { w, s, ev: 0 } }
     /// Apply every recorded block update before `t0`.
     pub fn advance(&mut self, t0: f64) {
         while self.ev < self.w.events.len() && self.w.events[self.ev].0 < t0 {
@@ -246,15 +274,19 @@ impl Cursor {
     }
     /// What the server did in command `c` (call after `advance(c.t0)`): the block updates inside its window near the bot's start, end or target
     /// (another bot's changes farther away are not this command's), cells that came back to their first state dropped.
-    pub fn outcome(&self, c: &Cmd, near: i32) -> Outcome {
+    pub fn outcome(&self, c: &Cmd, near: i32, others: &[Win]) -> Outcome {
         let (cb, ca) = (c.before.cell(), c.after.cell());
         let target = arg_cell(&c.args);
+        let named = arg_cells(&c.args);
+        let mut own = named.clone(); own.push(cb); own.push(ca);
+        let busy: Vec<&Win> = others.iter().filter(|w| w.t0 <= c.t1 && w.t1 >= c.t0).collect();
         let mut blocks: BTreeMap<[i32; 3], String> = BTreeMap::new();
         let mut first: HashMap<[i32; 3], String> = HashMap::new();
         let mut k = self.ev;
         while k < self.w.events.len() && self.w.events[k].0 <= c.t1 {
             let (_, p, b, _) = self.w.events[k];
-            if dist2(p, cb) <= near * near || dist2(p, ca) <= near * near || target.map_or(false, |q| dist2(p, q) <= near * near) {
+            let mine = nearest(p, &own);
+            if mine <= near * near && !busy.iter().any(|w| nearest(p, &w.cells) < mine) {
                 first.entry(p).or_insert_with(|| self.s.name(p[0], p[1], p[2]).to_string());
                 blocks.insert(p, self.s.d.block(b).name.clone());
             }
@@ -292,7 +324,7 @@ pub fn agree(a: &Outcome, b: &Outcome) -> Agree {
 }
 
 /// Replay one trace: rows in command order, plus the block names the tables do not know and items that could not be loaded.
-pub fn replay(t: &Trace, d: Rc<Data>, near: i32) -> (Vec<Row>, BTreeMap<String, u32>, BTreeMap<String, u32>) {
+pub fn replay(t: &Trace, d: Rc<Data>, near: i32, others: &[Win]) -> (Vec<Row>, BTreeMap<String, u32>, BTreeMap<String, u32>) {
     let mut cur = Cursor::new(t, d.clone());
     let mut skipped = BTreeMap::new();
     let mut rows = vec![];
@@ -301,7 +333,7 @@ pub fn replay(t: &Trace, d: Rc<Data>, near: i32) -> (Vec<Row>, BTreeMap<String, 
         cur.advance(c.t0);
         // `cancelled` is the caller stopping the command (the job's own timing), not something the server answered: nothing to compare
         if c.reason == "cancelled" { rows.push(Row { bot: t.bot.clone(), id: c.id, name: c.name.clone(), supported: false, real: Outcome::default(), sim: Outcome { reason: "cancelled".into(), ..Default::default() }, agree: Agree::default(), cats: vec![] }); continue; }
-        let real = cur.outcome(c, near);
+        let real = cur.outcome(c, near, others);
         // the simulator from the same state; its changes are undone afterwards (the next command starts from the recorded world again)
         let s = &mut cur.s;
         load_state(s, &c.before, &mut skipped);
@@ -309,13 +341,15 @@ pub fn replay(t: &Trace, d: Rc<Data>, near: i32) -> (Vec<Row>, BTreeMap<String, 
         let vine0 = s.vine.clone();
         let inv0 = { let mut m = BTreeMap::new(); for (n, q) in s.held() { m.insert(n, q as i64); } m };
         s.atomic = c.atomic; s.plan_nodes = c.env.0; s.max_drop = c.env.1; s.no_vines = c.env.2;
-        let out = if c.layer == "execute" { sim_command(s, &c.name, &c.args) } else { None };
+        let out = if c.layer == "execute" || c.name.starts_with("move:") || c.name == "run:bridge" { sim_command(s, &c.name, &c.args, &t.temp) } else { None };
         s.atomic = false;
         let journal = s.journal.take().unwrap_or_default();
         let mut sim_blocks: BTreeMap<[i32; 3], String> = BTreeMap::new();
         let mut olds: HashMap<[i32; 3], u16> = HashMap::new();
         for ((x, y, z), old) in &journal { olds.entry([*x, *y, *z]).or_insert(*old); }
-        for (p, old) in &olds { let now = s.blk(p[0], p[1], p[2]).unwrap_or(d.air); if now != *old { sim_blocks.insert(*p, d.block(now).name.clone()); } }
+        let (cb, ca, named) = (c.before.cell(), c.after.cell(), arg_cells(&c.args));
+        let seen = |p: &[i32; 3]| dist2(*p, cb) <= near * near || dist2(*p, ca) <= near * near || named.iter().any(|q| dist2(*p, *q) <= near * near);
+        for (p, old) in &olds { let now = s.blk(p[0], p[1], p[2]).unwrap_or(d.air); if now != *old && seen(p) { sim_blocks.insert(*p, d.block(now).name.clone()); } }
         let inv1 = { let mut m = BTreeMap::new(); for (n, q) in s.held() { m.insert(n, q as i64); } m };
         let supported = out.is_some();
         let (sok, sreason, sticks) = out.unwrap_or((false, "unsupported".into(), 0));
@@ -328,7 +362,7 @@ pub fn replay(t: &Trace, d: Rc<Data>, near: i32) -> (Vec<Row>, BTreeMap<String, 
             from: sfrom };
         // undo the simulator's changes: back to the recorded blocks (edits made by recorded events stay as they were before the command)
         for (p, old) in &olds { s.set(p[0], p[1], p[2], *old); }
-        s.vine = vine0;
+        s.vine = vine0; s.falling.clear();
         let ag = agree(&real, &sim);
         let cats = if supported { categorize(&c.name, &real, &sim, &ag) } else { vec![] };
         rows.push(Row { bot: t.bot.clone(), id: c.id, name: c.name.clone(), supported, real, sim, agree: ag, cats });
@@ -340,7 +374,7 @@ pub fn replay(t: &Trace, d: Rc<Data>, near: i32) -> (Vec<Row>, BTreeMap<String, 
 /// The real server against itself: run A (recorded) and run B (scripts/sim/play.js re-playing A on a new world of the same seed, its commands
 /// carrying `ref` = A's id). Pairs whose surroundings (blocks within 3 of the bot and the target), cell or pack differed at the start are left
 /// out (`diverged`): they measure the replay, not the server. Returns the rows (`real` = A, `sim` = B) and [paired, diverged, unplayed].
-pub fn compare(a: &Trace, b: &Trace, d: Rc<Data>, near: i32) -> (Vec<Row>, [u64; 3]) {
+pub fn compare(a: &Trace, b: &Trace, d: Rc<Data>, near: i32, others_a: &[Win], others_b: &[Win]) -> (Vec<Row>, [u64; 3]) {
     let mut ca = Cursor::new(a, d.clone());
     let mut cb = Cursor::new(b, d);
     let by_ref: HashMap<u64, &Cmd> = b.cmds.iter().filter_map(|c| c.refid.map(|r| (r, c))).collect();
@@ -352,7 +386,7 @@ pub fn compare(a: &Trace, b: &Trace, d: Rc<Data>, near: i32) -> (Vec<Row>, [u64;
         if let Some(t) = arg_cell(&c.args) { cells.push(t); }
         if ca.around(&cells, 3) != cb.around(&cells, 3) || c.before.cell() != p.before.cell() || c.before.counts() != p.before.counts() { n[1] += 1; continue; }
         n[0] += 1;
-        let (ra, rb) = (ca.outcome(c, near), cb.outcome(p, near));
+        let (ra, rb) = (ca.outcome(c, near, others_a), cb.outcome(p, near, others_b));
         let ag = agree(&ra, &rb);
         let cats = categorize(&c.name, &ra, &rb, &ag);
         rows.push(Row { bot: a.bot.clone(), id: c.id, name: c.name.clone(), supported: true, real: ra, sim: rb, agree: ag, cats });
@@ -489,7 +523,7 @@ pub fn run_compare(args: &[String]) -> Result<(), String> {
         let g = match fb.iter().find(|g| g.ends_with(&format!("/{}", base))) { Some(g) => g, None => { eprintln!("{}: no re-play", base); continue; } };
         let (a, b) = (load_trace(f)?, load_trace(g)?);
         let d = tables(&data, &a.version, &mut cache)?;
-        let (rows, n) = compare(&a, &b, d, near);
+        let (rows, n) = compare(&a, &b, d, near, &[], &[]);
         eprintln!("{}: {} paired, {} left out (surroundings or state differed at the start), {} not re-played", base, n[0], n[1], n[2]);
         for k in 0..3 { tot[k] += n[k]; }
         all.extend(rows);
@@ -513,11 +547,15 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let files = expand(&files)?;
     let mut all = vec![];
     let mut cache: HashMap<String, Rc<Data>> = HashMap::new();
-    for f in &files {
-        let t = load_trace(f)?;
+    let traces: Vec<(String, Trace)> = files.iter().map(|f| load_trace(f).map(|t| (f.clone(), t))).collect::<Result<_, _>>()?;
+    let wins: Vec<Vec<Win>> = traces.iter().map(|(_, t)| windows(t)).collect();
+    for (i, (f, t)) in traces.iter().enumerate() {
+        // the other bots of the same directory (one run) share the world: their concurrent commands own the changes near them
+        let dir = std::path::Path::new(f).parent();
+        let others: Vec<Win> = traces.iter().enumerate().filter(|(j, (g, _))| *j != i && std::path::Path::new(g).parent() == dir).flat_map(|(j, _)| wins[j].clone()).collect();
         // the tables of the trace's version: --data, else data/data-<version>.json, else the built-in 1.20.1 set
         let d = tables(&data, &t.version, &mut cache)?;
-        let (rows, unknown, skipped) = replay(&t, d, near);
+        let (rows, unknown, skipped) = replay(t, d, near, &others);
         if !unknown.is_empty() { eprintln!("{}: block names the tables do not know (treated as solid, undiggable): {:?}", f, unknown); }
         if !skipped.is_empty() { eprintln!("{}: items the tables do not know (left out of the pack): {:?}", f, skipped); }
         all.extend(rows);
@@ -597,7 +635,7 @@ mod tests {
     #[test]
     fn replay_finds_the_agreements_and_names_a_divergence() {
         let (mut t, d) = fixture();
-        let (rows, _, skipped) = replay(&t, d.clone(), 6);
+        let (rows, _, skipped) = replay(&t, d.clone(), 6, &[]);
         assert!(skipped.is_empty(), "{:?}", skipped);
         for r in &rows[..3] { assert!(r.agree.all(), "#{} {}: real {:?} sim {:?}", r.id, r.name, r.real, r.sim); }
         assert!(!rows[3].supported);
@@ -605,7 +643,7 @@ mod tests {
         assert_eq!((sum.get("total").get("n").i(), sum.get("total").get("modelled").i(), sum.get("total").get("outcome").i()), (4, 3, 3));
         // the same trace with the server refusing the short-grass placement (as a 1.20.1 rule would): one divergence, placement_rules
         t.cmds[2].ok = false; t.cmds[2].reason = "invalid_target".into();
-        let (rows, _, _) = replay(&t, d, 6);
+        let (rows, _, _) = replay(&t, d, 6, &[]);
         assert!(!rows[2].agree.outcome);
         assert!(rows[2].cats.contains(&"placement_rules"), "{:?}", rows[2].cats);
     }
@@ -616,18 +654,18 @@ mod tests {
         let (a, d) = fixture();
         let (mut b, _) = fixture();
         for c in b.cmds.iter_mut() { c.refid = Some(c.id); }
-        let (rows, n) = compare(&a, &b, d.clone(), 6);
+        let (rows, n) = compare(&a, &b, d.clone(), 6, &[], &[]);
         assert_eq!(n, [4, 0, 0]);
         assert!(rows.iter().all(|r| r.agree.all() && r.agree.ticks), "{:?}", rows.iter().map(|r| (r.id, r.agree)).collect::<Vec<_>>());
         b.cmds[1].before.pos[0] += 3.0;
-        let (rows, n) = compare(&a, &b, d, 6);
+        let (rows, n) = compare(&a, &b, d, 6, &[], &[]);
         assert_eq!((n, rows.len()), ([3, 1, 0], 3));
     }
     /// Teacher forcing: the simulator's changes are undone after each command; the next command sees the recorded blocks.
     #[test]
     fn each_command_starts_from_the_recorded_world_not_from_the_simulators() {
         let (t, d) = fixture();
-        let (rows, _, _) = replay(&t, d, 6);
+        let (rows, _, _) = replay(&t, d, 6, &[]);
         // command 1 dug (10,64,8) in both, command 2 refilled it with dirt in both; command 3's dirt is where the short grass was
         assert_eq!(rows[2].sim.blocks.get(&[12, 65, 8]).map(|s| s.as_str()), Some("dirt"));
         assert_eq!(rows[0].real.blocks.get(&[10, 64, 8]).map(|s| s.as_str()), Some("air"));

@@ -60,6 +60,11 @@ pub struct Sim {
     pub atomic: bool, pub hand: Option<String>,
     /// The planner's per-bot settings (options.js planNodes; world.js maxDrop, noVines: vines count as air).
     pub plan_nodes: usize, pub max_drop: i32, pub no_vines: bool,
+    /// Falling blocks in the air: (tick it lands, cell it lands in, block). The column over a dug cell becomes falling entities at once and lands
+    /// when vanilla gravity brings it down (move_b corpus mvb-r1: the sand over a dug cell was air at the end of the dig and landed later).
+    pub falling: Vec<(i64, [i32; 3], u16)>,
+    /// The server puts drops straight into the pack (the 1.21.1 test worlds' auto-pickup mod): collecting a drop costs no walk.
+    pub autopickup: bool,
     reach: Option<Reach>, pub scan_on: bool, pub way: Option<[i32; 3]>, pub scan_res: Option<(Vec<f64>, Vec<Option<[i32; 3]>>)>, pub recent: Vec<[i32; 3]>,
 }
 pub const PASSIVE: [(&str, f64); 4] = [("cow", 10.0), ("pig", 10.0), ("sheep", 8.0), ("chicken", 4.0)];
@@ -76,6 +81,8 @@ fn interactive(n: &str) -> bool { n.ends_with("_bed") || n.ends_with("chest") ||
     || matches!(n, "crafting_table" | "furnace" | "blast_furnace" | "smoker" | "barrel" | "lever" | "anvil" | "enchanting_table" | "brewing_stand" | "loom" | "grindstone" | "smithing_table" | "cartography_table" | "stonecutter" | "fletching_table") }
 pub const VINE_N: u8 = 1; pub const VINE_S: u8 = 2; pub const VINE_W: u8 = 4; pub const VINE_E: u8 = 8; pub const VINE_UP: u8 = 16;
 pub const VINE_SIDES: [(u8, [i32; 3]); 4] = [(VINE_N, [0, 0, -1]), (VINE_S, [0, 0, 1]), (VINE_W, [-1, 0, 0]), (VINE_E, [1, 0, 0])];
+/// Blocks that fall when nothing is under them (FallingBlock).
+pub fn gravity_block(n: &str) -> bool { matches!(n, "sand" | "red_sand" | "gravel" | "suspicious_sand" | "suspicious_gravel") || n.ends_with("_concrete_powder") }
 /// Blocks that stand on the block under them and break when it goes (vanilla canSurvive on the floor).
 pub fn needs_floor(n: &str) -> bool {
     matches!(n, "short_grass" | "grass" | "tall_grass" | "fern" | "large_fern" | "dead_bush" | "torch" | "soul_torch" | "redstone_torch" | "redstone_wire" | "rail" | "powered_rail" | "detector_rail" | "activator_rail"
@@ -115,7 +122,7 @@ pub fn tool_rank(n: &str) -> i32 { ["wooden", "golden", "stone", "iron", "diamon
 impl Sim {
     pub fn new(d: Rc<Data>, tile: Rc<Tile>, seed: u64) -> Sim {
         Sim { d, tile, edits: HashMap::new(), pos: [0; 3], yaw: 0.0, hp: 20.0, food: 20.0, sat: 5.0, exh: 0.0, inv: vec![None; 36], tick: 0, mobs: vec![], next_id: 1, rng: Rng(seed | 1),
-            site: [0; 3], fuel: 0.0, hostile_scale: 1.0, craft_slots: None, dead: false, mobf: None, ph: vec![], view: [0; 3], track: [0; 3], air: 300.0, hits: 0, dmg: vec![], day_seen: 0, regen_t: 0.0, kills: HashMap::new(), audit: HashMap::new(), journal: None, exact: None, ground: true, eff: HashMap::new(), vine: HashMap::new(), astar: false, atomic: false, hand: None, plan_nodes: PLAN_NODES, max_drop: 3, no_vines: false, reach: None, scan_on: false, way: None, scan_res: None, recent: vec![] }
+            site: [0; 3], fuel: 0.0, hostile_scale: 1.0, craft_slots: None, dead: false, mobf: None, ph: vec![], view: [0; 3], track: [0; 3], air: 300.0, hits: 0, dmg: vec![], day_seen: 0, regen_t: 0.0, kills: HashMap::new(), audit: HashMap::new(), journal: None, exact: None, ground: true, eff: HashMap::new(), vine: HashMap::new(), astar: false, atomic: false, hand: None, plan_nodes: PLAN_NODES, max_drop: 3, no_vines: false, falling: vec![], autopickup: false, reach: None, scan_on: false, way: None, scan_res: None, recent: vec![] }
     }
     // ---- world access ----
     #[inline] pub fn blk(&self, x: i32, y: i32, z: i32) -> Option<u16> { if let Some(&b) = self.edits.get(&(x, y, z)) { Some(b) } else { self.tile.get(x, y, z) } }
@@ -460,6 +467,8 @@ impl Sim {
         }
         best
     }
+    pub(crate) fn break_block_pub(&mut self, c: [i32; 3], ev: &mut Vec<Ev>) { self.break_block(c[0], c[1], c[2], ev); }
+    pub(crate) fn finish_pub(&mut self, o: Out, ev: Vec<Ev>) -> Out { self.finish(o, ev) }
     fn break_block(&mut self, x: i32, y: i32, z: i32, ev: &mut Vec<Ev>) {
         let bid = self.blk(x, y, z).unwrap_or(self.d.air);
         let (name, drops, plan) = { let b = self.d.block(bid); (b.name.clone(), b.drops.clone(), self.dig_plan(bid)) };
@@ -474,11 +483,20 @@ impl Sim {
         for (a, b, c) in [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, 0, 1), (0, 0, -1)] { if self.name(x + a, y + b, z + c) == "water" { water = self.blk(x + a, y + b, z + c); break; } }
         if let Some(w) = water { self.flow(w, [x, y, z]); }
         else { for (a, b, c) in [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, 0, 1), (0, 0, -1)] { if self.kind(x + a, y + b, z + c) == Kind::Liquid { if let Some(l) = self.blk(x + a, y + b, z + c) { self.set(x, y, z, l); } break; } } }
-        // gravity blocks above fall into the gap
+        // gravity blocks above fall into the gap: the column becomes falling entities now and lands later (FallingBlock: scheduled 2 ticks after
+        // the update, then 0.04 blocks/tick^2 with 0.98 drag), stacked from the first solid block under the hole up
         let mut yy = y + 1;
-        while matches!(self.name(x, yy, z), "sand" | "red_sand" | "gravel") && self.is_air(x, yy - 1, z) {
-            let b = self.blk(x, yy, z).unwrap();
-            self.set(x, yy - 1, z, b); self.set(x, yy, z, self.d.air); yy += 1;
+        let mut col = vec![];
+        while gravity_block(self.name(x, yy, z)) { col.push(self.blk(x, yy, z).unwrap()); self.set(x, yy, z, self.d.air); yy += 1; }
+        if !col.is_empty() {
+            let mut floor = y;
+            while floor > y - 64 && self.is_air(x, floor - 1, z) && !self.falling.iter().any(|f| f.1 == [x, floor - 1, z]) { floor -= 1; }
+            for (i, b) in col.into_iter().enumerate() {
+                let (from, to) = (y + 1 + i as i32, floor + i as i32);
+                let (mut v, mut d, mut n) = (0.0f64, 0.0f64, 0i64);
+                while d < (from - to) as f64 && n < 400 { v = (v - 0.04) * 0.98; d -= v; n += 1; }
+                self.falling.push((self.tick + 2 + n, [x, to, z], b));
+            }
         }
         self.pop_unsupported([x, y, z]);
     }
@@ -537,6 +555,13 @@ impl Sim {
     // ---- world clocks ----
     /// Advance `ticks`; mobs act, hunger and health follow. Stops early on death (the Out carries `died`).
     pub fn advance(&mut self, ticks: i64, ev: &mut Vec<Ev>) {
+        // falling blocks that land within this stretch of time
+        if !self.falling.is_empty() {
+            let until = self.tick + ticks;
+            let (land, keep): (Vec<_>, Vec<_>) = self.falling.drain(..).partition(|f| f.0 <= until);
+            self.falling = keep;
+            for (_, c, b) in land { if self.is_air(c[0], c[1], c[2]) { self.set(c[0], c[1], c[2], b); } }
+        }
         let mut left = ticks;
         while left > 0 && !self.dead {
             // Quarter-second steps while a hostile is within 8 blocks (attacks, knockback and chasing happen on the cooldown's clock, not at
@@ -659,7 +684,7 @@ impl Sim {
                 return self.finish(Out::ok(ticks, vec![]), ev);
             }
         }
-        if !blind { return if collect { self.do_mine(t) } else { self.do_mine_nocollect(t) }; }
+        if !blind { return if collect && !self.autopickup { self.do_mine(t) } else { self.do_mine_nocollect(t) }; }
         let bid = match self.blk(t[0], t[1], t[2]) { Some(b) => b, None => return Out::fail("unreachable", 1, vec![]).with(self, vec![]) };
         if self.d.block(bid).kind != Kind::Solid && self.d.block(bid).kind != Kind::Climb && self.d.block(bid).kind != Kind::Passable || !self.d.block(bid).diggable || self.d.block(bid).name.ends_with("air") { return Out::fail("invalid_target", 0, vec![]).with(self, vec![]); }
         let plan = match self.dig_plan(bid) { Some(p) => p, None => return Out::fail("missing_tool", 0, vec![]).with(self, vec![]) };

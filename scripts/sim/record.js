@@ -81,7 +81,7 @@ class BotRec {
         this.blockCls = null;
         this.line({ t: 'hello', format: FORMAT, recorder: 'scripts/sim/record.js', bot: this.name, version: bot.version || null,
             minY: bot.game ? bot.game.minY : null, height: bot.game ? bot.game.height : null, dim: bot.game ? bot.game.dimension : null,
-            difficulty: bot.game ? bot.game.difficulty || null : null, gameMode: bot.game ? bot.game.gameMode || null : null,
+            difficulty: bot.game ? bot.game.difficulty || null : null, gameMode: bot.game ? bot.game.gameMode || null : null, temp: process.env.TEMP_BLOCK || null,
             world: process.env.T26_WORLD || process.env.TEST_WORLD || null, run: process.env.RUN || null, speed: Number(process.env.GAME_SPEED || 1), ms: this.ms0 });
         this._onTick = () => { this.tick++; };
         this._onBlock = (oldB, newB) => {
@@ -158,7 +158,9 @@ class BotRec {
     }
 
     begin(layer, name, args, opts) {
+        const c0 = Date.now();
         this.cover(args);
+        const recMs = Date.now() - c0;                                                  // the event-loop time the snapshots took (the recorder's own cost)
         const id = ++this.seq;
         // `ref`: the id of the command this one re-plays (scripts/sim/play.js sets bot.__simrecRef), so two runs pair up command by command
         const ref = this.bot.__simrecRef === undefined ? undefined : this.bot.__simrecRef;
@@ -166,7 +168,7 @@ class BotRec {
         // 6,000 nodes and makes vines air, and the replay must plan with the same
         let env = null;
         try { const so = require(path.join(this.opts.root, 'src/skills/options.js')).get(this.bot); env = { planNodes: so.planNodes, maxDrop: this.bot.__maxDrop || 0, noVines: !!this.bot.__noVines }; } catch (_) { /* options unknown */ }
-        this.line({ t: 'cmd', id, ref, layer, name, args: args || {}, atomic: !!(opts && opts.atomic), maxTicks: (opts && opts.maxTicks) || null, env,
+        this.line({ t: 'cmd', id, ref, layer, name, args: args || {}, atomic: !!(opts && opts.atomic), maxTicks: (opts && opts.maxTicks) || null, env, ...(recMs ? { recMs } : {}),
             ms: Date.now(), tick: this.tick, before: botState(this.bot) });
         return id;
     }
