@@ -422,3 +422,7 @@ sits between smooth stone under it and the glass already placed over it, with op
 problems for the next session: (1) cells the build order closes in before they are placed (hoppers, a lever and redstone under a block placed first): the order rules
 (`job.ready`) or a dig-and-replace of the closing block; (2) the temporary blocks (the owner's special issue). The console deploy of this code: 2026-11-25 08:50
 (fabric26 consoles 3031-3033 restarted; 200 on the tailnet, 403 for proxy headers without an Access assertion).
+
+**hc1 at its end (210 min, 09:41):** every crew FAIL by the server's judge; still no deaths on any of the 12 crews over the whole run. Place tasks left: Overworld 93-481 on six
+crews, 910 and 1 886 on the two heavy sites; Nether 8-323. Temporary blocks still queued: 500-1 689 per Overworld crew. In the last hour the best crews placed almost nothing
+more (w2 c0: 96 -> 93), which confirms the closed-in cells and the temporary blocks as what is left.
