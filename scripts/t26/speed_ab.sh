@@ -9,5 +9,5 @@ for k in $SPEEDS; do
   RUN=${PREFIX:-spd-$TEST}-x$k; OUT=$TW_HOME/out/$RUN; mkdir -p "$OUT"
   "$TW_REPO/scripts/t26/speed_sample.sh" "$N" "$OUT/speed-w$N.jsonl" 10 & SP=$!
   RUN=$RUN SPEED=$k FIRST=$N SEEDS=$SEED "$TW_REPO/scripts/t26/suite.sh" "$TEST" 1 NODE_ARGS='--require ./scripts/t26/loop_lag.js' "$@"
-  kill "$SP" 2>/dev/null; wait "$SP" 2>/dev/null
+  kill "$SP" 2>/dev/null; wait "$SP" 2>/dev/null || true
 done

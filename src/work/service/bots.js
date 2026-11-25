@@ -26,7 +26,10 @@ class BotsPart {
         rec.bot = bot;
         bot.__noVines = true;
         // The planner does not plan to stand on another bot's scaffolding (pillar, scaffold, reflex, bridge blocks of a bot that is not this one; the shared road is fine): owner 2026-11-11.
-        bot.__avoidFloor = (x, y, z) => { const t = this.temps.get(require('../../skills/fixtures').dimOf(bot), { x, y, z }); return !!t && !!t.by && t.by !== bot.username && require('../bot/temps').CLEAN_NEAR.has(t.kind); };                  // the planner does not climb vines (see skills/world.js)
+        // Called by the planner for every node it expands: the modules are resolved once (a require() per call resolved paths and read package.json each time: 33 % of the
+        // harness's busy CPU in move_a at x2, TASK-20261125-079, docs/implemented/SPEED-v1.md).
+        const { dimOf } = require('../../skills/fixtures'), { CLEAN_NEAR } = require('../bot/temps');
+        bot.__avoidFloor = (x, y, z) => { const t = this.temps.get(dimOf(bot), { x, y, z }); return !!t && !!t.by && t.by !== bot.username && CLEAN_NEAR.has(t.kind); };                  // the planner does not climb vines (see skills/world.js)
         // Owner rule (2026-11-09): a box or tagged block the bots did not place is never broken. The Set of own boxes is shared and kept across restarts.
         bot.__placed = this.placed;
         bot.__temps = this.temps;                 // the shared list of placed blocks (water seals, pillars ...): registered when placed, forgotten when broken, cleaned up (bot/temps.js)

@@ -30,6 +30,11 @@ def run_line(run):
         out["srv_cpu"] = f"{round(statistics.mean(sc))}/{round(max(sc))}" if sc else None
         out["harness_cpu"] = f"{round(statistics.mean(hc))}/{round(max(hc))}" if hc else None
         out["host_load"] = round(statistics.mean(r["load"] for r in srv), 1)
+        hb = [r["host_busy"] for r in srv if r.get("host_busy") is not None]; st = [r["steal"] for r in srv if r.get("steal") is not None]
+        out["host_busy"] = round(statistics.mean(hb)) if hb else None; out["steal"] = round(statistics.mean(st), 1) if st else None
+        # the achieved rate minute by minute: the worst minute says whether the factor was kept all the way, not only on average
+        per = [(b["gametime"] - a["gametime"]) / (b["t"] - a["t"]) for a, b in zip(srv, srv[1:]) if b["t"] > a["t"] and b["gametime"] >= a["gametime"]]
+        out["tps_min"] = round(min(per), 1) if per else None
     lag = []
     for f in glob.glob(f"{d}/*-w[0-9].log"):
         for m in re.finditer(r"\[loop\] lag p50 (\d+) p99 (\d+) max (\d+) ms \| cpu (\d+) %", open(f, errors="replace").read()):
