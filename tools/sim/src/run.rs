@@ -82,7 +82,7 @@ impl Chan {
     }
 }
 
-fn find_start(s: &Sim) -> Option<[i32; 3]> {
+pub(crate) fn find_start(s: &Sim) -> Option<[i32; 3]> {
     let [sx, sy, sz] = s.site;
     let mut logs = 0;
     for dx in -16..=16i32 { for dz in -16..=16i32 { if dx * dx + dz * dz > 256 { continue; } for y in sy - 6..=sy + 24 { if s.name(sx + dx, y, sz + dz).ends_with("_log") { logs += 1; } } } }

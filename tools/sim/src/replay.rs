@@ -352,6 +352,43 @@ pub fn run(args: &[String]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Speed of the modelled commands on a natural tile (the testing-backend estimate in docs/proposed/SIM-PARITY-v1.md section 6):
+    ///   SIM_BENCH_TILE=/tiles/vps-s0-28.tile cargo test --release bench_commands -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn bench_commands() {
+        let path = std::env::var("SIM_BENCH_TILE").expect("SIM_BENCH_TILE=path of a .tile");
+        let tile = Rc::new(Tile::load(&path).unwrap());
+        let d = Rc::new(Data::load());
+        let mut s = Sim::new(d.clone(), tile.clone(), 3);
+        s.site = tile.site; s.pos = crate::run::find_start(&s).expect("a start on the tile"); s.hostile_scale = 0.0;
+        for (n, c) in [("diamond_pickaxe", 1), ("dirt", 64), ("cobblestone", 64)] { s.give(n, c); }
+        let mut rng = crate::sim::Rng(11);
+        let (mut n, mut ok, mut by) = (0u64, 0u64, BTreeMap::<&str, (u64, f64, u64)>::new());
+        let t0 = std::time::Instant::now();
+        while t0.elapsed().as_secs_f64() < 5.0 {
+            // timed from a fresh walking graph: a replayed command always starts from a new state
+            let t = std::time::Instant::now();
+            s.invalidate();
+            let nodes: Vec<[i32; 3]> = s.reach().nodes.clone();
+            let p = s.pos;
+            let pick = |r: &mut crate::sim::Rng| nodes[r.below(nodes.len() as u64) as usize];
+            let k = rng.below(3);
+            let (name, o) = match k {
+                0 => ("move_to", s.do_move(pick(&mut rng))),
+                1 => { let c = pick(&mut rng); ("mine", s.do_mine([c[0], c[1] - 1, c[2]])) }
+                _ => { let c = pick(&mut rng); ("place", s.do_place([c[0], c[1], c[2]], "dirt")) }
+            };
+            let e = by.entry(name).or_insert((0, 0.0, 0)); e.0 += 1; e.1 += t.elapsed().as_secs_f64(); if o.ok { e.2 += 1; }
+            n += 1; if o.ok { ok += 1; }
+            if s.dead { s.respawn(); s.pos = p; }
+            if k == 0 && o.ok && rng.below(20) == 0 { s.pos = crate::run::find_start(&s).unwrap_or(p); }      // now and then back to the start: stay in the tile
+            s.give("dirt", 1); s.hp = 20.0; s.food = 20.0;
+        }
+        let secs = t0.elapsed().as_secs_f64();
+        eprintln!("{} commands in {:.1} s = {:.0} commands/s ({} ok) on {}", n, secs, n as f64 / secs, ok, path);
+        for (k, (c, t, o)) in &by { eprintln!("  {:<8} {:>7} x {:>8.1} us, {:.0} % ok", k, c, 1e6 * t / *c as f64, 100.0 * *o as f64 / *c as f64); }
+    }
     fn fixture() -> (Trace, Rc<Data>) {
         let t = Trace::parse(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/trace_flat.jsonl")).unwrap()).unwrap();
         let d = Rc::new(Data::from_file(concat!(env!("CARGO_MANIFEST_DIR"), "/data/data-1.21.1.json")).unwrap());
