@@ -29,7 +29,8 @@ move without `keep`, which takes each block away once passed), run, replan. Temp
 - registered **before** the click (pillar, descend, bridge, shelter cover), forgotten only when the world shows the cell empty;
 - a climb of n levels leaves one block (under the feet at the top), a bridge leaves one (under the feet at its end); after every walk or dig step `tidy` breaks this bot's movement blocks within
   reach, never walking for it; at the goal the bot steps off its last block onto natural ground and breaks it;
-- the cleanup never places a block (`noPlace`).
+- the cleanup never places a block (`noPlace`); a block it cannot reach stays registered and is reported (`sweep` -> `cells`), it is no longer forgotten (it stood in the world in
+  nobody's list, TASK-20261125-075; `skills/commands/block.js` `place {temp}` registers before its click too).
 
 Safety: the **watch** stops a step when a hostile mob comes within 4.5 blocks (a creeper 7; a shooter within 16 when the bot was hurt a moment ago) and fights it with the action layer's
 `attack`; hunger is fed between steps. The **night shelter** (`src/nav/shelter.js`): from sunset (time of day 11800) under the open sky the bot digs three blocks down, puts a cover over its head,

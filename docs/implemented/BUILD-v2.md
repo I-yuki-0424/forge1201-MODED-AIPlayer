@@ -39,6 +39,7 @@ The crew is creative (the owner's server is creative). A creative player flies a
 | `move.js` | survival movement: the plan over standing cells (walk, step up, drop, pillar, bridge, dig) and its execution with the bot's own inputs (`Mover`) |
 | `fallguard.js` | under every move: a body on support never moves sideways onto a fall over three or onto lava (it wraps the bot's physics tick); planned drops open their columns to their planned depth (2026-11-25) |
 | `pool.js` | the crew's shared pool: a bot asks the colleague that can spare an item, walks up beside it and the colleague throws the stacks over (2026-11-25) |
+| `temps.js` | the ledger of temporary blocks: registered before the click, confirmed by the server, released when the step that needed them is over, classified when found standing (2026-11-25, TASK-20261125-075) |
 
 The work console runs it as the job kind `construct` (`src/work/service/construct.js`); `createBuildFromPlacement` (the Litematica page) picks it when every bot of the crew is in creative mode (`_builderFor`; `spec.builder` overrides), the old builder (`src/work/builder/`, `jobs/build.js`) stays for survival crews.
 
@@ -426,3 +427,58 @@ problems for the next session: (1) cells the build order closes in before they a
 **hc1 at its end (210 min, 09:41):** every crew FAIL by the server's judge; still no deaths on any of the 12 crews over the whole run. Place tasks left: Overworld 93-481 on six
 crews, 910 and 1 886 on the two heavy sites; Nether 8-323. Temporary blocks still queued: 500-1 689 per Overworld crew. In the last hour the best crews placed almost nothing
 more (w2 c0: 96 -> 93), which confirms the closed-in cells and the temporary blocks as what is left.
+
+## Temporary blocks: one ledger, lifetime = the step (TASK-20261125-075, owner list 5 Large 1; stage A offline, 2026-11-25)
+
+Owner: temporary blocks from movement, temporary placement and water countermeasures stay in large numbers; breaking right after placing and removing everything at the end were
+both tried with no effect; place it, break it as soon as it has served; if registration is careless fix the movement system; "still needed" is fundamentally wrong. Contract:
+`docs/proposed/OWNER-LIST-5.md`, section TASK-20261125-075.
+
+**Every code path that puts down a block that is not a blueprint cell (before this change).**
+
+| Path | Registered | Released by | Kept by |
+| :-- | :-- | :-- | :-- |
+| `Mover.pillar` (move.js) | only if the block showed within the bot's ~1.5 s wait | `unpillar` when the next walk starts; after a stance's work only if no placing within 5 x 5 x (-4..+3) (`job.workNear`) | next stance within 5 cells and 3 high; placing near; stops over a gap / beside a fluid / under another bot's route -> job untemp |
+| `Mover` bridge step | only if seen 200 ms after the click | `_behind`: the block behind, only over air | "over ground it is a step, left to the crew" |
+| `Mover.placeTemp` | after a 500 ms wait | — | unused (removed) |
+| scaffold task (`job._scaffoldFor`, drive `work`) | outside the box only, at the report; inside the box in no list | `unscaffold` when within reach | while ANY place task beside it waits |
+| fill task (fluid in a box cell) | never | the next survey (Overworld crews surveyed once in 210 min, hc1) | — |
+| seal task (fluid outside the box) | never | never | — |
+| escape / evacuate / unwedge movers | as pillar/bridge | as pillar/bridge | as pillar/bridge |
+| spawn bed, respawn anchor | never | never | — |
+| job `_offerTemps` (the crew's untemp tasks) | — | — | a crew member or stance in the column up to 80 above; a bot within 4 cells; 10 s after the last use; placing in the 4-cell buckets around (about 12 x 8 x 12) |
+| untemp ranking | — | — | 2000-2600 points behind all placing |
+| untemp "dig the column down from its top" | — | — | its top reached by a NEW pillar beside it (that pillar was the next bot's untemp: a treadmill) |
+| work layer (pit, move tests): `moves.js` pillar/descend, `bridge.js`, shelter cover | before the click (NAV-v1) | `tidy` after every walk step; `sweep` at the job's end | under the feet; out of reach; orphans of a live bot; `sweep` FORGOT an unreachable block (it stood in nobody's list) |
+| `skills/commands/block.js` `place {temp}` (pit seals, water rescue) | only when confirmed within 10 ticks | pit cleanup, `cleanTemps` | a seal while fluid is beside it |
+| `bot/reflex.js` fall block | when `placeBlock` answered within 250 ms | as an orphan | off for builders (`__builderOwns`); the 4 291 + 2 805 hc1/hd1 "reflex fall" lines are the harness's spectator scout before the job (a spectator places nothing) |
+| `bot/temps.js` registry | — | — | at most 4 000 entries / 3 days (the oldest are dropped silently) |
+
+**Cause table from the hc1/hd1 logs (T26 26.1.2 worlds, iron-farm-34, 210 min; what the logs allow, no server scan existed).** Per Overworld crew at the end: 500-2 044
+untemp tasks still queued (b/d: released only by the keep rules above, then waiting behind all placing), 10-73 parked untemp tasks (c: "no way to the stance" 8-51, "no stance
+reaches it" 2-22), and an unknown number of blocks the keep rules never offered at all (not logged; d). The judge's wrong cells that should be air (3 054-7 125 per crew) could
+not be told apart (temporary block, natural ground, fluid): the judge did not record what a cell held. The tail was a treadmill: in the last 60 minutes the eight Overworld
+crews of hc1 placed 0-532 blueprint blocks but took 1 377-3 896 temporary blocks away and put down at least 1 170-3 690 new ones (removed + change of the queue). Cause (a)
+paths: late placements of pillars, bridges and skill `place {temp}` (registered only within a wait), fills and seals (never registered), scaffolds in box cells, `sweep`'s
+forgotten blocks, the bed and the anchor.
+
+**What changed (commit 727495be).**
+
+| Cause | Change |
+| :-- | :-- |
+| a: registered only when seen within a wait; fills, seals, box-cell scaffolds, bed/anchor never | `src/build/temps.js` `TempLedger`: every placement is an entry before its click (`intend`), confirmed or ended by the server's block update (`drive.js` listens to `blockUpdate` for every bot); a pending one is settled as never placed only after the server's refusal or 5 s. Fills, seals, scaffolds and the bed/anchor are entries. `place {temp}` (skills) registers before the click; `nav/go.js sweep` keeps an unreachable block registered and reports it |
+| b: no release | the bot's step: `release` (drive.js) runs before anything else the bot does next (a claim elsewhere, a trip, a hand-over, idling, an escape); the column under it is dug as it comes down, its other blocks in reach and sight are dug from where it stands, the rest are untemp tasks at once with the reason. A dead or leaving bot's blocks are the crew's at once (`orphanOf`). When nothing but temporary blocks is left, every block of every bot is due (the survey) |
+| d: "still needed" | removed: the 90 s / 10 s waits, a bot within four, placing in the buckets around, the next stance within five cells, scaffolds kept while any neighbour waits, bridges over ground left to the crew. What remains: the next stance ON the same column (the column is that step's), a scaffold lives until its own block stands or is parked, a fill hands its cell to that cell's clear or place task at once, a seal (outside the box) that still holds a fluid back at the end and a block holding a fluid back are kept by a named rule and counted (`keep`) |
+| c: removal impossible by construction | untemp stances and the "dig the column from its top" claim only where the flood reaches them on foot (`Mover.flood` now records the blocks the way places); untemp tasks rank as placing at the same distance, the placer's own first |
+| pace | a bot on its own column prefers a next stance on that column (the work around a pillar is taken from it, as a player does) |
+
+**Instrumentation.** `[progress N min]` ends with `temps {inPlace, pending, due, kept, peak: {bot, n} (this minute), peakEver, over2 (times a bot came to hold a third),
+placed, removed, never, orphaned, failed: {reason: n}, byHow}`. `build_t.js` scans box +-24 (+-16 up/down) for every temporary-block name (the crew's, `TEMP_BLOCK`, every
+item the ledger saw) before the job and after it, and classifies each new one with the ledger: `[temps] {left, inBox, outside, table: {a, b, c, d, why}, ledger, peakByBot}` and
+up to 200 cells in the trial JSON (`temps`); the judge now records what each wrong cell holds (`wrongHas`). Tests: `tests/test_build_temps_pure.js` (12, each rule with its
+negative control) and the rewritten temporary-block test in `tests/test_build2_pure.js`.
+
+**To verify live (stage B, on the Fabric 1.21.1 test worlds with pumpkins as the temporary block).** Zero temporary blocks at the end of `build_t` (with the cause table),
+`mine_b`, `move_a`, `move_b`; at most two per bot at any minute except a column under a bot on it (a survival pillar of n levels is n blocks while the bot stands on it: the
+exception to name with its measured heights); placing pace against hc1 at equal minutes. Open risks: a route that climbs its own pillar and walks off its top sideways leaves the
+column (released at once; removed on foot from its top only when a floor reaches it); Nether bridges between chest and site are now built again on each crossing.
