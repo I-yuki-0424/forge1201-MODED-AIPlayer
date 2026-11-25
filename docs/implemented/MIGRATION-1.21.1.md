@@ -74,7 +74,7 @@ no saves). The game was not launched: the owner checks it.
 
 **Mods** (each source jar identified on Modrinth by its sha1, then the newest Fabric 1.21.1 release; downloaded, sha512 checked, every jar's `fabric.mod.json` read: every required mod id
 of the set is present, the malilib family fits its `breaks` ranges, Iris 1.8.14 wants Sodium 0.8.x and gets 0.8.13): **49 jars** in `instance/mods`, sha512 on the PC equal to the
-checked files (49 of 49). Sodium Extra stays disabled as in the source.
+checked files (49 of 49; three of them replaced after the first start, below). Sodium Extra stays disabled as in the source.
 
 | Source (26.3) | 1.21.1 | Note |
 | :-- | :-- | :-- |
@@ -89,20 +89,20 @@ checked files (49 of 49). Sodium Extra stays disabled as in the source.
 | `EssentialClient-2.8.0+26.3.jar` | `EssentialClient-2.2.3+1.21.1.jar` | release |
 | `fabric-api-0.166.2+26.3.jar` | `fabric-api-0.116.18+1.21.1.jar` | release |
 | `fabric-carpet-26.3+v260915.jar` | `fabric-carpet-1.21-1.4.147+v240613.jar` | release |
-| `fabric-language-kotlin-1.14.2+kotlin.2.4.21.jar` | `fabric-language-kotlin-1.14.2+kotlin.2.4.21.jar` | release |
+| `fabric-language-kotlin-1.14.2+kotlin.2.4.21.jar` | `fabric-language-kotlin-1.13.4+kotlin.2.2.0.jar` | release; see "First start" below |
 | `fastquit-3.1.5+mc26.2.jar` | `fastquit-3.0.0+1.20.6.jar` | release |
 | `ferritecore-9.0.0-fabric.jar` | `ferritecore-7.0.3-fabric.jar` | release |
 | `g4mespeed-1.6.1-mc26.3.jar` | `g4mespeed-1.4.8-mc1.21.1.jar` | release |
 | `globalnarrationtoggle-26.3.0-1.5.jar` | `globalnarrationtoggle-1.21.1-1.5.jar` | release |
 | `ImmediatelyFast-Fabric-1.17.1+26.3.jar` | `ImmediatelyFast-Fabric-1.6.15+1.21.1.jar` | release |
-| `InventoryProfilesNext-fabric-26.3-2.3.8.jar` | `InventoryProfilesNext-fabric-1.21.1-2.2.6.jar` | release |
+| `InventoryProfilesNext-fabric-26.3-2.3.8.jar` | `InventoryProfilesNext-fabric-1.21-2.2.0.jar` | release; the newest that accepts that Kotlin |
 | `iris-fabric-1.11.7+mc26.3.jar` | `iris-fabric-1.8.14-beta.1+mc1.21.1.jar` | release |
 | `itemscroller-fabric-26.3-0.33.1.jar` | `itemscroller-fabric-1.21-0.24.60.jar` | release |
 | `Jade-mc26.3-Fabric-26.3.5.jar` | `Jade-1.21.1-Fabric-15.10.6.jar` | release |
 | `jei-26.3-fabric-31.17.0.113.jar` | `jei-1.21.1-fabric-19.64.0.455.jar` | release |
 | `krypton-0.3.2.jar` | `krypton-0.2.8.jar` | release |
 | `Ksyxis-1.4.6.jar` | `Ksyxis-1.4.6.jar` | release |
-| `libIPN-fabric-26.3-6.9.0.jar` | `libIPN-fabric-1.21.1-6.6.3.jar` | release |
+| `libIPN-fabric-26.3-6.9.0.jar` | `libIPN-fabric-1.21-6.6.0.jar` | release; the newest that accepts that Kotlin |
 | `libjf-26.3.1.jar` | `libjf-3.17.5.jar` | release |
 | `litematica-fabric-26.3-0.29.1.jar` | `litematica-fabric-1.21-0.19.61.jar` | release |
 | `lithium-fabric-0.26.3-mc26.3.jar` | `lithium-fabric-0.15.4+mc1.21.1.jar` | release |
@@ -156,6 +156,13 @@ Litematica 1.21.1 reads their palettes by name (nothing to rename), and their ti
 (`key_key.friends`, `key_key.toggleGui`, `key_key.toggleSpectatorShaderEffects`, `key_key.spectatorHotbar`, `key_key.quickActions`); 131 mod binding lines copied as they are (a mod that is absent ignores its lines;
 this includes 26.x's own debug bindings `key_key.debug.*`, which 1.21.1 ignores, and the bindings of WI Zoom and Better Ping Display, which were left out). The malilib hotkeys travel
 inside their mods' configs (`litematica.json` Hotkeys and the like).
+
+**First start (the owner, 2026-11-26 00:26-00:34, three tries): crash** `NoClassDefFoundError: kotlinx/datetime/Clock$System` in EssentialClient 2.2.3+1.21.1
+(`crash-2026-11-26_00.34.40-client.txt`). Cause: that build (the newest for 1.21.1; its `fabric.mod.json` does not declare the Kotlin it needs) calls `kotlinx.datetime.Clock`, which
+kotlinx-datetime moved to `kotlin.time` in 0.7; fabric-language-kotlin bundles kotlinx-datetime 0.8.0 from 1.13.12 on and 0.7.1 from 1.13.5 on, only 1.13.4 and older bundle 0.6.2
+(checked in each jar: `kotlinx/datetime/Clock$System.class` is in 1.13.4's). Fix: fabric-language-kotlin **1.13.4+kotlin.2.2.0**, and the newest Inventory Profiles Next / libIPN that
+accept it (**2.2.0 / 6.6.0**; 2.2.6 / 6.6.3 need Kotlin 1.13.10 / 1.13.7). The other mods of the set declare nothing above 1.13.4. Not checked by a start (the game is not launched
+from here): the owner starts it again. EssentialClient's 26.3 config has a key the 1.21.1 build reads differently (`essentialClientMenuKeys`: left at its default, logged).
 
 **Inventory Peeker** (`invpeeker-1.6.0-fabric-1.21.0-1.jar`) added to the instance and to the servers (see above). Its page names Inventory Profiles Next as a conflicting GUI mod; both
 are installed: if the game shows the conflict, one of the two has to go (owner's choice).
