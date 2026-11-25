@@ -463,14 +463,16 @@ class Mover {
     }
 
     /** Break the block at c with the tool its material asks for (mineable/pickaxe, shovel, axe, hoe; the best tier the bot carries; shears for leaves and wool). */
-    async dig(c) {
+    /** Break the block at c (`tool`: this item stack instead of the best tier for the block, e.g. the one that gives the block back, recover.js). */
+    async dig(c, { tool: want = undefined } = {}) {
         const b = this.bot, block = b.blockAt(new Vec3(c.x, c.y, c.z), false);
         if (block) this.note(`dig ${block.name} ${c.x},${c.y},${c.z}`);
         // nothing to break only where there is nothing at all: snow layers, grass, flowers have no collision box but are blocks (taking them for "gone" left 2 271 snow cells
         // undug after eight tries each, live 2026-11-22 sA2 w3)
         if (!block || /^(air|cave_air|void_air|water|lava|bubble_column)$/.test(block.name)) return true;
         if (this.rules.mayDig && !this.rules.mayDig(c.x, c.y, c.z)) return false;              // someone stands on it now (the plan was made before they came)
-        const tool = toolFor(b, block);
+        const tool = want !== undefined ? want : toolFor(b, block);
+        if (want === null && b.heldItem && /(_pickaxe|_axe|_shovel|_hoe|shears|_sword)$/.test(b.heldItem.name)) { try { await b.unequip('hand'); } catch (_) { /* the hand it has */ } }
         if (tool && (!b.heldItem || b.heldItem.name !== tool.name)) { try { await b.equip(tool, 'hand'); } catch (_) { /* the hand it has */ } }
         else if (!tool && b.heldItem && /(_sword|_pickaxe|_axe|_shovel|_hoe)$/.test(b.heldItem.name) === false) { /* any item: breaking by hand is the same */ }
         try { await b.dig(block, true); } catch (e) { return false; }

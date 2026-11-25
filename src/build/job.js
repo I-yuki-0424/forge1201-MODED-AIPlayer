@@ -13,6 +13,7 @@ const { survey } = SV;
 const { seen, eyeOf, boxDist } = require('./world');
 const { View, feet } = require('./move');
 const P = require('./place');
+const RC = require('./recover');
 
 const REACH = 4.4;                 // eye to the cell's box (a vanilla client picks within 4.5)
 const WINDOW = 7;                  // (7: what one stance reaches, eye +-4.4, owner list 4 problem 4; 4 held 3 900 cells above the local window, live ha4 w2) layers above the lowest open one that may be placed at the same time (2 left 1.8 tasks per place claim in thin layers, a pillar for each, live 2026-11-23 gc1 w3)
@@ -205,6 +206,8 @@ class BuildJob {
             return true;
         }
         if (tk.kind === 'place' || tk.kind === 'fix') {
+            // a block dug out to open a closed-in cell goes back after that cell is placed (or given up)
+            if (tk.waitFor && this.tasks.has(tk.waitFor) && !this.parked.has(tk.waitFor)) return false;
             if (tk.y > this.topAt(tk.x, tk.z)) return false;
             const r = this.t.recipeOf(tk);
             if (tk.kind === 'place' && r) for (const d of r.deps) {
@@ -276,6 +279,52 @@ class BuildJob {
         return true;
     }
 
+    /**
+     * A place task that no stance reaches because the build closed it in (a hopper between smooth stone and the glass placed over it first: no click gives its facing, the best
+     * crew's last 96 cells waited 30 minutes, hc1 w2): a built neighbour whose removal gives a click from one of the stances in range (`cands`) is dug out (kind clear, `after`
+     * place, `waitFor` the closed cell) and placed again once the closed cell is. Only a block the crew gets back: a bot whose tools return it as its own item digs it (`digBy`,
+     * recover.js: glass needs Silk Touch), or the supply holds a spare beyond the blueprint's need (`loses`). Never a container, a block another block rests on, a block beside
+     * an observer (the change sets the machine off), a cell with a task or a claim. Once per closed cell. True when a dig-out was added.
+     */
+    _unblock(bot, name, seed, cands) {
+        if (seed.kind !== 'place' || process.env.BUILD_UNBLOCK === '0' || !cands.length) return false;
+        const u = this.unblocks || (this.unblocks = new Map());
+        if (u.has(seed.k)) return false;
+        u.set(seed.k, null);
+        const crew = this.pool ? [...this.pool.bots] : [[name, bot]];
+        const N6 = [[0, 1, 0], [0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]], why = [];
+        for (const [dx, dy, dz] of N6) {
+            const c = { x: seed.x + dx, y: seed.y + dy, z: seed.z + dz }, k = key(c.x, c.y, c.z);
+            if (!this.t.inside(c.x, c.y, c.z) || this.tasks.has(k) || this.parked.has(k) || this.claims.has(k)) continue;
+            const i = this.t.idx(c.x, c.y, c.z); if (this.t.isAir(i)) continue;
+            const want = this.t.at(c.x, c.y, c.z), h = seen(bot, c);
+            if (!want || !h || !S.matches(want, h)) continue;
+            if (/(chest|barrel|shulker_box|hopper|furnace|dropper|dispenser|_bed|piston|piston_head)$/.test(h.name)) { why.push(`${S.bare(h.name)}: kept`); continue; }
+            // nothing rests on it, nothing watches it
+            const rests = N6.some(([ex, ey, ez]) => { const n = { x: c.x + ex, y: c.y + ey, z: c.z + ez, i: this.t.inside(c.x + ex, c.y + ey, c.z + ez) ? this.t.idx(c.x + ex, c.y + ey, c.z + ez) : -1 }; if (n.i < 0) return false; const hn = seen(bot, n); if (hn && hn.name === 'observer') return true; const r = this.t.recipeOf(n); return !!r && (r.deps || []).some((d) => n.x + d[0] === c.x && n.y + d[1] === c.y && n.z + d[2] === c.z) && hn && !S.AIR.has(hn.name); });
+            if (rests) { why.push(`${S.bare(h.name)}: holds or is watched`); continue; }
+            // does it open a click?
+            const opens = cands.slice(0, 8).some((cd) => { const w = this._world(bot, cd.standing ? null : cd.f, cd.dug ? cd.f : null); w.over.set(k, P.AIR); return !!this._way(w, seed, cd.f); });
+            if (!opens) { why.push(`${S.bare(h.name)}: opens no click`); continue; }
+            const item = (this.t.recipeOf({ ...c, i }) || {}).item;
+            if (!item) continue;
+            const by = new Set(); for (const [n, b] of crew) if (b && b.entity && RC.getBack(b, h.name, item).ok) by.add(n);
+            const spare = this.spareOf(item);
+            if (!by.size && spare < 1) { why.push(`${S.bare(h.name)}: ${RC.getBack(bot, h.name, item).why}, no spare ${item}`); continue; }
+            const t = { k, x: c.x, y: c.y, z: c.z, i, kind: 'clear', after: 'place', waitFor: seed.k, unblock: seed.k, digBy: by.size ? by : null, loses: by.size ? null : item };
+            this.tasks.set(k, t);
+            const bk = `${Math.floor(c.x / 8)},${Math.floor(c.y / 8)},${Math.floor(c.z / 8)}`; (this.buckets.get(bk) || this.buckets.set(bk, []).get(bk)).push(t);
+            u.set(seed.k, k); this.noStance.delete(seed.k); this.stats.unblocks = (this.stats.unblocks || 0) + 1;
+            if (!by.size) (this.lost || (this.lost = new Map())).set(item, ((this.lost && this.lost.get(item)) || 0) + 1);          // the spare is taken now (two dig-outs never count on one)
+            this.log(`unblock: ${S.bare(h.name)} at ${k} is dug out for the closed-in ${S.bare(this.t.wantOf(seed).name)} at ${seed.k} and put back after it (${by.size ? `got back by ${[...by].join(', ')}` : `not got back: one of the ${spare} spare ${item}`})`);
+            return true;
+        }
+        if (why.length) this.log(`unblock: nothing to dig out for ${S.bare(this.t.wantOf(seed).name)} at ${seed.k} (${why.join('; ')})`);
+        return false;
+    }
+    /** Items of `item` the supply holds beyond what the blueprint needs, less those lost by dig-outs (the harness fills the chest with about 5 % more). */
+    spareOf(item) { const tot = (this.supply && this.supply.totals[item]) || 0, need = this.t.items.get(item) || 0; return tot - need - ((this.lost && this.lost.get(item)) || 0); }
+
     /** A scaffold task in a cell beside tk that is to end up empty (below first), unless one is there already. */
     _scaffoldFor(tk) {
         for (const [dx, dy, dz] of [[0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]]) {
@@ -324,7 +373,8 @@ class BuildJob {
     _already(tk, bot) {
         const h = seen(bot, tk);
         if (!h) return false;
-        if (tk.kind === 'clear' || tk.kind === 'untemp') return S.AIR.has(h.name);
+        // (a clear task with a placing after it is not done on an empty cell: it turns into the placing, it is not dropped)
+        if (tk.kind === 'clear' || tk.kind === 'untemp') return S.AIR.has(h.name) && !tk.after;
         if (tk.kind === 'seal' || tk.kind === 'fill') return h.name !== 'water' && h.name !== 'lava' && h.props.waterlogged !== 'true' && !/^(seagrass|tall_seagrass|kelp|kelp_plant|bubble_column)$/.test(h.name);
         if (tk.kind === 'place' && tk.i >= 0) { const w = this.t.wantOf(tk); return S.matches(w, h); }
         return false;
@@ -581,7 +631,7 @@ class BuildJob {
         // never the block a bot stands on (in the Nether a bot fell into the lava when another cleared its floor, live 2026-11-21)
         const floors = new Set([...this.bots.values()].map((b) => b.pos && key(b.pos.x, b.pos.y - 1, b.pos.z)).concat([...this.bots.values()].filter((b) => b.station).map((b) => key(b.station[0].x, b.station[0].y - 1, b.station[0].z))));
         floors.add(key(me.x, me.y - 1, me.z));
-        const doable = ready.filter((tk) => { if ((tk.kind === 'clear' || tk.kind === 'untemp') && floors.has(tk.k)) return false; const it = item(tk); return !it || tk.kind === 'clear' || tk.kind === 'fix' || tk.kind === 'untemp' || has(it) > 0; });
+        const doable = ready.filter((tk) => { if ((tk.kind === 'clear' || tk.kind === 'untemp') && floors.has(tk.k)) return false; if (tk.digBy && !tk.digBy.has(name)) return false; const it = item(tk); return !it || tk.kind === 'clear' || tk.kind === 'fix' || tk.kind === 'untemp' || has(it) > 0; });
         // most of the ready placing needs items this bot does not carry and it can do little else: it fetches them (a crew took temporary blocks away while 187 of 234 ready
         // cells waited for items nobody went for, ha26 w4)
         { const dp = doable.filter((tk) => tk.kind === 'place').length, wait = ready.filter((tk) => tk.kind === 'place' && !doable.includes(tk));
@@ -748,6 +798,8 @@ class BuildJob {
                 // a fluid task is never parked (the cells next to it wait on it for good): it cools and is looked at again
                 if (seed.kind === 'fill' || seed.kind === 'seal') { this.cool.set(seed.k, now + 30000); continue; }
                 const ns = this.noStance.get(seed.k) || now; this.noStance.set(seed.k, ns);
+                // closed in by the build itself (a block placed first took every click): the built neighbour whose removal opens a click is dug out and put back after it
+                if (now - ns > 20000 && this._unblock(bot, name, seed, cands)) continue;
                 if (now - ns > 60000) { this._park(seed, `no stance (${cands.length} in range)`); this.tasks.delete(seed.k); this.log(`parked ${seed.kind} ${seed.k} (${seed.i >= 0 ? S.bare(this.t.wantOf(seed).name) : 'outside'}): no stance reaches it (${cands.length} stances in range; rejected ${JSON.stringify(rej)}; the cell holds ${(seen(bot, seed) || {}).name}; neighbours ${['up', 'down', 'north', 'south', 'west', 'east'].map((d, i) => { const o = [[0, 1, 0], [0, -1, 0], [0, 0, -1], [0, 0, 1], [-1, 0, 0], [1, 0, 0]][i], h = seen(bot, { x: seed.x + o[0], y: seed.y + o[1], z: seed.z + o[2] }); return `${d}:${h ? S.bare(h.name) : '?'}`; }).join(' ')})`); this._frontier(); }
                 continue;
             }

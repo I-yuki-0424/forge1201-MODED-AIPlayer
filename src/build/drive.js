@@ -9,6 +9,7 @@ const { Mover, View, feet } = require('./move');
 const { seen } = require('./world');
 const { clicksFor, REPLACEABLE } = require('./survey');
 const SUP = require('./supply');
+const RC = require('./recover');
 const { Pool } = require('./pool');
 // the crew's shared pool: bots hand items to each other on request (pool.js); BUILD_PEER=0 goes back to the chest only, with hand-backs
 const PEER = process.env.BUILD_PEER !== '0';
@@ -138,6 +139,27 @@ function onRouteOfOther(job, me, x, y, z) {
     return false;
 }
 
+/**
+ * Dig out a built block for a closed-in cell (task tk, the block h): with the tool that gives it back as its own item (recover.js), then onto its drop if it lies in a cell the
+ * bot can step into. A block that does not come back is counted as lost (job.lost: the spare the next dig-out may use is smaller).
+ */
+async function unblockDig(job, name, bot, mv, tk, h) {
+    const item = (job.t.recipeOf(tk) || {}).item, rc = item ? RC.getBack(bot, h.name, item) : { ok: false, why: 'no item' }, before = (SUP.carried(bot)[item] || 0);
+    const ok = await mv.dig(tk, rc.ok ? { tool: rc.tool } : {});
+    if (!ok || !item) return ok;
+    for (let i = 0; i < 6 && (SUP.carried(bot)[item] || 0) <= before; i++) await sleep(150);
+    if ((SUP.carried(bot)[item] || 0) <= before) {
+        const drop = Object.values(bot.entities).filter((e) => e.name === 'item' && Math.hypot(e.position.x - (tk.x + 0.5), e.position.y - tk.y, e.position.z - (tk.z + 0.5)) < 2.5)[0];
+        if (drop) { const c = { x: Math.floor(drop.position.x), y: Math.floor(drop.position.y + 0.2), z: Math.floor(drop.position.z) }; await mv.goto(c, { goal: (x, y, z) => x === c.x && z === c.z && Math.abs(y - c.y) <= 1, maxNodes: 600, tries: 1 }); for (let i = 0; i < 8 && (SUP.carried(bot)[item] || 0) <= before; i++) await sleep(150); }
+    }
+    const back = (SUP.carried(bot)[item] || 0) > before;
+    // (a dig-out that counted on a spare took it already, job._unblock: given back when the block came back anyway)
+    const L = job.lost || (job.lost = new Map());
+    if (!back && !tk.loses) L.set(item, (L.get(item) || 0) + 1); else if (back && tk.loses) L.set(item, Math.max(0, (L.get(item) || 0) - 1));
+    job.log(`${name}: unblock dug ${S.bare(h.name)} at ${tk.k} with ${rc.ok ? (rc.tool ? rc.tool.name : 'the hand') : `the best tool (${rc.why})`}: ${back ? 'got it back' : `not got back (${item} lost ${L.get(item) || 0})`}`);
+    return ok;
+}
+
 /** The live positions of the other bots of the crew. */
 function crewAt(job, bot) {
     const out = [];
@@ -213,6 +235,11 @@ async function work(job, name, bot, mv, cl, cancel) {
         }
         // a column of temporary blocks dug down from on its top (no stance beside it: the claim put the bot on it)
         if (tk.kind === 'untemp' && tk.descend) { const n0 = job.stats.untemp; await mv.unpillar(null, () => false, cancel, { any: true }); results.push({ tk, ...holds(job, bot, tk) }); job.log(`${name}: dug the column at ${tk.x},${tk.z} down from its top (${job.stats.untemp - n0} blocks)`); continue; }
+        if (tk.kind === 'clear' && tk.unblock && !S.AIR.has(h.name)) {
+            // a built block dug out to open a closed-in cell: with the tool that gives it back, and picked up (job._unblock, recover.js)
+            if (underCrew(job, bot, tk.x, tk.y, tk.z) || onRouteOfOther(job, name, tk.x, tk.y, tk.z)) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
+            const td = Date.now(); await unblockDig(job, name, bot, mv, tk, h); job.time.dig += Date.now() - td; done.push(tk); continue;
+        }
         if (tk.kind === 'clear' || tk.kind === 'untemp') { if (S.AIR.has(h.name)) { results.push({ tk, ok: true }); continue; } if (underCrew(job, bot, tk.x, tk.y, tk.z) || onRouteOfOther(job, name, tk.x, tk.y, tk.z)) { results.push({ tk, ok: false, why: 'skipped' }); continue; } const td = Date.now(); await mv.dig(tk); job.time.dig += Date.now() - td; done.push(tk); continue; }
         if (tk.kind === 'seal' || tk.kind === 'fill' || tk.kind === 'scaffold') { if (!(await mv.hold(mv.rules.temp() || job.tempItem))) { results.push({ tk, ok: false, why: 'skipped' }); continue; } await click(mv, way); done.push(tk); continue; }
         if (tk.kind === 'fix') { await mv.holdNothing(); await mv.click([tk.x, tk.y, tk.z], way.click.face, way.click.hit); for (let k = 1; k < tk.clicks; k++) await mv.click([tk.x, tk.y, tk.z], way.click.face, way.click.hit); done.push(tk); continue; }
