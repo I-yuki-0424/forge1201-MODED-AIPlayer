@@ -10,12 +10,18 @@ pub struct Data {
     pub items: Vec<String>, pub entities: Vec<String>, pub item_ix: HashMap<String, u16>, pub ent_ix: HashMap<String, u16>,
     pub blocks: Vec<Block>, pub block_ix: HashMap<String, u16>, pub recipes: Vec<Recipe>, pub foods: HashMap<String, (f64, f64)>, pub unknown: u16, pub air: u16,
     pub cmds: Vec<String>, pub categories: Vec<String>,
+    /// Minecraft version of the tables ("" = the built-in 1.20.1 set).
+    pub version: String,
 }
 const RAW: &str = include_str!("../data/data.json");
 
 impl Data {
-    pub fn load() -> Data {
-        let j = json::parse(RAW).expect("data.json");
+    /// The built-in tables (minecraft-data 1.20.1 + the RL vocabulary): what `run` and the RL training use.
+    pub fn load() -> Data { Data::parse(RAW).expect("data.json") }
+    /// Tables of another version (gen_data.js with SIM_MC_VERSION, e.g. data/data-1.21.1.json) for replaying traces recorded on it.
+    pub fn from_file(path: &str) -> Result<Data, String> { Data::parse(&std::fs::read_to_string(path).map_err(|e| format!("{}: {}", path, e))?) }
+    pub fn parse(raw: &str) -> Result<Data, String> {
+        let j = json::parse(raw)?;
         let strs = |k: &str| -> Vec<String> { j.get(k).arr().iter().map(|x| x.s().to_string()).collect() };
         let items = strs("items");
         let entities = strs("entities");
@@ -37,7 +43,7 @@ impl Data {
             need: r.get("n").obj().iter().map(|(k, v)| (k.clone(), v.i() as u32)).collect(), table: r.get("t").b() }).collect();
         let foods = j.get("foods").obj().iter().map(|(k, v)| (k.clone(), (v.at(0).f(), v.at(1).f()))).collect();
         let air = *block_ix.get("air").unwrap_or(&0);
-        Data { items, entities, item_ix, ent_ix, blocks, block_ix, recipes, foods, unknown, air, cmds: strs("cmds"), categories: strs("categories") }
+        Ok(Data { items, entities, item_ix, ent_ix, blocks, block_ix, recipes, foods, unknown, air, cmds: strs("cmds"), categories: strs("categories"), version: j.get("version").s().to_string() })
     }
     pub fn item(&self, n: &str) -> u16 { *self.item_ix.get(n).unwrap_or(&0) }
     pub fn ent(&self, n: &str) -> u16 { *self.ent_ix.get(n).unwrap_or(&0) }

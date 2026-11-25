@@ -2,12 +2,16 @@
 // Data tables of the Rust simulator (tools/sim), from the same sources as the real environment: minecraft-data 1.20.1 (blocks,
 // items, recipes, materials, foods, entities) and the mod set's registry (vocabulary only), vocab() exactly as src/rl/skill_space.js.
 //   docker run --rm --network none -v "$PWD":/w -w /w node:20-slim node tools/sim/gen_data.js
+// SIM_MC_VERSION=1.21.1 writes data/data-1.21.1.json instead: the same block, recipe and food tables for the version a recorded trace was
+// made on (`forgeaip-sim replay`, docs/proposed/SIM-PARITY-v1.md); its item and entity lists are that version's own (no RL vocabulary).
 const fs = require('fs');
-const mc = require('minecraft-data')('1.20.1');
+const VERSION = process.env.SIM_MC_VERSION || '1.20.1', RL = VERSION === '1.20.1';
+const mc = require('minecraft-data')(VERSION);
+if (!mc) throw new Error(`minecraft-data has no ${VERSION}`);
 const { vocab, CMDS } = require('../../src/rl/skill_space');
 const { CATEGORIES } = require('../../src/rl/observation');
-const reg = require('../../modpack/forgeaip-create.registry.json');
-const voc = vocab(mc, reg);
+const voc = RL ? vocab(mc, require('../../modpack/forgeaip-create.registry.json'))
+    : { items: ['', ...mc.itemsArray.map((i) => i.name)], entities: ['', ...mc.entitiesArray.map((e) => e.name)] };
 const catOf = (b) => {
     const n = b.name;
     if (['air', 'cave_air', 'void_air'].includes(n)) return 'air';
@@ -52,6 +56,7 @@ for (const [rid, list] of Object.entries(mc.recipes)) {
     }
 }
 const foods = Object.fromEntries(mc.foodsArray.map((f) => [f.name, [f.foodPoints, f.saturation]]));
-const out = { items: voc.items, entities: voc.entities, cmds: CMDS, blocks, recipes, foods, categories: CATEGORIES };
-fs.writeFileSync('tools/sim/data/data.json', JSON.stringify(out));
-console.log('items', voc.items.length, 'entities', voc.entities.length, 'blocks', blocks.length, 'recipes', recipes.length, 'bytes', fs.statSync('tools/sim/data/data.json').size);
+const out = { version: VERSION, items: voc.items, entities: voc.entities, cmds: CMDS, blocks, recipes, foods, categories: CATEGORIES };
+const file = RL ? 'tools/sim/data/data.json' : `tools/sim/data/data-${VERSION}.json`;
+fs.writeFileSync(file, JSON.stringify(out));
+console.log(VERSION, 'items', voc.items.length, 'entities', voc.entities.length, 'blocks', blocks.length, 'recipes', recipes.length, 'bytes', fs.statSync(file).size);

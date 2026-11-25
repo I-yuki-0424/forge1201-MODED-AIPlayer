@@ -41,6 +41,8 @@ pub struct Sim {
     pub pos: [i32; 3], pub yaw: f64, pub hp: f64, pub food: f64, pub sat: f64, pub exh: f64, pub inv: Vec<Option<Stack>>,
     pub tick: i64, pub mobs: Vec<Mob>, pub next_id: u32, pub rng: Rng, pub site: [i32; 3], pub fuel: f64,
     pub hostile_scale: f64, pub craft_slots: Option<usize>, pub dead: bool, pub mobf: Option<([i32; 3], usize, std::collections::HashMap<[i32; 3], f32>)>, pub ph: Vec<(&'static str, i64)>, pub view: [i32; 3], pub track: [i32; 3], pub air: f64, pub hits: u32, pub dmg: Vec<(&'static str, &'static str, f64, f64)>, day_seen: i64, regen_t: f64, pub kills: HashMap<String, u32>, pub audit: HashMap<String, u64>,
+    /// When Some, every `set` is noted with the block it replaced (replay.rs: which cells a command changed, and how to undo them).
+    pub journal: Option<Vec<((i32, i32, i32), u16)>>,
     reach: Option<Reach>, pub scan_on: bool, pub way: Option<[i32; 3]>, pub scan_res: Option<(Vec<f64>, Vec<Option<[i32; 3]>>)>, pub recent: Vec<[i32; 3]>,
 }
 pub const PASSIVE: [(&str, f64); 4] = [("cow", 10.0), ("pig", 10.0), ("sheep", 8.0), ("chicken", 4.0)];
@@ -71,7 +73,7 @@ pub fn tool_rank(n: &str) -> i32 { ["wooden", "golden", "stone", "iron", "diamon
 impl Sim {
     pub fn new(d: Rc<Data>, tile: Rc<Tile>, seed: u64) -> Sim {
         Sim { d, tile, edits: HashMap::new(), pos: [0; 3], yaw: 0.0, hp: 20.0, food: 20.0, sat: 5.0, exh: 0.0, inv: vec![None; 36], tick: 0, mobs: vec![], next_id: 1, rng: Rng(seed | 1),
-            site: [0; 3], fuel: 0.0, hostile_scale: 1.0, craft_slots: None, dead: false, mobf: None, ph: vec![], view: [0; 3], track: [0; 3], air: 300.0, hits: 0, dmg: vec![], day_seen: 0, regen_t: 0.0, kills: HashMap::new(), audit: HashMap::new(), reach: None, scan_on: false, way: None, scan_res: None, recent: vec![] }
+            site: [0; 3], fuel: 0.0, hostile_scale: 1.0, craft_slots: None, dead: false, mobf: None, ph: vec![], view: [0; 3], track: [0; 3], air: 300.0, hits: 0, dmg: vec![], day_seen: 0, regen_t: 0.0, kills: HashMap::new(), audit: HashMap::new(), journal: None, reach: None, scan_on: false, way: None, scan_res: None, recent: vec![] }
     }
     // ---- world access ----
     #[inline] pub fn blk(&self, x: i32, y: i32, z: i32) -> Option<u16> { if let Some(&b) = self.edits.get(&(x, y, z)) { Some(b) } else { self.tile.get(x, y, z) } }
@@ -84,7 +86,10 @@ impl Sim {
         if f == Kind::Solid || h == Kind::Solid || self.lava(x, y, z) || self.lava(x, y + 1, z) || self.blk(x, y, z).is_none() { return false; }
         match self.kind(x, y - 1, z) { Kind::Solid => !self.lava(x, y - 1, z), _ => f == Kind::Climb || f == Kind::Liquid }
     }
-    pub fn set(&mut self, x: i32, y: i32, z: i32, b: u16) { self.edits.insert((x, y, z), b); self.reach = None; }
+    pub fn set(&mut self, x: i32, y: i32, z: i32, b: u16) {
+        if self.journal.is_some() { let old = self.blk(x, y, z).unwrap_or(self.d.air); if let Some(j) = self.journal.as_mut() { j.push(((x, y, z), old)); } }
+        self.edits.insert((x, y, z), b); self.reach = None;
+    }
     pub fn center(&self) -> [f64; 3] { [self.pos[0] as f64 + 0.5, self.pos[1] as f64, self.pos[2] as f64 + 0.5] }
     pub fn is_night(&self) -> bool { let t = self.tick % DAY; (12542..23460).contains(&t) }
     pub fn count(&self, name: &str) -> u32 { let id = self.d.item(name); self.inv.iter().flatten().filter(|s| s.item == id).map(|s| s.n).sum() }
