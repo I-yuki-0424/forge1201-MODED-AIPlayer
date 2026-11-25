@@ -1,4 +1,4 @@
-mod anvil; mod data; mod export; mod inflate; mod json; mod mobs; mod moves; mod nbt; mod obs; mod physics; mod replay; mod run; mod scan; mod scenario; mod sim; mod tile;
+mod anvil; mod data; mod export; mod inflate; mod json; mod mobs; mod moves; mod nbt; mod obs; mod physics; mod replay; mod run; mod scan; mod scenario; mod serve; mod sim; mod tile;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -8,7 +8,8 @@ fn main() {
         Some("run") => run::run(rest),
         Some("replay") => replay::run(rest),
         Some("compare") => replay::run_compare(rest),
-        _ => Err("usage: forgeaip-sim export|run|replay|compare ...".to_string()),
+        Some("serve") => serve::run(rest),
+        _ => Err("usage: forgeaip-sim export|run|replay|compare|serve ...".to_string()),
     };
     if let Err(e) = res { eprintln!("forgeaip-sim: {}", e); std::process::exit(2); }
 }

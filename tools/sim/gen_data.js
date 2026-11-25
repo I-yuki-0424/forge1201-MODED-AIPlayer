@@ -68,6 +68,9 @@ if (!RL) {
     states = [];
     for (const b of mc.blocksArray) {
         blocks[b.id].ds = b.defaultState;
+        // the block's properties in protocol order (state id = minStateId + mixed radix over them, the last one fastest): region files name states by them
+        blocks[b.id].ms = b.minStateId;
+        blocks[b.id].sp = (b.states || []).map((st) => [st.name, st.type === 'bool' ? ['true', 'false'] : (st.values || Array.from({ length: st.num_values }, (_, i) => String(i))).map(String)]);
         for (let id = b.minStateId; id <= b.maxStateId; id++) {
             const blk = B.fromStateId(id, 0);
             // the properties the player movement reads (src/native/physics/blocks.js): fluid levels, waterlogging, scaffolding, trapdoors, ladders, bubble columns

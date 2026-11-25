@@ -21,6 +21,8 @@ pub struct Data {
     /// Block ids are block STATE ids (tables of a version with `states`): `blocks[state]` is that state's block with its own kind and shapes,
     /// `bid(name)` gives the default state.
     pub states: bool, pub shapes: Vec<Vec<[f64; 6]>>,
+    /// Per block name: its first state id and its properties in protocol order with their values (state id from properties, region files).
+    pub props_of: HashMap<String, (u16, Vec<(String, Vec<String>)>)>,
     /// Minecraft version of the tables ("" = the built-in 1.20.1 set).
     pub version: String,
 }
@@ -50,6 +52,7 @@ impl Data {
         }
         // per-state tables: one Block per state id, with the state's own kind and shapes; names point at the default state
         let has_states = !j.get("states").is_null();
+        let mut props_of = HashMap::new();
         let shapes: Vec<Vec<[f64; 6]>> = j.get("shapes").arr().iter().map(|l| l.arr().iter().map(|b| { let mut a = [0.0; 6]; for (k, v) in a.iter_mut().enumerate() { *v = b.at(k).f(); } a }).collect()).collect();
         if has_states {
             let base = std::mem::take(&mut blocks);
@@ -63,6 +66,11 @@ impl Data {
                 blocks.push(b);
             }
             block_ix.clear();
+            for b in j.get("blocks").arr() {
+                if b.is_null() || b.get("sp").is_null() { continue; }
+                let sp = b.get("sp").arr().iter().map(|p| (p.at(0).s().to_string(), p.at(1).arr().iter().map(|v| v.s().to_string()).collect())).collect();
+                props_of.insert(b.get("n").s().to_string(), (b.get("ms").i() as u16, sp));
+            }
             for (i, b) in base.iter().enumerate() { if defaults[i] >= 0 { block_ix.insert(b.name.clone(), defaults[i] as u16); } }
         }
         let unknown = blocks.len() as u16;
@@ -71,11 +79,31 @@ impl Data {
             need: r.get("n").obj().iter().map(|(k, v)| (k.clone(), v.i() as u32)).collect(), table: r.get("t").b() }).collect();
         let foods = j.get("foods").obj().iter().map(|(k, v)| (k.clone(), (v.at(0).f(), v.at(1).f()))).collect();
         let air = *block_ix.get("air").unwrap_or(&0);
-        Ok(Data { items, entities, item_ix, ent_ix, blocks, block_ix, recipes, foods, unknown, air, cmds: strs("cmds"), categories: strs("categories"), version: j.get("version").s().to_string(), states: has_states, shapes })
+        Ok(Data { items, entities, item_ix, ent_ix, blocks, block_ix, recipes, foods, unknown, air, cmds: strs("cmds"), categories: strs("categories"), version: j.get("version").s().to_string(), states: has_states, shapes, props_of })
     }
     pub fn item(&self, n: &str) -> u16 { *self.item_ix.get(n).unwrap_or(&0) }
     pub fn ent(&self, n: &str) -> u16 { *self.ent_ix.get(n).unwrap_or(&0) }
     pub fn block(&self, id: u16) -> &Block { self.blocks.get(id as usize).unwrap_or(&self.blocks[self.unknown as usize]) }
+    /// The state id of block `name` with properties `props` (prismarine-block fromProperties: the last property varies fastest; a property not
+    /// given counts as its first value). None for a name the tables do not know.
+    pub fn state_of(&self, name: &str, props: &[(String, String)]) -> Option<u16> {
+        let (min, sp) = self.props_of.get(name)?;
+        let mut data = 0usize; let mut off = 1usize;
+        for (k, vals) in sp.iter().rev() {
+            if let Some((_, v)) = props.iter().find(|p| &p.0 == k) { data += off * vals.iter().position(|x| x == v).unwrap_or(0); }
+            off *= vals.len().max(1);
+        }
+        Some(*min + data as u16)
+    }
+    /// The properties of a state id (inverse of state_of).
+    pub fn props_of_state(&self, id: u16) -> Vec<(String, String)> {
+        let b = self.block(id);
+        let (min, sp) = match self.props_of.get(&b.name) { Some(x) => x, None => return vec![] };
+        let mut rest = id.saturating_sub(*min) as usize;
+        let mut out = vec![];
+        for (k, vals) in sp.iter().rev() { let n = vals.len().max(1); out.push((k.clone(), vals.get(rest % n).cloned().unwrap_or_default())); rest /= n; }
+        out.reverse(); out
+    }
     pub fn prop(&self, id: u16, k: &str) -> Option<&str> { self.block(id).props.iter().find(|p| p.0 == k).map(|p| p.1.as_str()) }
     pub fn bid(&self, n: &str) -> u16 { *self.block_ix.get(n).unwrap_or(&self.unknown) }
     /// The aim boxes of a block (state) in cell coordinates: the state's own shapes with per-state tables, else a full cube for anything solid.

@@ -45,6 +45,11 @@ pub fn chunk_sections(root: &N, data: &Data, unknown_names: &mut HashMap<String,
         let pal: Vec<u16> = bs.get("palette").map(|p| p.list()).unwrap_or(&[]).iter().map(|e| {
             let n = e.get("Name").map(|n| n.str()).unwrap_or("air");
             let n = n.strip_prefix("minecraft:").unwrap_or(n);
+            // tables with block states: the palette entry's own state (name + Properties)
+            if data.states {
+                let props: Vec<(String, String)> = e.get("Properties").map(|p| if let N::Comp(v) = p { v.iter().map(|(k, x)| (k.clone(), x.str().to_string())).collect() } else { vec![] }).unwrap_or_default();
+                if let Some(id) = data.state_of(n, &props) { return id; }
+            }
             match data.block_ix.get(n) { Some(&i) => i, None => { *unknown_names.entry(n.to_string()).or_insert(0) += 1; if n.contains(':') { data.bid("stone") } else { data.unknown } } }
         }).collect();
         if pal.is_empty() { continue; }
