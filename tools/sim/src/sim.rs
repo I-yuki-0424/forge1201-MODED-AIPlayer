@@ -136,7 +136,8 @@ impl Sim {
     pub(crate) fn lava(&self, x: i32, y: i32, z: i32) -> bool { self.name(x, y, z) == "lava" }
     pub fn standable(&self, x: i32, y: i32, z: i32) -> bool {
         let (f, h) = (self.kind(x, y, z), self.kind(x, y + 1, z));
-        if f == Kind::Solid || h == Kind::Solid || self.lava(x, y, z) || self.lava(x, y + 1, z) || self.blk(x, y, z).is_none() { return false; }
+        let blocks = |k: Kind| matches!(k, Kind::Solid | Kind::Partial | Kind::Danger);
+        if blocks(f) || blocks(h) || self.lava(x, y, z) || self.lava(x, y + 1, z) || self.blk(x, y, z).is_none() { return false; }
         match self.kind(x, y - 1, z) { Kind::Solid => !self.lava(x, y - 1, z), _ => f == Kind::Climb || f == Kind::Liquid }
     }
     pub fn set(&mut self, x: i32, y: i32, z: i32, b: u16) {
@@ -266,7 +267,8 @@ impl Sim {
     pub fn node_kind(&self, x: i32, y: i32, z: i32) -> Option<u8> {
         if self.blk(x, y, z).is_none() { return None; }
         let (f, h) = (self.kind(x, y, z), self.kind(x, y + 1, z));
-        if f != Kind::Solid && h != Kind::Solid && f != Kind::Liquid && !self.lava(x, y, z) && !self.lava(x, y + 1, z) && self.kind(x, y - 1, z) == Kind::Solid && !self.lava(x, y - 1, z) && !self.avoid.contains(&[x, y - 1, z]) { return Some(0); }
+        let pass = |k: Kind| matches!(k, Kind::Air | Kind::Passable | Kind::Climb);
+        if pass(f) && pass(h) && !self.lava(x, y, z) && !self.lava(x, y + 1, z) && self.kind(x, y - 1, z) == Kind::Solid && !self.lava(x, y - 1, z) && !self.avoid.contains(&[x, y - 1, z]) { return Some(0); }
         if self.name(x, y, z) == "water" && (matches!(h, Kind::Air | Kind::Passable) || (self.name(x, y + 1, z) == "water" && matches!(self.kind(x, y + 2, z), Kind::Air | Kind::Passable))) { return Some(1); }
         if f == Kind::Climb && !(self.no_vines && self.name(x, y, z) == "vine") { return Some(2); }
         None
@@ -387,6 +389,25 @@ impl Sim {
             else if dv[i] < 0.0 { step[i] = -1; tdel[i] = -1.0 / dv[i]; tmax[i] = (o[i] - cell[i] as f64) / -dv[i]; }
         }
         let mut t = 0.0;
+        if self.d.states {
+            // geometry.js raycast: the first cell whose aim boxes the ray enters within maxd (cells the ray misses the shapes of are passed)
+            for _ in 0..64 {
+                if let Some(b) = self.blk(cell[0], cell[1], cell[2]) {
+                    let mut best: Option<f64> = None;
+                    for bx in self.d.aim_boxes(b) {
+                        let w = [cell[0] as f64 + bx[0], cell[1] as f64 + bx[1], cell[2] as f64 + bx[2], cell[0] as f64 + bx[3], cell[1] as f64 + bx[4], cell[2] as f64 + bx[5]];
+                        if let Some(h) = ray_box(o, dv, &w) { if best.map_or(true, |q| h < q) { best = Some(h); } }
+                    }
+                    if let Some(h) = best { if h <= maxd { return Some((cell, h)); } }
+                } else { return Some((cell, t)); }                              // an unloaded cell stops the ray
+                let i = if tmax[0] < tmax[1] { if tmax[0] < tmax[2] { 0 } else { 2 } } else if tmax[1] < tmax[2] { 1 } else { 2 };
+                t = tmax[i];
+                if t > maxd { return None; }
+                cell[i] += step[i];
+                tmax[i] += tdel[i];
+            }
+            return None;
+        }
         loop {
             // a ray stops at a block with a collision shape (geometry.js aimPoints uses shapesAt): solid blocks, ladders, scaffolding; not vines
             match self.kind(cell[0], cell[1], cell[2]) { Kind::Solid => return Some((cell, t)), Kind::Climb if !shapeless_climb(self.name(cell[0], cell[1], cell[2])) => return Some((cell, t)), _ => {} }
@@ -400,6 +421,31 @@ impl Sim {
     /// geometry.js aimPoints (full cubes): is there a point on a face of block `cell` (optionally one face) that the eye sees within
     /// `reach`? Face centre and four inner points per face, faces turned away from the eye skipped, the ray to the point must hit `cell` first.
     pub fn aim_ok(&self, eye: [f64; 3], cell: [i32; 3], face: Option<usize>, reach: f64) -> bool {
+        if self.d.states {
+            // geometry.js aimPoints over the block's own aim boxes (a slab's top is at 0.5, a fence post is 0.25 wide)
+            let b = match self.blk(cell[0], cell[1], cell[2]) { Some(b) => b, None => return false };
+            for bx in self.d.aim_boxes(b) {
+                let w = [cell[0] as f64 + bx[0], cell[1] as f64 + bx[1], cell[2] as f64 + bx[2], cell[0] as f64 + bx[3], cell[1] as f64 + bx[4], cell[2] as f64 + bx[5]];
+                for f in 0..6 {
+                    if face.map_or(false, |q| q != f) { continue; }
+                    let n = FACES[f];
+                    let axis = if n[0] != 0 { 0 } else if n[1] != 0 { 1 } else { 2 };
+                    let pos = n[axis] > 0;
+                    let plane = if pos { w[axis + 3] } else { w[axis] };
+                    if if pos { eye[axis] <= plane } else { eye[axis] >= plane } { continue; }
+                    let (a1, a2) = match axis { 0 => (1, 2), 1 => (0, 2), _ => (0, 1) };
+                    for (u, v) in [(0.5, 0.5), (0.25, 0.25), (0.75, 0.25), (0.25, 0.75), (0.75, 0.75)] {
+                        let mut p = [0.0; 3];
+                        p[axis] = plane; p[a1] = w[a1] + (w[a1 + 3] - w[a1]) * u; p[a2] = w[a2] + (w[a2 + 3] - w[a2]) * v;
+                        let d = [p[0] - eye[0], p[1] - eye[1], p[2] - eye[2]];
+                        let dist = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+                        if dist > reach || dist < 1e-9 { continue; }
+                        if let Some((c, _)) = self.ray(eye, d, dist + 0.01) { if c == cell { return true; } }
+                    }
+                }
+            }
+            return false;
+        }
         let lo = [cell[0] as f64, cell[1] as f64, cell[2] as f64];
         for f in 0..6 {
             if face.map_or(false, |q| q != f) { continue; }
@@ -765,7 +811,7 @@ impl Sim {
     pub fn do_mine(&mut self, t: [i32; 3]) -> Out {
         let bid = match self.blk(t[0], t[1], t[2]) { Some(b) => b, None => return Out::fail("invalid_target", 1, vec![]).with(self, vec![]) };
         let k = self.d.block(bid).kind;
-        if k != Kind::Solid { return Out::fail("invalid_target", 1, vec![]).with(self, vec![]); }
+        if matches!(k, Kind::Air | Kind::Passable | Kind::Liquid) && !self.d.states || matches!(k, Kind::Air | Kind::Liquid) || !self.d.block(bid).diggable { return Out::fail("invalid_target", 1, vec![]).with(self, vec![]); }
         let plan = match self.dig_plan(bid) { Some(p) => p, None => { let r = if self.d.block(bid).harvest.is_some() && self.d.block(bid).diggable { "missing_tool" } else { "invalid_target" }; return Out::fail(r, 1, vec![]).with(self, vec![]); } };
         let walk = match self.approach(&|s, n, r| !(n[0] == t[0] && n[2] == t[2] && n[1] == t[1] + 1) && s.reach_goal(n, t, None, r), &|s, e| s.aim_ok(e, t, None, AIM_REACH)) {
             Ok(w) => w, Err((r, tk)) => { let o = Out::fail(r, tk, vec![]); return self.finish(o, vec![]); } };
@@ -1185,3 +1231,18 @@ pub(crate) mod tests {
 }
 /// Climbable blocks without a collision shape: the body climbs them, rays pass through (mine_b corpus mb-r1: logs behind jungle vines are mined).
 pub fn shapeless_climb(n: &str) -> bool { matches!(n, "vine" | "cave_vines" | "cave_vines_plant" | "twisting_vines" | "twisting_vines_plant" | "weeping_vines" | "weeping_vines_plant" | "glow_lichen") }
+/// geometry.js rayBox: entry distance of the ray (origin `o`, unit direction `d`) into box `b`, or None.
+pub fn ray_box(o: [f64; 3], d: [f64; 3], b: &[f64; 6]) -> Option<f64> {
+    let (mut tmin, mut tmax) = (f64::NEG_INFINITY, f64::INFINITY);
+    for i in 0..3 {
+        let (lo, hi) = (b[i], b[i + 3]);
+        if d[i].abs() < 1e-12 { if o[i] < lo || o[i] > hi { return None; } continue; }
+        let (mut t1, mut t2) = ((lo - o[i]) / d[i], (hi - o[i]) / d[i]);
+        if t1 > t2 { std::mem::swap(&mut t1, &mut t2); }
+        if t1 > tmin { tmin = t1; }
+        if t2 < tmax { tmax = t2; }
+        if tmin > tmax { return None; }
+    }
+    if tmax < 0.0 { return None; }
+    Some(tmin.max(0.0))
+}

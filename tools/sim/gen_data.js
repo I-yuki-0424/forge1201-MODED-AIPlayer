@@ -56,7 +56,25 @@ for (const [rid, list] of Object.entries(mc.recipes)) {
     }
 }
 const foods = Object.fromEntries(mc.foodsArray.map((f) => [f.name, [f.foodPoints, f.saturation]]));
-const out = { version: VERSION, items: voc.items, entities: voc.entities, cmds: CMDS, blocks, recipes, foods, categories: CATEGORIES };
+// Per block state (versions other than the RL one): the walking kind and the aim shapes exactly as the action layer's world model sees them
+// (src/skills/world.js kindOf / shapesOf: air, solid, partial, water, climb, liquid, danger), and the collision boxes (prismarine-block shapes) the
+// body collides with. `states[id] = [block id, kind, aim shape index, collision shape index]`, shapes deduplicated in `shapes`.
+let states = null, shapes = null;
+if (!RL) {
+    const { kindOf: wKind, shapesOf } = require('../../src/skills/world');
+    const B = require('prismarine-block')(VERSION);
+    const sIx = new Map(); shapes = [];
+    const shapeId = (list) => { const k = JSON.stringify(list || []); if (!sIx.has(k)) { sIx.set(k, shapes.length); shapes.push(list || []); } return sIx.get(k); };
+    states = [];
+    for (const b of mc.blocksArray) {
+        blocks[b.id].ds = b.defaultState;
+        for (let id = b.minStateId; id <= b.maxStateId; id++) {
+            const blk = B.fromStateId(id, 0);
+            states[id] = [b.id, wKind(blk), shapeId(shapesOf(blk)), shapeId(blk.shapes)];
+        }
+    }
+}
+const out = { version: VERSION, items: voc.items, entities: voc.entities, cmds: CMDS, blocks, recipes, foods, categories: CATEGORIES, ...(states ? { states, shapes } : {}) };
 const file = RL ? 'tools/sim/data/data.json' : `tools/sim/data/data-${VERSION}.json`;
 fs.writeFileSync(file, JSON.stringify(out));
 console.log(VERSION, 'items', voc.items.length, 'entities', voc.entities.length, 'blocks', blocks.length, 'recipes', recipes.length, 'bytes', fs.statSync(file).size);

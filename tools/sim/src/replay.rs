@@ -136,7 +136,10 @@ pub fn world(t: &Trace, d: &Data) -> World {
     let mut unknown = BTreeMap::new();
     let mut map: HashMap<u32, u16> = HashMap::new();
     let mut sim_id = |id: u32, unknown: &mut BTreeMap<String, u32>| -> u16 {
-        *map.entry(id).or_insert_with(|| { let n = t.state_name(id); let b = d.bid(n); if b == d.unknown { *unknown.entry(n.to_string()).or_insert(0) += 1; } b })
+        *map.entry(id).or_insert_with(|| {
+            // tables with block states: the cell keeps its state (its own kind and shapes); else the block's id by name
+            if d.states && (id as usize) < d.blocks.len() - 1 && d.blocks[id as usize].name == t.state_name(id) { return id as u16; }
+            let n = t.state_name(id); let b = d.bid(n); if b == d.unknown { *unknown.entry(n.to_string()).or_insert(0) += 1; } b })
     };
     let mut first: HashMap<(i32, i32), usize> = HashMap::new();
     for (i, c) in t.chunks.iter().enumerate() { first.entry((c.1, c.2)).or_insert(i); }
@@ -665,6 +668,25 @@ mod tests {
         b.cmds[1].before.pos[0] += 3.0;
         let (rows, n) = compare(&a, &b, d, 6, &[], &[]);
         assert_eq!((n, rows.len()), ([3, 1, 0], 3));
+    }
+    /// Per-state tables (world.js kindOf / shapesOf): a bottom slab is no floor for the planner and its top face is at half height; a fence is an
+    /// obstacle; grass is passed; a ray over the slab's upper half passes.
+    #[test]
+    fn block_states_carry_the_walking_kind_and_the_shapes() {
+        let (t, d) = fixture();
+        assert!(d.states);
+        let w = world(&t, &d);
+        let mut s = Sim::new(d.clone(), w.tile.clone(), 1);
+        let slab = d.bid("oak_slab");
+        assert_eq!(d.block(slab).kind, crate::data::Kind::Partial);
+        s.set(9, 65, 9, slab);
+        assert!(!s.standable(9, 66, 9) && s.node_kind(9, 66, 9).is_none(), "a slab is no ground for the planner");
+        assert!(s.ray([9.5, 66.0, 7.5], [0.0, 0.0, 1.0], 3.0).is_none(), "a ray at 1.0 over the slab's cell passes its empty upper half");
+        assert_eq!(s.ray([9.5, 65.25, 7.5], [0.0, 0.0, 1.0], 3.0).map(|h| h.0), Some([9, 65, 9]), "one at 0.25 hits it");
+        assert!(s.aim_ok([9.5, 67.0, 9.5], [9, 65, 9], Some(1), 4.2), "the top face (at 65.5) is seen from above");
+        s.set(10, 65, 9, d.bid("oak_fence"));
+        assert_eq!(s.kind(10, 65, 9), crate::data::Kind::Partial);
+        assert!(s.standable(8, 65, 8), "the flat world around stays walkable");
     }
     /// Teacher forcing: the simulator's changes are undone after each command; the next command sees the recorded blocks.
     #[test]
