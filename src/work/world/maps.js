@@ -6,7 +6,13 @@ const path = require('path');
 const { Worker } = require('worker_threads');
 const dimensions = require('./dimensions');
 
-const DIMS = { overworld: 'region', nether: 'DIM-1/region', end: 'DIM1/region' };
+// The vanilla dimensions' region folders: the classic layout (up to 1.21.x: region, DIM-1/region, DIM1/region) first, then the one of 26.x (every dimension under
+// dimensions/minecraft/<name>/region). The folder that exists decides, so the console reads either version's world without a symlinked view.
+const DIMS = {
+    overworld: ['region', 'dimensions/minecraft/overworld/region'],
+    nether: ['DIM-1/region', 'dimensions/minecraft/the_nether/region'],
+    end: ['DIM1/region', 'dimensions/minecraft/the_end/region'],
+};
 const FILE = /^r\.(-?\d{1,7})\.(-?\d{1,7})\.mca$/;
 
 class MapStore {
@@ -15,12 +21,12 @@ class MapStore {
         this.cache = new Map(); this.good = new Map();       // good: the most complete decode of each region so far          // key -> { mtime, size, data }
         this.worker = null; this.pending = new Map(); this.seq = 0; this.queue = Promise.resolve();
     }
-    get available() { return !!this.dir && fs.existsSync(path.join(this.dir, DIMS.overworld)); }
+    get available() { return !!this.dir && DIMS.overworld.some((d) => fs.existsSync(path.join(this.dir, d))); }
     // A dimension of a mod lives in dimensions/<namespace>/<path>/region (Twilight Forest: dimensions/twilightforest/twilight_forest/region). `canon` has refused '..' and empty parts.
     _dir(dim) {
         const d = dimensions.canon(dim);
         if (!d) throw Object.assign(new Error('dimension is overworld, nether, end or a dimension id'), { status: 400 });
-        if (DIMS[d]) return path.join(this.dir, DIMS[d]);
+        if (DIMS[d]) { const all = DIMS[d].map((x) => path.join(this.dir, x)); return all.find((x) => fs.existsSync(x)) || all[0]; }
         const [ns, ...rest] = d.split(':'), dir = path.resolve(this.dir, 'dimensions', ns, rest.join(':'), 'region');
         if (!dir.startsWith(path.resolve(this.dir, 'dimensions') + path.sep)) throw Object.assign(new Error('dimension id outside the world folder'), { status: 400 });
         return dir;

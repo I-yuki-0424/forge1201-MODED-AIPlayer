@@ -1,23 +1,63 @@
-# TEST-WORLDS-T26: the Fabric 26.1.2 test worlds, the six server-graded tests and how to watch them
+# TEST-WORLDS-T26: the server-graded test worlds (Fabric 1.21.1 since 2026-11-25, 26.1.2 frozen), the tests and how to watch them
 
-`TASK-20261114-063` (owner 2026-11-14). The place where movement, mining and placement are measured while the basics are built (MOD support is set aside): disposable Fabric worlds,
-each a new random seed on every run, three or more in parallel, graded by the server, never by the bot.
+`TASK-20261114-063` (owner 2026-11-14), version-agnostic since `TASK-20261125-074`. The place where movement, mining and placement are measured while the basics are built (MOD support is set aside):
+disposable Fabric worlds, each a new random seed on every run, three or more in parallel, graded by the server, never by the bot. The name "T26" and the folder `scripts/t26/` are historical:
+the scripts serve every version.
 
-## Why 26.1.2 and not 26.3
+## Versions: one profile decides (2026-11-25)
+
+Owner 2026-11-25 (list 5, Medium 1): 26.x compatibility is poor, the system must not depend on one version, move to Fabric 1.21.1. The game version lives in ONE place, the profile
+`docker/tw/<name>.json` (Minecraft version, loader, the bots' protocol version `bot`, the server image by digest, the name tag, the port base, the server mods pinned by sha512);
+`docker/tw/PROFILE` names the current one, `TW_PROFILE=<name>` picks another for one command. `scripts/t26/profile.sh` is its only reader; no other script or module names a version
+(the bots get `MC_VERSION` from the profile; without it a Fabric bot asks the server by a status ping).
+
+| Profile | Worlds | Game port (tailnet) | Containers / volume | State |
+| :-- | :-- | :-- | :-- | :-- |
+| `fabric-1.21.1` (current) | 1..9 | `100.77.246.23:2562N` | `forgeaip-w121-N`, watcher `forgeaip-w121-dev-N`, runs `live-w121-N-<pid>`, volume `forgeaip-w121-N_data` | the test worlds |
+| `fabric-26.1.2` | 1..9 | `100.77.246.23:2559N` | `forgeaip-t26-N`, `forgeaip-t26-dev-N`, `live-t26-N-<pid>`, volume `forgeaip-t26-N_data` | FROZEN 2026-11-25: stopped, volumes kept |
+
+Slots on the 1.21.1 worlds (docs/proposed/OWNER-LIST-5.md): 1-3 migration then 075/081, 4 075/081, 5 078, 6 079, 7 076, 8 077, 9 080.
+
+**1.21.1 server mods** (Modrinth, sha512 in `docker/tw/fabric-1.21.1.json`; `scripts/t26/mods.sh` syncs them to `/mnt/data/forgeaip-play/tw/w121/mods`): fabric-api 0.116.18, carpet 1.4.147, lithium 0.15.4,
+ferritecore 7.0.3, krypton 0.2.8, ksyxis 1.4.6, scalablelux 0.1.0.1, servux 0.3.17, syncmatica 0.3.14-sakura.5 (accepts the bots' Syncmatica client 0.3.20), appleskin 3.0.6, jade 15.10.6,
+shulkerfix 1.5.1 (the 1.7.x builds list 1.21.1 but their minecart mixin fails to apply there and the server does not start), simple-autopickup 1.4.20. No ViaVersion: the owner's client is 1.21.1.
+
+**Test-server settings (owner list 5 Small 4 and 5).** Every temporary block is a **pumpkin**: `run.sh`/`dev.sh` set `TEMP_BLOCK=pumpkin` (the kit's blocks and the bots' first choice, `src/work/bot/tempblocks.js`);
+`TEMP_BLOCK=cobblestone` overrides for one run. A broken block's drops go **into the breaker's pack**: the simple-autopickup mod (server defaults in `config/AutoPickup/global_config.json`: blocks on,
+mob loot off); with a full pack the drop lies on the ground as in vanilla. Production consoles keep their own `tempBlock` setting. Checked by `scripts/t26/version_probe.js` (below).
+
+**Game rules** are snake_case on 26.x (`keep_inventory`) and camelCase on 1.21.1 (`keepInventory`): `scripts/t26/rule.sh N <rule> <value>` and the harness's RCON (`lib.js ruleSpellings`) send the
+spelling the server accepts, so test code may write either.
+
+**Version probe** (`scripts/t26/run.sh N version_probe.js`): login in the profile's protocol, inventory (bot and server agree), item components (an enchanted pickaxe), dig, drops into the pack, a full
+pack drops on the ground, a pumpkin placed, a short walk, chat; PASS/FAIL per check, graded by the server. 2026-11-25 on 1.21.1 world 1 (seed -8840818871772942392): **9/9**.
+
+**The frozen 26.x set (2026-11-25, TASK-20261125-074).** Stopped, nothing deleted:
+
+| What | Volume / data | Start again |
+| :-- | :-- | :-- |
+| T26 worlds 1-4 (`forgeaip-t26-1..4`, watchers `forgeaip-t26-dev-1..4`; 5-9 were not running) | `forgeaip-t26-1_data` .. `forgeaip-t26-6_data` | `TW_PROFILE=fabric-26.1.2 scripts/t26/up.sh N` |
+| `fabric26-survival-hard`, `fabric26-survival-op` (exited since 2026-11-23) | `fabric26-worlds_survival_hard_data`, `fabric26-worlds_survival_op_data` | `docker compose -f /mnt/data/fabric26-worlds/compose.yaml start survival-hard survival-op` |
+| `fabric26-console-survival-hard`, `fabric26-console-survival-op` (stopped 2026-11-25 23:15 JST; survival-op's job `j2` (pit 16x16x140, 0 of 70 units done, no bots) was paused first through the console's API) | `/mnt/data/fabric26-worlds/console-data/survival-*` | `docker compose -f /mnt/data/fabric26-worlds/compose.yaml start console-survival-hard console-survival-op` |
+| KEPT RUNNING: `fabric26-creative` (25601) and `fabric26-console-creative` (3031), data untouched | `fabric26-worlds_creative_data` | - |
+
+The map view reads both world layouts itself (classic `region`, `DIM-1/region` and 26.x `dimensions/minecraft/<dim>/region`, `src/work/world/maps.js`), so a 1.21.1 console mounts the world folder directly.
+
+## Why 26.1.2 and not 26.3 (history: the frozen 26.x worlds)
 
 The owner's instance is Fabric 26.3 (`E:\Minecraft JAVA\instances\fabric 26.3\instance\mods`). Mineflayer 4.39.0 (the latest, 2026-09) speaks up to 26.1 (protocol 775); 26.3 support exists only in
 open pull requests of minecraft-data and mineflayer. The servers therefore run **26.1.2** (protocol 775, the bots' own version) with **ViaFabric + ViaVersion 5.12.2**, which lets a 26.3 client join
 an older server. The bots speak their native protocol (no translation between the bot and the server), only the owner's client is translated.
 
 Server-side mods (the owner's list where a 26.1.2 build exists; client-only mods such as Sodium, Iris, minimaps, JEI stay on the client): fabric-api, carpet (also runs the `/dev` app), lithium,
-ferrite-core, krypton, scalablelux, ksyxis, appleskin, jade, viafabric, viaversion. Pinned with sha512 in `docker/t26/mods.lock.json`; `scripts/t26/mods.sh` makes `/mnt/data/forgeaip-play/t26/mods`
-exactly that set. Not available for 26.1.2 on Modrinth: modernfix, EssentialClient (server side), cupboard.
+ferrite-core, krypton, scalablelux, ksyxis, appleskin, jade, viafabric, viaversion. Pinned with sha512 in `docker/tw/fabric-26.1.2.json` (until 2026-11-25 `docker/t26/mods.lock.json`); `scripts/t26/mods.sh` makes `/mnt/data/forgeaip-play/tw/t26/mods`
+exactly that set when that profile is chosen. Not available for 26.1.2 on Modrinth: modernfix, EssentialClient (server side), cupboard.
 
 ## Watching (the owner)
 
 | What | Where |
 | :-- | :-- |
-| Join world N | Minecraft 26.3 client, server address **`100.77.246.23:2559N`** (world 1 = `100.77.246.23:25591` ... world 9 = `25599`), tailnet only. Operator: `Seia_Y` |
+| Join world N | Minecraft 1.21.1 client, server address **`100.77.246.23:2562N`** (world 1 = `100.77.246.23:25621` ... world 9 = `25629`), tailnet only. Operator: `Seia_Y`. (Frozen 26.x worlds: 26.3 client, `2559N`) |
 | Start a test from inside the game | `/dev run <test> [reps]` with `<test>` one of `move_a move_b mine_a mine_b place_a place_b`; `/dev status`, `/dev stop` |
 | The Litematica build (2026-11-19) | `/dev run place_c_area`, `/dev run place_c_layer`, `/dev run place_c_window`: the iron farm by three bots in 20 minutes, by the three methods of the builder (docs/implemented/SYNCMATICA-v1.md); chat gives the site, the progress every 2 minutes, the verdict |
 | Watch a bot | `/dev bots` (names, positions, health), `/dev follow <bot>` (spectator on the bot; sneak to leave), `/dev back` (survival again at the spawn) |
@@ -33,13 +73,16 @@ Bot names say what they do: `MvE1` (move A, east, world 1), `Cave2` (move B, wor
 /home/coder/projects/forge1201-MODED-AIPlayer/scripts/t26/suite.sh TEST [WORLDS] [NAME=value ...]   # the standard run: WORLDS (default 3) new worlds, TEST on all in parallel, graded
 /home/coder/projects/forge1201-MODED-AIPlayer/scripts/t26/run.sh N TEST.js [NAME=value ...]        # one test on one running world (debugging; not evidence)
 /home/coder/projects/forge1201-MODED-AIPlayer/scripts/t26/rcon.sh N <server command>
+/home/coder/projects/forge1201-MODED-AIPlayer/scripts/t26/rule.sh N <game rule> <value>       # either spelling (keep_inventory / keepInventory)
+TW_PROFILE=fabric-26.1.2 /home/coder/projects/forge1201-MODED-AIPlayer/scripts/t26/up.sh N    # any command on another version (here: a frozen 26.x world)
 /home/coder/projects/forge1201-MODED-AIPlayer/scripts/t26/dev.sh N start|stop|logs      # the /dev watcher of world N
 ```
 
 `FIRST=k` puts a suite on worlds k.. (two suites side by side); `KEEP=1` reuses running worlds (debugging only); `CONTROL=noop` sends no command (the negative control: every trial must fail).
 `SEEDS="s1 s2 s3"` gives world k the k-th seed instead of a random one: **an equal-box comparison of two settings** (run the suite twice with the same SEEDS, e.g. `METHOD=sweep` and `METHOD=expert`, or `PIT_LAKE=0|1`).
 `scripts/t26/rcon.sh N -- ...` passes negative coordinates (the `--` is built in since 2026-11-16: `rcon-cli` took `-15` for a flag).
-`NAV_TRACE=1` prints every plan segment and step of the walker. Containers: `forgeaip-t26-N` (server, 4 GB cap), `forgeaip-t26-dev-N` (watcher), `live-t26-N-<pid>` (a test run).
+`NAV_TRACE=1` prints every plan segment and step of the walker. Containers (tag `w121` on 1.21.1, `t26` on 26.x): `forgeaip-<tag>-N` (server, 4 GB cap), `forgeaip-<tag>-dev-N` (watcher), `live-<tag>-N-<pid>` (a test run).
+`REPO=/path/to/worktree` runs a script's harness and watcher from another checkout (the worktree needs a `node_modules` directory as a mount point; the main checkout's modules are mounted).
 
 ## The owner's three standing Fabric servers (2026-11-16)
 
@@ -58,7 +101,7 @@ All three are tailnet-only (the ports are bound to `100.77.246.23`; the consoles
 
 ## The tests and their grading
 
-Kit for every test: full tool set (diamond pickaxe, axe, shovel, sword, hoe, shears), 64 cobblestone (temporary blocks), 32 steak; keep_inventory false. A death fails the trial;
+Kit for every test: full tool set (diamond pickaxe, axe, shovel, sword, hoe, shears), 64 temporary blocks (pumpkins since 2026-11-25, cobblestone before; `TEMP_BLOCK`), 32 steak; keep_inventory false. A death fails the trial;
 a server move (teleport) fails it. The scale (owner): 80 % or below = complete failure, 90 % = WIP, 100 % = success.
 
 **Difficulty (owner 2026-11-16):** the movement tests (`move_a`, `move_b`) run on **Normal**, every other test (`mine_a`, `mine_b`, `place_a`, `place_b`) on **Peaceful**. A hostile mob was a failure cause that cannot be told

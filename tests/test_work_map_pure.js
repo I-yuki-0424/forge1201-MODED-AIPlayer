@@ -27,5 +27,20 @@ function test(name, fn) { console.log(`--- test: ${name} ---`); return Promise.r
         const d = await store.region('overworld', 0, 0); assert.strictEqual(d.chunks, 7); assert.strictEqual(calls, 6);
         store.close(); fs.rmSync(w, { recursive: true });
     });
+    await test('world layouts: the classic one (1.21.1: region, DIM-1/region) and the one of 26.x (dimensions/minecraft/<dim>/region) are both read, no symlinked view needed', () => {
+        const w = fs.mkdtempSync(path.join(os.tmpdir(), 'map-'));
+        for (const d of ['overworld', 'the_nether', 'the_end']) { fs.mkdirSync(path.join(w, 'dimensions', 'minecraft', d, 'region'), { recursive: true }); fs.writeFileSync(path.join(w, 'dimensions', 'minecraft', d, 'region', 'r.1.2.mca'), Buffer.alloc(9000)); }
+        const s26 = new MapStore(w); assert.ok(s26.available, '26.x layout is a world');
+        for (const d of ['overworld', 'nether', 'end']) assert.deepStrictEqual(s26.index(d).map((r) => [r.rx, r.rz]), [[1, 2]], d);
+        const c = fs.mkdtempSync(path.join(os.tmpdir(), 'map-'));
+        fs.mkdirSync(path.join(c, 'region')); fs.mkdirSync(path.join(c, 'DIM-1', 'region'), { recursive: true });
+        fs.writeFileSync(path.join(c, 'region', 'r.0.0.mca'), Buffer.alloc(9000)); fs.writeFileSync(path.join(c, 'DIM-1', 'region', 'r.-1.0.mca'), Buffer.alloc(9000));
+        const s121 = new MapStore(c); assert.ok(s121.available, 'classic layout is a world');
+        assert.deepStrictEqual(s121.index('overworld').map((r) => [r.rx, r.rz]), [[0, 0]]);
+        assert.deepStrictEqual(s121.index('nether').map((r) => [r.rx, r.rz]), [[-1, 0]]);
+        assert.deepStrictEqual(s121.index('end'), [], 'a dimension never visited: no regions');
+        assert.ok(!new MapStore(fs.mkdtempSync(path.join(os.tmpdir(), 'map-'))).available, 'an empty folder is no world');
+        fs.rmSync(w, { recursive: true }); fs.rmSync(c, { recursive: true });
+    });
     console.log('\nwork map: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });
