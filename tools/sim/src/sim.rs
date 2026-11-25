@@ -67,6 +67,8 @@ pub struct Sim {
     /// Falling blocks in the air: (tick it lands, cell it lands in, block). The column over a dug cell becomes falling entities at once and lands
     /// when vanilla gravity brings it down (move_b corpus mvb-r1: the sand over a dug cell was air at the end of the dig and landed later).
     pub falling: Vec<(i64, [i32; 3], u16)>,
+    /// The player's tick physics (physics.rs) when the tables have block states: the work-layer moves run their body on it.
+    pub phys: Option<Rc<crate::physics::Phys>>,
     /// The server puts drops straight into the pack (the 1.21.1 test worlds' auto-pickup mod): collecting a drop costs no walk.
     pub autopickup: bool,
     reach: Option<Reach>, pub scan_on: bool, pub way: Option<[i32; 3]>, pub scan_res: Option<(Vec<f64>, Vec<Option<[i32; 3]>>)>, pub recent: Vec<[i32; 3]>,
@@ -126,7 +128,7 @@ pub fn tool_rank(n: &str) -> i32 { ["wooden", "golden", "stone", "iron", "diamon
 impl Sim {
     pub fn new(d: Rc<Data>, tile: Rc<Tile>, seed: u64) -> Sim {
         Sim { d, tile, edits: HashMap::new(), pos: [0; 3], yaw: 0.0, hp: 20.0, food: 20.0, sat: 5.0, exh: 0.0, inv: vec![None; 36], tick: 0, mobs: vec![], next_id: 1, rng: Rng(seed | 1),
-            site: [0; 3], fuel: 0.0, hostile_scale: 1.0, craft_slots: None, dead: false, mobf: None, ph: vec![], view: [0; 3], track: [0; 3], air: 300.0, hits: 0, dmg: vec![], day_seen: 0, regen_t: 0.0, kills: HashMap::new(), audit: HashMap::new(), journal: None, exact: None, ground: true, eff: HashMap::new(), vine: HashMap::new(), astar: false, atomic: false, hand: None, plan_nodes: PLAN_NODES, max_drop: 3, no_vines: false, avoid: std::collections::HashSet::new(), floor_by_other: false, falling: vec![], autopickup: false, reach: None, scan_on: false, way: None, scan_res: None, recent: vec![] }
+            site: [0; 3], fuel: 0.0, hostile_scale: 1.0, craft_slots: None, dead: false, mobf: None, ph: vec![], view: [0; 3], track: [0; 3], air: 300.0, hits: 0, dmg: vec![], day_seen: 0, regen_t: 0.0, kills: HashMap::new(), audit: HashMap::new(), journal: None, exact: None, ground: true, eff: HashMap::new(), vine: HashMap::new(), astar: false, atomic: false, hand: None, plan_nodes: PLAN_NODES, max_drop: 3, no_vines: false, avoid: std::collections::HashSet::new(), floor_by_other: false, falling: vec![], phys: None, autopickup: false, reach: None, scan_on: false, way: None, scan_res: None, recent: vec![] }
     }
     // ---- world access ----
     #[inline] pub fn blk(&self, x: i32, y: i32, z: i32) -> Option<u16> { if let Some(&b) = self.edits.get(&(x, y, z)) { Some(b) } else { self.tile.get(x, y, z) } }
@@ -1246,3 +1248,5 @@ pub fn ray_box(o: [f64; 3], d: [f64; 3], b: &[f64; 6]) -> Option<f64> {
     if tmax < 0.0 { return None; }
     Some(tmin.max(0.0))
 }
+
+impl crate::physics::PWorld for Sim { fn state(&self, x: i32, y: i32, z: i32) -> Option<u16> { self.blk(x, y, z) } }
