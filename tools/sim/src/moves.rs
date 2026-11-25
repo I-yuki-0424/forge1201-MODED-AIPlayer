@@ -74,6 +74,9 @@ impl Sim {
         let mut ev = vec![];
         let mut ticks = 0;
         let mut laid: Vec<[i32; 3]> = vec![];
+        // bridge.js: each cell one step along x or z from the one before (the first from where the body stands), else invalid_args before anything
+        let mut prev = [self.pos[0], self.pos[2]];
+        for n in cells { if (n[0] - prev[0]).abs() + (n[1] - prev[1]).abs() != 1 { return self.fail_with("invalid_args", 0, vec![]); } prev = *n; }
         for n in cells {
             let f = self.pos;
             if f[1] != y { return self.fail_with("invalid_target", ticks, ev); }
