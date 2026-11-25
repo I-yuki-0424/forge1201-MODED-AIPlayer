@@ -617,7 +617,7 @@ class BuildJob {
         // temporary blocks to take away near the bot, in any stage
         for (const tk of [...this.untemps]) {
             if (this.tasks.get(tk.k) !== tk) { this.untemps.delete(tk); continue; }
-            if (this.claims.has(tk.k) || Math.hypot(tk.x - me.x, tk.y - me.y, tk.z - me.z) > (this.wrapping ? 200 : 24)) continue;
+            if (this.claims.has(tk.k) || Math.hypot(tk.x - me.x, tk.y - me.y, tk.z - me.z) > (this.wrapping || (this.ledger.get(tk) || {}).by === name ? 200 : 24)) continue;
             if (this._already(tk, bot)) { this.tasks.delete(tk.k); this.untemps.delete(tk); this.ledger.check(tk, 'air'); continue; }
             if (this.ready(tk, bot, now)) ready.push(tk);
         }
@@ -700,6 +700,9 @@ class BuildJob {
             return (tk.kind === 'place' || tk.kind === 'fix' ? 2000 + tk.y + dv * 2 - d * 0.6 : (down ? -tk.y : tk.y) * 2) + d * 0.6 + crowd(tk) * 30 + (inSec(tk) ? 0 : 400) + (tk.kind === 'seal' || tk.kind === 'fill' ? -1000 : 0) + (this.noStance.has(tk.k) ? 5000 : 0);
         };
         doable.sort((a, b) => seedScore(a) - seedScore(b));
+        // its own temporary blocks that its step could not take away (out of reach or sight from the stance) come before any other work (owner list 5 Large 1: "before it starts
+        // unrelated work"; left to the crew's ranking they stood for minutes and the bot held 6-18 at once, tb3 w4)
+        { const own = doable.filter((tk) => tk.kind === 'untemp' && (this.ledger.get(tk) || {}).by === name); if (own.length) doable.splice(0, doable.length, ...own, ...doable.filter((tk) => !own.includes(tk))); }
         // the stance cells are judged with the bot's own mover rules (what it may dig, blocks about to go, cells no temporary block may take): judged with rules of its own,
         // the claim sent a bot 30 000 cells of search to a cell three above it that the mover may not dig (live 2026-11-24 ha18 w2)
         const MR = this.moverRules && this.moverRules.get(name), view = new View(bot, MR || { canDig: () => false }), blocked = this.standBlocked(name);
