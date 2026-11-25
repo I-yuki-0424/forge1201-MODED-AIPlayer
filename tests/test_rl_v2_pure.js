@@ -386,6 +386,9 @@ test('time scale: mineflayer still polls physics with setInterval(doPhysics) on 
     const src = require('fs').readFileSync(require.resolve('mineflayer/lib/plugins/physics.js'), 'utf8');
     assert.ok(/const \{ performance \} = require\('perf_hooks'\)/.test(src), 'physics.js no longer reads perf_hooks performance');
     assert.ok(/setInterval\(doPhysics, PHYSICS_INTERVAL_MS\)/.test(src), 'physics.js no longer polls with setInterval(doPhysics, ...)');
+    // one physics tick per poll (time_scale.botOptions, TASK-20261125-079): the option must still exist and still bound the catch-up loop
+    assert.ok(/function inject \(bot, \{[^}]*maxCatchupTicks[^}]*\}\)/.test(src) && /if \(catchupTicks >= PHYSICS_CATCHUP_TICKS\) break/.test(src), 'physics.js no longer takes maxCatchupTicks');
+    assert.deepStrictEqual(require('../src/transport/time_scale').botOptions(), { maxCatchupTicks: 1 });
     const { execFile } = require('child_process');   // async: the other tests' timers keep running meanwhile
     const probe = `const { performance } = require('perf_hooks'); require('./src/transport/time_scale').fromEnv();
         const t0 = performance.now(), w0 = Date.now(); let n = 0;

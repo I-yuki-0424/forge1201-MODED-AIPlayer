@@ -67,4 +67,12 @@ function follow(bot) {
     return bot;
 }
 
-module.exports = { setTimeScale, fromEnv, follow, get scale() { return k; } };
+/**
+ * Options every createBot gets: ONE physics tick per poll. Mineflayer catches up a late poll with up to 4 ticks in a row (maxCatchupTicks), all with the input of the last frame, while
+ * the action layer (src/skills/runner.js) gives one input frame per tick and sees only the first tick of such a burst. At 4x a poll is due every 12.5 ms and the harness's event loop
+ * was late by more than that at its p99 (25-42 ms), so bursts were common: place_a at x4 (2026-11-26, world 6) had a bot slide 0.19 blocks in one runner tick at the bridge edge and
+ * fall (spd-pa4b BrN6, trace t 332-336). With one tick per poll each tick has its own frame at every speed; a late loop makes the bot skip ticks (a lagging client), never act blind.
+ */
+const botOptions = () => ({ maxCatchupTicks: 1 });
+
+module.exports = { setTimeScale, fromEnv, follow, botOptions, get scale() { return k; } };

@@ -38,7 +38,7 @@ async function extend(ctx, y, F, N, items, placed) {
         const off = () => { const p = bot.entity.position; return (p.x - (F.x + 0.5)) * dx + (p.z - (F.z + 0.5)) * dz; };
         ctx.phase('bridge_edge', { cell: F });
         await ctx.until(() => { fellIf(ctx, y, placed.length); return off() >= 0.6; }, 40, 'stuck', walk);
-        await ctx.idle(2);
+        for (let i = 0; i < 2; i++) await ctx.tick({ sneak: true, yaw, pitch: 0 });          // come to rest STILL SNEAKING: an empty frame let go of sneak at the very edge and the body slid off (spd-pa4b, x4)
         const face = FACES.findIndex((f) => f[0] === dx && f[1] === 0 && f[2] === dz);
         ctx.phase('bridge_place', { cell: floor, against: support });
         await aimAtBlock(ctx, support, { face, frame: { sneak: true } });

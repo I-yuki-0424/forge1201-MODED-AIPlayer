@@ -15,6 +15,7 @@ function createBot({ host = 'localhost', port = 25565, username, viewDistance, c
         host, port, username,
         version: gameVersion(),
         maxPacketSize: 10 * 1024 * 1024,
+        ...clock.botOptions(),               // one physics tick per poll: each tick gets its own input frame (time_scale.js)
         disableChatSigning: true,
         hideErrors: true,
         ...(viewDistance ? { viewDistance } : {}),
