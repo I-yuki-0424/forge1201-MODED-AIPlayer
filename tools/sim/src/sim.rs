@@ -43,6 +43,14 @@ pub struct Sim {
     pub hostile_scale: f64, pub craft_slots: Option<usize>, pub dead: bool, pub mobf: Option<([i32; 3], usize, std::collections::HashMap<[i32; 3], f32>)>, pub ph: Vec<(&'static str, i64)>, pub view: [i32; 3], pub track: [i32; 3], pub air: f64, pub hits: u32, pub dmg: Vec<(&'static str, &'static str, f64, f64)>, day_seen: i64, regen_t: f64, pub kills: HashMap<String, u32>, pub audit: HashMap<String, u64>,
     /// When Some, every `set` is noted with the block it replaced (replay.rs: which cells a command changed, and how to undo them).
     pub journal: Option<Vec<((i32, i32, i32), u16)>>,
+    /// Where the body really is (feet, block units) when it is known (replay.rs: the recorded position): the first look of `approach` is from this eye,
+    /// not from the cell centre. Any walk clears it. `ground`: on the ground (motion.js approachUntil walks first when not).
+    pub exact: Option<[f64; 3]>, pub ground: bool,
+    /// Efficiency level per held tool name (vanilla: + level^2 + 1 to the tool's speed when it is the right tool); the T26 kits use 255.
+    pub eff: HashMap<String, i32>,
+    /// Faces of vine cells when known (replay.rs from the recorded block states; bits VINE_N/S/W/E/UP). A vine cell without an entry falls back to
+    /// "it hung on the block that went".
+    pub vine: HashMap<[i32; 3], u8>,
     reach: Option<Reach>, pub scan_on: bool, pub way: Option<[i32; 3]>, pub scan_res: Option<(Vec<f64>, Vec<Option<[i32; 3]>>)>, pub recent: Vec<[i32; 3]>,
 }
 pub const PASSIVE: [(&str, f64); 4] = [("cow", 10.0), ("pig", 10.0), ("sheep", 8.0), ("chicken", 4.0)];
@@ -54,9 +62,18 @@ fn stack_max(name: &str) -> u32 {
 }
 /// Block names `place` accepts as the target cell (src/skills/commands/block.js REPLACEABLE); anything else, a sapling or a flower
 /// included, is `invalid_target` however empty it looks.
-pub fn replaceable(n: &str) -> bool { matches!(n, "air" | "cave_air" | "void_air" | "grass" | "tall_grass" | "fern" | "large_fern" | "dead_bush" | "snow" | "seagrass" | "vine" | "glow_lichen") }
+pub fn replaceable(n: &str) -> bool { matches!(n, "air" | "cave_air" | "void_air" | "grass" | "short_grass" | "tall_grass" | "fern" | "large_fern" | "dead_bush" | "snow" | "seagrass" | "tall_seagrass" | "bubble_column" | "vine" | "glow_lichen") }
 fn interactive(n: &str) -> bool { n.ends_with("_bed") || n.ends_with("chest") || n.ends_with("_door") || n.ends_with("_gate") || n.ends_with("trapdoor") || n.ends_with("_button")
     || matches!(n, "crafting_table" | "furnace" | "blast_furnace" | "smoker" | "barrel" | "lever" | "anvil" | "enchanting_table" | "brewing_stand" | "loom" | "grindstone" | "smithing_table" | "cartography_table" | "stonecutter" | "fletching_table") }
+pub const VINE_N: u8 = 1; pub const VINE_S: u8 = 2; pub const VINE_W: u8 = 4; pub const VINE_E: u8 = 8; pub const VINE_UP: u8 = 16;
+pub const VINE_SIDES: [(u8, [i32; 3]); 4] = [(VINE_N, [0, 0, -1]), (VINE_S, [0, 0, 1]), (VINE_W, [-1, 0, 0]), (VINE_E, [1, 0, 0])];
+/// Blocks that stand on the block under them and break when it goes (vanilla canSurvive on the floor).
+pub fn needs_floor(n: &str) -> bool {
+    matches!(n, "short_grass" | "grass" | "tall_grass" | "fern" | "large_fern" | "dead_bush" | "torch" | "soul_torch" | "redstone_torch" | "redstone_wire" | "rail" | "powered_rail" | "detector_rail" | "activator_rail"
+        | "snow" | "dandelion" | "poppy" | "blue_orchid" | "allium" | "azure_bluet" | "oxeye_daisy" | "cornflower" | "lily_of_the_valley" | "sugar_cane" | "cactus" | "repeater" | "comparator"
+        | "brown_mushroom" | "red_mushroom" | "sweet_berry_bush" | "lever" | "stone_pressure_plate")
+        || n.ends_with("_sapling") || n.ends_with("_carpet") || n.ends_with("_tulip") || n.ends_with("_pressure_plate") || n.ends_with("_door") || (n.ends_with("_sign") && !n.ends_with("_wall_sign") && !n.ends_with("_hanging_sign"))
+}
 /// Protocol face normals (0 down, 1 up, 2 north, 3 south, 4 west, 5 east), geometry.js FACES.
 pub const FACES: [[i32; 3]; 6] = [[0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 1], [-1, 0, 0], [1, 0, 0]];
 /// Ticks the action layer spends around the digging itself, per block (src/skills/commands/block.js `mine`): the hotbar swap to the
@@ -67,13 +84,19 @@ pub const FACES: [[i32; 3]; 6] = [[0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 1], 
 /// after it the walk to a drop that did not land at the feet 18.3 per mine (19.6 per tunnel); a tunnel step ends with a walk into the dug
 /// cell and a settle (~39 ticks incl. falling-block waits).
 pub const TUNNEL_BASE: i64 = 8; pub const TUNNEL_STEP: i64 = 39; pub const MINE_HOLD: i64 = 3; pub const MINE_AIM: i64 = 4; pub const MINE_CONFIRM: i64 = 6; pub const MINE_COLLECT: i64 = 20; pub const MINE_PICKUP: i64 = 19;
-pub const AIM_REACH: f64 = 4.2;               // motion.js AIM_REACH = BLOCK_REACH 4.5 - 0.3
+pub const AIM_REACH: f64 = 4.2;
+/// block.js BLIND_REACH: a blind dig is refused farther than this from the eye.
+pub const BLIND_REACH: f64 = 5.0;
+/// Ticks around the digging itself on the T26 test worlds (place_b corpus pb-r1, 1.21.1, docs/proposed/SIM-PARITY-v1.md): a blind dig = vanilla
+/// break ticks + MINE_BLIND (start packet, the last swing, the server's block update, the closing tick); an aimed dig without collecting =
+/// walk + break ticks + MINE_NOCOLLECT (tool swap, aim, the same confirmation); a recipe placement = walk + PLACE_RECIPE.
+pub const MINE_BLIND: i64 = 3; pub const MINE_NOCOLLECT: i64 = 6; pub const PLACE_RECIPE: i64 = 4;               // motion.js AIM_REACH = BLOCK_REACH 4.5 - 0.3
 pub fn tool_rank(n: &str) -> i32 { ["wooden", "golden", "stone", "iron", "diamond", "netherite"].iter().position(|t| n.starts_with(t)).map(|p| p as i32).unwrap_or(-1) }
 
 impl Sim {
     pub fn new(d: Rc<Data>, tile: Rc<Tile>, seed: u64) -> Sim {
         Sim { d, tile, edits: HashMap::new(), pos: [0; 3], yaw: 0.0, hp: 20.0, food: 20.0, sat: 5.0, exh: 0.0, inv: vec![None; 36], tick: 0, mobs: vec![], next_id: 1, rng: Rng(seed | 1),
-            site: [0; 3], fuel: 0.0, hostile_scale: 1.0, craft_slots: None, dead: false, mobf: None, ph: vec![], view: [0; 3], track: [0; 3], air: 300.0, hits: 0, dmg: vec![], day_seen: 0, regen_t: 0.0, kills: HashMap::new(), audit: HashMap::new(), journal: None, reach: None, scan_on: false, way: None, scan_res: None, recent: vec![] }
+            site: [0; 3], fuel: 0.0, hostile_scale: 1.0, craft_slots: None, dead: false, mobf: None, ph: vec![], view: [0; 3], track: [0; 3], air: 300.0, hits: 0, dmg: vec![], day_seen: 0, regen_t: 0.0, kills: HashMap::new(), audit: HashMap::new(), journal: None, exact: None, ground: true, eff: HashMap::new(), vine: HashMap::new(), reach: None, scan_on: false, way: None, scan_res: None, recent: vec![] }
     }
     // ---- world access ----
     #[inline] pub fn blk(&self, x: i32, y: i32, z: i32) -> Option<u16> { if let Some(&b) = self.edits.get(&(x, y, z)) { Some(b) } else { self.tile.get(x, y, z) } }
@@ -165,10 +188,12 @@ impl Sim {
         for attempt in 0..2 {
             let reach = BLOCK_REACH - 0.8 * attempt as f64;
             let excl = if attempt == 1 { Some(here) } else { None };
-            if attempt == 0 && goal(self, here, reach) {
-                if visible(self, [here[0] as f64 + 0.5, here[1] as f64 + EYE, here[2] as f64 + 0.5]) { return Ok(0); }
+            if attempt == 0 && self.ground && goal(self, here, reach) {
+                let eye = match self.exact { Some(e) => [e[0], e[1] + EYE, e[2]], None => [here[0] as f64 + 0.5, here[1] as f64 + EYE, here[2] as f64 + 0.5] };
+                if visible(self, eye) { return Ok(0); }
                 continue;                                                  // no walk, nothing in sight: straight to the second attempt
             }
+            self.exact = None;
             self.pos = here; self.reach = None;
             let (n, c) = match self.stand_for(|s, n| Some(n) != excl && goal(s, n, reach)) { Some(x) => x, None => { self.pos = start; self.reach = None; return Err(("unreachable", 2 * ticks + 1)) } };
             ticks += self.ticks_for(c);
@@ -264,7 +289,8 @@ impl Sim {
         cands.extend(held.iter().map(|h| h.0.as_str()));
         for t in cands {
             let harvest = match &b.harvest { None => true, Some(list) => !t.is_empty() && list.iter().any(|x| x == t) };
-            let speed = if t.is_empty() { 1.0 } else { b.mult.iter().find(|m| m.0 == t).map(|m| m.1).unwrap_or(1.0) };
+            let mut speed = if t.is_empty() { 1.0 } else { b.mult.iter().find(|m| m.0 == t).map(|m| m.1).unwrap_or(1.0) };
+            if speed > 1.0 { if let Some(&e) = self.eff.get(t) { if e > 0 { speed += (e * e + 1) as f64; } } }
             let ticks = if b.hard == 0.0 { 0 } else { let dmg = speed / b.hard / if harvest { 30.0 } else { 100.0 }; if dmg >= 1.0 { 0 } else { (1.0 / dmg).ceil() as i64 } };
             if b.harvest.is_some() && !harvest { continue; }
             if best.as_ref().map_or(true, |x| ticks < x.1) { best = Some((t.to_string(), ticks, harvest)); }
@@ -290,6 +316,43 @@ impl Sim {
         while matches!(self.name(x, yy, z), "sand" | "red_sand" | "gravel") && self.is_air(x, yy - 1, z) {
             let b = self.blk(x, yy, z).unwrap();
             self.set(x, yy - 1, z, b); self.set(x, yy, z, self.d.air); yy += 1;
+        }
+        self.pop_unsupported([x, y, z]);
+    }
+    /// Neighbour updates after a block is gone (vanilla `canSurvive`): blocks that need a support break when it goes, and the ones that hung on them
+    /// after them. Vines: see below (their attachment faces are block states, which the tiles drop);
+    /// plants, torches, rails, dust, carpets and the like need the block under them; ladders and wall-mounted blocks a solid side. Measured: place_b
+    /// corpus pb-r1, 1.21.1: every log taken out of a jungle tree took the vines on it (vines -> air in the same command window).
+    pub fn pop_unsupported(&mut self, from: [i32; 3]) {
+        let mut q = std::collections::VecDeque::from([from]);
+        let mut n = 0;
+        while let Some(c) = q.pop_front() {
+            n += 1; if n > 256 { break; }
+            for f in FACES {
+                let p = [c[0] + f[0], c[1] + f[1], c[2] + f[2]];
+                let name = self.name(p[0], p[1], p[2]).to_string();
+                let solid = |s: &Sim, q: [i32; 3]| s.kind(q[0], q[1], q[2]) == Kind::Solid && s.blk(q[0], q[1], q[2]).is_some();
+                let side = (0..4).any(|i| { let d = [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]][i]; solid(self, [p[0] + d[0], p[1], p[2] + d[2]]) });
+                // Vines (VineBlock): each face needs a sturdy block on its side, or a vine above with the same face; `up` needs the block above.
+                // Faces that lost their support go; no face left, the vine goes. Without the faces (tiles drop states): a vine beside the removed
+                // block hung on it, one under it (or under a vine that just went) hung from it.
+                let _ = side;
+                let pops = if name == "vine" {
+                    match self.vine.get(&p).copied() {
+                        Some(bits) => {
+                            let mut keep = 0u8;
+                            for (bit, d) in VINE_SIDES { if bits & bit != 0 && (solid(self, [p[0] + d[0], p[1], p[2] + d[2]]) || (self.name(p[0], p[1] + 1, p[2]) == "vine" && self.vine.get(&[p[0], p[1] + 1, p[2]]).map_or(false, |a| a & bit != 0))) { keep |= bit; } }
+                            if bits & VINE_UP != 0 && solid(self, [p[0], p[1] + 1, p[2]]) { keep |= VINE_UP; }
+                            if keep != 0 { if keep != bits { self.vine.insert(p, keep); q.push_back(p); } false } else { self.vine.remove(&p); true }
+                        }
+                        None => (f[1] == 0 || f[1] == -1) && !solid(self, [p[0], p[1] + 1, p[2]]),
+                    }
+                }
+                    else if name == "ladder" || name.ends_with("_wall_torch") || name == "wall_torch" || name.ends_with("_wall_sign") || name.ends_with("_wall_banner") { !side }
+                    else if needs_floor(&name) { !solid(self, [p[0], p[1] - 1, p[2]]) && !(name.ends_with("_door") && self.name(p[0], p[1] - 1, p[2]) == name) }
+                    else { false };
+                if pops { self.set(p[0], p[1], p[2], self.d.air); q.push_back(p); }
+            }
         }
     }
     /// Breadth-first water flow from the opened cell (see break_block).
@@ -374,6 +437,9 @@ impl Sim {
     }
     pub fn do_wait(&mut self, ticks: i64) -> Out { let o = Out::ok(ticks, vec![]); self.finish(o, vec![]) }
     pub fn do_move(&mut self, t: [i32; 3]) -> Out {
+        // block.js moveTo: an unloaded target is `unreachable`, a cell nobody can stand or swim in is `invalid_target`, both before any key is pressed
+        if self.blk(t[0], t[1], t[2]).is_none() { return Out::fail("unreachable", 0, vec![]).with(self, vec![]); }
+        if !self.standable(t[0], t[1], t[2]) { return Out::fail("invalid_target", 0, vec![]).with(self, vec![]); }
         let d = self.reach().dist.get(&t).copied();
         match d {
             None => Out::fail("unreachable", 1, vec![]).with(self, vec![]),
@@ -381,6 +447,62 @@ impl Sim {
         }
     }
     pub(crate) fn look_at(&mut self, t: [i32; 3]) { let (dx, dz) = ((t[0] - self.pos[0]) as f64, (t[2] - self.pos[2]) as f64); if dx != 0.0 || dz != 0.0 { self.yaw = (-dx).atan2(-dz); } }
+    /// The eye the body looks from now: the real one when known, else the cell centre's.
+    pub fn eye(&self) -> [f64; 3] { match self.exact { Some(e) => [e[0], e[1] + EYE, e[2]], None => [self.pos[0] as f64 + 0.5, self.pos[1] as f64 + EYE, self.pos[2] as f64 + 0.5] } }
+    /// `mine` with the work layer's options (block.js): `blind` digs from where the body stands without a line of sight, refused beyond BLIND_REACH
+    /// from the eye (`not_visible`, nothing pressed); `collect: false` leaves the drop (on the test worlds the server's auto-pickup puts it into the
+    /// pack anyway, which `break_block` does).
+    pub fn do_mine_opts(&mut self, t: [i32; 3], collect: bool, blind: bool) -> Out {
+        if !blind { return if collect { self.do_mine(t) } else { self.do_mine_nocollect(t) }; }
+        let bid = match self.blk(t[0], t[1], t[2]) { Some(b) => b, None => return Out::fail("unreachable", 1, vec![]).with(self, vec![]) };
+        if self.d.block(bid).kind != Kind::Solid && self.d.block(bid).kind != Kind::Climb && self.d.block(bid).kind != Kind::Passable || !self.d.block(bid).diggable || self.d.block(bid).name.ends_with("air") { return Out::fail("invalid_target", 0, vec![]).with(self, vec![]); }
+        let plan = match self.dig_plan(bid) { Some(p) => p, None => return Out::fail("missing_tool", 0, vec![]).with(self, vec![]) };
+        let e = self.eye();
+        let d = ((e[0] - t[0] as f64 - 0.5).powi(2) + (e[1] - t[1] as f64 - 0.5).powi(2) + (e[2] - t[2] as f64 - 0.5).powi(2)).sqrt();
+        if d > BLIND_REACH { return Out::fail("not_visible", 0, vec![]).with(self, vec![]); }
+        let mut ev = vec![];
+        let ticks = plan.1 + MINE_BLIND;
+        self.ph = vec![("dig_blind", ticks)];
+        self.exh += 0.005;
+        self.break_block(t[0], t[1], t[2], &mut ev);
+        self.reach = None;
+        self.finish(Out::ok(ticks, vec![]), ev)
+    }
+    fn do_mine_nocollect(&mut self, t: [i32; 3]) -> Out {
+        let bid = match self.blk(t[0], t[1], t[2]) { Some(b) => b, None => return Out::fail("unreachable", 1, vec![]).with(self, vec![]) };
+        if self.d.block(bid).kind == Kind::Air || self.d.block(bid).kind == Kind::Liquid || !self.d.block(bid).diggable { return Out::fail("invalid_target", 0, vec![]).with(self, vec![]); }
+        let plan = match self.dig_plan(bid) { Some(p) => p, None => return Out::fail("missing_tool", 0, vec![]).with(self, vec![]) };
+        let walk = match self.approach(&|s, n, r| !(n[0] == t[0] && n[2] == t[2] && n[1] == t[1] + 1) && s.reach_goal(n, t, None, r), &|s, e| s.aim_ok(e, t, None, AIM_REACH)) {
+            Ok(w) => w, Err((r, tk)) => { let o = Out::fail(r, tk, vec![]); return self.finish(o, vec![]); } };
+        let mut ev = vec![];
+        let ticks = walk + plan.1 + MINE_NOCOLLECT;
+        self.ph = vec![("walk", walk), ("dig", ticks - walk)];
+        self.look_at([t[0], self.pos[1], t[2]]);
+        self.exh += 0.005;
+        self.break_block(t[0], t[1], t[2], &mut ev);
+        self.reach = None;
+        self.finish(Out::ok(ticks, vec![]), ev)
+    }
+    /// block.js placeWithRecipe: the click goes on face `face` of the support block next to the target (support = target + `dir`); the server checks
+    /// reach to the clicked block, not the line of sight, so only a stand cell within reach (eye to the support's centre <= reach + 0.5, not in the
+    /// target's column) is needed; two look ticks, the click, one tick, the server's block (PLACE_RECIPE in all).
+    pub fn do_place_recipe(&mut self, t: [i32; 3], item: &str, block: &str, dir: [i32; 3]) -> Out {
+        let bid = self.d.bid(block);
+        if bid == self.d.unknown { return Out::fail("invalid_args", 0, vec![]).with(self, vec![]); }
+        let cur = match self.blk(t[0], t[1], t[2]) { Some(b) => self.d.block(b).name.clone(), None => return Out::fail("unreachable", 0, vec![]).with(self, vec![]) };
+        if !replaceable(&cur) { return Out::fail("invalid_target", 0, vec![]).with(self, vec![]); }
+        if self.count(item) == 0 { return Out::fail("missing_item", 0, vec![]).with(self, vec![]); }
+        let sup = [t[0] + dir[0], t[1] + dir[1], t[2] + dir[2]];
+        let sn = self.name(sup[0], sup[1], sup[2]).to_string();
+        if replaceable(&sn) || sn == "water" || sn == "lava" || sn == "unloaded" { return Out::fail("invalid_target", 0, vec![]).with(self, vec![]); }
+        let free = move |c: [i32; 3]| !(c[0] == t[0] && c[2] == t[2] && (c[1] == t[1] || c[1] + 1 == t[1]));
+        let dist = move |c: [i32; 3]| (((c[0] - sup[0]) as f64).powi(2) + (c[1] as f64 + EYE - sup[1] as f64 - 0.5).powi(2) + ((c[2] - sup[2]) as f64).powi(2)).sqrt();
+        let walk = match self.approach(&|_s, n, r| free(n) && dist(n) <= r + 0.5, &|_s, _e| true) {
+            Ok(w) => w, Err((r, tk)) => { let o = Out::fail(r, tk, vec![]); return self.finish(o, vec![]); } };
+        let ticks = walk + PLACE_RECIPE;
+        self.take(item, 1); self.set(t[0], t[1], t[2], bid);
+        self.finish(Out::ok(ticks, vec![]), vec![Ev::Stat("used", item.to_string(), 1)])
+    }
     pub fn do_mine(&mut self, t: [i32; 3]) -> Out {
         let bid = match self.blk(t[0], t[1], t[2]) { Some(b) => b, None => return Out::fail("invalid_target", 1, vec![]).with(self, vec![]) };
         let k = self.d.block(bid).kind;

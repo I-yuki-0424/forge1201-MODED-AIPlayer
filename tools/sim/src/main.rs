@@ -7,7 +7,8 @@ fn main() {
         Some("export") => export::run(rest),
         Some("run") => run::run(rest),
         Some("replay") => replay::run(rest),
-        _ => Err("usage: forgeaip-sim export|run|replay ...".to_string()),
+        Some("compare") => replay::run_compare(rest),
+        _ => Err("usage: forgeaip-sim export|run|replay|compare ...".to_string()),
     };
     if let Err(e) = res { eprintln!("forgeaip-sim: {}", e); std::process::exit(2); }
 }

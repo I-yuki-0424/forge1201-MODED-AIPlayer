@@ -18,6 +18,17 @@ const FORMAT = 1;
 const r3 = (v) => (typeof v === 'number' && Number.isFinite(v) ? Math.round(v * 1000) / 1000 : null);
 const DETAIL_CAP = 2000;
 
+/** Enchantments as [[name, level]] from every shape prismarine-item gives (1.20.1 [{name, lvl}]; 1.20.5+ components {enchantments: [{id, level}]} or
+ *  {levels: {name: level}}; the same normalisation as src/transport/fabric_bot.js normEnchants). */
+function enchantsOf(e, registry) {
+    const name = (id) => (typeof id === 'string' ? id.replace(/^minecraft:/, '') : ((registry && registry.enchantments && registry.enchantments[id]) || {}).name || String(id));
+    if (Array.isArray(e)) return e.map((x) => [name(x.name), x.lvl]);
+    if (!e || typeof e !== 'object') return [];
+    if (Array.isArray(e.enchantments)) return e.enchantments.map((x) => [name(x.id), x.level]);
+    if (e.levels && typeof e.levels === 'object') return Object.entries(e.levels).map(([k, v]) => [name(k), v]);
+    return [];
+}
+
 /** The bot's state as the client holds it (the server's packets keep it current): what the replayer starts from and compares against. */
 function botState(bot) {
     const e = bot.entity || {}, p = e.position || {}, v = e.velocity || {};
@@ -26,8 +37,16 @@ function botState(bot) {
     for (let i = 0; i < slots.length; i++) {
         const it = slots[i];
         if (!it) continue;
+        // [slot, name, count, damage?, enchantments?]: what a replay must give back (the T26 kits carry Efficiency 255 and Unbreakable)
         const row = [i, it.name, it.count];
-        if (typeof it.durabilityUsed === 'number' && it.durabilityUsed > 0) row.push(it.durabilityUsed);
+        let dmg = 0, ench = null;
+        try { if (typeof it.durabilityUsed === 'number') dmg = it.durabilityUsed; } catch (_) { /* no durability */ }
+        try { const e = enchantsOf(it.enchants, bot.registry); if (e.length) ench = e; } catch (_) { /* components this version's reader does not know */ }
+        let unb = false;
+        try { unb = !!(it.componentMap && it.componentMap.has('unbreakable')); } catch (_) { /* pre-component versions: NBT, not read here */ }
+        if (unb) (ench = ench || []).push(['unbreakable', 1]);           // a pseudo-enchantment: the component `unbreakable={}`
+        if (dmg > 0 || ench) row.push(dmg);
+        if (ench) row.push(ench);
         inv.push(row);
     }
     return {
@@ -141,7 +160,9 @@ class BotRec {
     begin(layer, name, args, opts) {
         this.cover(args);
         const id = ++this.seq;
-        this.line({ t: 'cmd', id, layer, name, args: args || {}, atomic: !!(opts && opts.atomic), maxTicks: (opts && opts.maxTicks) || null,
+        // `ref`: the id of the command this one re-plays (scripts/sim/play.js sets bot.__simrecRef), so two runs pair up command by command
+        const ref = this.bot.__simrecRef === undefined ? undefined : this.bot.__simrecRef;
+        this.line({ t: 'cmd', id, ref, layer, name, args: args || {}, atomic: !!(opts && opts.atomic), maxTicks: (opts && opts.maxTicks) || null,
             ms: Date.now(), tick: this.tick, before: botState(this.bot) });
         return id;
     }
@@ -193,8 +214,16 @@ function install({ dir = process.env.SIMREC_DIR || path.join('/out/simrec', proc
             throw err;
         } finally { busy.set(bot, depth); }
     };
+    // A runner-level call is named after the work layer's move it belongs to (src/work/bot/moves.js MOVES: `move:bridge`, `move:pillar` ...), which
+    // scripts/sim/play.js runs again with runMove; anything else as `run:<function name>`.
+    const movesPath = path.join(root, 'src/work/bot/moves.js');
+    const runName = (fn) => {
+        const m = require.cache[movesPath] && require.cache[movesPath].exports.MOVES;
+        if (m) for (const [k, v] of Object.entries(m)) if (v.fn === fn) return `move:${k}`;
+        return `run:${(fn && fn.name) || 'anonymous'}`;
+    };
     const runner = require(runnerPath);
-    runner.run = wrap('run', runner.run, (fn) => `run:${(fn && fn.name) || 'anonymous'}`);
+    runner.run = wrap('run', runner.run, runName);
     const index = require(indexPath);
     index.execute = wrap('execute', index.execute, (name) => name);
     const closeAll = () => { for (const rec of recs.values()) rec.close(); };
@@ -203,6 +232,6 @@ function install({ dir = process.env.SIMREC_DIR || path.join('/out/simrec', proc
     return { dir, recs, closeAll };
 }
 
-module.exports = { install, botState, columnCells, BotRec, FORMAT };
+module.exports = { install, botState, columnCells, enchantsOf, BotRec, FORMAT };
 // Loaded with --require (no parent module that is a test): install at once.
 if (require.main !== module && module.parent && module.parent.id === 'internal/preload') install();
