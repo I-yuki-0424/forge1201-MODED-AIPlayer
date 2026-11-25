@@ -181,7 +181,7 @@ class Server {
         switch (w[0]) {
             case 'seed': return `Seed: [${process.env.SIM_SEED || 0}]`;
             case 'gamerule': case 'difficulty': case 'forceload': case 'tellraw': case 'effect': case 'time': case 'weather': case 'scoreboard': case 'kill': case 'say': return '';
-            case 'gamemode': { const q = this.players.get(w[2]); if (q) q.gm = { survival: 0, creative: 1, adventure: 2, spectator: 3 }[w[1]] ?? 0; return ''; }
+            case 'gamemode': { const q = this.players.get(w[2]); if (q) { q.gm = { survival: 0, creative: 1, adventure: 2, spectator: 3 }[w[1]] ?? 0; q.client.send('game_state_change', { reason: 'change_game_mode', gameMode: q.gm }); q.client.send('abilities', { flags: q.gm === 3 ? 6 : q.gm === 1 ? 13 : 0, flyingSpeed: 0.05, walkingSpeed: 0.1 }); } return ''; }
             case 'tp': if (p) this.teleport(p, Number(w[2]), Number(w[3]), Number(w[4]), w[5] !== undefined ? Number(w[5]) : undefined, w[6] !== undefined ? Number(w[6]) : undefined); return p ? `Teleported ${w[1]}` : 'No entity was found';
             case 'clear': if (p) { p.inv.fill(null); this.sendInventory(p); } return '';
             case 'setblock': {

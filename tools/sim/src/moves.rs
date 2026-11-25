@@ -11,7 +11,7 @@ pub const STACK_ITEMS: [&str; 13] = ["cobblestone", "cobbled_deepslate", "nether
 /// Ticks of one pillar level (centre, jump, click at the top, land), one descend level besides its dig (the drop onto the cell below) and one
 /// bridge cell (step to the edge, aim at the side face, click, step on; the first cell starts at the edge already): corpus medians (pillar
 /// 10 for one level, descend 14 for one level with a 7-tick dig, bridge 16 for one cell and 20.6 per cell over 30).
-pub const PILLAR_LEVEL: i64 = 10; pub const DESCEND_LEVEL: i64 = 7; pub const BRIDGE_CELL: i64 = 21; pub const BRIDGE_FIRST: i64 = 16;
+pub const PILLAR_LEVEL: i64 = 11; pub const DESCEND_LEVEL: i64 = 7; pub const BRIDGE_CELL: i64 = 21; pub const BRIDGE_FIRST: i64 = 16;
 
 impl Sim {
     /// The block a move stacks now: the temporary block when the pack has one, else the first of STACK_ITEMS it has.
