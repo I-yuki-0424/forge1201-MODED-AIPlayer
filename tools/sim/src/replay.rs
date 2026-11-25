@@ -603,6 +603,20 @@ mod tests {
         assert!(!rows[2].agree.outcome);
         assert!(rows[2].cats.contains(&"placement_rules"), "{:?}", rows[2].cats);
     }
+    /// The real server against itself: a run compared with its own re-play (every command carrying `ref` = its id) pairs every command and
+    /// agrees on all of them; a re-play that started from another cell is left out, not counted as a divergence.
+    #[test]
+    fn a_run_compared_with_its_replay_pairs_command_by_command() {
+        let (a, d) = fixture();
+        let (mut b, _) = fixture();
+        for c in b.cmds.iter_mut() { c.refid = Some(c.id); }
+        let (rows, n) = compare(&a, &b, d.clone(), 6);
+        assert_eq!(n, [4, 0, 0]);
+        assert!(rows.iter().all(|r| r.agree.all() && r.agree.ticks), "{:?}", rows.iter().map(|r| (r.id, r.agree)).collect::<Vec<_>>());
+        b.cmds[1].before.pos[0] += 3.0;
+        let (rows, n) = compare(&a, &b, d, 6);
+        assert_eq!((n, rows.len()), ([3, 1, 0], 3));
+    }
     /// Teacher forcing: the simulator's changes are undone after each command; the next command sees the recorded blocks.
     #[test]
     fn each_command_starts_from_the_recorded_world_not_from_the_simulators() {
