@@ -327,6 +327,26 @@ class Mover {
         // a pillar that failed in a cell is not planned there again for two minutes (one was tried 13 times in a row, live 2026-11-23 gd1 w2)
         this.rules = { ...rules, noPillar: (x, y, z) => (this.badPillar.get(key(x, y, z)) || 0) > Date.now() };
     }
+    /**
+     * Standing on its own bridge block beside the top of its own pillar (the stance's way up): back onto the pillar's top, the bridge block dug from there, and the pillar dug down
+     * as the bot comes down (owner list 5 Large 1: "a pillar is dug as the bot comes down, a bridge as it walks back"). Returns the blocks dug, or 0 when it is not standing so.
+     */
+    async walkBack(cancel) {
+        const f = feet(this.bot), own = (x, y, z) => this.mine.has(key(x, y, z)) || !!(this.rules.ownTemp && this.rules.ownTemp(x, y, z));
+        if (!own(f.x, f.y - 1, f.z)) return 0;
+        const v = this.view();
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            const t = { x: f.x + dx, y: f.y, z: f.z + dz };
+            if (!own(t.x, t.y - 1, t.z) || !v.fits(t.x, t.y, t.z) || own(t.x, t.y - 2, t.z) === false && !v.stands(t.x, t.y - 2, t.z)) continue;
+            if (!(await this.walkTo(t, { sneak: true, timeout: 2000 }))) return 0;
+            const b = { x: f.x, y: f.y - 1, z: f.z };
+            if (await this.dig(b)) { this.mine.delete(key(b.x, b.y, b.z)); if (this.mineHow) this.mineHow.delete(key(b.x, b.y, b.z)); if (this.rules.onUntemp) this.rules.onUntemp(b); }
+            else if (this.rules.onTempFail) this.rules.onTempFail(b, 'walk back: the dig failed');
+            return 1 + (await this.unpillar(null, () => false, cancel));
+        }
+        return 0;
+    }
+
     /** Does the bot stand on a temporary block of its own at cell c (the floor under c)? */
     _ownFloor(c) { if (!c) return false; const k = key(c.x, c.y - 1, c.z); return this.mine.has(k) || !!(this.rules.ownTemp && this.rules.ownTemp(c.x, c.y - 1, c.z)); }
 
@@ -779,8 +799,10 @@ class Mover {
                 const r = await this.step(route[i - 1], s), at = feet(this.bot);
                 if (!r.ok || at.x !== s.x || at.z !== s.z || at.y !== s.y) { last = r.ok ? `ended at ${at.x},${at.y},${at.z} not ${s.x},${s.y},${s.z} (${s.move})` : r.why; broke = true; break; }
                 steps++; i++;
-                // the block behind (a bridge, a pillar left sideways) is broken as the bot goes on, as a player does (owner 2026-11-23 V4, list 5 Large 1)
-                if (s.move !== 'pillar') await this._behind(route[i - 2], route, i);
+                // the block behind (a bridge, a pillar left sideways) is broken as the bot goes on, as a player does (owner 2026-11-23 V4, list 5 Large 1); a bridge's last step off
+                // its own pillar's top is the stance's way back down: the column stays until the bot walks back onto it (drive.js release: the bridge block, then the column)
+                const wayBack = s.move === 'bridge' && i === route.length && this.mineHow && this.mineHow.get(key(route[i - 2].x, route[i - 2].y - 1, route[i - 2].z)) === 'pillar';
+                if (s.move !== 'pillar' && !wayBack) await this._behind(route[i - 2], route, i);
             }
             if (!broke && !cancel.cancelled) { const f = feet(this.bot); if (g(f.x, f.y, f.z)) return { ok: true, steps }; }
         }

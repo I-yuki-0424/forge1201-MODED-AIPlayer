@@ -209,7 +209,7 @@ test('release: the step is over: own blocks in reach and sight are dug, the rest
     for (const c of mine) { w.set(`${c.x},${c.y},${c.z}`, { name: 'dirt' }); job.addTemp(c, 'pillar', 'a', 'dirt'); job.ledger.observe(c, 'dirt'); }
     const bot = fakeBot(w, { x: 0.5, y: 70, z: 0.5 });
     const dug = [];
-    const mv = { unpillar: async () => 0, dig: async (c) => { w.delete(`${c.x},${c.y},${c.z}`); dug.push(`${c.x},${c.y},${c.z}`); return true; }, mine: new Map() };
+    const mv = { walkBack: async () => 0, unpillar: async () => 0, dig: async (c) => { w.delete(`${c.x},${c.y},${c.z}`); dug.push(`${c.x},${c.y},${c.z}`); return true; }, mine: new Map() };
     // the next stance is on this same column: the column stays, the rest goes
     let r = await D.release(job, 'a', bot, mv, { cancelled: false }, { x: 0, y: 72, z: 0 }, 'claim');
     assert.deepStrictEqual(dug, ['2,69,0'], `dug ${dug}`);
@@ -269,6 +269,25 @@ test('a temporary block beside a pane or over/beside redstone wire is known as o
     const without = await way({ canDig: () => false }), withCost = await way({ canDig: () => false, tempCost: cost });
     assert(without.includes('0,69,1'), `negative control: without the cost the bridge goes beside the pane (${without})`);
     assert(withCost.length && !withCost.includes('0,69,1'), `with it the bridge goes a cell away (${withCost})`);
+});
+
+test('a stance on a bridge block off its own pillar: the way back is that pillar (the bridge block dug from it, then the pillar as the bot comes down); not a loose block meanwhile', async () => {
+    const M = require('../src/build/move');
+    const w = new Map(); for (let x = -3; x <= 4; x++) for (let z = -3; z <= 3; z++) w.set(`${x},69,${z}`, { name: 'stone' });
+    for (let y = 70; y <= 72; y++) w.set(`0,${y},0`, { name: 'pumpkin' }); w.set('1,72,0', { name: 'pumpkin' });
+    const bot = fakeBot(w, { x: 1.5, y: 73, z: 0.5 });
+    const mine = new Map([['0,70,0', 'pumpkin'], ['0,71,0', 'pumpkin'], ['0,72,0', 'pumpkin'], ['1,72,0', 'pumpkin']]);
+    const mv = Object.create(M.Mover.prototype); const order = [];
+    Object.assign(mv, { bot, mine, mineHow: new Map([['0,70,0', 'pillar'], ['0,71,0', 'pillar'], ['0,72,0', 'pillar'], ['1,72,0', 'bridge']]), rules: { canDig: () => true }, trace: [] });
+    mv.walkTo = async (c) => { bot.entity.position.x = c.x + 0.5; bot.entity.position.z = c.z + 0.5; return true; };
+    mv.dig = async (c) => { w.delete(`${c.x},${c.y},${c.z}`); order.push(`${c.x},${c.y}`); return true; };
+    mv.unpillar = async () => { for (const y of [72, 71, 70]) await mv.dig({ x: 0, y, z: 0 }); return 3; };
+    assert.strictEqual(await mv.walkBack({ cancelled: false }), 4);
+    assert.deepStrictEqual(order, ['1,72', '0,72', '0,71', '0,70'], 'the bridge block first, from the pillar, then the pillar top-down');
+    const L = new TempLedger();
+    for (const [k, how] of [['0,70,0', 'pillar'], ['0,71,0', 'pillar'], ['0,72,0', 'pillar'], ['1,72,0', 'bridge']]) { const [x, y, z] = k.split(',').map(Number); L.intend({ x, y, z }, 'pumpkin', how, 'a'); L.observe({ x, y, z }, 'pumpkin'); }
+    assert.strictEqual(L.sample('a', { x: 1, y: 73, z: 0 }), 0, 'on the bridge block, the pillar beside it is its way down');
+    assert.strictEqual(L.sample('a', { x: 3, y: 73, z: 0 }), 4, 'negative control: walked away, all four are loose');
 });
 
 (async () => { for (const [name, fn] of queue) { await fn(); n++; console.log(`  ok ${name}`); } console.log(`test_build_temps_pure: ${n} passed`); })().catch((e) => { console.error(e); process.exit(1); });

@@ -35,7 +35,9 @@ class TempLedger {
     loose(by, f) {
         let n = 0; const hs = {}, cells = [];
         // (the crew's spawn bed or anchor is the crew's, for the whole build: not one of the bot's working blocks)
-        for (const e of this.map.values()) if (e.by === by && e.state === 'placed' && e.how !== 'fixture' && !(f && e.x === f.x && e.z === f.z && e.y < f.y)) { n++; hs[e.how] = (hs[e.how] || 0) + 1; if (cells.length < 6) cells.push(`${e.how} ${e.k}${e.released ? ' released' : ''}${e.lastFail ? ` (${e.lastFail})` : ''}`); }
+        // (and, standing on its own bridge block, the column whose top that block was placed against: the stance's way back down, dug as the bot comes down)
+        const under = f && this.map.get(key(f.x, f.y - 1, f.z)), way = under && under.by === by && under.how === 'bridge' ? [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => this.map.get(key(f.x + dx, f.y - 1, f.z + dz))).find((q) => q && q.by === by && q.how === 'pillar') : null;
+        for (const e of this.map.values()) if (e.by === by && e.state === 'placed' && e.how !== 'fixture' && !(f && e.x === f.x && e.z === f.z && e.y < f.y) && !(way && !e.released && e.x === way.x && e.z === way.z && e.y <= way.y)) { n++; hs[e.how] = (hs[e.how] || 0) + 1; if (cells.length < 6) cells.push(`${e.how} ${e.k}${e.released ? ' released' : ''}${e.lastFail ? ` (${e.lastFail})` : ''}`); }
         return { n, hs, cells };
     }
     /** One sample of bot `by` standing at `f` (once a second). */

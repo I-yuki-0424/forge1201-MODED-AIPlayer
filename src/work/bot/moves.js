@@ -117,6 +117,9 @@ async function descend(ctx, { levels }) {
     const start = feetCell(bot.entity.position);
     let done = 0, stopped = null;
     for (let i = 0; i < levels; i++) {
+        // centred on the cell first, as the pillar does: a body 0.2 or more off the middle overlaps the next column and stays on that block when the one under the feet goes (the bot
+        // never dropped and the block placed two below stood as a leftover: 5 of 5 stuck descends in the 1.21.1 corpus pb-r1, #232 #253 #303 #388 #506, TASK-20261125-075)
+        { const f0 = feetCell(bot.entity.position), mid = centre(f0); if (hdist(bot.entity.position, mid) > 0.15) await ctx.until(() => hdist(bot.entity.position, mid) <= 0.12, 25, 'stuck', () => ({ forward: hdist(bot.entity.position, mid) > 0.1, sneak: true, yaw: Math.atan2(-(mid.x - bot.entity.position.x), -(mid.z - bot.entity.position.z)) })).catch(() => null); }
         const f = feetCell(bot.entity.position), step = descendStep((x, y, z) => w.kindAt(x, y, z), f);
         if (step.act === 'stop') { if (!done) throw new SkillError('invalid_target', { why: step.reason, at: f }); stopped = step.reason; break; }
         const under = { x: f.x, y: f.y - 1, z: f.z }, below = { x: f.x, y: f.y - 2, z: f.z };

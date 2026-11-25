@@ -317,7 +317,7 @@ async function release(job, name, bot, mv, cancel, next = null, label = 'step') 
     if (!L.of(name).some((e) => !e.released && !e.orphan)) { L.begin(name, label); return 0; }
     const f0 = feet(bot), sameCol = !!next && next.x === f0.x && next.z === f0.z;
     const tr = Date.now();
-    if (!sameCol) await mv.unpillar(null, () => false, cancel);
+    if (!sameCol) { await mv.walkBack(cancel); await mv.unpillar(null, () => false, cancel); }
     const me = feet(bot), eye = eyeOf(bot.entity.position), P = require('./place'), world = P.botWorld(bot);
     const column = (e) => sameCol && e.x === me.x && e.z === me.z && e.y < me.y;
     const ownLife = (e) => e.how === 'seal' || e.how === 'fill' || e.how === 'scaffold' || e.how === 'fixture';
