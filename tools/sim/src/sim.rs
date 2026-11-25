@@ -51,6 +51,10 @@ pub struct Sim {
     /// Faces of vine cells when known (replay.rs from the recorded block states; bits VINE_N/S/W/E/UP). A vine cell without an entry falls back to
     /// "it hung on the block that went".
     pub vine: HashMap<[i32; 3], u8>,
+    /// Walk planning by the action layer's own planner (src/skills/planner.js: A* over stand / swim / climb nodes with its move costs, 20,000
+    /// nodes) instead of the RL candidate list's flood (1,500 nodes, 18 blocks). replay.rs turns it on; the RL `run` keeps the flood it was
+    /// validated with (SIM-RUST-v1 section 12) until it is validated again.
+    pub astar: bool,
     reach: Option<Reach>, pub scan_on: bool, pub way: Option<[i32; 3]>, pub scan_res: Option<(Vec<f64>, Vec<Option<[i32; 3]>>)>, pub recent: Vec<[i32; 3]>,
 }
 pub const PASSIVE: [(&str, f64); 4] = [("cow", 10.0), ("pig", 10.0), ("sheep", 8.0), ("chicken", 4.0)];
@@ -84,19 +88,29 @@ pub const FACES: [[i32; 3]; 6] = [[0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 1], 
 /// after it the walk to a drop that did not land at the feet 18.3 per mine (19.6 per tunnel); a tunnel step ends with a walk into the dug
 /// cell and a settle (~39 ticks incl. falling-block waits).
 pub const TUNNEL_BASE: i64 = 8; pub const TUNNEL_STEP: i64 = 39; pub const MINE_HOLD: i64 = 3; pub const MINE_AIM: i64 = 4; pub const MINE_CONFIRM: i64 = 6; pub const MINE_COLLECT: i64 = 20; pub const MINE_PICKUP: i64 = 19;
-pub const AIM_REACH: f64 = 4.2;
+pub const AIM_REACH: f64 = 4.2;               // motion.js AIM_REACH = BLOCK_REACH 4.5 - 0.3
+/// planner.js maxNodes.
+pub const PLAN_NODES: usize = 20000;
+/// Walking constants of `path_ticks` (place_b corpus pb-r1, 1.21.1; see the doc): a step up (the jump and the landing) and the fixed part of a
+/// walk (the plan, the first turn, the settle on the cell centre).
+pub const WALK_UP: f64 = 9.0; pub const WALK_START: f64 = 4.0;
 /// block.js BLIND_REACH: a blind dig is refused farther than this from the eye.
 pub const BLIND_REACH: f64 = 5.0;
-/// Ticks around the digging itself on the T26 test worlds (place_b corpus pb-r1, 1.21.1, docs/proposed/SIM-PARITY-v1.md): a blind dig = vanilla
-/// break ticks + MINE_BLIND (start packet, the last swing, the server's block update, the closing tick); an aimed dig without collecting =
-/// walk + break ticks + MINE_NOCOLLECT (tool swap, aim, the same confirmation); a recipe placement = walk + PLACE_RECIPE.
-pub const MINE_BLIND: i64 = 3; pub const MINE_NOCOLLECT: i64 = 6; pub const PLACE_RECIPE: i64 = 4;               // motion.js AIM_REACH = BLOCK_REACH 4.5 - 0.3
+/// Ticks of a dig as body.js does it: the start packet and k = ceil(break ms / 50) + 1 swing ticks, then the finish packet; an instant break
+/// (k = 0) finishes in the start tick. The server's block update comes the tick after; the command closes with one empty tick. So a blind dig
+/// takes `dig_ticks(k)`, an aimed one MINE_AIMED more (the look onto the block). Checked on the place_b corpus pb-r1 (1.21.1): leaves with a hoe
+/// 2 (k = 0), logs with an axe 11 (k = 8), pumpkins aimed 9 (k = 4). A recipe placement = walk + PLACE_RECIPE (two look ticks, the click, one
+/// tick, the server's block: median 4 of 168).
+pub const MINE_AIMED: i64 = 2; pub const PLACE_RECIPE: i64 = 4;
+/// Ticks between the server's block update of a dig and the end of the command (the tick it is seen, the closing tick).
+pub const DIG_AFTER: i64 = 2;
+pub fn dig_ticks(k: i64) -> i64 { if k <= 0 { 2 } else { k + 3 } }
 pub fn tool_rank(n: &str) -> i32 { ["wooden", "golden", "stone", "iron", "diamond", "netherite"].iter().position(|t| n.starts_with(t)).map(|p| p as i32).unwrap_or(-1) }
 
 impl Sim {
     pub fn new(d: Rc<Data>, tile: Rc<Tile>, seed: u64) -> Sim {
         Sim { d, tile, edits: HashMap::new(), pos: [0; 3], yaw: 0.0, hp: 20.0, food: 20.0, sat: 5.0, exh: 0.0, inv: vec![None; 36], tick: 0, mobs: vec![], next_id: 1, rng: Rng(seed | 1),
-            site: [0; 3], fuel: 0.0, hostile_scale: 1.0, craft_slots: None, dead: false, mobf: None, ph: vec![], view: [0; 3], track: [0; 3], air: 300.0, hits: 0, dmg: vec![], day_seen: 0, regen_t: 0.0, kills: HashMap::new(), audit: HashMap::new(), journal: None, exact: None, ground: true, eff: HashMap::new(), vine: HashMap::new(), reach: None, scan_on: false, way: None, scan_res: None, recent: vec![] }
+            site: [0; 3], fuel: 0.0, hostile_scale: 1.0, craft_slots: None, dead: false, mobf: None, ph: vec![], view: [0; 3], track: [0; 3], air: 300.0, hits: 0, dmg: vec![], day_seen: 0, regen_t: 0.0, kills: HashMap::new(), audit: HashMap::new(), journal: None, exact: None, ground: true, eff: HashMap::new(), vine: HashMap::new(), astar: false, reach: None, scan_on: false, way: None, scan_res: None, recent: vec![] }
     }
     // ---- world access ----
     #[inline] pub fn blk(&self, x: i32, y: i32, z: i32) -> Option<u16> { if let Some(&b) = self.edits.get(&(x, y, z)) { Some(b) } else { self.tile.get(x, y, z) } }
@@ -181,8 +195,11 @@ impl Sim {
     /// really stopped (`settle` ends within 0.25 of the cell centre, in practice about 0.2 on the side it came from) with the longer aim
     /// reach (4.2); if nothing is in sight, once more with reach 3.3 and another cell. Walk ticks on success; (reason, ticks) on failure:
     /// `unreachable` when the planner finds no cell, `not_visible` when the second stop does not see it either.
-    pub(crate) fn approach(&mut self, goal: &dyn Fn(&Sim, [i32; 3], f64) -> bool, visible: &dyn Fn(&Sim, [f64; 3]) -> bool) -> Result<i64, (&'static str, i64)> {
-        let mut ticks = 0i64;
+    pub(crate) fn approach(&mut self, goal: &dyn Fn(&Sim, [i32; 3], f64) -> bool, visible: &dyn Fn(&Sim, [f64; 3]) -> bool) -> Result<i64, (&'static str, i64)> { self.approach_to(goal, visible, None) }
+    /// `approach` with the point the goal is about (the block's centre, a support's centre): the planner's heuristic is the eye's distance to it
+    /// beyond the reach (motion.js reachGoal h).
+    pub(crate) fn approach_to(&mut self, goal: &dyn Fn(&Sim, [i32; 3], f64) -> bool, visible: &dyn Fn(&Sim, [f64; 3]) -> bool, aim: Option<[f64; 3]>) -> Result<i64, (&'static str, i64)> {
+        let mut ticks = if self.astar && !self.ground { self.land() } else { 0 };
         let start = self.pos;
         let mut here = self.pos;
         for attempt in 0..2 {
@@ -195,8 +212,12 @@ impl Sim {
             }
             self.exact = None;
             self.pos = here; self.reach = None;
-            let (n, c) = match self.stand_for(|s, n| Some(n) != excl && goal(s, n, reach)) { Some(x) => x, None => { self.pos = start; self.reach = None; return Err(("unreachable", 2 * ticks + 1)) } };
-            ticks += self.ticks_for(c);
+            let found = if self.astar {
+                let h = move |c: [i32; 3]| match aim { Some(a) => (((c[0] as f64 + 0.5 - a[0]).powi(2) + (c[1] as f64 + EYE - a[1]).powi(2) + (c[2] as f64 + 0.5 - a[2]).powi(2)).sqrt() - reach).max(0.0), None => 0.0 };
+                self.plan(here, &|s, n| Some(n) != excl && goal(s, n, reach), &h, PLAN_NODES).map(|(n, g)| (n, g as f32))
+            } else { self.stand_for(|s, n| Some(n) != excl && goal(s, n, reach)) };
+            let (n, c) = match found { Some(x) => x, None => { self.pos = start; self.reach = None; return Err(("unreachable", 2 * ticks + 1)) } };
+            ticks += if self.astar { c.ceil() as i64 } else { self.ticks_for(c) };
             // Where the body really stops: `settle` ends within 0.25 of the centre, wherever the walk's momentum left it. The walk is the
             // same every time the same command is repeated from the same cell, so the offset is a fixed function of (start, cell), not a
             // fresh random draw per try: a target seen through one gap fails again and again, as the 198 repeats in the real log did.
@@ -209,6 +230,120 @@ impl Sim {
         }
         self.pos = here; self.reach = None;
         Err(("not_visible", ticks))
+    }
+    /// motion.js follow, before it plans: a body in the air (its cell no node: mid-jump, mid-fall, on top of a pillar step) falls until it lands;
+    /// the planner starts from where it lands. Returns the ticks of the fall (vanilla free fall from rest), 0 when it already stands.
+    pub fn land(&mut self) -> i64 {
+        let [x, y, z] = self.pos;
+        if self.node_kind(x, y, z).is_some() || self.kind(x, y, z) == Kind::Solid { return 0; }
+        let mut yy = y;
+        for _ in 0..24 { if self.node_kind(x, yy, z).is_some() || self.kind(x, yy - 1, z) == Kind::Solid { break; } yy -= 1; }
+        if self.node_kind(x, yy, z).is_none() { return 0; }
+        let (mut v, mut d, mut t) = (0.0f64, 0.0f64, 0i64);
+        while d < (y - yy) as f64 && t < 200 { v = (v - 0.08) * 0.98; d -= v; t += 1; }
+        self.pos = [x, yy, z]; self.exact = None; self.reach = None;
+        t
+    }
+    /// planner.js nodeKind: what holds the body in a cell (0 stand, 1 swim, 2 climb).
+    pub fn node_kind(&self, x: i32, y: i32, z: i32) -> Option<u8> {
+        if self.blk(x, y, z).is_none() { return None; }
+        let (f, h) = (self.kind(x, y, z), self.kind(x, y + 1, z));
+        if f != Kind::Solid && h != Kind::Solid && f != Kind::Liquid && !self.lava(x, y, z) && !self.lava(x, y + 1, z) && self.kind(x, y - 1, z) == Kind::Solid && !self.lava(x, y - 1, z) { return Some(0); }
+        if self.name(x, y, z) == "water" && (matches!(h, Kind::Air | Kind::Passable) || (self.name(x, y + 1, z) == "water" && matches!(self.kind(x, y + 2, z), Kind::Air | Kind::Passable))) { return Some(1); }
+        if f == Kind::Climb { return Some(2); }
+        None
+    }
+    fn p_free(&self, x: i32, y: i32, z: i32) -> bool { matches!(self.kind(x, y, z), Kind::Air | Kind::Passable | Kind::Climb) }
+    fn p_open(&self, x: i32, y: i32, z: i32) -> bool { self.p_free(x, y, z) || self.name(x, y, z) == "water" }
+    /// planner.js neighbours: walk (diagonals only with the four corner cells open), step up (2), drop up to 3 onto ground or 8 into water or onto
+    /// a ladder (1 + 0.5 d, water 1 + 0.2 d), climb and descend ladders (1.5), swim up and down (1); every move into or out of water x 2.5.
+    fn p_neighbours(&self, n: [i32; 3], here: u8, out: &mut Vec<([i32; 3], f64)>) {
+        out.clear();
+        let mut push = |c: [i32; 3], k: u8, cost: f64, out: &mut Vec<([i32; 3], f64)>| out.push((c, if k == 1 || here == 1 { cost * 2.5 } else { cost }));
+        for (dx, dz) in [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)] {
+            let (x, z, y) = (n[0] + dx, n[2] + dz, n[1]);
+            let diag = dx != 0 && dz != 0;
+            if let Some(k) = self.node_kind(x, y, z) {
+                if diag && !(self.p_open(n[0] + dx, y, n[2]) && self.p_open(n[0] + dx, y + 1, n[2]) && self.p_open(n[0], y, n[2] + dz) && self.p_open(n[0], y + 1, n[2] + dz)) { continue; }
+                push([x, y, z], k, if diag { std::f64::consts::SQRT_2 } else { 1.0 }, out);
+                continue;
+            }
+            if diag { continue; }
+            if self.node_kind(x, y + 1, z) == Some(0) && self.p_open(n[0], y + 2, n[2]) { push([x, y + 1, z], 0, 2.0, out); continue; }
+            if here != 1 && self.p_free(x, y, z) && self.p_free(x, y + 1, z) {
+                for d in 1..=8 {
+                    let k = self.node_kind(x, y - d, z);
+                    if d <= 3 && k == Some(0) { push([x, y - d, z], 0, 1.0 + 0.5 * d as f64, out); break; }
+                    if k == Some(1) { push([x, y - d, z], 1, 1.0 + 0.2 * d as f64, out); break; }
+                    if k == Some(2) { push([x, y - d, z], 2, 1.0 + 0.5 * d as f64, out); break; }
+                    if !self.p_free(x, y - d, z) { break; }
+                }
+            }
+        }
+        if self.kind(n[0], n[1] + 1, n[2]) == Kind::Climb && self.p_open(n[0], n[1] + 2, n[2]) { push([n[0], n[1] + 1, n[2]], 2, 1.5, out); }
+        if here == 2 { if let Some(k) = self.node_kind(n[0], n[1] - 1, n[2]) { if k != 1 { out.push(([n[0], n[1] - 1, n[2]], 1.5)); } } }
+        if here == 1 { for dy in [1, -1] { if self.node_kind(n[0], n[1] + dy, n[2]) == Some(1) { out.push(([n[0], n[1] + dy, n[2]], 1.0)); } } }
+    }
+    /// Ticks to walk a planned path, move by move, at vanilla speeds: walking 4.317 blocks/s (4.63 ticks per block, x 1.414 on a diagonal),
+    /// a step up is a jump onto the block (WALK_UP), a drop of d blocks walks off the edge and falls (vanilla free fall), water 2.5x slower, a
+    /// ladder 2.35 blocks/s up and 3 down; plus WALK_START for planning, the turn and the settle on the last cell. (Replaces the RL `ticks_for`
+    /// in replay: that one was fitted on path costs of the RL flood, not on paths.)
+    pub fn path_ticks(&self, path: &[[i32; 3]]) -> f64 {
+        if path.len() < 2 { return 0.0; }
+        let mut t = WALK_START;
+        for w in path.windows(2) {
+            let (a, b) = (w[0], w[1]);
+            let diag = a[0] != b[0] && a[2] != b[2];
+            let flat = if diag { 1.414 } else if a[0] != b[0] || a[2] != b[2] { 1.0 } else { 0.0 };
+            let wet = self.name(b[0], b[1], b[2]) == "water" || self.name(a[0], a[1], a[2]) == "water";
+            let dy = b[1] - a[1];
+            let mut m = flat * 4.63;
+            if flat == 0.0 { m = if dy > 0 { 8.5 } else { 6.7 }; }                       // ladder or swim, straight up / down
+            else if dy > 0 { m = WALK_UP; }
+            else if dy < 0 { let (mut v, mut d, mut n) = (0.0f64, 0.0f64, 0.0f64); while d < -dy as f64 && n < 200.0 { v = (v - 0.08) * 0.98; d -= v; n += 1.0; } m += n; }
+            t += if wet { m * 2.5 } else { m };
+        }
+        t
+    }
+    /// planner.js plan: A* from `start` to the first node popped that satisfies `is_goal`, with the heuristic `h`, at most `max_nodes` expansions.
+    /// (goal, path cost), or None (no goal found, or the start is no node).
+    pub fn plan(&self, start: [i32; 3], is_goal: &dyn Fn(&Sim, [i32; 3]) -> bool, h: &dyn Fn([i32; 3]) -> f64, max_nodes: usize) -> Option<([i32; 3], f64)> {
+        let k0 = self.node_kind(start[0], start[1], start[2])?;
+        #[derive(PartialEq)] struct E(f64, u64, [i32; 3]);
+        impl Eq for E {}
+        impl PartialOrd for E { fn partial_cmp(&self, o: &Self) -> Option<Ordering> { Some(self.cmp(o)) } }
+        impl Ord for E { fn cmp(&self, o: &Self) -> Ordering { o.0.partial_cmp(&self.0).unwrap_or(Ordering::Equal).then(o.1.cmp(&self.1)) } }
+        let mut heap = BinaryHeap::new();
+        let mut seen: HashMap<[i32; 3], (f64, u8, bool)> = HashMap::new();
+        let mut parent: HashMap<[i32; 3], [i32; 3]> = HashMap::new();
+        let mut seq = 0u64;
+        seen.insert(start, (0.0, k0, false));
+        heap.push(E(h(start), seq, start));
+        let (mut expanded, mut nb) = (0usize, Vec::with_capacity(16));
+        while let Some(E(_, _, n)) = heap.pop() {
+            if expanded >= max_nodes { break; }
+            let (g, k, closed) = seen[&n];
+            if closed { continue; }
+            seen.insert(n, (g, k, true));
+            expanded += 1;
+            if is_goal(self, n) {
+                let mut path = vec![n];
+                while let Some(p) = parent.get(path.last().unwrap()) { path.push(*p); }
+                path.reverse();
+                return Some((n, self.path_ticks(&path)));
+            }
+            self.p_neighbours(n, k, &mut nb);
+            for &(m, cost) in &nb {
+                let ng = g + cost;
+                if let Some(&(og, _, oc)) = seen.get(&m) { if oc || og <= ng { continue; } }
+                let mk = self.node_kind(m[0], m[1], m[2]).unwrap_or(0);
+                seen.insert(m, (ng, mk, false));
+                parent.insert(m, n);
+                seq += 1;
+                heap.push(E(ng + h(m), seq, m));
+            }
+        }
+        None
     }
     /// First solid cell along the line from the eye of a standing cell to the centre of `t` is `t` itself.
     pub fn sees(&self, from: [i32; 3], t: [i32; 3]) -> bool {
@@ -440,13 +575,36 @@ impl Sim {
         // block.js moveTo: an unloaded target is `unreachable`, a cell nobody can stand or swim in is `invalid_target`, both before any key is pressed
         if self.blk(t[0], t[1], t[2]).is_none() { return Out::fail("unreachable", 0, vec![]).with(self, vec![]); }
         if !self.standable(t[0], t[1], t[2]) { return Out::fail("invalid_target", 0, vec![]).with(self, vec![]); }
-        let d = self.reach().dist.get(&t).copied();
+        let fall = if self.astar { self.land() } else { 0 };
+        let d = if self.astar {
+            let h = move |c: [i32; 3]| (((c[0] - t[0]) as f64).powi(2) + ((c[2] - t[2]) as f64).powi(2)).sqrt() + 0.5 * (c[1] - t[1]).abs() as f64;
+            let here = self.pos;
+            self.plan(here, &|_s, c| c == t, &h, PLAN_NODES).map(|x| x.1 as f32)
+        } else { self.reach().dist.get(&t).copied() };
+        let astar = self.astar;
         match d {
             None => Out::fail("unreachable", 1, vec![]).with(self, vec![]),
-            Some(dd) => { let ticks = self.ticks_for(dd); self.ph = vec![("walk", ticks)]; self.look_at(t); self.exh += 0.02 * dd as f64; self.pos = t; self.reach = None; let o = Out::ok(ticks, vec![]); self.finish(o, vec![]) }
+            Some(dd) => { let ticks = if astar { dd.ceil() as i64 } else { self.ticks_for(dd) } + fall; self.ph = vec![("walk", ticks)]; self.look_at(t); self.exh += 0.02 * dd as f64; self.pos = t; self.reach = None; let o = Out::ok(ticks, vec![]); self.finish(o, vec![]) }
         }
     }
     pub(crate) fn look_at(&mut self, t: [i32; 3]) { let (dx, dz) = ((t[0] - self.pos[0]) as f64, (t[2] - self.pos[2]) as f64); if dx != 0.0 || dz != 0.0 { self.yaw = (-dx).atan2(-dz); } }
+    /// The body falls when the block it stood on is gone (a dug floor, leaves under the feet). A dig ends DIG_AFTER ticks after the server's
+    /// block update, so the command's end finds the body that far into its fall (vanilla: v = (v - 0.08) * 0.98 per tick from rest, 0.08 then
+    /// 0.23 blocks): in the cell below from the first tick on. place_b corpus pb-r1: every mine of the block under the feet ended with the bot
+    /// one cell lower, in the dug cell, still falling.
+    pub fn settle_fall(&mut self) {
+        let [x, y, z] = self.pos;
+        if self.standable(x, y, z) { return; }
+        let (mut v, mut fy) = (0.0f64, y as f64);
+        for _ in 0..DIG_AFTER {
+            v = (v - 0.08) * 0.98;
+            let ny = fy + v;
+            if self.kind(x, ny.floor() as i32, z) == Kind::Solid { fy = ny.floor() + 1.0; break; }
+            fy = ny;
+        }
+        let cy = (fy + 1e-3).floor() as i32;
+        if cy != y { self.pos = [x, cy, z]; self.exact = None; self.reach = None; }
+    }
     /// The eye the body looks from now: the real one when known, else the cell centre's.
     pub fn eye(&self) -> [f64; 3] { match self.exact { Some(e) => [e[0], e[1] + EYE, e[2]], None => [self.pos[0] as f64 + 0.5, self.pos[1] as f64 + EYE, self.pos[2] as f64 + 0.5] } }
     /// `mine` with the work layer's options (block.js): `blind` digs from where the body stands without a line of sight, refused beyond BLIND_REACH
@@ -461,10 +619,11 @@ impl Sim {
         let d = ((e[0] - t[0] as f64 - 0.5).powi(2) + (e[1] - t[1] as f64 - 0.5).powi(2) + (e[2] - t[2] as f64 - 0.5).powi(2)).sqrt();
         if d > BLIND_REACH { return Out::fail("not_visible", 0, vec![]).with(self, vec![]); }
         let mut ev = vec![];
-        let ticks = plan.1 + MINE_BLIND;
+        let ticks = dig_ticks(plan.1);
         self.ph = vec![("dig_blind", ticks)];
         self.exh += 0.005;
         self.break_block(t[0], t[1], t[2], &mut ev);
+        self.settle_fall();
         self.reach = None;
         self.finish(Out::ok(ticks, vec![]), ev)
     }
@@ -472,14 +631,16 @@ impl Sim {
         let bid = match self.blk(t[0], t[1], t[2]) { Some(b) => b, None => return Out::fail("unreachable", 1, vec![]).with(self, vec![]) };
         if self.d.block(bid).kind == Kind::Air || self.d.block(bid).kind == Kind::Liquid || !self.d.block(bid).diggable { return Out::fail("invalid_target", 0, vec![]).with(self, vec![]); }
         let plan = match self.dig_plan(bid) { Some(p) => p, None => return Out::fail("missing_tool", 0, vec![]).with(self, vec![]) };
-        let walk = match self.approach(&|s, n, r| !(n[0] == t[0] && n[2] == t[2] && n[1] == t[1] + 1) && s.reach_goal(n, t, None, r), &|s, e| s.aim_ok(e, t, None, AIM_REACH)) {
+        let c = [t[0] as f64 + 0.5, t[1] as f64 + 0.5, t[2] as f64 + 0.5];
+        let walk = match self.approach_to(&|s, n, r| !(n[0] == t[0] && n[2] == t[2] && n[1] == t[1] + 1) && s.reach_goal(n, t, None, r), &|s, e| s.aim_ok(e, t, None, AIM_REACH), Some(c)) {
             Ok(w) => w, Err((r, tk)) => { let o = Out::fail(r, tk, vec![]); return self.finish(o, vec![]); } };
         let mut ev = vec![];
-        let ticks = walk + plan.1 + MINE_NOCOLLECT;
+        let ticks = walk + dig_ticks(plan.1) + MINE_AIMED;
         self.ph = vec![("walk", walk), ("dig", ticks - walk)];
         self.look_at([t[0], self.pos[1], t[2]]);
         self.exh += 0.005;
         self.break_block(t[0], t[1], t[2], &mut ev);
+        self.settle_fall();
         self.reach = None;
         self.finish(Out::ok(ticks, vec![]), ev)
     }
@@ -497,7 +658,7 @@ impl Sim {
         if replaceable(&sn) || sn == "water" || sn == "lava" || sn == "unloaded" { return Out::fail("invalid_target", 0, vec![]).with(self, vec![]); }
         let free = move |c: [i32; 3]| !(c[0] == t[0] && c[2] == t[2] && (c[1] == t[1] || c[1] + 1 == t[1]));
         let dist = move |c: [i32; 3]| (((c[0] - sup[0]) as f64).powi(2) + (c[1] as f64 + EYE - sup[1] as f64 - 0.5).powi(2) + ((c[2] - sup[2]) as f64).powi(2)).sqrt();
-        let walk = match self.approach(&|_s, n, r| free(n) && dist(n) <= r + 0.5, &|_s, _e| true) {
+        let walk = match self.approach_to(&|_s, n, r| free(n) && dist(n) <= r + 0.5, &|_s, _e| true, Some([sup[0] as f64 + 0.5, sup[1] as f64 + 0.5, sup[2] as f64 + 0.5])) {
             Ok(w) => w, Err((r, tk)) => { let o = Out::fail(r, tk, vec![]); return self.finish(o, vec![]); } };
         let ticks = walk + PLACE_RECIPE;
         self.take(item, 1); self.set(t[0], t[1], t[2], bid);
@@ -516,6 +677,7 @@ impl Sim {
         self.look_at([t[0], self.pos[1], t[2]]);
         self.exh += 0.005;
         self.break_block(t[0], t[1], t[2], &mut ev);
+        self.settle_fall();
         self.reach = None;
         self.finish(Out::ok(ticks, vec![]), ev)
     }
@@ -786,7 +948,7 @@ pub(crate) mod tests {
         s.give("crafting_table", 1);
         let t = [cx - 1, cy, cz + 1];
         assert!(s.is_air(t[0], t[1], t[2]) && s.kind(t[0], t[1] - 1, t[2]) == Kind::Solid, "the candidate generator offers this cell");
-        assert_eq!(s.do_move([cx + 3, cy, cz]).reason, "unreachable");          // walled in: no way out for the walker
+        assert_eq!(s.do_move([cx + 3, cy + 1, cz]).reason, "unreachable");      // walled in: no way out for the walker (an open cell on the ground outside)
         assert_eq!(s.do_place(t, "crafting_table").reason, "unreachable");      // the real outcome, 181 times
         // The same cell with a sapling on it: empty-looking, but not REPLACEABLE.
         let sap = s.d.bid("oak_sapling");

@@ -230,7 +230,7 @@ fn sim_command(s: &mut Sim, name: &str, a: &J) -> Option<(bool, String, i64)> {
 /// A recorded world followed through time: the tile, the block updates in order, and a Sim holding the world at the cursor.
 pub struct Cursor { pub w: World, pub s: Sim, pub ev: usize }
 impl Cursor {
-    pub fn new(t: &Trace, d: Rc<Data>) -> Cursor { let w = world(t, &d); let mut s = Sim::new(d, w.tile.clone(), 1); s.vine = w.vine.clone(); Cursor { w, s, ev: 0 } }
+    pub fn new(t: &Trace, d: Rc<Data>) -> Cursor { let w = world(t, &d); let mut s = Sim::new(d, w.tile.clone(), 1); s.vine = w.vine.clone(); s.astar = true; Cursor { w, s, ev: 0 } }
     /// Apply every recorded block update before `t0`.
     pub fn advance(&mut self, t0: f64) {
         while self.ev < self.w.events.len() && self.w.events[self.ev].0 < t0 {
