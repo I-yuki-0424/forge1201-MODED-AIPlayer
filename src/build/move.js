@@ -328,18 +328,21 @@ class Mover {
         this.rules = { ...rules, noPillar: (x, y, z) => (this.badPillar.get(key(x, y, z)) || 0) > Date.now() };
     }
     /**
-     * Standing on its own bridge block beside the top of its own pillar (the stance's way up): back onto the pillar's top, the bridge block dug from there, and the pillar dug down
-     * as the bot comes down (owner list 5 Large 1: "a pillar is dug as the bot comes down, a bridge as it walks back"). Returns the blocks dug, or 0 when it is not standing so.
+     * Standing beside the top of its own pillar (the stance's way up: a bridge block off it, or the build or ground beside it): back onto the pillar's top, its own bridge block
+     * dug from there, and the pillar dug down as the bot comes down (owner list 5 Large 1: "a pillar is dug as the bot comes down, a bridge as it walks back"). Returns the blocks dug, or 0 when it is not standing so.
      */
     async walkBack(cancel) {
         const f = feet(this.bot), own = (x, y, z) => this.mine.has(key(x, y, z)) || !!(this.rules.ownTemp && this.rules.ownTemp(x, y, z));
-        if (!own(f.x, f.y - 1, f.z)) return 0;
+        if (own(f.x, f.y - 1, f.z) && this.mineHow && this.mineHow.get(key(f.x, f.y - 1, f.z)) === 'pillar') return 0;          // on the pillar itself: unpillar's
+        const floorOwn = own(f.x, f.y - 1, f.z);
         const v = this.view();
         for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
             const t = { x: f.x + dx, y: f.y, z: f.z + dz };
-            if (!own(t.x, t.y - 1, t.z) || !v.fits(t.x, t.y, t.z) || own(t.x, t.y - 2, t.z) === false && !v.stands(t.x, t.y - 2, t.z)) continue;
+            const pil = (this.mineHow && this.mineHow.get(key(t.x, t.y - 1, t.z)) === 'pillar') || !!(this.rules.ownPillar && this.rules.ownPillar(t.x, t.y - 1, t.z));
+            if (!pil || !v.fits(t.x, t.y, t.z) || own(t.x, t.y - 2, t.z) === false && !v.stands(t.x, t.y - 2, t.z)) continue;
             if (!(await this.walkTo(t, { sneak: true, timeout: 2000 }))) return 0;
             const b = { x: f.x, y: f.y - 1, z: f.z };
+            if (!floorOwn) return await this.unpillar(null, () => false, cancel);          // a stance on the build or the ground beside the pillar's top: only the pillar
             if (await this.dig(b)) { this.mine.delete(key(b.x, b.y, b.z)); if (this.mineHow) this.mineHow.delete(key(b.x, b.y, b.z)); if (this.rules.onUntemp) this.rules.onUntemp(b); }
             else if (this.rules.onTempFail) this.rules.onTempFail(b, 'walk back: the dig failed');
             return 1 + (await this.unpillar(null, () => false, cancel));

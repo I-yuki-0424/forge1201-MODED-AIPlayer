@@ -48,6 +48,7 @@ function rules(job, bot) {
         isTemp: (x, y, z) => job.ledger.has({ x, y, z }),
         othersTemp: (x, y, z) => { const m = job.ledger.get({ x, y, z }); return !!m && m.by !== bot.username; },
         ownTemp: (x, y, z) => { const m = job.ledger.get({ x, y, z }); return !!m && m.by === bot.username; },
+        ownPillar: (x, y, z) => { const m = job.ledger.get({ x, y, z }); return !!m && m.by === bot.username && m.how === 'pillar' && !m.released; },
         mayDig: (x, y, z) => !underCrew(job, bot, x, y, z) && !onRouteOfOther(job, bot.username, x, y, z),
         // the item to climb or bridge with in cell (x, y, z) when the blueprint has a plain full block there and the bot carries it: the climb builds the structure
         buildBlock: (x, y, z) => { const it = ownBlockItem(job, x, y, z); if (!it) return null; return bot.inventory.items().some((i) => i.name === it) ? it : null; },

@@ -288,6 +288,14 @@ test('a stance on a bridge block off its own pillar: the way back is that pillar
     for (const [k, how] of [['0,70,0', 'pillar'], ['0,71,0', 'pillar'], ['0,72,0', 'pillar'], ['1,72,0', 'bridge']]) { const [x, y, z] = k.split(',').map(Number); L.intend({ x, y, z }, 'pumpkin', how, 'a'); L.observe({ x, y, z }, 'pumpkin'); }
     assert.strictEqual(L.sample('a', { x: 1, y: 73, z: 0 }), 0, 'on the bridge block, the pillar beside it is its way down');
     assert.strictEqual(L.sample('a', { x: 3, y: 73, z: 0 }), 4, 'negative control: walked away, all four are loose');
+    // a stance on the build beside the pillar's top (no bridge block): back onto the pillar and down it
+    const w2 = new Map(); for (let x = -3; x <= 4; x++) for (let z = -3; z <= 3; z++) w2.set(`${x},69,${z}`, { name: 'stone' });
+    for (let y = 70; y <= 72; y++) { w2.set(`0,${y},0`, { name: 'pumpkin' }); w2.set(`1,${y},0`, { name: 'smooth_stone' }); }
+    const bot2 = fakeBot(w2, { x: 1.5, y: 73, z: 0.5 }), mv2 = Object.create(M.Mover.prototype), order2 = [];
+    Object.assign(mv2, { bot: bot2, mine: new Map([['0,70,0', 'pumpkin'], ['0,71,0', 'pumpkin'], ['0,72,0', 'pumpkin']]), mineHow: new Map([['0,70,0', 'pillar'], ['0,71,0', 'pillar'], ['0,72,0', 'pillar']]), rules: { canDig: () => true }, trace: [] });
+    mv2.walkTo = async (c) => { bot2.entity.position.x = c.x + 0.5; return true; }; mv2.dig = async (c) => { order2.push(`${c.x},${c.y}`); return true; };
+    mv2.unpillar = async () => { order2.push('down'); return 3; };
+    assert.strictEqual(await mv2.walkBack({ cancelled: false }), 3); assert.deepStrictEqual(order2, ['down'], 'the built floor is not dug: only the pillar, from on top of it');
 });
 
 (async () => { for (const [name, fn] of queue) { await fn(); n++; console.log(`  ok ${name}`); } console.log(`test_build_temps_pure: ${n} passed`); })().catch((e) => { console.error(e); process.exit(1); });
