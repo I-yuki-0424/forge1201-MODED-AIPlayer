@@ -28,7 +28,8 @@
         return [8 + SCALE * x1, 8 - SCALE * y2, SCALE * z2];
     }
     const NORMAL = { up: [0, 1, 0], down: [0, -1, 0], north: [0, 0, -1], south: [0, 0, 1], west: [-1, 0, 0], east: [1, 0, 0] };
-    const SHADE = { up: 1, down: 0.5, north: 0.8, south: 0.8, east: 0.6, west: 0.6 };
+    // in the GUI view the left face (east) is the lighter side and the right face (north) the darker, as the game's icons are lit from the upper left
+    const SHADE = { up: 1, down: 0.5, north: 0.62, south: 0.62, east: 0.82, west: 0.82 };
     /** Does face `dir` (of an element turned by `rot`, if any) look at the viewer in the GUI view (its normal has a positive depth)? */
     const facesViewer = (dir, rot = null) => { const n = NORMAL[dir], o = turn([8, 8, 8], rot), a = turn([8 + n[0], 8 + n[1], 8 + n[2]], rot); return project(a)[2] - project(o)[2] > 1e-6; };
 
