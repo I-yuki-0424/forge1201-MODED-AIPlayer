@@ -62,6 +62,8 @@ pub struct Sim {
     pub plan_nodes: usize, pub max_drop: i32, pub no_vines: bool,
     /// Floors this bot must not plan to stand on (world.js avoidFloor: another bot's scaffolding), as recorded around the bot.
     pub avoid: std::collections::HashSet<[i32; 3]>,
+    /// The block under the feet was placed by another bot (the shared temporary-block registry, `bot.__temps`): `pillar` refuses to climb on it.
+    pub floor_by_other: bool,
     /// Falling blocks in the air: (tick it lands, cell it lands in, block). The column over a dug cell becomes falling entities at once and lands
     /// when vanilla gravity brings it down (move_b corpus mvb-r1: the sand over a dug cell was air at the end of the dig and landed later).
     pub falling: Vec<(i64, [i32; 3], u16)>,
@@ -124,7 +126,7 @@ pub fn tool_rank(n: &str) -> i32 { ["wooden", "golden", "stone", "iron", "diamon
 impl Sim {
     pub fn new(d: Rc<Data>, tile: Rc<Tile>, seed: u64) -> Sim {
         Sim { d, tile, edits: HashMap::new(), pos: [0; 3], yaw: 0.0, hp: 20.0, food: 20.0, sat: 5.0, exh: 0.0, inv: vec![None; 36], tick: 0, mobs: vec![], next_id: 1, rng: Rng(seed | 1),
-            site: [0; 3], fuel: 0.0, hostile_scale: 1.0, craft_slots: None, dead: false, mobf: None, ph: vec![], view: [0; 3], track: [0; 3], air: 300.0, hits: 0, dmg: vec![], day_seen: 0, regen_t: 0.0, kills: HashMap::new(), audit: HashMap::new(), journal: None, exact: None, ground: true, eff: HashMap::new(), vine: HashMap::new(), astar: false, atomic: false, hand: None, plan_nodes: PLAN_NODES, max_drop: 3, no_vines: false, avoid: std::collections::HashSet::new(), falling: vec![], autopickup: false, reach: None, scan_on: false, way: None, scan_res: None, recent: vec![] }
+            site: [0; 3], fuel: 0.0, hostile_scale: 1.0, craft_slots: None, dead: false, mobf: None, ph: vec![], view: [0; 3], track: [0; 3], air: 300.0, hits: 0, dmg: vec![], day_seen: 0, regen_t: 0.0, kills: HashMap::new(), audit: HashMap::new(), journal: None, exact: None, ground: true, eff: HashMap::new(), vine: HashMap::new(), astar: false, atomic: false, hand: None, plan_nodes: PLAN_NODES, max_drop: 3, no_vines: false, avoid: std::collections::HashSet::new(), floor_by_other: false, falling: vec![], autopickup: false, reach: None, scan_on: false, way: None, scan_res: None, recent: vec![] }
     }
     // ---- world access ----
     #[inline] pub fn blk(&self, x: i32, y: i32, z: i32) -> Option<u16> { if let Some(&b) = self.edits.get(&(x, y, z)) { Some(b) } else { self.tile.get(x, y, z) } }
@@ -823,8 +825,9 @@ impl Sim {
                         // The first cell pays the swap, the aim, the break confirmation and the drop (measured: dig 37.7 and collect 22.7 + 19.6
                         // per tunnel command); the next cells are dug from the same stance and their drops are picked up on the step in.
                         let first = cells == 0; cells += 1;
-                        let d = if first { MINE_AIM + MINE_CONFIRM + p.1.max(1) + 1 } else { 3 + p.1.max(1) };
-                        let oh = if first { self.mine_overhead(bid, p.2) - (MINE_AIM + MINE_CONFIRM + 1) } else { 0 };
+                        // with auto-pickup (test worlds) the drops are in the pack at once: no collect walk, the dig as body.js counts it
+                        let d = if self.autopickup { dig_ticks(p.1) + if first { MINE_AIMED } else { 0 } } else if first { MINE_AIM + MINE_CONFIRM + p.1.max(1) + 1 } else { 3 + p.1.max(1) };
+                        let oh = if first && !self.autopickup { self.mine_overhead(bid, p.2) - (MINE_AIM + MINE_CONFIRM + 1) } else { 0 };
                         ticks += d + oh;
                         self.ph.push(("dig", d)); if oh > 0 { self.ph.push(("collect_drop", oh)); }
                     }

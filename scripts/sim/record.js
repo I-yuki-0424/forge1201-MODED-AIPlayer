@@ -183,6 +183,16 @@ class BotRec {
                 if (avoid.length) env.avoid = avoid;
             }
         } catch (_) { /* nothing to avoid */ }
+        // the block under the feet in the shared registry of placed blocks (bot.__temps): another bot's scaffolding is refused by `pillar`
+        try {
+            const T = this.bot.__temps, p = this.bot.entity.position;
+            if (env && T && T.get) {
+                const g = this.bot.game && this.bot.game.dimension ? String(this.bot.game.dimension).replace(/^minecraft:/, '') : 'overworld';
+                const dim = g === 'the_nether' ? 'nether' : g === 'the_end' ? 'end' : g;
+                const rec = T.get(dim, { x: Math.floor(p.x), y: Math.floor(p.y + 1e-3) - 1, z: Math.floor(p.z) });
+                if (rec && rec.by && rec.by !== this.bot.username && !['road', 'seal', 'rescue'].includes(rec.kind)) env.floorBy = rec.by;
+            }
+        } catch (_) { /* no registry */ }
         this.line({ t: 'cmd', id, ref, layer, name, args: args || {}, atomic: !!(opts && opts.atomic), maxTicks: (opts && opts.maxTicks) || null, env, ...(recMs ? { recMs } : {}),
             ms: Date.now(), tick: this.tick, before: botState(this.bot) });
         return id;

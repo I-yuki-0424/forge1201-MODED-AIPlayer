@@ -32,7 +32,9 @@ impl Sim {
         let (mut ticks, mut prev): (i64, Option<[i32; 3]>) = (0, None);
         for i in 0..levels {
             let f = self.pos;
-            if self.kind(f[0], f[1] - 1, f[2]) != Kind::Solid { return self.fail_with(if i == 0 { "invalid_target" } else { "invalid_target" }, ticks, ev); }
+            if self.kind(f[0], f[1] - 1, f[2]) != Kind::Solid { return self.fail_with("invalid_target", ticks, ev); }
+            // moves.js: never ride on another bot's scaffolding (its owner takes it away)
+            if i == 0 && self.floor_by_other { return self.fail_with("invalid_target", 0, ev); }
             for dy in [2, 1] { if !self.is_air(f[0], f[1] + dy, f[2]) { ticks += self.dig_here([f[0], f[1] + dy, f[2]], &mut ev); } }
             let item = match self.stack_item(temp) { Some(i) => i, None => return self.fail_with("missing_item", ticks, ev) };
             let bid = self.d.bid(&item);

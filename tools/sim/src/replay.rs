@@ -49,7 +49,7 @@ impl State {
     /// Item counts in the 36 main slots (mineflayer slots 9-44), which is all the simulator holds.
     fn counts(&self) -> BTreeMap<String, i64> { let mut m = BTreeMap::new(); for (s, n, c) in &self.inv { if (9..=44).contains(s) { *m.entry(n.clone()).or_insert(0) += *c as i64; } } m }
 }
-pub struct Cmd { pub id: u64, pub refid: Option<u64>, pub atomic: bool, pub env: (usize, i32, bool), pub avoid: Vec<[i32; 3]>, pub layer: String, pub name: String, pub args: J, pub t0: f64, pub t1: f64, pub before: State, pub after: State, pub ok: bool, pub reason: String, pub ticks: Option<i64> }
+pub struct Cmd { pub id: u64, pub refid: Option<u64>, pub atomic: bool, pub env: (usize, i32, bool), pub avoid: Vec<[i32; 3]>, pub floor_by: bool, pub layer: String, pub name: String, pub args: J, pub t0: f64, pub t1: f64, pub before: State, pub after: State, pub ok: bool, pub reason: String, pub ticks: Option<i64> }
 /// One bot's trace.
 pub struct Trace {
     pub bot: String, pub version: String,
@@ -113,6 +113,7 @@ impl Trace {
                     open.insert(id, Cmd { id, refid: if j.get("ref").is_null() { None } else { Some(j.get("ref").i() as u64) }, atomic: j.get("atomic").b(),
                         // the planner settings; a trace without them (format 1 before 2026-11-26) came from the T26 harness, whose bots are all work-service bots: 6,000 nodes, vines as air
                         env: { let e = j.get("env"); if e.is_null() { (6000, 3, true) } else { (e.get("planNodes").i().max(1) as usize, if e.get("maxDrop").i() > 0 { e.get("maxDrop").i() as i32 } else { 3 }, e.get("noVines").b()) } },
+                        floor_by: !j.get("env").get("floorBy").is_null(),
                         avoid: j.get("env").get("avoid").arr().iter().map(|c| [c.at(0).i() as i32, c.at(1).i() as i32, c.at(2).i() as i32]).collect(),
                         layer: j.get("layer").s().to_string(), name: j.get("name").s().to_string(), args: j.get("args").clone(), t0: j.get("ms").f(), t1: f64::NAN,
                         before: State::parse(j.get("before")), after: State::default(), ok: false, reason: String::new(), ticks: None }); }
@@ -343,7 +344,7 @@ pub fn replay(t: &Trace, d: Rc<Data>, near: i32, others: &[Win]) -> (Vec<Row>, B
         s.journal = Some(vec![]);
         let vine0 = s.vine.clone();
         let inv0 = { let mut m = BTreeMap::new(); for (n, q) in s.held() { m.insert(n, q as i64); } m };
-        s.avoid = c.avoid.iter().copied().collect();
+        s.avoid = c.avoid.iter().copied().collect(); s.floor_by_other = c.floor_by;
         s.atomic = c.atomic; s.plan_nodes = c.env.0; s.max_drop = c.env.1; s.no_vines = c.env.2;
         let out = if c.layer == "execute" || c.name.starts_with("move:") || c.name == "run:bridge" { sim_command(s, &c.name, &c.args, &t.temp) } else { None };
         s.atomic = false;
