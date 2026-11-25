@@ -1,7 +1,8 @@
 'use strict';
 // The in-game display of the service: what to draw (bots' planned paths, pit lanes, build boxes, tagged blocks, each with its dimension) and the switches.
 // The drawing itself is display/overlay.js.
-const { Overlay, DEFAULTS, PATH_STALE_MS } = require('../display/overlay');
+const { Overlay, DEFAULTS } = require('../display/overlay');
+const { advance } = require('../display/paths');
 const dimensions = require('../world/dimensions');
 
 class DisplayPart {
@@ -24,7 +25,15 @@ class DisplayPart {
 
     /** Remember the way a bot is about to walk (the planner's cells, from the `walk` phase of the action layer). */
     _trackPath(rec, bot) {
-        bot.__onPhase = (ev) => { if (ev && ev.phase) { rec.phase = { name: String(ev.phase).slice(0, 24), at: Date.now() }; this.health.phase(rec.name, rec.phase.name); } if (ev && Array.isArray(ev.cells) && ev.cells.length) rec.path = { cells: ev.cells.slice(0, 400), at: Date.now() }; };
+        // A plan to a new destination is a new path (a new serial: new pieces). A replan to the same destination is the same way, corrected: it keeps the serial, so its runs
+        // are updated in place instead of being killed and summoned again.
+        bot.__onPhase = (ev) => {
+            if (ev && ev.phase) { rec.phase = { name: String(ev.phase).slice(0, 24), at: Date.now() }; this.health.phase(rec.name, rec.phase.name); }
+            if (!(ev && Array.isArray(ev.cells) && ev.cells.length)) return;
+            const cells = ev.cells.slice(0, 400), old = rec.path, same = old && old.cells[old.cells.length - 1].join() === cells[cells.length - 1].join();
+            if (!same) this._pathSerial = (this._pathSerial || 0) + 1;
+            rec.path = { cells, at: Date.now(), serial: same ? old.serial : this._pathSerial };
+        };
     }
 
     displayState() {
@@ -35,7 +44,8 @@ class DisplayPart {
             const color = i++; colorOf.set(rec.name, color);
             const e = rec.state === 'online' && rec.bot && rec.bot.entity;
             const busy = rec.worker || (rec.cmd && rec.cmd.status === 'running') || rec.script;
-            if (rec.path && (now - rec.path.at > PATH_STALE_MS || !busy)) rec.path = null;
+            // a path is shown exactly while the bot walks it (display/paths.js advance: not yet at its end, still on it, still getting along it) and works
+            if (rec.path && (!busy || !e || !advance(rec.path, e.position, now).valid)) rec.path = null;
             if (e) bots.push({ name: rec.name, color, dim: dimensions.canon(rec.bot.game && rec.bot.game.dimension) || 'overworld', pos: { x: e.position.x, y: e.position.y, z: e.position.z }, path: rec.path || null });
         }
         let k = 0;

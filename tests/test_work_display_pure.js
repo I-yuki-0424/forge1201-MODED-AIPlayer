@@ -6,6 +6,7 @@ const os = require('os');
 const path = require('path');
 const { EventEmitter } = require('events');
 const shapes = require('../src/work/display/shapes');
+const paths = require('../src/work/display/paths');
 const { Overlay, framePieces, VIEW_TAG } = require('../src/work/display/overlay');
 const { WorkService } = require('../src/work/service');
 
@@ -27,20 +28,29 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         assert.strictEqual(shapes.postsDashed({ x0: 0, x1: 1, z0: 0, z1: 1 }, 60, 64, { c: 2 }).length % 4, 0);
         const rs = shapes.runs([[0, 0, 0], [1, 0, 0], [2, 0, 0], [2, 0, 1], [2, 1, 2]]);
         assert.deepStrictEqual(rs, [[[0, 0, 0], [2, 0, 0]], [[2, 0, 0], [2, 0, 1]], [[2, 0, 1], [2, 1, 2]]]);
-        const p = shapes.piece([1, 70, 2], [1, 70, 12], 0.16, 0, true), key = shapes.keyOf('nether', p);
-        assert.strictEqual(key, shapes.keyOf('nether', shapes.piece([1, 70, 2], [1, 70, 12], 0.16, 0, true))); assert.notStrictEqual(key, shapes.keyOf('end', p));
+        const p = shapes.piece([1, 70, 2], [1, 70, 12], 0.16, 0, true), key = shapes.idKey('nether', 'p|Work 1|3|0');
+        assert.strictEqual(key, shapes.idKey('nether', 'p|Work 1|3|0')); assert.notStrictEqual(key, shapes.idKey('end', 'p|Work 1|3|0')); assert.notStrictEqual(key, shapes.idKey('nether', 'p|Work 1|3|1'));
         assert.match(key, /^[A-Za-z0-9._+-]+$/, 'a valid entity tag');
+        assert.strictEqual(shapes.sigOf(p), shapes.sigOf(shapes.piece([1, 70, 2], [1, 70, 12], 0.16, 0, true))); assert.notStrictEqual(shapes.sigOf(p), shapes.sigOf(shapes.piece([1, 70, 3], [1, 70, 12], 0.16, 0, true)));
         const cmd = shapes.summonCommand('minecraft:the_nether', p, key, 'aipe1');
-        assert.match(cmd, /^execute in minecraft:the_nether run summon block_display 1\.000 70\.000 2\.000 \{Tags:\["aipd","k[^"]+","aipe1"\],block_state:\{Name:"minecraft:red_concrete"\},brightness:\{sky:15,block:15\}/);
+        assert.match(cmd, /^execute in minecraft:the_nether run summon block_display 1\.000 70\.000 2\.000 \{Tags:\["aipd","k[^"]+","aipe1"\],brightness:\{sky:15,block:15\},view_range:3f,shadow_radius:0f,block_state:\{Name:"minecraft:red_concrete"\}/);
         assert.match(cmd, /Glowing:1b,glow_color_override:\d+,transformation:\{translation:\[[^\]]+\],left_rotation:\[[^\]]+\],scale:\[0\.16f,0\.16f,10f\]/);
-        assert.doesNotMatch(shapes.summonCommand('minecraft:overworld', { ...p, glow: false }, key, 'e'), /Glowing/);
+        assert.match(shapes.summonCommand('minecraft:overworld', { ...p, glow: false }, key, 'e'), /Glowing:0b,transformation/);
+        // in place: a line that moves a little is one `data merge` (the entity stays where it was summoned, the translation carries the difference); a far move is tp + merge
+        const near = shapes.updateCommands('minecraft:overworld', shapes.piece([1, 70, 5], [1, 70, 12], 0.16, 0, true), key, [1, 70, 2]);
+        assert.strictEqual(near.commands.length, 1); assert.deepStrictEqual(near.anchor, [1, 70, 2]);
+        assert.match(near.commands[0], new RegExp(`^execute in minecraft:overworld run data merge entity @e\\[type=block_display,tag=${key},limit=1\\] \\{block_state:\\{Name:"minecraft:red_concrete"\\},Glowing:1b,glow_color_override:\\d+,transformation:\\{translation:\\[-0\\.08f,-0\\.08f,3f\\],`));
+        assert.match(near.commands[0], /scale:\[0\.16f,0\.16f,7f\]/);
+        const far = shapes.updateCommands('minecraft:overworld', shapes.piece([1, 70, 40], [1, 70, 50], 0.16, 0, true), key, [1, 70, 2]);
+        assert.strictEqual(far.commands.length, 2); assert.match(far.commands[0], / run tp @e\[type=block_display,tag=k[^,]+,limit=1\] 1\.000 70\.000 40\.000$/); assert.deepStrictEqual(far.anchor, [1, 70, 40]);
+        assert.match(far.commands[1], /translation:\[-0\.08f,-0\.08f,0f\]/);
         assert.strictEqual(shapes.killCommand('minecraft:the_end', 'kx'), 'execute in minecraft:the_end run kill @e[type=block_display,tag=kx]');
         assert.strictEqual(shapes.killStaleCommand('minecraft:overworld', 'aipe1'), 'execute in minecraft:overworld run kill @e[type=block_display,tag=aipd,tag=!aipe1]');
     });
 
     const state = (extra = {}) => ({
         viewers: [{ name: 'Seia_Y', x: 0, y: 70, z: 0, dim: 'overworld' }],
-        bots: [{ name: 'W1', color: 1, dim: 'overworld', pos: { x: 5.5, y: 64, z: 0.5 }, path: { cells: [[0, 64, 0], [1, 64, 0], [2, 64, 0], [3, 64, 0], [4, 64, 0], [5, 64, 0], [6, 64, 0], [7, 64, 0]] } }],
+        bots: [{ name: 'W1', color: 1, dim: 'overworld', pos: { x: 5.5, y: 64, z: 0.5 }, path: { serial: 1, idx: 5, cells: [[0, 64, 0], [1, 64, 0], [2, 64, 0], [3, 64, 0], [4, 64, 0], [5, 64, 0], [6, 64, 0], [7, 64, 0]] } }],
         lanes: [{ job: 'j1', id: 'l0', dim: 'overworld', color: 2, box: { x0: 0, x1: 7, z0: 0, z1: 7 }, rim: 80, activeY: 70 }],
         tags: [{ name: 'furnace', dim: 'overworld', x: 3, y: 64, z: 3, machine: true, end: { x: 3, y: 64, z: 6 } }, { name: 'chest', dim: 'overworld', x: 3, y: 64, z: 6, machine: false, end: null }], ...extra,
     });
@@ -63,9 +73,43 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         // another dimension: drawn for a viewer there, keyed apart from the same geometry in the overworld
         const nether = state({ viewers: [{ name: 'X', x: 0, y: 70, z: 0, dim: 'nether' }], bots: [], tags: [], lanes: [{ job: 'j2', id: 'n', dim: 'nether', color: 0, box: { x0: 0, x1: 7, z0: 0, z1: 7 }, rim: 100, activeY: 100 }] });
         const nl = [...framePieces(nether, { paths: true, lanes: true, tags: true }).values()]; assert.ok(nl.length > 8 && nl.every((v) => v.dim === 'nether'));
-        const moved = state(); moved.bots[0].pos = { x: 6.5, y: 64, z: 0.5 };
+        const moved = state(); moved.bots[0].pos = { x: 6.5, y: 64, z: 0.5 }; moved.bots[0].path = { ...moved.bots[0].path, idx: 6 };
         const k1 = [...framePieces(state(), { paths: true }).keys()], k2 = [...framePieces(moved, { paths: true }).keys()];
-        assert.ok(k1.some((k) => k2.includes(k)), 'the pieces of a path keep their keys while the bot walks on');
+        assert.deepStrictEqual(k2, k1, 'every piece of a path keeps its key while the bot walks on (the run is shortened, not replaced)');
+        assert.notDeepStrictEqual(framePieces(moved, { paths: true }).get(k1[1]).piece.a, framePieces(state(), { paths: true }).get(k1[1]).piece.a);
+        const other = state(); other.bots[0].path = { ...other.bots[0].path, serial: 2 };
+        assert.ok([...framePieces(other, { paths: true }).keys()].every((k) => !k1.includes(k)), 'a path to another destination is a new thing');
+    });
+
+    await test('paths: a path is valid while the bot walks it; it ends at the destination, off the way, or when the bot no longer gets along it', () => {
+        const cells = [[0, 64, 0], [1, 64, 0], [2, 64, 0], [3, 64, 0], [3, 64, 1], [3, 64, 2]], P = () => ({ cells: cells.map((c) => c.slice()), at: 0, serial: 1 });
+        let p = P();
+        assert.deepStrictEqual(paths.advance(p, { x: 0.5, y: 64, z: 0.5 }, 1000), { valid: true, idx: 0, why: null });
+        assert.strictEqual(paths.advance(p, { x: 2.4, y: 64, z: 0.5 }, 2000).idx, 2);
+        assert.strictEqual(paths.advance(p, { x: 0.5, y: 64, z: 0.5 }, 2500).idx, 2, 'progress only grows');
+        assert.strictEqual(paths.advance(p, { x: 3.5, y: 64, z: 2.5 }, 3000).why, 'arrived');
+        p = P(); paths.advance(p, { x: 0.5, y: 64, z: 0.5 }, 1000);
+        assert.ok(paths.advance(p, { x: 20, y: 64, z: 20 }, 2000).valid, 'a moment off the way (a knock-back) is not the end');
+        assert.strictEqual(paths.advance(p, { x: 20, y: 64, z: 20 }, 2000 + paths.OFF_MS + 1).why, 'off');
+        p = P(); paths.advance(p, { x: 1.5, y: 64, z: 0.5 }, 1000);
+        assert.ok(paths.advance(p, { x: 1.5, y: 64, z: 0.5 }, 60000).valid, 'a long walk is still drawn after a minute (the old display dropped it after 25 s)');
+        assert.strictEqual(paths.advance(p, { x: 1.5, y: 64, z: 0.5 }, 1000 + paths.STALL_MS + 1).why, 'stalled');
+        assert.deepStrictEqual(paths.runsOf(P()).map((r) => [r.i, r.j]), [[0, 3], [3, 5]]);
+        assert.deepStrictEqual(paths.runsAhead(P(), 2), [{ n: 0, i: 2, j: 3 }, { n: 1, i: 3, j: 5 }]);
+        assert.deepStrictEqual(paths.runsAhead(P(), 3), [{ n: 1, i: 3, j: 5 }], 'a passed run is gone');
+    });
+
+    await test('overlay: a walking bot costs one in-place update per run it shortens, never a kill and a summon; the end of the walk kills its pieces', async () => {
+        const sent = [], humans = [{ name: 'Seia_Y', x: 0, y: 70, z: 0, dim: 'minecraft:overworld' }];
+        let st = state({ lanes: [], tags: [] });
+        const o = new Overlay({ rcon: async (c) => { sent.push(c); return ''; }, state: () => st, config: () => ({ on: true }), humans: async () => humans, pending: () => 0, perFrame: 400 });
+        await o.frame(1000); const first = o.counts.summon; assert.ok(first >= 2);
+        sent.length = 0; st = state({ lanes: [], tags: [] }); st.bots[0].path = { ...st.bots[0].path, idx: 6 }; await o.frame(2000);
+        assert.strictEqual(o.counts.summon, first, 'nothing summoned again'); assert.strictEqual(o.counts.kill, 0, 'nothing killed');
+        assert.strictEqual(sent.length, 1, sent.join('\n')); assert.match(sent[0], / run data merge entity @e\[type=block_display,tag=k/);
+        sent.length = 0; await o.frame(3000); assert.strictEqual(sent.length, 0, 'unchanged: nothing sent');
+        sent.length = 0; st = state({ lanes: [], tags: [], bots: [] }); await o.frame(4000);
+        assert.strictEqual(o.counts.kill, first, 'the walk is over: every piece of it is killed'); assert.ok(sent.every((c) => / run kill @e\[type=block_display,tag=k/.test(c)));
     });
 
     await test('overlay: off or nobody watching sends nothing; a stale run is swept once; pieces are summoned once and killed when gone; a backed-up queue skips the frame; other dimensions use `execute in`', async () => {
@@ -106,8 +150,15 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         assert.strictEqual(svc.displayState().bots[0].path, null, 'idle bot: no path');
         rec.bot.__onPhase({ phase: 'walk', cells: [[1, 70, 1], [2, 70, 1]] }); rec.cmd = { status: 'running' };
         assert.deepStrictEqual(svc.displayState().bots[0].path.cells, [[1, 70, 1], [2, 70, 1]]);
-        rec.cmd = null; rec.path = { cells: [[1, 70, 1]], at: Date.now() - 60000 }; rec.script = { name: 'x' };
-        assert.strictEqual(svc.displayState().bots[0].path, null, 'a stale path is dropped');
+        const s1 = svc.displayState().bots[0].path.serial;
+        rec.bot.__onPhase({ phase: 'walk', cells: [[1, 70, 1], [1, 70, 2], [2, 70, 2], [2, 70, 1]] }); assert.strictEqual(svc.displayState().bots[0].path.serial, s1, 'a replan to the same place is the same path');
+        rec.bot.__onPhase({ phase: 'walk', cells: [[1, 70, 1], [1, 70, 5]] }); assert.notStrictEqual(svc.displayState().bots[0].path.serial, s1, 'another destination: a new path');
+        rec.cmd = null; rec.script = { name: 'x' }; rec.path = { cells: [[1, 70, 1], [9, 70, 1]], at: Date.now() - 60000, serial: 7 };
+        assert.ok(svc.displayState().bots[0].path, 'a walk of a minute is still shown (the old display dropped every path after 25 s)');
+        rec.path = { cells: [[1, 70, 1], [9, 70, 1]], at: Date.now() - paths.STALL_MS - 1000, serial: 8 };
+        assert.strictEqual(svc.displayState().bots[0].path, null, 'no progress along it for that long: the walk is over');
+        rec.path = { cells: [[1, 70, 4], [1, 70, 3], [1, 70, 2], [1, 70, 1]], at: Date.now(), serial: 9 };
+        assert.strictEqual(svc.displayState().bots[0].path, null, 'the bot stands at its end: arrived');
     });
 
     await test('service: pit lanes with their rim and working layer, tagged blocks with where the link ends', () => {

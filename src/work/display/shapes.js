@@ -2,7 +2,8 @@
 // Shapes for the in-game display (display/overlay.js): REAL lines, not particles (owner 2026-11-11: the particles were faint and did not show in other dimensions).
 // A line piece is one `block_display` entity: a thin box of a bright, fully lit block, stretched and rotated by its transformation. Pure functions, no game access.
 //   piece = { a: [x, y, z], b: [x, y, z], t: thickness, c: colour index into PALETTE, glow?: true }   (a solid line from a to b)
-// A dashed line is a list of such pieces with gaps between them. Keys are stable (same geometry = same key), so the overlay only summons what is new and kills what is gone.
+// A dashed line is a list of such pieces with gaps between them. A piece is keyed by WHAT it shows (idKey), so the overlay summons a thing once, updates it in place while it
+// changes (updateCommands) and kills it only when it is no longer valid.
 
 /** Colours: [block, glow colour as an integer 0xRRGGBB]. Concrete blocks: opaque, never textured differently by light; a bot or a lane takes colour `i % PALETTE.length`. */
 const PALETTE = Object.freeze([
@@ -67,26 +68,55 @@ function runs(points) {
     return out;
 }
 
-/** Stable key of a piece: the same geometry and colour give the same key. A tag on the entity (letters, digits, `.`, `_`, `+`, `-` are allowed in tags). */
-function keyOf(dim, p) {
-    const f = (v) => Math.round(v * 20).toString(36).replace('-', 'n');
-    return `k${dimCode(dim)}_${p.a.map(f).join('.')}_${p.b.map(f).join('.')}_${p.c}${p.glow ? 'g' : ''}_${Math.round(p.t * 100)}`;
+/**
+ * The key of a drawn thing: WHAT it shows (a run of a bot's path, a dash of a lane, the column of a tag), never where it is, so the same thing keeps its entity while it
+ * changes and is updated in place (owner 2026-11-25: the old geometry key killed and summoned a path's first piece every time the bot passed a cell, and redrew a whole
+ * claim outline whenever the claim grew). An entity tag: letters, digits, `.`, `_`, `+`, `-`.
+ */
+function idKey(dim, identity) {
+    let a = 0x811c9dc5, b = 5381;
+    for (const ch of String(identity)) { const c = ch.charCodeAt(0); a = Math.imul(a ^ c, 0x01000193) >>> 0; b = (Math.imul(b, 33) + c) >>> 0; }
+    return `k${dimCode(dim)}_${a.toString(36)}${b.toString(36)}`;
+}
+/** How a piece looks (geometry, colour, glow, thickness): a change of it is an update of the entity. */
+function sigOf(p) {
+    const f = (v) => Math.round(v * 20).toString(36);
+    return `${p.a.map(f).join('.')}_${p.b.map(f).join('.')}_${p.c}${p.glow ? 'g' : ''}_${Math.round(p.t * 100)}`;
 }
 function dimCode(dim) { let h = 0; for (const ch of String(dim)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h.toString(36); }
 
-/** The `summon` command of a piece, run in dimension `rconDim` (an id such as minecraft:the_nether), carrying tags `base`, the key tag and the run's epoch tag. */
-function summonCommand(rconDim, p, key, epoch, base = 'aipd') {
+const ANCHOR_R = 16;                         // an entity keeps its position while the line it draws starts this close to it; its transformation carries the rest
+
+/** The look of a piece as NBT, for an entity standing at `anchor` (the line runs a -> b in world coordinates). */
+function lookNbt(p, anchor) {
     const [ax, ay, az] = p.a, d = [p.b[0] - ax, p.b[1] - ay, p.b[2] - az], len = Math.hypot(d[0], d[1], d[2]) || 1e-6, u = d.map((v) => v / len);
     const q = quatZTo(u), off = rotate(q, [-p.t / 2, -p.t / 2, 0]);          // the unit cube's corner is its origin: shift it so that the line runs through a -> b
+    const tr = [off[0] + ax - anchor[0], off[1] + ay - anchor[1], off[2] + az - anchor[2]];
     const [block, rgb] = PALETTE[((p.c % PALETTE.length) + PALETTE.length) % PALETTE.length];
     const f = (v) => `${round(v, 4)}f`;
-    const nbt = `{Tags:["${base}","${key}","${epoch}"],block_state:{Name:"minecraft:${block}"},brightness:{sky:15,block:15},view_range:3f,shadow_radius:0f,`
-        + `${p.glow ? `Glowing:1b,glow_color_override:${rgb},` : ''}transformation:{translation:[${off.map(f).join(',')}],left_rotation:[${q.map(f).join(',')}],scale:[${f(p.t)},${f(p.t)},${f(len)}],right_rotation:[0f,0f,0f,1f]}}`;
-    return `execute in ${rconDim} run summon block_display ${ax.toFixed(3)} ${ay.toFixed(3)} ${az.toFixed(3)} ${nbt}`;     // with a decimal point: whole numbers would be moved to the block's centre
+    return `block_state:{Name:"minecraft:${block}"},${p.glow ? `Glowing:1b,glow_color_override:${rgb},` : 'Glowing:0b,'}`
+        + `transformation:{translation:[${tr.map(f).join(',')}],left_rotation:[${q.map(f).join(',')}],scale:[${f(p.t)},${f(p.t)},${f(len)}],right_rotation:[0f,0f,0f,1f]}`;
+}
+const at3 = (v) => v.map((x) => x.toFixed(3)).join(' ');       // with a decimal point: whole numbers would be moved to the block's centre
+
+/** The `summon` command of a piece, run in dimension `rconDim` (an id such as minecraft:the_nether), carrying tags `base`, the key tag and the run's epoch tag. It stands at p.a. */
+function summonCommand(rconDim, p, key, epoch, base = 'aipd') {
+    return `execute in ${rconDim} run summon block_display ${at3(p.a)} {Tags:["${base}","${key}","${epoch}"],brightness:{sky:15,block:15},view_range:3f,shadow_radius:0f,${lookNbt(p, p.a)}}`;
+}
+/**
+ * Change a drawn piece in place: one `data merge` of its look while the new line starts within ANCHOR_R of where the entity stands, else a `tp` to the new start first.
+ * Nothing is removed or added, so a client gets one metadata update and never sees the line vanish and come back. Returns { commands, anchor }.
+ */
+function updateCommands(rconDim, p, key, anchor) {
+    const sel = `@e[type=block_display,tag=${key},limit=1]`, near = !!anchor && Math.hypot(p.a[0] - anchor[0], p.a[1] - anchor[1], p.a[2] - anchor[2]) <= ANCHOR_R;
+    const to = near ? anchor : p.a.slice(), commands = [];
+    if (!near) commands.push(`execute in ${rconDim} run tp ${sel} ${at3(to)}`);
+    commands.push(`execute in ${rconDim} run data merge entity ${sel} {${lookNbt(p, to)}}`);
+    return { commands, anchor: to };
 }
 const killCommand = (rconDim, key) => `execute in ${rconDim} run kill @e[type=block_display,tag=${key}]`;
 const killAllCommand = (rconDim, base = 'aipd') => `execute in ${rconDim} run kill @e[type=block_display,tag=${base}]`;
 /** Everything of an earlier run (another epoch) in a dimension. */
 const killStaleCommand = (rconDim, epoch, base = 'aipd') => `execute in ${rconDim} run kill @e[type=block_display,tag=${base},tag=!${epoch}]`;
 
-module.exports = { PALETTE, T_PATH, T_RANGE, T_TAG, T_MARK, quatZTo, rotate, piece, dashed, rectDashed, postsDashed, runs, keyOf, summonCommand, killCommand, killAllCommand, killStaleCommand };
+module.exports = { PALETTE, T_PATH, T_RANGE, T_TAG, T_MARK, quatZTo, rotate, piece, dashed, rectDashed, postsDashed, runs, idKey, sigOf, ANCHOR_R, summonCommand, updateCommands, killCommand, killAllCommand, killStaleCommand };
