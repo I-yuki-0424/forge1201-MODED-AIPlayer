@@ -70,7 +70,11 @@ if (!RL) {
         blocks[b.id].ds = b.defaultState;
         for (let id = b.minStateId; id <= b.maxStateId; id++) {
             const blk = B.fromStateId(id, 0);
-            states[id] = [b.id, wKind(blk), shapeId(shapesOf(blk)), shapeId(blk.shapes)];
+            // the properties the player movement reads (src/native/physics/blocks.js): fluid levels, waterlogging, scaffolding, trapdoors, ladders, bubble columns
+            const pr = blk.getProperties ? blk.getProperties() : {};
+            const keep = {};
+            for (const k of ['level', 'waterlogged', 'distance', 'bottom', 'open', 'facing', 'drag']) if (pr[k] !== undefined && (['water', 'lava', 'scaffolding', 'ladder', 'bubble_column'].includes(b.name) || /_trapdoor$/.test(b.name) || (k === 'waterlogged' && (pr[k] === true || pr[k] === 'true')))) keep[k] = String(pr[k]);
+            states[id] = [b.id, wKind(blk), shapeId(shapesOf(blk)), shapeId(blk.shapes), ...(Object.keys(keep).length ? [keep] : [])];
         }
     }
 }

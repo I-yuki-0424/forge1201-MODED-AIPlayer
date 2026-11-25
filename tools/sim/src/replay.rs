@@ -65,7 +65,13 @@ pub struct Trace {
     /// (ms, cell, state id) in file order
     pub blks: Vec<(f64, [i32; 3], u32)>,
     pub cmds: Vec<Cmd>,
+    /// Per-tick rows (`tick` lines of TASK-076's movement traces): the keys of the tick and the state after it.
+    pub ticks: Vec<TickRow>,
+    /// The `tick` of every `blk` line (same order as `blks`), the recorder and the world's lowest y from `hello`.
+    pub blk_ticks: Vec<i64>, pub recorder: String, pub min_y: i32,
 }
+#[derive(Clone, Debug)]
+pub struct TickRow { pub tick: i64, pub keys: String, pub pos: [f64; 3], pub vel: [f64; 3], pub yaw: f64, pub pitch: f64, pub ground: bool }
 
 fn b64(s: &str) -> Result<Vec<u8>, String> {
     let mut out = Vec::with_capacity(s.len() * 3 / 4);
@@ -80,7 +86,7 @@ fn b64(s: &str) -> Result<Vec<u8>, String> {
 
 impl Trace {
     pub fn parse(text: &str) -> Result<Trace, String> {
-        let mut t = Trace { bot: String::new(), version: String::new(), temp: "pumpkin".into(), test_world: false, states: HashMap::new(), vine_bits: HashMap::new(), chunks: vec![], blks: vec![], cmds: vec![] };
+        let mut t = Trace { bot: String::new(), version: String::new(), temp: "pumpkin".into(), test_world: false, states: HashMap::new(), vine_bits: HashMap::new(), chunks: vec![], blks: vec![], cmds: vec![], ticks: vec![], blk_ticks: vec![], recorder: String::new(), min_y: -64 };
         let mut open: HashMap<u64, Cmd> = HashMap::new();
         for (ln, line) in text.lines().enumerate() {
             if line.trim().is_empty() { continue; }
@@ -89,6 +95,7 @@ impl Trace {
                 "hello" => { if j.get("format").i() != 1 { return Err(format!("line {}: trace format {} (this replayer reads 1)", ln + 1, j.get("format").i())); }
                     t.bot = j.get("bot").s().to_string(); t.version = j.get("version").s().to_string();
                     t.test_world = !j.get("world").is_null();
+                    t.recorder = j.get("recorder").s().to_string(); if !j.get("minY").is_null() { t.min_y = j.get("minY").i() as i32; }
                     if !j.get("temp").is_null() { t.temp = j.get("temp").s().trim_start_matches("minecraft:").to_string(); } }
                 "st" => {
                     let id = j.get("id").i() as u32;
@@ -108,7 +115,8 @@ impl Trace {
                     if cells.len() != (256 * height) as usize { return Err(format!("line {}: chunk has {} cells, want {}", ln + 1, cells.len(), 256 * height)); }
                     t.chunks.push((j.get("ms").f(), j.get("cx").i() as i32, j.get("cz").i() as i32, min_y, height, cells));
                 }
-                "blk" => { let p = j.get("p"); t.blks.push((j.get("ms").f(), [p.at(0).i() as i32, p.at(1).i() as i32, p.at(2).i() as i32], j.get("s").i() as u32)); }
+                "tick" => { let r = j.get("row"); t.ticks.push(TickRow { tick: j.get("tick").i(), keys: r.at(2).s().to_string(), pos: [r.at(3).f(), r.at(4).f(), r.at(5).f()], vel: [r.at(6).f(), r.at(7).f(), r.at(8).f()], yaw: r.at(9).f(), pitch: r.at(10).f(), ground: r.at(11).i() != 0 }); }
+                "blk" => { t.blk_ticks.push(j.get("tick").i()); let p = j.get("p"); t.blks.push((j.get("ms").f(), [p.at(0).i() as i32, p.at(1).i() as i32, p.at(2).i() as i32], j.get("s").i() as u32)); }
                 "cmd" => { let id = j.get("id").i() as u64;
                     open.insert(id, Cmd { id, refid: if j.get("ref").is_null() { None } else { Some(j.get("ref").i() as u64) }, atomic: j.get("atomic").b(),
                         // the planner settings; a trace without them (format 1 before 2026-11-26) came from the T26 harness, whose bots are all work-service bots: 6,000 nodes, vines as air
