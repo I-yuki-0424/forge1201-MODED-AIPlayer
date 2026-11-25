@@ -28,20 +28,20 @@ pub fn world_clock(from: &str, to: &str) -> bool {
 /// Items a broken block drops only by chance (loot tables with a random chance), so one command's drop cannot be expected to match.
 pub fn random_drop(block: &str, item: &str) -> bool {
     (block.ends_with("_leaves") && (item.ends_with("_sapling") || matches!(item, "stick" | "apple" | "mangrove_propagule"))) || (block == "gravel" && item == "flint")
-        || (matches!(block, "short_grass" | "grass" | "tall_grass" | "fern" | "large_fern") && item == "wheat_seeds") || (block == "dead_bush" && item == "stick")
+        || (matches!(block, "short_grass" | "grass" | "tall_grass" | "fern" | "large_fern") && item == "wheat_seeds") || (block == "dead_bush" && item == "stick") || (block == "cocoa" && item == "cocoa_beans")
 }
 /// Ticks agree when within this share of the real count, or within TICK_ABS ticks for short commands.
 pub const TICK_REL: f64 = 0.10;
 pub const TICK_ABS: i64 = 2;
 
 #[derive(Clone, Debug, Default)]
-pub struct State { pub pos: [f64; 3], pub ground: bool, pub hp: f64, pub food: f64, pub sat: f64, pub air: f64, pub inv: Vec<(u32, String, u32)>, pub eff: HashMap<String, i32> }
+pub struct State { pub pos: [f64; 3], pub ground: bool, pub slot: i64, pub hp: f64, pub food: f64, pub sat: f64, pub air: f64, pub inv: Vec<(u32, String, u32)>, pub eff: HashMap<String, i32> }
 impl State {
     fn parse(j: &J) -> State {
         let p = j.get("pos");
         let mut eff = HashMap::new();
         for r in j.get("inv").arr() { for e in r.at(4).arr() { if e.at(0).s() == "efficiency" { eff.insert(r.at(1).s().to_string(), e.at(1).i() as i32); } } }
-        State { pos: [p.at(0).f(), p.at(1).f(), p.at(2).f()], ground: j.get("ground").is_null() || j.get("ground").b(), hp: j.get("hp").f(), food: j.get("food").f(), sat: j.get("sat").f(), air: j.get("air").f(),
+        State { pos: [p.at(0).f(), p.at(1).f(), p.at(2).f()], slot: j.get("slot").i(), ground: j.get("ground").is_null() || j.get("ground").b(), hp: j.get("hp").f(), food: j.get("food").f(), sat: j.get("sat").f(), air: j.get("air").f(),
             inv: j.get("inv").arr().iter().map(|r| (r.at(0).i() as u32, r.at(1).s().to_string(), r.at(2).i() as u32)).collect(), eff }
     }
     /// The cell the feet are in (a hair above, so 63.99999 from float noise counts as 64).
@@ -49,7 +49,7 @@ impl State {
     /// Item counts in the 36 main slots (mineflayer slots 9-44), which is all the simulator holds.
     fn counts(&self) -> BTreeMap<String, i64> { let mut m = BTreeMap::new(); for (s, n, c) in &self.inv { if (9..=44).contains(s) { *m.entry(n.clone()).or_insert(0) += *c as i64; } } m }
 }
-pub struct Cmd { pub id: u64, pub refid: Option<u64>, pub layer: String, pub name: String, pub args: J, pub t0: f64, pub t1: f64, pub before: State, pub after: State, pub ok: bool, pub reason: String, pub ticks: Option<i64> }
+pub struct Cmd { pub id: u64, pub refid: Option<u64>, pub atomic: bool, pub env: (usize, i32, bool), pub layer: String, pub name: String, pub args: J, pub t0: f64, pub t1: f64, pub before: State, pub after: State, pub ok: bool, pub reason: String, pub ticks: Option<i64> }
 /// One bot's trace.
 pub struct Trace {
     pub bot: String, pub version: String,
@@ -104,7 +104,10 @@ impl Trace {
                 }
                 "blk" => { let p = j.get("p"); t.blks.push((j.get("ms").f(), [p.at(0).i() as i32, p.at(1).i() as i32, p.at(2).i() as i32], j.get("s").i() as u32)); }
                 "cmd" => { let id = j.get("id").i() as u64;
-                    open.insert(id, Cmd { id, refid: if j.get("ref").is_null() { None } else { Some(j.get("ref").i() as u64) }, layer: j.get("layer").s().to_string(), name: j.get("name").s().to_string(), args: j.get("args").clone(), t0: j.get("ms").f(), t1: f64::NAN,
+                    open.insert(id, Cmd { id, refid: if j.get("ref").is_null() { None } else { Some(j.get("ref").i() as u64) }, atomic: j.get("atomic").b(),
+                        // the planner settings; a trace without them (format 1 before 2026-11-26) came from the T26 harness, whose bots are all work-service bots: 6,000 nodes, vines as air
+                        env: { let e = j.get("env"); if e.is_null() { (6000, 3, true) } else { (e.get("planNodes").i().max(1) as usize, if e.get("maxDrop").i() > 0 { e.get("maxDrop").i() as i32 } else { 3 }, e.get("noVines").b()) } },
+                        layer: j.get("layer").s().to_string(), name: j.get("name").s().to_string(), args: j.get("args").clone(), t0: j.get("ms").f(), t1: f64::NAN,
                         before: State::parse(j.get("before")), after: State::default(), ok: false, reason: String::new(), ticks: None }); }
                 "res" => { if let Some(mut c) = open.remove(&(j.get("id").i() as u64)) {
                     c.t1 = j.get("ms").f(); c.ok = j.get("ok").b(); c.reason = j.get("reason").s().to_string(); c.after = State::parse(j.get("after"));
@@ -189,6 +192,7 @@ fn load_state(s: &mut Sim, st: &State, skipped: &mut BTreeMap<String, u32>) {
     s.pos = st.cell(); s.track = s.pos; s.exact = Some(st.pos); s.ground = st.ground; s.hp = st.hp; s.food = st.food; s.sat = st.sat; s.exh = 0.0; s.air = if st.air > 0.0 { st.air * 15.0 } else { 300.0 };
     s.dead = false; s.mobs.clear(); s.hostile_scale = 0.0; s.fuel = 0.0; s.tick = 6000; s.dmg.clear(); s.ph.clear(); s.invalidate();
     s.inv = vec![None; 36]; s.eff.clear();
+    s.hand = st.inv.iter().find(|r| r.0 as i64 == 36 + st.slot).map(|r| r.1.clone());
     for (slot, name, n) in &st.inv {
         if !(9..=44).contains(slot) { continue; }
         let id = s.d.item(name);
@@ -304,7 +308,9 @@ pub fn replay(t: &Trace, d: Rc<Data>, near: i32) -> (Vec<Row>, BTreeMap<String, 
         s.journal = Some(vec![]);
         let vine0 = s.vine.clone();
         let inv0 = { let mut m = BTreeMap::new(); for (n, q) in s.held() { m.insert(n, q as i64); } m };
+        s.atomic = c.atomic; s.plan_nodes = c.env.0; s.max_drop = c.env.1; s.no_vines = c.env.2;
         let out = if c.layer == "execute" { sim_command(s, &c.name, &c.args) } else { None };
+        s.atomic = false;
         let journal = s.journal.take().unwrap_or_default();
         let mut sim_blocks: BTreeMap<[i32; 3], String> = BTreeMap::new();
         let mut olds: HashMap<[i32; 3], u16> = HashMap::new();

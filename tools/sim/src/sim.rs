@@ -55,6 +55,11 @@ pub struct Sim {
     /// nodes) instead of the RL candidate list's flood (1,500 nodes, 18 blocks). replay.rs turns it on; the RL `run` keeps the flood it was
     /// validated with (SIM-RUST-v1 section 12) until it is validated again.
     pub astar: bool,
+    /// The command runs atomic (COMMAND-STACK-v1, src/skills/preconditions.js): no walk, no tool swap; an unmet precondition ends it
+    /// `precondition_failed` before anything happens. `hand`: the item in the hand (None = empty or unknown).
+    pub atomic: bool, pub hand: Option<String>,
+    /// The planner's per-bot settings (options.js planNodes; world.js maxDrop, noVines: vines count as air).
+    pub plan_nodes: usize, pub max_drop: i32, pub no_vines: bool,
     reach: Option<Reach>, pub scan_on: bool, pub way: Option<[i32; 3]>, pub scan_res: Option<(Vec<f64>, Vec<Option<[i32; 3]>>)>, pub recent: Vec<[i32; 3]>,
 }
 pub const PASSIVE: [(&str, f64); 4] = [("cow", 10.0), ("pig", 10.0), ("sheep", 8.0), ("chicken", 4.0)];
@@ -110,7 +115,7 @@ pub fn tool_rank(n: &str) -> i32 { ["wooden", "golden", "stone", "iron", "diamon
 impl Sim {
     pub fn new(d: Rc<Data>, tile: Rc<Tile>, seed: u64) -> Sim {
         Sim { d, tile, edits: HashMap::new(), pos: [0; 3], yaw: 0.0, hp: 20.0, food: 20.0, sat: 5.0, exh: 0.0, inv: vec![None; 36], tick: 0, mobs: vec![], next_id: 1, rng: Rng(seed | 1),
-            site: [0; 3], fuel: 0.0, hostile_scale: 1.0, craft_slots: None, dead: false, mobf: None, ph: vec![], view: [0; 3], track: [0; 3], air: 300.0, hits: 0, dmg: vec![], day_seen: 0, regen_t: 0.0, kills: HashMap::new(), audit: HashMap::new(), journal: None, exact: None, ground: true, eff: HashMap::new(), vine: HashMap::new(), astar: false, reach: None, scan_on: false, way: None, scan_res: None, recent: vec![] }
+            site: [0; 3], fuel: 0.0, hostile_scale: 1.0, craft_slots: None, dead: false, mobf: None, ph: vec![], view: [0; 3], track: [0; 3], air: 300.0, hits: 0, dmg: vec![], day_seen: 0, regen_t: 0.0, kills: HashMap::new(), audit: HashMap::new(), journal: None, exact: None, ground: true, eff: HashMap::new(), vine: HashMap::new(), astar: false, atomic: false, hand: None, plan_nodes: PLAN_NODES, max_drop: 3, no_vines: false, reach: None, scan_on: false, way: None, scan_res: None, recent: vec![] }
     }
     // ---- world access ----
     #[inline] pub fn blk(&self, x: i32, y: i32, z: i32) -> Option<u16> { if let Some(&b) = self.edits.get(&(x, y, z)) { Some(b) } else { self.tile.get(x, y, z) } }
@@ -214,7 +219,7 @@ impl Sim {
             self.pos = here; self.reach = None;
             let found = if self.astar {
                 let h = move |c: [i32; 3]| match aim { Some(a) => (((c[0] as f64 + 0.5 - a[0]).powi(2) + (c[1] as f64 + EYE - a[1]).powi(2) + (c[2] as f64 + 0.5 - a[2]).powi(2)).sqrt() - reach).max(0.0), None => 0.0 };
-                self.plan(here, &|s, n| Some(n) != excl && goal(s, n, reach), &h, PLAN_NODES).map(|(n, g)| (n, g as f32))
+                self.plan(here, &|s, n| Some(n) != excl && goal(s, n, reach), &h, self.plan_nodes).map(|(n, g)| (n, g as f32))
             } else { self.stand_for(|s, n| Some(n) != excl && goal(s, n, reach)) };
             let (n, c) = match found { Some(x) => x, None => { self.pos = start; self.reach = None; return Err(("unreachable", 2 * ticks + 1)) } };
             ticks += if self.astar { c.ceil() as i64 } else { self.ticks_for(c) };
@@ -250,7 +255,7 @@ impl Sim {
         let (f, h) = (self.kind(x, y, z), self.kind(x, y + 1, z));
         if f != Kind::Solid && h != Kind::Solid && f != Kind::Liquid && !self.lava(x, y, z) && !self.lava(x, y + 1, z) && self.kind(x, y - 1, z) == Kind::Solid && !self.lava(x, y - 1, z) { return Some(0); }
         if self.name(x, y, z) == "water" && (matches!(h, Kind::Air | Kind::Passable) || (self.name(x, y + 1, z) == "water" && matches!(self.kind(x, y + 2, z), Kind::Air | Kind::Passable))) { return Some(1); }
-        if f == Kind::Climb { return Some(2); }
+        if f == Kind::Climb && !(self.no_vines && self.name(x, y, z) == "vine") { return Some(2); }
         None
     }
     fn p_free(&self, x: i32, y: i32, z: i32) -> bool { matches!(self.kind(x, y, z), Kind::Air | Kind::Passable | Kind::Climb) }
@@ -273,7 +278,7 @@ impl Sim {
             if here != 1 && self.p_free(x, y, z) && self.p_free(x, y + 1, z) {
                 for d in 1..=8 {
                     let k = self.node_kind(x, y - d, z);
-                    if d <= 3 && k == Some(0) { push([x, y - d, z], 0, 1.0 + 0.5 * d as f64, out); break; }
+                    if d <= self.max_drop && k == Some(0) { push([x, y - d, z], 0, 1.0 + 0.5 * d as f64, out); break; }
                     if k == Some(1) { push([x, y - d, z], 1, 1.0 + 0.2 * d as f64, out); break; }
                     if k == Some(2) { push([x, y - d, z], 2, 1.0 + 0.5 * d as f64, out); break; }
                     if !self.p_free(x, y - d, z) { break; }
@@ -366,7 +371,8 @@ impl Sim {
         }
         let mut t = 0.0;
         loop {
-            if matches!(self.kind(cell[0], cell[1], cell[2]), Kind::Solid | Kind::Climb) { return Some((cell, t)); }
+            // a ray stops at a block with a collision shape (geometry.js aimPoints uses shapesAt): solid blocks, ladders, scaffolding; not vines
+            match self.kind(cell[0], cell[1], cell[2]) { Kind::Solid => return Some((cell, t)), Kind::Climb if !shapeless_climb(self.name(cell[0], cell[1], cell[2])) => return Some((cell, t)), _ => {} }
             let i = if tmax[0] < tmax[1] { if tmax[0] < tmax[2] { 0 } else { 2 } } else if tmax[1] < tmax[2] { 1 } else { 2 };
             t = tmax[i];
             if t > maxd { return None; }
@@ -415,6 +421,28 @@ impl Sim {
 
     // ---- tools and digging ----
     /// Best way to break `block` with what is held: (tool item name or "", ticks, can_harvest). None if undiggable.
+    /// Break ticks of block `bid` with tool `t` ("" = the hand): (ticks, harvests), or None when `t` cannot harvest a block that needs a tool.
+    pub fn tool_ticks(&self, bid: u16, t: &str) -> Option<(i64, bool)> {
+        let b = self.d.block(bid);
+        if !b.diggable || b.hard < 0.0 { return None; }
+        let harvest = match &b.harvest { None => true, Some(list) => !t.is_empty() && list.iter().any(|x| x == t) };
+        if b.harvest.is_some() && !harvest { return None; }
+        let mut speed = if t.is_empty() { 1.0 } else { b.mult.iter().find(|m| m.0 == t).map(|m| m.1).unwrap_or(1.0) };
+        if speed > 1.0 { if let Some(&e) = self.eff.get(t) { if e > 0 { speed += (e * e + 1) as f64; } } }
+        Some((if b.hard == 0.0 { 0 } else { let dmg = speed / b.hard / if harvest { 30.0 } else { 100.0 }; if dmg >= 1.0 { 0 } else { (1.0 / dmg).ceil() as i64 } }, harvest))
+    }
+    /// preconditions.js for `mine` (atomic): in reach of the block's cube from the eye (blind 5.0, else AIM_REACH), and a tool as fast as the best
+    /// one in the pack in the hand. The command itself then needs an aim point in sight from where the body stands (`line_of_sight`).
+    pub fn mine_unmet(&self, t: [i32; 3], bid: u16, blind: bool) -> bool {
+        let e = self.eye();
+        let d = |a: f64, lo: f64| (lo - a).max(0.0).max(a - (lo + 1.0));
+        let cube = (d(e[0], t[0] as f64).powi(2) + d(e[1], t[1] as f64).powi(2) + d(e[2], t[2] as f64).powi(2)).sqrt();
+        if cube > if blind { BLIND_REACH } else { AIM_REACH } { return true; }
+        match self.dig_plan(bid) {
+            Some((best, k, _)) if !best.is_empty() => { let h = self.hand.clone().unwrap_or_default(); self.tool_ticks(bid, &h).map_or(true, |(hk, _)| hk > k) }
+            _ => false,
+        }
+    }
     pub fn dig_plan(&self, bid: u16) -> Option<(String, i64, bool)> {
         let b = self.d.block(bid);
         if !b.diggable || b.hard < 0.0 { return None; }
@@ -483,6 +511,7 @@ impl Sim {
                         None => (f[1] == 0 || f[1] == -1) && !solid(self, [p[0], p[1] + 1, p[2]]),
                     }
                 }
+                    else if name == "cocoa" { !(0..4).any(|i| { let d = [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]][i]; self.name(p[0] + d[0], p[1], p[2] + d[2]) == "jungle_log" }) }
                     else if name == "ladder" || name.ends_with("_wall_torch") || name == "wall_torch" || name.ends_with("_wall_sign") || name.ends_with("_wall_banner") { !side }
                     else if needs_floor(&name) { !solid(self, [p[0], p[1] - 1, p[2]]) && !(name.ends_with("_door") && self.name(p[0], p[1] - 1, p[2]) == name) }
                     else { false };
@@ -579,7 +608,7 @@ impl Sim {
         let d = if self.astar {
             let h = move |c: [i32; 3]| (((c[0] - t[0]) as f64).powi(2) + ((c[2] - t[2]) as f64).powi(2)).sqrt() + 0.5 * (c[1] - t[1]).abs() as f64;
             let here = self.pos;
-            self.plan(here, &|_s, c| c == t, &h, PLAN_NODES).map(|x| x.1 as f32)
+            self.plan(here, &|_s, c| c == t, &h, self.plan_nodes).map(|x| x.1 as f32)
         } else { self.reach().dist.get(&t).copied() };
         let astar = self.astar;
         match d {
@@ -611,6 +640,25 @@ impl Sim {
     /// from the eye (`not_visible`, nothing pressed); `collect: false` leaves the drop (on the test worlds the server's auto-pickup puts it into the
     /// pack anyway, which `break_block` does).
     pub fn do_mine_opts(&mut self, t: [i32; 3], collect: bool, blind: bool) -> Out {
+        if self.atomic {
+            let bid = match self.blk(t[0], t[1], t[2]) { Some(b) => b, None => return Out::fail("precondition_failed", 0, vec![]).with(self, vec![]) };
+            let b = self.d.block(bid);
+            let target_ok = b.diggable && b.hard >= 0.0 && !matches!(b.kind, Kind::Air | Kind::Liquid);
+            if target_ok && self.mine_unmet(t, bid, blind) { return Out::fail("precondition_failed", 0, vec![]).with(self, vec![]); }
+            if target_ok && !blind {
+                // approachUntil, atomic: what is in view from where the body stands, or the unmet line of sight
+                if !self.aim_ok(self.eye(), t, None, AIM_REACH) { return Out::fail("precondition_failed", 0, vec![]).with(self, vec![]); }
+                let plan = match self.dig_plan(bid) { Some(p) => p, None => return Out::fail("missing_tool", 0, vec![]).with(self, vec![]) };
+                let mut ev = vec![];
+                let ticks = dig_ticks(plan.1) + MINE_AIMED;
+                self.ph = vec![("dig", ticks)];
+                self.exh += 0.005;
+                self.break_block(t[0], t[1], t[2], &mut ev);
+                self.settle_fall();
+                self.reach = None;
+                return self.finish(Out::ok(ticks, vec![]), ev);
+            }
+        }
         if !blind { return if collect { self.do_mine(t) } else { self.do_mine_nocollect(t) }; }
         let bid = match self.blk(t[0], t[1], t[2]) { Some(b) => b, None => return Out::fail("unreachable", 1, vec![]).with(self, vec![]) };
         if self.d.block(bid).kind != Kind::Solid && self.d.block(bid).kind != Kind::Climb && self.d.block(bid).kind != Kind::Passable || !self.d.block(bid).diggable || self.d.block(bid).name.ends_with("air") { return Out::fail("invalid_target", 0, vec![]).with(self, vec![]); }
@@ -1084,3 +1132,5 @@ pub(crate) mod tests {
         assert_eq!(String::from_utf8(crate::inflate::zlib(&z).unwrap()).unwrap(), want);
     }
 }
+/// Climbable blocks without a collision shape: the body climbs them, rays pass through (mine_b corpus mb-r1: logs behind jungle vines are mined).
+pub fn shapeless_climb(n: &str) -> bool { matches!(n, "vine" | "cave_vines" | "cave_vines_plant" | "twisting_vines" | "twisting_vines_plant" | "weeping_vines" | "weeping_vines_plant" | "glow_lichen") }

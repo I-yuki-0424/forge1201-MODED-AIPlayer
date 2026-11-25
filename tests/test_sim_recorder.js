@@ -79,7 +79,7 @@ Date.now = () => (clock += 5);
         const dir = path.join(tmp, 'fix');
         fs.mkdirSync(dir);
         const b = fakeBot('Fix1');
-        const rec = new REC.BotRec(b, dir, { r: 0, trace: false });
+        const rec = new REC.BotRec(b, dir, { r: 0, trace: false, root: path.join(__dirname, '..') });
         b.on('physicsTick', () => {});
         const step = (n) => { for (let i = 0; i < n; i++) b.emit('physicsTick'); };
         // 1: mine the grass block two east of the bot: it becomes air, a dirt comes into the pack (slot 36)

@@ -162,7 +162,11 @@ class BotRec {
         const id = ++this.seq;
         // `ref`: the id of the command this one re-plays (scripts/sim/play.js sets bot.__simrecRef), so two runs pair up command by command
         const ref = this.bot.__simrecRef === undefined ? undefined : this.bot.__simrecRef;
-        this.line({ t: 'cmd', id, ref, layer, name, args: args || {}, atomic: !!(opts && opts.atomic), maxTicks: (opts && opts.maxTicks) || null,
+        // the walk planner's per-bot settings (src/skills/options.js planNodes, src/skills/world.js maxDrop and noVines): the work layer lowers the search to
+        // 6,000 nodes and makes vines air, and the replay must plan with the same
+        let env = null;
+        try { const so = require(path.join(this.opts.root, 'src/skills/options.js')).get(this.bot); env = { planNodes: so.planNodes, maxDrop: this.bot.__maxDrop || 0, noVines: !!this.bot.__noVines }; } catch (_) { /* options unknown */ }
+        this.line({ t: 'cmd', id, ref, layer, name, args: args || {}, atomic: !!(opts && opts.atomic), maxTicks: (opts && opts.maxTicks) || null, env,
             ms: Date.now(), tick: this.tick, before: botState(this.bot) });
         return id;
     }
@@ -191,7 +195,7 @@ function install({ dir = process.env.SIMREC_DIR || path.join('/out/simrec', proc
     const runnerPath = require.resolve(path.join(root, 'src/skills/runner.js')), indexPath = require.resolve(path.join(root, 'src/skills/index.js'));
     if (require.cache[indexPath]) throw new Error('scripts/sim/record.js: src/skills was loaded before the recorder (load it with node --require)');
     fs.mkdirSync(dir, { recursive: true });
-    const opts = { r, trace }, recs = new Map(), busy = new WeakMap();
+    const opts = { r, trace, root }, recs = new Map(), busy = new WeakMap();
     const recOf = (bot) => {
         if (!bot || !bot.entity) return null;
         let rec = recs.get(bot);
