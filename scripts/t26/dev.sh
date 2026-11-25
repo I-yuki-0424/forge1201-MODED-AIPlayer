@@ -6,7 +6,11 @@ set -euo pipefail
 tw_names "${1:?world}"; ACT=${2:-start}
 SELF=/home/coder/projects/forge1201-MODED-AIPlayer
 case $ACT in
-stop) docker kill "$TW_DEV" >/dev/null 2>&1 || true; echo "dev watcher $TW_N stopped";;
+stop) docker kill "$TW_DEV" >/dev/null 2>&1 || true
+  # --rm removes the container a moment AFTER the kill: until then it still holds the world volume, and an `up.sh --new` right after found "the old volume is still there"
+  # (move_b-w121-a, 2026-11-26: the suite ran on no world). Wait until it is gone.
+  for _ in $(seq 1 50); do docker ps -a --format '{{.Names}}' | grep -qx "$TW_DEV" || break; sleep 0.2; done
+  echo "dev watcher $TW_N stopped";;
 logs) docker logs --tail 60 "$TW_DEV";;
 start)
   docker kill "$TW_DEV" >/dev/null 2>&1 || true; sleep 1
