@@ -1,5 +1,5 @@
 'use strict';
-// Tick-level movement traces for the native physics (TASK-20261125-076) in the trace format TASK-20261125-078 put on main (docs/proposed/SIM-PARITY-v1.md
+// Tick-level movement traces for the native physics (TASK-20261125-076) in the trace format TASK-20261125-078 put on main (docs/implemented/SIM-PARITY-v1.md
 // section 5, writer scripts/sim/record.js, format 1): one JSONL file per player, lines told apart by `t`. The world lines are 078's:
 //   {"t":"hello","format":1,"recorder":..,"bot":..,"version":"1.21.1","minY":..,"height":..,"dim":..,...,"ms":..}
 //   {"t":"st","id":<state id of that version>,"n":<block name>,"p":{properties}}
