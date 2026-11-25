@@ -1,5 +1,5 @@
 'use strict';
-// Simulator parity recorder (TASK-20261125-078, docs/proposed/SIM-PARITY-v1.md). Loaded with `node --require` BEFORE anything else, it wraps
+// Simulator parity recorder (TASK-20261125-078, docs/implemented/SIM-PARITY-v1.md). Loaded with `node --require` BEFORE anything else, it wraps
 // the action layer's `execute` (src/skills/index.js) and the runner's `run` (src/skills/runner.js, for the moves that call it directly), and
 // writes one JSONL file per bot: the blocks around the bot as the server sent them (chunk snapshots, then every block update), and for every
 // command its arguments, the bot's state before, and the outcome the server answered (ok / reason, ticks, phases, position, inventory).
@@ -82,6 +82,8 @@ class BotRec {
         this.line({ t: 'hello', format: FORMAT, recorder: 'scripts/sim/record.js', bot: this.name, version: bot.version || null,
             minY: bot.game ? bot.game.minY : null, height: bot.game ? bot.game.height : null, dim: bot.game ? bot.game.dimension : null,
             difficulty: bot.game ? bot.game.difficulty || null : null, gameMode: bot.game ? bot.game.gameMode || null : null, temp: process.env.TEMP_BLOCK || null,
+            // which bot implementation ran (TASK-076's native physics / inventory / dig, or mineflayer's): a corpus must not mix the two
+            native: { physics: process.env.NATIVE_PHYSICS ?? null, inventory: process.env.NATIVE_INVENTORY ?? null, dig: process.env.NATIVE_DIG ?? null },
             world: process.env.T26_WORLD || process.env.TEST_WORLD || null, run: process.env.RUN || null, speed: Number(process.env.GAME_SPEED || 1), ms: this.ms0 });
         this._onTick = () => { this.tick++; };
         this._onBlock = (oldB, newB) => {
@@ -168,6 +170,19 @@ class BotRec {
         // 6,000 nodes and makes vines air, and the replay must plan with the same
         let env = null;
         try { const so = require(path.join(this.opts.root, 'src/skills/options.js')).get(this.bot); env = { planNodes: so.planNodes, maxDrop: this.bot.__maxDrop || 0, noVines: !!this.bot.__noVines }; } catch (_) { /* options unknown */ }
+        // floors the planner must not stand on (world.js avoidFloor: another bot's scaffolding; a function, so asked here for the solid cells around the bot)
+        try {
+            const af = this.bot.__avoidFloor, p = this.bot.entity.position;
+            if (env && typeof af === 'function') {
+                const avoid = [], w = this.bot.world, v = { x: 0, y: 0, z: 0 };
+                for (let dx = -8; dx <= 8; dx++) for (let dz = -8; dz <= 8; dz++) for (let dy = -5; dy <= 4; dy++) {
+                    const x = Math.floor(p.x) + dx, y = Math.floor(p.y) + dy, z = Math.floor(p.z) + dz;
+                    v.x = x; v.y = y; v.z = z;
+                    if (w.getBlockStateId(v) && af(x, y, z)) avoid.push([x, y, z]);
+                }
+                if (avoid.length) env.avoid = avoid;
+            }
+        } catch (_) { /* nothing to avoid */ }
         this.line({ t: 'cmd', id, ref, layer, name, args: args || {}, atomic: !!(opts && opts.atomic), maxTicks: (opts && opts.maxTicks) || null, env, ...(recMs ? { recMs } : {}),
             ms: Date.now(), tick: this.tick, before: botState(this.bot) });
         return id;

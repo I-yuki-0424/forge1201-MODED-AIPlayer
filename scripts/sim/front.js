@@ -61,8 +61,9 @@ class Server {
         this.players = new Map();
         this.nextEntity = 100;
         this.capture = null;
-        this.tick = 0;
     }
+    /** The server's tick: the game clock (performance.now, running SIM_SPEED x), not the client's packets (an idle client sends none for a second). */
+    get tick() { return Math.floor(require('perf_hooks').performance.now() / 50); }
     loadCapture(file) {
         // the configuration (registry data) and login packets of a real session of this version (scripts/sim/capture.js)
         const dec = (v) => { if (v && typeof v === 'object') { if (v.b64 !== undefined && Object.keys(v).length === 1) return Buffer.from(v.b64, 'base64'); if (v.big !== undefined && Object.keys(v).length === 1) return BigInt(v.big); if (Array.isArray(v)) return v.map(dec); const o = {}; for (const [k, x] of Object.entries(v)) o[k] = dec(x); return o; } return v; };
@@ -134,7 +135,6 @@ class Server {
                 if (a.x !== undefined) { p.pos = new Vec3(a.x, a.y, a.z); this.sendChunks(p); }
                 if (a.yaw !== undefined) { p.yaw = a.yaw; p.pitch = a.pitch; }
                 if (a.onGround !== undefined) p.ground = !!a.onGround; else if (a.flags !== undefined) p.ground = !!(a.flags & 1 || a.flags.onGround);
-                this.tick++;
                 break;
             case 'held_item_slot': p.held = a.slotId; break;
             case 'block_dig': {

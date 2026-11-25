@@ -1,4 +1,4 @@
-{"t":"hello","format":1,"recorder":"scripts/sim/record.js","bot":"Fix1","version":"1.21.1","minY":-64,"height":384,"dim":"overworld","difficulty":"peaceful","gameMode":"survival","temp":null,"world":null,"run":null,"speed":1,"ms":1764000000005}
+{"t":"hello","format":1,"recorder":"scripts/sim/record.js","bot":"Fix1","version":"1.21.1","minY":-64,"height":384,"dim":"overworld","difficulty":"peaceful","gameMode":"survival","temp":null,"native":{"physics":null,"inventory":null,"dig":null},"world":null,"run":null,"speed":1,"ms":1764000000005}
 {"t":"st","id":79,"n":"bedrock","p":{}}
 {"t":"st","id":1,"n":"stone","p":{}}
 {"t":"st","id":9,"n":"grass_block","p":{"snowy":false}}

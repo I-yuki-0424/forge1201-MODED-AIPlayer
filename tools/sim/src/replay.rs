@@ -1,4 +1,4 @@
-//! `replay`: the parity check of the simulator against the real server (TASK-20261125-078, docs/proposed/SIM-PARITY-v1.md).
+//! `replay`: the parity check of the simulator against the real server (TASK-20261125-078, docs/implemented/SIM-PARITY-v1.md).
 //! Reads traces written by `scripts/sim/record.js` (one JSONL file per bot: chunk snapshots and block updates as the server sent them, and
 //! per command its arguments, the bot's state before, and the outcome after), runs every command the simulator models on the same blocks
 //! from the same state, and compares outcome by outcome. Each command starts from the RECORDED world and bot (teacher forcing), so one
@@ -49,7 +49,7 @@ impl State {
     /// Item counts in the 36 main slots (mineflayer slots 9-44), which is all the simulator holds.
     fn counts(&self) -> BTreeMap<String, i64> { let mut m = BTreeMap::new(); for (s, n, c) in &self.inv { if (9..=44).contains(s) { *m.entry(n.clone()).or_insert(0) += *c as i64; } } m }
 }
-pub struct Cmd { pub id: u64, pub refid: Option<u64>, pub atomic: bool, pub env: (usize, i32, bool), pub layer: String, pub name: String, pub args: J, pub t0: f64, pub t1: f64, pub before: State, pub after: State, pub ok: bool, pub reason: String, pub ticks: Option<i64> }
+pub struct Cmd { pub id: u64, pub refid: Option<u64>, pub atomic: bool, pub env: (usize, i32, bool), pub avoid: Vec<[i32; 3]>, pub layer: String, pub name: String, pub args: J, pub t0: f64, pub t1: f64, pub before: State, pub after: State, pub ok: bool, pub reason: String, pub ticks: Option<i64> }
 /// One bot's trace.
 pub struct Trace {
     pub bot: String, pub version: String,
@@ -113,6 +113,7 @@ impl Trace {
                     open.insert(id, Cmd { id, refid: if j.get("ref").is_null() { None } else { Some(j.get("ref").i() as u64) }, atomic: j.get("atomic").b(),
                         // the planner settings; a trace without them (format 1 before 2026-11-26) came from the T26 harness, whose bots are all work-service bots: 6,000 nodes, vines as air
                         env: { let e = j.get("env"); if e.is_null() { (6000, 3, true) } else { (e.get("planNodes").i().max(1) as usize, if e.get("maxDrop").i() > 0 { e.get("maxDrop").i() as i32 } else { 3 }, e.get("noVines").b()) } },
+                        avoid: j.get("env").get("avoid").arr().iter().map(|c| [c.at(0).i() as i32, c.at(1).i() as i32, c.at(2).i() as i32]).collect(),
                         layer: j.get("layer").s().to_string(), name: j.get("name").s().to_string(), args: j.get("args").clone(), t0: j.get("ms").f(), t1: f64::NAN,
                         before: State::parse(j.get("before")), after: State::default(), ok: false, reason: String::new(), ticks: None }); }
                 "res" => { if let Some(mut c) = open.remove(&(j.get("id").i() as u64)) {
@@ -230,6 +231,8 @@ fn sim_command(s: &mut Sim, name: &str, a: &J, temp: &str) -> Option<(bool, Stri
             let item = a.get("item").s().trim_start_matches("minecraft:");
             let block = if a.get("block").is_null() { item } else { a.get("block").s().trim_start_matches("minecraft:") };
             let r = a.get("recipe");
+            let sup = if r.is_null() { None } else { match r.get("support").s() { "north" => Some([0, 0, -1]), "south" => Some([0, 0, 1]), "west" => Some([-1, 0, 0]), "east" => Some([1, 0, 0]), "up" => Some([0, 1, 0]), "down" => Some([0, -1, 0]), _ => None } };
+            if s.atomic && s.place_unmet(arg_cell(a)?, item, sup) { return Some((false, "precondition_failed".into(), 0)); }
             if r.is_null() { s.do_place(arg_cell(a)?, block) }
             else {
                 let dir = match r.get("support").s() { "north" => [0, 0, -1], "south" => [0, 0, 1], "west" => [-1, 0, 0], "east" => [1, 0, 0], "up" => [0, 1, 0], "down" => [0, -1, 0], _ => return Some((false, "invalid_args".into(), 0)) };
@@ -340,6 +343,7 @@ pub fn replay(t: &Trace, d: Rc<Data>, near: i32, others: &[Win]) -> (Vec<Row>, B
         s.journal = Some(vec![]);
         let vine0 = s.vine.clone();
         let inv0 = { let mut m = BTreeMap::new(); for (n, q) in s.held() { m.insert(n, q as i64); } m };
+        s.avoid = c.avoid.iter().copied().collect();
         s.atomic = c.atomic; s.plan_nodes = c.env.0; s.max_drop = c.env.1; s.no_vines = c.env.2;
         let out = if c.layer == "execute" || c.name.starts_with("move:") || c.name == "run:bridge" { sim_command(s, &c.name, &c.args, &t.temp) } else { None };
         s.atomic = false;
@@ -394,7 +398,7 @@ pub fn compare(a: &Trace, b: &Trace, d: Rc<Data>, near: i32, others_a: &[Win], o
     (rows, n)
 }
 
-/// The categories of one diverging command (empty when everything agrees). Rules in docs/proposed/SIM-PARITY-v1.md section 4.
+/// The categories of one diverging command (empty when everything agrees). Rules in docs/implemented/SIM-PARITY-v1.md section 4.
 pub fn categorize(name: &str, r: &Outcome, s: &Outcome, a: &Agree) -> Vec<&'static str> {
     let mut c: Vec<&'static str> = vec![];
     let aim = |x: &str| matches!(x, "unreachable" | "not_visible");
@@ -568,7 +572,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    /// Speed of the modelled commands on a natural tile (the testing-backend estimate in docs/proposed/SIM-PARITY-v1.md section 6):
+    /// Speed of the modelled commands on a natural tile (the testing-backend estimate in docs/implemented/SIM-PARITY-v1.md section 6):
     ///   SIM_BENCH_TILE=/tiles/vps-s0-28.tile cargo test --release bench_commands -- --ignored --nocapture
     #[test]
     #[ignore]

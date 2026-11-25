@@ -1,5 +1,5 @@
 'use strict';
-// Re-play a recorded run on the real server (TASK-20261125-078, docs/proposed/SIM-PARITY-v1.md section 4: the noise floor). The real server against itself:
+// Re-play a recorded run on the real server (TASK-20261125-078, docs/implemented/SIM-PARITY-v1.md section 4: the noise floor). The real server against itself:
 // on a NEW world of the same seed, the recorded blocks are put back (every cell of every recorded chunk's first snapshot that differs, by setblock), then
 // every recorded `execute` command runs again, in the recorded order, each from the recorded bot state (position and look by tp, the pack by clear + item
 // replace, the hotbar slot). Run with the recorder, so the re-play is a trace of its own; `forgeaip-sim compare A B` pairs the two command by command

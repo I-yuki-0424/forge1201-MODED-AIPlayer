@@ -3,7 +3,7 @@
 // items, recipes, materials, foods, entities) and the mod set's registry (vocabulary only), vocab() exactly as src/rl/skill_space.js.
 //   docker run --rm --network none -v "$PWD":/w -w /w node:20-slim node tools/sim/gen_data.js
 // SIM_MC_VERSION=1.21.1 writes data/data-1.21.1.json instead: the same block, recipe and food tables for the version a recorded trace was
-// made on (`forgeaip-sim replay`, docs/proposed/SIM-PARITY-v1.md); its item and entity lists are that version's own (no RL vocabulary).
+// made on (`forgeaip-sim replay`, docs/implemented/SIM-PARITY-v1.md); its item and entity lists are that version's own (no RL vocabulary).
 const fs = require('fs');
 const VERSION = process.env.SIM_MC_VERSION || '1.20.1', RL = VERSION === '1.20.1';
 const mc = require('minecraft-data')(VERSION);

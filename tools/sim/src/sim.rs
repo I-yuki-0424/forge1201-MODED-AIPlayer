@@ -60,6 +60,8 @@ pub struct Sim {
     pub atomic: bool, pub hand: Option<String>,
     /// The planner's per-bot settings (options.js planNodes; world.js maxDrop, noVines: vines count as air).
     pub plan_nodes: usize, pub max_drop: i32, pub no_vines: bool,
+    /// Floors this bot must not plan to stand on (world.js avoidFloor: another bot's scaffolding), as recorded around the bot.
+    pub avoid: std::collections::HashSet<[i32; 3]>,
     /// Falling blocks in the air: (tick it lands, cell it lands in, block). The column over a dug cell becomes falling entities at once and lands
     /// when vanilla gravity brings it down (move_b corpus mvb-r1: the sand over a dug cell was air at the end of the dig and landed later).
     pub falling: Vec<(i64, [i32; 3], u16)>,
@@ -122,7 +124,7 @@ pub fn tool_rank(n: &str) -> i32 { ["wooden", "golden", "stone", "iron", "diamon
 impl Sim {
     pub fn new(d: Rc<Data>, tile: Rc<Tile>, seed: u64) -> Sim {
         Sim { d, tile, edits: HashMap::new(), pos: [0; 3], yaw: 0.0, hp: 20.0, food: 20.0, sat: 5.0, exh: 0.0, inv: vec![None; 36], tick: 0, mobs: vec![], next_id: 1, rng: Rng(seed | 1),
-            site: [0; 3], fuel: 0.0, hostile_scale: 1.0, craft_slots: None, dead: false, mobf: None, ph: vec![], view: [0; 3], track: [0; 3], air: 300.0, hits: 0, dmg: vec![], day_seen: 0, regen_t: 0.0, kills: HashMap::new(), audit: HashMap::new(), journal: None, exact: None, ground: true, eff: HashMap::new(), vine: HashMap::new(), astar: false, atomic: false, hand: None, plan_nodes: PLAN_NODES, max_drop: 3, no_vines: false, falling: vec![], autopickup: false, reach: None, scan_on: false, way: None, scan_res: None, recent: vec![] }
+            site: [0; 3], fuel: 0.0, hostile_scale: 1.0, craft_slots: None, dead: false, mobf: None, ph: vec![], view: [0; 3], track: [0; 3], air: 300.0, hits: 0, dmg: vec![], day_seen: 0, regen_t: 0.0, kills: HashMap::new(), audit: HashMap::new(), journal: None, exact: None, ground: true, eff: HashMap::new(), vine: HashMap::new(), astar: false, atomic: false, hand: None, plan_nodes: PLAN_NODES, max_drop: 3, no_vines: false, avoid: std::collections::HashSet::new(), falling: vec![], autopickup: false, reach: None, scan_on: false, way: None, scan_res: None, recent: vec![] }
     }
     // ---- world access ----
     #[inline] pub fn blk(&self, x: i32, y: i32, z: i32) -> Option<u16> { if let Some(&b) = self.edits.get(&(x, y, z)) { Some(b) } else { self.tile.get(x, y, z) } }
@@ -211,6 +213,8 @@ impl Sim {
     /// `approach` with the point the goal is about (the block's centre, a support's centre): the planner's heuristic is the eye's distance to it
     /// beyond the reach (motion.js reachGoal h).
     pub(crate) fn approach_to(&mut self, goal: &dyn Fn(&Sim, [i32; 3], f64) -> bool, visible: &dyn Fn(&Sim, [f64; 3]) -> bool, aim: Option<[f64; 3]>) -> Result<i64, (&'static str, i64)> {
+        // motion.js approachUntil, atomic: no walking; what is in view from where the body stands, or the unmet line of sight
+        if self.atomic { return if visible(self, self.eye()) { Ok(0) } else { Err(("precondition_failed", 0)) }; }
         let mut ticks = if self.astar && !self.ground { self.land() } else { 0 };
         let start = self.pos;
         let mut here = self.pos;
@@ -260,7 +264,7 @@ impl Sim {
     pub fn node_kind(&self, x: i32, y: i32, z: i32) -> Option<u8> {
         if self.blk(x, y, z).is_none() { return None; }
         let (f, h) = (self.kind(x, y, z), self.kind(x, y + 1, z));
-        if f != Kind::Solid && h != Kind::Solid && f != Kind::Liquid && !self.lava(x, y, z) && !self.lava(x, y + 1, z) && self.kind(x, y - 1, z) == Kind::Solid && !self.lava(x, y - 1, z) { return Some(0); }
+        if f != Kind::Solid && h != Kind::Solid && f != Kind::Liquid && !self.lava(x, y, z) && !self.lava(x, y + 1, z) && self.kind(x, y - 1, z) == Kind::Solid && !self.lava(x, y - 1, z) && !self.avoid.contains(&[x, y - 1, z]) { return Some(0); }
         if self.name(x, y, z) == "water" && (matches!(h, Kind::Air | Kind::Passable) || (self.name(x, y + 1, z) == "water" && matches!(self.kind(x, y + 2, z), Kind::Air | Kind::Passable))) { return Some(1); }
         if f == Kind::Climb && !(self.no_vines && self.name(x, y, z) == "vine") { return Some(2); }
         None
@@ -303,13 +307,17 @@ impl Sim {
     pub fn path_ticks(&self, path: &[[i32; 3]]) -> f64 {
         if path.len() < 2 { return 0.0; }
         let mut t = WALK_START;
-        for w in path.windows(2) {
+        // motion.js walk: sprint while the next four moves are plain walks and this is not the last one (5.612 blocks/s, 3.56 ticks per block)
+        let plain = |k: usize| { let (a, b) = (path[k], path[k + 1]); a[1] == b[1] && (a[0] != b[0] || a[2] != b[2]) && self.name(a[0], a[1], a[2]) != "water" && self.name(b[0], b[1], b[2]) != "water" };
+        let n = path.len() - 1;
+        for (k, w) in path.windows(2).enumerate() {
             let (a, b) = (w[0], w[1]);
             let diag = a[0] != b[0] && a[2] != b[2];
             let flat = if diag { 1.414 } else if a[0] != b[0] || a[2] != b[2] { 1.0 } else { 0.0 };
             let wet = self.name(b[0], b[1], b[2]) == "water" || self.name(a[0], a[1], a[2]) == "water";
             let dy = b[1] - a[1];
-            let mut m = flat * 4.63;
+            let sprint = k + 4 < n && (k..k + 4).all(|j| plain(j)) && self.food > 6.0;
+            let mut m = flat * if sprint { 3.56 } else { 4.63 };
             if flat == 0.0 { m = if dy > 0 { 8.5 } else { 6.7 }; }                       // ladder or swim, straight up / down
             else if dy > 0 { m = WALK_UP; }
             else if dy < 0 { let (mut v, mut d, mut n) = (0.0f64, 0.0f64, 0.0f64); while d < -dy as f64 && n < 200.0 { v = (v - 0.08) * 0.98; d -= v; n += 1.0; } m += n; }
@@ -437,6 +445,21 @@ impl Sim {
         let mut speed = if t.is_empty() { 1.0 } else { b.mult.iter().find(|m| m.0 == t).map(|m| m.1).unwrap_or(1.0) };
         if speed > 1.0 { if let Some(&e) = self.eff.get(t) { if e > 0 { speed += (e * e + 1) as f64; } } }
         Some((if b.hard == 0.0 { 0 } else { let dmg = speed / b.hard / if harvest { 30.0 } else { 100.0 }; if dmg >= 1.0 { 0 } else { (1.0 / dmg).ceil() as i64 } }, harvest))
+    }
+    /// preconditions.js for `place` (atomic): the chunk loaded, the nearest support (the recipe's one, else every solid neighbour) within
+    /// AIM_REACH of the eye, the body not in the cell, the item in the pack and in the hand.
+    pub fn place_unmet(&self, t: [i32; 3], item: &str, support: Option<[i32; 3]>) -> bool {
+        if self.blk(t[0], t[1], t[2]).is_none() { return true; }
+        let refs: Vec<[i32; 3]> = match support { Some(d) => vec![[t[0] + d[0], t[1] + d[1], t[2] + d[2]]], None => FACES.iter().map(|f| [t[0] - f[0], t[1] - f[1], t[2] - f[2]]).filter(|n| self.kind(n[0], n[1], n[2]) == Kind::Solid).collect() };
+        let e = self.eye();
+        let d = |a: f64, lo: f64| (lo - a).max(0.0).max(a - (lo + 1.0));
+        let cube = |c: &[i32; 3]| (d(e[0], c[0] as f64).powi(2) + d(e[1], c[1] as f64).powi(2) + d(e[2], c[2] as f64).powi(2)).sqrt();
+        if !refs.is_empty() && refs.iter().map(cube).fold(f64::MAX, f64::min) > AIM_REACH { return true; }
+        let p = match self.exact { Some(p) => p, None => [self.pos[0] as f64 + 0.5, self.pos[1] as f64, self.pos[2] as f64 + 0.5] };
+        let ox = |a: f64, lo: i32| a + 0.3 > lo as f64 && a - 0.3 < lo as f64 + 1.0;
+        if ox(p[0], t[0]) && ox(p[2], t[2]) && p[1] < t[1] as f64 + 1.0 && p[1] + 1.8 > t[1] as f64 { return true; }
+        if self.count(item) < 1 { return true; }
+        self.hand.as_deref() != Some(item)
     }
     /// preconditions.js for `mine` (atomic): in reach of the block's cube from the eye (blind 5.0, else AIM_REACH), and a tool as fast as the best
     /// one in the pack in the hand. The command itself then needs an aim point in sight from where the body stands (`line_of_sight`).
