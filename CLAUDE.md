@@ -8,7 +8,7 @@ when a task touches tokens, scheduling, tracking or git hygiene.
 
 ## Verification standard (owner 2026-11-14, binding, MASTER_GUIDANCE `<verification>` "T26 STANDARD")
 
-Tests run on the T26 Fabric 26.1.2 worlds (docs/implemented/TEST-WORLDS-T26.md): `scripts/t26/suite.sh <test> 3` (three NEW random-seed worlds in parallel, server-graded, the owner's
+Tests run on the test worlds of the current profile (Fabric 1.21.1 since 2026-11-25, `docker/tw/PROFILE`; 26.1.2 frozen; docs/implemented/TEST-WORLDS-T26.md): `scripts/t26/suite.sh <test> 3` (three NEW random-seed worlds in parallel, server-graded, the owner's
 scale: <= 80 % failure, 90 % WIP, 100 % success). The six tests and their required rates are in that doc; `/dev run <test>` starts one from inside the game. The Forge real-world copy below is
 history for now (MOD support is set aside).
 
