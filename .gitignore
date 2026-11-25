@@ -82,3 +82,5 @@ tools/tickrate/build/
 tools/tickrate/.gradle/
 tools/tblog/target/
 aux_console/libs/*.jar
+# golden movement traces of the native physics (TASK-20261125-076) are test data
+!tests/golden_native/*.jsonl
