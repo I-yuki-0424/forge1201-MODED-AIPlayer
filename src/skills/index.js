@@ -1,5 +1,5 @@
 'use strict';
-// The command set: 16 commands over the player's primitive inputs (body.js), each with a closed argument schema and a
+// The command set: 17 commands over the player's primitive inputs (body.js), each with a closed argument schema and a
 // tick budget. execute() validates, runs on the live clock (runner.js) and returns a result with a named reason.
 // Reference: docs/implemented/SKILLS-v1.md.
 const { run, SkillError, REASONS } = require('./runner');
@@ -7,6 +7,7 @@ const { moveTo, lookAt, mine, place, pour, activate, tunnel } = require('./comma
 const { pickup, attack } = require('./commands/entity');
 const { equip, eat, toss } = require('./commands/item');
 const { craft, smelt, deposit, withdraw } = require('./commands/gui');
+const { setContents } = require('./commands/container');
 const { unmet } = require('./preconditions');
 
 // Argument types. A trailing '?' marks an optional argument.
@@ -25,6 +26,11 @@ const TYPES = {
         && ['north', 'south', 'east', 'west', 'up', 'down'].includes(v.support) && Number.isInteger(v.face) && v.face >= 0 && v.face <= 5
         && (v.hy === undefined || (typeof v.hy === 'number' && v.hy >= 0 && v.hy <= 1)) && typeof v.yRot === 'number' && v.yRot >= 0 && v.yRot < 360
         && ['level', 'up', 'down'].includes(v.pitch) && (v.sneak === undefined || typeof v.sneak === 'boolean'),
+    // container contents (set_contents): 1..54 entries {slot 0..53, item, count 1..99}, each slot once
+    contents: (v) => Array.isArray(v) && v.length >= 1 && v.length <= 54 && new Set(v.map((c) => c && c.slot)).size === v.length
+        && v.every((c) => !!c && typeof c === 'object' && Object.keys(c).every((k) => ['slot', 'item', 'count'].includes(k)) && Number.isInteger(c.slot) && c.slot >= 0 && c.slot <= 53
+            && typeof c.item === 'string' && /^([a-z0-9_.-]{1,32}:)?[a-z0-9_/]{1,64}$/.test(c.item) && Number.isInteger(c.count) && c.count >= 1 && c.count <= 99),
+    strength: (v) => Number.isInteger(v) && v >= 0 && v <= 15,
 };
 // A budget that grows with the walk the command may have to do first: a fixed 1200 ticks ended every walk of about 100 blocks or more as `timeout` although the bot was moving the whole
 // time (owner 2026-11-12, `place` {ticks: 1200, phase: walk}). `base` + 14 ticks per block beyond the first 5, at most 6000 (the trace cap). Targets without a cell (entities) keep `base`.
@@ -54,6 +60,8 @@ const COMMANDS = {
     // namespaced ids allowed (`create:limestone`): with the plain `name` type the pit's upkeep could not store any pack that held a mod item, and one such item stopped the whole deposit run (live pit 2026-11-09: the white Ender chest stayed empty)
     deposit: { fn: deposit, args: { item: 'item', count: 'count', ...XYZ }, ticks: 800 },
     withdraw: { fn: withdraw, args: { item: 'item', count: 'count', partial: 'bool?', ...XYZ }, ticks: 800 },       // partial: take what there is when the container holds fewer
+    // container contents (owner Large 3.4): given items in given slots, or the fewest of an item for a comparator strength; exact empties the rest (commands/container.js)
+    set_contents: { fn: setContents, args: { ...XYZ, contents: 'contents?', signal: 'strength?', item: 'item?', exact: 'bool?' }, oneOf: [['contents'], ['signal', 'item']], ticks: walkTicks(600) },
 };
 
 /** Throws SkillError('invalid_args') unless `args` matches the command's schema exactly. */

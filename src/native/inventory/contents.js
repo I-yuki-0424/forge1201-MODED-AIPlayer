@@ -125,4 +125,34 @@ function compare(menu, goal, { exact = false } = {}) {
     return out;
 }
 
-module.exports = { fromBlockEntity, signalOf, contentsForSignal, planClicks, compare };
+// containers whose block entity `Items` the build sets (the screens set_contents can fill)
+const CONTAINER = /^(chest|trapped_chest|barrel|hopper|dropper|dispenser|(?:[a-z]+_)?shulker_box)$/;
+
+/**
+ * THE BUILD JOB'S HOOK (TASK-20261125-076 for 075/081): the containers of a blueprint (src/work/jobs/blueprint.js form: { palette, blocks: [{x, y, z, s, nbt?}] })
+ * whose block entity holds items, as set_contents goals in world cells (`origin` = the world cell of the blueprint's 0,0,0). After the build has placed
+ * such a block (and before the cells that cover its face close in), it runs `{name: 'set_contents', args}` through the router (env.command); the items
+ * come from the build's supply like its blocks: add `containerMaterials(bp)` to the material list.
+ */
+function blueprintContainers(bp, origin = { x: 0, y: 0, z: 0 }) {
+    const out = [];
+    for (const b of bp.blocks || []) {
+        if (!b.nbt) continue;
+        const p = bp.palette[b.s], name = bare(p && p.name);
+        if (!CONTAINER.test(name)) continue;
+        const contents = fromBlockEntity(b.nbt).filter((c) => !c.comp);           // a stack with components (a named item, a filled shulker box) is not made by a bot: left out
+        if (!contents.length) continue;
+        const x = origin.x + b.x, y = origin.y + b.y, z = origin.z + b.z;
+        out.push({ x, y, z, block: name, args: { x, y, z, contents: contents.map(({ slot, item, count }) => ({ slot, item, count })), exact: true } });
+    }
+    return out;
+}
+
+/** The items the containers of a blueprint hold, per item: [{item, n}] (to add to the build's material list). */
+function containerMaterials(bp) {
+    const m = new Map();
+    for (const g of blueprintContainers(bp)) for (const c of g.args.contents) m.set(c.item, (m.get(c.item) || 0) + c.count);
+    return [...m].map(([item, n]) => ({ item, n })).sort((a, b) => b.n - a.n);
+}
+
+module.exports = { fromBlockEntity, signalOf, contentsForSignal, planClicks, compare, blueprintContainers, containerMaterials, CONTAINER };

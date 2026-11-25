@@ -150,7 +150,7 @@ const goalCell = (t) => ({ isGoal: (c) => c.x === t.x && c.y === t.y && c.z === 
     });
 
     await test('argument schemas are closed', () => {
-        assert.strictEqual(Object.keys(COMMANDS).length, 16);
+        assert.strictEqual(Object.keys(COMMANDS).length, 17);
         validateArgs('tunnel', { dir: 'north', dy: -1 });
         validateArgs('move_to', { x: 1, y: -60, z: 3 });
         validateArgs('look_at', { entity: 7 });

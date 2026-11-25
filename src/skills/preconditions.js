@@ -4,7 +4,7 @@
 //   { need: 'chunk_loaded', cell }                      the block is not in a loaded chunk
 //   { need: 'in_reach', dist, max }                     the target is farther than the bot can reach from where it stands
 //   { need: 'tool_held', item } | { need: 'item_held', item }   the right tool / the item to place or use is not in the hand
-//   { need: 'item_in_pack', item, count }               the item to place or use is not in the pack at all
+//   { need: 'item_in_pack', item, count }               fewer than `count` of the item are in the pack (place / activate: none at all; set_contents: the goal's total)
 // (`line_of_sight` comes from the command itself, which holds the aim geometry.) Nothing here walks, equips or names a remedy: the router does, from the whole state.
 // Conditions the command already reports on its own (air, a fixture, no tool in the pack at all, no solid neighbour) stay with the command: they are not precondition failures.
 const { EYE, ENTITY_REACH, distToBox, entityBox } = require('./geometry');
@@ -61,6 +61,15 @@ function unmet(bot, name, args) {
             if (!w.blockAt(cell.x, cell.y, cell.z)) return [{ need: 'chunk_loaded', cell }];
             push(reach(eye, cell, AIM_REACH));
             if (args.item) { const n = resolveItemName(bot, args.item); if (count(bot, n) < 1) out.push({ need: 'item_in_pack', item: n, count: 1 }); else if (!held(bot, n)) out.push({ need: 'item_held', item: n }); }
+            return out;
+        }
+        case 'set_contents': {
+            // in reach of the container and every item of the goal in the pack (the full goal: what the container already holds is not known before it is opened)
+            const cell = { x: args.x, y: args.y, z: args.z }, b = w.blockAt(cell.x, cell.y, cell.z);
+            const { needOf, sizeOf } = require('./commands/container');
+            for (const nd of needOf(bot, args, sizeOf(b))) if (count(bot, nd.item) < nd.count) out.push({ need: 'item_in_pack', item: nd.item, count: nd.count });
+            if (!b) return [...out, { need: 'chunk_loaded', cell }];
+            push(reach(eye, cell, AIM_REACH));
             return out;
         }
         case 'attack': {

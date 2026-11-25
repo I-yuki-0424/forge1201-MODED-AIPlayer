@@ -13,7 +13,7 @@ const { reachGoal, AIM_REACH, centre, hdist } = require('../skills/motion');
 const { ENTITY_REACH } = require('../skills/geometry');
 const { supports } = require('../skills/commands/block');
 
-const ROUTED = new Set(['mine', 'place', 'activate', 'attack', 'pickup', 'tunnel']);
+const ROUTED = new Set(['mine', 'place', 'activate', 'attack', 'pickup', 'tunnel', 'set_contents']);
 const MAX_STEPS = 8;              // instruction attempts, at most
 const FAR = 28;                   // across: farther than this the target is walked to in legs (env.travel: router, legs, movement expert), not planned in one go
 const CLOSED = 300;               // fewer reachable cells than this around the bot (planner reach, radius 32): a pocket or a shaft, not open ground
@@ -21,7 +21,8 @@ const FATAL = new Set(['died', 'disconnected', 'cancelled']);
 
 /** The cell (block) or entity position the instruction works on, or null (tunnel: the bot's own cell). */
 function targetOf(deps, name, args) {
-    if (['mine', 'place', 'activate'].includes(name)) return { kind: 'block', x: args.x, y: args.y, z: args.z, name };
+    // set_contents works on its container like `activate` (in reach and in view of the block); its items come first through `obtain` (item_in_pack)
+    if (['mine', 'place', 'activate', 'set_contents'].includes(name)) return { kind: 'block', x: args.x, y: args.y, z: args.z, name };
     if (name === 'attack' || name === 'pickup') {
         const bot = deps.bot;
         let e = args.entity !== undefined ? bot.entities[args.entity] : null;

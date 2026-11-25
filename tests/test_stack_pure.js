@@ -343,8 +343,8 @@ function fakeBot(scene, pos, { pack = [], held = null, entities = {} } = {}) {
         assert.deepStrictEqual(seen[0], ['east', 1], JSON.stringify(seen)); assert.ok(seen.every((q) => q[0] === 'east' || q[0] === 'north'), JSON.stringify(seen));
     });
 
-    await test('the routed set is exactly the six instructions the router has rules for', () => {
-        assert.deepStrictEqual([...router.ROUTED].sort(), ['activate', 'attack', 'mine', 'pickup', 'place', 'tunnel']);
+    await test('the routed set is exactly the seven instructions the router has rules for (set_contents: TASK-20261125-076)', () => {
+        assert.deepStrictEqual([...router.ROUTED].sort(), ['activate', 'attack', 'mine', 'pickup', 'place', 'set_contents', 'tunnel']);
     });
 
     console.log('stack: all tests passed');

@@ -21,9 +21,10 @@ const DOC = {
     smelt: ['Items', 'Smelt in a furnace (x y z) with fuel from the inventory.'],
     deposit: ['Items', 'Walk to a chest and put items into it.'],
     withdraw: ['Items', 'Walk to a chest and take items out.'],
+    set_contents: ['Items', 'Make a container (chest, barrel, hopper, dropper, shulker box) hold given items in given slots, from the pack (a sorter\'s filter hopper), or the fewest of an item that make a comparator read a strength 0-15; exact empties every other slot.'],
 };
 const HIDDEN = new Set(['recipe', 'block', 'partial']);      // work-layer arguments of `place` (a placement recipe, the block an item makes): not for a form
-const HINT = { waterlog: 'water the block itself', x: 'x', y: 'y (feet level)', z: 'z', entity: 'nearby entity', item: 'item', count: 'count', dest: 'where', dir: 'direction', dy: 'slope', fluid: 'fill water or lava', sneak: 'sneak', collect: 'pick up the drop (default yes)', blind: 'dig without line of sight' };
+const HINT = { contents: 'slots: [{slot, item, count}]', signal: 'comparator strength 0-15', exact: 'empty the other slots', waterlog: 'water the block itself', x: 'x', y: 'y (feet level)', z: 'z', entity: 'nearby entity', item: 'item', count: 'count', dest: 'where', dir: 'direction', dy: 'slope', fluid: 'fill water or lava', sneak: 'sneak', collect: 'pick up the drop (default yes)', blind: 'dig without line of sight' };
 
 const META = [
     { name: 'gather', group: 'Blocks', meta: true, doc: 'Collect a number of an item: finds the blocks that give it in the chunks the bot has loaded, walks to the nearest and digs everything within reach before it walks on.', args: [{ name: 'target', type: 'item', hint: 'block or item (iron_ore, raw_iron, oak_log, cobblestone, sand ...)' }, { name: 'count', type: 'count', optional: true, hint: 'how many (default 16)' }, { name: 'radius', type: 'int', optional: true, hint: 'search radius in blocks (default 32, at most 64)' }] },
