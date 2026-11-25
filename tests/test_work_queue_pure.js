@@ -119,9 +119,10 @@ const keepAlive = setInterval(() => {}, 1000);          // the line's own timers
             Object.assign(b, { username: name, isSleeping: false, entity: { position: { x: 0.5, y: 1, z: 0.5 } },
                 blockAt: (p) => { if (typeof p.floored !== 'function') throw new TypeError('pos.floored is not a function'); const x = Math.floor(p.x), y = Math.floor(p.y), z = Math.floor(p.z); return (x === 10 && y === 1 && z === 10) || (x === 11 && y === 1 && z === 10) ? { name: 'red_bed', position: { x, y, z } } : { name: 'air', position: { x, y, z } }; },
                 findBlock: () => ({ name: 'red_bed', position: { ...BEDPOS } }), lookAt: async (p) => { if (typeof p.minus !== 'function') throw new TypeError('point.minus is not a function'); }, wake: async () => { b.isSleeping = false; rec.push(`${name}:wake`); },
-                // the touch is the body's use button (src/skills/inputs.js): a block_place on the bed
                 getControlState: () => false, setControlState: () => {}, swingArm: () => {},
-                _client: { write: (n, d) => { if (n !== 'block_place' || d.location.x !== BEDPOS.x || d.location.z !== BEDPOS.z) return; (async () => { at.active++; at.max = Math.max(at.max, at.active); rec.push(`${name}:touch`); await sleep(20); b.spawn = { ...BEDPOS }; b.isSleeping = true; b.emit('sleep'); at.active--; })(); } } });
+                _client: { write: (n, d) => { if (n === 'block_place' && d.location.x === BEDPOS.x && d.location.z === BEDPOS.z) touch(); } },
+                activateBlock: async () => touch() });                                       // mineflayer's helper (the default) and the body's block_place (NATIVE_INPUTS=1)
+            const touch = async () => { at.active++; at.max = Math.max(at.max, at.active); rec.push(`${name}:touch`); await sleep(20); b.spawn = { ...BEDPOS }; b.isSleeping = true; b.emit('sleep'); at.active--; };
             return b;
         };
         const solid = (x, y, z) => y <= 0, w = { kindAt: (x, y, z) => (solid(x, y, z) ? 'solid' : 'air') };

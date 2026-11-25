@@ -1,12 +1,14 @@
 'use strict';
 // The bot's own physics, inventory and dig time under a mineflayer bot (TASK-20261125-076, docs/implemented/NATIVE-v1.md). The transport calls `wire(bot)` right
-// after creating a bot (src/transport/index.js). Each part is on by default and switched back to mineflayer's by its setting, for comparison runs:
-//   NATIVE_PHYSICS=0     mineflayer's physics (prismarine-physics)        NATIVE_INVENTORY=0   mineflayer's window clicks       NATIVE_DIG=0   prismarine-block's dig time
+// after creating a bot (src/transport/index.js). Each part is OFF until the live comparison has been accepted (orchestrator, 2026-11-26: other tasks are
+// measuring and must not get a second changed variable); a setting switches it on:
+//   NATIVE_PHYSICS=1     native physics        NATIVE_INVENTORY=1   native window clicks       NATIVE_DIG=1   native dig time
+// (NATIVE_INPUTS=1: force.js / reflex.js / bed.js use the body's inputs instead of mineflayer's dig / placeBlock / activateBlock, src/skills/inputs.js)
 // (or `wire(bot, { physics: false, ... })`). mineflayer stays the protocol client, chunk and entity store; see the dependence list in the doc.
 const physics = require('./physics');
 const dig = require('./dig');
 
-const on = (env, opt) => (opt !== undefined ? !!opt : process.env[env] !== '0');
+const on = (env, opt) => (opt !== undefined ? !!opt : process.env[env] === '1');
 
 /** Physics: native simulatePlayer under mineflayer's loop (before the fall guard wraps it), and the server told when the sprint the physics allows changes. */
 function wirePhysics(bot) {

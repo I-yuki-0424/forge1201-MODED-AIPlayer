@@ -6,7 +6,7 @@ const { platform, gameVersion } = require('./platform');
 
 const impl = () => (platform() === 'fabric' ? require('./fabric_bot') : require('./forge_bot'));
 
-// Every bot gets the repository's own physics, inventory clicks and dig time (src/native, TASK-20261125-076); NATIVE_PHYSICS / NATIVE_INVENTORY / NATIVE_DIG=0 switch one back to mineflayer's.
+// The repository's own physics, inventory clicks and dig time (src/native, TASK-20261125-076), each opt-in until accepted: NATIVE_PHYSICS / NATIVE_INVENTORY / NATIVE_DIG=1.
 const createBot = (o) => {
     const bot = platform() === 'fabric' ? require('./fabric_bot').createBot(o) : require('./forge_bot').createForgeBot(o);
     require('../native').wire(bot, o && o.native ? o.native : {});

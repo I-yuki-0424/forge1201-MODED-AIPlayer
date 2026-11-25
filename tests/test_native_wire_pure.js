@@ -95,16 +95,16 @@ console.log('native wiring');
     });
 
     // ---- wire() ------------------------------------------------------------------------------------------------------------------
-    await test('wire: native physics, dig time and inventory switched in at login; NATIVE_*=0 keeps mineflayer\'s; a sprint the physics refuses is told to the server', async () => {
+    await test('wire: off by default (mineflayer\'s physics, clicks, dig time); NATIVE_*=1 switch each in at login; a sprint the physics refuses is told to the server', async () => {
         const PP = require('prismarine-physics');
         const mk = () => { const f = fakeBot(); const ctl = {}; Object.assign(f.bot, { physics: { simulatePlayer: () => null }, getControlState: (k) => !!ctl[k], setControlState: (k, v) => { ctl[k] = v; f.client.write('entity_action', { actionId: v ? 'start_sprinting' : 'stop_sprinting' }); }, entity: { id: 7 }, digTime: () => 'mineflayer', game: { gameMode: 'survival' } }); return f; };
-        const a = mk(); native.wire(a.bot); a.bot.emit('login'); await sleep(5);
-        assert.deepStrictEqual(a.bot.__native.done, { physics: true, inventory: true, dig: true });
-        assert.notStrictEqual(a.bot.digTime(Block.fromStateId(reg.blocksByName.stone.defaultState, 0)), 'mineflayer');
-        process.env.NATIVE_PHYSICS = '0'; process.env.NATIVE_INVENTORY = '0'; process.env.NATIVE_DIG = '0';
         const b = mk(); native.wire(b.bot); b.bot.emit('login'); await sleep(5);
         assert.deepStrictEqual(b.bot.__native.done, { physics: false, inventory: false, dig: false }); assert.strictEqual(b.bot.digTime(), 'mineflayer');
+        process.env.NATIVE_PHYSICS = '1'; process.env.NATIVE_INVENTORY = '1'; process.env.NATIVE_DIG = '1';
+        const a = mk(); native.wire(a.bot); a.bot.emit('login'); await sleep(5);
         delete process.env.NATIVE_PHYSICS; delete process.env.NATIVE_INVENTORY; delete process.env.NATIVE_DIG;
+        assert.deepStrictEqual(a.bot.__native.done, { physics: true, inventory: true, dig: true });
+        assert.notStrictEqual(a.bot.digTime(Block.fromStateId(reg.blocksByName.stone.defaultState, 0)), 'mineflayer');
         // a hungry bot (food 6): the key says sprint, the physics does not sprint -> stop_sprinting goes out
         const w = require('./native_world').world('1.21.1').floor(0);
         a.bot.setControlState('sprint', true); a.bot.setControlState('forward', true); a.sent.length = 0;
