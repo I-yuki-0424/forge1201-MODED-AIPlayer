@@ -1,0 +1,62 @@
+# Test worlds (docs/implemented/TEST-WORLDS-T26.md): one server per number N, each a NEW random seed on `scripts/t26/up.sh N --new`. Version-agnostic: the game version, the image,
+# the names and the port come from the profile (docker/tw/<profile>.json, chosen by docker/tw/PROFILE or TW_PROFILE; scripts/t26/profile.sh exports them). Normal difficulty, no keepInventory.
+# Mods: the profile's list (sha512), synced to /mnt/data/forgeaip-play/tw/<tag>/mods by scripts/t26/mods.sh, mounted read-only.
+# Port: 100.77.246.23:(portBase+N) on the tailnet for the owner's client only (rootless docker cannot bind loopback and the tailnet address on one port); the harness joins the compose network.
+# RCON stays inside the compose network (never published).
+name: ${TW_PROJECT:?use scripts/t26/up.sh N}
+
+services:
+  mc:
+    image: ${TW_IMAGE:?}
+    container_name: ${TW_SERVER:?}
+    restart: "no"
+    stop_grace_period: 60s
+    mem_limit: ${MEM_LIMIT:-4g}          # several crews on one world (scripts/t26/multi.sh): more
+    cpus: ${CPUS:-2}
+    environment:
+      EULA: "TRUE"
+      TYPE: FABRIC
+      VERSION: ${TW_MC:?}
+      MEMORY: ${HEAP:-3000M}
+      USE_AIKAR_FLAGS: "true"
+      LEVEL_TYPE: minecraft:normal
+      SEED: ${SEED:-}
+      MODE: survival
+      DIFFICULTY: normal
+      # no OPS: the image would resolve the name at Mojang; up.sh writes ops.json (the owner, offline-mode UUID) before the first start
+      OP_PERMISSION_LEVEL: "4"
+      SPAWN_PROTECTION: "0"
+      VIEW_DISTANCE: "10"
+      SIMULATION_DISTANCE: "8"
+      MAX_PLAYERS: "30"
+      ONLINE_MODE: "false"
+      ENFORCE_SECURE_PROFILE: "false"
+      ALLOW_FLIGHT: "true"
+      MAX_TICK_TIME: "-1"
+      PAUSE_WHEN_EMPTY_SECONDS: "0"          # versions that pause an empty server (26.x): a test would start on a frozen world; ignored where the property does not exist
+      NETWORK_COMPRESSION_THRESHOLD: "256"
+      ENABLE_RCON: "true"
+      RCON_PASSWORD: ${RCON_PASSWORD:?run up.sh}
+      MOTD: "forgeaip test world ${TW_N} (${TW_PROFILE}, random seed)"
+      REMOVE_OLD_MODS: "true"                # /mods is the only source: a jar left from another profile must not load
+      SKIP_SERVER_PROPERTIES: "false"
+    healthcheck:
+      test: ["CMD", "mc-health"]
+      interval: 10s
+      timeout: 5s
+      retries: 90
+      start_period: 300s
+    volumes:
+      - data:/data
+      - ${TW_MODS:?}:/mods:ro
+      - ${TW_REPO:?}/docker/tw/dev.sc:/dev-app/dev.sc:ro       # the in-game /dev command (scarpet, carpet mod); up.sh copies it into world/scripts (a mount there makes world/ root-owned)
+    ports:
+      - "100.77.246.23:${TW_PORT:?}:25565"
+    networks: [net]
+
+networks:
+  net:
+    name: ${TW_NET:?}
+volumes:
+  data:
+    name: ${TW_VOL:?}

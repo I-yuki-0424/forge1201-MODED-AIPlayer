@@ -8,7 +8,8 @@ const { platform, gameVersion } = require('../src/transport/platform');
 set({}); assert.strictEqual(platform(), 'forge'); assert.strictEqual(gameVersion(), '1.20.1');
 set({ MC_VERSION: '26.1' }); assert.strictEqual(platform(), 'fabric'); assert.strictEqual(gameVersion(), '26.1');
 set({ MC_FORGE: '0' }); assert.strictEqual(platform(), 'fabric');
-set({ MC_PLATFORM: 'fabric' }); assert.strictEqual(platform(), 'fabric'); assert.strictEqual(gameVersion(), '26.1');
+set({ MC_PLATFORM: 'fabric' }); assert.strictEqual(platform(), 'fabric'); assert.strictEqual(gameVersion(), false, 'no version assumed: mineflayer asks the server');
+set({ MC_PLATFORM: 'fabric', MC_VERSION: '1.21.1' }); assert.strictEqual(gameVersion(), '1.21.1');
 set({ MC_PLATFORM: 'fabric', MC_VERSION: '1.20.1' }); assert.strictEqual(gameVersion(), '1.20.1');
 set({ MC_PLATFORM: 'forge', MC_VERSION: '26.1' }); assert.strictEqual(platform(), 'forge'); assert.strictEqual(gameVersion(), '1.20.1');
 set({ MC_PLATFORM: 'bedrock' }); assert.throws(() => platform(), /MC_PLATFORM/);
@@ -24,5 +25,12 @@ assert.strictEqual(nbt.protos.big.read, before, 'loading the Fabric transport mu
 const t = require('../src/transport');
 assert.strictEqual(t.impl(), require('../src/transport/fabric_bot'));
 set({ MC_PLATFORM: 'forge' }); assert.strictEqual(t.impl(), require('../src/transport/forge_bot'));
+// The enchantment shapes of the item-component versions (1.21.1 and 26.1 both) come out as mineflayer's list.
+const { normEnchants } = require('../src/transport/fabric_bot');
+const reg = { enchantments: { 7: { name: 'efficiency' } } };
+assert.deepStrictEqual(normEnchants({ enchantments: [{ id: 7, level: 5 }] }, reg), [{ name: 'efficiency', lvl: 5 }]);
+assert.deepStrictEqual(normEnchants({ levels: { 'minecraft:efficiency': 3 } }, reg), [{ name: 'efficiency', lvl: 3 }]);
+assert.deepStrictEqual(normEnchants([{ name: 'efficiency', lvl: 2 }], reg), [{ name: 'efficiency', lvl: 2 }]);
+assert.deepStrictEqual(normEnchants(undefined, reg), []);
 Object.assign(process.env, keep);
 console.log('transport platform: ok');

@@ -1,6 +1,12 @@
 {
+ "name": "fabric-26.1.2",
  "minecraft": "26.1.2",
  "loader": "fabric",
+ "bot": "26.1",
+ "image": "itzg/minecraft-server@sha256:7d4a888284c2f8d468f620f2534de648cb8eacba48df8d4d20b6ad1ef201f3a3",
+ "tag": "t26",
+ "portBase": 25590,
+ "note": "FROZEN 2026-11-25 (TASK-20261125-074): the T26 worlds of TEST-WORLDS-T26.md; ViaFabric + ViaVersion let the owner's 26.3 client join. A frozen world starts again with TW_PROFILE=fabric-26.1.2 scripts/t26/up.sh N (volume forgeaip-t26-N_data).",
  "mods": [
   {
    "project": "fabric-api",

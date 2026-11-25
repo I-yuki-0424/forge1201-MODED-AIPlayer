@@ -1,5 +1,5 @@
 'use strict';
-// The /dev command's other half (docs/implemented/TEST-WORLDS-T26.md): watches world/scripts/dev.data/requests.txt of ONE T26 world (written by docker/t26/dev.sc) and runs the test asked for
+// The /dev command's other half (docs/implemented/TEST-WORLDS-T26.md): watches world/scripts/dev.data/requests.txt of ONE T26 world (written by docker/tw/dev.sc) and runs the test asked for
 // as a child process, telling the players in chat what starts, which bots to follow, every PASS/FAIL line and the verdict. One test at a time per world. Runs in container forgeaip-t26-dev-N.
 const fs = require('fs');
 const { spawn } = require('child_process');

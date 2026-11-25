@@ -8,6 +8,7 @@ const L = require('../real/lib');
 const sleep = L.sleep;
 const strip = (s) => String(s).replace(/\x1b\[[0-9;]*m/g, '').replace(/§./g, '');
 let CURRENT_DIFFICULTY = null;
+const PROFILE = process.env.TW_PROFILE || null;            // the test-world profile (docker/tw/<name>.json): the game version every result is stated with
 const WORLD = Number(process.env.T26_WORLD || 0), RUN = process.env.RUN || `r${Date.now().toString(36)}`, CONTROL = process.env.CONTROL || '';
 
 /** Tools: plain diamond (the owner's "full set of tools"); BEST=1 netherite, efficiency 255, unbreakable (strip-mining: "give the best possible tools"). */
@@ -17,8 +18,11 @@ function toolItems(best) {
     return ['pickaxe', 'axe', 'shovel', 'sword', 'hoe'].map((k) => `minecraft:${m}_${k}${ench} 1`).concat([`minecraft:shears${best ? '[unbreakable={}]' : ''} 1`]);
 }
 
-/** Give the kit: the pack is emptied first, then tools, `blocks` cobblestone (temporary blocks), food. */
-async function kit(S, name, { blocks = 64, block = 'cobblestone', best = false, food = 32 } = {}) {
+/** The temporary block of the test worlds (owner Small 4, 2026-11-25: every temporary block is a pumpkin, so a leftover is seen at once). run.sh sets TEMP_BLOCK; the bots' choice reads the same variable. */
+const TEMP_BLOCK = (process.env.TEMP_BLOCK || 'pumpkin').split(',')[0].trim().replace(/^minecraft:/, '');
+
+/** Give the kit: the pack is emptied first, then tools, `blocks` temporary blocks (TEMP_BLOCK: pumpkins), food. */
+async function kit(S, name, { blocks = 64, block = TEMP_BLOCK, best = false, food = 32 } = {}) {
     await S.cmd(`clear ${name}`);
     for (const it of toolItems(best)) await S.must(`give ${name} ${it}`);
     for (let n = blocks; n > 0; n -= 64) await S.must(`give ${name} minecraft:${block} ${Math.min(64, n)}`);
@@ -85,7 +89,7 @@ async function command(svc, name, cmd, args, limitMin) {
 
 /** The test's report: trials [{bot, ok, detail}], written to /out/<RUN>/<test>-w<WORLD>.json; the suite (suite.js) adds the worlds up. */
 function reporter(test) {
-    const trials = [], t0 = Date.now(), meta = { test, world: WORLD, run: RUN, control: CONTROL || null };
+    const trials = [], t0 = Date.now(), meta = { test, world: WORLD, run: RUN, control: CONTROL || null, profile: PROFILE, version: process.env.MC_VERSION || null };
     return {
         meta,
         trial(bot, ok, detail) { trials.push({ bot, ok: !!ok, detail }); console.log(`[${test} w${WORLD}] ${ok ? 'PASS' : 'FAIL'} ${bot} ${JSON.stringify(detail).slice(0, 700)}`); },
@@ -99,6 +103,28 @@ function reporter(test) {
     };
 }
 
+/**
+ * Game rule names differ between versions: snake_case on 26.x (keep_inventory), camelCase up to 1.21.x (keepInventory). Every `gamerule` command of the harness goes through here:
+ * one the server rejects is sent once more in the other spelling, and the spelling that worked is used from then on. Test code may write either.
+ */
+function ruleSpellings(shared) {
+    if (shared.__rules) return; shared.__rules = new Map();
+    const send = shared.command.bind(shared);
+    const other = (n) => (n.includes('_') ? n.replace(/_([a-z])/g, (_, c) => c.toUpperCase()) : n.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`));
+    const rejected = (o) => /^(Unknown|Incorrect|Expected)|<--\[HERE\]/i.test(strip(o).trim());
+    shared.command = async (c) => {
+        const m = /^gamerule ([A-Za-z_]+)(.*)$/s.exec(c);
+        if (!m) return send(c);
+        const known = shared.__rules.get(m[1]);
+        if (known) return send(`gamerule ${known}${m[2]}`);
+        const out = await send(c);
+        if (!rejected(out)) { shared.__rules.set(m[1], m[1]); return out; }
+        const out2 = await send(`gamerule ${other(m[1])}${m[2]}`);
+        if (!rejected(out2)) shared.__rules.set(m[1], other(m[1]));
+        return rejected(out2) ? out : out2;
+    };
+}
+
 /** Say something in the game (the owner watching sees what the test does). */
 async function say(S, text) { try { await S.cmd(`tellraw @a ${JSON.stringify({ text: `[test] ${text}`, color: 'aqua' })}`); } catch (_) { /* chat is a courtesy */ } }
 
@@ -108,14 +134,15 @@ async function say(S, text) { try { await S.cmd(`tellraw @a ${JSON.stringify({ t
  */
 async function open(names, settings = {}, difficulty = 'peaceful') {
     const { shared, S } = await L.connectRcon();
+    ruleSpellings(shared);
     const seed = strip(await S.cmd('seed'));
     const diff = process.env.DIFFICULTY || difficulty;
     if (!['peaceful', 'easy', 'normal', 'hard'].includes(diff)) throw new Error(`bad difficulty ${diff}`);
     await S.cmd('gamerule keep_inventory false'); await S.cmd(`difficulty ${diff}`);
-    for (const g of ['send_command_feedback', 'log_admin_commands']) await S.cmd(`gamerule ${g} false`).catch(() => {});      // 26.1 names (the 1.20.1 camelCase ones are rejected there): no "[Rcon: ...]" echo of the display's and the harness's commands
-    CURRENT_DIFFICULTY = diff; console.log(`[t26] difficulty ${diff}`);
-    const svc = await L.openService(shared, names, { teleport: 'off', ...settings });
+    for (const g of ['send_command_feedback', 'log_admin_commands']) await S.cmd(`gamerule ${g} false`).catch(() => {});      // no "[Rcon: ...]" echo of the display's and the harness's commands
+    CURRENT_DIFFICULTY = diff; console.log(`[t26] difficulty ${diff}, profile ${PROFILE}, temporary block ${TEMP_BLOCK}`);
+    const svc = await L.openService(shared, names, { teleport: 'off', tempBlock: TEMP_BLOCK, ...settings });
     return { shared, S, svc, seed, difficulty: diff };
 }
 
-module.exports = { ...L, sleep, strip, WORLD, RUN, CONTROL, kit, holds, seesSky, onSurface, countDeaths, countMoves, command, reporter, say, open, toolItems };
+module.exports = { ...L, sleep, strip, WORLD, RUN, CONTROL, PROFILE, TEMP_BLOCK, ruleSpellings, kit, holds, seesSky, onSurface, countDeaths, countMoves, command, reporter, say, open, toolItems };

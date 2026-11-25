@@ -2,8 +2,8 @@
 // Transport for a Fabric server (the vanilla protocol): createBot and nothing else. No FML3 host marker, no handshake, no packet or NBT
 // bypasses (those are Forge's, src/transport/forge_bot.js), no mod registry: a Fabric server's blocks and items are the vanilla ones, and
 // the mods it runs are server-side (Syncmatica, Servux) or talk over their own plugin channels (src/transport/syncmatica.js).
-// Differences of newer versions that the bots absorb here, so nothing above this file knows the version:
-//   26.1  item components: `item.enchants` is {enchantments: [{id, level}]}, not [{name, lvl}] (fixDigTime).
+// Differences between versions that the bots absorb here, so nothing above this file knows the version (each keyed on the data, never on a version number):
+//   item components (1.20.5 and later: 1.21.1, 26.1): `item.enchants` is {enchantments: [{id, level}]} or {levels: {name: level}}, not [{name, lvl}] (fixDigTime).
 const mineflayer = require('mineflayer');
 const { gameVersion } = require('./platform');
 
@@ -24,12 +24,20 @@ function createBot({ host = 'localhost', port = 25565, username, viewDistance, c
 }
 
 /**
- * 26.1 (prismarine-item with item components): `item.enchants` is the raw component {enchantments: [{id, level}]}, not the list [{name, lvl}] that prismarine-block's digTime
- * iterates, so every dig with an enchanted tool threw "enchantments is not iterable" (T26 Mine B, 2026-11-14: each unit of the pit failed `internal`). The same computation as
- * mineflayer's digTime with the list normalised.
+ * Item components (prismarine-item on 1.20.5 and later): `item.enchants` is the raw component, not the list [{name, lvl}] that prismarine-block's digTime iterates, so every dig
+ * with an enchanted tool threw "enchantments is not iterable" (T26 Mine B on 26.1, 2026-11-14: each unit of the pit failed `internal`). The same computation as mineflayer's
+ * digTime with the list normalised from whichever shape the connected version sends.
  */
+function normEnchants(e, registry) {
+    if (Array.isArray(e)) return e;
+    if (!e || typeof e !== 'object') return [];
+    const name = (id) => (typeof id === 'string' ? id.replace(/^minecraft:/, '') : ((registry && registry.enchantments && registry.enchantments[id]) || {}).name || null);
+    if (Array.isArray(e.enchantments)) return e.enchantments.map((x) => ({ name: name(x.id), lvl: x.level }));
+    if (e.levels && typeof e.levels === 'object') return Object.entries(e.levels).map(([k, v]) => ({ name: name(k), lvl: v }));
+    return [];
+}
 function fixDigTime(bot) {
-    const norm = (e) => (Array.isArray(e) ? e : e && Array.isArray(e.enchantments) ? e.enchantments.map((x) => ({ name: (bot.registry.enchantments[x.id] || {}).name || null, lvl: x.level })) : []);
+    const norm = (e) => normEnchants(e, bot.registry);
     bot.digTime = function digTime(block) {
         const held = bot.heldItem, head = bot.inventory.slots[bot.getEquipmentDestSlot('head')];
         const ench = [...(held ? norm(held.enchants) : []), ...(head ? norm(head.enchants) : [])];
@@ -44,8 +52,8 @@ function fixDigTime(bot) {
  * the server's handshake starts when the bot joins. On a server without the mod it does nothing. SYNCMATICA=0 leaves it off.
  */
 function attach(bot) {
-    bot.once('login', () => bot.emit('mod_registry', { mode: 'vanilla', content: false, version: gameVersion() }));
+    bot.once('login', () => bot.emit('mod_registry', { mode: 'vanilla', content: false, version: bot.version || gameVersion() }));
     if (process.env.SYNCMATICA !== '0' && !bot.syncmatica) bot.syncmatica = require('./syncmatica').attach(bot);
 }
 
-module.exports = { createBot, attach, fixDigTime };
+module.exports = { createBot, attach, fixDigTime, normEnchants };

@@ -1,0 +1,116 @@
+{
+ "name": "fabric-1.21.1",
+ "minecraft": "1.21.1",
+ "loader": "fabric",
+ "bot": "1.21.1",
+ "image": "itzg/minecraft-server@sha256:96d1da46d7b59bce34e86d527fdcfdc92a9636e83fbf94a3bb279de6ae07c17c",
+ "tag": "w121",
+ "portBase": 25620,
+ "note": "The test worlds since 2026-11-25 (TASK-20261125-074, owner: move to Fabric 1.21.1). simple-autopickup puts a broken block's drops into the breaker's pack (owner Small 5).",
+ "mods": [
+  {
+   "project": "fabric-api",
+   "version": "0.116.18+1.21.1",
+   "type": "release",
+   "file": "fabric-api-0.116.18+1.21.1.jar",
+   "sha512": "9f721c253ae2e9823cb548e8ec132c9928f80a65184e9b8dcfc489a8d632df20cbfea1e65ff8a4333bdb295c41fbe2228b43e4d41c7355d42ed4637a785840a1",
+   "url": "https://cdn.modrinth.com/data/P7dR8mSH/versions/5SwzqWUu/fabric-api-0.116.18%2B1.21.1.jar"
+  },
+  {
+   "project": "carpet",
+   "version": "1.4.147",
+   "type": "release",
+   "file": "fabric-carpet-1.21-1.4.147+v240613.jar",
+   "sha512": "e6f33d13406796a34e7598d997113f25f7bea3e55f9d334b73842adda52b2c5d0a86b7b12ac812d7e758861e3f468bf201c6c710c40162bb79d6818938204151",
+   "url": "https://cdn.modrinth.com/data/TQTTVgYE/versions/f2mvlGrg/fabric-carpet-1.21-1.4.147%2Bv240613.jar"
+  },
+  {
+   "project": "lithium",
+   "version": "mc1.21.1-0.15.4-fabric",
+   "type": "release",
+   "file": "lithium-fabric-0.15.4+mc1.21.1.jar",
+   "sha512": "182064b00e6315e2255b857eaab8eb759e6b042ebd4cc8b855ff0d93f875a5a7188fac49f878d7b29d4ef7e6b6341190ad7f6f6f39f4a6d2c62003468b08e4c6",
+   "url": "https://cdn.modrinth.com/data/gvQqBUqZ/versions/N08Z8wog/lithium-fabric-0.15.4%2Bmc1.21.1.jar"
+  },
+  {
+   "project": "ferrite-core",
+   "version": "7.0.3-fabric",
+   "type": "release",
+   "file": "ferritecore-7.0.3-fabric.jar",
+   "sha512": "3ad31620fac4ff44327dc7dedbe162b2d978f3f246dc16255a6e400ce9592a0d326fe36a626f3c1bf30a11f813093cbb4dcc107af039cff724d0cdf648541fdf",
+   "url": "https://cdn.modrinth.com/data/uXXizFIs/versions/sOzRw3CG/ferritecore-7.0.3-fabric.jar"
+  },
+  {
+   "project": "krypton",
+   "version": "0.2.8",
+   "type": "release",
+   "file": "krypton-0.2.8.jar",
+   "sha512": "5f8cf96c79bfd4d893f1d70da582e62026bed36af49a7fa7b1e00fb6efb28d9ad6a1eec147020496b4fe38693d33fe6bfcd1eebbd93475612ee44290c2483784",
+   "url": "https://cdn.modrinth.com/data/fQEb0iXm/versions/Acz3ttTp/krypton-0.2.8.jar"
+  },
+  {
+   "project": "ksyxis",
+   "version": "1.4.6",
+   "type": "release",
+   "file": "Ksyxis-1.4.6.jar",
+   "sha512": "1571cd9b15b6733002dd164beab4ad1022fab2c904414b39db6fb609a41c48cca394f1751e5634ebc555795d9bd9dba48c2c280c152d9e0f570795d47a91c1d5",
+   "url": "https://cdn.modrinth.com/data/2ecVyZ49/versions/kzLBJQLn/Ksyxis-1.4.6.jar"
+  },
+  {
+   "project": "scalablelux",
+   "version": "0.1.0.1+fabric.d0d58ab",
+   "type": "release",
+   "file": "ScalableLux-0.1.0.1+fabric.d0d58ab-all.jar",
+   "sha512": "bbfe02184c3bf3b0da28175574a5a236ce7c9acc00069addd69770857f2ac572924893f3eb033bbbc965afa9779c7a7f8fc54168f9e90481a40de92f6ee3645f",
+   "url": "https://cdn.modrinth.com/data/Ps1zyz6x/versions/Yx1tgJMI/ScalableLux-0.1.0.1%2Bfabric.d0d58ab-all.jar"
+  },
+  {
+   "project": "servux",
+   "version": "0.3.17",
+   "type": "release",
+   "file": "servux-fabric-1.21-0.3.17.jar",
+   "sha512": "1e83994ef917a106e20ec578d11f4bd7851eb338ac5776d0731a4dc8ac757dd1a836ff898888cf6507c6bf16aec9e9a72d019036d51f5398cfdda9ed39e9e0b0",
+   "url": "https://cdn.modrinth.com/data/zQhsx8KF/versions/MtgbQ59C/servux-fabric-1.21-0.3.17.jar"
+  },
+  {
+   "project": "syncmatica",
+   "version": "1.21.1-0.3.14",
+   "type": "release",
+   "file": "syncmatica-fabric-1.21-0.3.14-sakura.5.jar",
+   "sha512": "b51ea30aa1f6858703866c02b81fa0ba6007f7ced8bb08af42d990072768c5538d8454c2f0ba87afd6a40966bc9f5af17475742ff8e820eeb02950a527533648",
+   "url": "https://cdn.modrinth.com/data/bfneejKo/versions/5tVZej2i/syncmatica-fabric-1.21-0.3.14-sakura.5.jar"
+  },
+  {
+   "project": "appleskin",
+   "version": "3.0.6+mc1.21",
+   "type": "release",
+   "file": "appleskin-fabric-mc1.21-3.0.6.jar",
+   "sha512": "accbb36b863bdeaaeb001f7552534f3bdf0f27556795cf8e813f9b32e7732450ec5133da5e0ec9b92dc22588c48ffb61577c375f596dc351f15c15ce6a6f4228",
+   "url": "https://cdn.modrinth.com/data/EsAfCjCV/versions/b5ZiCjAr/appleskin-fabric-mc1.21-3.0.6.jar"
+  },
+  {
+   "project": "jade",
+   "version": "15.10.6+fabric",
+   "type": "release",
+   "file": "Jade-1.21.1-Fabric-15.10.6.jar",
+   "sha512": "fbae1c796368a09c579dd780a1d510fa5ab73f0eca370ddbfe0a9e6ca162e1b806261577306a259773f309dc4938a839b2065c5eef98b2810855c241addf17f5",
+   "url": "https://cdn.modrinth.com/data/nvQzSEkH/versions/adpNvTZS/Jade-1.21.1-Fabric-15.10.6.jar"
+  },
+  {
+   "project": "stackable-shulkers-fix",
+   "version": "1.5.1",
+   "type": "release",
+   "file": "shulkerfix-1.5.1.jar",
+   "sha512": "41a24d2967ec001fa02c4fc62b3399cea6544bac5fd8a76d4c48e65798bd51d357deb9e57ca63bdd7e10f0bd99c728e246a95e9b30ebb6c2a79336d953ec373c",
+   "url": "https://cdn.modrinth.com/data/qr7VQIiR/versions/i8BK8VT9/shulkerfix-1.5.1.jar"
+  },
+  {
+   "project": "simple-autopickup",
+   "version": "1.4.20+1.21.0-1",
+   "type": "release",
+   "file": "autopickup-fabric-1.4.20+1.21.0-1.jar",
+   "sha512": "05fd7a0ee4390fabbad4f7a60096ead76e6cf0302e65411b9e30ac2cae03bf152d9fa327cb9b9defec331690af583563aff23b37bef1a574abcc0dee36380a91",
+   "url": "https://cdn.modrinth.com/data/ycs4OjaI/versions/HaBaYcZH/autopickup-fabric-1.4.20%2B1.21.0-1.jar"
+  }
+ ]
+}
