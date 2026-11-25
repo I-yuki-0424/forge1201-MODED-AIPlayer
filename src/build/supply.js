@@ -257,6 +257,6 @@ async function dropRubble(bot, keep, { minFree = 6 } = {}) {
 
 // The temporary block: plain, solid, not falling, not in the blueprint; the first the containers hold.
 const TEMPS = ['dirt', 'cobblestone', 'pumpkin', 'netherrack', 'cobbled_deepslate', 'stone', 'andesite', 'diorite', 'granite', 'oak_planks', 'spruce_planks', 'birch_planks'];
-const tempFrom = (totals, used) => TEMPS.find((s) => totals[s] > 0 && !used.has(s)) || null;
+const tempFrom = (totals, used) => { const o = require('../work/bot/tempblocks').only(); return (o.length ? o : TEMPS).find((s) => totals[s] > 0 && !used.has(s)) || null; };
 
 module.exports = { readSupply, fetch, repack, putBack, deposit, depositEmpty, dropRubble, boxHolds, carried, freeSlots, stackOf, tempFrom, TEMPS, SHULKER, TOOL };

@@ -19,6 +19,10 @@ const SHAPE = /(_slab|_stairs|_wall|_fence|_fence_gate|_button|_pressure_plate|_
 // TEMP_BLOCK=pumpkin[,...] (owner 2026-11-21: "to make temporary blocks easy to see, use pumpkins for this run"): those names are temporary blocks too and come first.
 const NAME_OK = /^[a-z0-9_]{1,40}$/;
 let EXTRA = String(process.env.TEMP_BLOCK || '').split(',').map((x) => x.trim().replace(/^minecraft:/, '')).filter(Boolean);
+// ONLY (the test worlds' harness sets TEMP_BLOCK in the process environment, owner list 5 Small 4: "every temporary block is a pumpkin"): the operator's names are the only
+// temporary blocks, so a server scan for them finds every one (with rubble allowed too, a pillar of dug cobblestone was invisible to the scan). Consoles without the variable keep
+// the operator's names first and the defaults after them.
+const ONLY = EXTRA.length > 0;
 const LOW_FIXED = ['dirt', 'coarse_dirt', 'rooted_dirt', 'grass_block', 'podzol', 'mycelium', 'mud', 'packed_mud',
     'cobblestone', 'mossy_cobblestone', 'cobbled_deepslate', 'stone', 'deepslate', 'andesite', 'diorite', 'granite', 'tuff', 'calcite', 'dripstone_block', 'smooth_basalt', 'basalt',
     'netherrack', 'blackstone', 'end_stone', 'sandstone', 'red_sandstone', 'terracotta', 'clay', 'moss_block',
@@ -45,6 +49,7 @@ const strip = (n) => String(n || '').replace(/^minecraft:/, '');
 function isTemp(name, registry = null, valueOf = null) {
     const n = strip(name);
     if (!n || GRAVITY.test(n) || SHAPE.test(n)) return false;
+    if (ONLY && EXTRA.length && !EXTRA.includes(n)) return false;
     let low = LOW_NAME.test(n);
     if (!low && registry && valueOf) low = valueOf(n) <= LOW_MAX;                  // a value the operator (or the table) gave: any such name that the registry knows as a block
     if (!low) return false;
@@ -96,4 +101,7 @@ function freeHeld(bot) {
     return [...have].map(([name, count]) => ({ name, count: count - reservedOf(bot, name) })).filter((i) => i.count > 0);
 }
 
-module.exports = { reservedOf, freeHeld, isTemp, order, choose, reserve, setExtra, preferred, RESERVE, LOW_MAX, GRAVITY, SHAPE, BASE, HAND };
+/** The operator's temporary blocks when they are the only ones (the test worlds), else []. */
+const only = () => (ONLY ? EXTRA.slice() : []);
+
+module.exports = { only, reservedOf, freeHeld, isTemp, order, choose, reserve, setExtra, preferred, RESERVE, LOW_MAX, GRAVITY, SHAPE, BASE, HAND };

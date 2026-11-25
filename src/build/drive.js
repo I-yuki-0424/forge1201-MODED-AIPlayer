@@ -9,6 +9,7 @@ const { Mover, View, feet } = require('./move');
 const { seen, eyeOf, boxDist } = require('./world');
 const { clicksFor, REPLACEABLE } = require('./survey');
 const SUP = require('./supply');
+const TB = require('../work/bot/tempblocks');
 const RC = require('./recover');
 const { Pool } = require('./pool');
 // the crew's shared pool: bots hand items to each other on request (pool.js); BUILD_PEER=0 goes back to the chest only, with hand-backs
@@ -38,7 +39,8 @@ function rules(job, bot) {
         },
         // the temporary block: the supply's, or rubble the bot dug up (dirt, cobblestone, netherrack: what a player builds scaffolds with)
         // (the kind it carries most of: one dirt left beside 400 cobblestone made every pillar impossible, a crew sat under its stances for half an hour, live 2026-11-23 fz1 w2)
-        temp: () => { const n = {}; for (const i of bot.inventory.items()) if (SUP.TEMPS.includes(i.name) && !job.t.items.has(i.name)) n[i.name] = (n[i.name] || 0) + i.count; let best = null; for (const [k, c] of Object.entries(n)) if (!best || c > n[best] || (c === n[best] && k === job.tempItem)) best = k; return best; },
+        // (the test worlds: only the operator's block, pumpkins, so the end scan sees every one: tempblocks.only)
+        temp: () => { const n = {}, op = TB.only(), kinds = op.length ? op : SUP.TEMPS; for (const i of bot.inventory.items()) if (kinds.includes(i.name) && !job.t.items.has(i.name)) n[i.name] = (n[i.name] || 0) + i.count; let best = null; for (const [k, c] of Object.entries(n)) if (!best || c > n[best] || (c === n[best] && k === job.tempItem)) best = k; return best; },
         // another bot's temporary block (no drop lands on one: it may be gone when the bot arrives)
         isTemp: (x, y, z) => job.ledger.has({ x, y, z }),
         othersTemp: (x, y, z) => { const m = job.ledger.get({ x, y, z }); return !!m && m.by !== bot.username; },
@@ -873,7 +875,7 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
             }
             // out of temporary blocks and the chest out of them too: dig natural ground near the chest for them (a survival player's way: blocks bridged and dug high up fall
             // to the ground and are lost, the chest ran out after 16 min, ha19)
-            if (job.tempItem && (SUP.carried(bot)[job.tempItem] || 0) + SUP.TEMPS.filter((t) => t !== job.tempItem && !job.t.items.has(t)).reduce((a, t) => a + (SUP.carried(bot)[t] || 0), 0) < 32 && job.outOf && (job.outOf.get(job.tempItem) || 0) > Date.now() && Date.now() - ((job.quarryAt && job.quarryAt.get(name)) || 0) > 60000) {
+            if (job.tempItem && !TB.only().length && (SUP.carried(bot)[job.tempItem] || 0) + SUP.TEMPS.filter((t) => t !== job.tempItem && !job.t.items.has(t)).reduce((a, t) => a + (SUP.carried(bot)[t] || 0), 0) < 32 && job.outOf && (job.outOf.get(job.tempItem) || 0) > Date.now() && Date.now() - ((job.quarryAt && job.quarryAt.get(name)) || 0) > 60000) {
                 (job.quarryAt || (job.quarryAt = new Map())).set(name, Date.now());
                 const tq = Date.now(); await quarry(job, name, bot, mv, cancel); job.time.dig += Date.now() - tq; progress(); continue;
             }
