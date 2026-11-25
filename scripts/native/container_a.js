@@ -84,7 +84,7 @@ async function signalAt(S, x, y, z) { const m = /block data: (\d+)/.exec(strip(a
         comps.push({ at: [O.x + b.x, O.y + b.y, O.z + b.z], want, have });
     }
     const ok = !wrong.length && !leaked.length && comps.every((c) => c.want === c.have);
-    rep.trial(name, ok, { seed, origin: O, wrong, leaked, comparators: comps, steps: steps.map((s) => ({ cmd: s.cmd, at: s.at || null, ok: !!(s.r.result && s.r.result.ok), reason: s.r.result && s.r.result.reason, sec: s.r.sec, timeout: !!s.r.timeout, corrections: s.r.result && s.r.result.detail ? s.r.result.detail.corrections : undefined })), found });
+    rep.trial(name, ok, { seed, origin: O, wrong, leaked, comparators: comps, steps: steps.map((s) => ({ cmd: s.cmd, at: s.at || null, ok: !!(s.r.result && s.r.result.ok), reason: s.r.result && s.r.result.reason, why: s.r.result && s.r.result.detail ? JSON.stringify(s.r.result.detail).slice(0, 300) : undefined, sec: s.r.sec, timeout: !!s.r.timeout, corrections: s.r.result && s.r.result.detail ? s.r.result.detail.corrections : undefined })), found });
     rep.write({ seed, origin: O });
     process.exit(0);
 })().catch((e) => { console.error(e); process.exit(1); });
