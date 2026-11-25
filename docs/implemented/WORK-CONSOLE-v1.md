@@ -693,7 +693,7 @@ Two new things in the work layer, both measured in their own documents: **[MOVE-
 
 ## v24 (2026-11-25, `TASK-20261125-077`, owner list 5 Small 1-3): lines that stay while they are valid, the flicker, the page
 
-Stage A: code and unit tests. Stage B (2026-11-26 00:10-01:30 JST): measured on test world 8 (Fabric 1.21.1, new random seed -7132668154798025110) with a disposable console (`t077-console`, on the world's network only) and a headless Chromium (Playwright 1.49.1); screenshots in `/mnt/data/forgeaip-play/t26/out/t077/`, probe results in `/mnt/data/forgeaip-play/t26/out/{flicker-fl1,flicker-fl2,display-watch-dw2}.json`.
+Stage A: code and unit tests. Stage B (2026-11-26 00:10-00:35 JST): measured on test world 8 (Fabric 1.21.1, new random seed -7132668154798025110) with a disposable console (`t077-console`, on the world's network only) and a headless Chromium (Playwright 1.49.1); screenshots in `/mnt/data/forgeaip-play/t26/out/t077/`, probe results in `/mnt/data/forgeaip-play/t26/out/{flicker-fl1,flicker-fl2,display-watch-dw2}.json`.
 
 | Owner point | Cause found | What was built | Where |
 | :-- | :-- | :-- | :-- |
