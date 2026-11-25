@@ -111,6 +111,14 @@
    "file": "autopickup-fabric-1.4.20+1.21.0-1.jar",
    "sha512": "05fd7a0ee4390fabbad4f7a60096ead76e6cf0302e65411b9e30ac2cae03bf152d9fa327cb9b9defec331690af583563aff23b37bef1a574abcc0dee36380a91",
    "url": "https://cdn.modrinth.com/data/ycs4OjaI/versions/HaBaYcZH/autopickup-fabric-1.4.20%2B1.21.0-1.jar"
+  },
+  {
+   "project": "disgrade",
+   "version": "1.6.0-fabric-1.21.0-1",
+   "type": "release",
+   "file": "invpeeker-1.6.0-fabric-1.21.0-1.jar",
+   "sha512": "9fe267c0396f1a7a1de8b5b6b876da67fc273cb06ea466bb56d212b5b1f80d59bb6de9393a985b6398ea21576966cd2f3fc81af744f96c9beddf8f0a48f83372",
+   "url": "https://cdn.modrinth.com/data/iYoFUc8R/versions/tMJC0jD9/invpeeker-1.6.0-fabric-1.21.0-1.jar"
   }
  ]
 }
