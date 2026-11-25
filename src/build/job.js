@@ -89,10 +89,10 @@ class BuildJob {
             // temporary blocks whose step is over and that still stand: untemp tasks (inside the box only where the cell is to be empty: elsewhere the survey's own clear-then-place
             // task has it); the rest belong to a bot's step that is still going on
             // nothing but temporary blocks left: every step of the build is over, so every block of every bot is due now (a bot's column at the last stance included)
-            if (!sv.tasks.some((tk) => STAGE_OF[tk.kind] === 'prepare' || STAGE_OF[tk.kind] === 'place' || STAGE_OF[tk.kind] === 'late')) for (const e of this.ledger.list((q) => !q.released && !q.orphan && q.how !== 'seal')) { e.released = { at: Date.now(), why: 'the build is done' }; this.ledger.n.released++; }
+            if (!sv.tasks.some((tk) => STAGE_OF[tk.kind] === 'prepare' || STAGE_OF[tk.kind] === 'place' || STAGE_OF[tk.kind] === 'late')) for (const e of this.ledger.list((q) => q.how !== 'seal')) { if (!e.released && !e.orphan) { e.released = { at: Date.now(), why: 'the build is done' }; this.ledger.n.released++; } e.wetOk = !this._floodsInto(e); }
             for (const e of this.ledger.list()) { const c = { x: e.x, y: e.y, z: e.z }, h = seen(bot, c); if (e.keep && e.how !== 'seal') e.keep = null; if (h) this.ledger.check(c, h.name); if (!this.ledger.has(c) || !this._offerable(e)) continue; sv.tasks.push({ k: e.k, kind: 'untemp', i: -1, x: e.x, y: e.y, z: e.z }); }
             // a seal (outside the box) that holds no fluid back any more goes at the end; one that still does is part of the result and is counted as kept (the only kept rule)
-            if (!sv.tasks.some((tk) => STAGE_OF[tk.kind] === 'prepare' || STAGE_OF[tk.kind] === 'place' || STAGE_OF[tk.kind] === 'late')) for (const e of this.ledger.list((q) => q.how === 'seal' && !q.released)) { if (wetAround(bot, e)) this.ledger.keep(e, 'seal: holds a fluid back from the finished box'); else { e.released = { at: Date.now(), why: 'the box is done' }; if (!sv.tasks.some((tk) => tk.k === e.k)) sv.tasks.push({ k: e.k, kind: 'untemp', i: -1, x: e.x, y: e.y, z: e.z }); } }
+            if (!sv.tasks.some((tk) => STAGE_OF[tk.kind] === 'prepare' || STAGE_OF[tk.kind] === 'place' || STAGE_OF[tk.kind] === 'late')) for (const e of this.ledger.list((q) => q.how === 'seal' && !q.released)) { const into = wetAround(bot, e) ? this._floodsInto(e) : null; if (into) this.ledger.keep(e, `seal: the fluid behind it would run into the finished box at ${into}`); else { e.released = { at: Date.now(), why: 'the box is done' }; e.wetOk = true; if (!sv.tasks.some((tk) => tk.k === e.k)) sv.tasks.push({ k: e.k, kind: 'untemp', i: -1, x: e.x, y: e.y, z: e.z }); } }
             for (const tk of sv.tasks) {
                 if (this.parked.has(tk.k)) continue;
                 if (tk.kind !== 'seal' && tk.kind !== 'ignite' && this.available && !this._itemOk(tk)) { this.parked.set(tk.k, `missing_item ${this._itemOf(tk)}`); continue; }
@@ -179,8 +179,9 @@ class BuildJob {
             // any stage; the top of a stack first; never one that holds back a fluid (a temporary block taken away beside the Nether's lava let it run onto the crew: 22 deaths
             // "tried to swim in lava" on two worlds, live 2026-11-23 fz1)
             if (this.tasks.has(key(tk.x, tk.y + 1, tk.z)) && this.tasks.get(key(tk.x, tk.y + 1, tk.z)).kind === 'untemp') return false;
-            // one that holds a fluid back now is kept by that named rule (counted, looked at again at the next survey), not offered for ever
-            if (wetAround(bot, tk)) { this.ledger.keep(tk, 'holds a fluid back'); if (this.tasks.get(tk.k) === tk) this.tasks.delete(tk.k); this.untemps.delete(tk); return false; }
+            // one that holds a fluid back now is kept by that named rule (counted, looked at again at the next survey), not offered for ever; a seal whose fluid cannot reach a
+            // box cell that must stay open goes anyway (the owner wants a clean site: a seal is a temporary block too)
+            if (wetAround(bot, tk) && !(this.ledger.get(tk) || {}).wetOk) { this.ledger.keep(tk, 'holds a fluid back'); if (this.tasks.get(tk.k) === tk) this.tasks.delete(tk.k); this.untemps.delete(tk); return false; }
             return true;
         }
         // a wrong block dug out of a cell to place (kind clear, `after` place) belongs to the place stage: it was never ready there and held the crew idle for good (live 2026-11-23 fx1 w1)
@@ -459,6 +460,20 @@ class BuildJob {
             const [x, y, z] = sk.split(',').map(Number), e = this.ledger.get({ x, y, z });
             if (e && !e.released) { e.released = { at: Date.now(), why }; this.ledger.n.released++; }
         }
+    }
+
+    /**
+     * Would the fluid behind seal e run into the finished box if e went? The first box cell beside e that is not a full block of the blueprint (air, a slab, a hopper ...), as 'x,y,z',
+     * or null: a seal against full blocks only holds nothing the build needs and is taken away.
+     */
+    _floodsInto(e) {
+        for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]]) {
+            const x = e.x + dx, y = e.y + dy, z = e.z + dz;
+            if (!this.t.inside(x, y, z)) continue;
+            const w = this.t.stateOf(this.t.idx(x, y, z));
+            if (!w || !FULL.test(S.bare(w.name))) return `${x},${y},${z}`;
+        }
+        return null;
     }
 
     /**

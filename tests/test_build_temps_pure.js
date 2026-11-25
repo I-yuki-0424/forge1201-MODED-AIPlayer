@@ -172,6 +172,22 @@ test('job: nothing but temporary blocks left: every step is over, every block is
     assert(job.tasks.has('0,70,0') && job.stage === 'cleanup', `${job.stage} ${[...job.tasks.keys()]}`);
 });
 
+test('the end of the build: a seal goes unless the fluid behind it would run into an open cell of the box (shown with the cell); negative control: the old rule kept every wet seal', async () => {
+    const t = new Target(tiny(), { x: 10, y: 64, z: 10 });
+    const w = new Map(); for (let x = 10; x < 13; x++) for (let z = 10; z < 13; z++) w.set(`${x},64,${z}`, { name: 'stone' });
+    w.set('8,64,10', { name: 'water' }); w.set('8,65,10', { name: 'water' });
+    const job = new BuildJob(t, {});
+    for (const c of [{ x: 9, y: 64, z: 10 }, { x: 9, y: 65, z: 10 }]) { w.set(`${c.x},${c.y},${c.z}`, { name: 'pumpkin' }); job.addTemp(c, 'seal', 'a', 'pumpkin'); job.ledger.observe(c, 'pumpkin'); }
+    const bot = fakeBot(w);
+    await job.resurvey(bot, 'test');
+    const low = job.ledger.get({ x: 9, y: 64, z: 10 }), high = job.ledger.get({ x: 9, y: 65, z: 10 });
+    assert(low.released && !low.keep && job.tasks.has('9,64,10'), 'beside stone only: it goes');
+    assert(job.ready(job.tasks.get('9,64,10'), bot, Date.now()), 'ready though water is beside it');
+    assert(/run into the finished box at 10,65,10/.test(high.keep || ''), `kept with the case: ${high.keep}`);
+    const oldRule = [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]].some(([dx, dy, dz]) => /water/.test((w.get(`${9 + dx},${64 + dy},${10 + dz}`) || {}).name || ''));
+    assert(oldRule, 'negative control: the seal beside stone holds water and the old rule kept it');
+});
+
 test('release: the step is over: own blocks in reach and sight are dug, the rest are untemp tasks with the reason; the next stance on the same column keeps the column', async () => {
     const t = new Target(tiny(), { x: 100, y: 64, z: 100 });
     const job = new BuildJob(t, {}); job.stage = 'place';

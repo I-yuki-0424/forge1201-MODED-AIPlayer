@@ -10,6 +10,9 @@ const { seen, eyeOf, boxDist } = require('./world');
 const { clicksFor, REPLACEABLE } = require('./survey');
 const SUP = require('./supply');
 const TB = require('../work/bot/tempblocks');
+/** The kinds a bot may use as temporary blocks: the operator's only, on the test worlds (pumpkins); else the supply's list. Counted, kept and fetched by the same list (a bot with
+ * 128 dirt of rubble counted as stocked fetched no pumpkins, and could pillar with neither: 0-8 pumpkins per bot after 15 minutes, tb1 w4). */
+const tempKinds = () => { const o = TB.only(); return o.length ? o : SUP.TEMPS; };
 const RC = require('./recover');
 const { Pool } = require('./pool');
 // the crew's shared pool: bots hand items to each other on request (pool.js); BUILD_PEER=0 goes back to the chest only, with hand-backs
@@ -40,7 +43,7 @@ function rules(job, bot) {
         // the temporary block: the supply's, or rubble the bot dug up (dirt, cobblestone, netherrack: what a player builds scaffolds with)
         // (the kind it carries most of: one dirt left beside 400 cobblestone made every pillar impossible, a crew sat under its stances for half an hour, live 2026-11-23 fz1 w2)
         // (the test worlds: only the operator's block, pumpkins, so the end scan sees every one: tempblocks.only)
-        temp: () => { const n = {}, op = TB.only(), kinds = op.length ? op : SUP.TEMPS; for (const i of bot.inventory.items()) if (kinds.includes(i.name) && !job.t.items.has(i.name)) n[i.name] = (n[i.name] || 0) + i.count; let best = null; for (const [k, c] of Object.entries(n)) if (!best || c > n[best] || (c === n[best] && k === job.tempItem)) best = k; return best; },
+        temp: () => { const n = {}, kinds = tempKinds(); for (const i of bot.inventory.items()) if (kinds.includes(i.name) && !job.t.items.has(i.name)) n[i.name] = (n[i.name] || 0) + i.count; let best = null; for (const [k, c] of Object.entries(n)) if (!best || c > n[best] || (c === n[best] && k === job.tempItem)) best = k; return best; },
         // another bot's temporary block (no drop lands on one: it may be gone when the bot arrives)
         isTemp: (x, y, z) => job.ledger.has({ x, y, z }),
         othersTemp: (x, y, z) => { const m = job.ledger.get({ x, y, z }); return !!m && m.by !== bot.username; },
@@ -74,7 +77,7 @@ function rules(job, bot) {
 function keepRubble(job) {
     let temps = 320;          // five stacks (at three the crew threw away its blocks after clearing and stood at the chest without any: live 2026-11-23 ha11 w3)
     return (n, count) => {
-        if (SUP.TEMPS.includes(n) && !job.t.items.has(n)) { if (temps <= 0) return false; temps -= count; return true; }
+        if (tempKinds().includes(n) && !job.t.items.has(n)) { if (temps <= 0) return false; temps -= count; return true; }
         return job.t.items.has(n) || job.available.has(n);
     };
 }
@@ -234,7 +237,7 @@ async function work(job, name, bot, mv, cl, cancel) {
         mv.note(`task ${tk.kind} ${tk.k}${way.lean ? ` lean ${way.lean.join(',')}` : ''}${way.sneak ? ' sneak' : ''}`);
         { const me = feet(bot); if (!tk.descend && (tk.kind === 'clear' || tk.kind === 'untemp') && tk.x === me.x && tk.z === me.z && tk.y === me.y - 1) { results.push({ tk, ok: false, why: 'skipped' }); continue; } }
         // a temporary block with a crew member anywhere above it in its column is not taken (a pillar dug out under a bot on its top: falls of 40 blocks, live 2026-11-23 fy3)
-        if (tk.kind === 'untemp' && [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]].some(([dx, dy, dz]) => FLUID(seen(bot, { x: tk.x + dx, y: tk.y + dy, z: tk.z + dz })))) { results.push({ tk, ok: false, why: 'skipped' }); continue; }          // it holds back a fluid now
+        if (tk.kind === 'untemp' && !(job.ledger.get(tk) || {}).wetOk && [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]].some(([dx, dy, dz]) => FLUID(seen(bot, { x: tk.x + dx, y: tk.y + dy, z: tk.z + dz })))) { results.push({ tk, ok: false, why: 'skipped' }); continue; }          // it holds back a fluid now
         if (tk.kind === 'untemp' && crewAt(job, bot).concat(tk.descend ? [] : [bot.entity.position]).some((q) => Math.floor(q.x) === tk.x && Math.floor(q.z) === tk.z && q.y > tk.y && q.y < tk.y + 90)) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
         // lava within two of the cell or of the bot, now (it runs in through cells opened a moment ago, from a pool two or three away: seven deaths in clearing batches,
         // live 2026-11-23 gf1 w5/w6): the rest of the claim is dropped and the bot steps away from it
@@ -548,7 +551,7 @@ function needsFor(job, bot, need) {
         if (SUP.stackOf(bot, it) === 1) cap = Math.min(cap, 9);
         const want = cap - (have[it] || 0); if (want > 0) out[it] = want;
     }
-    const temps = SUP.TEMPS.filter((t) => !job.t.items.has(t)).reduce((a, t) => a + (have[t] || 0), 0);
+    const temps = tempKinds().filter((t) => !job.t.items.has(t)).reduce((a, t) => a + (have[t] || 0), 0);
     if (job.tempItem && temps < 128) out[job.tempItem] = 320 - temps;
     // tools with a margin: a spare pickaxe in the pack, worn at a fifth of its life (bots dug on by hand when the only one broke mid-claim, owner 2026-11-23 V10)
     for (const tool of ['pickaxe', 'shovel', 'axe']) { const n = bot.inventory.items().filter((i) => i.name.endsWith('_' + tool) && !worn(bot, i)).length, want = tool === 'pickaxe' ? 2 : 1; if (n < want) { const best = job.supply && Object.keys(job.supply.totals).find((k) => k.endsWith('_' + tool)); if (best) out[best] = want - n; } }
