@@ -156,7 +156,9 @@ async function main() {
     await S0.must(`gamemode survival ${names[0]}`);          // on top of the chest (two cells of air were checked there); players do not collide
     await sleep(5000);
     for (const [i, ch] of chests.entries()) svc.addSite({ name: `mats${i}`, x: ch.x, y: ch.y, z: ch.z, purpose: 'materials', ...(NETHER ? { dim: 'nether' } : {}) });
-    const control = await judge(srv, target), controlFails = control.wrong.length > 0;
+    // JUDGE=0: a smoke run (the temporary-block scan only): no cell-by-cell judge before or after (each takes minutes on a 48 x 60 x 48 box); such a trial never passes
+    const NOJUDGE = process.env.JUDGE === '0', skip = { wrong: [], dynamic: [], phase: [], checked: 0 };
+    const control = NOJUDGE ? { wrong: [{}] } : await judge(srv, target), controlFails = control.wrong.length > 0;
     console.log(`[build_t] negative control: the untouched site has ${control.wrong.length} wrong cells`);
     await T.say(S0, `build_t: ${BOTS} bots build ${parsed.meta.name} at ${M.x} ${M.y} ${M.z}${NETHER ? ' (nether)' : ''}`);
     // WAIT_FOR=<player>: everything is set up (site, chest, bots); the build starts when that player is on the server, so it can be watched from its first block
@@ -198,7 +200,7 @@ async function main() {
     for (const l of svc.log.filter((e) => /job j/.test(e.msg || e.message || '')).slice(-40)) console.log(`[log] ${l.msg || l.message}`);
     await sleep(8000);                                                                                     // the circuit and the fluids settle
     // ---- the judge: every cell of the box, asked of the server ----
-    const J = await judge(srv, target), wrong = J.wrong, dynamic = J.dynamic, strict = J.wrong.length === 0 && J.dynamic.length === 0;
+    const J = NOJUDGE ? skip : await judge(srv, target), wrong = J.wrong, dynamic = J.dynamic, strict = J.wrong.length === 0 && J.dynamic.length === 0;
     const wrongBy = {}; for (const w of wrong) { const k = w.want.replace(/\[.*$/, ''); wrongBy[k] = (wrongBy[k] || 0) + 1; }
     const dynBy = {}; for (const w of dynamic) { const k = w.want.replace(/\[.*$/, ''); dynBy[k] = (dynBy[k] || 0) + 1; }
     const res = job ? job.impl.build.result : null, st = job ? job.impl.build.status() : null;
@@ -211,7 +213,7 @@ async function main() {
     const wrongHas = {}; for (const w0 of wrong) { const b = bot0().blockAt(new Vec3(M.x + w0.at[0], M.y + w0.at[1], M.z + w0.at[2]), false); w0.has = b ? b.name : null; const k = `${w0.want.replace(/\[.*$/, '').replace('minecraft:', '')} <- ${w0.has}`; wrongHas[k] = (wrongHas[k] || 0) + 1; }
     console.log(`[judge] wrong cells by what they hold: ${JSON.stringify(Object.entries(wrongHas).sort((a, b) => b[1] - a[1]).slice(0, 30))}`);
     for (const w of wrong.slice(0, 40)) console.log(`  wrong ${w.at.join(',')} want ${w.want} has ${w.has}`);
-    const pass = controlFails && state === 'finished' && wrong.length === 0;
+    const pass = !NOJUDGE && controlFails && state === 'finished' && wrong.length === 0;
     rep.trial(`${parsed.meta.name}${NETHER ? '@nether' : ''}`, pass, { state, err, minutes: Math.round((Date.now() - t0) / 6000) / 10, strict, wrong: wrong.length, wrongBy, wrongHas, wrongCells: wrong.slice(0, 80), dynamic: dynamic.length, dynamicBy: dynBy, dynamicCells: dynamic.slice(0, 40), phaseCells: J.phase.length, controlFails, box: M, size: [sx, sy, sz], chest: C, boxes: boxes.length, result: res, status: st, history: job ? job.impl.build.history : null, temps: { ...temps.summary, cells: temps.cells.slice(0, 200) }, seed });
     rep.write({ seed, file: FILE, required: '100 %' });
     await srv.cmd(`forceload remove ${M.x - 16} ${M.z - 16} ${M.x + sx + 16} ${M.z + sz + 16}`);
@@ -220,6 +222,8 @@ async function main() {
 
 /** The names a temporary block can have on this site: the crew's choices that the blueprint does not use, the operator's TEMP_BLOCK (pumpkins on the test worlds), and every item the ledger saw. */
 function tempNames(target, build) {
+    // the test worlds: the operator's block is the only temporary block (pumpkins); natural names would count grass turned to dirt as a leftover
+    const only = require('../../src/work/bot/tempblocks').only(); if (only.length) return new Set(only);
     const out = new Set([...SUP.TEMPS.filter((n) => !target.items.has(n)), ...String(process.env.TEMP_BLOCK || '').split(',').map((x) => x.trim().replace(/^minecraft:/, '')).filter(Boolean)]);
     if (build && build.ledger) { for (const e of build.ledger.map.values()) out.add(e.item); for (const e of build.ledger.hist.values()) out.add(e.item); }
     out.delete('unknown');
