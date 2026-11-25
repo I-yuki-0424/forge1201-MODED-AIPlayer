@@ -39,8 +39,8 @@ knowledge-DB (`update_memory` in place, never duplicated); neither existed when 
 There is **no Node.js on the VPS**. Run Node through the rootless docker (as `coder`, plain `docker`):
 
 ```bash
-# All tests (the 41 files listed in package.json; must pass before smoke_status is recorded green). Node 20 or 22.11; NOT 22.23.4 (docs/LESSONS.md L2).
-# (MASTER_GUIDANCE still says "7 files": the file list in package.json is the truth.)
+# All tests (the files listed in tests/suite.txt, one per line; must pass before smoke_status is recorded green). Node 20 or 22.11; NOT 22.23.4 (docs/LESSONS.md L2).
+# (MASTER_GUIDANCE still says "7 files": tests/suite.txt is the truth; a new test file goes on its own line there.)
 docker run --rm --network none -v "$PWD":/w -w /w node:20-slim npm test
 # One file
 docker run --rm --network none -v "$PWD":/w -w /w node:20-slim node tests/test_fml3_handshake_logic_pure.js
@@ -152,7 +152,7 @@ src/rl/             RL environment (env, controls, observation, goal, DPOD file-
 modpack/            the mod set: lock (sha512), pack.py (server sync, .mrpack), install-client.ps1, the bot's block/item table
 tools/registry-dump/  server-only Forge mod (Java) that writes that table on a disposable server
 src/                runtime (agent_manager, bot_actuator + actuator/*, forge_handshake_state_machine, dynamic_registry_injector, middleware, llm_client, web_ui_server)
-tests/              the files run by `npm test` (list: package.json) (+ mocks, run_tests.js, smoke.js)
+tests/              the files run by `npm test` (list: tests/suite.txt) (+ mocks, run_tests.js, smoke.js)
 public/             WebUI (static)
 aux_console/        Forge 1.20.1 mod `aipconsole` (Java/Gradle): F12 web view of the work console, Tag Tool; aux_mod/ = older unused companion mod
 tools/              registry-dump (Java), sim (Rust simulator), tblog (training log -> TensorBoard), site-finder, tickrate, train-dash
