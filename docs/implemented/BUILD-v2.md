@@ -482,3 +482,21 @@ negative control) and the rewritten temporary-block test in `tests/test_build2_p
 `mine_b`, `move_a`, `move_b`; at most two per bot at any minute except a column under a bot on it (a survival pillar of n levels is n blocks while the bot stands on it: the
 exception to name with its measured heights); placing pace against hc1 at equal minutes. Open risks: a route that climbs its own pillar and walks off its top sideways leaves the
 column (released at once; removed on foot from its top only when a floor reaches it); Nether bridges between chest and site are now built again on each crossing.
+
+### Stage B (2026-11-26 night, Fabric 1.21.1 test world 4, pumpkins as the only temporary block, NATIVE_*=0)
+
+Smoke runs of `build_t` (iron-farm-34, 8 bots, 25-30 min, `JUDGE=0`, new random seed each): what each showed and what was changed (commits on main between c288de5e and
+822f4f0c).
+
+| Run | Found | Change |
+| :-- | :-- | :-- |
+| tb1 | bots pillared with dug dirt and cobblestone, invisible to a pumpkin scan; with only pumpkins allowed they had 0-8 each after 15 min: a bot holding rubble counted itself stocked | `tempblocks.only()` (TEMP_BLOCK in the harness: the operator's block is the only temporary block, for pillars, bridges, seals, the supply's temporary item and the chest); counting, keeping and fetching use the same list (`drive.js tempKinds`) |
+| tb1 | the final judge of 138 240 cells took over 25 min | `JUDGE=0` for smoke runs; the scan looks for the operator's block only |
+| tb2 | a pillar left sideways (climb, then a walk or bridge off its top) stood: 3-21 blocks beyond the bot's column, the most at once per bot | `Mover._behind` digs the column the bot stepped off, top-down, leaning out over the shaft for the lower blocks; a walking run that starts on its own block is cut after the first cell for it |
+| tb3 | stances on a bridge block or the build beside the bot's pillar top; blocks released out of reach waited behind the crew's ranking (due 9-33, a bot holding 6-18) | the way back (`Mover.walkBack`: onto the pillar's top, its bridge block dug, the pillar dug down); that pillar counts as the stance's own in the two-per-bot count; a bot's own leftovers are its next work at any distance |
+| all | a timed-out run left every bot's blocks standing | `BuildJob.wrapUp` at the time limit (`WRAP_MIN`, default 10): only the untemp tasks are work, any distance |
+| 077's probe | panes and wires changed shape at every temporary block beside them | `tempCost`: 60 more for a block a pane/bars/wall/fence connects to or that sits over or beside a wire; counted in `temps.shapes` |
+| 078's corpus | `descend` dug the floor and the bot never dropped (5 of 5 cases: the body 0.2-0.3 off the middle, standing on the next column) | descend centres the body first (`moves.js`) |
+
+Per-minute measurements (`[progress]` temps): tb3 (before the way back and own-first): the most beyond its column 11-18 per minute, about 150 bot-seconds over two per minute,
+9-33 released blocks waiting; tb4 (with them, first 7 minutes): 4-6, about 20 bot-seconds a minute, 0-3 waiting.
