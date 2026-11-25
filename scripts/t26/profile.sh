@@ -2,7 +2,7 @@
 # The profile is docker/tw/<name>.json (Minecraft version, loader, the bots' protocol version, server image, name tag, port base, the server mods pinned by sha512);
 # docker/tw/PROFILE names the current one, TW_PROFILE=<name> picks another for one command (TW_PROFILE=fabric-26.1.2 scripts/t26/up.sh N starts a frozen 26.x world again).
 # Nothing else in the scripts or the code names a version. Exports:
-#   TW_PROFILE TW_MC TW_BOT TW_IMAGE TW_TAG TW_PORT_BASE TW_LOCK TW_MODS   and   tw_names N  (sets TW_SERVER TW_DEV TW_NET TW_VOL TW_PORT TW_PROJECT for world N)
+#   TW_PROFILE TW_MC TW_BOT TW_IMAGE TW_TAG TW_PORT_BASE TW_SPEED TW_LOCK TW_MODS   and   tw_names N  (sets TW_SERVER TW_DEV TW_NET TW_VOL TW_PORT TW_PROJECT for world N)
 TW_REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 TW_HOME=/mnt/data/forgeaip-play/t26                       # the RCON secret (.env, mode 600) and the results (out/) of every profile
 TW_PROFILE=${TW_PROFILE:-$(tr -d ' \n' < "$TW_REPO/docker/tw/PROFILE")}
@@ -11,14 +11,14 @@ TW_LOCK=$TW_REPO/docker/tw/$TW_PROFILE.json
 eval "$(python3 -I - "$TW_LOCK" <<'PY'
 import json, re, shlex, sys
 p = json.load(open(sys.argv[1]))
-v = {"TW_MC": p["minecraft"], "TW_BOT": p["bot"], "TW_IMAGE": p["image"], "TW_TAG": p["tag"], "TW_PORT_BASE": str(int(p["portBase"]))}
+v = {"TW_MC": p["minecraft"], "TW_BOT": p["bot"], "TW_IMAGE": p["image"], "TW_TAG": p["tag"], "TW_PORT_BASE": str(int(p["portBase"])), "TW_SPEED": str(float(p.get("speed", 1)))}
 assert re.fullmatch(r"[a-z0-9]{1,8}", v["TW_TAG"]) and re.fullmatch(r"[0-9a-z.\-]{1,16}", v["TW_BOT"]) and re.fullmatch(r"itzg/minecraft-server@sha256:[0-9a-f]{64}", v["TW_IMAGE"])
 print("\n".join(f"{k}={shlex.quote(x)}" for k, x in v.items()))
 PY
 )" || { echo "bad profile $TW_LOCK" >&2; exit 2; }
 TW_MODS=/mnt/data/forgeaip-play/tw/$TW_TAG/mods
 NODE_IMG=node@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0
-export TW_REPO TW_HOME TW_PROFILE TW_LOCK TW_MC TW_BOT TW_IMAGE TW_TAG TW_PORT_BASE TW_MODS NODE_IMG
+export TW_REPO TW_HOME TW_PROFILE TW_LOCK TW_MC TW_BOT TW_IMAGE TW_TAG TW_PORT_BASE TW_SPEED TW_MODS NODE_IMG
 export XDG_RUNTIME_DIR=/run/user/1000 DOCKER_HOST=${DOCKER_HOST:-unix:///run/user/1000/docker.sock}
 
 # the names of world N under this profile (fabric-26.1.2 gives the old T26 names: forgeaip-t26-N, volume forgeaip-t26-N_data, port 25590+N)

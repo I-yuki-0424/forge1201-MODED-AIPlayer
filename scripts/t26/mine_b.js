@@ -65,7 +65,7 @@ const LIMIT_MIN = Number(process.env.LIMIT_MIN || 240), DEPTH = Number(process.e
     if (!T.CONTROL) {
         const pit = svc.createPit({ box, bots: [name], start: true, ...(process.env.METHOD ? { method: process.env.METHOD } : {}) });
         let last = 0;
-        while (Date.now() - t0 < LIMIT_MIN * 60000) {
+        for (const limit = T.budget(() => (svc.bots.get(name) || {}).bot, LIMIT_MIN); !limit.over();) {
             const j = svc.jobs.get(pit.id); if (!j || j.state === 'finished' || j.state === 'cancelled') { state = j ? j.state : 'gone'; break; }
             if (Date.now() - last > 120000) { last = Date.now(); const v = svc._jobView(j); console.log(`[mine_b w${T.WORLD}] ${Math.round((Date.now() - t0) / 60000)} min ${JSON.stringify(v.progress || v.summary || {}).slice(0, 200)} temps ${svc.temps.size}`); }
             await T.sleep(3000);

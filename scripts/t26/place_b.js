@@ -55,7 +55,7 @@ function cottage() {
     const t0 = Date.now(); let state = 'control';
     if (!T.CONTROL) {
         const job = await svc._buildFrom(bp.fromCells(cells), o, { name: 'cottage', bots: [name], start: true }, null, { dim: 'overworld' });
-        while (Date.now() - t0 < LIMIT_MIN * 60000) { const j = svc.jobs.get(job.id); if (!j || j.state === 'finished' || j.state === 'cancelled') { state = j ? j.state : 'gone'; break; } await T.sleep(2000); }
+        for (const limit = T.budget(() => (svc.bots.get(name) || {}).bot, LIMIT_MIN); !limit.over();) { const j = svc.jobs.get(job.id); if (!j || j.state === 'finished' || j.state === 'cancelled') { state = j ? j.state : 'gone'; break; } await T.sleep(2000); }
         if (state === 'control') state = 'timeout';
     }
     await T.sleep(2000);

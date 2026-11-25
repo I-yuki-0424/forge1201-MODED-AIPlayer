@@ -75,16 +75,30 @@ function countMoves(svc) {
     return m;
 }
 
-/** Run a console command on one bot and wait for it (or `limitMin`); returns {result, sec, timeout}. CONTROL=noop sends nothing (the negative control). */
+/**
+ * A test's time limit counted in GAME minutes (TASK-20261125-079, docs/implemented/SPEED-v1.md): on a world ticking k times as fast the limit comes k times sooner in wall time, so a
+ * test gives the bots the same game time at every speed. Game time is the server's world age as the bot receives it (update_time, every 20 ticks), so a server that cannot keep its
+ * rate does not cut the bots short; `limitMin` wall minutes stay the outer bound (never longer than the standard at 1x). `bot` is a getter (a dead bot is replaced by a new object).
+ */
+function budget(bot, limitMin) {
+    const age = () => { const b = bot(); const a = b && b.time ? Number(b.time.age) : NaN; return Number.isFinite(a) && a > 0 ? a : null; };
+    const w0 = Date.now(), a0 = age();
+    return {
+        over: () => { const a = age(); return Date.now() - w0 >= limitMin * 60000 || (a0 !== null && a !== null && a - a0 >= limitMin * 1200); },
+        ticks: () => { const a = age(); return a0 !== null && a !== null ? a - a0 : null; },
+    };
+}
+
+/** Run a console command on one bot and wait for it (or `limitMin` game minutes, `budget`); returns {result, sec, ticks, timeout}. CONTROL=noop sends nothing (the negative control). */
 async function command(svc, name, cmd, args, limitMin) {
-    const t0 = Date.now(), rec = svc.bots.get(name);
+    const t0 = Date.now(), rec = svc.bots.get(name), b = budget(() => (svc.bots.get(name) || {}).bot, limitMin);
     if (CONTROL === 'noop') { await sleep(5000); return { result: null, sec: 5, control: true }; }
     const r = await svc.runCommand({ bots: [name], command: cmd, args });
     if (!r.started || !r.started.length) return { result: { ok: false, refused: r }, sec: 0 };
-    while (Date.now() - t0 < limitMin * 60000 && rec.cmd && rec.cmd.status === 'running') await sleep(1000);
+    while (!b.over() && rec.cmd && rec.cmd.status === 'running') await sleep(1000);
     const timeout = !!(rec.cmd && rec.cmd.status === 'running');
     if (timeout) { rec.cmd.cancel.cancelled = true; await sleep(3000); }
-    return { result: rec.cmd && rec.cmd.result, sec: Math.round((Date.now() - t0) / 1000), timeout };
+    return { result: rec.cmd && rec.cmd.result, sec: Math.round((Date.now() - t0) / 1000), ticks: b.ticks(), timeout };
 }
 
 /** The test's report: trials [{bot, ok, detail}], written to /out/<RUN>/<test>-w<WORLD>.json; the suite (suite.js) adds the worlds up. */
@@ -96,7 +110,7 @@ function reporter(test) {
         write(extra = {}) {
             const dir = `/out/${RUN}`; fs.mkdirSync(dir, { recursive: true });
             const k = trials.filter((t) => t.ok).length;
-            fs.writeFileSync(`${dir}/${test}-w${WORLD}${CONTROL ? '-' + CONTROL : ''}.json`, JSON.stringify({ ...meta, difficulty: CURRENT_DIFFICULTY, ...extra, sec: Math.round((Date.now() - t0) / 1000), passed: k, trials }, null, 1));
+            fs.writeFileSync(`${dir}/${test}-w${WORLD}${CONTROL ? '-' + CONTROL : ''}.json`, JSON.stringify({ ...meta, difficulty: CURRENT_DIFFICULTY, speed: require('../../src/transport/time_scale').scale, ...extra, sec: Math.round((Date.now() - t0) / 1000), passed: k, trials }, null, 1));
             console.log(`[${test} w${WORLD}] ${k}/${trials.length} trials passed${CONTROL ? ' (CONTROL ' + CONTROL + ')' : ''}`);
             return k;
         },
@@ -145,4 +159,4 @@ async function open(names, settings = {}, difficulty = 'peaceful') {
     return { shared, S, svc, seed, difficulty: diff };
 }
 
-module.exports = { ...L, sleep, strip, WORLD, RUN, CONTROL, PROFILE, TEMP_BLOCK, ruleSpellings, kit, holds, seesSky, onSurface, countDeaths, countMoves, command, reporter, say, open, toolItems };
+module.exports = { ...L, sleep, strip, WORLD, RUN, CONTROL, PROFILE, TEMP_BLOCK, ruleSpellings, kit, holds, seesSky, onSurface, countDeaths, countMoves, budget, command, reporter, say, open, toolItems };

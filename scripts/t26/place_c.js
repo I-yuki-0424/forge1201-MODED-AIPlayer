@@ -208,7 +208,7 @@ async function trial(k, S0, svc, seed, rep) {
             const job = await svc._buildFrom(pp.bp, pp.origin, { name: 'iron-farm', bots: names, start: true, tile: 64, mode: ['layer', 'zlayer'].includes(process.env.BUILD_MODE) ? process.env.BUILD_MODE : 'area', window: Number(process.env.BUILD_WINDOW || 0) }, null, { dim: NETHER ? 'nether' : 'overworld' });
             got.origin = pp.origin; got.job = job.id;
             let lastLog = 0;
-            while (Date.now() - t0 < LIMIT_MIN * 60000) {
+            for (const limit = T.budget(() => (svc.bots.get(names[0]) || {}).bot, LIMIT_MIN); !limit.over();) {
                 const j = svc.jobs.get(job.id); if (!j || j.state === 'finished' || j.state === 'cancelled') { state = j ? j.state : 'gone'; break; }
                 if (Date.now() - lastLog > 120000) {          // progress, read from the bot's own view of the world (a diagnostic, never the verdict)
                     lastLog = Date.now();

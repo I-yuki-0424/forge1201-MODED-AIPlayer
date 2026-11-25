@@ -179,8 +179,8 @@ async function main() {
         try {
             const v = svc.createConstruct({ file, placement: { pos, rotation: 'NONE', mirror: 'NONE' }, name: parsed.meta.name, bots: names, start: true, dim: NETHER ? 'nether' : 'overworld' });
             job = svc.jobs.get(v.id);
-            let last = 0;
-            while (Date.now() - t0 < LIMIT_MIN * 60000) {
+            let last = 0; const limit = T.budget(bot0, LIMIT_MIN);                  // game minutes (lib.js budget: the same game time at every tick rate)
+            while (!limit.over()) {
                 if (job.state === 'finished' || job.state === 'cancelled') { state = job.state; break; }
                 if (Date.now() - last > 60000) { last = Date.now(); const s = job.impl.build.status(); const lagMs = (lag.max / 1e6).toFixed(0), lagP = (lag.percentile(99) / 1e6).toFixed(0); lag.reset(); console.log(`[progress ${Math.round((Date.now() - t0) / 60000)} min] lag max ${lagMs} ms p99 ${lagP} ms stage ${s.stage} right ${s.right}/${s.total} work ${JSON.stringify(s.work)} claimed ${s.claimed} parked ${s.parked} frontier ${s.frontier} time ${JSON.stringify(s.time)} stats ${JSON.stringify(s.stats)} temps ${tempsLine(job.impl.build)}`); }
                 await sleep(2000);

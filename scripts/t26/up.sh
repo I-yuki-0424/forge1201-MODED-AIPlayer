@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/t26/up.sh N [--new] [--seed S]   start test world N of the current profile (docs/implemented/TEST-WORLDS-T26.md; the version comes from docker/tw/PROFILE or TW_PROFILE).
+# scripts/t26/up.sh N [--new] [--seed S]   [SPEED=k: game speed for this start, default the profile's `speed`]   start test world N of the current profile (docs/implemented/TEST-WORLDS-T26.md; the version comes from docker/tw/PROFILE or TW_PROFILE).
 # --new throws the old world away: a NEW random seed (or --seed S). Game port 100.77.246.23:(portBase+N) (tailnet only; harness containers join the world's network).
 # Data: docker volume <project>_data. Secrets: /mnt/data/forgeaip-play/t26/.env (RCON password, mode 600).
 set -euo pipefail
@@ -32,5 +32,6 @@ R() { "$TW_REPO/scripts/t26/rcon.sh" "$N" "$@"; }
 for g in keep_inventory send_command_feedback log_admin_commands; do "$TW_REPO/scripts/t26/rule.sh" "$N" "$g" false >/dev/null; done      # the console echoed every display command
 docker exec "$TW_SERVER" sh -c 'mkdir -p /data/world/scripts && cp /dev-app/dev.sc /data/world/scripts/dev.sc'
 R script load dev global >/dev/null
+"$TW_REPO/scripts/t26/speed.sh" "$N" "${SPEED:-$TW_SPEED}" >/dev/null     # the game speed (docs/implemented/SPEED-v1.md): the profile's `speed`, SPEED=k for one start; the bots follow the server
 "$TW_REPO/scripts/t26/dev.sh" "$N" start >/dev/null
-echo "test world $N up ($TW_PROFILE): $(R seed) | join 100.77.246.23:$TW_PORT (tailnet) | container $TW_SERVER"
+echo "test world $N up ($TW_PROFILE, speed x$("$TW_REPO/scripts/t26/speed.sh" "$N")): $(R seed) | join 100.77.246.23:$TW_PORT (tailnet) | container $TW_SERVER"
