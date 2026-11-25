@@ -31,11 +31,17 @@ function slotName(t, n) {
     throw new Error(`no such player slot ${n}`);
 }
 
-const stack = (s) => ({ slot: Number(s.Slot), id: String(s.id), count: Number(s.Count ?? s.count ?? 1), tag: s.tag && Object.keys(s.tag).length ? s.tag : undefined });
+// 1.20 keeps a stack's extras in `tag` (Damage, display.Name, Enchantments); 1.20.5 and later in `components` ("minecraft:damage", "minecraft:custom_name", "minecraft:enchantments").
+// Both are read: on a 1.21 server the damage was never seen and no durability bar was drawn (TASK-20261125-077).
+const stack = (s) => ({ slot: Number(s.Slot), id: String(s.id), count: Number(s.Count ?? s.count ?? 1), tag: s.tag && Object.keys(s.tag).length ? s.tag : undefined, components: s.components && Object.keys(s.components).length ? s.components : undefined });
+function textOf(json) { try { const v = JSON.parse(json); return typeof v === 'string' ? v : (v && v.text) || null; } catch (_) { return String(json).slice(0, 60); } }
 function view(s) {                              // what the page shows of a stack
-    const t = s.tag || {};
-    let label = null; if (t.display && typeof t.display.Name === 'string') { try { label = JSON.parse(t.display.Name).text || null; } catch (_) { label = String(t.display.Name).slice(0, 60); } }
-    return { slot: s.slot, id: s.id, count: s.count, label, damage: typeof t.Damage === 'number' ? t.Damage : null, enchanted: !!(t.Enchantments && t.Enchantments.length), nbt: s.tag ? JSON.stringify(s.tag).slice(0, 400) : null };
+    const t = s.tag || {}, c = s.components || {};
+    const label = t.display && typeof t.display.Name === 'string' ? textOf(t.display.Name) : typeof c['minecraft:custom_name'] === 'string' ? textOf(c['minecraft:custom_name']) : null;
+    const damage = typeof t.Damage === 'number' ? t.Damage : typeof c['minecraft:damage'] === 'number' ? c['minecraft:damage'] : null;
+    const ench = c['minecraft:enchantments'], enchanted = !!(t.Enchantments && t.Enchantments.length) || !!(ench && ench.levels && Object.keys(ench.levels).length) || c['minecraft:enchantment_glint_override'] === 1;
+    const extra = s.tag || s.components;
+    return { slot: s.slot, id: s.id, count: s.count, label, damage, ...(typeof c['minecraft:max_damage'] === 'number' ? { max: c['minecraft:max_damage'] } : {}), enchanted, nbt: extra ? JSON.stringify(extra).slice(0, 400) : null };
 }
 
 /** Read a target. Returns { kind, id?, size, slots: [{slot,id,count,...}] }. `run(cmd)` sends one console command and returns its text. */

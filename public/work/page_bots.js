@@ -78,4 +78,9 @@ function toolList(b) {
     if (!b.tools || !b.tools.length) return h('span', { class: 'muted', text: 'none' });
     return h('span', { class: 'toollist' }, b.tools.map((t) => h('span', { class: `tool${t.worn ? ' worn' : ''}`, title: t.worn ? 'worn: not used while "Retire worn tools" is on' : '' }, `${t.name.replace(/_/g, ' ')} `, h('span', { class: 'mono', text: `${t.left}/${t.max}` }), durBar(t.left, t.max))));
 }
-function durBar(left, max) { const f = clamp(left / max, 0, 1); return h('span', { class: 'dur' }, h('span', { class: 'dur-fill', style: `width:${Math.round(f * 100)}%;background:hsl(${Math.round(f * 120)} 70% 45%)` })); }
+// The game's bar (icons.js durability): 13 steps, its HSV colour. Set through the CSSOM: the strict CSP (style-src 'self') drops a style attribute, so the old bar drew nothing.
+function durBar(left, max) {
+    const fill = h('span', { class: 'dur-fill' }), bar = window.Icons && Icons.durability(max - left, max);
+    fill.style.width = `${bar ? Math.round(100 * bar.width / 13) : 100}%`; fill.style.background = `#${(bar ? bar.rgb : 0x00ff00).toString(16).padStart(6, '0')}`;
+    return h('span', { class: 'dur' }, fill);
+}

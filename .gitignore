@@ -35,6 +35,8 @@ data/*.json
 !data/system_presets.json
 !data/junk_list.json
 data/journeymap/
+# the console's copy of the game's textures and models (Mojang's client jar, src/work/web/assets/store.js): never in git
+data/work/assets/
 data/raw/**
 data/processed/**
 results/**

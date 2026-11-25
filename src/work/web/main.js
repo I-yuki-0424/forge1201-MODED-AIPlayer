@@ -30,7 +30,10 @@ async function main() {
     await service.restore();
     const access = env.CF_ACCESS_TEAM && env.CF_ACCESS_AUD ? new Access({ team: env.CF_ACCESS_TEAM, aud: env.CF_ACCESS_AUD, emails: (env.WORK_ALLOWED_EMAILS || '').split(',').map((s) => s.trim()).filter(Boolean) }) : null;
     if (env.WORK_PUBLIC_HOST && !access) { console.error('WORK_PUBLIC_HOST needs CF_ACCESS_TEAM and CF_ACCESS_AUD: refusing to serve the public name without Access'); process.exit(1); }
-    const { server } = createConsole({ service, token, access, publicHost: env.WORK_PUBLIC_HOST || null, allowedHosts: (env.WORK_ALLOWED_HOSTS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean) });
+    // the game's pictures for the inventory: the client jar of the server's version (WORK_MC_VERSION, else the version the bots connected with), cached in WORK_ASSETS
+    const { AssetStore } = require('./assets/store');
+    const assets = new AssetStore({ root: path.resolve(env.WORK_ASSETS || path.join(dataDir, 'assets')), version: () => env.WORK_MC_VERSION || ([...service.bots.values()].find((r) => r.bot && r.bot.version) || { bot: {} }).bot.version || null });
+    const { server } = createConsole({ service, token, access, assets, publicHost: env.WORK_PUBLIC_HOST || null, allowedHosts: (env.WORK_ALLOWED_HOSTS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean) });
     const bind = env.WORK_BIND || '127.0.0.1', port = Number(env.WORK_PORT) || 3020;
     server.listen(port, bind, () => console.log(`[console] http://${bind}:${port}  server ${service.o.host}:${service.o.port}  table ${service.known ? table : 'none (vanilla names only)'}  rcon ${service.o.rcon ? 'on' : 'off'}  ${token ? `token file ${tokenFile}` : 'no token (network / Access)'}`));
     // A loop that never yields would freeze every bot at once (2026-11-09): a second thread notices, writes where it was and kills the process; the container restarts it.

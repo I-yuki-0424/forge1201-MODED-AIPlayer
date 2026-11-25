@@ -9,15 +9,15 @@ class InventoriesPart {
 
     /** The bot's own view of its inventory (works without RCON; no stack NBT). Slots use the game's numbering. */
     /** Durability for the inventory page: `max` (uses of a new item, from any online bot's registry) next to `damage` (used), and `left`. */
+    /** Each stack's name and durability from the ITEM registry of the connected version (a bot's registry; not the block table: a slab and its block differ). */
     _durability(data) {
         const rec = [...this.bots.values()].find((r) => r.bot && r.bot.registry && r.state === 'online');
         if (!rec || !data || !Array.isArray(data.slots)) return data;
         for (const sl of data.slots) {
-            const it = rec.bot.registry.itemsByName[String(sl.id).replace(/^minecraft:/, '')];
-            if (it && it.maxDurability) {
-                const used = Number(sl.damage) || 0;
-                sl.max = it.maxDurability; sl.damage = used; sl.left = it.maxDurability - used;
-            }
+            const it = /^minecraft:/.test(sl.id) || !String(sl.id).includes(':') ? rec.bot.registry.itemsByName[String(sl.id).replace(/^minecraft:/, '')] : null;
+            if (it && it.displayName) sl.name = it.displayName;
+            const max = sl.max || (it && it.maxDurability);
+            if (max) { const used = Number(sl.damage) || 0; sl.max = max; sl.damage = used; sl.left = max - used; }
         }
         return data;
     }

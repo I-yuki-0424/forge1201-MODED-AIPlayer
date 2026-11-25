@@ -79,3 +79,4 @@ tests/test_build_display_pure.js
 tests/test_work_page_pure.js
 tests/test_build_temps_pure.js
 tests/test_sim_recorder.js
+tests/test_work_assets_pure.js
