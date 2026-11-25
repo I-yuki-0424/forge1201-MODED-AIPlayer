@@ -64,10 +64,29 @@ function rules(job, bot) {
         columnBusy: (x, z) => { const c = job.columns && job.columns.get(`${x},${z}`); return !!c && c.by !== bot.username && c.until > Date.now(); },
         onPillar: (c) => { (job.columns || (job.columns = new Map())).set(`${c.x},${c.z}`, { by: bot.username, until: Date.now() + 20000 }); },
         // every temporary block registered before its click, confirmed by the server's block update (the ledger, temps.js)
-        onTemp: (c, how, item) => { job.addTemp(c, how || 'temp', bot.username, item); },
+        onTemp: (c, how, item) => { job.addTemp(c, how || 'temp', bot.username, item); const sv = touchesShape((x, y, z) => { const b = bot.blockAt(new Vec3(x, y, z), false); return b && b.name; }, c.x, c.y, c.z); if (sv) { const n = job.ledger.n; n.shapes = n.shapes || {}; n.shapes[sv] = (n.shapes[sv] || 0) + 1; } },
+        // the planner's extra cost of a temporary block that changes a built block's shape (touchesShape)
+        tempCost: (x, y, z, view) => (touchesShape((a, b, c) => { const q = view.raw(a, b, c); return q && q.name; }, x, y, z) ? SHAPE_COST : 0),
         onUntemp: (c) => { job.dropTemp(c); job.stats.untemp++; },
         onTempFail: (c, why) => { job.ledger.fail(c, why); },
     };
+}
+
+/**
+ * Would a full block in cell (x, y, z) change the shape of a block beside it: a pane, bars, a wall or a fence connects to it (sideways), a redstone wire beside it or under it
+ * re-routes (its side or step)? `nameAt(x, y, z)`: the block's name. Returns 'pane' | 'wire' | null. (owner list 5 Small 2: the flicker of glass and redstone was the builders'
+ * temporary blocks going in and out beside them, TASK-077 flicker-fl1/fl2.)
+ */
+const CONNECTS = /(_pane|^iron_bars|_bars|_wall|_fence)$/;
+const SHAPE_COST = 60;
+function touchesShape(nameAt, x, y, z) {
+    if (nameAt(x, y - 1, z) === 'redstone_wire') return 'wire';
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const n = nameAt(x + dx, y, z + dz) || '';
+        if (CONNECTS.test(n)) return 'pane';
+        if (n === 'redstone_wire' || nameAt(x + dx, y - 1, z + dz) === 'redstone_wire') return 'wire';
+    }
+    return null;
 }
 
 /**
@@ -942,4 +961,4 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
     } finally { bot.removeListener('death', onDeath); bot.removeListener('death', onDied); bot.removeListener('blockUpdate', onBlock); job.orphanOf(name, 'left the crew'); clearInterval(sampler); bot.removeListener('spawnReset', onReset); bot.__builderOwns = false; job.leave(name); if (job.pool) job.pool.leave(name); for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sneak', 'sprint']) bot.setControlState(k, false); }
 }
 
-module.exports = { drive, work, holds, rules, pour, escape, needsFor, boxSpot, bench, release, unscaffold };
+module.exports = { drive, work, holds, rules, pour, escape, needsFor, boxSpot, bench, release, unscaffold, touchesShape };

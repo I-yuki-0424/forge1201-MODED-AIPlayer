@@ -227,6 +227,9 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
             if (move === 'bridge' && view.deadly(x, y - 1, z)) extraCost += COST.bridge;
             // a block placed where the blueprint has a plain full block is the build itself, not a temporary block (rules.buildBlock): it costs no temporary block
             const own = !!extra.place && !!view.rules.buildBlock && !!view.rules.buildBlock(extra.place.x, extra.place.y, extra.place.z);
+            // a temporary block that a pane, bars, wall or fence would connect to, or that changes a redstone wire's shape, costs more: the build flickers with every one placed
+            // and taken away (owner list 5 Small 2, measured by TASK-077: 14 pane changes in 30 s beside cobblestone temps); used where no other way is (temps.js counts them)
+            if (extra.place && !own && view.rules.tempCost) extraCost += view.rules.tempCost(extra.place.x, extra.place.y, extra.place.z, view);
             const t = c.t + (extra.place && !own ? 1 : 0);
             if (t > temps) return;
             const g = c.g + cost + extraCost, k = key(x, y, z);

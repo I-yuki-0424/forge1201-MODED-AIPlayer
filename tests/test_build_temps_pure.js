@@ -18,7 +18,7 @@ function fakeBot(world, pos = { x: 0.5, y: 70, z: 0.5 }) {
         entity: { position: { ...pos, floored() { return this; } } },
         blockAt(p) {
             const s = world.get(`${p.x},${p.y},${p.z}`) || { name: 'air', props: {} };
-            const empty = /^(air|water|lava)$/.test(s.name);
+            const empty = s.empty || /^(air|water|lava)$/.test(s.name);
             return { name: s.name, getProperties: () => s.props || {}, boundingBox: empty ? 'empty' : 'block', shapes: empty ? [] : [[0, 0, 0, 1, 1, 1]] };
         },
     };
@@ -249,6 +249,24 @@ test('a pillar left sideways is dug from beside it, top-down, as far as its face
     assert(!old, 'negative control: a pillar block was never taken back by the old rule');
     const keep = Object.create(M.Mover.prototype); Object.assign(keep, { bot, mine: new Map([['2,72,0', 'pumpkin']]), mineHow: new Map(), rules: {}, trace: [] }); keep.dig = mv.dig;
     assert.strictEqual(await keep._behind({ x: 2, y: 73, z: 0 }, route, 2), 0, 'still on that column: nothing');
+});
+
+test('a temporary block beside a pane or over/beside redstone wire is known as one that changes a built shape (the flicker, owner list 5 Small 2)', async () => {
+    const w = new Map([['1,70,0', 'glass_pane'], ['5,69,0', 'redstone_wire'], ['9,70,1', 'redstone_wire']]), at = (x, y, z) => w.get(`${x},${y},${z}`) || 'air';
+    assert.strictEqual(D.touchesShape(at, 0, 70, 0), 'pane');
+    assert.strictEqual(D.touchesShape(at, 5, 70, 0), 'wire', 'over a wire');
+    assert.strictEqual(D.touchesShape(at, 9, 70, 0), 'wire', 'beside a wire');
+    assert.strictEqual(D.touchesShape(at, 20, 70, 0), null);
+    // the planner pays for it: a bridge of one cell over a gap, beside a pane on one side only
+    const M = require('../src/build/move');
+    const g = new Map(); for (let x = -4; x <= 4; x++) for (let z = -4; z <= 4; z++) if (x !== 0) g.set(`${x},69,${z}`, { name: 'stone' });
+    for (let z = -4; z <= 4; z++) for (let y = 60; y < 69; y++) g.delete(`0,${y},${z}`);
+    g.set('0,69,2', { name: 'glass_pane', empty: true });                                     // a built pane in the gap, beside the straight bridge cell 0,69,1
+    const cost = (x, y, z, v) => (D.touchesShape((a, b, c) => { const q = v.raw(a, b, c); return q && q.name; }, x, y, z) ? 60 : 0);
+    const way = async (rules) => { const r = await M.plan(new M.View(fakeBot(g), rules), { x: -1, y: 70, z: 1 }, (x, y, z) => x === 1 && y === 70 && z === 1, { x: 1, y: 70, z: 1 }, { temps: 64 }); return r.filter((q) => q.place).map((q) => `${q.place.x},${q.place.y},${q.place.z}`); };
+    const without = await way({ canDig: () => false }), withCost = await way({ canDig: () => false, tempCost: cost });
+    assert(without.includes('0,69,1'), `negative control: without the cost the bridge goes beside the pane (${without})`);
+    assert(withCost.length && !withCost.includes('0,69,1'), `with it the bridge goes a cell away (${withCost})`);
 });
 
 (async () => { for (const [name, fn] of queue) { await fn(); n++; console.log(`  ok ${name}`); } console.log(`test_build_temps_pure: ${n} passed`); })().catch((e) => { console.error(e); process.exit(1); });
