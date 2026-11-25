@@ -37,7 +37,7 @@ class Windows extends EventEmitter {
         this.hashed = !!click && JSON.stringify(click).includes('HashedSlot');
         this.inv = new Menu('inventory', this.items, [], opts.menu);
         this.cur = null;                                     // { id, type, menu }
-        this.stateId = 0;
+        this.ids = new Map([[0, 0]]);                        // the state id of each window (the server keeps one per menu: the player's inventory has its own)
         this.stats = { clicks: 0, corrections: 0, syncs: 0, fullStates: 0 };
         this.pending = null;                                 // the last click's prediction: { windowId, slots: Map(index -> stack), carried }
     }
@@ -54,10 +54,13 @@ class Windows extends EventEmitter {
     }
     Item() { return require('prismarine-item')(this.registry); }
     menu() { return this.cur ? this.cur.menu : this.inv; }
+    /** The state id of the open window (the last one the server gave for it). */
+    get stateId() { return this.ids.get(this.windowId()) ?? 0; }
     windowId() { return this.cur ? this.cur.id : 0; }
 
     // ---- server packets ----------------------------------------------------------------------------------------------
     onOpen(id, type, title) {
+        this.ids.set(id, 0);
         const name = menuName(type, this.dataVersion);
         let menu = null;
         try { menu = new Menu(name, this.items, [], this.opts.menu); } catch (_) { menu = null; }      // a screen this layer does not model (anvil, beacon ...)
@@ -72,14 +75,14 @@ class Windows extends EventEmitter {
         const Item = this.Item();
         for (let i = 0; i < Math.min(items.length, m.slots.length); i++) m.slots[i] = this.items.fromWire(Item.fromNotch(items[i]));
         m.carried = this.items.fromWire(Item.fromNotch(carried));
-        this.stateId = stateId;
+        this.ids.set(id, stateId);
         if (m !== this.inv) { this.copyInvFrom(m); this.cur.loaded = true; } else if (this.cur && this.cur.menu) this.copyInvInto(this.cur.menu);
         this.pending = null;
         this.stats.fullStates++;
         this.emit('items', id);
     }
     onSlot(id, stateId, slot, item) {
-        this.stateId = stateId;
+        if (id >= 0) this.ids.set(id, stateId); else if (id === -1) this.ids.set(this.windowId(), stateId);      // the carried stack counts on the open menu
         const st = this.items.fromWire(this.Item().fromNotch(item));
         if (id === -1 && slot === -1) return this.onCarried(st);
         if (id === -2) return this.onPlayerSlot(fromInventoryIndex(slot), item);

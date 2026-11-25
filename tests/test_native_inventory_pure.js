@@ -126,6 +126,15 @@ console.log('native inventory');
         f.client.emit('set_slot', { windowId: -1, stateId: 9, slot: -1, item: f.wire('cobblestone', 1) });
         assert.deepStrictEqual([f.w.menu().slots[0].count, f.w.menu().carried.count, f.w.stateId, f.w.stats.corrections], [19, 1, 9, 2]);
     });
+    await t('client: each window keeps its own state id (after a chest closes, a click in the inventory carries the inventory\'s id)', () => {
+        const f = fake();
+        f.client.emit('window_items', { windowId: 0, stateId: 40, items: Array.from({ length: 46 }, (_, i) => f.wire(i === 36 ? 'dirt' : null, 3)), carriedItem: f.wire(null) });
+        f.client.emit('open_window', { windowId: 5, inventoryType: 2, windowTitle: '' });
+        f.client.emit('window_items', { windowId: 5, stateId: 2, items: Array.from({ length: 63 }, () => f.wire(null)), carriedItem: f.wire(null) });
+        f.w.click(0, 0, 0); assert.strictEqual(f.sent[0].params.stateId, 2);
+        f.client.emit('close_window', { windowId: 5 });
+        f.w.click(36, 0, 0); assert.strictEqual(f.sent[1].params.stateId, 40);
+    });
     await t('client: 1.21.2+ set_cursor_item corrects the carried stack (mineflayer 4.39 has no handler for it)', () => {
         const f = fake('1.21.4');
         f.w.inv.carried = f.it.stack('dirt', 3); f.w.pending = { windowId: 0, slots: [] };
