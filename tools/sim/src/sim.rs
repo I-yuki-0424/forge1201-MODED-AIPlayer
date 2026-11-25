@@ -98,7 +98,7 @@ pub const AIM_REACH: f64 = 4.2;               // motion.js AIM_REACH = BLOCK_REA
 pub const PLAN_NODES: usize = 20000;
 /// Walking constants of `path_ticks` (place_b corpus pb-r1, 1.21.1; see the doc): a step up (the jump and the landing) and the fixed part of a
 /// walk (the plan, the first turn, the settle on the cell centre).
-pub const WALK_UP: f64 = 9.0; pub const WALK_START: f64 = 4.0;
+pub const WALK_UP: f64 = 9.0; pub const WALK_START: f64 = 3.0;
 /// block.js BLIND_REACH: a blind dig is refused farther than this from the eye.
 pub const BLIND_REACH: f64 = 5.0;
 /// Ticks of a dig as body.js does it: the start packet and k = ceil(break ms / 50) + 1 swing ticks, then the finish packet; an instant break
