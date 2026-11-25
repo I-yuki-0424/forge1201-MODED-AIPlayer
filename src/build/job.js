@@ -89,15 +89,17 @@ class BuildJob {
             // temporary blocks whose step is over and that still stand: untemp tasks (inside the box only where the cell is to be empty: elsewhere the survey's own clear-then-place
             // task has it); the rest belong to a bot's step that is still going on
             // nothing but temporary blocks left: every step of the build is over, so every block of every bot is due now (a bot's column at the last stance included)
-            if (!sv.tasks.some((tk) => STAGE_OF[tk.kind] === 'prepare' || STAGE_OF[tk.kind] === 'place' || STAGE_OF[tk.kind] === 'late')) for (const e of this.ledger.list((q) => q.how !== 'seal')) { if (!e.released && !e.orphan) { e.released = { at: Date.now(), why: 'the build is done' }; this.ledger.n.released++; } e.wetOk = !this._floodsInto(e); }
+            if (this.wrapping || !sv.tasks.some((tk) => STAGE_OF[tk.kind] === 'prepare' || STAGE_OF[tk.kind] === 'place' || STAGE_OF[tk.kind] === 'late')) for (const e of this.ledger.list((q) => q.how !== 'seal')) { if (!e.released && !e.orphan) { e.released = { at: Date.now(), why: 'the build is done' }; this.ledger.n.released++; } e.wetOk = !this._floodsInto(e); }
             for (const e of this.ledger.list()) { const c = { x: e.x, y: e.y, z: e.z }, h = seen(bot, c); if (e.keep && e.how !== 'seal') e.keep = null; if (h) this.ledger.check(c, h.name); if (!this.ledger.has(c) || !this._offerable(e)) continue; sv.tasks.push({ k: e.k, kind: 'untemp', i: -1, x: e.x, y: e.y, z: e.z }); }
             // a seal (outside the box) that holds no fluid back any more goes at the end; one that still does is part of the result and is counted as kept (the only kept rule)
-            if (!sv.tasks.some((tk) => STAGE_OF[tk.kind] === 'prepare' || STAGE_OF[tk.kind] === 'place' || STAGE_OF[tk.kind] === 'late')) for (const e of this.ledger.list((q) => q.how === 'seal' && !q.released)) { const into = wetAround(bot, e) ? this._floodsInto(e) : null; if (into) this.ledger.keep(e, `seal: the fluid behind it would run into the finished box at ${into}`); else { e.released = { at: Date.now(), why: 'the box is done' }; e.wetOk = true; if (!sv.tasks.some((tk) => tk.k === e.k)) sv.tasks.push({ k: e.k, kind: 'untemp', i: -1, x: e.x, y: e.y, z: e.z }); } }
+            if (this.wrapping || !sv.tasks.some((tk) => STAGE_OF[tk.kind] === 'prepare' || STAGE_OF[tk.kind] === 'place' || STAGE_OF[tk.kind] === 'late')) for (const e of this.ledger.list((q) => q.how === 'seal' && !q.released)) { const into = wetAround(bot, e) ? this._floodsInto(e) : null; if (into) this.ledger.keep(e, `seal: the fluid behind it would run into the finished box at ${into}`); else { e.released = { at: Date.now(), why: 'the box is done' }; e.wetOk = true; if (!sv.tasks.some((tk) => tk.k === e.k)) sv.tasks.push({ k: e.k, kind: 'untemp', i: -1, x: e.x, y: e.y, z: e.z }); } }
             for (const tk of sv.tasks) {
                 if (this.parked.has(tk.k)) continue;
                 if (tk.kind !== 'seal' && tk.kind !== 'ignite' && this.available && !this._itemOk(tk)) { this.parked.set(tk.k, `missing_item ${this._itemOf(tk)}`); continue; }
                 tasks.set(tk.k, tk);
             }
+            // wrapping up (the run's time is over, wrapUp): only the temporary blocks are work now
+            if (this.wrapping) for (const [k, tk] of tasks) if (tk.kind !== 'untemp') tasks.delete(k);
             this.tasks = tasks;
             this.untemps = new Set([...tasks.values()].filter((tk) => tk.kind === 'untemp'));
             this.fluidLeft = [...tasks.values()].some((tk) => tk.kind === 'fill' || tk.kind === 'seal');
@@ -452,6 +454,11 @@ class BuildJob {
     dropTemp(c) { const k = key(c.x, c.y, c.z); this.ledger.removed(c); const tk = this.tasks.get(k); if (tk && tk.kind === 'untemp') { this.tasks.delete(k); this.untemps.delete(tk); } }
     /** The placer died or left: every block of it is the crew's untemp task at once (owner list 5 Large 1, point 4). */
     orphanOf(name, why) { const l = this.ledger.orphan(name, why); if (l.length) { this.log(`${name} ${why}: its ${l.length} temporary blocks are the crew's to take away`); this._offerTemps(Date.now(), true); } return l.length; }
+    /**
+     * The run's time is over before the build is (a harness limit, an operator's stop): the crew does not leave its temporary blocks standing (owner list 5 Large 1: a clean site
+     * at the end of every run). Every step is over now: the next survey keeps only the untemp tasks, and the job ends when they are done.
+     */
+    wrapUp() { if (this.wrapping) return; this.wrapping = true; this.log(`wrapping up: ${this.ledger.size} temporary blocks to take away, nothing else`); this.stage = 'survey'; }
     /** A scaffold's block stands (or it was parked): the scaffold has served. */
     _scaffoldServed(k, why) {
         for (const [sk, fk] of this.scaffoldFor || []) {
@@ -610,13 +617,14 @@ class BuildJob {
         // temporary blocks to take away near the bot, in any stage
         for (const tk of [...this.untemps]) {
             if (this.tasks.get(tk.k) !== tk) { this.untemps.delete(tk); continue; }
-            if (this.claims.has(tk.k) || Math.hypot(tk.x - me.x, tk.y - me.y, tk.z - me.z) > 24) continue;
+            if (this.claims.has(tk.k) || Math.hypot(tk.x - me.x, tk.y - me.y, tk.z - me.z) > (this.wrapping ? 200 : 24)) continue;
             if (this._already(tk, bot)) { this.tasks.delete(tk.k); this.untemps.delete(tk); this.ledger.check(tk, 'air'); continue; }
             if (this.ready(tk, bot, now)) ready.push(tk);
         }
         const lo = this.stage === 'place' ? this.frontier : -Infinity, hi = this.stage === 'place' ? this.frontierMax + this.win() : Infinity;
         const tScan = Date.now();
         for (const { k } of keys) {
+            if (this.wrapping) break;                  // wrapping up: the temporary blocks only
             // the scan is synchronous: at most 60 ms of it per claim (eight bots claiming over 17 000 tasks blocked every bot's keep-alive for seconds, live 2026-11-23 fx3 profile)
             if (Date.now() - tScan > 60) break;
             const [, by] = k.split(',').map(Number);

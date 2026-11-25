@@ -184,6 +184,15 @@ async function main() {
                 await sleep(2000);
             }
             if (state === 'control') state = 'timeout';
+            // the time is over before the build: the crew takes its temporary blocks away first (WRAP_MIN, default 10; owner list 5 Large 1: a clean site at the end of every run)
+            if (state === 'timeout' && Number(process.env.WRAP_MIN ?? 10) > 0) {
+                const B = job.impl.build, tw = Date.now(); B.wrapUp();
+                while (Date.now() - tw < Number(process.env.WRAP_MIN ?? 10) * 60000 && job.state !== 'finished' && B.ledger.list((e) => !e.keep).length) {
+                    if ((Date.now() - tw) % 60000 < 2100) console.log(`[wrap ${Math.round((Date.now() - tw) / 60000)} min] temps ${tempsLine(B)} work ${JSON.stringify(B.status().work)}`);
+                    await sleep(2000);
+                }
+                console.log(`[wrap] ${Math.round((Date.now() - tw) / 1000)} s: ${B.ledger.list((e) => !e.keep).length} temporary blocks left in the ledger, job ${job.state}`);
+            }
         } catch (e) { err = e.message; state = 'error'; console.error(e); }
     }
     for (const l of svc.log.filter((e) => /job j/.test(e.msg || e.message || '')).slice(-40)) console.log(`[log] ${l.msg || l.message}`);

@@ -188,6 +188,19 @@ test('the end of the build: a seal goes unless the fluid behind it would run int
     assert(oldRule, 'negative control: the seal beside stone holds water and the old rule kept it');
 });
 
+test('wrap-up at the end of the run\'s time: only the temporary blocks are work, every one of them (a clean site at the end of every run)', async () => {
+    const t = new Target(tiny(), { x: 10, y: 64, z: 10 });
+    const w = new Map(); w.set('0,70,0', { name: 'pumpkin' });                                   // the box is not built: its stone layer is missing (place work left)
+    const job = new BuildJob(t, {});
+    job.addTemp({ x: 0, y: 70, z: 0 }, 'pillar', 'a', 'pumpkin'); job.ledger.observe({ x: 0, y: 70, z: 0 }, 'pumpkin');
+    await job.resurvey(fakeBot(w), 'test');
+    assert([...job.tasks.values()].some((tk) => tk.kind === 'place') && !job.tasks.has('0,70,0'), 'before: the build, the column still the bot\'s');
+    job.wrapUp(); assert(job.exhausted());
+    await job.resurvey(fakeBot(w), 'wrap');
+    assert.deepStrictEqual([...job.tasks.values()].map((tk) => tk.kind), ['untemp']);
+    assert.strictEqual(job.stage, 'cleanup');
+});
+
 test('release: the step is over: own blocks in reach and sight are dug, the rest are untemp tasks with the reason; the next stance on the same column keeps the column', async () => {
     const t = new Target(tiny(), { x: 100, y: 64, z: 100 });
     const job = new BuildJob(t, {}); job.stage = 'place';
