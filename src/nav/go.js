@@ -311,12 +311,12 @@ async function walk(W, env0, target, o) {
  * Returns {removed, left}. `max` blocks per call.
  */
 async function sweep(env, { max = 60 } = {}) {
-    const bot = env.bot, T = bot && bot.__temps, out = { removed: 0, left: 0 };
+    const bot = env.bot, T = bot && bot.__temps, out = { removed: 0, left: 0, cells: [] };
     if (!T) return out;
-    const dim = fixtures.dimOf(bot), me = bot.username;
+    const dim = fixtures.dimOf(bot), me = bot.username, tried = new Set();
     for (let i = 0; i < max; i++) {
         if (env.cancel && env.cancel.cancelled) break;
-        const f = env.here(), list = T.list((r) => r.dim === dim && r.by === me && ['pillar', 'bridge', 'scaffold', 'reflex'].includes(r.kind)).sort((a, b) => Math.hypot(a.x - f.x, a.y - f.y, a.z - f.z) - Math.hypot(b.x - f.x, b.y - f.y, b.z - f.z));
+        const f = env.here(), list = T.list((r) => r.dim === dim && r.by === me && ['pillar', 'bridge', 'scaffold', 'reflex'].includes(r.kind) && !tried.has(`${r.x},${r.y},${r.z}`)).sort((a, b) => Math.hypot(a.x - f.x, a.y - f.y, a.z - f.z) - Math.hypot(b.x - f.x, b.y - f.y, b.z - f.z));
         if (!list.length) break;
         const r = list[0];
         if (env.w.kindAt(r.x, r.y, r.z) === 'unknown' && Math.hypot(r.x - f.x, r.z - f.z) > 100) { out.left = list.length; break; }
@@ -326,7 +326,8 @@ async function sweep(env, { max = 60 } = {}) {
         const t = { x: r.x, y: r.y + 1, z: r.z }, opt = { near: 3, nearY: 3, noPlace: true, noShelter: true, maxSegments: 12 };
         const g = env.nav ? await env.nav(t, opt) : await go(env, t, opt);
         td = await tidy(env); out.removed += td.removed;
-        if (T.size >= before) { if (!g.ok) T.remove(dim, r); out.left++; }          // unreachable without placing: forgotten (reported), not walked to for ever
+        // unreachable without placing: reported and left in the registry (forgotten, it stood in the world in nobody's list: owner list 5 Large 1, cause a), not walked to again in this sweep
+        if (T.size >= before) { tried.add(`${r.x},${r.y},${r.z}`); out.left++; if (out.cells.length < 20) out.cells.push({ x: r.x, y: r.y, z: r.z, why: g.ok ? 'reached, not broken' : String(g.reason || 'unreachable') }); }
     }
     return out;
 }

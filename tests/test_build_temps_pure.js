@@ -1,0 +1,197 @@
+'use strict';
+// The builder's temporary blocks (src/build/temps.js, job.js, drive.js release; TASK-20261125-075, owner list 5 Large 1): registered before the click and confirmed by the server's
+// block update, released when the step that needed them is over, taken over when the placer dies, classified when found standing. Each rule has a negative control: the old rule
+// (registered only within the short wait, kept while work is near, a scaffold kept while any block beside it waits, a fill left to the next survey) leaves the block.
+const assert = require('assert');
+const { TempLedger } = require('../src/build/temps');
+const { Target } = require('../src/build/target');
+const { BuildJob } = require('../src/build/job');
+const D = require('../src/build/drive');
+
+let n = 0;
+const queue = [];
+const test = (name, fn) => queue.push([name, fn]);
+
+function fakeBot(world, pos = { x: 0.5, y: 70, z: 0.5 }) {
+    return {
+        username: 'a', players: {},
+        entity: { position: { ...pos, floored() { return this; } } },
+        blockAt(p) {
+            const s = world.get(`${p.x},${p.y},${p.z}`) || { name: 'air', props: {} };
+            const empty = /^(air|water|lava)$/.test(s.name);
+            return { name: s.name, getProperties: () => s.props || {}, boundingBox: empty ? 'empty' : 'block', shapes: empty ? [] : [[0, 0, 0, 1, 1, 1]] };
+        },
+    };
+}
+function tiny() {
+    const palette = [{ name: 'minecraft:air', props: {} }, { name: 'minecraft:stone', props: {} }];
+    const blocks = []; for (let x = 0; x < 3; x++) for (let z = 0; z < 3; z++) { blocks.push({ x, y: 0, z, s: 1 }); blocks.push({ x, y: 1, z, s: 0 }); blocks.push({ x, y: 2, z, s: 0 }); }
+    return { size: [3, 3, 3], palette, blocks };
+}
+
+test('a placement the server applies late is still registered (cause a; negative control: the old short wait)', () => {
+    let t = 0; const L = new TempLedger({ now: () => t });
+    const c = { x: 1, y: 2, z: 3 };
+    L.intend(c, 'minecraft:pumpkin', 'pillar', 'a');
+    t = 1000; L.check(c, 'air');                                           // the bot looks after its short wait: nothing yet
+    assert(L.has(c) && L.get(c).state === 'pending', 'not settled as never placed before LATE_MS');
+    t = 1500; L.observe(c, 'pumpkin');                                     // the server's block update comes
+    assert.strictEqual(L.get(c).state, 'placed');
+    assert.strictEqual(L.inPlace('a'), 1);
+    // the old rule: registered only when the block showed within the wait (move.js before 075): this block would be in no list
+    const oldRegistered = false;                                           // the wait (500 ms) saw air
+    const fresh = new TempLedger(); if (oldRegistered) fresh.intend(c, 'pumpkin', 'pillar', 'a');
+    assert.strictEqual(fresh.classify(c).cause, 'a', 'negative control: unregistered -> cause a');
+    assert.strictEqual(L.classify(c).cause, 'b', 'with the ledger it is a known block of a step that is still open');
+});
+
+test('a refused click is settled at once; an old pending one after LATE_MS', () => {
+    let t = 0; const L = new TempLedger({ now: () => t });
+    const a = { x: 0, y: 0, z: 0 }, b = { x: 1, y: 0, z: 0 };
+    L.intend(a, 'dirt', 'bridge', 'x'); L.intend(b, 'dirt', 'bridge', 'x');
+    L.observe(a, 'air');                                                   // the server answered the click with the cell as it is
+    t = 100; L.check(a, 'air'); assert(!L.has(a), 'refused: never placed');
+    L.check(b, 'air'); assert(L.has(b), 'young: still pending');
+    t = 6000; L.check(b, 'air'); assert(!L.has(b), 'old: never placed');
+    assert.strictEqual(L.n.never, 2);
+});
+
+test('removal by anybody ends the entry; another block in the cell ends it as replaced', () => {
+    const L = new TempLedger();
+    const a = { x: 0, y: 0, z: 0 }, b = { x: 0, y: 1, z: 0 };
+    L.intend(a, 'dirt', 'pillar', 'x'); L.observe(a, 'dirt'); L.observe(a, 'air');
+    L.intend(b, 'dirt', 'pillar', 'x'); L.observe(b, 'dirt'); L.observe(b, 'smooth_stone');
+    assert(!L.has(a) && !L.has(b)); assert.strictEqual(L.n.removed, 1); assert.strictEqual(L.n.replaced, 1);
+    L.observe(b, 'dirt'); assert(!L.has(b), 'a block of the same name later is not ours again');
+    assert.strictEqual(L.classify(b).cause, 'a', 'found standing later: placed again unregistered');
+});
+
+test('release by step, the next step keeps only what it names; orphans; the named keep rule; the cause table', () => {
+    const L = new TempLedger();
+    L.begin('a', 'claim');
+    const col = [{ x: 0, y: 70, z: 0 }, { x: 0, y: 71, z: 0 }], far = { x: 9, y: 70, z: 9 };
+    for (const c of [...col, far]) { L.intend(c, 'dirt', 'pillar', 'a'); L.observe(c, 'dirt'); }
+    assert.strictEqual(L.inPlace('a'), 3);
+    L.begin('a', 'claim');
+    const rel = L.release('a', { stay: (e) => e.x === 0 && e.z === 0 });
+    assert.deepStrictEqual(rel.map((e) => e.k), ['9,70,9'], 'the column stays for the next stance on it');
+    assert(!L.due(L.get(col[0])) && L.due(L.get(far)));
+    L.fail(far, 'no face in sight');
+    L.intend({ x: 5, y: 5, z: 5 }, 'dirt', 'pillar', 'b'); L.observe({ x: 5, y: 5, z: 5 }, 'dirt'); L.orphan('b', 'died');
+    L.intend({ x: 6, y: 5, z: 5 }, 'dirt', 'seal', 'b'); L.observe({ x: 6, y: 5, z: 5 }, 'dirt'); L.keep({ x: 6, y: 5, z: 5 }, 'seal: holds a fluid back');
+    const T = L.table([col[0], far, { x: 5, y: 5, z: 5 }, { x: 6, y: 5, z: 5 }, { x: 7, y: 7, z: 7 }]);
+    assert.strictEqual(T.total, 5); assert.strictEqual(T.a, 1); assert.strictEqual(T.b, 1); assert.strictEqual(T.c, 2); assert.strictEqual(T.d, 1);
+    assert(Object.keys(T.why).some((k) => /^c: no face in sight/.test(k)), JSON.stringify(T.why));
+    assert(Object.keys(T.why).some((k) => /^c: orphaned \(died\)/.test(k)), JSON.stringify(T.why));
+});
+
+test('peaks: the most blocks a bot held at once, and when it came to hold a third', () => {
+    const L = new TempLedger();
+    for (let y = 0; y < 4; y++) { L.intend({ x: 0, y, z: 0 }, 'dirt', 'pillar', 'a'); L.observe({ x: 0, y, z: 0 }, 'dirt'); }
+    L.intend({ x: 3, y: 0, z: 0 }, 'dirt', 'bridge', 'b'); L.observe({ x: 3, y: 0, z: 0 }, 'dirt');
+    const s = L.status({ reset: true });
+    assert.deepStrictEqual(s.peak, { bot: 'a', n: 4 }); assert.strictEqual(s.over2, 1); assert.strictEqual(L.over.how['pillar:3'], 1);
+    assert.strictEqual(L.status().peak.n, 0, 'reset: a new period');
+    assert.strictEqual(L.status().peakEver.n, 4);
+});
+
+test('job: a block of a step that goes on is no task; released it is one at once, with placing and bots beside it (negative control: the old keep rules)', () => {
+    const job = new BuildJob(new Target(tiny(), { x: 10, y: 64, z: 10 }), {}); job.stage = 'place';
+    const c = { x: 0, y: 70, z: 0 };
+    job.addTemp(c, 'pillar', 'a', 'dirt'); job.ledger.observe(c, 'dirt');
+    job.tasks.set('1,70,1', { k: '1,70,1', kind: 'place', i: -1, x: 1, y: 70, z: 1 });
+    job.bots.set('b', { station: [{ x: 1, y: 71, z: 1 }], pos: { x: 1, y: 71, z: 1 } });
+    job._offerTemps(Date.now(), true);
+    assert(!job.tasks.has('0,70,0'));
+    job.ledger.release('a');
+    job._offerTemps(Date.now(), true);
+    assert(job.tasks.has('0,70,0') && job.tasks.get('0,70,0').kind === 'untemp', 'an untemp task at once');
+    // the rule before 075 (job._offerTemps: placing within the 4-cell buckets around, a bot within four cells, ten seconds since the last use) would have kept it
+    const keptByOld = [...job.tasks.values()].some((t) => t.kind === 'place' && Math.abs(t.x - c.x) <= 4 && Math.abs(t.z - c.z) <= 4);
+    assert(keptByOld, 'negative control: the old rule finds placing near and keeps the block');
+});
+
+test('job: the placer dies: its blocks are the crew\'s untemp tasks at once (takeover)', () => {
+    const job = new BuildJob(new Target(tiny(), { x: 10, y: 64, z: 10 }), {}); job.stage = 'place';
+    for (let y = 70; y < 73; y++) { job.addTemp({ x: 0, y, z: 0 }, 'pillar', 'a', 'dirt'); job.ledger.observe({ x: 0, y, z: 0 }, 'dirt'); }
+    assert.strictEqual(job.orphanOf('a', 'died'), 3);
+    assert.strictEqual([...job.tasks.values()].filter((t) => t.kind === 'untemp').length, 3);
+    assert(job.ready(job.tasks.get('0,72,0'), fakeBot(new Map([['0,72,0', { name: 'dirt' }]])), Date.now()), 'the top first');
+});
+
+test('job: a scaffold lives as long as its block: released when that block stands, not kept for other blocks beside it (negative control)', () => {
+    const t = new Target(tiny(), { x: 10, y: 64, z: 10 }), job = new BuildJob(t, {}); job.stage = 'place';
+    const seed = { k: '11,64,11', kind: 'place', i: t.idx(11, 64, 11), x: 11, y: 64, z: 11 };
+    job.tasks.set(seed.k, seed); job.buckets = new Map();
+    assert(job._scaffoldFor(seed));
+    const s = [...job.tasks.values()].find((t) => t.kind === 'scaffold');
+    assert.strictEqual(s.for, seed.k);
+    job.report('a', [{ tk: s, ok: true }]); job.addTemp(s, 'scaffold', 'a', 'dirt'); job.ledger.observe(s, 'dirt');
+    job.ledger.release('a', { stay: (e) => e.how === 'scaffold' });
+    assert(!job.ledger.due(job.ledger.get(s)), 'the bot\'s step ends, the scaffold serves on');
+    const other = { k: `${s.x + 1},${s.y},${s.z}`, kind: 'place', i: -1, x: s.x + 1, y: s.y, z: s.z }; job.tasks.set(other.k, other);          // another block beside the scaffold still waits
+    job.report('a', [{ tk: seed, ok: true }]);
+    assert(job.ledger.due(job.ledger.get(s)), 'its block stands: released');
+    job._offerTemps(Date.now(), true);
+    assert(job.tasks.has(s.k) && job.tasks.get(s.k).kind === 'untemp');
+    const keptByOld = [[0, 1, 0], [0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]].some(([dx, dy, dz]) => { const o = job.tasks.get(`${s.x + dx},${s.y + dy},${s.z + dz}`); return o && o.kind === 'place'; });
+    assert(keptByOld, 'negative control: the old rule (a place task beside it) kept the scaffold');
+});
+
+test('job: a fill in a box cell gets the cell\'s own work back at once (clear for air, place for a block; negative control: none before)', () => {
+    const t = new Target(tiny(), { x: 10, y: 64, z: 10 });
+    const job = new BuildJob(t, {}); job.stage = 'prepare';
+    const air = { k: '11,65,11', kind: 'fill', i: t.idx(11, 65, 11), x: 11, y: 65, z: 11 }, stone = { k: '11,64,11', kind: 'fill', i: t.idx(11, 64, 11), x: 11, y: 64, z: 11 };
+    job.tasks.set(air.k, air); job.tasks.set(stone.k, stone);
+    job.report('a', [{ tk: air, ok: true }, { tk: stone, ok: true }]);
+    assert.strictEqual(job.tasks.get(air.k).kind, 'clear');
+    assert.strictEqual(job.tasks.get(stone.k).kind, 'place');
+    // negative control: the report without the planned removal (as before 075) leaves the cell with no task until the next survey (one survey in 210 min on hc1's crews)
+    const job2 = new BuildJob(t, {}); job2.stage = 'prepare'; job2._afterFill = () => {};
+    const air2 = { ...air }; job2.tasks.set(air2.k, air2); job2.report('a', [{ tk: air2, ok: true }]);
+    assert(!job2.tasks.has(air2.k), 'negative control');
+});
+
+test('job: nothing but temporary blocks left: every step is over, every block is due (the end of the build)', async () => {
+    const t = new Target(tiny(), { x: 10, y: 64, z: 10 });
+    const w = new Map(); for (let x = 10; x < 13; x++) for (let z = 10; z < 13; z++) w.set(`${x},64,${z}`, { name: 'stone' });
+    w.set('0,70,0', { name: 'dirt' });
+    const job = new BuildJob(t, {});
+    job.addTemp({ x: 0, y: 70, z: 0 }, 'pillar', 'a', 'dirt'); job.ledger.observe({ x: 0, y: 70, z: 0 }, 'dirt');
+    await job.resurvey(fakeBot(w), 'test');
+    assert(job.tasks.has('0,70,0') && job.stage === 'cleanup', `${job.stage} ${[...job.tasks.keys()]}`);
+});
+
+test('release: the step is over: own blocks in reach and sight are dug, the rest are untemp tasks with the reason; the next stance on the same column keeps the column', async () => {
+    const t = new Target(tiny(), { x: 100, y: 64, z: 100 });
+    const job = new BuildJob(t, {}); job.stage = 'place';
+    const w = new Map(); for (let x = -3; x <= 30; x++) for (let z = -3; z <= 3; z++) w.set(`${x},68,${z}`, { name: 'stone' });
+    const mine = [{ x: 0, y: 69, z: 0 }, { x: 2, y: 69, z: 0 }, { x: 25, y: 69, z: 0 }];          // under the feet (its column), beside it, far away
+    for (const c of mine) { w.set(`${c.x},${c.y},${c.z}`, { name: 'dirt' }); job.addTemp(c, 'pillar', 'a', 'dirt'); job.ledger.observe(c, 'dirt'); }
+    const bot = fakeBot(w, { x: 0.5, y: 70, z: 0.5 });
+    const dug = [];
+    const mv = { unpillar: async () => 0, dig: async (c) => { w.delete(`${c.x},${c.y},${c.z}`); dug.push(`${c.x},${c.y},${c.z}`); return true; }, mine: new Map() };
+    // the next stance is on this same column: the column stays, the rest goes
+    let r = await D.release(job, 'a', bot, mv, { cancelled: false }, { x: 0, y: 72, z: 0 }, 'claim');
+    assert.deepStrictEqual(dug, ['2,69,0'], `dug ${dug}`);
+    assert(job.ledger.has({ x: 0, y: 69, z: 0 }) && !job.ledger.due(job.ledger.get({ x: 0, y: 69, z: 0 })), 'the column serves the next step');
+    assert(job.ledger.due(job.ledger.get({ x: 25, y: 69, z: 0 })) && job.tasks.get('25,69,0').kind === 'untemp', 'out of reach: the crew\'s at once');
+    assert.strictEqual(r, 1);
+    // the next stance is elsewhere: the column is dug as the bot comes down (unpillar); one it cannot come down from is the crew's, with the reason
+    r = await D.release(job, 'a', bot, mv, { cancelled: false }, { x: 5, y: 70, z: 0 }, 'claim');
+    assert.strictEqual(job.ledger.get({ x: 0, y: 69, z: 0 }).lastFail, 'under its placer (no way down)');
+    assert(job.tasks.has('0,69,0'));
+});
+
+test('the flood tells a cell reached on foot from one reached by placing blocks (untemp stances and column tops only on foot)', async () => {
+    const M = require('../src/build/move');
+    const w = new Map(); for (let x = -6; x <= 6; x++) for (let z = -6; z <= 6; z++) w.set(`${x},69,${z}`, { name: 'stone' });
+    for (let y = 70; y <= 73; y++) w.set(`4,${y},0`, { name: 'dirt' });            // a column of four: its top cell 4,74,0 has nothing beside it
+    const v = new M.View(fakeBot(w), { canDig: () => false });
+    const out = {};
+    await M.plan(v, { x: 0, y: 70, z: 0 }, () => false, { x: 0, y: 70, z: 0 }, { temps: 64, flood: true, maxNodes: 4000, out });
+    assert.strictEqual(out.placed.get('2,70,2'), 0, 'ground: on foot');
+    assert(out.best.has('4,74,0') && out.placed.get('4,74,0') > 0, `the column top only by a pillar beside it (${out.placed.get('4,74,0')})`);
+});
+
+(async () => { for (const [name, fn] of queue) { await fn(); n++; console.log(`  ok ${name}`); } console.log(`test_build_temps_pure: ${n} passed`); })().catch((e) => { console.error(e); process.exit(1); });

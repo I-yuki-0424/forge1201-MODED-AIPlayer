@@ -168,6 +168,9 @@ async function main() {
     }
     // the event loop's delay (a blocked loop delays every bot's keep-alive: the ping the owner sees, problem 5)
     const lag = require('perf_hooks').monitorEventLoopDelay({ resolution: 20 }); lag.enable();
+    // temporary blocks around the site before the build (TASK-20261125-075): the end scan counts only cells that hold one now and did not before (natural dirt, pumpkins stay out)
+    const scan0 = scanTemps(bot0(), target, M, [sx, sy, sz], tempNames(target, null));
+    console.log(`[build_t] temp scan before: ${scan0.cells.length} cells of ${[...scan0.names].join(',')} around the site (${scan0.unloaded} not loaded)`);
     const t0 = Date.now(); let state = 'control', job = null, err = null;
     if (!T.CONTROL) {
         try {
@@ -176,7 +179,7 @@ async function main() {
             let last = 0;
             while (Date.now() - t0 < LIMIT_MIN * 60000) {
                 if (job.state === 'finished' || job.state === 'cancelled') { state = job.state; break; }
-                if (Date.now() - last > 60000) { last = Date.now(); const s = job.impl.build.status(); const lagMs = (lag.max / 1e6).toFixed(0), lagP = (lag.percentile(99) / 1e6).toFixed(0); lag.reset(); console.log(`[progress ${Math.round((Date.now() - t0) / 60000)} min] lag max ${lagMs} ms p99 ${lagP} ms stage ${s.stage} right ${s.right}/${s.total} work ${JSON.stringify(s.work)} claimed ${s.claimed} parked ${s.parked} frontier ${s.frontier} time ${JSON.stringify(s.time)} stats ${JSON.stringify(s.stats)}`); }
+                if (Date.now() - last > 60000) { last = Date.now(); const s = job.impl.build.status(); const lagMs = (lag.max / 1e6).toFixed(0), lagP = (lag.percentile(99) / 1e6).toFixed(0); lag.reset(); console.log(`[progress ${Math.round((Date.now() - t0) / 60000)} min] lag max ${lagMs} ms p99 ${lagP} ms stage ${s.stage} right ${s.right}/${s.total} work ${JSON.stringify(s.work)} claimed ${s.claimed} parked ${s.parked} frontier ${s.frontier} time ${JSON.stringify(s.time)} stats ${JSON.stringify(s.stats)} temps ${tempsLine(job.impl.build)}`); }
                 await sleep(2000);
             }
             if (state === 'control') state = 'timeout';
@@ -189,13 +192,63 @@ async function main() {
     const wrongBy = {}; for (const w of wrong) { const k = w.want.replace(/\[.*$/, ''); wrongBy[k] = (wrongBy[k] || 0) + 1; }
     const dynBy = {}; for (const w of dynamic) { const k = w.want.replace(/\[.*$/, ''); dynBy[k] = (dynBy[k] || 0) + 1; }
     const res = job ? job.impl.build.result : null, st = job ? job.impl.build.status() : null;
+    // every temporary block left standing, found by the scan (the server's chunk data as a client holds it) and each given its cause by the job's ledger (a/b/c/d)
+    const temps = tempReport(bot0(), target, M, [sx, sy, sz], job ? job.impl.build : null, scan0);
+    console.log(`[temps] ${JSON.stringify(temps.summary)}`);
+    for (const c of temps.cells.slice(0, 20)) console.log(`  temp ${c.x},${c.y},${c.z} ${c.name} ${c.cause}: ${c.why}`);
     console.log(`[judge] ${J.checked} cells checked; WRONG ${wrong.length} ${JSON.stringify(wrongBy)}; right in what the builder decides but not in what the world decides (power, connections, flows): ${dynamic.length} ${JSON.stringify(dynBy)}; cells in front of pistons in the other phase: ${J.phase.length}`);
-    for (const w of wrong.slice(0, 40)) console.log(`  wrong ${w.at.join(',')} want ${w.want}`);
+    // what each wrong cell holds (a bot's chunks): a temporary block, natural ground, a fluid (hc1 could not tell its 3 000-7 000 wrong air cells apart)
+    const wrongHas = {}; for (const w0 of wrong) { const b = bot0().blockAt(new Vec3(M.x + w0.at[0], M.y + w0.at[1], M.z + w0.at[2]), false); w0.has = b ? b.name : null; const k = `${w0.want.replace(/\[.*$/, '').replace('minecraft:', '')} <- ${w0.has}`; wrongHas[k] = (wrongHas[k] || 0) + 1; }
+    console.log(`[judge] wrong cells by what they hold: ${JSON.stringify(Object.entries(wrongHas).sort((a, b) => b[1] - a[1]).slice(0, 30))}`);
+    for (const w of wrong.slice(0, 40)) console.log(`  wrong ${w.at.join(',')} want ${w.want} has ${w.has}`);
     const pass = controlFails && state === 'finished' && wrong.length === 0;
-    rep.trial(`${parsed.meta.name}${NETHER ? '@nether' : ''}`, pass, { state, err, minutes: Math.round((Date.now() - t0) / 6000) / 10, strict, wrong: wrong.length, wrongBy, wrongCells: wrong.slice(0, 80), dynamic: dynamic.length, dynamicBy: dynBy, dynamicCells: dynamic.slice(0, 40), phaseCells: J.phase.length, controlFails, box: M, size: [sx, sy, sz], chest: C, boxes: boxes.length, result: res, status: st, history: job ? job.impl.build.history : null, seed });
+    rep.trial(`${parsed.meta.name}${NETHER ? '@nether' : ''}`, pass, { state, err, minutes: Math.round((Date.now() - t0) / 6000) / 10, strict, wrong: wrong.length, wrongBy, wrongHas, wrongCells: wrong.slice(0, 80), dynamic: dynamic.length, dynamicBy: dynBy, dynamicCells: dynamic.slice(0, 40), phaseCells: J.phase.length, controlFails, box: M, size: [sx, sy, sz], chest: C, boxes: boxes.length, result: res, status: st, history: job ? job.impl.build.history : null, temps: { ...temps.summary, cells: temps.cells.slice(0, 200) }, seed });
     rep.write({ seed, file: FILE, required: '100 %' });
     await srv.cmd(`forceload remove ${M.x - 16} ${M.z - 16} ${M.x + sx + 16} ${M.z + sz + 16}`);
     await svc.stop(); process.exit(pass ? 0 : 1);
+}
+
+/** The names a temporary block can have on this site: the crew's choices that the blueprint does not use, the operator's TEMP_BLOCK (pumpkins on the test worlds), and every item the ledger saw. */
+function tempNames(target, build) {
+    const out = new Set([...SUP.TEMPS.filter((n) => !target.items.has(n)), ...String(process.env.TEMP_BLOCK || '').split(',').map((x) => x.trim().replace(/^minecraft:/, '')).filter(Boolean)]);
+    if (build && build.ledger) { for (const e of build.ledger.map.values()) out.add(e.item); for (const e of build.ledger.hist.values()) out.add(e.item); }
+    out.delete('unknown');
+    return out;
+}
+
+/** Cells around the box (24 across, 16 up and down) holding one of the temporary-block names, read from a bot's chunks; a box cell whose blueprint has that very block does not count. */
+function scanTemps(bot, target, M, size, names) {
+    const cells = [], R = 24, H = 16; let unloaded = 0;
+    const v = new Vec3(0, 0, 0);
+    for (let x = M.x - R; x < M.x + size[0] + R; x++) for (let z = M.z - R; z < M.z + size[2] + R; z++) for (let y = M.y - H; y < M.y + size[1] + H; y++) {
+        v.x = x; v.y = y; v.z = z; const b = bot.blockAt(v, false);
+        if (!b) { unloaded++; continue; }
+        if (!names.has(b.name)) continue;
+        if (target.inside(x, y, z) && S.bare(target.stateOf(target.idx(x, y, z)).name) === b.name) continue;
+        cells.push({ x, y, z, name: b.name });
+    }
+    return { cells, unloaded, names };
+}
+
+/** The end scan against the one before the build, each cell found classified by the ledger; the ledger's own counts and the most blocks a bot held at once. */
+function tempReport(bot, target, M, size, build, scan0) {
+    const before = new Set(scan0.cells.map((c) => `${c.x},${c.y},${c.z}`));
+    const sc = scanTemps(bot, target, M, size, tempNames(target, build)), cells = [];
+    for (const c of sc.cells) {
+        if (before.has(`${c.x},${c.y},${c.z}`)) continue;
+        const r = build && build.ledger ? build.ledger.classify(c) : { cause: '?', why: 'no ledger' };
+        cells.push({ ...c, ...r });
+    }
+    const table = build && build.ledger ? build.ledger.table(cells) : null, L = build && build.ledger ? build.ledger.status() : null;
+    const inBox = cells.filter((c) => target.inside(c.x, c.y, c.z)).length;
+    return { cells, summary: { left: cells.length, inBox, outside: cells.length - inBox, unloaded: sc.unloaded, names: [...sc.names], table, ledger: L, peakByBot: build && build.ledger ? Object.fromEntries(build.ledger.peakEver) : null } };
+}
+
+/** The ledger's minute for the progress line: blocks standing, due, the most one bot held at once in the last minute (and ever), placements and removals so far. */
+function tempsLine(build) {
+    if (!build || !build.ledger) return '{}';
+    const s = build.ledger.status({ reset: true });
+    return JSON.stringify({ inPlace: s.inPlace, pending: s.pending, due: s.due, kept: s.kept, peak: s.peak, peakEver: s.peakEver, over2: s.over2, placed: s.n.placed, removed: s.n.removed, never: s.n.never, orphaned: s.n.orphaned, failed: s.n.failed, byHow: s.byHow });
 }
 
 /**

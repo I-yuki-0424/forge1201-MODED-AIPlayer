@@ -300,19 +300,22 @@ test('merit: tasks that held count up, failures and empty supply turns down (lis
     job.report('bad', [{ tk: { k: 'c', kind: 'clear' }, ok: false, why: 'x' }]); job.record('bad').empty.push(Date.now());
     assert(job.merit('good') > job.merit('bad'));
 });
-test('temporary blocks for walking become untemp tasks once nobody is on them, in any stage (problem 2)', () => {
+test('temporary blocks: an untemp task only once their step is over, then at once and in any stage, whatever is near (owner list 5 Large 1)', () => {
     const t = new Target(tiny(), { x: 10, y: 64, z: 10 });
     const job = new BuildJob(t, {}); job.stage = 'prepare';
-    job.addTemp({ x: 0, y: 70, z: 0 }, 'pillar', 'a', 'dirt'); job.addTemp({ x: 0, y: 71, z: 0 }, 'pillar', 'a', 'dirt'); job.addTemp({ x: 5, y: 70, z: 5 }, 'bridge', 'a', 'dirt');
-    job.bots.set('a', { station: [{ x: 5, y: 71, z: 5 }], pos: { x: 5, y: 71, z: 5 } });
-    for (const m of job.temps.values()) m.t -= 100000;
-    job._offerTemps(Date.now());
-    assert(job.tasks.has('0,70,0') && job.tasks.has('0,71,0'), 'the pillar nobody stands on');
-    assert(!job.tasks.has('5,70,5'), 'not the block a bot stands on');
+    for (const c of [{ x: 0, y: 70, z: 0 }, { x: 0, y: 71, z: 0 }, { x: 5, y: 70, z: 5 }]) { job.addTemp(c, 'pillar', 'a', 'dirt'); job.ledger.observe(c, 'dirt'); }
+    // placing left all around and the placer next to them: the old rules (work near, a bot within four, ten seconds) kept these
+    job.tasks.set('1,70,1', { k: '1,70,1', kind: 'place', i: -1, x: 1, y: 70, z: 1 });
+    job.bots.set('a', { station: [{ x: 1, y: 71, z: 0 }], pos: { x: 1, y: 71, z: 0 } });
+    job._offerTemps(Date.now(), true);
+    assert(!job.tasks.has('0,70,0') && !job.tasks.has('5,70,5'), 'while the step that placed them goes on they are the placer\'s, not tasks');
+    job.ledger.release('a');
+    job._offerTemps(Date.now(), true);
+    assert(job.tasks.has('0,70,0') && job.tasks.has('0,71,0') && job.tasks.has('5,70,5'), 'released: untemp tasks at once, with placing and the bot beside them');
     const bot = fakeBot(new Map([['0,70,0', { name: 'dirt' }], ['0,71,0', { name: 'dirt' }]]));
     assert(job.ready(job.tasks.get('0,71,0'), bot, Date.now()), 'the top, in the prepare stage');
     assert(!job.ready(job.tasks.get('0,70,0'), bot, Date.now()), 'not under another one');
-    job.dropTemp({ x: 0, y: 71, z: 0 }); assert(!job.tasks.has('0,71,0') && !job.temps.has('0,71,0'));
+    job.dropTemp({ x: 0, y: 71, z: 0 }); assert(!job.tasks.has('0,71,0') && !job.ledger.has({ x: 0, y: 71, z: 0 }));
 });
 test('the display gives every walking bot its share of the path pieces (problem 4)', () => {
     const { framePieces } = require('../src/work/display/overlay');

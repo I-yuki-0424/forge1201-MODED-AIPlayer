@@ -14,6 +14,7 @@ const { seen, eyeOf, boxDist } = require('./world');
 const { View, feet } = require('./move');
 const P = require('./place');
 const RC = require('./recover');
+const { TempLedger } = require('./temps');
 
 const REACH = 4.4;                 // eye to the cell's box (a vanilla client picks within 4.5)
 const WINDOW = 7;                  // (7: what one stance reaches, eye +-4.4, owner list 4 problem 4; 4 held 3 900 cells above the local window, live ha4 w2) layers above the lowest open one that may be placed at the same time (2 left 1.8 tasks per place claim in thin layers, a pillar for each, live 2026-11-23 gc1 w3)
@@ -61,8 +62,10 @@ class BuildJob {
         this.available = opts.available || null;
         this.sealItem = opts.sealItem || 'smooth_stone';
         this.lit = new Set();
-        this.temps = new Map();            // temporary blocks a mover placed ('x,y,z' -> { how: pillar | bridge | temp, by, name, t }); scaffolds (supports for a placement) are apart
-        this.untemps = new Set();          // their untemp tasks: offered in every stage, not only at the end (thousands stood on the site, owner 2026-11-23 problem 2)
+        // every block the crew puts down that is not a blueprint cell, from the click to its removal (temps.js); an entry whose step is over and that its placer could not take
+        // away is an untemp task at once (owner list 5 Large 1: no "still needed")
+        this.ledger = new TempLedger();
+        this.untemps = new Set();          // the untemp tasks
         this.sector = new Map();           // bot -> its share of the box's ground plan (a pit's lane: the same bot works the same piece, owner 2026-11-23 problem 3)
         this.tempItem = opts.tempItem || null;
         this.time = { walk: 0, dig: 0, place: 0, trip: 0, idle: 0, claim: 0, peer: 0 };
@@ -83,9 +86,13 @@ class BuildJob {
             // has it, as the world made it) is filled, or it runs into every cell that is opened next to it (live 2026-11-21 run n5: clearing next to natural lava waited for ever)
             // (once the late stage has poured, fluids stay: a block put back afterwards next to them is placed into a finished basin)
             if (!this.pouredOnce && sv.tasks.some((tk) => STAGE_OF[tk.kind] === 'prepare' || STAGE_OF[tk.kind] === 'place')) for (const tk of sv.kept) sv.tasks.push(tk);
-            // temporary blocks outside the box (pillars, bridges) that still stand: taken away at the end
-            // (inside the box only where the cell is to be empty: elsewhere the survey's own clear-then-place task has it)
-            for (const [k, m] of this.temps) { const [x, y, z] = k.split(',').map(Number); if (this.t.inside(x, y, z) && !this.t.isAir(this.t.idx(x, y, z))) { this.temps.delete(k); continue; } const h = seen(bot, { x, y, z }); if (!h) continue; if (h.name !== (m.name || this.tempItem)) { this.temps.delete(k); continue; } sv.tasks.push({ k, kind: 'untemp', i: -1, x, y, z }); }
+            // temporary blocks whose step is over and that still stand: untemp tasks (inside the box only where the cell is to be empty: elsewhere the survey's own clear-then-place
+            // task has it); the rest belong to a bot's step that is still going on
+            // nothing but temporary blocks left: every step of the build is over, so every block of every bot is due now (a bot's column at the last stance included)
+            if (!sv.tasks.some((tk) => STAGE_OF[tk.kind] === 'prepare' || STAGE_OF[tk.kind] === 'place' || STAGE_OF[tk.kind] === 'late')) for (const e of this.ledger.list((q) => !q.released && !q.orphan && q.how !== 'seal')) { e.released = { at: Date.now(), why: 'the build is done' }; this.ledger.n.released++; }
+            for (const e of this.ledger.list()) { const c = { x: e.x, y: e.y, z: e.z }, h = seen(bot, c); if (e.keep && e.how !== 'seal') e.keep = null; if (h) this.ledger.check(c, h.name); if (!this.ledger.has(c) || !this._offerable(e)) continue; sv.tasks.push({ k: e.k, kind: 'untemp', i: -1, x: e.x, y: e.y, z: e.z }); }
+            // a seal (outside the box) that holds no fluid back any more goes at the end; one that still does is part of the result and is counted as kept (the only kept rule)
+            if (!sv.tasks.some((tk) => STAGE_OF[tk.kind] === 'prepare' || STAGE_OF[tk.kind] === 'place' || STAGE_OF[tk.kind] === 'late')) for (const e of this.ledger.list((q) => q.how === 'seal' && !q.released)) { if (wetAround(bot, e)) this.ledger.keep(e, 'seal: holds a fluid back from the finished box'); else { e.released = { at: Date.now(), why: 'the box is done' }; if (!sv.tasks.some((tk) => tk.k === e.k)) sv.tasks.push({ k: e.k, kind: 'untemp', i: -1, x: e.x, y: e.y, z: e.z }); } }
             for (const tk of sv.tasks) {
                 if (this.parked.has(tk.k)) continue;
                 if (tk.kind !== 'seal' && tk.kind !== 'ignite' && this.available && !this._itemOk(tk)) { this.parked.set(tk.k, `missing_item ${this._itemOf(tk)}`); continue; }
@@ -172,7 +179,9 @@ class BuildJob {
             // any stage; the top of a stack first; never one that holds back a fluid (a temporary block taken away beside the Nether's lava let it run onto the crew: 22 deaths
             // "tried to swim in lava" on two worlds, live 2026-11-23 fz1)
             if (this.tasks.has(key(tk.x, tk.y + 1, tk.z)) && this.tasks.get(key(tk.x, tk.y + 1, tk.z)).kind === 'untemp') return false;
-            return !wetAround(bot, tk);
+            // one that holds a fluid back now is kept by that named rule (counted, looked at again at the next survey), not offered for ever
+            if (wetAround(bot, tk)) { this.ledger.keep(tk, 'holds a fluid back'); if (this.tasks.get(tk.k) === tk) this.tasks.delete(tk.k); this.untemps.delete(tk); return false; }
+            return true;
         }
         // a wrong block dug out of a cell to place (kind clear, `after` place) belongs to the place stage: it was never ready there and held the crew idle for good (live 2026-11-23 fx1 w1)
         if (STAGE_OF[tk.kind] !== this.stage && !(tk.after && STAGE_OF[tk.after] === this.stage)) {
@@ -184,8 +193,8 @@ class BuildJob {
         if (this.relaxed) return !(tk.kind === 'clear' && [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]].some(([dx, dy, dz]) => { const h = seen(bot, { x: tk.x + dx, y: tk.y + dy, z: tk.z + dz }); return h && (h.name === 'water' || h.name === 'lava' || h.props.waterlogged === 'true'); }));
         if (tk.kind === 'scaffold') return true;
         if (tk.kind === 'clear') {
-            // a scaffold stays while a block beside it still waits to be placed against it
-            if (this.scaffolds && this.scaffolds.has(tk.k) && [[0, 1, 0], [0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]].some(([dx, dy, dz]) => { const o = this.tasks.get(key(tk.x + dx, tk.y + dy, tk.z + dz)); return o && o.kind === 'place'; })) return false;
+            // a scaffold stays until the block it was put there for stands (its lifetime, _scaffoldServed), not while any block beside it waits
+            if (this.scaffoldFor && this.scaffoldFor.has(tk.k)) return false;
             // natural leaves fall by themselves once the logs near them are gone (a player cuts the trunk, not the crown): they wait while a log stands within six
             const here = seen(bot, tk);
             if (here && /_leaves$/.test(here.name) && here.props.persistent !== 'true' && this._logNear(bot, tk)) return false;
@@ -332,8 +341,8 @@ class BuildJob {
             if (this.parked.has(k)) continue;
             if (this.tasks.has(k)) { if (this.tasks.get(k).kind === 'scaffold') return false; continue; }
             if (this.t.inside(c.x, c.y, c.z) && !this.t.isAir(this.t.idx(c.x, c.y, c.z))) continue;
-            const s = { k, x: c.x, y: c.y, z: c.z, i: -1, kind: 'scaffold' };
-            this.tasks.set(k, s);
+            const s = { k, x: c.x, y: c.y, z: c.z, i: -1, kind: 'scaffold', for: tk.k };
+            this.tasks.set(k, s); (this.scaffoldFor || (this.scaffoldFor = new Map())).set(k, tk.k);          // its lifetime: until that block stands (or is parked)
             const bk = `${Math.floor(c.x / 8)},${Math.floor(c.y / 8)},${Math.floor(c.z / 8)}`; (this.buckets.get(bk) || this.buckets.set(bk, []).get(bk)).push(s);
             this.log(`scaffold at ${k} for ${tk.kind} ${tk.k} (${S.bare(this.t.wantOf(tk).name)})`);
             return true;
@@ -434,47 +443,46 @@ class BuildJob {
         };
     }
 
-    // ---- temporary blocks -----------------------------------------------------------------------------------------------------------------------------------------------------
+    // ---- temporary blocks (temps.js: the ledger) ---------------------------------------------------------------------------------------------------------------------------
 
-    /** A mover placed a temporary block (a pillar or bridge for walking; its own pillar it digs down itself when it leaves, the rest becomes an untemp task once nobody uses it). */
-    addTemp(c, how, by, name) { if (this.t.inside(c.x, c.y, c.z) && !this.t.isAir(this.t.idx(c.x, c.y, c.z))) return; this.temps.set(key(c.x, c.y, c.z), { how, by, name, t: Date.now() }); }
-    dropTemp(c) { const k = key(c.x, c.y, c.z); this.temps.delete(k); const tk = this.tasks.get(k); if (tk && tk.kind === 'untemp') { this.tasks.delete(k); this.untemps.delete(tk); } }
-
-    /**
-     * Temporary blocks nobody stands on or above any more (no bot's body, stance or claim in their column) become untemp tasks after a few seconds, in any stage: walking blocks are not
-     * kept (owner 2026-11-23: pillars and bridges for moving need no reuse). Scaffolds, the supports a placement needs, are not temps and stay while a block waits against them.
-     */
-    _offerTemps(now, bot = null) {
-        if (now - (this._offerAt || 0) < 3000 || !this.temps.size) return;
-        this._offerAt = now;
-        const cols = []; for (const b of this.bots.values()) { if (b.pos) cols.push(b.pos); if (b.station) cols.push(b.station[0]); }
-        let workB = null;          // 4-cell buckets that still hold placing (built at the first temporary block that asks)
-        if (bot) for (const p of Object.values(bot.players || {})) if (p && p.entity && this.bots.has(p.username)) { const q = p.entity.position; cols.push({ x: Math.floor(q.x), y: Math.floor(q.y + 0.16), z: Math.floor(q.z) }); }
-        for (const [k, m] of this.temps) {
-            if (this.tasks.has(k)) continue;
-            const [x, y, z] = k.split(',').map(Number);
-            // a scaffold stays while a block beside it waits to be placed against it
-            if (m.how === 'scaffold' && [[0, 1, 0], [0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]].some(([dx, dy, dz]) => { const o = this.tasks.get(key(x + dx, y + dy, z + dz)); return o && o.kind === 'place'; })) continue;
-            // kept while the crew uses it (someone on it within 90 s): a bridge between the chest and the site taken away after each crossing was built again by the next bot,
-            // 2 230 times on one Nether world (live 2026-11-23 fz3 w6)
-            if (cols.some((p) => Math.abs(p.x - x) <= 0 && Math.abs(p.z - z) <= 0 && p.y > y && p.y <= y + 80)) { m.used = now; continue; }
-            // and while a bot is near it (four cells, about its height): a bridge dug beside a bot that was still walking it dropped the bot 25 blocks (live 2026-11-23 ha4 w4)
-            if (cols.some((p) => Math.abs(p.x - x) <= 4 && Math.abs(p.z - z) <= 4 && p.y >= y - 1 && p.y <= y + 5)) { m.used = now; continue; }
-            // taken away soon after the last use (owner 2026-11-23 list 4 problem 8: walking blocks are not worth keeping; with one supply trip per area the chest crossing is rare)
-            if (now - Math.max(m.t, m.used || 0) < 10000) continue;
-            // but not while placing is left around it: taken down after every stance, columns 25 high were built again for the next one and most claims were taking blocks
-            // away (64-84 claims a minute, 2-5 of them placing; falls of 25 from digging in mid-air, live 2026-11-24 ha21 w4)
-            if (!workB) { workB = new Set(); for (const t of this.tasks.values()) if ((t.kind === 'place' || t.kind === 'scaffold') && !this.parked.has(t.k)) workB.add(`${t.x >> 2},${t.y >> 2},${t.z >> 2}`); }
-            { let near = false; for (let a = -1; a <= 1 && !near; a++) for (let b2 = -1; b2 <= 1 && !near; b2++) for (let c2 = -1; c2 <= 0 && !near; c2++) if (workB.has(`${(x >> 2) + a},${(y >> 2) + c2},${(z >> 2) + b2}`)) near = true; if (near) { m.used = now; continue; } }
-            const tk = { k, kind: 'untemp', i: -1, x, y, z };
-            this.tasks.set(k, tk); this.untemps.add(tk);
+    /** A bot is about to put a temporary block at c (registered before the click): `how` pillar | bridge | scaffold | fill | seal | escape. */
+    addTemp(c, how, by, item) { return this.ledger.intend(c, item || this.tempItem || 'unknown', how, by); }
+    /** The block at c was taken away (by whoever): its entry ends, its untemp task too. */
+    dropTemp(c) { const k = key(c.x, c.y, c.z); this.ledger.removed(c); const tk = this.tasks.get(k); if (tk && tk.kind === 'untemp') { this.tasks.delete(k); this.untemps.delete(tk); } }
+    /** The placer died or left: every block of it is the crew's untemp task at once (owner list 5 Large 1, point 4). */
+    orphanOf(name, why) { const l = this.ledger.orphan(name, why); if (l.length) { this.log(`${name} ${why}: its ${l.length} temporary blocks are the crew's to take away`); this._offerTemps(Date.now(), true); } return l.length; }
+    /** A scaffold's block stands (or it was parked): the scaffold has served. */
+    _scaffoldServed(k, why) {
+        for (const [sk, fk] of this.scaffoldFor || []) {
+            if (fk !== k) continue;
+            this.scaffoldFor.delete(sk);
+            const [x, y, z] = sk.split(',').map(Number), e = this.ledger.get({ x, y, z });
+            if (e && !e.released) { e.released = { at: Date.now(), why }; this.ledger.n.released++; }
         }
     }
 
-    /** Is there placing left around cell c (five cells across, four down to three up), so that a temporary block there still serves? */
-    workNear(c) {
-        for (let dx = -5; dx <= 5; dx++) for (let dz = -5; dz <= 5; dz++) for (let dy = -4; dy <= 3; dy++) { const t = this.tasks.get(key(c.x + dx, c.y + dy, c.z + dz)); if (t && (t.kind === 'place' || t.kind === 'scaffold') && !this.parked.has(t.k)) return true; }
-        return false;
+    /**
+     * Is ledger entry e an untemp task now? Its step is over (or its placer gone) and nothing but its removal is left: not a fill (its cell's own clear or place task digs it, with the
+     * fluid rule), not in a blueprint cell that is to hold a block (that cell's place task digs it out first), not kept by the named rule.
+     */
+    _offerable(e) {
+        if (!this.ledger.due(e) || e.how === 'fill') return false;
+        if (this.t.inside(e.x, e.y, e.z) && !this.t.isAir(this.t.idx(e.x, e.y, e.z))) return false;
+        return true;
+    }
+
+    /**
+     * Every temporary block whose step is over and that its placer did not take away is an untemp task at once, in any stage. No block is kept because someone might use it again,
+     * because a bot is near, or because placing is left around it (owner list 5 Large 1: those rules kept 500-1 700 blocks per crew queued at the end of hc1).
+     */
+    _offerTemps(now, force = false) {
+        if (!force && now - (this._offerAt || 0) < 1000) return;
+        this._offerAt = now;
+        for (const e of this.ledger.list()) {
+            if (this.tasks.has(e.k) || this.parked.has(e.k) || !this._offerable(e)) continue;
+            const tk = { k: e.k, kind: 'untemp', i: -1, x: e.x, y: e.y, z: e.z };
+            this.tasks.set(e.k, tk); this.untemps.add(tk);
+        }
     }
 
     /** Park the place tasks that need items the supply is out of (tried again next round). */
@@ -577,7 +585,7 @@ class BuildJob {
     claim(bot, name, now = Date.now(), has = () => Infinity, skip = () => false) {
         const me = feet(bot), others = [...this.bots.entries()].filter(([n, b]) => n !== name && b.station).map(([, b]) => b.station[0]);
         const ready = [], G = 8; let scanned = 0;
-        this._offerTemps(now, bot);
+        this._offerTemps(now);
         const sec = this.sectorOf(name), inSec = (tk) => tk.x >= sec.x0 && tk.x <= sec.x1 && tk.z >= sec.z0 && tk.z <= sec.z1;
         // bots at work per area (by their stances): an area with PER_SECTOR of them takes no more helpers (owner 2026-11-23 list 4 problem 7)
         const busy = new Map(); for (const o of others) { const si = this.sectorAt(o.x, o.z); if (si >= 0) busy.set(si, (busy.get(si) || 0) + 1); }
@@ -588,7 +596,7 @@ class BuildJob {
         for (const tk of [...this.untemps]) {
             if (this.tasks.get(tk.k) !== tk) { this.untemps.delete(tk); continue; }
             if (this.claims.has(tk.k) || Math.hypot(tk.x - me.x, tk.y - me.y, tk.z - me.z) > 24) continue;
-            if (this._already(tk, bot)) { this.tasks.delete(tk.k); this.untemps.delete(tk); this.temps.delete(tk.k); continue; }
+            if (this._already(tk, bot)) { this.tasks.delete(tk.k); this.untemps.delete(tk); this.ledger.check(tk, 'air'); continue; }
             if (this.ready(tk, bot, now)) ready.push(tk);
         }
         const lo = this.stage === 'place' ? this.frontier : -Infinity, hi = this.stage === 'place' ? this.frontierMax + this.win() : Infinity;
@@ -658,10 +666,9 @@ class BuildJob {
         // within six cells costs as much as ten layers; temporary blocks near the bot go first (they are in someone's way)
         const seedScore = (tk) => {
             const d = Math.hypot(tk.x - me.x, tk.y - me.y, tk.z - me.z);
-            // near the bot now (six cells): taken at once, between the real work (kept for after it, they stood on the site to the end: owner 2026-11-23 V4)
-            // (within three: at six, walks to take one block each were most claims and walking 65 % of bot time, live 2026-11-23 ha10 w3)
-            // (as a placing at the same distance, not before every placing: at 1 500 a crew with 1 080 of them took four placing claims a minute, ha26 w4)
-            if (tk.kind === 'untemp') return d <= 3 ? 2000 + tk.y + d * 2 : 2600 + d * 2;          // after the real work, always (at -3000 the crew gathered on every leftover pillar, owner 2026-11-23; even beside the bot it took most claims from placing, ge1 w3)
+            // a temporary block whose step is over ranks as a placing at the same distance; the bot's own (its placer could not take it from the stance) first (owner list 5
+            // Large 1: it goes before the bot starts unrelated work); with no block kept by a "still needed" rule there are few of them (hc1: 500-1 700 queued per crew)
+            if (tk.kind === 'untemp') { const e = this.ledger.get(tk), dv0 = Math.hypot(tk.x - me.x, (tk.y - me.y) * 2, tk.z - me.z); return 2000 + tk.y + dv0 * 2 + crowd(tk) * 30 - (e && e.by === name ? 300 : 0); }
             // a cell that found no stance a moment ago goes after every other one (the same twelve stance-less cells were the only seeds tried, 38 empty claims a minute with
             // 290 doable cells, live 2026-11-23 ha7 w3)
             // placing: the nearest cell first, a climb counting double, the layer only a little (the local window keeps the order): at three points a layer against 0.6 a cell,
@@ -686,6 +693,7 @@ class BuildJob {
         // seeds until one has a stance, within a quarter second (three seeds and five stances each left bots idle with hundreds of ready tasks: the best-ranked stances were inside
         // rock, where the line of sight is blocked, live 2026-11-22 sV)
         const t0 = Date.now(); let outOfReach = 0, probe = null;
+        const own0 = this.ledger.get({ x: me.x, y: me.y - 1, z: me.z }), onOwnCol = !!own0 && own0.by === name && own0.how === 'pillar';
         // bridges that turn: per level L, the distance (bridge cells) from anything a bot can stand on at that level to each free cell at L, over free cells with room for the
         // body above (one breadth-first search per level and claim, 40 around the first stance asked); a stance in the air at L + 1 is supported when it is reached
         const bms = new Map();
@@ -750,7 +758,8 @@ class BuildJob {
                     }
                 }
                 // a temporary block is taken away only from where the bot can stand now: a new pillar to reach an old one made pillars without end (owner 2026-11-23)
-                if (seed.kind === 'untemp' && !standing) { rej.unsupported++; continue; }
+                // (nor a standing cell the way to which places blocks: the same treadmill one step removed, owner list 5 Large 1)
+                if (seed.kind === 'untemp' && (!standing || (fl && (fl.placed && fl.placed.get(key(f.x, f.y, f.z))) > 0))) { rej.unsupported++; continue; }
                 if (lonely && (standing || dug || wet || Math.abs(f.x - seed.x) + Math.abs(f.y - 1 - seed.y) + Math.abs(f.z - seed.z) !== 1)) { rej.nothingToClick++; continue; }
                 const eye = eyeOf({ x: f.x + 0.5, y: f.y, z: f.z + 0.5 });
                 if (boxDist(eye, seed) > this.o.reach) { rej.far++; continue; }
@@ -758,7 +767,10 @@ class BuildJob {
                 const guess = Math.hypot(f.x - me.x, f.y - me.y, f.z - me.z) * 0.08 + (standing || ownCol ? 0 : 10 + 3 * h) + (dug ? 20 : 0);
                 // a stance on temporary blocks more than one high ranks below every stance on the ground, on the build, or on one block (owner 2026-11-23 V11)
                 const tall = !standing && !ownCol && h > 1 ? 15 + 4 * h : 0;
-                cands.push({ f, standing, dug, reach, score: reach.length - tall - (fc !== undefined ? fc * 0.1 : guess + (fl ? 10 : 0)) });
+                // on its own column now: a stance on that same column is its next step (the column serves on, dug down to that height if lower); any other stance means the column
+                // is dug down first, so the work around the column is taken while the bot is on it, as a player does (owner list 5 Large 1: no column is kept for later)
+                const sameCol = onOwnCol && f.x === me.x && f.z === me.z ? 8 : 0;
+                cands.push({ f, standing, dug, reach, score: reach.length - tall + sameCol - (fc !== undefined ? fc * 0.1 : guess + (fl ? 10 : 0)) });
             }
             cands.sort((a, b) => b.score - a.score);
             for (const c of cands.slice(0, 12)) {
@@ -774,9 +786,11 @@ class BuildJob {
             }
             // a temporary block at the top of a column with no stance beside it: the bot climbs onto it and digs the column down under itself (1 080 of them waited at the
             // end of the best run, most with every stance unsupported, ha26 w4)
+            // only when the top is reached on foot: a top reached by a new pillar beside it left that pillar for the next bot, which climbed a third to dig it (in the tail of
+            // hc1 the crews placed 1 200-3 700 new temporary blocks an hour while they took as many away and placed 0-530 blueprint blocks: owner list 5 Large 1)
             if (!best && seed.kind === 'untemp' && view.fits(seed.x, seed.y + 1, seed.z) && !blocked(seed.x, seed.y + 1, seed.z) && !(inReach && !inReach({ x: seed.x, y: seed.y + 1, z: seed.z }))) {
-                const f = { x: seed.x, y: seed.y + 1, z: seed.z }, fc2 = fl ? fl.cost.get(key(f.x, f.y, f.z)) : undefined;
-                if (!(fl && fl.complete && fc2 === undefined)) { best = { f, batch: [{ ...seed, way: true, descend: true }] }; }
+                const f = { x: seed.x, y: seed.y + 1, z: seed.z }, fk = key(f.x, f.y, f.z), fc2 = fl ? fl.cost.get(fk) : undefined;
+                if (fl && fc2 !== undefined && !((fl.placed && fl.placed.get(fk)) > 0)) { best = { f, batch: [{ ...seed, way: true, descend: true }] }; }
             }
             if (!best) {
                 // stances the model calls unsupported: the nearest three are given to the planner (drive.js) before the cell is counted against
@@ -972,7 +986,7 @@ class BuildJob {
             this.claims.delete(tk.k);
             if (ok && tk.after) { const o = this.tasks.get(tk.k); if (o) { o.kind = tk.after; delete o.after; this.cool.set(tk.k, now + 500); } this.stats.cleared++; continue; }
             if (ok && tk.kind === 'place') { const it = this._itemOf(tk); if (it) { const u = this.used || (this.used = new Map()); (u.get(name) || u.set(name, new Map()).get(name)).set(it, now); } }
-            if (ok) { this.tasks.delete(tk.k); this.stats[{ seal: 'sealed', fill: 'filled', clear: 'cleared', scaffold: 'scaffolds', place: 'placed', fix: 'fixed', pour: 'poured', ignite: 'lit', untemp: 'untemp' }[tk.kind]]++; if (tk.kind === 'untemp') this.temps.delete(tk.k); if (tk.kind === 'scaffold') { (this.scaffolds = this.scaffolds || new Set()).add(tk.k); if (!this.t.inside(tk.x, tk.y, tk.z)) this.temps.set(tk.k, { how: 'scaffold', by: name, name: this.tempItem, t: now }); } if (tk.kind === 'fill' || tk.kind === 'seal') this.fluidLeft = [...this.tasks.values()].some((q) => q.kind === 'fill' || q.kind === 'seal'); if (tk.kind === 'place' || tk.kind === 'fix' || tk.kind === 'clear') this._lowered(tk); continue; }
+            if (ok) { this.tasks.delete(tk.k); this.stats[{ seal: 'sealed', fill: 'filled', clear: 'cleared', scaffold: 'scaffolds', place: 'placed', fix: 'fixed', pour: 'poured', ignite: 'lit', untemp: 'untemp' }[tk.kind]]++; if (tk.kind === 'untemp') this.ledger.check(tk, 'air'); if (tk.kind === 'scaffold') (this.scaffolds = this.scaffolds || new Set()).add(tk.k); if (tk.kind === 'place') this._scaffoldServed(tk.k, 'its block stands'); if (tk.kind === 'fill') this._afterFill(tk); if (tk.kind === 'fill' || tk.kind === 'seal') this.fluidLeft = [...this.tasks.values()].some((q) => q.kind === 'fill' || q.kind === 'seal'); if (tk.kind === 'place' || tk.kind === 'fix' || tk.kind === 'clear') this._lowered(tk); continue; }
             if (why === 'skipped') {
                 // skipped over and over (out of reach, its own floor, no item at hand) counts as a failure in the end: a task skipped for ever held a stage (live 2026-11-22)
                 const sk = (this.skips.get(tk.k) || 0) + 1; this.skips.set(tk.k, sk);
@@ -987,8 +1001,20 @@ class BuildJob {
             if (n >= MAX_FAILS) { this._park(tk, why || 'failed'); this.tasks.delete(tk.k); this.log(`parked ${tk.kind} ${tk.k} after ${n} tries: ${why}`); this._frontier(); }
         }
     }
-    /** Park a task (it waits; `_revive` brings it back while the build runs). */
-    _park(tk, why) { this.parked.set(tk.k, why); (this.parkedTk || (this.parkedTk = new Map())).set(tk.k, { tk, at: Date.now() }); }
+    /**
+     * A fill is a temporary block in a box cell (owner list 5 Large 1, point 5: water countermeasures that are not the result are temporary): its removal is planned with it. The cell
+     * gets its own work back at once: cleared where the blueprint has air (or a fluid, poured later), its block placed (after the fill is dug out) where it has one. Without this the
+     * fill stood until the next survey, and an Overworld crew surveyed once in 210 minutes (hc1).
+     */
+    _afterFill(tk) {
+        if (!(tk.i >= 0)) return;
+        const wn = S.bare(this.t.wantOf(tk).name), kind = S.AIR.has(wn) || S.FLUIDS.has(wn) ? 'clear' : 'place';
+        const nt = { k: tk.k, i: tk.i, x: tk.x, y: tk.y, z: tk.z, kind };
+        this.tasks.set(tk.k, nt);
+        const bk = `${Math.floor(tk.x / 8)},${Math.floor(tk.y / 8)},${Math.floor(tk.z / 8)}`; (this.buckets.get(bk) || this.buckets.set(bk, []).get(bk)).push(nt);
+    }
+    /** Park a task (it waits; `_revive` brings it back while the build runs). A scaffold that was there for it has served. */
+    _park(tk, why) { if (tk.kind === 'place') this._scaffoldServed(tk.k, 'its block was parked'); this.parked.set(tk.k, why); (this.parkedTk || (this.parkedTk = new Map())).set(tk.k, { tk, at: Date.now() }); }
 
     /**
      * Parked cells (no stance, failed) back into the work once they have waited REVIVE_MS and the crew finds nothing ready: the build has changed around them since (a support stands,
@@ -1039,7 +1065,7 @@ class BuildJob {
     status() {
         const by = {}; for (const tk of this.tasks.values()) by[tk.kind] = (by[tk.kind] || 0) + 1;
         const last = this.history[this.history.length - 1];
-        return { stage: this.done ? 'done' : this.stage, time: Object.fromEntries(Object.entries(this.time).map(([k, v]) => [k, Math.round(v / 1000)])), work: by, claimed: this.claims.size, parked: this.parked.size, right: last ? last.right : 0, total: this.t.n, stats: this.stats, frontier: Number.isFinite(this.frontier) ? this.frontier - this.t.box.y : null, result: this.result };
+        return { temps: this.ledger.status(), stage: this.done ? 'done' : this.stage, time: Object.fromEntries(Object.entries(this.time).map(([k, v]) => [k, Math.round(v / 1000)])), work: by, claimed: this.claims.size, parked: this.parked.size, right: last ? last.right : 0, total: this.t.n, stats: this.stats, frontier: Number.isFinite(this.frontier) ? this.frontier - this.t.box.y : null, result: this.result };
     }
 }
 

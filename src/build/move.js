@@ -3,7 +3,9 @@
 // gap on one, break what is in the way, dig down), and their execution with the bot's own physics and inputs (look, forward, jump, sneak, a click, a dig). Every move is
 // checked against where the server puts the bot; a move that does not end where planned ends the run, the caller plans again.
 // The world: the bot's view, with `rules`: canDig(x, y, z, block) (never a built cell of the box, a container, next to a fluid ...), temp() (the item for temporary blocks
-// or null), onTemp(cell) (a temporary block was placed there: the caller removes it later).
+// or null), onTemp(cell, how, item) (a temporary block is about to be placed there: registered before the click, the caller's ledger confirms it), onUntemp(cell) (this mover dug
+// one), onTempFail(cell, why) (a removal that did not work), ownTemp(x, y, z) (the bot's own by the ledger). The mover digs its own pillar as it leaves it and a bridge block
+// behind it as it goes; nothing is kept for a later step (owner list 5 Large 1).
 const { Vec3 } = require('vec3');
 const P = require('./place');
 const V = require('./vanilla');
@@ -188,7 +190,7 @@ function lavaCache(bot) {
  * `temps`: how many temporary blocks the plan may use.
  */
 async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = null, budgetMs = 4000, lavaCost = 0, maxDrop = 4, flood = false, out = null } = {}) {
-    const open = new Heap(), best = new Map();
+    const open = new Heap(), best = new Map(), placed = flood ? new Map() : null;          // (flood: the temporary blocks the best way to each cell places)
     // height to gain costs about a pillar step each (a weaker estimate searched whole hillsides before climbing 17 blocks to a tree top, live 2026-11-22)
     // weighted (a quicker search, a little longer way): a goal in the air is reached over a bridge at ten times a walk's cost, which an estimate at walking cost hid: the search
     // filled 30 000 cells of a Nether cliff and never bridged out to the site (owner 2026-11-23, problem 4 of list 2)
@@ -204,7 +206,7 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
     while (open.size && n++ < maxNodes) {
         // a long search gives the event loop back after 25 ms of its own time and ends after `budgetMs` of it (by node counts, a slice beside the Nether's lava, where every cell
         // looks at 78 others, held all eight bots for 1.5-6 s: ping, owner 2026-11-23 problem 5; a synchronous search froze the work console for 25 s, live 2026-11-22)
-        if (n % 32 === 0 && Date.now() - slice > 25) { spent += Date.now() - slice; if (spent > budgetMs) { plan.last = { why: 'time', nodes: n, best, closest }; if (out) Object.assign(out, plan.last); return null; } await new Promise((r) => setImmediate(r)); slice = Date.now(); }
+        if (n % 32 === 0 && Date.now() - slice > 25) { spent += Date.now() - slice; if (spent > budgetMs) { plan.last = { why: 'time', nodes: n, best, placed, closest }; if (out) Object.assign(out, plan.last); return null; } await new Promise((r) => setImmediate(r)); slice = Date.now(); }
         const c = open.pop();
         // the cell closest to the estimate's point (for the log: where a failed search got stuck)
         { const d = Math.abs(c.x - h.x) + Math.abs(c.y - h.y) * 1.5 + Math.abs(c.z - h.z); if (!closest || d < closest.d) closest = { x: c.x, y: c.y, z: c.z, d, t: c.t, g: Math.round(c.g) }; }
@@ -229,7 +231,7 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
             if (t > temps) return;
             const g = c.g + cost + extraCost, k = key(x, y, z);
             if (g >= (best.get(k) ?? Infinity)) return;
-            best.set(k, g);
+            best.set(k, g); if (placed) placed.set(k, t);
             open.push({ x, y, z, g, f: g + hh(x, y, z), t, p: c, move, ...extra });
         };
         const headFree = view.free(c.x, c.y + 2, c.z);
@@ -289,7 +291,7 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
         if (view.diggable(c.x, c.y - 1, c.z) && view.stands(c.x, c.y - 2, c.z)) add(c.x, c.y - 1, c.z, COST.drop + view.digTicks(c.x, c.y - 1, c.z), 'down', { dig: [{ x: c.x, y: c.y - 1, z: c.z }] });
     }
     // searched out: every cell the bot can get to from here (the caller offers it only stances among them)
-    plan.last = { why: open.size ? 'nodes' : 'no more cells', nodes: n, region: open.size ? null : best, best, closest };
+    plan.last = { why: open.size ? 'nodes' : 'no more cells', nodes: n, region: open.size ? null : best, best, placed, closest };
     if (out) Object.assign(out, plan.last);
     return null;
 }
@@ -329,10 +331,10 @@ class Mover {
         if ((this.mineHow && this.mineHow.get(k)) !== 'bridge' || !this.mine.has(k)) return false;
         if (route.slice(i).some((q) => q.x === c.x && q.z === c.z && q.y - 1 === c.y)) return false;
         const v = this.view();
-        if (!v.free(c.x, c.y - 1, c.z)) return false;                          // over ground it is a step, not a bridge: left to the crew
+        // (over ground too: "a step, left to the crew" was a block no step ever released, owner list 5 Large 1)
         if (this.rules.mayDig && !this.rules.mayDig(c.x, c.y, c.z)) return false;
         if ([[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]].some(([dx, dy, dz]) => { const q = v.raw(c.x + dx, c.y + dy, c.z + dz); return q && (q.name === 'water' || q.name === 'lava'); })) return false;
-        if (!(await this.dig(c))) return false;
+        if (!(await this.dig(c))) { if (this.rules.onTempFail) this.rules.onTempFail(c, 'bridge behind: the dig failed'); return false; }
         this.mine.delete(k); this.mineHow.delete(k); if (this.rules.onUntemp) this.rules.onUntemp(c);
         return true;
     }
@@ -352,8 +354,11 @@ class Mover {
         return r ? r.length : null;
     }
 
-    /** A temporary block this mover put at c (`how`: pillar, bridge, temp): its own, taken down by unpillar() when it leaves; the caller is told (onTemp) for the rest. */
-    _temp(c, how) { const b = this.bot.blockAt(new Vec3(c.x, c.y, c.z), false); this.mine.set(key(c.x, c.y, c.z), b ? b.name : null); (this.mineHow || (this.mineHow = new Map())).set(key(c.x, c.y, c.z), how); if (this.rules.onTemp) this.rules.onTemp(c, how); }
+    /**
+     * A temporary block this mover is about to put at c (`how`: pillar, bridge), registered BEFORE the click: the caller's ledger (onTemp) confirms it from the server's block update,
+     * however late it comes (registered only when the block showed within the bot's short wait, a late placement was nobody's: owner list 5 Large 1, cause a).
+     */
+    _temp(c, how, item) { this.mine.set(key(c.x, c.y, c.z), item); (this.mineHow || (this.mineHow = new Map())).set(key(c.x, c.y, c.z), how); if (this.rules.onTemp) this.rules.onTemp(c, how, item); }
 
     /**
      * Standing on its own pillar and going somewhere else: dig it down from the top, a block at a time (one-block falls, no damage), as a player does, before the walk. A pillar left
@@ -364,13 +369,12 @@ class Mover {
         let n = 0;
         while (n < 80 && !cancel.cancelled) {
             // (any: every temporary block of the crew, rules.isTemp; a column nobody could take down from beside its top is dug down from on it)
-            const f = feet(this.bot), k = key(f.x, f.y - 1, f.z), name = this.mine.has(k) ? this.mine.get(k) : (any && this.rules.isTemp && this.rules.isTemp(f.x, f.y - 1, f.z) ? null : undefined);
+            // its own: this mover's, or the bot's by the ledger (a column an escape or an earlier mover of the same bot put up)
+            const f = feet(this.bot), k = key(f.x, f.y - 1, f.z), name = this.mine.has(k) ? this.mine.get(k) : ((any || (this.rules.ownTemp && this.rules.ownTemp(f.x, f.y - 1, f.z))) && this.rules.isTemp && this.rules.isTemp(f.x, f.y - 1, f.z) ? null : undefined);
             if (name === undefined || goal(f.x, f.y, f.z)) break;
-            // only a next stance on this same column keeps the pillar: one left for a stance beside its top became a column the crew never took down (owner 2026-11-23,
-            // visual check V4: columns stood beside every unit)
+            // only the next step on this same column keeps the pillar (dug down to its height when that is lower): one left for a stance beside its top became a column the crew
+            // never took down (owner 2026-11-23 V4); "a next stance near it at about its height" kept columns for stances that never came (owner list 5 Large 1: removed)
             if (to && to.x === f.x && to.z === f.z && to.y >= f.y - 1) break;
-            // nor a next stance near it at about its height (a bridge or a step from its top: climbing down and up again for each stance was most of the crews' time, ha21)
-            if (to && Math.abs(to.x - f.x) <= 5 && Math.abs(to.z - f.z) <= 5 && Math.abs(to.y - f.y) <= 3) break;
             const b = this.bot.blockAt(new Vec3(f.x, f.y - 1, f.z), false);
             if (!b || (name && b.name !== name)) { this.mine.delete(k); break; }
             const v = this.view();
@@ -378,7 +382,7 @@ class Mover {
             if ([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => { const q = v.raw(f.x + dx, f.y - 1, f.z + dz); return q && (q.name === 'water' || q.name === 'lava'); })) break;      // it holds back a fluid
             // never a block another bot's route stands on (a bot climbed down its pillar while another walked across its top: falls of 25, live 2026-11-24 ha22 w1)
             if (this.rules.mayDig && !this.rules.mayDig(f.x, f.y - 1, f.z)) break;
-            if (!(await this.dig({ x: f.x, y: f.y - 1, z: f.z }))) break;
+            if (!(await this.dig({ x: f.x, y: f.y - 1, z: f.z }))) { if (this.rules.onTempFail) this.rules.onTempFail({ x: f.x, y: f.y - 1, z: f.z }, 'unpillar: the dig failed'); break; }
             this.mine.delete(k); if (this.rules.onUntemp) this.rules.onUntemp({ x: f.x, y: f.y - 1, z: f.z });
             for (let i = 0; i < 20 && feet(this.bot).y > f.y - 1; i++) await sleep(50);
             n++;
@@ -423,7 +427,7 @@ class Mover {
         const temps = t ? this.bot.inventory.items().filter((i) => i.name === t).reduce((a, i) => a + i.count, 0) : 0;
         const l = {};          // its own record: plan.last is shared by every bot's searches in this process
         await plan(view, start, () => false, start, { maxNodes, temps, budgetMs, maxDrop: (this.bot.health || 0) >= 16 ? 6 : 4, flood: true, out: l });
-        return { from: key(start.x, start.y, start.z), cost: l.best || new Map(), complete: !!l.region, at: Date.now() };
+        return { from: key(start.x, start.y, start.z), cost: l.best || new Map(), placed: l.placed || new Map(), complete: !!l.region, at: Date.now() };
     }
     /** The last moves and digs (kept for a death's report). */
     note(what) { const p = this.bot.entity && this.bot.entity.position; this.trace.push(`${new Date().toISOString().slice(11, 19)} ${what}${p ? ` @${p.x.toFixed(1)},${p.y.toFixed(1)},${p.z.toFixed(1)}` : ''}`); if (this.trace.length > 14) this.trace.shift(); }
@@ -532,19 +536,6 @@ class Mover {
         if (sneak && !keepSneak) { b.setControlState('sneak', false); await sleep(60); }
     }
 
-    /** Place the temporary block into cell c from where the bot stands (a face of a neighbour it sees). */
-    async placeTemp(c) {
-        const item = this.rules.temp();
-        if (!item || !(await this.hold(item))) return false;
-        const world = P.botWorld(this.bot), me = feet(this.bot);
-        const st = [me];
-        const w = P.ways(world, c, { name: item, props: {} }, item, st, { max: 1 })[0] || P.ways(world, c, { name: item, props: {} }, item, st, { max: 1, sneakAlways: true })[0];
-        if (!w) return false;
-        await this.click(w.n, w.face, w.hit, { sneak: w.sneak, aim: w.aim || null });
-        for (let i = 0; i < 10; i++) { const bb = this.bot.blockAt(new Vec3(c.x, c.y, c.z), false); if (bb && bb.boundingBox === 'block') { this._temp(c, 'temp'); return true; } await sleep(50); }
-        return false;
-    }
-
     /** Walk the body to the centre of cell c (same level or a step), with the bot's physics. */
     async walkTo(c, { jump = false, sneak = false, timeout = 2500 } = {}) {
         const b = this.bot, t0 = Date.now(), tx = c.x + 0.5, tz = c.z + 0.5;
@@ -581,6 +572,7 @@ class Mover {
         for (let i = 0; i < 30 && !placed; i++) {
             await sleep(50);
             if (b.entity.position.y > below.y + 1.12 && b.entity.velocity.y > -0.2) {
+                if (!own) this._temp(below, 'pillar', item);          // before the click (the blueprint's own block is the build, not a temporary block)
                 b._client.write('block_place', { hand: 0, location: new Vec3(below.x, below.y - 1, below.z), direction: 1, cursorX: 0.5, cursorY: 1, cursorZ: 0.5, insideBlock: false, worldBorderHit: false, sequence: (this.seq = (this.seq || 0) + 1) });
                 b.swingArm(); placed = true;
             }
@@ -588,8 +580,6 @@ class Mover {
         b.setControlState('jump', false);
         for (let i = 0; i < 30; i++) { await sleep(50); if (b.entity.onGround && b.entity.position.y >= c.y - 0.01) break; }
         if (sneak) b.setControlState('sneak', false);
-        const bb = b.blockAt(new Vec3(below.x, below.y, below.z), false);
-        if (bb && bb.boundingBox === 'block' && !own) this._temp(below, 'pillar');          // (the blueprint's own block stays: it is the build)
         return feet(b).y === c.y;
     }
 
@@ -628,6 +618,7 @@ class Mover {
                 const r = P.rayFirst(P.botWorld(b), eye, hit);
                 if (!r || r.cell[0] !== sup[0] || r.cell[1] !== sup[1] || r.cell[2] !== sup[2]) return { ok: false, why: 'bridge: the support side is not in sight' };
                 await this.lookAtPoint(new Vec3(...hit));
+                if (!own) this._temp(s.place, 'bridge', item);          // before the click
                 b._client.write('block_place', { hand: 0, location: new Vec3(...sup), direction: V.FACE[face], cursorX: hit[0] - sup[0], cursorY: hit[1] - sup[1], cursorZ: hit[2] - sup[2], insideBlock: false, worldBorderHit: false, sequence: (this.seq = (this.seq || 0) + 1) });
                 b.swingArm();
                 await sleep(200);
@@ -640,7 +631,6 @@ class Mover {
             }
             const bb = b.blockAt(new Vec3(s.place.x, s.place.y, s.place.z), false);
             if (!bb || bb.boundingBox !== 'block') return { ok: false, why: 'bridge place' };
-            if (!own) this._temp(s.place, 'bridge');
             return (await this.walkTo(s)) ? { ok: true } : { ok: false, why: 'bridge walk' };
         }
         return { ok: false, why: `unknown move ${s.move}` };

@@ -218,9 +218,12 @@ async function place(ctx, { x, y, z, item, fluid = false, temp = null, recipe = 
         let hit;
         try { hit = await aimAtBlock(ctx, r.cell, { face: r.face, frame: { sneak } }); } catch (e) { if (e.reason === 'not_visible') continue; throw e; }
         const look = { yaw: bot.entity.yaw, pitch: bot.entity.pitch, sneak };
+        // a temporary block is registered BEFORE the click: one the server applied after the confirmation window was in nobody's list (owner list 5 Large 1, cause a; the registry
+        // forgets a cell that turns out empty when it next looks)
+        if (temp && bot.__temps) bot.__temps.add({ dim: fixtures.dimOf(bot), x, y, z, item, kind: temp, by: bot.username });
         await ctx.tick({ ...look, use: true });
         await ctx.tick(look);
-        try { await ctx.until(placed, 10, 'not_confirmed', look); fixtures.markPlaced(bot, item, cell); if (temp && bot.__temps) bot.__temps.add({ dim: fixtures.dimOf(bot), x, y, z, item, kind: temp, by: bot.username }); return { against: r.cell, face: hit.face }; } catch (e) { if (e.reason !== 'not_confirmed') throw e; }
+        try { await ctx.until(placed, 10, 'not_confirmed', look); fixtures.markPlaced(bot, item, cell); return { against: r.cell, face: hit.face }; } catch (e) { if (e.reason !== 'not_confirmed') throw e; }
         if (++tried >= 3) break;
     }
     throw new SkillError(tried ? 'not_confirmed' : 'not_visible', { target: cell, tried });
@@ -245,6 +248,7 @@ async function jumpPlace(ctx, { cell, sup, expect, recipe, item, temp }) {
         ctx.phase('jump_place', { cell, against: sup });
         await ctx.tick({ ...look, jump: true });
         await ctx.until(() => bot.entity.position.y >= y + 1.002, 14, 'stuck', { ...look, jump: true });        // the placed block no longer touches the body
+        if (temp && bot.__temps) bot.__temps.add({ dim: fixtures.dimOf(bot), x, y, z, item, kind: temp, by: bot.username });          // before the click (see above)
         await ctx.tick({ ...look, use: true, cell: { x: sup.x, y: sup.y, z: sup.z, face: recipe.face, cursor } });
         await ctx.tick(look);
         try { await ctx.until(placed, 12, 'not_confirmed', look); } catch (e) { if (!(e instanceof SkillError) || e.reason !== 'not_confirmed') throw e; await ctx.idle(10); }
@@ -252,7 +256,6 @@ async function jumpPlace(ctx, { cell, sup, expect, recipe, item, temp }) {
     }
     if (!placed()) throw new SkillError('not_confirmed', { target: cell, jump: true, now: w.blockAt(x, y, z)?.name || null });
     fixtures.markPlaced(bot, expect, cell);
-    if (temp && bot.__temps) bot.__temps.add({ dim: fixtures.dimOf(bot), x, y, z, item, kind: temp, by: bot.username });
     return { against: sup, face: recipe.face, recipe: true, jump: true };
 }
 
@@ -287,9 +290,10 @@ async function placeWithRecipe(ctx, { cell, item, expect, recipe, temp }) {
     ctx.phase('place', { against: sup, face: recipe.face, hy: recipe.hy, yRot: recipe.yRot, pitch: recipe.pitch, sneak });
     for (let attempt = 0; attempt < 2; attempt++) {
         await ctx.tick(look); await ctx.tick(look);                             // the look reaches the server before the click (placement reads the player's rotation)
+        if (temp && bot.__temps) bot.__temps.add({ dim: fixtures.dimOf(bot), x, y, z, item, kind: temp, by: bot.username });          // before the click (see above)
         await ctx.tick({ ...look, use: true, cell: { x: sup.x, y: sup.y, z: sup.z, face: recipe.face, cursor } });
         await ctx.tick(look);
-        try { await ctx.until(placed, 10, 'not_confirmed', look); fixtures.markPlaced(bot, expect, cell); if (temp && bot.__temps) bot.__temps.add({ dim: fixtures.dimOf(bot), x, y, z, item, kind: temp, by: bot.username }); return { against: sup, face: recipe.face, recipe: true }; } catch (e) { if (e.reason !== 'not_confirmed') throw e; }
+        try { await ctx.until(placed, 10, 'not_confirmed', look); fixtures.markPlaced(bot, expect, cell); return { against: sup, face: recipe.face, recipe: true }; } catch (e) { if (e.reason !== 'not_confirmed') throw e; }
     }
     throw new SkillError('not_confirmed', { target: cell, recipe: { support: recipe.support, face: recipe.face, hy: recipe.hy, yRot: recipe.yRot, pitch: recipe.pitch }, now: w.blockAt(x, y, z)?.name || null });
 }
