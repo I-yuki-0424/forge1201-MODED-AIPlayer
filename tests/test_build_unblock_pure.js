@@ -34,6 +34,7 @@ test('recover: glass comes back only with Silk Touch; smooth stone with a pickax
     assert.ok(RC.getBack(plain, 'obsidian', 'obsidian').ok);
     assert.strictEqual(RC.getBack(plain, 'stone', 'stone').ok, false);
     assert.ok(RC.getBack(plain, 'hopper', 'hopper').ok);
+    assert.ok(RC.getBack(plain, 'redstone_wall_torch', 'redstone_torch').ok, 'no loot table of its own: its drop list (hd1)');
     assert.strictEqual(RC.getBack(fakeBot(new Map(), []), 'smooth_stone', 'smooth_stone').ok, false, 'by hand smooth stone drops nothing');
 });
 

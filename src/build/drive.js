@@ -147,10 +147,16 @@ async function unblockDig(job, name, bot, mv, tk, h) {
     const item = (job.t.recipeOf(tk) || {}).item, rc = item ? RC.getBack(bot, h.name, item) : { ok: false, why: 'no item' }, before = (SUP.carried(bot)[item] || 0);
     const ok = await mv.dig(tk, rc.ok ? { tool: rc.tool } : {});
     if (!ok || !item) return ok;
-    for (let i = 0; i < 6 && (SUP.carried(bot)[item] || 0) <= before; i++) await sleep(150);
-    if ((SUP.carried(bot)[item] || 0) <= before) {
-        const drop = Object.values(bot.entities).filter((e) => e.name === 'item' && Math.hypot(e.position.x - (tk.x + 0.5), e.position.y - tk.y, e.position.z - (tk.z + 0.5)) < 2.5)[0];
-        if (drop) { const c = { x: Math.floor(drop.position.x), y: Math.floor(drop.position.y + 0.2), z: Math.floor(drop.position.z) }; await mv.goto(c, { goal: (x, y, z) => x === c.x && z === c.z && Math.abs(y - c.y) <= 1, maxNodes: 600, tries: 1 }); for (let i = 0; i < 8 && (SUP.carried(bot)[item] || 0) <= before; i++) await sleep(150); }
+    // the drop: picked up where the bot stands within a moment, else walked to (beside it is enough: a body picks up within a cell), twice (soul sand and a composter lay in
+    // the dug cell out of reach and were counted lost, live 2026-11-25 hd1)
+    const has = () => (SUP.carried(bot)[item] || 0) > before;
+    for (let i = 0; i < 12 && !has(); i++) await sleep(150);
+    for (let k = 0; k < 2 && !has(); k++) {
+        const drop = Object.values(bot.entities).filter((e) => e.name === 'item' && Math.hypot(e.position.x - (tk.x + 0.5), e.position.y - tk.y, e.position.z - (tk.z + 0.5)) < 4).sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))[0];
+        if (!drop) break;
+        const c = { x: Math.floor(drop.position.x), y: Math.floor(drop.position.y + 0.2), z: Math.floor(drop.position.z) };
+        await mv.goto(c, { goal: (x, y, z) => Math.abs(x - c.x) <= 1 && Math.abs(z - c.z) <= 1 && y >= c.y - 1 && y <= c.y, maxNodes: 2000, tries: 1 });
+        for (let i = 0; i < 10 && !has(); i++) await sleep(150);
     }
     const back = (SUP.carried(bot)[item] || 0) > before;
     // (a dig-out that counted on a spare took it already, job._unblock: given back when the block came back anyway)

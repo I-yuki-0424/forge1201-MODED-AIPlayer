@@ -37,7 +37,9 @@ function gives(bot, blockName, item, tool) {
     if (!block) return false;
     if (block.harvestTools && !(tool && block.harvestTools[tool.type])) return false;
     const loot = bot.registry.blockLoot && bot.registry.blockLoot[blockName];
-    if (!loot) return false;                                     // no table: not known to come back
+    // no loot table of its own (wall torches, wall signs share the standing block's): the block's drop list, without conditions (live 2026-11-25 hd1: a redstone wall torch came
+    // back but was counted against the spare)
+    if (!loot) return (block.drops || []).some((id) => { const r = bot.registry.items[typeof id === 'object' ? id.drop ?? id.id : id]; return !!r && r.name === item; });
     const silk = (enchants.get('silk_touch') || 0) > 0;
     return (loot.drops || []).some((d) => d.item === item && (d.dropChance ?? 1) >= 0.5 && !(d.silkTouch && !silk) && !(d.noSilkTouch && silk));
 }
@@ -51,7 +53,7 @@ function getBack(bot, blockName, item) {
     for (const t of tools) if (gives(bot, blockName, item, t)) return { ok: true, tool: t };
     if (gives(bot, blockName, item, null)) return { ok: true, tool: null };
     const loot = bot.registry.blockLoot && bot.registry.blockLoot[blockName], d = loot && (loot.drops || []).find((x) => x.item === item);
-    return { ok: false, why: !loot ? 'no loot table' : !d ? `${blockName} never drops ${item}` : d.silkTouch ? 'needs Silk Touch' : 'no tool that harvests it' };
+    return { ok: false, why: !loot ? 'no loot table, not in its drops' : !d ? `${blockName} never drops ${item}` : d.silkTouch ? 'needs Silk Touch' : 'no tool that harvests it' };
 }
 
 module.exports = { register, enchantsOf, gives, getBack };
