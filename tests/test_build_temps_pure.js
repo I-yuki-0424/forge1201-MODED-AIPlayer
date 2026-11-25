@@ -242,9 +242,11 @@ test('a pillar left sideways is dug from beside it, top-down, as far as its face
     const mv = Object.create(M.Mover.prototype);
     Object.assign(mv, { bot, mine: new Map([['1,70,0', 'pumpkin'], ['1,71,0', 'pumpkin'], ['1,72,0', 'pumpkin']]), mineHow: new Map([['1,70,0', 'pillar'], ['1,71,0', 'pillar'], ['1,72,0', 'pillar']]), rules: { canDig: () => true }, trace: [] });
     const dug = []; mv.dig = async (c) => { w.delete(`${c.x},${c.y},${c.z}`); dug.push(c.y); return true; };
+    let leans = 0; mv.lean = async (dx) => { leans++; bot.entity.position.x += dx * 0.6; }; mv.unlean = async () => { bot.entity.position.x = 2.5; };
     const route = [{ x: 1, y: 73, z: 0 }, { x: 2, y: 73, z: 0 }, { x: 3, y: 73, z: 0 }];
     const n = await mv._behind(route[0], route, 2);
-    assert(n >= 2 && dug[0] === 72 && dug[1] === 71, `top-down: ${dug}`);
+    assert.deepStrictEqual(dug, [72, 71, 70], 'top-down, the lowest one leaning out over the shaft');
+    assert.strictEqual(leans, 1); assert.strictEqual(bot.entity.position.x, 2.5, 'back from the edge'); assert.strictEqual(n, 3);
     const old = (mv.mineHow.get('1,72,0') === 'bridge');                                     // the rule before: only a block placed as a bridge
     assert(!old, 'negative control: a pillar block was never taken back by the old rule');
     const keep = Object.create(M.Mover.prototype); Object.assign(keep, { bot, mine: new Map([['2,72,0', 'pumpkin']]), mineHow: new Map(), rules: {}, trace: [] }); keep.dig = mv.dig;

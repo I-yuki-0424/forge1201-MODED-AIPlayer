@@ -779,7 +779,8 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
     const onBlock = (o, n) => { if (n && n.position && job.ledger.size) job.ledger.observe(n.position, n.name); };
     bot.on('blockUpdate', onBlock);
     // once a second: how many of its temporary blocks stand beyond the column it stands on (the owner's two-per-bot standard, temps.js sample)
-    const sampler = setInterval(() => { try { if (bot.entity && job.ledger.size) job.ledger.sample(name, feet(bot)); } catch (_) { /* a sample is only a count */ } }, 1000);
+    let looseLog = 0;
+    const sampler = setInterval(() => { try { if (bot.entity && job.ledger.size) { const f = feet(bot), n = job.ledger.sample(name, f); if (n > 2 && Date.now() - looseLog > 60000) { looseLog = Date.now(); job.log(`[temps] ${name} at ${f.x},${f.y},${f.z} holds ${n} beyond its column: ${job.ledger.lastLoose.join('; ')}; last moves ${mv.trace.slice(-3).join(' | ')}`); } } } catch (_) { /* a sample is only a count */ } }, 1000);
     // the step is over: the bot's own temporary blocks go before it does anything else (release)
     const settle = (next = null, label = 'step') => release(job, name, bot, mv, cancel, next, label);
     // the server dropped the spawn point (the bed broken or shut in): set again

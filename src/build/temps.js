@@ -33,13 +33,14 @@ class TempLedger {
 
     /** Blocks of `by` that stand, beyond the column under its feet `f` (the pillar it stands on: one structure in use). */
     loose(by, f) {
-        let n = 0; const hs = {};
-        for (const e of this.map.values()) if (e.by === by && e.state === 'placed' && !(f && e.x === f.x && e.z === f.z && e.y < f.y)) { n++; hs[e.how] = (hs[e.how] || 0) + 1; }
-        return { n, hs };
+        let n = 0; const hs = {}, cells = [];
+        // (the crew's spawn bed or anchor is the crew's, for the whole build: not one of the bot's working blocks)
+        for (const e of this.map.values()) if (e.by === by && e.state === 'placed' && e.how !== 'fixture' && !(f && e.x === f.x && e.z === f.z && e.y < f.y)) { n++; hs[e.how] = (hs[e.how] || 0) + 1; if (cells.length < 6) cells.push(`${e.how} ${e.k}${e.released ? ' released' : ''}${e.lastFail ? ` (${e.lastFail})` : ''}`); }
+        return { n, hs, cells };
     }
     /** One sample of bot `by` standing at `f` (once a second). */
     sample(by, f) {
-        const { n, hs } = this.loose(by, f);
+        const { n, hs, cells } = this.loose(by, f); this.lastLoose = cells;
         if (n > (this.loosePeak.get(by) || 0)) this.loosePeak.set(by, n);
         if (n > (this.looseEver.get(by) || 0)) this.looseEver.set(by, n);
         if (n > 2) { this.looseOver.seconds++; const h = Object.entries(hs).map(([k, v]) => `${k}:${v}`).sort().join(','); this.looseOver.how[h] = (this.looseOver.how[h] || 0) + 1; }

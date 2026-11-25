@@ -339,7 +339,8 @@ class Mover {
         if (!prev) return 0;
         const at = feet(this.bot);
         if (at.x === prev.x && at.z === prev.z) return 0;                                    // still on that column (a pillar step)
-        let n = 0;
+        let n = 0, leaned = false;
+        try {
         for (let y = prev.y - 1; y > prev.y - 8; y--) {
             const c = { x: prev.x, y, z: prev.z }, k = key(c.x, c.y, c.z);
             if (!(this.mine.has(k) || (this.rules.ownTemp && this.rules.ownTemp(c.x, c.y, c.z)))) break;
@@ -348,13 +349,17 @@ class Mover {
             if (this.rules.mayDig && !this.rules.mayDig(c.x, c.y, c.z)) break;
             const v = this.view();
             if ([[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]].some(([dx, dy, dz]) => { const q = v.raw(c.x + dx, c.y + dy, c.z + dz); return q && (q.name === 'water' || q.name === 'lava'); })) break;
-            const p = this.bot.entity.position, eye = { x: p.x, y: p.y + 1.62, z: p.z };
-            const dx = Math.max(c.x - eye.x, 0, eye.x - (c.x + 1)), dy = Math.max(c.y - eye.y, 0, eye.y - (c.y + 1)), dz = Math.max(c.z - eye.z, 0, eye.z - (c.z + 1));
-            if (Math.hypot(dx, dy, dz) > 4.4 || !P.clickable(P.botWorld(this.bot), c, feet(this.bot))) break;
+            // in sight from where it stands; else, the column beside its cell, leaning out over it (sneaking at the edge, the eye over the shaft) as a player looks down a hole
+            const seesTop = () => { const p = this.bot.entity.position, eye = [p.x, p.y + (leaned ? 1.27 : 1.62), p.z], hit = [c.x + 0.5, c.y + 0.999, c.z + 0.5]; if (Math.hypot(hit[0] - eye[0], hit[1] - eye[1], hit[2] - eye[2]) > 4.4) return false; const r = P.rayFirst(P.botWorld(this.bot), eye, hit); return !!r && r.cell[0] === c.x && r.cell[1] === c.y && r.cell[2] === c.z; };
+            let ok = !leaned && P.clickable(P.botWorld(this.bot), c, feet(this.bot)) && seesTop();
+            if (!ok && !leaned && Math.abs(c.x - at.x) + Math.abs(c.z - at.z) === 1 && feet(this.bot).y === prev.y) { await this.lean(c.x - at.x, c.z - at.z); leaned = true; }
+            if (!ok && leaned) ok = seesTop();
+            if (!ok) break;
             if (!(await this.dig(c))) { if (this.rules.onTempFail) this.rules.onTempFail(c, 'left behind: the dig failed'); break; }
             this.mine.delete(k); if (this.mineHow) this.mineHow.delete(k); if (this.rules.onUntemp) this.rules.onUntemp(c);
             n++;
         }
+        } finally { if (leaned) await this.unlean(); }
         return n;
     }
 
