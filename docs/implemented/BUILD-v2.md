@@ -739,3 +739,21 @@ fail 'too far from the station' because NAV ends 'stuck' and the lift is refused
 | `b081j` | no dry site in 30 draws around the nearest forest | (harness) |
 | `b081k` (e0d643bd, a forest) | pit 1 190 s; my 6-min cap fired while 6 units were still at work (28 leaves left, decaying); then **6 257 of about 7 600 blocks placed in 128 minutes of placing**, the best run so far; sinks 2 395/2 395; 5 shut-ins dug out; 1 death; the tail held by 49 trapdoor scaffolds and 4 trapdoors 'no stance reaches it' under the slab floor over them | the cap at 15 min (157add02); placing under the feet (3047130b): standing on the block over a cell, its bottom face is clicked; the floating trapdoor's scaffold goes over it, in the opening of the slab floor, and the bot puts the trapdoor in under its feet (d6352a31) |
 
+
+**Forest pace, second pass (TASK-075, 2026-11-27 02:20-04:30).** Changes on main, in order:
+- Layer lookahead, ad485566 (Ledger option `lookahead`, pits 2): while a front unit is leased, bots take units up to two layers below, in columns whose rows above are settled.
+- Canopy, a400cedf: after a NAV trip, every tree block of the box within reach goes, blind, from the top.
+- NAV time split, baac9ac8 (`planCpuMs`, `planMs`, `moveMs`, then `sweepMs` and `waitMs`).
+- A cell's time bounded at its root, 6722aa58: a tree block within reach is mined blind first. Every mine of a cell carries a 60 s deadline that env.exec passes to the router, the router to its travel, and NAV between steps. At most 120 s of NAV per unit. A caller with a deadline sweeps its movement blocks within 8, not 48.
+- Leases renewed only while a worker works a claim, f98a9a0d. bt075u2: 8 bots waited 13 min behind one lease that nobody ran.
+- The end pass descends a bot standing on its own pillar top, b43a9000.
+
+Measured on 1.21.1:
+- The slowest pit cell went from 403-912 s (b43a9000) to 49-86 s (6722aa58).
+- NAV time on u1 adds up: planning 5 s (CPU 5.8 s), moving 333 s, sweeps 115 s, waits 1 s, unlabelled 17 s, out of 471 s. The planner's CPU is negligible in the pit (081's b081m: 11 s of 11 457).
+- `bt075u1/u2/u3` (spruce / dark forest / jungle, stopped at 04:30 for the rerun on f98a9a0d): 426 / 0 / 45 tree blocks and 17 / 4 / 12 pumpkins in the box by server scan. u1 and u3 were stopped mid-pit. u2's pit was cut by 081's 15-min stall cap after the lease leak.
+
+mine_b on 1.21.1 (3f110f6a plus lazily loaded later modules; worlds 1-3, x3):
+- `mb075h` w1: 0 pumpkins, but the job hung for 54 min in the action layer's walk (`unit:plan` 60 s of every minute, the bot at y -28 under the pit, 51 levels below its layer). Cause open.
+- `mb075h` w2: 0 pumpkins; one dirty layer (seals at x 17 hold back the lake in the box's wall).
+- `mb075k` w3 (KILL_AT_END=1): the job finished by itself at 48 min, so the kill never fired (fixed: the kill now also comes in the job's own end). 1 pumpkin left: the bot's own pillar top under its feet (fixed in b43a9000). Not re-measured yet.
