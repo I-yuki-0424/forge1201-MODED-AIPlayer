@@ -146,14 +146,15 @@ const left = (w, box = BOX) => scan(w, box).length;
         const run = async (plants) => {
             const cells = new Map([['2,64,2', 'short_grass'], ['3,64,3', 'poppy'], ['4,64,4', 'stone']]);
             const w = { nameAt: (x, y, z) => cells.get(`${x},${y},${z}`) || (y <= 63 ? 'stone' : 'air'), kindAt: (x, y, z) => { const n = cells.get(`${x},${y},${z}`) || (y <= 63 ? 'stone' : 'air'); return n === 'stone' ? 'solid' : 'air'; } };
-            const job = pit.createPitJob({ x0: 0, z0: 0, x1: 7, z1: 7, top: 64, bottom: 64 }, {}, { method: 'rows', road: false, plants }), region = job.plan.regions[0], mined = [];
-            const env = { w, have: () => 9, pause: async () => {}, here: () => ({ x: 0, y: 64, z: 0 }), exec: async (n, a) => { if (n === 'mine') { mined.push(`${a.x},${a.y},${a.z}`); cells.delete(`${a.x},${a.y},${a.z}`); } return { ok: true }; } };
+            const job = pit.createPitJob({ x0: 0, z0: 0, x1: 7, z1: 7, top: 64, bottom: 64 }, {}, { method: 'rows', road: false, plants }), region = job.plan.regions[0], mined = [], blind = [];
+            const env = { w, have: () => 9, pause: async () => {}, here: () => ({ x: 0, y: 64, z: 0 }), exec: async (n, a) => { if (n === 'mine') { mined.push(`${a.x},${a.y},${a.z}`); if (a.blind) blind.push(`${a.x},${a.y},${a.z}`); cells.delete(`${a.x},${a.y},${a.z}`); } return { ok: true }; } };
             for (let u = 0; u < region.layers * region.rows; u++) await job.runUnit(region.id, { unit: u }, env);
             const left = []; for (let u = 0; u < region.layers * region.rows; u++) left.push(...pit.wrongCells(job.plan, region, u, w));
-            return { mined, left: left.length };
+            return { mined, left: left.length, blind };
         };
         const site = await run(true), plain = await run(false);
         assert(site.mined.includes('2,64,2') && site.mined.includes('3,64,3') && site.mined.includes('4,64,4') && site.left === 0, `site: plants dug (${site.mined})`);
+        assert(site.blind.includes('2,64,2') && site.blind.includes('3,64,3') && !site.blind.includes('4,64,4'), `plants mined blind (no collision shape for the crosshair), stone with sight (${site.blind})`);
         assert(!plain.mined.includes('2,64,2') && !plain.mined.includes('3,64,3') && plain.mined.includes('4,64,4'), `negative control: a plain pit leaves them (${plain.mined})`);
     });
 

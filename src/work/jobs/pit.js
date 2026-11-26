@@ -233,7 +233,10 @@ async function runUnit(plan, region, u, env) {
     const cells = unitCells(plan, region, u.unit), r = { mined: 0, sealed: 0, skipped: 0 }, expert = region.meta.method === 'expert', sweep = region.meta.method === 'sweep' || expert;
     // A sweep leaves the drops where they fall and picks everything up once at the end (a walk per block would cost more than the digging).
     // The expert method mines BLIND: its stations put every cell within the arm's reach, and the server checks only the distance (no walk to a place with a view, no step into a hole).
-    const mineArgs = (c) => (expert ? { x: c.x, y: c.y, z: c.z, collect: false, blind: true } : sweep ? { x: c.x, y: c.y, z: c.z, collect: false } : c);
+    // (a plant of a build site's pit is mined blind: mineflayer's crosshair takes only collision shapes, so a cell of grass was never "under the cursor" and the aim failed for good,
+    // 'line_of_sight' after two fixes, bt075i w2; the server checks only the distance)
+    const plantAt = (c) => plan.clearPlants && PASSABLE.has(env.w.kindAt(c.x, c.y, c.z)) && NOT_AIR(env.w, c);
+    const mineArgs = (c) => (expert || plantAt(c) ? { x: c.x, y: c.y, z: c.z, collect: false, blind: true } : sweep ? { x: c.x, y: c.y, z: c.z, collect: false } : c);
     // the region's tree pass is running in another bot (it claimed the region's first unit, the others go on with theirs: several bots in one region, a build site's crew)
     const me = env.bot && env.bot.username, treeBusy = () => { const t = plan.trees && plan.trees.get(region.id); return !!(t && t.busy && t.by !== me); };
     const fail = (res, cell, stage) => ({ ok: false, reason: res.reason, detail: { ...(res.detail || {}), cell, block: env.w.nameAt ? env.w.nameAt(cell.x, cell.y, cell.z) : undefined, stage, ...r } });
