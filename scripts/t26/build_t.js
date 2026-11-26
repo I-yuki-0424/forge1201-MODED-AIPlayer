@@ -66,9 +66,17 @@ async function main() {
     };
 
     const groundYAt = (x, z) => { for (let y = 200; y > -60; y--) { const b = at(x, y, z); if (b && !/^(air|cave_air|void_air|.*_leaves|.*_log|vine|short_grass|tall_grass|snow)$/.test(b)) return y; } return null; };
+    // SITE_BIOME=<biome id> (TASK-075, a site with a given kind of trees: old_growth_spruce_taiga, snowy_taiga, dark_forest, jungle, birch_forest ...): the server's `locate biome` from the
+    // spawn gives the first draws' centre (each later draw a little farther from it), else the random draw
+    let around = null;
+    if (process.env.SITE_BIOME && !NETHER) {
+        const out = T.strip(await srv.cmd(`execute positioned ${Math.floor(sp.x)} 100 ${Math.floor(sp.z)} run locate biome minecraft:${process.env.SITE_BIOME.replace(/[^a-z_]/g, '')}`)), mm = /\[(-?\d+), [~\-\d]+, (-?\d+)\]/.exec(out);
+        console.log(`[build_t] locate biome ${process.env.SITE_BIOME}: ${out.slice(0, 160)}`);
+        if (mm) around = { x: Number(mm[1]), z: Number(mm[2]) };
+    }
     for (let draw = 0; draw < 30; draw++) {
-        const ang = CREW * 2.4 + rnd() * 1.2, dist = 40 + rnd() * 60 + draw * 60 + CREW * 160;
-        cx = Math.floor((NETHER ? sp.x / 8 : sp.x) + Math.cos(ang) * dist); cz = Math.floor((NETHER ? sp.z / 8 : sp.z) + Math.sin(ang) * dist);
+        const ang = CREW * 2.4 + rnd() * 1.2, dist = around ? draw * 24 : 40 + rnd() * 60 + draw * 60 + CREW * 160, base = around || { x: NETHER ? sp.x / 8 : sp.x, z: NETHER ? sp.z / 8 : sp.z };
+        cx = Math.floor(base.x + Math.cos(ang) * dist); cz = Math.floor(base.z + Math.sin(ang) * dist);
         await srv.must(`tp ${names[0]} ${cx + 0.5} ${NETHER ? 100 : 250} ${cz + 0.5}`);
         await sleep(NETHER ? 6000 : 9000);
         // the Nether: a height inside rock at this position, or the next position (the height alone was drawn again and again over one lava cavern, ha25)
