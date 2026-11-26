@@ -53,5 +53,15 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         bot.__preempt = true;
         assert.throws(() => ctx.tick({}), (e) => e instanceof SkillError && e.reason === 'cancelled');
     });
+    await test('breath: the roof over a water pocket is found within reach (mb075n w3: water 13-17 under stone at 18, Air -19 for minutes); an open column, a far roof or a chest roof is not dug (negative controls)', async () => {
+        const { ceilingAbove } = require('../src/work/bot/reflex');
+        const pocket = (roof, top = 17) => (x, y, z) => (y >= 13 && y <= top ? 'water' : y === top + 1 ? roof : 'stone');
+        assert.deepStrictEqual(ceilingAbove(pocket('stone'), { x: 10.3, y: 13, z: 1.5 }), { x: 10, y: 18, z: 1 });
+        assert.strictEqual(ceilingAbove(pocket('air'), { x: 10.3, y: 13, z: 1.5 }), null, 'open to the air: the jump is enough');
+        assert.strictEqual(ceilingAbove(pocket('stone', 22), { x: 10.3, y: 13, z: 1.5 }), null, 'a roof out of reach');
+        assert.strictEqual(ceilingAbove(pocket('chest'), { x: 10.3, y: 13, z: 1.5 }), null, 'never a container');
+        assert.strictEqual(ceilingAbove(() => 'air', { x: 0, y: 64, z: 0 }), null, 'head not in water');
+    });
+
     console.log('\nwork reflex: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

@@ -36,6 +36,20 @@ function escapeCell(kindAt, f, r = 5) {
 }
 
 /** Wire a reflex watcher to a bot. `o.world`: the skills world model (kindAt); `o.enabled()`; `o.onEvent(name, detail)`. Returns {state, detach}. */
+/**
+ * The roof over the water column the bot's head is in: the first block above the column's top water, when it is solid (not air, not water) and within the server's reach of the eye
+ * (4.5), else null. `nameAt(x, y, z)` -> block name. A column that ends in air has no roof (the jump reaches it).
+ */
+function ceilingAbove(nameAt, pos, reach = 4.5) {
+    const x = Math.floor(pos.x), z = Math.floor(pos.z), eye = pos.y + 1.62;
+    let y = Math.floor(eye);
+    if (nameAt(x, y, z) !== 'water') return null;
+    while (y < Math.floor(eye) + 8 && nameAt(x, y + 1, z) === 'water') y++;
+    const top = nameAt(x, y + 1, z);
+    if (!top || /^(air|cave_air|void_air|water|bubble_column|lava)$/.test(top) || /bedrock|chest|barrel|shulker|_bed$/.test(top)) return null;
+    return y + 1 + 0.5 - eye <= reach ? { x, y: y + 1, z } : null;
+}
+
 function attach(bot, { world, enabled = () => true, onEvent = () => {} } = {}) {
     const st = { active: false, fired: 0, last: null, since: 0 };
     bot.__preempt = false;
@@ -133,7 +147,17 @@ function attach(bot, { world, enabled = () => true, onEvent = () => {} } = {}) {
         bot.setControlState('sprint', false);
         Promise.resolve().then(() => bot.look(bot.entity.yaw, Math.PI / 4, true)).catch(() => {});
         bot.setControlState('jump', true);
-        while (Date.now() - t0 < 25000 && headWet()) await sleep(100);
+        let dug = false;
+        while (Date.now() - t0 < 25000 && headWet()) {
+            await sleep(100);
+            // A pocket in an aquifer with a roof (mine_b mb075n w3, 1.21.1: water y 13-17 under stone at 18, the bot at the bottom with Air -19 for minutes, the jump never met air):
+            // after 8 s the roof over the water column is dug, if it is within reach, so there is air to come up into
+            if (!dug && Date.now() - t0 > 8000) {
+                dug = true;
+                const roof = ceilingAbove((x, y, z) => { const b = bot.blockAt(new (require('vec3'))(x, y, z)); return b ? b.name : null; }, bot.entity.position);
+                if (roof) { const b = bot.blockAt(new (require('vec3'))(roof.x, roof.y, roof.z)); if (b) { onEvent('reflex', { kind: 'breath_roof', at: roof, block: b.name }); try { await bot.dig(b, true); } catch (_) { /* the jump goes on */ } } }
+            }
+        }
         bot.setControlState('jump', false);
         done('breath', {});
     }
@@ -205,4 +229,4 @@ function attach(bot, { world, enabled = () => true, onEvent = () => {} } = {}) {
     return { state: st, detach: () => { bot.removeListener('physicsTick', tick); bot.__preempt = false; } };
 }
 
-module.exports = { attach, dropBelow, escapeCell, FALL_MIN, WATER_AT };
+module.exports = { attach, ceilingAbove, dropBelow, escapeCell, FALL_MIN, WATER_AT };
