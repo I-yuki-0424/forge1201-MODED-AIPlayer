@@ -146,4 +146,23 @@ test('the way down from a height whose way up is gone: sinking on its own blocks
     assert.strictEqual(none, null, 'negative control: no temporary blocks, no way down');
 });
 
+test('the pit hands its movement blocks over: what the work layer lists as the bot\'s and still stands becomes a released entry of the build ledger (negative control: a block gone, another bot\'s)', () => {
+    const { Temps } = require('../src/work/bot/temps');
+    const D = require('../src/build/drive');
+    const t = box([]);
+    const job = new BuildJob(t, { log: () => {} }); job.tasks = new Map(); job.buckets = new Map();
+    const world = new Map([['2,65,2', 'pumpkin'], ['3,65,3', 'pumpkin']]);
+    const reg = new Temps();
+    reg.add({ dim: 'overworld', x: 2, y: 65, z: 2, item: 'pumpkin', kind: 'pillar', by: 'a' });
+    reg.add({ dim: 'overworld', x: 1, y: 66, z: 1, item: 'pumpkin', kind: 'pillar', by: 'a' });          // dug already
+    reg.add({ dim: 'overworld', x: 3, y: 65, z: 3, item: 'pumpkin', kind: 'pillar', by: 'b' });          // another bot's
+    const bot = { username: 'a', __temps: reg, game: { dimension: 'minecraft:overworld' }, blockAt: (p) => { const n = world.get(`${p.x},${p.y},${p.z}`) || 'air'; return { name: n, getProperties: () => ({}), boundingBox: n === 'air' ? 'empty' : 'block', shapes: n === 'air' ? [] : [[0, 0, 0, 1, 1, 1]] }; } };
+    const n = D.adoptWorkTemps(job, 'a', bot, { x0: 0, x1: 3, z0: 0, z1: 3, top: 66, bottom: 64 });
+    assert.strictEqual(n, 1);
+    const e = job.ledger.get({ x: 2, y: 65, z: 2 }); assert(e && e.released && e.by === 'a' && e.state === 'placed');
+    assert(!job.ledger.get({ x: 1, y: 66, z: 1 }) && !job.ledger.get({ x: 3, y: 65, z: 3 }));
+    assert(!reg.has('overworld', { x: 2, y: 65, z: 2 }) && reg.has('overworld', { x: 3, y: 65, z: 3 }), 'out of the work list, the other bot\'s stays');
+    assert(job.tasks.get('2,65,2') && job.tasks.get('2,65,2').kind === 'untemp', 'an untemp task at once');
+});
+
 (async () => { for (const [name, fn] of queue) { await fn(); n++; console.log(`  ok ${name}`); } console.log(`test_build_order_pure: ${n} passed`); })().catch((e) => { console.error(e); process.exit(1); });

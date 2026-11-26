@@ -812,6 +812,7 @@ async function clearByPit(job, name, bot, mv, cancel, work) {
     const env = work.env();
     if (!env) { job.pitDone('no work environment for the bots'); return null; }
     env.within = P.box; bot.__mineBox = P.box;
+    (job.inPit || (job.inPit = new Set())).add(name);
     // a pit that has finished no unit for PIT_STALL_MS (the last units of a region retried by one bot while the crew waits: b081d, 2 239 of 2 304 units for 20 min, tree blocks
     // the pit could not reach) is wrapped up: what it left goes to the next round, then is parked; the crew does not wait for ever
     if (!P.watch) {
@@ -828,16 +829,39 @@ async function clearByPit(job, name, bot, mv, cancel, work) {
     // the worker's own steps as pause labels: its claim of a unit, the unit (digging and walking are actions), the back-off after a failure, the idle wait for a unit
     const ACT = { claim: 'cpu: pit claim', unit: 'other: pit unit', backoff: 'retry: pit back-off after a failed unit', recover: 'retry: pit recovery', idle: 'wait: pit, no unit to claim (layer gate, others)', check: 'other: pit layer check', sweep: 'other: pit final sweep', audit: 'cpu: pit audit', janitor: 'other: pit janitor', script: 'retry: pit script (tool, item)' };
     try { res = await runWorker(P.impl, name, env, { cancel, pollMs: 1000, ...(work.opts || {}), act: (a) => PZ.setSub(a ? ACT[a] || `other: pit ${a}` : null) }); }
-    finally { PZ.setSub(null); bot.__mineBox = null; bot.__builderOwns = true; }
+    finally { PZ.setSub(null); bot.__mineBox = null; bot.__builderOwns = true; job.inPit.delete(name); }
+    // the hand-over (bt075j: pumpkins of the pit's own movement left standing when its workers ended, unknown to the build's ledger, so never taken away): every block the work
+    // layer still lists as this bot's around the box becomes an entry of the build's ledger, released (its step, the pit, is over), and leaves the work layer's list
+    adoptWorkTemps(job, name, bot, P.box);
     // the pit's rubble out of the pack (the test worlds put every drop straight into it): the materials need the room
     try { await SUP.dropRubble(bot, keepRubble(job), { minFree: 40 }); } catch (_) { /* a full pack is dealt with before the next work too */ }
-    if (res.ended === 'finished' || P.impl.ledger.finished()) job.pitDone(`${name}: ${res.ended}`);
+    // (this round's end only: a bot whose worker of an earlier round ended late marked the next round done, bt075j round 2 'done after 8 s: done 0, pending 2303')
+    if (job.pitPhase === P && (res.ended === 'finished' || P.impl.ledger.finished())) job.pitDone(`${name}: ${res.ended}`);
     else if (!['died', 'disconnected', 'cancelled', 'wrong_dimension'].includes(res.ended)) {
         P.ends = (P.ends || 0) + 1; job.log(`${name}: pit worker ended ${res.ended}${res.last ? ` (${res.last})` : ''}; ${res.units} units, ${res.failed} failed`);
         if (P.ends > 6 * Math.max(1, job.bots.size)) job.pitDone(`${P.ends} worker ends without the pit finishing`);
         await sleep(3000, 'retry: pit worker ended');
     }
     return res;
+}
+
+/** The work layer's blocks of this bot that still stand around the box: into the build's ledger, released, and out of the work layer's list (clearByPit). Returns how many. */
+function adoptWorkTemps(job, name, bot, box, margin = 24) {
+    const reg = bot.__temps; if (!reg || !reg.list) return 0;
+    const dim = require('../work/bot/temps').dimOf(bot);
+    let n = 0;
+    for (const r of reg.list((q) => q.by === name && q.dim === dim && q.x >= box.x0 - margin && q.x <= box.x1 + margin && q.z >= box.z0 - margin && q.z <= box.z1 + margin && q.y >= box.bottom - margin && q.y <= box.top + margin)) {
+        const c = { x: r.x, y: r.y, z: r.z }, h = seen(bot, c);
+        reg.remove(dim, c);
+        if (!h || S.AIR.has(h.name) || FLUID(h)) continue;
+        const e = job.ledger.intend(c, h.name, r.kind === 'bridge' ? 'bridge' : 'pillar', name);
+        job.ledger.observe(c, h.name);
+        const ee = job.ledger.get(c) || e;
+        if (ee && !ee.released) { ee.released = { at: Date.now(), why: 'left by the pit' }; job.ledger.n.released++; }
+        n++;
+    }
+    if (n) { job.log(`${name}: ${n} blocks of the pit's movement still standing are the build's to take away now`); job._offerTemps(Date.now(), true); }
+    return n;
 }
 
 /** One bot of the crew, its pauses classified (pauses.js): the drive runs in the bot's own store. */
@@ -866,7 +890,7 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
         if (!n || !n.position) return;
         if (job.ledger.size) job.ledger.observe(n.position, n.name);
         const nm = String(n.name || ''); if (!tempKinds().includes(nm) || (o && o.name === nm) || job.ledger.get(n.position)) return;
-        if (job.pitPhase && !job.pitPhase.done) return;          // the pit's movement blocks are the work layer's (src/work/bot/temps.js), not this ledger's
+        if ((job.pitPhase && !job.pitPhase.done) || (job.inPit && job.inPit.size)) return;          // the pit's movement blocks are the work layer's (src/work/bot/temps.js) until the hand-over
         const p = bot.entity && bot.entity.position; if (!p || Math.hypot(p.x - n.position.x - 0.5, p.y - n.position.y, p.z - n.position.z - 0.5) > 5) return;
         const k = `${n.position.x},${n.position.y},${n.position.z}`; job.unreg = job.unreg || new Map(); if (job.unreg.has(k)) return;
         job.unreg.set(k, Date.now()); if (job.unreg.size <= 40) job.log(`[temps] unregistered ${nm} at ${k} beside ${name} (was ${o ? o.name : '?'}; held ${bot.heldItem ? bot.heldItem.name : 'nothing'}); last moves ${mv.trace.slice(-4).join(' | ')}`);
@@ -1080,4 +1104,4 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
     } finally { bot.removeListener('death', onDeath); bot.removeListener('death', onDied); bot.removeListener('blockUpdate', onBlock); job.orphanOf(name, 'left the crew'); clearInterval(sampler); bot.removeListener('spawnReset', onReset); bot.__builderOwns = false; job.leave(name); if (job.pool) job.pool.leave(name); for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sneak', 'sprint']) bot.setControlState(k, false); }
 }
 
-module.exports = { drive, work, holds, rules, pour, escape, needsFor, boxSpot, bench, release, unscaffold, touchesShape, planned };
+module.exports = { drive, work, holds, rules, pour, escape, needsFor, boxSpot, bench, release, unscaffold, touchesShape, planned, adoptWorkTemps };
