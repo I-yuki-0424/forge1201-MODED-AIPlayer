@@ -290,7 +290,9 @@ async function work(job, name, bot, mv, cl, cancel) {
             if (S.matches(job.t.wantOf(tk), h)) { results.push({ tk, ok: true }); continue; }
             // never into a block of its own pillar while its step lasts: the build's block on the pillar's top took the bot's way back and stranded the column under it (columns of
             // 7 and 8 under a placed block, bt075b w1 "walkBack 0"); the cell is built once the pillar is gone
-            { const own = job.ledger.get(tk); if (own && own.by === name && own.how === 'pillar' && !own.released) { results.push({ tk, ok: false, why: 'skipped' }); continue; } }
+            // (nor into the two cells over its top: the bot's way back onto it, bt075c w3 "a column of 7 ... task place 72,74,28" over the top 72,72,28)
+            { const mineP = (y) => { const e = job.ledger.get({ x: tk.x, y, z: tk.z }); return !!e && e.by === name && e.how === 'pillar' && !e.released; };
+              if (mineP(tk.y) || ((mineP(tk.y - 1) || mineP(tk.y - 2)) && !(feet(bot).x === tk.x && feet(bot).z === tk.z))) { results.push({ tk, ok: false, why: 'skipped' }); continue; } }
             if (!(S.AIR.has(h.name) || REPLACEABLE.test(h.name) || h.name === 'water' || h.name === 'lava')) { await mv.dig(tk); }
             if (!(await mv.hold(rr.item))) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
             // never the block that leaves the bot's own cell without a way out (Bd4f set glass on all four sides on a piston, as the blueprint has it, and was shut in: owner
