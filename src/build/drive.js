@@ -777,7 +777,16 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
     const onDied = () => { job.orphanOf(name, 'died'); mv.mine.clear(); };
     bot.on('death', onDied);
     // the server's word on every block change this bot sees: confirms or ends temporary blocks, whoever placed or broke them (temps.js)
-    const onBlock = (o, n) => { if (n && n.position && job.ledger.size) job.ledger.observe(n.position, n.name); };
+    // a temporary block that comes into the world with no ledger entry (cause a of the end scan: 1 / 1 / 13 of the leftovers of build_t-w121-smoke, no code path known): the
+    // nearest bot and its last moves, once per cell, the first 40 of the job (the bot within 5 of the cell logs it)
+    const onBlock = (o, n) => {
+        if (!n || !n.position) return;
+        if (job.ledger.size) job.ledger.observe(n.position, n.name);
+        const nm = String(n.name || ''); if (!tempKinds().includes(nm) || (o && o.name === nm) || job.ledger.get(n.position)) return;
+        const p = bot.entity && bot.entity.position; if (!p || Math.hypot(p.x - n.position.x - 0.5, p.y - n.position.y, p.z - n.position.z - 0.5) > 5) return;
+        const k = `${n.position.x},${n.position.y},${n.position.z}`; job.unreg = job.unreg || new Map(); if (job.unreg.has(k)) return;
+        job.unreg.set(k, Date.now()); if (job.unreg.size <= 40) job.log(`[temps] unregistered ${nm} at ${k} beside ${name} (was ${o ? o.name : '?'}; held ${bot.heldItem ? bot.heldItem.name : 'nothing'}); last moves ${mv.trace.slice(-4).join(' | ')}`);
+    };
     bot.on('blockUpdate', onBlock);
     // once a second: how many of its temporary blocks stand beyond the column it stands on (the owner's two-per-bot standard, temps.js sample)
     let looseLog = 0;
