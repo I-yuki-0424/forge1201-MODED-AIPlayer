@@ -539,6 +539,13 @@ Temporary blocks put down in 30 minutes: 2 370 / 3 295 / 1 726 against 623 / 1 4
 | `bt075d` (5d4ff4ae: + restore of rolled-back digs, quiet wrap end, wires never built beside temporary blocks) | 6 / 1 / (w3: the crew never read the chest, no work, not counted) | c 7: 2 under its placer (a bridge block over a gap at the time limit), 3 a crew member on it, 2 orphaned by the pause at the end | 2 364 / 1 143 | **1 913 / 1 737** | 0 / 0 (built beside: 0 / 0) |
 | `bt075e` (8729fa6f: + step off temporary blocks in the wrap-up, planned-wire lookup fixed) | 31 / **0** / 2 | w1: c 31 (29 orphaned when the wrap-up paused the crew, 2 under its placer: the wrap-up's staircases at the top of the build, y about 105, did not converge in 10 min); w3: c 2 orphaned (the job called itself finished in the wrap-up with 2 standing) | 1 681 / 443 / 416 | (w1 in wrap at 29) / 1 324 / 1 438 | 0 |
 | `bt075f` (fd5d61ec: + nav walk-end sweep, `_behind` reasons logged) | (w1: no dry site in 30 draws, harness) / 4 / 5 | c 9: 6 orphaned (the job finished in the wrap-up; fixed in 5dfb6743: a wrap-up is never finished while blocks stand), 3 "a tall column: from its top" never reached | 1 792 / 1 776 | 1 219 / 1 949 | 0 |
+| **`bt075g`** (5dfb6743: + no route over another bot's movement block, a wrap-up never finished while blocks stand) | **0 / 0 / 0** | none (wrap-up 346 / 57 / 261 s) | 3 155 / 147 / 464 | 27 / 714 / 1 613 (w1: a jungle, 1 991 temporary blocks for clearing) | 0 / 0 (built beside: 0 / 0) |
+
+**Where it stands (bt075g, the last code):** zero temporary blocks at the end of the build on all three worlds by the server scan; at most two per bot is held 98-99.8 %
+of bot time in w2/w3 (147 and 464 bot-seconds over two of about 19 000) and 84 % in w1 (3 155, a jungle being cleared: columns of four or less while the landing takes them
+back, and columns left where `_behind` could not see the lower blocks: the log's "not in sight"); no temporary block beside a built wire or pane. Not yet zero over two: the
+named candidates for the exception the contract allows are (1) the column beside the floor while it is being taken back (counted as in use since this stage), (2) water fills
+and seals inside the box until their cell's own task (bt075f w2: one bot held 24 fills of a pond), (3) scaffolds until their block stands.
 
 The seeds differ from run to run (the T26 standard), so the rows compare the same harness on different terrain. Over two as a share of bot time (8 bots, about 40 minutes): 39-75 % in the
 smoke runs, 5-12 % in bt075c. What is left over two in bt075c: columns of four or less in the seconds while the landing takes them back (6-56 %), columns of more than four still
