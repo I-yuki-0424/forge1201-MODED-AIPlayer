@@ -129,9 +129,19 @@ TASK-078's format ([SIM-PARITY-v1](SIM-PARITY-v1.md) section 5, format 1: `hello
 | place_a | 7601 | 4/4, 31 s, 0 | 4/4, 31 s, 0 |
 | place_a | 7602 | 4/4, 31 s, 0 | 4/4, 32 s, 0 |
 | place_a | 7603 | 4/4, 31 s, 0 | 4/4, 31 s, 0 |
-MORE_ROWS
+| move_a | 7601 | pending (re-run after the swim fix below) | pending |
+| move_a | 7602, 7603 | pending | pending |
+| mine_b | 7601-7603 | pending | pending |
 
-**place_a: 12/12 with either, the same time per bridge.** MORE_TEXT
+**place_a: 12/12 with either, the same time per bridge.**
+
+**move_a found a real difference, and its cause was in the walk, not in the physics.** The first `move_a` 7601 pair (2026-11-26 01:20-02:11, before the fix):
+mineflayer 4/4, 0 deaths; native 1/4, 6 deaths, three of them `drowned` in the server log within the first 11 minutes, the other bots stuck after their deaths. Under
+water the game's sprint is swimming, and a swimming body moves along its look (`Player.travel`: the look's y pulls the vertical speed). The walk (`src/skills/motion.js`)
+held sprint in water ("the way a player swims against a current") and left the pitch where the last dig or place had put it, usually pointing down: on the native physics
+the bot swam along the bottom (offline: sprint + jump + forward, look 0.5 rad down, the body stays at the bottom; without sprint it surfaces in 2 s, test in
+`test_native_physics_pure.js`). prismarine-physics has no swimming, so this never showed with mineflayer's physics. Fix: in water the walk looks level and sprints only
+with the head out of the water; the breath reflex lets go of sprint and looks up; the fight reflex does not sprint in water. Both modes are re-run on the fixed code.
 
 ## 8. Known gaps
 
