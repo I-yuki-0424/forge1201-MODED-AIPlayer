@@ -38,9 +38,21 @@ async function follow(ctx, goal, opts = {}) {
     // Always let at least one tick pass: callers loop around follow() (moving targets), and a call that returned at once
     // (goal already met, or aborted) made such a loop spin without the clock moving and froze the process (bench hard1).
     const t0 = ctx.t;
-    const end = await walk(ctx, goal, opts);
+    // the fall guard (src/build/fallguard.js, on every work bot since TASK-075): the drops this walk plans (a drop of more than its three into water) are opened for the walk only
+    const g = ctx.bot && ctx.bot.__fallGuard, base = g ? g.allow : null;
+    let end;
+    try { end = await walk(ctx, goal, opts); } finally { if (g) g.allow = base; }
     if (ctx.t === t0) await ctx.tick({});
     return end;
+}
+
+/** Open the columns of a path's planned drops deeper than the fall guard's limit (a drop into water up to MAX_DROP_WATER), on top of what is open already. */
+function openDrops(bot, path) {
+    const g = bot && bot.__fallGuard; if (!g || !path) return 0;
+    let n = 0; const m = new Map(g.allow || []);
+    for (let i = 1; i < path.length; i++) { const d = path[i - 1].y - path[i].y; if (path[i].move === 'drop' && d > g.maxFall) { const k = `${path[i].x},${path[i].z}`; m.set(k, Math.max(m.get(k) || 0, d + 0.5)); n++; } }
+    if (n) g.allow = m;
+    return n;
 }
 
 /** A neighbouring cell that can be stepped onto at once: feet and head air, solid below, one level down, level or one up. Null when there is none. Pure. */
@@ -119,7 +131,7 @@ async function walk(ctx, goal, { sprint = true } = {}) {
                 throw new SkillError('unreachable', { goal: goal.label, why: 'start cell not standable', cell });
             }
             if (r.partial && r.path.length === 1) throw new SkillError('unreachable', { goal: goal.label, expanded: r.expanded });
-            path = r.path; idx = 0; best = -Infinity; lastGain = ctx.t;
+            path = r.path; idx = 0; best = -Infinity; lastGain = ctx.t; openDrops(bot, path);
             ctx.phase('walk', { nodes: path.length, partial: r.partial, to: path[path.length - 1], cells: path.map((n) => [n.x, n.y, n.z]) });
         }
         // Where are we on the path? Accept the current node or any of the next few.
@@ -262,4 +274,4 @@ async function aimAtBlock(ctx, cell, { face = null, frame = {} } = {}) {
     throw new SkillError('not_visible', { target: cell, tried: pts.length, seen });
 }
 
-module.exports = { stepOffCell, follow, cellGoal, reachGoal, approachUntil, approachBlock, aimAtBlock, clearOfEntities, AIM_REACH, feetCell, centre, hdist, same, eyeOf, clearLine };
+module.exports = { openDrops, stepOffCell, follow, cellGoal, reachGoal, approachUntil, approachBlock, aimAtBlock, clearOfEntities, AIM_REACH, feetCell, centre, hdist, same, eyeOf, clearLine };

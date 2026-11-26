@@ -45,6 +45,10 @@ class BotsPart {
             if (gap > 1500 && rec.state === 'online' && mine()) this.note('warn', `${rec.name}: no physics tick for ${gap} ms (phase ${rec.phase ? rec.phase.name : 'none'}); others: ${[...this.bots.values()].filter((r) => r !== rec && r.tickAt).map((r) => `${r.name}:${now - r.tickAt}`).join(' ')}`);
         });
         const mine = () => rec.bot === bot && !rec.removed;
+        // The fall guard under every bot that moves (src/build/fallguard.js, owner 2026-11-24 'make the movement robust'): no step sideways onto a fall of more than three,
+        // whatever the physics; installed once the physics is wired (login: native or mineflayer), so it wraps what runs. Only the build's Mover had it: pit bots walked off
+        // 21- and 40-block edges of their own dug pit (mine_b mb075r w1, mb075s w3, 1.21.1). Setting fallGuard false switches it off.
+        bot.once('spawn', () => { try { if (this.settings.fallGuard !== false) { const g = require('../../build/fallguard').install(bot); if (!g) this.note('warn', `${rec.name}: fall guard not installed (no physics)`); } } catch (e) { this.note('warn', `${rec.name}: fall guard: ${String(e.message).slice(0, 80)}`); } });
         bot.once('spawn', () => { if (!mine()) return; rec.state = 'online'; rec.attempts = 0; rec.since = Date.now(); this.note('info', `bot ${rec.name} online`); this._tagDirect(rec); this._dirty(); this._resume(rec); });
         bot.on('spawn', () => { if (mine() && rec.state === 'online') setTimeout(() => this._resume(rec), 2500); });        // respawn after death
         bot.on('death', () => { if (mine()) { this.note('warn', `bot ${rec.name} died`); this.force.reset(rec.name); } });

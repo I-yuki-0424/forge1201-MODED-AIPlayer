@@ -174,6 +174,35 @@ test('pool: a giver serving a request is not asked again; an expired request is 
     assert.strictEqual(pool.status().failed, 1);
 });
 
+// ---- NAV and the work layer (TASK-075: the guard on every work bot; pit bots walked off 21- and 40-block edges of their own pit) ----
+test('a pit bot at the 21-block edge of its dug pit: held (the guard every work bot now has); without it the body falls (negative control)', () => {
+    const cells = {}; for (let x = -3; x <= 0; x++) column(x, 0, 0, 20, 'stone', cells); column(1, 0, 0, 0, 'stone', cells);          // the pit floor 20 below, east of the rim
+    for (const guard of [true, false]) {
+        const bot = simBot(scene(cells), new Vec3(0.5, 21, 0.5));
+        if (guard) FG.install(bot);
+        bot.entity.yaw = EAST; bot.set({ forward: true, sprint: true }); bot.tick(30); bot.set({ forward: false, sprint: false }); bot.tick(40);
+        if (guard) assert.ok(bot.entity.position.y > 20.9, `held: at ${bot.entity.position}`); else assert.ok(bot.entity.position.y < 5, `fell: at ${bot.entity.position}`);
+    }
+});
+test('a walk\'s planned drop of seven into water (motion.openDrops, what NAV walks and the action layer follow): let through; the same drop not opened is held (negative control)', () => {
+    const { openDrops } = require('../src/skills/motion');
+    const cells = column(0, 0, 0, 20); column(1, 0, 0, 11, 'stone', cells); cells['1,12,0'] = 'water'; cells['1,13,0'] = 'water';         // water at 12-13: 7 below the feet
+    for (const open of [true, false]) {
+        const bot = simBot(scene(cells), new Vec3(0.5, 21, 0.5));
+        FG.install(bot);
+        if (open) assert.strictEqual(openDrops(bot, [{ x: 0, y: 21, z: 0 }, { x: 1, y: 14, z: 0, move: 'drop' }]), 1);
+        bot.entity.yaw = EAST; bot.set({ forward: true }); bot.tick(15); bot.set({ forward: false }); bot.tick(40);
+        if (open) assert.ok(bot.entity.position.y < 16 && bot.entity.position.x > 1, `dropped: at ${bot.entity.position}`); else assert.ok(bot.entity.position.y > 20.9, `held: at ${bot.entity.position}`);
+    }
+});
+test('openDrops leaves drops within the guard\'s three alone and adds to what is already open', () => {
+    const { openDrops } = require('../src/skills/motion');
+    const bot = { __fallGuard: { maxFall: 3, allow: new Map([['5,5', 4]]) } };
+    assert.strictEqual(openDrops(bot, [{ x: 0, y: 10, z: 0 }, { x: 1, y: 7, z: 0, move: 'drop' }]), 0);
+    assert.strictEqual(openDrops(bot, [{ x: 0, y: 10, z: 0 }, { x: 1, y: 4, z: 0, move: 'drop' }]), 1);
+    assert.deepStrictEqual([...bot.__fallGuard.allow.entries()].sort(), [['1,0', 6.5], ['5,5', 4]]);
+});
+
 (async () => {
     let n = 0;
     for (const [name, fn] of queue) { await fn(); n++; console.log(`ok - ${name}`); }

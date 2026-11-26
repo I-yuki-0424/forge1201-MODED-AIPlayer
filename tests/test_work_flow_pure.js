@@ -157,6 +157,17 @@ function fakeWorld(ground = 0, init = {}) {
         for (const x of b) { const tk = await x; tk.leave(); }
     });
 
+    await test('service: every work bot gets the fall guard when it spawns (pit and NAV bots had none: 21- and 40-block falls in their own pit, mb075r/s); setting fallGuard false: none (negative control)', async () => {
+        const { EventEmitter } = require('events'), fs = require('fs'), os = require('os'), path = require('path'), { WorkService } = require('../src/work/service');
+        for (const on of [true, false]) {
+            const svc = new WorkService({ dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'fg-')), restore: false, factory: () => { const b = new EventEmitter(); b.physics = { simulatePlayer: (st) => st }; b.entity = { position: { x: 0, y: 0, z: 0 } }; b.game = {}; b.inventory = { items: () => [], slots: [] }; b.username = 'Guard1'; b.loadPlugin = () => {}; return b; } });
+            svc.settings.fallGuard = on; svc.addBot('Guard1');
+            const rec = svc.bots.get('Guard1'); rec.bot.emit('spawn');
+            assert.strictEqual(!!rec.bot.__fallGuard, on);
+            if (svc.stop) await svc.stop();
+        }
+    });
+
     await test('service: how many bots a container takes at once (a chest 3, the tools chest 2, a bed 1; the setting chestSlots changes the chests, closed 1..6)', () => {
         const fs = require('fs'), os = require('os'), path = require('path'), { WorkService } = require('../src/work/service');
         const svc = new WorkService({ dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'slots-')), factory: () => ({}), restore: false });
