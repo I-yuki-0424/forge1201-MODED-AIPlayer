@@ -643,7 +643,8 @@ async function supplyTrip(job, name, bot, mv, need, cancel) {
         const spot = () => boxSpot(job, bot, site, mv);
         await SUP.dropRubble(bot, keepRubble(job), { minFree: 12 });          // room in the pack first (a pack full of rubble brought nothing back)
         // what the ready work asks for, and what its sector needs over the next layers (each capped by the fair share in needsFor)
-        const sn = job.sectorNeeds ? job.sectorNeeds(name) : {}, all = { ...sn };
+        // (while the pit clears the site: the kit only, not the area's materials: the pack is the pit's for its digging)
+        const sn = job.sectorNeeds && !(job.pitPhase && !job.pitPhase.done) ? job.sectorNeeds(name) : {}, all = { ...sn };
         for (const [k, n] of Object.entries(need)) all[k] = Math.max(all[k] || 0, n);
         const wants = needsFor(job, bot, all);
         job.depot = job.depot || [];
@@ -848,6 +849,7 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
         if (!n || !n.position) return;
         if (job.ledger.size) job.ledger.observe(n.position, n.name);
         const nm = String(n.name || ''); if (!tempKinds().includes(nm) || (o && o.name === nm) || job.ledger.get(n.position)) return;
+        if (job.pitPhase && !job.pitPhase.done) return;          // the pit's movement blocks are the work layer's (src/work/bot/temps.js), not this ledger's
         const p = bot.entity && bot.entity.position; if (!p || Math.hypot(p.x - n.position.x - 0.5, p.y - n.position.y, p.z - n.position.z - 0.5) > 5) return;
         const k = `${n.position.x},${n.position.y},${n.position.z}`; job.unreg = job.unreg || new Map(); if (job.unreg.has(k)) return;
         job.unreg.set(k, Date.now()); if (job.unreg.size <= 40) job.log(`[temps] unregistered ${nm} at ${k} beside ${name} (was ${o ? o.name : '?'}; held ${bot.heldItem ? bot.heldItem.name : 'nothing'}); last moves ${mv.trace.slice(-4).join(' | ')}`);
@@ -915,11 +917,17 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
             if (inNether(bot) && job.available.has('respawn_anchor') && !(job.spawnSet && job.spawnSet.has(name)) && !job.anchorBusy && Date.now() - ((job.anchorTry && job.anchorTry.get(name)) || 0) > 120000) { (job.anchorTry || (job.anchorTry = new Map())).set(name, Date.now()); await settle(null, 'anchor'); await anchor(job, name, bot, mv, cancel); }
             if (job.exhausted()) { await PZ.within('cpu: survey', () => job.resurvey(bot, `${name}: stage ${job.stage} done`)); continue; }
             // the terrain first, by the pit (after the first survey, with the tools of the first trip in the pack)
-            if (work && job.stage !== 'survey' && !job.wrapping && job.planPit() && !job.pitPhase.done && !(Object.keys(needsFor(job, bot, {})).length && !(job.lastTrip && job.lastTrip.has(name)))) {
-                await settle(null, 'pit');
-                const r = await PZ.within('pit', () => clearByPit(job, name, bot, mv, cancel, work));
-                if (r && (r.ended === 'died' || r.ended === 'disconnected')) return { ended: r.ended };
-                progress(); continue;
+            // (only with its tools and temporary blocks in the pack: the trip before the pit fetches those and nothing else; b081b: two bots went in with an empty pack after a
+            // trip that brought nothing and ended their pit worker 22 times on missing_item; the others carried their whole area's materials into the pit)
+            if (work && job.stage !== 'survey' && !job.wrapping && job.planPit() && !job.pitPhase.done) {
+                const kit = needsFor(job, bot, {});
+                if (!Object.keys(kit).length) {
+                    await settle(null, 'pit');
+                    const r = await PZ.within('pit', () => clearByPit(job, name, bot, mv, cancel, work));
+                    if (r && (r.ended === 'died' || r.ended === 'disconnected')) return { ended: r.ended };
+                    progress(); continue;
+                }
+                if (job.lastTrip && Date.now() - (job.lastTrip.get(name) || 0) < 60000) { await sleep(3000, 'wait: tools and blocks for the pit'); continue; }
             }
             // the fall guard's count (ticks it held a body back from a fall) and the pool's, for the progress line
             if (mv.guard) {
@@ -961,6 +969,8 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
                     continue;
                 }
             }
+            // nothing of the build while the pit clears the site (a bot that has not gone in yet waits for its trip)
+            if (job.pitPhase && !job.pitPhase.done) { await sleep(2000, 'wait: the pit clears the site'); continue; }
             const have = SUP.carried(bot);
             // the cells it can reach from here, by the mover's own moves (job.claim offers stances among them); again after a move or 15 s
             { const f0 = feet(bot), fk = `${f0.x},${f0.y},${f0.z}`, F = job.floods && job.floods.get(name); if (!F || F.from !== fk || Date.now() - F.at > 30000) { const tf = Date.now(); (job.floods || (job.floods = new Map())).set(name, await PZ.within('cpu: flood', () => mv.flood())); job.time.claim += Date.now() - tf; } }

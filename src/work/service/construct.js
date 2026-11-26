@@ -97,7 +97,7 @@ class ConstructPart {
                 scriptEnv: () => ({ sites: this.sites, box: build.pitPhase && build.pitPhase.box }),
                 onEvent: (ev, d) => {
                     if (ev === 'parked') this.note('info', `${d.id} parked pit ${d.region} u${d.unit} (${d.reason}${d.detail && d.detail.stage ? ` at ${d.detail.stage}` : ''}${d.detail && d.detail.why ? `: ${String(d.detail.why).slice(0, 120)}` : ''})`, { job: job.id });
-                    if (ev === 'unit' && !d.ok && d.reason !== 'cancelled') this.note('debug', `${d.id} pit ${d.region} u${d.unit} ${d.reason}${d.detail && d.detail.why ? `: ${String(d.detail.why).slice(0, 100)}` : ''}`, { job: job.id });
+                    if (ev === 'unit' && !d.ok && d.reason !== 'cancelled') this.note('info', `${d.id} pit ${d.region} u${d.unit} ${d.reason}${d.detail ? `: ${JSON.stringify({ why: d.detail.why, item: d.detail.item, block: d.detail.block, stage: d.detail.stage, cell: d.detail.cell }).slice(0, 220)}` : ''}`, { job: job.id });
                     if (ev === 'script') this.note(d.ok ? 'info' : 'warn', `${d.id} script ${d.name} for ${d.reason}: ${d.ended}`, { job: job.id });
                 },
             },
