@@ -500,3 +500,17 @@ Smoke runs of `build_t` (iron-farm-34, 8 bots, 25-30 min, `JUDGE=0`, new random 
 
 Per-minute measurements (`[progress]` temps): tb3 (before the way back and own-first): the most beyond its column 11-18 per minute, about 150 bot-seconds over two per minute,
 9-33 released blocks waiting; tb4 (with them, first 7 minutes): 4-6, about 20 bot-seconds a minute, 0-3 waiting.
+
+### Stage C (2026-11-26 day, after the reboot; Fabric 1.21.1 test worlds 1-4, pumpkins the only temporary block)
+
+**Cause table of the 1.21.1 runs of 2026-11-26 morning (code = main at 8a3713e9, server scans).**
+
+| Run (world) | Left at the end (scan) | a: never registered | b: step never released | c: removal failed | d: kept | Over two (bot-seconds) |
+| :-- | --: | --: | --: | --: | --: | --: |
+| `build_t-w121-smoke` w1 (40 min) | 24 | 2 (1 no entry, 1 placed again) | 0 | 22 (8 no face in sight, 13 released and never tried, 1 under its placer) | 0 | 7 480 |
+| w2 | 32 | 1 | 0 | 31 (15 no face in sight, 15 never tried, 1 a crew member on it) | 0 | 12 877 |
+| w3 (bamboo jungle) | 36 | 15 (13 no entry) | 1 | 20 (17 never tried, 3 no face in sight) | 0 | 14 360 |
+| `mine_b-w121-a` w1-w3 (240 min, timeouts) | 128 each | 0 | the whole kit of 128 per world: lake fill, seals, water rescue (`registeredTempsLeft` 128) | | | |
+
+Over-two seconds by kind (`looseHow`, smoke w1-w3): a column of more than four left by a walk, bridge or drop off its top 51-76 %, a column of four or less 19-22 %, scaffolds 19 % (w2).
+Temporary blocks put down in 30 minutes: 2 370 / 3 295 / 1 726 against 623 / 1 436 / 39 blueprint blocks. Beside a built wire (`temps.shapes`): up to 15 in a progress line (tb2/tb4, w4).

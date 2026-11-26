@@ -874,7 +874,8 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
             if (job.pool) { await job.pool.hold(name, cancel); const ps = job.pool.status(); job.stats.pool = `${ps.served}/${ps.asked} ${ps.items}it`; }
             // tools and temporary blocks before the work needs them
             const base = needsFor(job, bot, {});
-            if (Object.keys(base).length && job.stage !== 'settle' && !(job.lastTrip && Date.now() - job.lastTrip.get(name) < 60000)) { (job.lastTrip = job.lastTrip || new Map()).set(name, Date.now()); await settle(null, 'trip'); const tt = Date.now(); await supplyTrip(job, name, bot, mv, {}, within(cancel, 180000)); job.time.trip += Date.now() - tt; continue; }
+            // (not while the run wraps up: only the temporary blocks are work then, and each trip for a tool laid new ones on the way, bt075a w3: 262 put down in its first three minutes)
+            if (Object.keys(base).length && job.stage !== 'settle' && !job.wrapping && !(job.lastTrip && Date.now() - job.lastTrip.get(name) < 60000)) { (job.lastTrip = job.lastTrip || new Map()).set(name, Date.now()); await settle(null, 'trip'); const tt = Date.now(); await supplyTrip(job, name, bot, mv, {}, within(cancel, 180000)); job.time.trip += Date.now() - tt; continue; }
             // a handover: items the chest is out of that this bot carries and has not placed for two minutes go back into the chest for the bots that need them (four
             // bots each held what the others' cells needed and the chest was empty, live 2026-11-23 gd1 w1)
             // (every two minutes, and only stacks worth the walk: at 30 s, 151 hand-back walks were 40 % of the crew's time in the tail, ha29 w2)
@@ -958,7 +959,7 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
                 idle++; const ti = Date.now();
                 if (idle > 25 && job.stage !== 'settle') { tell(job, name, bot, 'idle', job.nothingWhy || job.lastClaimInfo || 'no task found'); progress(); }        // idle with nothing to do is not stuck
                 // nothing for it (its area done, the others full): it waits on the bench, off the box and away from the chest, out of everybody's way (owner 2026-11-23 list 4 problem 7)
-                if (idle === 6 && job.stage !== 'settle') { await bench(job, name, bot, mv, cancel); job.floods && job.floods.delete(name); }
+                if (idle === 6 && job.stage !== 'settle' && !job.wrapping) { await bench(job, name, bot, mv, cancel); job.floods && job.floods.delete(name); }
                 else if (idle % 5 === 1) await mv.spread(crewAt(job, bot));
                 await sleep(job.stage === 'settle' ? 1000 : 400); job.time.idle += Date.now() - ti; continue;
             }
