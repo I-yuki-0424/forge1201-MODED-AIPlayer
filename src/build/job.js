@@ -316,7 +316,13 @@ class BuildJob {
         // only a cell whose block, clicked, gives the wanted state (Target.supportsOf): a trapdoor facing west, top half, goes against the block east of it or above it, never
         // the one below it (the 64 floating trapdoors of iron-farm-34 got a scaffold below and stayed 'ready, no stance' to the end of hc1/hd1)
         const sup = tk.i >= 0 ? this.t.supportsOf(tk.i) : null;
-        const dirs = sup ? sup.map(([x, y, z]) => [x - tk.x, y - tk.y, z - tk.z]).sort((a, b) => (a[1] < 0 ? 0 : a[1] === 0 ? 1 : 2) - (b[1] < 0 ? 0 : b[1] === 0 ? 1 : 2)) : [[0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]];          // below first when it gives the state, then beside (the bot stands on the scaffold and leans over to click its side through the cell), above last
+        // the block over it gives the click (from on top of it, under the feet: a trapdoor's top half) and the blueprint has one there still to place: the cell waits for it
+        // instead of a scaffold in the air (b081k: scaffolds of the floating trapdoors were 75 % of the bot-seconds over two temporary blocks)
+        if (sup && sup.some(([x, y, z]) => x === tk.x && y === tk.y + 1 && z === tk.z)) {
+            const ak = key(tk.x, tk.y + 1, tk.z), at = this.tasks.get(ak);
+            if (at && at.kind === 'place' && !this.parked.has(ak)) { tk.waitFor = ak; this.log(`${S.bare(this.t.wantOf(tk).name)} at ${tk.k} waits for the block over it (${S.bare(this.t.wantOf(at).name)}), then goes in under the feet`); return true; }
+        }
+        const dirs = sup ? sup.map(([x, y, z]) => [x - tk.x, y - tk.y, z - tk.z]).sort((a, b) => (a[1] < 0 ? 0 : a[1] > 0 ? 1 : 2) - (b[1] < 0 ? 0 : b[1] > 0 ? 1 : 2)) : [[0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]];          // below first when it gives the state, then above (the bot stands on the scaffold and puts the block in under its feet, owner ruling 2026-11-26), then beside
         for (const [dx, dy, dz] of dirs) {
             const c = { x: tk.x + dx, y: tk.y + dy, z: tk.z + dz }, k = key(c.x, c.y, c.z);
             if (this.parked.has(k)) continue;
