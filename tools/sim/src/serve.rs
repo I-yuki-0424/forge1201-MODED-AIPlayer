@@ -243,19 +243,32 @@ impl Server {
 
 /// `forgeaip-sim serve --regions DIR --cx N --cz N [--r 16] [--data data-1.21.1.json]`
 pub fn run(args: &[String]) -> Result<(), String> {
-    let (mut regions, mut cx, mut cz, mut r, mut data) = (String::new(), 0, 0, 16, format!("{}/data/data-1.21.1.json", env!("CARGO_MANIFEST_DIR")));
+    let (mut regions, mut cx, mut cz, mut r, mut data, mut trace) = (String::new(), 0, 0, 16, format!("{}/data/data-1.21.1.json", env!("CARGO_MANIFEST_DIR")), String::new());
     let mut i = 0;
     while i < args.len() {
         let v = args.get(i + 1).cloned().unwrap_or_default();
-        match args[i].as_str() { "--regions" => regions = v, "--cx" => cx = v.parse().unwrap_or(0), "--cz" => cz = v.parse().unwrap_or(0), "--r" => r = v.parse().unwrap_or(16), "--data" => data = v, _ => {} }
+        match args[i].as_str() { "--regions" => regions = v, "--trace" => trace = v, "--cx" => cx = v.parse().unwrap_or(0), "--cz" => cz = v.parse().unwrap_or(0), "--r" => r = v.parse().unwrap_or(16), "--data" => data = v, _ => {} }
         i += 2;
     }
     if !std::path::Path::new(&data).exists() { data = "tools/sim/data/data-1.21.1.json".into(); }
     let d = Rc::new(Data::from_file(&data)?);
     if !d.states { return Err("serve needs the per-state tables (gen_data.js SIM_MC_VERSION)".into()); }
-    let tile = Rc::new(load_regions(&regions, &d, cx, cz, r)?);
+    // the world: region files around a centre, or the first snapshot of every chunk of a recorded run (`--trace DIR`)
+    let (tile, vine) = if !trace.is_empty() {
+        let mut files: Vec<String> = std::fs::read_dir(&trace).map_err(|e| format!("{}: {}", trace, e))?.filter_map(|e| e.ok()).map(|e| e.path().display().to_string()).filter(|p| p.ends_with(".jsonl")).collect();
+        files.sort();
+        let mut all: Option<crate::replay::Trace> = None;
+        for f in &files {
+            let t = crate::replay::Trace::parse(&std::fs::read_to_string(f).map_err(|e| e.to_string())?)?;
+            match all.as_mut() { None => all = Some(t), Some(a) => { a.chunks.extend(t.chunks); for (k, v) in t.states { a.states.insert(k, v); } for (k, v) in t.vine_bits { a.vine_bits.insert(k, v); } } }
+        }
+        let t = all.ok_or("no traces")?;
+        let w = crate::replay::world(&t, &d);
+        (w.tile, w.vine)
+    } else { (Rc::new(load_regions(&regions, &d, cx, cz, r)?), HashMap::new()) };
     let loaded = tile.chunks.iter().filter(|c| c.is_some()).count();
     let mut s = Sim::new(d.clone(), tile, 1);
+    s.vine = vine;
     s.hostile_scale = 0.0; s.tick = 6000; s.journal = Some(vec![]);
     let mut srv = Server { d, s };
     let out = std::io::stdout();
