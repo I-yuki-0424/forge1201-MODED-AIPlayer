@@ -128,22 +128,46 @@ function compare(menu, goal, { exact = false } = {}) {
 // containers whose block entity `Items` the build sets (the screens set_contents can fill)
 const CONTAINER = /^(chest|trapped_chest|barrel|hopper|dropper|dispenser|(?:[a-z]+_)?shulker_box)$/;
 
+// A chest joined to its neighbour: the block's `type` names the half and the neighbour lies to the facing's clockwise side for `left`, counter-clockwise for `right`
+// (ChestBlock.getConnectedDirection); the double screen shows the RIGHT half's 27 slots first, then the left half's (ChestBlock.getBlockType: RIGHT = FIRST,
+// DoubleBlockCombiner: acceptDouble(first, second) -> CompoundContainer(first, second)), whichever half is clicked.
+const STEP = { north: [0, -1], east: [1, 0], south: [0, 1], west: [-1, 0] };
+const CW = { north: 'east', east: 'south', south: 'west', west: 'north' }, CCW = { north: 'west', west: 'south', south: 'east', east: 'north' };
+function chestHalf(b, p) {
+    const t = p.props && p.props.type, f = p.props && p.props.facing;
+    if (!/^(chest|trapped_chest)$/.test(bare(p.name)) || (t !== 'left' && t !== 'right') || !STEP[f]) return null;
+    const [dx, dz] = STEP[(t === 'left' ? CW : CCW)[f]];
+    return { first: t === 'right', partner: `${b.x + dx},${b.y},${b.z + dz}` };
+}
+
 /**
- * THE BUILD JOB'S HOOK (TASK-20261125-076 for 075/081): the containers of a blueprint (src/work/jobs/blueprint.js form: { palette, blocks: [{x, y, z, s, nbt?}] })
- * whose block entity holds items, as set_contents goals in world cells (`origin` = the world cell of the blueprint's 0,0,0). After the build has placed
- * such a block (and before the cells that cover its face close in), it runs `{name: 'set_contents', args}` through the router (env.command); the items
- * come from the build's supply like its blocks: add `containerMaterials(bp)` to the material list.
+ * THE BUILD JOB'S HOOK (TASK-20261125-076 for 075/081): the containers of a blueprint (src/work/jobs/blueprint.js form: { palette, blocks: [{x, y, z, s, nbt?}] }:
+ * litematic.js keeps every block entity's typed NBT in `nbt` through parse, toBlueprint and place, rotation and mirror included) whose block entity holds items, as
+ * set_contents goals in world cells (`origin` = the world cell of the blueprint's 0,0,0). The two halves of a double chest are ONE goal of 54 slots at the right
+ * half's cell (one screen; with `exact` a goal per half would empty the other half). After the build has placed such a block (and before the cells that cover its
+ * face close in), it runs `{name: 'set_contents', args}` through the router (env.command); the items come from the build's supply like its blocks: add
+ * `containerMaterials(bp)` to the material list. A stack with components (a named item, a filled shulker box) is not made by a bot: left out of the goal and
+ * counted in `skipped`.
  */
 function blueprintContainers(bp, origin = { x: 0, y: 0, z: 0 }) {
-    const out = [];
+    const out = [], at = new Map((bp.blocks || []).map((b) => [`${b.x},${b.y},${b.z}`, b])), done = new Set();
+    const itemsOf = (b) => { const all = b && b.nbt ? fromBlockEntity(b.nbt) : []; return { keep: all.filter((c) => !c.comp), skipped: all.length - all.filter((c) => !c.comp).length }; };
     for (const b of bp.blocks || []) {
-        if (!b.nbt) continue;
+        const key = `${b.x},${b.y},${b.z}`;
+        if (done.has(key)) continue;
         const p = bp.palette[b.s], name = bare(p && p.name);
         if (!CONTAINER.test(name)) continue;
-        const contents = fromBlockEntity(b.nbt).filter((c) => !c.comp);           // a stack with components (a named item, a filled shulker box) is not made by a bot: left out
+        let cell = b, contents, skipped, double = false;
+        const half = chestHalf(b, p), other = half && at.get(half.partner);
+        const op = other && bp.palette[other.s], oh = other && chestHalf(other, op);
+        if (oh && bare(op.name) === name && oh.first !== half.first && oh.partner === key) {
+            done.add(half.partner); double = true;
+            const [first, second] = half.first ? [b, other] : [other, b], a = itemsOf(first), c = itemsOf(second);
+            cell = first; contents = [...a.keep, ...c.keep.map((s) => ({ ...s, slot: s.slot + 27 }))]; skipped = a.skipped + c.skipped;
+        } else ({ keep: contents, skipped } = itemsOf(b));
         if (!contents.length) continue;
-        const x = origin.x + b.x, y = origin.y + b.y, z = origin.z + b.z;
-        out.push({ x, y, z, block: name, args: { x, y, z, contents: contents.map(({ slot, item, count }) => ({ slot, item, count })), exact: true } });
+        const x = origin.x + cell.x, y = origin.y + cell.y, z = origin.z + cell.z;
+        out.push({ x, y, z, block: name, ...(double ? { double: true } : {}), ...(skipped ? { skipped } : {}), args: { x, y, z, contents: contents.map(({ slot, item, count }) => ({ slot, item, count })), exact: true } });
     }
     return out;
 }

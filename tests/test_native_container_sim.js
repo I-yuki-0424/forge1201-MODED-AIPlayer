@@ -169,6 +169,29 @@ console.log('native container instruction');
         const ms = (x) => require('prismarine-registry')(VERSION).itemsByName[x].stackSize;
         assert.deepStrictEqual(goals.map((g) => N.signalOf(g.args.contents, g.block === 'hopper' ? 5 : 27, ms)), [1, 3], 'the comparators of the blueprint read 1 and 3');
     });
+    await test('the hook on a double chest: one 54-slot goal at the right half (its slots first, the left half\'s from 27), whichever half holds items; single chests and stacks with components', () => {
+        const items = (list) => nbt.comp({ id: nbt.string('minecraft:chest'), Items: nbt.list(nbt.comp(list.map(([s, id, c, comp]) => ({ Slot: nbt.byte(s), id: nbt.string(`minecraft:${id}`), count: nbt.int(c), ...(comp ? { components: nbt.comp({ 'minecraft:custom_name': nbt.string('"x"') }) } : {}) })))) });
+        // facing north: the left half's neighbour is east (clockwise), so the left half is the west one
+        const palette = [{ name: 'minecraft:chest', props: { facing: 'north', type: 'right' } }, { name: 'minecraft:chest', props: { facing: 'north', type: 'left' } }, { name: 'minecraft:chest', props: { facing: 'north', type: 'single' } }];
+        const bp = { palette, blocks: [
+            { x: 0, y: 0, z: 0, s: 1, nbt: items([[0, 'stick', 3], [26, 'poppy', 2]]) }, { x: 1, y: 0, z: 0, s: 0, nbt: items([[4, 'iron_ingot', 64]]) },     // a pair, left half listed first
+            { x: 4, y: 0, z: 0, s: 1, nbt: items([[1, 'stick', 1]]) }, { x: 5, y: 0, z: 0, s: 0 },                                                    // a pair, only the left half holds items
+            { x: 8, y: 0, z: 0, s: 2, nbt: items([[2, 'stick', 1], [3, 'stick', 1, true]]) }] };                                                    // single, one stack with components
+        const g = N.blueprintContainers(bp, { x: 10, y: 0, z: 0 });
+        assert.deepStrictEqual(g.map((q) => [q.x, !!q.double, q.args.contents.map((c) => `${c.slot}:${c.item}x${c.count}`).join(' '), q.skipped || 0]),
+            [[11, true, '4:iron_ingotx64 27:stickx3 53:poppyx2', 0], [15, true, '28:stickx1', 0], [18, false, '2:stickx1', 1]]);
+        for (const q of g) validateArgs('set_contents', q.args);
+    });
+    await test('litematic placement keeps the block entities: a rotated and mirrored sorter cell gives the same goals in the turned cells', () => {
+        const lit = require('../src/work/jobs/litematic');
+        const parsed = lit.parse(require('fs').readFileSync(require('path').join(__dirname, 'fixtures/sorter-cell.litematic')));
+        const base = N.blueprintContainers(lit.toBlueprint(parsed));
+        for (const placement of [{ rotation: 'CLOCKWISE_90' }, { rotation: 'CLOCKWISE_180', mirror: 'LEFT_RIGHT' }]) {
+            const { bp, origin } = lit.place(parsed, { pos: { x: 0, y: 64, z: 0 }, ...placement });
+            const g = N.blueprintContainers(bp, origin);
+            assert.deepStrictEqual(g.map((q) => [q.block, q.args.contents]).sort(), base.map((q) => [q.block, q.args.contents]).sort(), JSON.stringify(placement));
+        }
+    });
     console.log(`native container instruction: ${n} passed`);
     process.exit(0);
 })().catch((e) => { console.error(e); process.exit(1); });
