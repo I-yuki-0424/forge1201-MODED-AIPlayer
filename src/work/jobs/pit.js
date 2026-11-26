@@ -30,6 +30,7 @@ const { TREE } = require('./pit_trees');          // the tree pass (pit_trees.js
 // cannot pillar for it, and leaves and logs 4-6 over the ground made every unit under a canopy fail ("stuck at mine: the same unmet precondition", "unreachable: inside rock",
 // "invalid_target at rise: nothing solid under the feet / no head room": 081's site b081d, 1.21.1 world 4, the pit at 2 239 of 2 304 units with the crew waiting on the layer gate)
 const AERIAL_UP = require('./pit_trees').LOW;
+const FATAL_MINE = new Set(['died', 'disconnected', 'cancelled']);
 const isTreeAt = (w, c) => TREE.test(String((w.nameAt && w.nameAt(c.x, c.y, c.z)) || '').replace(/^minecraft:/, ''));
 function aerialTree(w, c) {
     const bare = (n) => String(n || '').replace(/^minecraft:/, '');
@@ -371,6 +372,10 @@ async function runUnit(plan, region, u, env) {
             }
         }
         if (!m.ok && m.reason === 'protected') { r.skipped++; r.protected = (r.protected || 0) + 1; leave(c); return null; }       // the owner's chest or a tagged block inside the box: left standing (src/skills/fixtures.js)
+        // a tree block a unit cannot take (a trunk or leaves in a canopy: no stand cell with a view of it, "the same unmet precondition", "enclosed") is not the unit's failure: trees
+        // are the tree pass's (pillar beside, from the ground), at the region's start and the job's end; the unit goes on (bt075h w1, 1.21.1: oak logs at 110-112 parked units
+        // and the layer gate held the crew)
+        if (!m.ok && !open(c) && isTreeAt(env.w, c) && !FATAL_MINE.has(m.reason)) { r.skipped++; r.treeLeft = (r.treeLeft || 0) + 1; (plan.treesLeft || (plan.treesLeft = new Set())).add(`${c.x},${c.y},${c.z}`); return null; }
         if (!m.ok && !open(c)) return fail(m, c, 'mine');
         r.mined++;
         // Water that was behind the block is now flowing in. Fill its source, then the cell; if the cell was plugged, dig it again.
@@ -686,6 +691,7 @@ function cellState(plan, region, u, w) {
         const k = w.kindAt(c.x, c.y, c.z);
         if (k === 'unknown') { unknown++; continue; }
         if ((PASSABLE.has(k) && !(plan.clearPlants && NOT_AIR(w, c))) || UNBREAKABLE.test((w.nameAt && w.nameAt(c.x, c.y, c.z)) || '') || aerialTree(w, c)) continue;
+        if (plan.treesLeft && plan.treesLeft.has(`${c.x},${c.y},${c.z}`) && isTreeAt(w, c)) continue;          // a tree block a unit left to the tree pass (runUnit): not the layer's
         if (plan.accepted && plan.accepted.has(`${c.x},${c.y},${c.z}`)) continue;                      // left on purpose: a fixture, a block the bot stood on
         wrong.push(c);
     }

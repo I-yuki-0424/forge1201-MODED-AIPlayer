@@ -166,5 +166,22 @@ const left = (w, box = BOX) => scan(w, box).length;
         assert.strictEqual(aimPoints(eye, cell, shapes).length, 0, 'negative control: collision shapes only, nothing to aim at');
     });
 
+    await test('a tree block the unit cannot take (no stand cell with a view: a trunk in a canopy) is left to the tree pass, not a failed unit; the layer check does not hold for it; stone that cannot be taken still fails (negative control; bt075h w1)', async () => {
+        const pit = require('../src/work/jobs/pit');
+        const run = async (name) => {
+            const cells = new Map([['3,64,3', name]]);
+            const w = { nameAt: (x, y, z) => cells.get(`${x},${y},${z}`) || (y <= 63 ? 'stone' : 'air'), kindAt: (x, y, z) => ((cells.get(`${x},${y},${z}`) || (y <= 63 ? 'stone' : 'air')) === 'air' ? 'air' : 'solid') };
+            const job = pit.createPitJob({ x0: 0, z0: 0, x1: 7, z1: 7, top: 64, bottom: 64 }, {}, { method: 'rows', road: false }), region = job.plan.regions[0];
+            const env = { w, have: () => 9, pause: async () => {}, here: () => ({ x: 0, y: 64, z: 0 }), exec: async (n, a) => (n === 'mine' && a.x === 3 && a.z === 3 ? { ok: false, reason: 'stuck', detail: { why: 'the same unmet precondition' } } : { ok: true }) };
+            let ok = true; for (let u = 0; u < region.layers * region.rows; u++) { const r = await job.runUnit(region.id, { unit: u }, env); ok = ok && r.ok; }
+            let wrong = 0; for (let u = 0; u < region.layers * region.rows; u++) wrong += pit.wrongCells(job.plan, region, u, w).length;
+            return { ok, wrong };
+        };
+        const log = await run('oak_log');
+        assert(log.ok && log.wrong === 0, `a log: units ok, nothing held (${JSON.stringify(log)})`);
+        const rock = await run('stone');
+        assert(!rock.ok && rock.wrong === 1, `negative control: stone fails its unit (${JSON.stringify(rock)})`);
+    });
+
     console.log('\npit trees: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });
