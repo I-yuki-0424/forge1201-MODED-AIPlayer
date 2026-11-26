@@ -26,6 +26,24 @@ const PLACEABLE = /^(air|cave_air|void_air|water|short_grass|tall_grass|fern|lar
 const OFFSET = /^(bamboo|bamboo_sapling|pointed_dripstone)$/;
 const H = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
 const COST = { walk: 4.6, diag: 6.5, up: 9, drop: 5, pillar: 14, bridge: 40, temp: 6, swim: 8, lava: 60 };
+// How deep a column of its own the bot can take back from the cell beside its top, leaning out over the shaft (sneaking eye 1.27 over the feet, 0.4 from the column's middle, reach
+// 4.4 to the top face of each block): four. A route leaves a taller column of its own sideways only by its last step, onto a stance beside the column's top, which is the stance's
+// way back down (walkBack); a route that went on left the column standing out of everybody's reach: 51-76 % of the bot-seconds over two temporary blocks in the 1.21.1 smoke
+// runs (build_t-w121-smoke w1-w3, columns of 5-22 left by a walk, a bridge or a drop off their top), each later taken away from a new pillar beside it (owner list 5 Large 1:
+// "a placement whose removal stance cannot exist is not chosen")
+const LEAN_DEPTH = 4;
+/**
+ * May a move from a cell on top of its own column `col` high (0: not on one) leave that column, and how: 'go' (the landing takes the column back: Mover._behind), 'last' (only as the
+ * route's last step, the stance beside the top: the column is its way back down), or null (never). `move`: walk, bridge, up, drop, swim; `orth`: a straight step; `level`: the same height.
+ */
+function leaveColumn(col, move, orth, level, depth = LEAN_DEPTH) {
+    if (!col) return 'go';
+    if ((move === 'walk' || move === 'bridge') && orth && level) return col <= depth ? 'go' : 'last';
+    if (move === 'walk' && !orth) return col <= 1 ? 'go' : null;          // diagonal: _behind does not lean, the top face only from where the bot stands
+    if (move === 'up') return col <= 1 ? 'go' : null;                   // one higher: the shaft is seen from above its rim only one block deep
+    if (move === 'drop' || move === 'swim') return col <= 2 ? 'go' : null;
+    return null;
+}
 
 class Heap {
     constructor() { this.a = []; }
@@ -189,7 +207,7 @@ function lavaCache(bot) {
  * A plan from the bot's feet cell to a cell `goal(x, y, z)` accepts (h: a heuristic point). Returns [{ x, y, z, move, dig: [cells], place: cell | null }] (the first entry is the start) or null.
  * `temps`: how many temporary blocks the plan may use.
  */
-async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = null, budgetMs = 4000, lavaCost = 0, maxDrop = 4, flood = false, out = null } = {}) {
+async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = null, budgetMs = 4000, lavaCost = 0, maxDrop = 4, flood = false, out = null, leanDepth = LEAN_DEPTH } = {}) {
     const open = new Heap(), best = new Map(), placed = flood ? new Map() : null;          // (flood: the temporary blocks the best way to each cell places)
     // height to gain costs about a pillar step each (a weaker estimate searched whole hillsides before climbing 17 blocks to a tree top, live 2026-11-22)
     // weighted (a quicker search, a little longer way): a goal in the air is reached over a bridge at ten times a walk's cost, which an estimate at walking cost hid: the search
@@ -199,19 +217,26 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
     const air = temps > 0 && !view.stands(h.x, h.y - 1, h.z) && view.free(h.x, h.y - 1, h.z), rock = !view.fits(h.x, h.y, h.z), W = air || rock ? 2.5 : 1.3;
     // flood: no goal, no estimate (Dijkstra): every cell the bot can get to within maxNodes, with its cost (the claim offers stances only among them, Mover.flood)
     const hh = flood ? () => 0 : (x, y, z) => W * ((Math.abs(x - h.x) + Math.abs(z - h.z)) * COST.walk * 0.9 + (h.y > y ? (h.y - y) * (temps > 0 ? COST.pillar + COST.temp : COST.up) * 0.9 : (y - h.y) * COST.drop * 0.5));
-    open.push({ x: start.x, y: start.y, z: start.z, g: 0, f: hh(start.x, start.y, start.z), t: 0, p: null, move: 'start' });
+    // the column of its own the bot stands on (a pillar it climbed, kept for a next stance on the same column): its height decides how the route may leave it
+    let col0 = 0; if (view.rules.ownTemp) while (col0 < 64 && view.rules.ownTemp(start.x, start.y - 1 - col0, start.z)) col0++;
+    open.push({ x: start.x, y: start.y, z: start.z, g: 0, f: hh(start.x, start.y, start.z), t: 0, p: null, move: 'start', col: col0, off: false });
     best.set(key(start.x, start.y, start.z), 0);
+    // (a cell reached by the last step off a tall column is kept apart from the same cell reached otherwise: it is a stance only, nothing is planned on from it)
+    const bkey = (x, y, z, off) => off ? `${key(x, y, z)}|o` : key(x, y, z);
+    // the cells reached only as such a stance count as reached for the flood and the region (folded in under their plain key)
+    const fold = () => { for (const [k, g] of [...best]) { if (!k.endsWith('|o')) continue; best.delete(k); const b = k.slice(0, -2); if (!best.has(b) || best.get(b) > g) { best.set(b, g); if (placed && placed.has(k)) placed.set(b, placed.get(k)); } if (placed) placed.delete(k); } };
     const inBox = (x, y, z) => !box || (x >= box.x0 && x <= box.x1 && y >= box.y0 && y <= box.y1 && z >= box.z0 && z <= box.z1);
     let n = 0, spent = 0, slice = Date.now(), closest = null;
     while (open.size && n++ < maxNodes) {
         // a long search gives the event loop back after 25 ms of its own time and ends after `budgetMs` of it (by node counts, a slice beside the Nether's lava, where every cell
         // looks at 78 others, held all eight bots for 1.5-6 s: ping, owner 2026-11-23 problem 5; a synchronous search froze the work console for 25 s, live 2026-11-22)
-        if (n % 32 === 0 && Date.now() - slice > 25) { spent += Date.now() - slice; if (spent > budgetMs) { plan.last = { why: 'time', nodes: n, best, placed, closest }; if (out) Object.assign(out, plan.last); return null; } await new Promise((r) => setImmediate(r)); slice = Date.now(); }
+        if (n % 32 === 0 && Date.now() - slice > 25) { spent += Date.now() - slice; if (spent > budgetMs) { fold(); plan.last = { why: 'time', nodes: n, best, placed, closest }; if (out) Object.assign(out, plan.last); return null; } await new Promise((r) => setImmediate(r)); slice = Date.now(); }
         const c = open.pop();
         // the cell closest to the estimate's point (for the log: where a failed search got stuck)
         { const d = Math.abs(c.x - h.x) + Math.abs(c.y - h.y) * 1.5 + Math.abs(c.z - h.z); if (!closest || d < closest.d) closest = { x: c.x, y: c.y, z: c.z, d, t: c.t, g: Math.round(c.g) }; }
-        if (goal(c.x, c.y, c.z)) { const out = []; for (let q = c; q; q = q.p) out.push({ x: q.x, y: q.y, z: q.z, move: q.move, dig: q.dig || null, place: q.place || null }); return out.reverse(); }
-        if ((best.get(key(c.x, c.y, c.z)) ?? Infinity) < c.g) continue;
+        if (goal(c.x, c.y, c.z)) { const out = []; for (let q = c; q; q = q.p) out.push({ x: q.x, y: q.y, z: q.z, move: q.move, dig: q.dig || null, place: q.place || null, off: !!q.off }); return out.reverse(); }
+        if ((best.get(bkey(c.x, c.y, c.z, c.off)) ?? Infinity) < c.g) continue;
+        if (c.off) continue;          // the stance beside a tall column's top: the route ends here or not at all
         const add = (x, y, z, cost, move, extra = {}) => {
             if (!inBox(x, y, z)) return;
             // never a cell beside or over lava (a slip, a flow, a push: a cost was not enough, bots died in the Nether's lava sea, live 2026-11-22); a bot closed in by lava on
@@ -232,10 +257,20 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
             if (extra.place && !own && view.rules.tempCost) extraCost += view.rules.tempCost(extra.place.x, extra.place.y, extra.place.z, view);
             const t = c.t + (extra.place && !own ? 1 : 0);
             if (t > temps) return;
-            const g = c.g + cost + extraCost, k = key(x, y, z);
+            // the column of its own under the new cell, and whether this move may leave the one under c (leaveColumn)
+            let col = 0, off = false;
+            if (move === 'pillar') col = own ? 0 : c.col + 1;
+            else if (move === 'down') col = Math.max(0, c.col - 1);
+            else {
+                const how = leaveColumn(c.col, move, Math.abs(x - c.x) + Math.abs(z - c.z) === 1, y === c.y, leanDepth);
+                if (!how) return;
+                off = how === 'last';
+                col = move === 'bridge' && !own ? 1 : 0;
+            }
+            const g = c.g + cost + extraCost, k = bkey(x, y, z, off);
             if (g >= (best.get(k) ?? Infinity)) return;
             best.set(k, g); if (placed) placed.set(k, t);
-            open.push({ x, y, z, g, f: g + hh(x, y, z), t, p: c, move, ...extra });
+            open.push({ x, y, z, g, f: g + hh(x, y, z), t, p: c, move, col, off, ...extra });
         };
         const headFree = view.free(c.x, c.y + 2, c.z);
         // swimming: from a cell in water (or into water, or out of it onto something to stand on) in the six directions
@@ -294,6 +329,7 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
         if (view.diggable(c.x, c.y - 1, c.z) && view.stands(c.x, c.y - 2, c.z)) add(c.x, c.y - 1, c.z, COST.drop + view.digTicks(c.x, c.y - 1, c.z), 'down', { dig: [{ x: c.x, y: c.y - 1, z: c.z }] });
     }
     // searched out: every cell the bot can get to from here (the caller offers it only stances among them)
+    fold();
     plan.last = { why: open.size ? 'nodes' : 'no more cells', nodes: n, region: open.size ? null : best, best, placed, closest };
     if (out) Object.assign(out, plan.last);
     return null;
@@ -795,7 +831,8 @@ class Mover {
                     steps += r.i - i;
                     if (r.i <= j) { last = r.why; broke = true; break; }
                     i = j + 1;
-                    if (leaving) await this._behind(route[i - 2], route, i);
+                    // (not off a tall column onto the stance beside its top: that column is the stance's way back down, walkBack at the release)
+                    if (leaving && !route[i - 1].off) await this._behind(route[i - 2], route, i);
                     continue;
                 }
                 this.note(`${s.move} ${route[i - 1].x},${route[i - 1].y},${route[i - 1].z}->${s.x},${s.y},${s.z}${s.dig && s.dig.length ? ' dig' : ''}`);
@@ -804,7 +841,7 @@ class Mover {
                 steps++; i++;
                 // the block behind (a bridge, a pillar left sideways) is broken as the bot goes on, as a player does (owner 2026-11-23 V4, list 5 Large 1); a bridge's last step off
                 // its own pillar's top is the stance's way back down: the column stays until the bot walks back onto it (drive.js release: the bridge block, then the column)
-                const wayBack = s.move === 'bridge' && i === route.length && this.mineHow && this.mineHow.get(key(route[i - 2].x, route[i - 2].y - 1, route[i - 2].z)) === 'pillar';
+                const wayBack = (s.off || s.move === 'bridge') && i === route.length && this.mineHow && this.mineHow.get(key(route[i - 2].x, route[i - 2].y - 1, route[i - 2].z)) === 'pillar';
                 if (s.move !== 'pillar' && !wayBack) await this._behind(route[i - 2], route, i);
             }
             if (!broke && !cancel.cancelled) { const f = feet(this.bot); if (g(f.x, f.y, f.z)) return { ok: true, steps }; }
@@ -813,4 +850,4 @@ class Mover {
     }
 }
 
-module.exports = { Mover, View, plan, feet, COST, LEAN };
+module.exports = { Mover, View, plan, feet, COST, LEAN, LEAN_DEPTH, leaveColumn };

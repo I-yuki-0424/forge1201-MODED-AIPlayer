@@ -12,7 +12,8 @@ const AIR = new Set(['air', 'cave_air', 'void_air']);
 const bare = (n) => String(n || '').replace(/^minecraft:/, '');
 const key = (x, y, z) => `${x},${y},${z}`;
 const HIST_MAX = 50000;
-const LATE_MS = 5000;              // a placement not seen after this long, its cell empty, was never made
+const LATE_MS = 5000;
+const LEAN_DEPTH = 4;               // move.js LEAN_DEPTH: how deep a column beside its floor the bot takes back from where it stands              // a placement not seen after this long, its cell empty, was never made
 
 class TempLedger {
     constructor({ now = Date.now } = {}) {
@@ -36,7 +37,12 @@ class TempLedger {
         let n = 0; const hs = {}, cells = [];
         // (the crew's spawn bed or anchor is the crew's, for the whole build: not one of the bot's working blocks)
         // (and the column of its own whose top is beside the bot's floor, at its height: the stance's way up and back down, dug as the bot comes down, Mover.walkBack)
-        const way = f ? [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => this.map.get(key(f.x + dx, f.y - 1, f.z + dz))).find((q) => q && q.by === by && q.how === 'pillar' && !q.released) : null;
+        // (or, beside the floor, the column it has just stepped off and is taking back top-down from where it stands, Mover._behind: what is left of it, at most LEAN_DEPTH deep)
+        let way = null;
+        if (f) for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            for (let y = f.y - 1; y >= f.y - 1 - LEAN_DEPTH && !way; y--) { const q = this.map.get(key(f.x + dx, y, f.z + dz)); if (q) { if (q.by === by && q.how === 'pillar' && !q.released) way = q; break; } }
+            if (way) break;
+        }
         for (const e of this.map.values()) if (e.by === by && e.state === 'placed' && e.how !== 'fixture' && !(f && e.x === f.x && e.z === f.z && e.y < f.y) && !(way && !e.released && e.x === way.x && e.z === way.z && e.y <= way.y)) { n++; hs[e.how] = (hs[e.how] || 0) + 1; if (cells.length < 6) cells.push(`${e.how} ${e.k}${e.released ? ' released' : ''}${e.lastFail ? ` (${e.lastFail})` : ''}`); }
         return { n, hs, cells };
     }

@@ -298,4 +298,35 @@ test('a stance on a bridge block off its own pillar: the way back is that pillar
     assert.strictEqual(await mv2.walkBack({ cancelled: false }), 3); assert.deepStrictEqual(order2, ['down'], 'the built floor is not dug: only the pillar, from on top of it');
 });
 
+test('a route leaves a column of its own taller than four only by its last step, onto the stance beside the top (the way back); lower ones are taken back from the landing (build_t-w121-smoke: 51-76 % of the seconds over two; negative control: no limit)', async () => {
+    const M = require('../src/build/move');
+    const world = (h) => { const w = new Map(); for (let x = -6; x <= 10; x++) for (let z = -3; z <= 3; z++) w.set(`${x},69,${z}`, { name: 'stone' }); for (let x = 3; x <= 8; x++) for (let z = -3; z <= 3; z++) for (let y = 70; y < 70 + h; y++) w.set(`${x},${y},${z}`, { name: 'stone' }); return w; };
+    const route = async (h, to, o = {}) => M.plan(new M.View(fakeBot(world(h)), { canDig: () => false }), { x: 0, y: 70, z: 0 }, (x, y, z) => x === to.x && y === to.y && z === to.z, to, { temps: 64, maxNodes: 20000, ...o });
+    // the columns a route leaves behind it: { height, last } for every move off a column of its own (pillar +1, a bridge block 1, a drop/walk/up off it 0)
+    const left = (r) => { const out = []; let col = 0; r.forEach((q, i) => { if (!i) return; if (q.move === 'pillar') { col++; return; } if (q.move === 'down') { col = Math.max(0, col - 1); return; } if (col) out.push({ height: col, last: i === r.length - 1 }); col = q.move === 'bridge' ? 1 : 0; }); return out; };
+    const low = await route(4, { x: 6, y: 74, z: 0 });
+    assert(low && low.length && !low.some((q) => q.off), 'a platform four high: pillar beside it, step on, take the column back from the landing, walk on');
+    const high = await route(6, { x: 6, y: 76, z: 0 });
+    assert(high && left(high).every((c) => c.height <= 4), `six high: a way in columns of four or less, each taken back from where the bot steps (${JSON.stringify(left(high))})`);
+    const old = await route(6, { x: 6, y: 76, z: 0 }, { leanDepth: 99 });
+    assert(old && left(old).some((c) => c.height > 4 && !c.last), `negative control: without the limit the route walks on from a column of ${JSON.stringify(left(old))}`);
+    const edge = await route(6, { x: 3, y: 76, z: 0 });
+    assert(edge && left(edge).every((c) => c.height <= 4 || c.last), 'the cell beside a pillar top');
+    if (edge.some((q) => q.off)) assert(edge[edge.length - 1].off && !edge.slice(0, -1).some((q) => q.off), 'a stance-only step is the last one');
+    // a stance-only cell is a stance for the flood (folded under its plain key), never a cell planned on from
+    const out = {}; await M.plan(new M.View(fakeBot(world(6)), { canDig: () => false }), { x: 0, y: 70, z: 0 }, () => false, { x: 0, y: 70, z: 0 }, { temps: 64, flood: true, maxNodes: 20000, out });
+    assert(out.best.has('3,76,0') && ![...out.best.keys()].some((k) => k.endsWith('|o')), 'edge offered, no stance-only keys leak');
+    assert.strictEqual(M.leaveColumn(6, 'walk', true, true), 'last'); assert.strictEqual(M.leaveColumn(4, 'bridge', true, true), 'go'); assert.strictEqual(M.leaveColumn(3, 'drop', true, false), null); assert.strictEqual(M.leaveColumn(0, 'drop', true, false), 'go'); assert.strictEqual(M.leaveColumn(2, 'walk', false, true), null);
+});
+
+test('the column beside the floor that the bot is taking back top-down is in use, not loose (negative control: two cells away it is)', () => {
+    const L = new TempLedger();
+    for (let y = 70; y <= 73; y++) { L.intend({ x: 0, y, z: 0 }, 'pumpkin', 'pillar', 'a'); L.observe({ x: 0, y, z: 0 }, 'pumpkin'); }
+    assert.strictEqual(L.sample('a', { x: 1, y: 74, z: 0 }), 0, 'stepped off its top');
+    L.removed({ x: 0, y: 73, z: 0 }); L.removed({ x: 0, y: 72, z: 0 });
+    assert.strictEqual(L.sample('a', { x: 1, y: 74, z: 0 }), 0, 'two dug from beside, two to go: still the column in use');
+    assert.strictEqual(L.sample('a', { x: 2, y: 74, z: 0 }), 2, 'negative control: walked on, the rest is loose');
+    L.release('a'); assert.strictEqual(L.sample('a', { x: 1, y: 74, z: 0 }), 2, 'released (the step is over): loose wherever the bot is');
+});
+
 (async () => { for (const [name, fn] of queue) { await fn(); n++; console.log(`  ok ${name}`); } console.log(`test_build_temps_pure: ${n} passed`); })().catch((e) => { console.error(e); process.exit(1); });
