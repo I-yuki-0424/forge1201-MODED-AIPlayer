@@ -73,7 +73,9 @@ async function pillar(ctx, { levels, items = null, within = null }) {
         if (T) T.add({ dim, x: cell.x, y: cell.y, z: cell.z, item, kind: 'pillar', by: bot.username });
         await ctx.tick({ ...look, use: true });
         await ctx.tick(look);
-        try { await ctx.until(got, 12, 'not_confirmed', look); } catch (e) { await ctx.idle(10); if (!got()) { if (T && w.kindAt(cell.x, cell.y, cell.z) !== 'solid') T.remove(dim, cell); throw e; } }
+        // (not confirmed: the entry stays; a block the server applies after this wait was in nobody's list when it was taken out here, cause a of the end scans, TASK-20261125-075;
+        // cleanTemps and nav's sweep forget an entry whose cell holds no block when they look)
+        try { await ctx.until(got, 12, 'not_confirmed', look); } catch (e) { await ctx.idle(10); if (!got()) throw e; }
         await ctx.until(() => bot.entity.onGround && feetCell(bot.entity.position).y === f.y + 1, 30, 'stuck', look);
         placed++;
         // The block placed the round before is now two below the feet: broken now, a second try blind; one that stays is still registered (the walker's tidy takes it from the side).
