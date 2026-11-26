@@ -102,7 +102,7 @@ class ConstructPart {
                 },
             },
         };
-        drive(build, rec.name, rec.bot, { cancel, supplySites: this._supplySites(job), work }).then((res) => {
+        drive(build, rec.name, rec.bot, { cancel, supplySites: this._supplySites(job), pitWork: work }).then((res) => {
             if (res.ended === 'wrong_mode') { rec.retired = `game mode ${rec.bot && rec.bot.game && rec.bot.game.gameMode}: a builder works in survival (or creative)`; this.note('warn', `bot ${rec.name}: ${rec.retired}`, { job: job.id }); }
             this._workerEnded(job, rec, res, cancel);
         }, (e) => this._workerEnded(job, rec, { ended: 'error', error: String(e && e.stack || e).slice(0, 300) }, cancel));
