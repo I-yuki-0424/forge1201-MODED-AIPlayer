@@ -264,5 +264,23 @@ const left = (w, box = BOX) => scan(w, box).length;
         assert(!mined.includes('7,70,7'), 'not out of reach'); assert(!mined.includes('3,66,6'), 'not rock');
     });
 
+    await test('the end: a bot standing on the top of its own pillar in the dug box goes down its column first (descend), and the block is gone (mb075k w3: the one pumpkin left, under the bot); a pillar it does not stand on is not descended (negative control)', async () => {
+        const pit = require('../src/work/jobs/pit'), { Temps } = require('../src/work/bot/temps');
+        const run = async (standOn) => {
+            const solid = new Set(['5,10,5']); for (let x = 0; x <= 9; x++) for (let z = 0; z <= 9; z++) solid.add(`${x},5,${z}`);       // a pillar block at y 10 over the dug box, the floor at y 5
+            const w = { kindAt: (x, y, z) => (solid.has(`${x},${y},${z}`) ? 'solid' : 'air'), nameAt: (x, y, z) => (solid.has(`${x},${y},${z}`) ? 'pumpkin' : 'air') };
+            const temps = new Temps(); temps.add({ x: 5, y: 10, z: 5, kind: 'pillar', by: 'P', item: 'pumpkin' });
+            const pos = standOn ? { x: 5, y: 11, z: 5 } : { x: 1, y: 6, z: 1 }; const runs = [];
+            const env = { w, temps, bot: { username: 'P', game: { dimension: 'overworld' } }, here: () => ({ ...pos }), exec: async () => ({ ok: false, reason: 'unreachable' }), pause: async () => {},
+                run: async (n, a) => { runs.push([n, a.levels]); if (n === 'descend') { solid.delete('5,10,5'); pos.y = 6; return { ok: true, detail: { levels: a.levels } }; } return { ok: false, reason: 'unreachable' }; } };
+            const res = await pit.cleanHanging({ box: { x0: 0, x1: 9, z0: 0, z1: 9, top: 12, bottom: 6 }, regions: [] }, env);
+            return { res, runs, left: solid.has('5,10,5'), reg: temps.size };
+        };
+        const on = await run(true);
+        assert.deepStrictEqual(on.runs[0], ['descend', 5], JSON.stringify(on.runs)); assert(!on.left && on.reg === 0 && on.res.left === 0, JSON.stringify(on));
+        const off = await run(false);
+        assert(!off.runs.some((r) => r[0] === 'descend'), 'no descent for a pillar the bot does not stand on');
+    });
+
     console.log('\npit trees: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

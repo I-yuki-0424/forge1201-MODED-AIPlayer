@@ -699,9 +699,15 @@ async function cleanHanging(plan, env) {
         if (lakeRes && lakeRes.placed) for (const q of lakeRes.placed) owned.add(`${q.x},${q.y},${q.z}`);
     }
     if (!find(w, null).length) return { left: 0, ...(lakeRes ? { lake: { filled: lakeRes.filled, left: lakeRes.left, reason: lakeRes.reason || lakeRes.error } } : {}) };
+    // The bot stands on one of them (the top of its own pillar in the dug box): down its column first, the way the pillar went up (moves.js `descend`: a block under the one it stands on,
+    // that one broken, a level at a time, the last one onto the floor, no block lost); from the top no column beside it makes progress (mb075k w3, 1.21.1: the one pumpkin left, under the bot)
+    let descended = 0;
+    { const h = env.here(), under = find(w, null).find((c) => c.x === h.x && c.z === h.z && c.y === h.y - 1);
+      if (under && h.y - (under.gy + 1) > 0) { const d = await env.run('descend', { levels: Math.min(80, h.y - (under.gy + 1)) }); descended = (d && d.detail && d.detail.levels) || 0; }
+      if (descended && !find(w, null).length) { for (const c of cellsNow().values()) if (w.kindAt(c.x, c.y, c.z) !== 'solid') { if (c.reg) temps.remove(dim, c); owned.delete(`${c.x},${c.y},${c.z}`); } return { left: 0, descended }; } }
     const res = await require('./pit_trees').clearTrees(env, { x0: box.x0, x1: box.x1, z0: box.z0, z1: box.z1, top: box.top }, { find, maxMs: 240000, done: (c) => w.kindAt(c.x, c.y, c.z) !== 'solid' });
     for (const c of cellsNow().values()) if (w.kindAt(c.x, c.y, c.z) !== 'solid') { if (c.reg) temps.remove(dim, c); owned.delete(`${c.x},${c.y},${c.z}`); }
-    return { mined: res.mined, risen: res.risen, left: res.left, failed: res.failed.slice(0, 4), ms: res.ms, ...(lakeRes ? { lake: { filled: lakeRes.filled, left: lakeRes.left, reason: lakeRes.reason || lakeRes.error } } : {}) };
+    return { mined: res.mined, risen: res.risen, left: res.left, failed: res.failed.slice(0, 4), ms: res.ms, ...(descended ? { descended } : {}), ...(lakeRes ? { lake: { filled: lakeRes.filled, left: lakeRes.left, reason: lakeRes.reason || lakeRes.error } } : {}) };
 }
 
 /** The last look at the trees (owner 2026-11-16): what hangs in the box when everything else is dug (leaves whose ground was dug away, a canopy the first pass could not reach), taken down region by region, nearest first, five minutes at most. */
@@ -833,4 +839,4 @@ function createPitJob(box, ledgerOpts = {}, { lanes = 0, method = 'rows', tile =
             await cleanLakeBlocks(plan, env); rep.seals = await TM.cleanTemps(env, { box: plan.box, max: 20, maxMs: 60000, kinds: new Set(['seal', 'rescue', 'lake']) }); return t; }, runUnit: (regionId, unit, env) => runUnit(plan, byId.get(regionId), unit, env), audit: (env, now, opts) => (plan.wrapping ? { checked: 0, reopened: [], gaveUp: [] } : audit(plan, ledger, env.w, now, auditState, opts)), sweep: (env, now) => (plan.wrapping ? {} : sweep(env, now)), rescue: (env, why) => require('../bot/water').rescue(env, plan.box, { why }) };
 }
 
-module.exports = { cleanTrees, cleanLakeBlocks, sealItem, MAX_UNITS, goToStation, checkLayer, LAYER_ROUNDS, standsOnFloater, aerialTree, planPit, laneBoxes, planRoad, stationsOf, lineCells, unitCells, sealPlan, orderFill, isFluid, exposed, runUnit, wrongCells, cellState, audit, createPitJob, SEAL_ITEMS, CHUNK, TILE, SWEEP_R };
+module.exports = { cleanTrees, cleanHanging, cleanLakeBlocks, sealItem, MAX_UNITS, goToStation, checkLayer, LAYER_ROUNDS, standsOnFloater, aerialTree, planPit, laneBoxes, planRoad, stationsOf, lineCells, unitCells, sealPlan, orderFill, isFluid, exposed, runUnit, wrongCells, cellState, audit, createPitJob, SEAL_ITEMS, CHUNK, TILE, SWEEP_R };
