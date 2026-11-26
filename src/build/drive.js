@@ -976,6 +976,9 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
                 // nothing for it (its area done, the others full): it waits on the bench, off the box and away from the chest, out of everybody's way (owner 2026-11-23 list 4 problem 7)
                 if (idle === 6 && job.stage !== 'settle' && !job.wrapping) { await bench(job, name, bot, mv, cancel); job.floods && job.floods.delete(name); }
                 else if (idle % 5 === 1 && !job.wrapping) await mv.spread(crewAt(job, bot));          // (not while wrapping up: a step aside laid blocks after the last was taken)
+                // wrapping up and standing on a temporary block (its own or another's): off it, onto ground or the build, so that it can go (bt075d w2: the last block left was
+                // "a crew member on it" when the wrap-up's time ran out)
+                else if (job.wrapping && idle % 5 === 1) { const f = feet(bot); if (job.ledger.has({ x: f.x, y: f.y - 1, z: f.z })) await mv.goto(f, { goal: (x, y, z) => !job.ledger.has({ x, y: y - 1, z }) && Math.hypot(x - f.x, z - f.z) <= 6, cancel, maxNodes: 2000, tries: 1 }); }
                 await sleep(job.stage === 'settle' ? 1000 : 400); job.time.idle += Date.now() - ti; continue;
             }
             idle = 0;
