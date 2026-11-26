@@ -71,4 +71,28 @@ test('the terrain is the pit\'s: the box columns from the highest cell to clear 
     process.env.BUILD_PIT = '0'; const j3 = new BuildJob(t, { log: () => {} }); j3.tasks = job.tasks; assert.strictEqual(j3.planPit(), null); delete process.env.BUILD_PIT;
 });
 
+test('a run: after a batch along a row the bot steps on along the row and takes the next cells, without a full claim (negative control: at the end of the row, nothing)', () => {
+    const { Vec3 } = require('vec3');
+    const registry = require('prismarine-registry')('1.21.1'), Chunk = require('prismarine-chunk')(registry), World = require('prismarine-world')(registry);
+    const world = new World(null).sync, chunk = new Chunk({ minY: -64, worldHeight: 384 }), stone = registry.blocksByName.stone.defaultState;
+    for (let x = 0; x < 16; x++) for (let z = 0; z < 16; z++) chunk.setBlockStateId(new Vec3(x, 63, z), stone);
+    for (let x = 0; x < 4; x++) chunk.setBlockStateId(new Vec3(x, 64, 0), stone);                    // placed already
+    world.setColumn(0, 0, chunk);
+    const palette = [{ name: 'minecraft:air', props: {} }, { name: 'minecraft:stone', props: {} }], blocks = [];
+    for (let x = 0; x < 16; x++) for (let z = 0; z < 3; z++) blocks.push({ x, y: 0, z, s: z === 0 ? 1 : 0 });
+    const t = new Target({ size: [16, 1, 3], palette, blocks }, { x: 0, y: 64, z: 0 });
+    const job = new BuildJob(t, { log: () => {} }); job.stage = 'place';
+    job.tasks = new Map(); for (let x = 4; x < 16; x++) job.tasks.set(`${x},64,0`, { k: `${x},64,0`, i: t.idx(x, 64, 0), x, y: 64, z: 0, kind: 'place' });
+    const bot = { registry, world, username: 'a', entity: { position: new Vec3(2.5, 64, 1.5) }, blockAt: (p) => world.getBlock(p) };
+    const placed = [0, 1, 2, 3].map((x) => ({ x, y: 64, z: 0 }));
+    const nx = job.claimNext(bot, 'a', { station: { x: 2, y: 64, z: 1 }, placed });
+    assert(nx && nx.station, 'a next stance');
+    assert.strictEqual(nx.station.z, 1); assert(nx.station.x > 2, `on along the row (+x), got ${JSON.stringify(nx.station)}`);
+    assert(nx.tasks.some((tk) => tk.x >= 6), 'cells the last stance did not reach');
+    assert(nx.tasks.every((tk) => job.claims.get(tk.k) === 'a'));
+    // negative control: the row is done beyond the stance
+    const job2 = new BuildJob(t, { log: () => {} }); job2.stage = 'place'; job2.tasks = new Map();
+    assert.strictEqual(job2.claimNext(bot, 'a', { station: { x: 2, y: 64, z: 1 }, placed }), null);
+});
+
 (async () => { for (const [name, fn] of queue) { await fn(); n++; console.log(`  ok ${name}`); } console.log(`test_build_order_pure: ${n} passed`); })().catch((e) => { console.error(e); process.exit(1); });

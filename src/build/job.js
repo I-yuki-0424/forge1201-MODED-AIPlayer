@@ -1102,6 +1102,53 @@ class BuildJob {
         return null;
     }
 
+    /**
+     * The next stance of a run (owner list 5 Large 3.2: a unit is what one bot places in one continuous motion, a line along a bridge or a wall, a floor strip walked along, not
+     * a fixed area): after a batch of placing, the bot steps on along the line its blocks lie on (the longer axis of what it placed) by one to three cells on the same level,
+     * onto ground or the build, and takes what it reaches there. Local and cheap: the cells near the next stance only, no scan of the box, no seed ranking, no flood (the full
+     * claim cost 0.4-0.5 s of the shared thread each time, the largest class of pauses). Null when the line ends (nothing new in reach, no standing cell): a full claim then.
+     */
+    claimNext(bot, name, prev, has = () => Infinity, now = Date.now()) {
+        if (this.wrapping || this.relaxed || this.stage === 'survey' || this.stage === 'settle' || !prev || !prev.station || !prev.placed || !prev.placed.length) return null;
+        const f0 = prev.station, xs = prev.placed.map((c) => c.x), zs = prev.placed.map((c) => c.z);
+        const ax = Math.max(...xs) - Math.min(...xs) >= Math.max(...zs) - Math.min(...zs) ? [1, 0] : [0, 1];
+        const dirs = prev.dir ? [prev.dir, [-prev.dir[0], -prev.dir[1]]] : [ax, [-ax[0], -ax[1]]];
+        const MR = this.moverRules && this.moverRules.get(name), view = new View(bot, MR || { canDig: () => false }), blocked = this.standBlocked(name);
+        const floors = new Set([...this.bots.entries()].filter(([n]) => n !== name).map(([, b]) => b.pos && key(b.pos.x, b.pos.y - 1, b.pos.z)));
+        const inReach0 = (tk) => boxDist(eyeOf({ x: f0.x + 0.5, y: f0.y, z: f0.z + 0.5 }), tk) <= this.o.reach;
+        let best = null;
+        for (const d of dirs) {
+            for (let s = 1; s <= 3; s++) {
+                const f = { x: f0.x + d[0] * s, y: f0.y, z: f0.z + d[1] * s };
+                if (!view.fits(f.x, f.y, f.z) || !view.stands(f.x, f.y - 1, f.z) || blocked(f.x, f.y, f.z) || blocked(f.x, f.y + 1, f.z) || this.ledger.has({ x: f.x, y: f.y - 1, z: f.z })) break;
+                // every cell on the way stands too (a walk, no pillar, no drop)
+                const eye = eyeOf({ x: f.x + 0.5, y: f.y, z: f.z + 0.5 }), cand = [];
+                for (let dy = -2; dy <= 3; dy++) for (let dx = -5; dx <= 5; dx++) for (let dz = -5; dz <= 5; dz++) {
+                    const tk = this.tasks.get(key(f.x + dx, f.y + dy, f.z + dz));
+                    if (!tk || tk.kind !== 'place' || this.claims.has(tk.k) || this.parked.has(tk.k) || floors.has(tk.k) || bodyCovers(f, tk) || boxDist(eye, tk) > this.o.reach) continue;
+                    const it = this._itemOf(tk); if (it && !(has(it) > 0)) continue;
+                    if (!this.ready(tk, bot, now)) continue;
+                    cand.push(tk);
+                }
+                const fresh = cand.filter((tk) => !inReach0(tk)).length;
+                if (!fresh) continue;
+                if (!best || fresh > best.fresh) best = { f, cand, fresh, d };
+                if (fresh >= 3) break;
+            }
+            if (best) break;
+        }
+        if (!best) return null;
+        const world = this._world(bot, null), batch = [];
+        cand: for (const tk of best.cand.sort((a, b) => a.y - b.y)) { if (batch.length >= BATCH) break cand; const w = this._way(world, tk, best.f); if (w) batch.push({ ...tk, way: w }); }
+        if (!batch.length) return null;
+        this._widen(bot, world, best.f, batch, has, now);
+        const tasks = batch.sort((a, b) => a.y - b.y || a.x - b.x || a.z - b.z);
+        for (const tk of tasks) this.claims.set(tk.k, name);
+        this.bots.set(name, { station: [best.f, { x: best.f.x, y: best.f.y + 1, z: best.f.z }], pos: feet(bot) });
+        this.stats.runSteps = (this.stats.runSteps || 0) + 1; this.stallSince = 0;
+        return { station: best.f, tasks, run: best.d };
+    }
+
     /** The bot is done with its claim: what held, what did not. */
     report(name, results, now = Date.now()) {
         const rec = this.record(name);

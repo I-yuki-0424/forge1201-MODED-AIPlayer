@@ -858,7 +858,7 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
     const onReset = () => { if (job.spawnSet) job.spawnSet.delete(name); if (job.anchorTry) job.anchorTry.delete(name); job.log(`${name}: the server reset its spawn point`); };
     bot.on('spawnReset', onReset);
     bot.__builderOwns = true;                // the fall and breath reflexes stay out of a builder's way (work/bot/reflex.js)
-    let idle = 0;
+    let idle = 0, chain = null;
     // the watchdog: the last time this bot got something done (a task that held, a supply trip that brought something); EVACUATE_MS without while there is work: off the site
     const progress = () => { (job.progressAt || (job.progressAt = new Map())).set(name, Date.now()); };
     progress();
@@ -965,7 +965,8 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
             const mySkip = (job.noItem && job.noItem.get(name)) || new Map();
             const tc = Date.now(); const spareMemo = new Map(), peerHas = (it) => { if (!job.pool) return false; if (!spareMemo.has(it)) spareMemo.set(it, job.pool.canSpare(name, it)); return spareMemo.get(it); };
             // (an item the chest is out of that a colleague can spare is asked for, not left to the bots that carry it: they work elsewhere, ha28-ha30 tails)
-            const cl = PZ.sync('claim', () => job.claim(bot, name, Date.now(), (it) => have[it] || 0, (it) => (!!job.outOf && (job.outOf.get(it) || 0) > Date.now() && !(have[it] > 0) && !peerHas(it)) || (mySkip.get(it) || 0) > Date.now())); const dc = Date.now() - tc; job.time.claim += dc; if (dc > 400) job.log(`${name}: claim took ${dc} ms (${job.lastClaimInfo || ''})`);
+            // the run goes on (job.claimNext: the next stance along the line of the last batch), else a full claim
+            const cl = (chain && PZ.sync('claim next', () => job.claimNext(bot, name, chain, (it) => have[it] || 0))) || PZ.sync('claim', () => job.claim(bot, name, Date.now(), (it) => have[it] || 0, (it) => (!!job.outOf && (job.outOf.get(it) || 0) > Date.now() && !(have[it] > 0) && !peerHas(it)) || (mySkip.get(it) || 0) > Date.now())); const dc = Date.now() - tc; job.time.claim += dc; if (dc > 400) job.log(`${name}: claim took ${dc} ms (${job.lastClaimInfo || ''})`);
             { const w = !cl ? 'nothing' : cl.need ? `need ${Object.keys(cl.need).slice(0, 3).join('+')}` : cl.moveOff ? 'move off' : 'work'; const o = job.claimWhy || (job.claimWhy = {}); o[w] = (o[w] || 0) + 1;
               if (cl && cl.tasks) { job.claimTasks = (job.claimTasks || 0) + cl.tasks.length; job.claimTasksN = (job.claimTasksN || 0) + 1; }
               if (Date.now() - (job.claimWhyAt || 0) > 60000) { job.claimWhyAt = Date.now(); const ps = job.pstat; job.log(`claims in the last minute: ${JSON.stringify(o)}; ${job.claimTasksN ? (job.claimTasks / job.claimTasksN).toFixed(1) : 0} tasks per claim${ps && ps.n ? `; place claims ${ps.n}: ready ${(ps.ready / ps.n).toFixed(0)}, doable ${(ps.doable / ps.n).toFixed(0)}, batch ${(ps.batch / ps.n).toFixed(1)}` : ''}`); job.pstat = null; job.claimWhy = {}; job.claimTasks = 0; job.claimTasksN = 0; } }
@@ -1035,7 +1036,9 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
                 try { await bot.look(Math.atan2(dx, dz), 0.3, true); } catch (_) { /* the look is a nicety */ }
                 await SUP.dropRubble(bot, keepRubble(job));
             }
+            chain = null;
             const res = await PZ.within('work', () => work(job, name, bot, mv, cl, within(cancel, 180000)));
+            { const placed = res.filter((r) => r.ok && r.tk.kind === 'place').map((r) => r.tk); if (placed.length && process.env.BUILD_RUNS !== '0') chain = { station: cl.station, placed, dir: cl.run || null }; }
             { const bad = res.find((r) => !r.ok); if (bad && !res.some((r) => r.ok)) PZ.failed(`${bad.tk.kind}: ${bad.why}`); }
             if (res.some((r) => r.ok)) { progress(); untell(job, name); }
             if (process.env.BUILD_TRACE) { const by = {}; for (const r of res) { const k = `${r.tk.kind}:${r.ok ? 'ok' : String(r.why).replace(/-?\d+/g, '#').slice(0, 50)}`; by[k] = (by[k] || 0) + 1; } job.log(`[trace] ${name} at ${cl.station.x},${cl.station.y},${cl.station.z} (${cl.tasks.length} tasks): ${JSON.stringify(by)}`); }
