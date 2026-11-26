@@ -267,8 +267,8 @@ async function runUnit(plan, region, u, env) {
         if (open(c)) return { ok: true };
         return env.exec('mine', eyeDist(c) <= 4.6 ? { x: c.x, y: c.y, z: c.z, collect: false, blind: true } : mineArgs(c));
     };
-    // the slowest cell of the unit, for the log of slow units (construct.js)
-    const noteCell = (c, t0, block) => { const ms = Date.now() - t0; if (!r.slowCell || ms > r.slowCell.ms) r.slowCell = { x: c.x, y: c.y, z: c.z, block, ms }; };
+    // time in cells (the rest of a unit is its walks to stations) and the slowest cell with what it held and how it ended, for the log of slow units (construct.js)
+    const noteCell = (c, t0, block, res) => { const ms = Date.now() - t0; r.cellMs = (r.cellMs || 0) + ms; if (!r.slowCell || ms > r.slowCell.ms) r.slowCell = { x: c.x, y: c.y, z: c.z, block, ms, end: res === null ? 'ok' : res === 'defer' ? 'defer' : (res && res.reason) || null }; };
     // A placement the bot cannot reach a face for (unreachable) or that ends in a swim it cannot get out of (stuck): the same walk is not tried again. The server puts the bot on a standable
     // cell beside the fluid cell, once per cell, and the placement is tried from there (a different approach); if that fails too, the failure goes up and the unit is parked.
     const placeAt = async (f, item) => {
@@ -358,11 +358,10 @@ async function runUnit(plan, region, u, env) {
         if (standsOnFloater(env, c)) { r.skipped++; r.floating = (r.floating || 0) + 1; leave(c); return null; }
         // Success is what the world shows: a `mine` that ended in the drop pickup (target_lost: the item was picked up by another
         // bot or despawned) has still opened the cell. Transient reasons (another bot in the crosshair, a slipped aim) get retries.
-        const c0 = Date.now(), b0 = env.w.nameAt ? env.w.nameAt(c.x, c.y, c.z) : null;
         let m = await env.exec('mine', mineArgs(c));
         // Out of reach from the station (unmet in_reach, 'unreachable'): no retry ladder (six tries with recoveries changed nothing and cost minutes per cell in a tree, 081's b081k);
         // blind when the eye is within the server's reach, else one NAV trip within reach (navReach below)
-        if (!m.ok && !open(c) && reachFail(m)) { m = await navReach(c, m); noteCell(c, c0, b0); }
+        if (!m.ok && !open(c) && reachFail(m)) m = await navReach(c, m);
         // A few seconds between attempts (something in the way moves on, the server catches up), and a small fix before each one:
         // jump, sidestep, go back to where the bot last worked (env.recover; the worker's ladder).
         // Retrying a cell nobody can reach changes nothing: one more look for 'unreachable', then the unit fails and is tried again later (repair passes).
@@ -422,7 +421,11 @@ async function runUnit(plan, region, u, env) {
         return null;
     };
     // One cell: the dig with the water rule, then the floor under it (a cell that is open now and has water under it gets its floor block).
-    const handle = async (c, last) => { const res = await handleCell(c, last); if (res === null && open(c)) await floorFill(c).catch(() => { /* a floor that cannot be laid now is tried again at the next cell */ }); return res; };
+    const handle = async (c, last) => {
+        const t0 = Date.now(), b0 = env.w.nameAt ? env.w.nameAt(c.x, c.y, c.z) : null;
+        const res = await handleCell(c, last); if (res === null && open(c)) await floorFill(c).catch(() => { /* a floor that cannot be laid now is tried again at the next cell */ });
+        noteCell(c, t0, b0, res); return res;
+    };
     const deferred = [];
     // Tree pass (pit_trees.js, owner 2026-11-16): once per region, before its first unit digs, the tree blocks of the box are taken down (low ones from the ground, aerial ones from a pillar
     // beside them). One bot does it; the others do not wait (a unit never depends on it). PIT_TREES=0 turns it off (A/B runs).
