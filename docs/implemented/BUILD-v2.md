@@ -760,3 +760,17 @@ mine_b on 1.21.1 (3f110f6a plus lazily loaded later modules; worlds 1-3, x3):
 - `mb075h` w1: 0 pumpkins, but the job hung for 54 min in the action layer's walk (`unit:plan` 60 s of every minute, the bot at y -28 under the pit, 51 levels below its layer). Cause open.
 - `mb075h` w2: 0 pumpkins; one dirty layer (seals at x 17 hold back the lake in the box's wall).
 - `mb075k` w3 (KILL_AT_END=1): the job finished by itself at 48 min, so the kill never fired (fixed: the kill now also comes in the job's own end). 1 pumpkin left: the bot's own pillar top under its feet (fixed in b43a9000). Not re-measured yet.
+
+**Forest closing runs on f98a9a0d (`bt075v1/v2/v3`, 1.21.1, `LIMIT_MIN=60`, 2026-11-27 04:30-05:35), graded by server scan of the pit box (scripts/t26/scan.js).**
+
+| Run | Cells | Budget (cells/7 x 1.5) | Pit | Tree blocks left |
+| :-- | --: | --: | :-- | :-- |
+| `bt075v1` old_growth_spruce_taiga | 6747 | 1446 s | round 1 1407 s (4.8 cells/s), round 2 one cell 564 s (night) | **0** |
+| `bt075v2` dark_forest | 16699 | 3578 s | cut by the limit at 3638 s, 3765/4320 units | 193 (dark oak, oak, birch, 44 red_mushroom_block) |
+| `bt075v3` jungle | 6624 | 1419 s | 4031/4032 units at 3598 s | 96 (95 bamboo, 1 oak_leaves) |
+
+Not met: zero tree cells on all three, and forest pace of at least 0.8 of rock. What the runs show:
+- The slowest cell is now 28-74 s on v1 and v3. On v2 some cells reached 167-482 s, which includes the canopy sweep's own mining (609 blocks).
+- NAV's planner CPU is 0.3-6.4 s per run.
+- Most of the lost time is outside cells and NAV: station walks, and the router's **night guard** (`nav/shelter.js`, ticks 11800-23400, 48 % of the day). At speed x1 every bot under the open sky, which in an open pit is all of them, digs in and waits each night, up to 12 min. In every run the rate falls after the first dusk, about 10-15 min in: from 170-220 to 20-30 units/min. World 3 read time 18641 during the jungle stall. The rock baselines were short enough to end before dusk.
+- The bamboo on v3 was not dug (cause open: bamboo is passable for the pit unless the job's `plants` asks for it).
