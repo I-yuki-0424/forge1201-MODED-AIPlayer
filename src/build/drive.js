@@ -344,7 +344,7 @@ async function work(job, name, bot, mv, cl, cancel) {
         const h = holds(job, bot, tk); results.push({ tk, ok: h.ok, why: h.why });
         if (!h.ok && tk._near) {
             const wn = S.bare(job.t.wantOf(tk).name), moved = [];
-            for (const [k, was] of tk._near.nb) { const [x, y, z] = k.split(',').map(Number), q = bot.blockAt(new Vec3(x, y, z), false); if (q && q.name !== was && S.bare(q.name) === wn) moved.push(`${k} (was ${was})`); }
+            for (const [k, was] of tk._near.nb) { const [x, y, z] = k.split(',').map(Number), q = bot.blockAt(new Vec3(x, y, z), false); if (q && q.name !== was && S.bare(q.name) === wn && !(job.t.inside(x, y, z) && S.bare(job.t.stateOf(job.t.idx(x, y, z)).name) === wn)) moved.push(`${k} (was ${was})`); }          // (not a cell that wants that block: another bot's placing there)
             if (moved.length) { job.stats.misplaced = (job.stats.misplaced || 0) + 1; if (job.stats.misplaced <= 40) job.log(`[misplaced] ${name}: ${wn} for ${tk.k} went into ${moved.join(', ')}; the click ${tk._near.way}`); }
         }
         delete tk._near;
