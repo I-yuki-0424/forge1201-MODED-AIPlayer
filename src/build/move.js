@@ -240,7 +240,7 @@ async function plan0(view, start, goal, h, { maxNodes = 40000, temps = 0, box = 
         const c = open.pop();
         // the cell closest to the estimate's point (for the log: where a failed search got stuck)
         { const d = Math.abs(c.x - h.x) + Math.abs(c.y - h.y) * 1.5 + Math.abs(c.z - h.z); if (!closest || d < closest.d) closest = { x: c.x, y: c.y, z: c.z, d, t: c.t, g: Math.round(c.g) }; }
-        if (goal(c.x, c.y, c.z)) { PZ.slice('plan', pzs); const out = []; for (let q = c; q; q = q.p) out.push({ x: q.x, y: q.y, z: q.z, move: q.move, dig: q.dig || null, place: q.place || null, off: !!q.off, tempOnly: !!q.tempOnly }); return out.reverse(); }
+        if (goal(c.x, c.y, c.z)) { PZ.slice('plan', pzs); const out = []; for (let q = c; q; q = q.p) out.push({ x: q.x, y: q.y, z: q.z, move: q.move, dig: q.dig || null, place: q.place || null, off: !!q.off, tempOnly: !!q.tempOnly, ...(q.sink ? { sink: q.sink } : {}) }); return out.reverse(); }
         if ((best.get(bkey(c.x, c.y, c.z, c.off)) ?? Infinity) < c.g) continue;
         if (c.off) continue;          // the stance beside a tall column's top: the route ends here or not at all
         const add = (x, y, z, cost, move, extra = {}) => {
@@ -273,6 +273,7 @@ async function plan0(view, start, goal, h, { maxNodes = 40000, temps = 0, box = 
             let col = 0, off = false;
             if (move === 'pillar') col = own ? 0 : c.col + 1;
             else if (move === 'down') col = Math.max(0, c.col - 1);
+            else if (move === 'sink') col = 1;          // on its own one block, the one above it dug
             else {
                 const how = leaveColumn(c.col, move, Math.abs(x - c.x) + Math.abs(z - c.z) === 1, y === c.y, leanDepth);
                 if (!how) return;
@@ -340,6 +341,13 @@ async function plan0(view, start, goal, h, { maxNodes = 40000, temps = 0, box = 
         if ((temps > c.t || (view.rules.buildBlock && view.rules.buildBlock(c.x, c.y, c.z))) && view.placeable(c.x, c.y, c.z) && view.kind(c.x, c.y + 2, c.z) !== 'avoid' && (headFree || view.diggable(c.x, c.y + 2, c.z))) add(c.x, c.y + 1, c.z, COST.pillar + COST.temp + (headFree ? 0 : view.digTicks(c.x, c.y + 2, c.z)) + (view.rules.noPillar && view.rules.noPillar(c.x, c.y, c.z) ? 40 : 0), 'pillar', { place: { x: c.x, y: c.y, z: c.z }, dig: headFree ? null : [{ x: c.x, y: c.y + 2, z: c.z }] });
         // dig down one (the block under the feet), onto the one under it
         if (view.diggable(c.x, c.y - 1, c.z) && view.stands(c.x, c.y - 2, c.z)) add(c.x, c.y - 1, c.z, COST.drop + view.digTicks(c.x, c.y - 1, c.z), 'down', { dig: [{ x: c.x, y: c.y - 1, z: c.z }] });
+        // sink (owner ruling 2026-11-26, OWNER-LIST-5 addendum 4: placing under the block under the feet is a Tweakeroo-class move, digging that block a player's): a temporary
+        // block goes under the block the bot stands on (its bottom face clicked: the server checks reach, not sight), that block is dug, the bot comes down one onto the new block.
+        // A column of its own going down, taken away as it goes: the way down from a height whose way up was taken back (b081f minute 90: six of eight bots at y 108-122 had
+        // "no way to the materials" after 40 000 cells: drops of at most six over the build's walls were the only way down)
+        // (the floor may be a block this route put down itself, a bridge, pillar or sink block: not in the world yet, dug all the same)
+        else if (temps > c.t && (view.diggable(c.x, c.y - 1, c.z) || (c.place && c.place.y === c.y - 1 && !(view.rules.buildBlock && view.rules.buildBlock(c.place.x, c.place.y, c.place.z)))) && view.placeable(c.x, c.y - 2, c.z) && !view.stands(c.x, c.y - 2, c.z) && view.kind(c.x, c.y - 3, c.z) !== 'avoid' && !(view.rules.noTemp && view.rules.noTemp(c.x, c.y - 2, c.z)))
+            add(c.x, c.y - 1, c.z, COST.drop + COST.temp + view.digTicks(c.x, c.y - 1, c.z), 'sink', { place: { x: c.x, y: c.y - 2, z: c.z }, sink: { x: c.x, y: c.y - 1, z: c.z } });
     }
     // searched out: every cell the bot can get to from here (the caller offers it only stances among them)
     PZ.slice('plan', pzs);
@@ -543,7 +551,7 @@ class Mover {
         if (!F || !F.nodes || F.from !== key(start.x, start.y, start.z) || Date.now() - F.at > 15000 || F.temps !== temps) return null;
         const nd = F.nodes.get(key(to.x, to.y, to.z)) || F.nodes.get(`${key(to.x, to.y, to.z)}|o`);
         if (!nd) return null;
-        const out = []; for (let q = nd; q; q = q.p) out.push({ x: q.x, y: q.y, z: q.z, move: q.move, dig: q.dig || null, place: q.place || null, off: !!q.off, tempOnly: !!q.tempOnly });
+        const out = []; for (let q = nd; q; q = q.p) out.push({ x: q.x, y: q.y, z: q.z, move: q.move, dig: q.dig || null, place: q.place || null, off: !!q.off, tempOnly: !!q.tempOnly, ...(q.sink ? { sink: q.sink } : {}) });
         if (out.length > 1) this._flood = null;          // used once: the walk changes where the bot is
         PLANS.flood++;
         return out.reverse();
@@ -755,7 +763,29 @@ class Mover {
             if (!bb || bb.boundingBox !== 'block') return { ok: false, why: 'bridge place' };
             return (await this.walkTo(s)) ? { ok: true } : { ok: false, why: 'bridge walk' };
         }
+        if (s.move === 'sink') return this.sink(prev, s);
         return { ok: false, why: `unknown move ${s.move}` };
+    }
+
+    /** The sink move (plan): a temporary block under the block the bot stands on, clicked on that block's bottom face, then that block dug; the bot lands one lower. */
+    async sink(prev, s) {
+        const b = this.bot, under = s.sink, cell = s.place, item = this.rules.temp();
+        if (!item || !(await this.hold(item))) return { ok: false, why: 'sink: no temporary block' };
+        // over the middle of the block, then the look straight down (the server takes the click by reach; the face is the block's bottom one)
+        await this.walkTo(prev, { sneak: true, timeout: 1500 });
+        b.setControlState('sneak', true);
+        try {
+            await this.look(b.entity.yaw, -Math.PI / 2);
+            this._temp(cell, 'pillar', item);          // before the click
+            b._client.write('block_place', { hand: 0, location: new Vec3(under.x, under.y, under.z), direction: V.FACE.down, cursorX: 0.5, cursorY: 0, cursorZ: 0.5, insideBlock: false, worldBorderHit: false, sequence: (this.seq = (this.seq || 0) + 1) });
+            b.swingArm();
+            let placed = false;
+            for (let i = 0; i < 20 && !placed; i++) { await sleep(50); const nb = b.blockAt(new Vec3(cell.x, cell.y, cell.z), false); placed = !!nb && nb.boundingBox === 'block'; }
+            if (!placed) { if (this.rules.onTempFail) this.rules.onTempFail(cell, 'sink: the server placed nothing under the floor'); return { ok: false, why: 'sink: nothing placed under the floor' }; }
+            if (!(await this.dig(under))) return { ok: false, why: `sink: dig ${under.x},${under.y},${under.z}` };
+            for (let i = 0; i < 30 && feet(b).y > s.y; i++) await sleep(50);
+        } finally { b.setControlState('sneak', false); }
+        return feet(b).y === s.y ? { ok: true } : { ok: false, why: 'sink: did not come down' };
     }
 
     /**
@@ -885,7 +915,7 @@ class Mover {
                 // the block behind (a bridge, a pillar left sideways) is broken as the bot goes on, as a player does (owner 2026-11-23 V4, list 5 Large 1); a bridge's last step off
                 // its own pillar's top is the stance's way back down: the column stays until the bot walks back onto it (drive.js release: the bridge block, then the column)
                 const wayBack = (s.off || s.move === 'bridge') && i === route.length && this.mineHow && this.mineHow.get(key(route[i - 2].x, route[i - 2].y - 1, route[i - 2].z)) === 'pillar';
-                if (s.move !== 'pillar' && !wayBack) await this._behind(route[i - 2], route, i);
+                if (s.move !== 'pillar' && s.move !== 'sink' && !wayBack) await this._behind(route[i - 2], route, i);
             }
             if (!broke && !cancel.cancelled) { const f = feet(this.bot); if (g(f.x, f.y, f.z)) return { ok: true, steps }; }
         }

@@ -126,4 +126,24 @@ test('a floating trapdoor (facing west, top half) gets its scaffold where a clic
     }
 });
 
+test('the way down from a height whose way up is gone: sinking on its own blocks (place one under the floor, dig the floor; negative control: without temporary blocks, no way)', async () => {
+    const { Vec3 } = require('vec3');
+    const M = require('../src/build/move');
+    const registry = require('prismarine-registry')('1.21.1'), Chunk = require('prismarine-chunk')(registry), World = require('prismarine-world')(registry);
+    const world = new World(null).sync, chunk = new Chunk({ minY: -64, worldHeight: 384 }), stone = registry.blocksByName.stone.defaultState;
+    for (let x = 0; x < 16; x++) for (let z = 0; z < 16; z++) chunk.setBlockStateId(new Vec3(x, 63, z), stone);
+    for (let x = 4; x <= 6; x++) for (let z = 4; z <= 6; z++) chunk.setBlockStateId(new Vec3(x, 79, z), stone);          // a platform 16 over the ground, nothing under it
+    world.setColumn(0, 0, chunk);
+    const bot = { registry, world, blockAt: (p) => world.getBlock(p), entity: { position: new Vec3(5.5, 80, 5.5) } };
+    const rules = { canDig: (x, y, z, b) => b.name === 'pumpkin', temp: () => 'pumpkin' };
+    const goal = (x, y, z) => y === 64 && x === 9 && z === 5;
+    const r = await M.plan(new M.View(bot, rules), { x: 5, y: 80, z: 5 }, goal, { x: 9, y: 64, z: 5 }, { temps: 64, maxNodes: 20000, maxDrop: 4 });
+    assert(r, 'a way down');
+    const sinks = r.filter((s0) => s0.move === 'sink');
+    assert(sinks.length >= 8, `sinks ${sinks.length}: ${r.map((s0) => s0.move).join(' ')}`);
+    assert(sinks.every((s0) => s0.place && s0.sink && s0.place.y === s0.sink.y - 1 && s0.y === s0.sink.y), 'each places under the floor and stands where the floor was');
+    const none = await M.plan(new M.View(bot, rules), { x: 5, y: 80, z: 5 }, goal, { x: 9, y: 64, z: 5 }, { temps: 0, maxNodes: 20000, maxDrop: 4 });
+    assert.strictEqual(none, null, 'negative control: no temporary blocks, no way down');
+});
+
 (async () => { for (const [name, fn] of queue) { await fn(); n++; console.log(`  ok ${name}`); } console.log(`test_build_order_pure: ${n} passed`); })().catch((e) => { console.error(e); process.exit(1); });
