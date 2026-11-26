@@ -668,3 +668,10 @@ the stage still `prepare` with 329 cells to clear):** 1 405 pauses over 0.5 s, 1
 
 In the placing minutes alone (15-31) retry was 45 % (443 s) and cpu 33 %.
 
+**Why a place claim holds two or three blocks (offline, `iron-farm-34` built from its own target up to layer 8 on stone ground, a stance the claim chose):** the claim's
+stance had 68 doable cells within reach, 66 of them with no click from it. They were cells of layers 9-13 (glass walls, the floating smooth stone and obsidian floor of layer
+11) inside the window of seven layers but with no solid neighbour yet: nothing to click against until a pillar or a neighbouring block stands. The blueprint's layers hold
+5-16 % of their 2 304 cells (113-379), as lines and floating floors, so the placing pace is set by how fast supports appear, not by the stance search. The window that counts
+these cells as ready makes the claim's "ready" and "doable" figures look larger than the work it can do; the per-minute line now also prints the doable cells in reach of the
+chosen stance and how many had no click (`bb1c03e7`).
+
