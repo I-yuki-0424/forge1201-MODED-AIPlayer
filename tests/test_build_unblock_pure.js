@@ -111,6 +111,7 @@ test('after the pit\'s rounds a block of the build in a cell that is to be empty
     job.log = () => {}; job.supply = { totals: {} }; job.pitRounds = 3;
     await job.resurvey(fakeBot(w, []), 'test');
     assert.strictEqual((job.tasks.get('0,66,0') || {}).kind, 'clear', 'glass: the crew digs it');
+    assert.strictEqual(job.stage, 'place', 'in the place stage: not the site\'s clearing, which would hold every placing (b081o)');
     assert.ok(!job.tasks.has('2,66,2') && job.parked.get('2,66,2') === 'left by the pit', 'dirt: the pit\'s');
 });
 

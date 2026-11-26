@@ -62,8 +62,19 @@ function machines(t) {
         if (isSource(w)) out.set(p, cellsOf(group.get(p)));
         if (n === 'observer' && FACE[w.props.facing]) { const c = t.cell(p), d = FACE[w.props.facing]; if (t.inside(c.x + d[0], c.y + d[1], c.z + d[2])) watch.set(p, t.idx(c.x + d[0], c.y + d[1], c.z + d[2])); }
     }
-    t._machines = { gate: out, watch, groups: g };
+    const sources = new Map(); for (const p of out.keys()) { const id = group.get(p); (sources.get(id) || sources.set(id, []).get(id)).push(p); }
+    t._machines = { gate: out, watch, groups: g, groupOf: group, sources };
     return t._machines;
+}
+
+/**
+ * Is the machine of part i powered yet, by what the world holds (`have(j)`: the state in cell j, or null)? A machine without sources of its own counts as powered (it runs on
+ * what is outside the blueprint). Until then its pistons rest retracted because nothing powers them, not because the machine is in its other phase (survey.js).
+ */
+function powered(t, i, have) {
+    const M = machines(t), id = M.groupOf.get(i); if (id === undefined) return true;
+    const src = M.sources.get(id); if (!src || !src.length) return true;
+    return src.every((j) => { const h = have(j); return !!h && S.bare(h.name) === S.bare(t.stateOf(j).name); });
 }
 
 /**
@@ -117,4 +128,4 @@ function attach(job, bot, log) {
     return () => bot.removeListener('blockUpdate', onBlock);
 }
 
-module.exports = { machines, waits, attach, isSource, PART, SOURCE };
+module.exports = { machines, waits, attach, powered, isSource, PART, SOURCE };

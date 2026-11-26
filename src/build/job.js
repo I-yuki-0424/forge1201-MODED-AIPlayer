@@ -28,6 +28,8 @@ const REVIVE_MS = 90000;           // parked cells come back while the build run
 const PIT_ROUNDS = 3;               // pit jobs over the site's terrain (job.planPit): the first, and up to two more over what a pit left
 const STALL_MS = 40000;            // nothing ready for anybody this long while work is left: the ordering rules are relaxed (a dependency that cannot be met)
 const STAGE_OF = { seal: 'prepare', fill: 'prepare', clear: 'prepare', place: 'place', fix: 'place', scaffold: 'place', pour: 'late', ignite: 'late', untemp: 'cleanup' };
+// a task's stage: its kind's, or the one it was given (a block of the build dug out of a cell to stay empty is part of placing, not the site's clearing)
+const stageOf = (tk) => tk.stageAs || STAGE_OF[tk.kind];
 const ORDER = ['prepare', 'place', 'late', 'cleanup'];
 const key = (x, y, z) => `${x},${y},${z}`;
 // natural ground a stance may be dug into (outside the box)
@@ -124,7 +126,8 @@ class BuildJob {
                     // a block of the build itself in a cell the blueprint (or the phase its piston rests in) has otherwise: the crew's own placing, or one of its pistons moved it
                     // (b081m: 12 cells, slabs pulled under their layer, glass pushed up, a sticky piston, smooth stone over a retracted piston). Not terrain: the crew digs it and
                     // places what belongs there, as with any block of its own
-                    if (h && tk.kind === 'clear' && ownKind(this.t, h.name)) { (this.stats.ownRedo = (this.stats.ownRedo || 0) + 1); continue; }
+                    // (in the place stage: as a clear of the site it put the stage back to prepare, where nothing of the build is placed, and the crew stood still, b081o)
+                    if (h && tk.kind === 'clear' && ownKind(this.t, h.name)) { tk.stageAs = 'place'; (this.stats.ownRedo = (this.stats.ownRedo || 0) + 1); continue; }
                     this._park(tk, 'left by the pit'); tasks.delete(k); n++;
                     const nm = h ? S.bare(h.name) : '?'; by[nm] = (by[nm] || 0) + 1; if (ex.length < 12) ex.push(`${k} ${tk.kind} ${nm}`);
                 }
@@ -137,7 +140,7 @@ class BuildJob {
             this.relaxed = false; this.stallSince = 0;
             const by = {}; for (const tk of tasks.values()) by[tk.kind] = (by[tk.kind] || 0) + 1;
             let stage = 'settle';
-            for (const st of ORDER) if ([...tasks.values()].some((tk) => STAGE_OF[tk.kind] === st)) { stage = st; break; }
+            for (const st of ORDER) if ([...tasks.values()].some((tk) => stageOf(tk) === st)) { stage = st; break; }
             if (sv.unknown) stage = this.stage === 'survey' ? 'survey' : stage;
             this.history.push({ t: Date.now(), why, stage, right: sv.right, dynamic: sv.dynamic, unknown: sv.unknown, by, parked: this.parked.size });
             this.log(`survey (${why}): ${sv.right} right, ${sv.dynamic} dynamic, ${sv.phased} pistons in the other phase, ${sv.unknown} unknown, work ${JSON.stringify(by)}, parked ${this.parked.size} -> ${stage}`);
@@ -222,7 +225,7 @@ class BuildJob {
             return true;
         }
         // a wrong block dug out of a cell to place (kind clear, `after` place) belongs to the place stage: it was never ready there and held the crew idle for good (live 2026-11-23 fx1 w1)
-        if (STAGE_OF[tk.kind] !== this.stage && !(tk.after && STAGE_OF[tk.after] === this.stage)) return false;
+        if (stageOf(tk) !== this.stage && !(tk.after && STAGE_OF[tk.after] === this.stage)) return false;
         // relaxed (a stall): the order rules go, never the fluid rule (relaxed clearing dug the rock round lava pockets and the lava ran through the dug box: five deaths in six
         // seconds, live 2026-11-23 fz8 w5)
         // a machine is not powered while it is built: its power sources last, an observer after the cell it watches (machine.js)
@@ -371,7 +374,7 @@ class BuildJob {
         if (this.parked.has(tk.k)) return 'parked';
         { const mw = (tk.kind === 'place' || tk.kind === 'fix') ? this._machineWaits(tk, now) : null; if (mw) return mw; }
         if ((this.cool.get(tk.k) || 0) > now) return 'cooling';
-        if (STAGE_OF[tk.kind] !== this.stage && !(tk.after && STAGE_OF[tk.after] === this.stage)) return this.stage === 'prepare' ? 'the site is being cleared (the pit)' : `stage ${STAGE_OF[tk.kind]}`;
+        if (stageOf(tk) !== this.stage && !(tk.after && STAGE_OF[tk.after] === this.stage)) return this.stage === 'prepare' ? 'the site is being cleared (the pit)' : `stage ${STAGE_OF[tk.kind]}`;
         if ((tk.kind === 'place' || tk.kind === 'fix') && tk.y > this.topAt(tk.x, tk.z)) return `above the window (local top ${this.topAt(tk.x, tk.z)})`;
         const r = tk.i >= 0 ? this.t.recipeOf(tk) : null;
         if (tk.kind === 'place' && r) for (const d of r.deps) {
@@ -1145,7 +1148,7 @@ class BuildJob {
     exhausted() {
         if (this.stage === 'survey') return true;
         if (this.stage === 'settle') return Date.now() >= this.settleAt;
-        for (const tk of this.tasks.values()) if (STAGE_OF[tk.kind] === this.stage && !this.parked.has(tk.k)) return false;
+        for (const tk of this.tasks.values()) if (stageOf(tk) === this.stage && !this.parked.has(tk.k)) return false;
         return this.claims.size === 0;
     }
 

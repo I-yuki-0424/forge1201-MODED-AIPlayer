@@ -30,6 +30,12 @@ open.clear();
 assert.strictEqual(MC.waits(t, tkOf(t, 3, 65, 1), isOpen, 10000), null, 'negative control: the machine stands, the torch goes in');
 assert.strictEqual(MC.waits(t, tkOf(t, 6, 65, 1), isOpen, 10000), null, 'the watched cell stands');
 console.log('  ok a power source last, an observer after the cell it watches; a wire waits for nothing');
+// a machine is powered once its sources stand: until then its pistons rest because nothing powers them (the survey builds the blueprint's cells in front, not the other phase)
+const have = new Map(), haveOf = (j) => have.get(j) || null;
+assert.strictEqual(MC.powered(t, t.idx(1, 65, 1), haveOf), false, 'the torch is not there: not powered');
+have.set(t.idx(3, 65, 1), { name: 'redstone_torch', props: {} });
+assert.strictEqual(MC.powered(t, t.idx(1, 65, 1), haveOf), true, 'negative control: the torch stands');
+console.log('  ok a machine counts as powered once its power sources stand');
 
 // the watch: a piston that extends before any power source of the build stands is counted as mid-build, a cell that turns into moving_piston as moved
 const job = { t, stats: {} }, logs = [], bot = new EventEmitter(), world = new Map();
@@ -47,4 +53,4 @@ bot.emit('blockUpdate', blk('stone', 9, 65, 1), blk('moving_piston', 9, 65, 1));
 assert.strictEqual(job.stats.machine.movedPowered, 1, 'negative control: outside the box');
 stop();
 console.log('  ok a piston firing and a moved cell are counted, mid-build apart from the finished machine');
-console.log('test_build_machine_pure: 2 passed');
+console.log('test_build_machine_pure: 3 passed');

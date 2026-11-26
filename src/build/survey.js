@@ -1,6 +1,7 @@
 'use strict';
 // The difference between the box and its target, read from a bot's view of the world, as work: what has to be sealed (a fluid outside the box next to it), filled (a fluid inside
 // that must go), cleared (a block that must go), placed, clicked (a note, a delay: the block is right, a click-set property is not), poured or lit. Pure apart from the reads.
+const MC = require('./machine');
 const S = require('./state');
 const { seen } = require('./world');
 const P = require('./pistons');
@@ -57,6 +58,9 @@ async function survey(target, bot, { lit = new Set() } = {}) {
     for (const p of target.pistons) {
         const h = have[p.i]; if (!h || S.bare(h.name) !== S.bare(target.stateOf(p.i).name)) continue;
         if ((String(h.props.extended) === 'true') === p.extended) continue;
+        // (a piston of a machine whose power sources are still to place rests retracted because nothing powers it yet (machine.js): the cells in front are built as the
+        // blueprint has them, its head's cell left empty, and the piston reaches its phase when the sources go in; b081o dug 18 smooth stones over such pistons to put them one lower)
+        if (!MC.powered(target, p.i, (j) => have[j])) continue;
         const cells = P.otherPhase(target, p); if (!cells) continue;
         phased++;
         for (const c of cells) if (target.inside(c.x, c.y, c.z)) over.set(target.idx(c.x, c.y, c.z), c.state || { name: 'air', props: {} });
