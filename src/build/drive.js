@@ -314,6 +314,8 @@ async function work(job, name, bot, mv, cl, cancel) {
             { const wn = S.bare((job.t.wantOf(tk) || {}).name || ''); if (wn === 'redstone_wire' || CONNECTS.test(wn)) { const at = (x, y, z) => { if (x === tk.x && y === tk.y && z === tk.z) return wn; const b = bot.blockAt(new Vec3(x, y, z), false); return b && b.name; }; let near = false; for (let dx = -1; dx <= 1 && !near; dx++) for (let dy = -1; dy <= 1 && !near; dy++) for (let dz = -1; dz <= 1 && !near; dz++) { const e = job.ledger.get({ x: tk.x + dx, y: tk.y + dy, z: tk.z + dz }); if (e && e.state === 'placed' && touchesShape(at, e.x, e.y, e.z)) near = true; } if (near) { results.push({ tk, ok: false, why: 'skipped' }); continue; } } }
             // a bed that came out as air (159 parks "got minecraft:air" on beds in hc1/hd1): what its head cell held, who stood in the foot cell, the look sent (logged at the read-back)
             if (/_bed$/.test(rr.item)) { const f = (job.t.wantOf(tk).props || {}).facing, v = V.VEC[f] || [0, 0, 0], hc = seen(bot, { x: tk.x + v[0], y: tk.y, z: tk.z + v[2] }); tk._bed = { head: hc ? hc.name : '?', way: `${way.face} on ${(way.n || []).join(',')} look ${(way.look || []).map((q) => q.toFixed(2)).join(',')}${way.aim ? ` aim yaw ${way.aim.yaw.toFixed(2)}` : ''}`, yaw: bot.entity.yaw.toFixed(2), bodies: Object.values(bot.entities).filter((e) => e.type === 'player' && Math.floor(e.position.x) === tk.x && Math.floor(e.position.z) === tk.z && Math.abs(e.position.y - tk.y) < 1.8).map((e) => e.username).join('+') || 'none', at: feet(bot) }; }
+            // the cells round it before the click: a block that lands in one of them instead (b081m: 9 cells of the build's blocks one cell off their place) is seen at the read-back
+            { const nb = new Map(); for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) { if (!dx && !dy && !dz) continue; const q = bot.blockAt(new Vec3(tk.x + dx, tk.y + dy, tk.z + dz), false); nb.set(`${tk.x + dx},${tk.y + dy},${tk.z + dz}`, q ? q.name : '?'); } tk._near = { nb, way: `${way.face} on ${(way.n || []).join(',')} hit ${(way.hit || []).map((v) => v.toFixed(2)).join(',')}${way.under ? ' under the feet' : ''} from ${feet(bot).x},${feet(bot).y},${feet(bot).z}` }; }
             const tp = Date.now(); await click(mv, way); job.time.place += Date.now() - tp;
             // a wire or a pane built beside a temporary block that stands all the same (one placed after the check): counted, temps.shapesLate
             { const wn = S.bare((job.t.wantOf(tk) || {}).name || ''); if (wn === 'redstone_wire' || CONNECTS.test(wn)) { const at = (x, y, z) => { if (x === tk.x && y === tk.y && z === tk.z) return wn; const b = bot.blockAt(new Vec3(x, y, z), false); return b && b.name; }; for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) { const e = job.ledger.get({ x: tk.x + dx, y: tk.y + dy, z: tk.z + dz }); if (e && e.state === 'placed' && touchesShape(at, e.x, e.y, e.z)) { const n = job.ledger.n; n.shapesLate = n.shapesLate || {}; const kk = wn === 'redstone_wire' ? 'wire' : 'pane'; n.shapesLate[kk] = (n.shapesLate[kk] || 0) + 1; } } } }
@@ -328,6 +330,12 @@ async function work(job, name, bot, mv, cl, cancel) {
     await sleep(250, 'server: read back');
     for (const tk of done) {
         const h = holds(job, bot, tk); results.push({ tk, ok: h.ok, why: h.why });
+        if (!h.ok && tk._near) {
+            const wn = S.bare(job.t.wantOf(tk).name), moved = [];
+            for (const [k, was] of tk._near.nb) { const [x, y, z] = k.split(',').map(Number), q = bot.blockAt(new Vec3(x, y, z), false); if (q && q.name !== was && S.bare(q.name) === wn) moved.push(`${k} (was ${was})`); }
+            if (moved.length) { job.stats.misplaced = (job.stats.misplaced || 0) + 1; if (job.stats.misplaced <= 40) job.log(`[misplaced] ${name}: ${wn} for ${tk.k} went into ${moved.join(', ')}; the click ${tk._near.way}`); }
+        }
+        delete tk._near;
         if (tk._bed && !h.ok && (job.bedLog = (job.bedLog || 0) + 1) <= 60) { const d = tk._bed, f = (job.t.wantOf(tk).props || {}).facing, v = V.VEC[f] || [0, 0, 0], hc = seen(bot, { x: tk.x + v[0], y: tk.y, z: tk.z + v[2] }); job.log(`[bed] ${name} ${tk.k} facing ${f}: ${h.why}; head cell had ${d.head}, has ${hc ? hc.name : '?'}; ${d.way}; yaw before ${d.yaw}, after ${bot.entity.yaw.toFixed(2)}; bodies in the cell ${d.bodies}; from ${d.at.x},${d.at.y},${d.at.z}`); }
         delete tk._bed;
     }
@@ -957,6 +965,7 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
         job.unreg.set(k, Date.now()); if (job.unreg.size <= 40) job.log(`[temps] unregistered ${nm} at ${k} beside ${name} (was ${o ? o.name : '?'}; held ${bot.heldItem ? bot.heldItem.name : 'nothing'}); last moves ${mv.trace.slice(-4).join(' | ')}`);
     };
     bot.on('blockUpdate', onBlock);
+    const unwatch = require('./machine').attach(job, bot, job.log);          // the build's pistons that fire and the cells they move (target zero)
     // once a second: how many of its temporary blocks stand beyond the column it stands on (the owner's two-per-bot standard, temps.js sample)
     let looseLog = 0;
     const sampler = setInterval(() => { try { if (bot.entity && job.ledger.size) { const f = feet(bot), n = job.ledger.sample(name, f); if (n > 2 && Date.now() - looseLog > 60000) { looseLog = Date.now(); job.log(`[temps] ${name} at ${f.x},${f.y},${f.z} holds ${n} beyond its column: ${job.ledger.lastLoose.join('; ')}; last moves ${mv.trace.slice(-3).join(' | ')}`); } } } catch (_) { /* a sample is only a count */ } }, 1000);
@@ -1172,7 +1181,7 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
             job.report(name, res);
         }
         return { ended: 'cancelled' };
-    } finally { bot.removeListener('death', onDeath); bot.removeListener('death', onDied); bot.removeListener('blockUpdate', onBlock); job.orphanOf(name, 'left the crew'); clearInterval(sampler); clearInterval(stallWatch); bot.removeListener('spawnReset', onReset); bot.__builderOwns = false; job.leave(name); if (job.pool) job.pool.leave(name); for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sneak', 'sprint']) bot.setControlState(k, false); }
+    } finally { bot.removeListener('death', onDeath); bot.removeListener('death', onDied); bot.removeListener('blockUpdate', onBlock); job.orphanOf(name, 'left the crew'); clearInterval(sampler); clearInterval(stallWatch); unwatch(); bot.removeListener('spawnReset', onReset); bot.__builderOwns = false; job.leave(name); if (job.pool) job.pool.leave(name); for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sneak', 'sprint']) bot.setControlState(k, false); }
 }
 
 module.exports = { drive, work, holds, rules, pour, escape, needsFor, boxSpot, bench, release, unscaffold, touchesShape, planned, adoptWorkTemps, closesIn };

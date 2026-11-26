@@ -8,6 +8,7 @@
 //   late      fluids poured and portals and fires lit, when every block stands
 //   settle    a few seconds for the circuit, then one more survey: nothing left = done
 const S = require('./state');
+const MC = require('./machine');
 const SV = require('./survey');
 const { survey } = SV;
 const { seen, eyeOf, boxDist } = require('./world');
@@ -224,6 +225,8 @@ class BuildJob {
         if (STAGE_OF[tk.kind] !== this.stage && !(tk.after && STAGE_OF[tk.after] === this.stage)) return false;
         // relaxed (a stall): the order rules go, never the fluid rule (relaxed clearing dug the rock round lava pockets and the lava ran through the dug box: five deaths in six
         // seconds, live 2026-11-23 fz8 w5)
+        // a machine is not powered while it is built: its power sources last, an observer after the cell it watches (machine.js)
+        if ((tk.kind === 'place' || tk.kind === 'fix') && this._machineWaits(tk, now)) return false;
         if (this.relaxed) return !(tk.kind === 'clear' && [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]].some(([dx, dy, dz]) => { const h = seen(bot, { x: tk.x + dx, y: tk.y + dy, z: tk.z + dz }); return h && (h.name === 'water' || h.name === 'lava' || h.props.waterlogged === 'true'); }));
         if (tk.kind === 'scaffold') return true;
         if (tk.kind === 'clear') {
@@ -358,9 +361,15 @@ class BuildJob {
         return false;
     }
 
+    /** The machine rule for tk (machine.js): why it waits, or null. */
+    _machineWaits(tk, now) {
+        return MC.waits(this.t, tk, (j) => { const c = this.t.cell(j), k = key(c.x, c.y, c.z), q = this.tasks.get(k); return !!q && q !== tk && (q.kind === 'place' || q.kind === 'fix') && !this.parked.has(k); }, now);
+    }
+
     /** Why task `tk` is not ready (for the stall log): the first rule that holds it. */
     whyNot(tk, bot, now) {
         if (this.parked.has(tk.k)) return 'parked';
+        { const mw = (tk.kind === 'place' || tk.kind === 'fix') ? this._machineWaits(tk, now) : null; if (mw) return mw; }
         if ((this.cool.get(tk.k) || 0) > now) return 'cooling';
         if (STAGE_OF[tk.kind] !== this.stage && !(tk.after && STAGE_OF[tk.after] === this.stage)) return this.stage === 'prepare' ? 'the site is being cleared (the pit)' : `stage ${STAGE_OF[tk.kind]}`;
         if ((tk.kind === 'place' || tk.kind === 'fix') && tk.y > this.topAt(tk.x, tk.z)) return `above the window (local top ${this.topAt(tk.x, tk.z)})`;
