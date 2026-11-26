@@ -8,7 +8,9 @@ const M = require('../../experts/pit/model');
 const P = require('../../experts/pit/policy');
 const { SOLID, ROCK, WATER, AIR, N, H } = M;
 
-const MAX_FAILS_ROW = 6;                      // stations in a row that could not be reached or dug: the unit fails with the first reason
+// MAX_FAILS_ROW: stations in a row that could not be reached or dug, then the unit fails with the first reason; UNIT_MS: one unit's stations at most this long
+// (mine_b mb075m w1, 1.21.1: a unit walked between two stations for 25 min)
+const MAX_FAILS_ROW = 6, UNIT_MS = 6 * 60000;
 
 /**
  * The best station by dig count minus a soft distance cost over EVERY column of the chunk that can be stood on (not only those the model's step-by-step walk reaches), or null.
@@ -98,8 +100,10 @@ async function runExpert(c) {
     r.expert = stats;
     const failedCols = new Set(), failures = [], supports = new Set();                      // supports: the blocks the bot stood on at its stations
     let lastN = 0, failsRow = 0, first = null;
+    const tUnit = Date.now();
     for (let t = 0; t < M.MAX_STATIONS; t++) {
         if (env.cancel && env.cancel.cancelled) return { ok: false, reason: 'cancelled', detail: { ...r } };
+        if (Date.now() - tUnit > UNIT_MS) return first || { ok: false, reason: 'timeout', detail: { why: `the unit's stations took more than ${UNIT_MS / 60000} min`, stage: 'expert', ...r } };
         if (env.wrongDim && env.wrongDim()) return { ok: false, reason: 'wrong_dimension', detail: { why: 'the bot is not in the dimension of the job', botSide: true, stage: 'dimension', ...r } };
         const t0 = Date.now(), here = env.here();
         const m = buildModel(c, ox, oz, yb);
@@ -167,11 +171,13 @@ async function runExpert(c) {
                 if (!CELL_FAILS.has(res.reason) || failures.length >= 1) return failures[0] || res;
                 failures.push(res); r.failedCells = failures.length; failedCols.add(`${q.x},${q.z}`); continue;
             }
-            dug++;
+            if (open(cell)) dug++;             // (only a cell the world shows open: a skipped cell is no progress)
         }
         lastN = dug; stats.cells += dug;
         if (r.mined && env.items) { const sd = await c.sweepDrops(env, S); r.picked = (r.picked || 0) + (sd.picked || 0); r.seen = (r.seen || 0) + (sd.seen || 0); if (sd.fail) r.pickFail = sd.fail; }
-        if (!dug && !set.length) failedCols.add(`${q.x},${q.z}`);       // the model saw cells that the world does not hold: not this place again
+        // a station that opened nothing (the model saw cells the world does not hold, or every cell was skipped: left, aerial, a floater) is not chosen again: two such stations
+        // took turns for 25 min in mine_b mb075m w1 (the bot stepped between 4,18,-42 and 4,17,-41 every 20 s, 'unit:plan' and 'unit:walk' only)
+        if (!dug) failedCols.add(`${q.x},${q.z}`);
     }
     if (failures.length) return { ...failures[0], detail: { ...failures[0].detail, failedCells: failures.length, mined: r.mined } };
     const left = (() => { let n = 0; for (const cell of c.cells) if (!open(cell) && !c.UNBREAKABLE.test(String(env.w.nameAt(cell.x, cell.y, cell.z) || '')) && !c.aerialTree(cell)) n++; return n; })();

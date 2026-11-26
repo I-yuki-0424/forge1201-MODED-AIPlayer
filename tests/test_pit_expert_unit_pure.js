@@ -98,6 +98,22 @@ function voidEnv(w, start) {
         assert.ok(dug > 100, `${dug} cells of the top layer dug`);
     });
 
+    await test('runUnit: one unit\'s stations end after 6 min with a timeout, whatever they do (mine_b mb075m w1: a unit walked between two stations for 25 min); negative control: a fast unit is not cut', async () => {
+        const job = pit.createPitJob(box, {}, { method: 'expert', road: false }), reg = job.plan.regions[0];
+        const real = Date.now; let t = real();
+        try {
+            Date.now = () => t;
+            const w = fakeWorld(99), env = fakeEnv(w, { x: 0, y: 100, z: 0 }), base = env.exec;
+            env.exec = async (n, a) => { if (n === 'move_to') t += 90000; return base(n, a); };        // every walk to a station takes 90 s
+            const r = await job.runUnit(reg.id, { unit: 0 }, env);
+            const walks = env.log.filter((l) => l[0] === 'move_to').length;
+            assert.ok(!r.ok && r.reason === 'timeout', JSON.stringify(r).slice(0, 160)); assert.ok(walks <= 6, `${walks} walks`);
+            const w2 = fakeWorld(99), env2 = fakeEnv(w2, { x: 0, y: 100, z: 0 });
+            const r2 = await job.runUnit(reg.id, { unit: 0 }, env2);
+            assert.ok(r2.ok, JSON.stringify(r2).slice(0, 160));
+        } finally { Date.now = real; }
+    });
+
     await test('runUnit: a lake in the band is sealed by the water rule, the cells around it dug', async () => {
         const init = {}; for (let x = 6; x <= 8; x++) for (let z = 6; z <= 8; z++) init[`${x},99,${z}`] = 'water';
         const w = fakeWorld(99, init), job = pit.createPitJob(box, {}, { method: 'expert', road: false }), reg = job.plan.regions[0], env = fakeEnv(w, { x: 0, y: 100, z: 0 });
