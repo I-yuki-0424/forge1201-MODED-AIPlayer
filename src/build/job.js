@@ -109,8 +109,6 @@ class BuildJob {
             // does not dig the site itself (owner list 5 Large 3: no builder-specific digger)
             if (this.pitRounds >= PIT_ROUNDS && !(this.pitPhase && !this.pitPhase.done)) {
                 let n = 0; const ex = []; for (const [k, tk] of [...tasks]) { if (!(tk.kind === 'clear' || tk.kind === 'fill' || tk.kind === 'seal')) continue;
-                    // a plant or a snow layer (no collision box: the pit's world model counts it as air, its sweep never mines it) is broken by a click, as one places: the builder's
-                    { const h = tk.kind === 'clear' && bot ? seen(bot, tk) : null; if (h && h.shape === 'empty' && SV.REPLACEABLE.test(h.name)) continue; }
                     this._park(tk, 'left by the pit'); tasks.delete(k); n++; if (ex.length < 12) { const h = bot ? seen(bot, tk) : null; ex.push(`${k} ${tk.kind} ${h ? h.name : '?'}`); } }
                 if (n) this.log(`${n} cells the pit left after ${this.pitRounds} rounds are parked (the builder does not dig the site): ${ex.join('; ')}`);
             }
@@ -424,8 +422,6 @@ class BuildJob {
         let top = -Infinity, bottom = Infinity, n = 0;
         for (const tk of this.tasks.values()) {
             if (!(tk.kind === 'clear' || tk.kind === 'fill' || (tk.kind === 'place' && tk.wrong))) continue;
-            // (a plant or a snow layer is no ground for the pit: its world model counts it as air; the builder breaks it with a click. b081f: rounds 2 and 3 over 96 such cells did nothing)
-            if (bot && tk.kind === 'clear') { const h = seen(bot, tk); if (h && h.shape === 'empty' && SV.REPLACEABLE.test(h.name)) continue; }
             if (!this.t.inside(tk.x, tk.y, tk.z)) continue;
             n++; if (tk.y > top) top = tk.y; if (tk.y < bottom) bottom = tk.y;
         }
@@ -433,8 +429,8 @@ class BuildJob {
         this.pitRounds = (this.pitRounds || 0) + 1;
         const b = this.t.box, box = { x0: b.x, x1: b.x + b.sx - 1, z0: b.z, z1: b.z + b.sz - 1, top, bottom };
         const pit = require('../work/jobs/pit'), { PIT_LEDGER } = require('../work/service/common');
-        const lanes = Math.max(1, this.bots.size || 1), method = process.env.BUILD_PIT_METHOD || 'sweep';          // sweep: dug with sight from a station per tile (on the same mine_b box, cmp4: sweep PASS, expert FAIL; b081b: expert stations 'could not stand' 18x)
-        const impl = pit.createPitJob(box, PIT_LEDGER, { lanes, method, road: false });
+        const lanes = Math.max(1, this.bots.size || 1), method = process.env.BUILD_PIT_METHOD === 'rows' ? 'rows' : 'sweep';          // sweep or rows only (the expert's model sees plants as air): sweep, dug with sight from a station per tile (on the same mine_b box, cmp4: sweep PASS, expert FAIL; b081b: expert stations 'could not stand' 18x)
+        const impl = pit.createPitJob(box, PIT_LEDGER, { lanes, method, road: false, plants: true });          // plants: a cell of a build site holding grass, a flower, a snow layer is still to dig (075, 32b7b157)
         this.pitPhase = { box, impl, done: false, cells: n, at: Date.now(), method };
         this.log(`clearing by the pit (round ${this.pitRounds}): ${n} cells to dig in ${box.x0}..${box.x1} x ${box.z0}..${box.z1}, y ${bottom}..${top} (${impl.plan.regions.length} regions, method ${method})`);
         return this.pitPhase;
