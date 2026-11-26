@@ -108,8 +108,11 @@ class BuildJob {
             // the terrain is the pit's alone: once its rounds are used up, what it left (a cell it could not dig, water that came back) is parked with that reason, the builder
             // does not dig the site itself (owner list 5 Large 3: no builder-specific digger)
             if (this.pitRounds >= PIT_ROUNDS && !(this.pitPhase && !this.pitPhase.done)) {
-                let n = 0; for (const [k, tk] of [...tasks]) { if (!(tk.kind === 'clear' || tk.kind === 'fill' || tk.kind === 'seal')) continue; this._park(tk, 'left by the pit'); tasks.delete(k); n++; }
-                if (n) this.log(`${n} cells the pit left after ${this.pitRounds} rounds are parked (the builder does not dig the site)`);
+                let n = 0; const ex = []; for (const [k, tk] of [...tasks]) { if (!(tk.kind === 'clear' || tk.kind === 'fill' || tk.kind === 'seal')) continue;
+                    // a plant or a snow layer (no collision box: the pit's world model counts it as air, its sweep never mines it) is broken by a click, as one places: the builder's
+                    { const h = tk.kind === 'clear' && bot ? seen(bot, tk) : null; if (h && h.shape === 'empty' && SV.REPLACEABLE.test(h.name)) continue; }
+                    this._park(tk, 'left by the pit'); tasks.delete(k); n++; if (ex.length < 12) { const h = bot ? seen(bot, tk) : null; ex.push(`${k} ${tk.kind} ${h ? h.name : '?'}`); } }
+                if (n) this.log(`${n} cells the pit left after ${this.pitRounds} rounds are parked (the builder does not dig the site): ${ex.join('; ')}`);
             }
             this.buckets = new Map();
             for (const tk of tasks.values()) { const k = `${Math.floor(tk.x / 8)},${Math.floor(tk.y / 8)},${Math.floor(tk.z / 8)}`; (this.buckets.get(k) || this.buckets.set(k, []).get(k)).push(tk); }
