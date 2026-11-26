@@ -789,7 +789,7 @@ function audit(plan, ledger, w, now, state, { budget = AUDIT_BUDGET, full = fals
 /** A pit as a crew job: { ledger, plan, runUnit(regionId, unit, env) }. */
 function createPitJob(box, ledgerOpts = {}, { lanes = 0, method = 'rows', tile = TILE, road = true, plants = false } = {}) {
     const plan = planPit(box, { lanes, method, tile, road }); plan.accepted = new Set(); plan.clearPlants = !!plants;
-    const ledger = new Ledger(ledgerOpts), byId = new Map(), auditState = { cursor: new Map(), counts: new Map() };
+    const ledger = new Ledger({ lookahead: 2, ...ledgerOpts }), byId = new Map(), auditState = { cursor: new Map(), counts: new Map() };
     for (const r of plan.regions) { ledger.addRegion(r); byId.set(r.id, r); }
     // sweep: the check at the end (pit_sweep.js): every chunk is walked to, read from the top layer down, and what still holds a block goes back to work.
     const sweep = makeSweeper({ plan, ledger, state: auditState, cellState });

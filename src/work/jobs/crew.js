@@ -41,9 +41,13 @@ class Ledger {
      * @param maxAttempts failures (other than the bot's own death) before a unit is `stuck`
      * @param crowd       score penalty per other bot already in a region (huge = help only when nothing unowned is left)
      */
-    constructor({ leaseMs = 60000, maxAttempts = 3, crowd = 1e6, maxLead = Infinity, lanes = false, sameLimit = Infinity, holdMs = 0, gate = false, noShun = false } = {}) {
+    constructor({ leaseMs = 60000, maxAttempts = 3, crowd = 1e6, maxLead = Infinity, lanes = false, sameLimit = Infinity, holdMs = 0, gate = false, noShun = false, lookahead = 0 } = {}) {
         this.noShun = noShun;         // builds: a bot may try a unit again that it failed (after the hold): the posts decide who may work where, and the key unit of a structure must not wait for 'another bot'
         this.gate = gate;             // a layer opens the next only after its check (needCheck / checkDone); off for builds
+        // Lookahead (pits, TASK-075, 2026-11-27): when nothing of the front layer is claimable and one of its units is still leased (another bot works it), a bot may take a unit up to `lookahead` layers below,
+        // in a row whose column above is settled, the rows beside it too. A region's last layers no longer wait behind one slow unit while the crew idles (bt075t8, taiga, 1.21.1:
+        // 120 units pending, 1 leased). The front still opens only after its check, and a layer below is checked when the front reaches it.
+        this.lookahead = lookahead;
         this.sameLimit = sameLimit;   // identical failures in a row (same reason, stage, cell, words) before a unit is parked as stuck
         this.holdMs = holdMs;         // a unit that failed is not claimable for this long (x2 per identical failure in a row); the bot takes its other units meanwhile
         this.lanes = lanes;           // pit jobs: one range per bot; a bot keeps to its range until it is dug to the bottom, and retries its own failed units itself
@@ -126,6 +130,24 @@ class Ledger {
         const l = (u / r.rows) | 0;
         r.settled[l]++;
         this._advance(r);
+    }
+    /** The claimable rows of region r for this bot: { layer, rows } of the front layer, else (lookahead) of a layer below whose column above is settled; null when none. */
+    _open(r, botId, pos, now, shun) {
+        const ok = (u) => r.state[u] === PENDING && r.avoid[u] !== shun && r.hold[u] <= now && (!r.gate || r.gate(u, botId, pos));
+        const rowsOf = (l, allow) => { const out = []; for (let i = 0; i < r.rows; i++) if (allow(i) && ok(l * r.rows + i)) out.push(i); return out; };
+        const front = rowsOf(r.front, () => true);
+        if (front.length) return { layer: r.front, rows: front };
+        // only while a unit of the front layer is still being worked (leased): a settled front waits for its check first (the owner's rule of 2026-11-10, leftovers before the next level)
+        let busy = false; for (let i = 0; i < r.rows; i++) if (r.state[r.front * r.rows + i] === LEASED) { busy = true; break; }
+        if (!busy) return null;
+        const settled = (l, i) => i < 0 || i >= r.rows || r.state[l * r.rows + i] === DONE || r.state[l * r.rows + i] === STUCK;
+        for (let k = 1; k <= this.lookahead && r.front + k < r.layers; k++) {
+            const L = r.front + k;
+            // (the first layer with a row allowed wins: what is claimable higher up comes first; a row under or beside an unsettled one stays for later)
+            const rows = rowsOf(L, (i) => { for (let l = r.front; l < L; l++) if (!settled(l, i - 1) || !settled(l, i) || !settled(l, i + 1)) return false; return true; });
+            if (rows.length) return { layer: L, rows };
+        }
+        return null;
     }
     /** The lowest layer that is not open to the next one yet: not settled, or (gate) not checked. */
     _advance(r) { while (r.front < r.layers && r.settled[r.front] === r.rows && (!this.gate || r.checked[r.front])) r.front++; }
@@ -224,23 +246,22 @@ class Ledger {
             if (b.skip && b.skip.region === r.id && b.skip.until > now) continue;          // a post this bot gave up
             if (pass === 0 && r.keeper >= 0 && r.keeper !== b.idx && this._present(r.keeper, now) && !postDone) continue;
             if (this.maxLead !== Infinity && r.front - minFront > this.maxLead) continue;
-            const base = r.front * r.rows;
-            let any = false, pending = 0;
-            for (let i = 0; i < r.rows; i++) if (r.state[base + i] === PENDING && r.avoid[base + i] !== shun && r.hold[base + i] <= now && (!r.gate || r.gate(base + i, botId, pos))) { any = true; pending++; }
-            if (!any) continue;
+            const open = this._open(r, botId, pos, now, shun);
+            if (!open) continue;
+            const pending = open.rows.length;
             const others = r.lessees.size - (r.lessees.has(b.idx) ? 1 : 0);
             const d = Math.hypot(r.anchor.x - pos.x, r.anchor.z - pos.z);
             const home = (b.home === r.id || (b.home === null && b.last === r.id)) ? -1e12 : 0;
             // The nearest post first (a bot used to take the range with the most work left, wherever it was: 100-150 blocks of void to walk, "no leg", deaths), the one with more work left second.
             const score = home + others * this.crowd + d - pending * 1e-6;
-            if (!best || score < best.score) best = { r, score, others };
+            if (!best || score < best.score) best = { r, score, others, open };
         }
         }
         if (!best) return null;
-        const { r } = best, base = r.front * r.rows, units = [];
+        const { r, open } = best, layer = open.layer, base = layer * r.rows, units = [];
         const helper = r.keeper >= 0 ? r.keeper !== b.idx : best.others > 0 && !r.lessees.has(b.idx);
-        let order = [...Array(r.rows).keys()]; if (helper) order.reverse();       // helpers start at the tail
-        if (r.pick) order = r.pick(order.filter((i) => r.state[base + i] === PENDING && r.avoid[base + i] !== shun && r.hold[base + i] <= now && (!r.gate || r.gate(base + i, botId, pos))), { pos, bot: botId });
+        let order = open.rows.slice(); if (helper) order.reverse();       // helpers start at the tail
+        if (r.pick) order = r.pick(order, { pos, bot: botId });
         for (const i of order) {
             if (units.length >= batch) break;
             const u = base + i;
@@ -248,7 +269,7 @@ class Ledger {
             r.state[u] = LEASED; r.owner[u] = b.idx; r.until[u] = now + this.leaseMs; r.leasedN++;
             r.lessees.set(b.idx, (r.lessees.get(b.idx) || 0) + 1);
             b.leases.add(`${r.id}\u0000${u}`);
-            units.push({ unit: u, layer: r.front, row: i });
+            units.push({ unit: u, layer, row: i });
         }
         this.leased.add(r.id);
         b.last = r.id;

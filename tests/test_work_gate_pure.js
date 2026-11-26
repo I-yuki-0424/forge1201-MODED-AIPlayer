@@ -79,5 +79,26 @@ const P = { x: 0, z: 0 };
         assert.strictEqual([...solid].length, 0, 'nothing is left');
     });
 
+    await test('lookahead: while one slow unit of the front layer is leased, another bot takes units below it in columns whose rows above are settled, never under or beside the slow one; a settled front waits for its check (negative control: lookahead 0 idles)', async () => {
+        const mk = (lookahead) => { const L = new Ledger({ gate: true, lookahead }); L.addRegion({ id: 'r', anchor: { x: 0, z: 0 }, layers: 4, rows: 6 }); return L; };
+        const L = mk(2);
+        const a = L.claim('A', P, 0, { batch: 6 }); assert.strictEqual(a.units.length, 6);
+        for (const u of a.units) if (u.row !== 2) L.done('A', 'r', u.unit, 1);           // row 2 stays leased (the slow tree unit)
+        const b = L.claim('B', P, 2, { batch: 6 });
+        assert.ok(b, 'B is given work below'); assert.ok(b.units.every((u) => u.layer === 1), JSON.stringify(b.units));
+        assert.deepStrictEqual(b.units.map((u) => u.row).sort(), [0, 4, 5], 'not under the slow unit or beside it');
+        for (const u of b.units) L.done('B', 'r', u.unit, 3);
+        const c = L.claim('B', P, 4, { batch: 6 }); assert.deepStrictEqual(c && c.units.map((u) => [u.layer, u.row]), [[2, 5]], 'layer 2 only where both layers above are settled beside it: ' + JSON.stringify(c && c.units));
+        for (const u of c.units) L.done('B', 'r', u.unit, 5);
+        assert.strictEqual(L.claim('B', P, 6, { batch: 6 }), null, 'never a third layer below');
+        L.done('A', 'r', 2, 7);
+        assert.strictEqual(L.claim('B', P, 8, { batch: 6 }), null, 'the front is settled now: no unit before its check');
+        const ck = L.needCheck('B', 9); assert.ok(ck && ck.layer === 0); L.checkDone('B', 'r', 0, 10, true);
+        const d = L.claim('B', P, 11, { batch: 6 }); assert.ok(d && d.units.every((u) => u.layer === 1), 'then the rest of layer 1');
+        // negative control
+        const N = mk(0); const na = N.claim('A', P, 0, { batch: 6 }); for (const u of na.units) if (u.row !== 2) N.done('A', 'r', u.unit, 1);
+        assert.strictEqual(N.claim('B', P, 2, { batch: 6 }), null, 'without lookahead the second bot idles');
+    });
+
     console.log('ALL OK'); process.exit(0);
 })().catch((e) => { console.error(e); process.exit(1); });
