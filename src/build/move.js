@@ -416,8 +416,11 @@ class Mover {
             if ([[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]].some(([dx, dy, dz]) => { const q = v.raw(c.x + dx, c.y + dy, c.z + dz); return q && (q.name === 'water' || q.name === 'lava'); })) { why = 'a fluid beside it'; break; }
             // in sight from where it stands; else, the column beside its cell, leaning out over it (sneaking at the edge, the eye over the shaft) as a player looks down a hole
             const seesTop = () => { const p = this.bot.entity.position, eye = [p.x, p.y + (leaned ? 1.27 : 1.62), p.z], hit = [c.x + 0.5, c.y + 0.999, c.z + 0.5]; if (Math.hypot(hit[0] - eye[0], hit[1] - eye[1], hit[2] - eye[2]) > 4.4) return false; const r = P.rayFirst(P.botWorld(this.bot), eye, hit); return !!r && r.cell[0] === c.x && r.cell[1] === c.y && r.cell[2] === c.z; };
-            let ok = !leaned && P.clickable(P.botWorld(this.bot), c, feet(this.bot)) && seesTop();
-            if (!ok && !leaned && Math.abs(c.x - at.x) + Math.abs(c.z - at.z) === 1 && feet(this.bot).y === prev.y) { await this.lean(c.x - at.x, c.z - at.z); leaned = true; }
+            // (a block at or above the feet after a drop off the column: its side face, as for any block; its top face is above the eye's line)
+            let ok = !leaned && P.clickable(P.botWorld(this.bot), c, feet(this.bot)) && (c.y >= feet(this.bot).y || seesTop());
+            // (leaning at any height, after a drop or a step up off the column too: the sight check decides; 9 of the 14 "not in sight" of bt075g were upright, no lean tried)
+            if (!ok && !leaned && Math.abs(c.x - at.x) + Math.abs(c.z - at.z) === 1) {
+                await this.lean(c.x - at.x, c.z - at.z); leaned = true; }
             if (!ok && leaned) ok = seesTop();
             if (!ok) { why = `not in sight (${leaned ? 'leaning' : 'upright'}, at ${feet(this.bot).x},${feet(this.bot).y},${feet(this.bot).z})`; break; }
             if (!(await this.dig(c))) { if (this.rules.onTempFail) this.rules.onTempFail(c, 'left behind: the dig failed'); why = 'the dig failed'; break; }
