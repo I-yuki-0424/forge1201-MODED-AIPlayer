@@ -320,7 +320,8 @@ async function work(job, name, bot, mv, cl, cancel) {
             // clicks after the placement (note, delay, mode, open), counted from what the cell holds now
             await sleep(120, 'server: block update after a click');
             const now = seen(bot, tk), fx = now ? clicksFor(job.t.wantOf(tk), now) : null;
-            if (fx) { const c = require('./place').clickable(require('./place').botWorld(bot), tk, feet(bot)); if (c) { await mv.holdNothing(); for (let k = 0; k < fx.clicks; k++) await mv.click([tk.x, tk.y, tk.z], c.face, c.hit); } }
+            // (a block placed under the feet is clicked there too: its top face, by reach, as the placement was; a trapdoor's opening)
+            if (fx) { const ff = feet(bot), c = require('./place').clickable(require('./place').botWorld(bot), tk, ff) || (way.under && ff.x === tk.x && ff.z === tk.z && ff.y === tk.y + 2 ? { face: 'up', hit: [tk.x + 0.5, tk.y + 0.99, tk.z + 0.5] } : null); if (c) { await mv.holdNothing(); for (let k = 0; k < fx.clicks; k++) await mv.click([tk.x, tk.y, tk.z], c.face, c.hit); } }
             done.push(tk);
         }
     }

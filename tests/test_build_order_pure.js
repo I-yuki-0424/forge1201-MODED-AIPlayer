@@ -184,4 +184,16 @@ test('no placement closes the last way out of the space a crew member is in (a r
     assert.strictEqual(D.closesIn(job, mk(8, 64, 8), { x: 4, y: 64, z: 2 }), false, 'negative control: nobody inside');
 });
 
+test('a floating trapdoor under a built block is placed from on top of that block, its bottom face clicked (under the feet; negative control: from beside, no click)', () => {
+    const P = require('../src/build/place');
+    const blocks = new Map([['5,66,5', { name: 'smooth_stone', props: {}, shapes: [[0, 0, 0, 1, 1, 1]] }]]);
+    const world = { block: (x, y, z) => blocks.get(`${x},${y},${z}`) || P.AIR };
+    const want = { name: 'spruce_trapdoor', props: { facing: 'west', half: 'top', open: 'true', waterlogged: 'false', powered: 'false' } };
+    const T = { x: 5, y: 65, z: 5 };
+    const w = P.ways(world, T, want, 'spruce_trapdoor', [{ x: 5, y: 67, z: 5 }], { max: 1 })[0];
+    assert(w && w.under && w.face === 'down' && w.n.join() === '5,66,5', JSON.stringify(w));
+    assert(w.aim && Math.abs(w.aim.pitch) > 1.4, 'looking down');
+    assert.strictEqual(P.ways(world, T, want, 'spruce_trapdoor', [{ x: 7, y: 65, z: 5 }], { max: 1 }).length, 0, 'negative control: from beside, nothing to click that gives the state');
+});
+
 (async () => { for (const [name, fn] of queue) { await fn(); n++; console.log(`  ok ${name}`); } console.log(`test_build_order_pure: ${n} passed`); })().catch((e) => { console.error(e); process.exit(1); });
