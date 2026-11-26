@@ -141,5 +141,21 @@ const left = (w, box = BOX) => scan(w, box).length;
         assert(done.mined.includes('5,100,5') && done.mined.includes('5,101,5'), `negative control: the pass is over, the unit digs the low tree (${done.mined})`);
     });
 
+    await test('a build site\'s pit (plants: true) digs grass, flowers and snow layers, which have no collision box; a plain pit walks through them as air (negative control; b081f: 96 left)', async () => {
+        const pit = require('../src/work/jobs/pit');
+        const run = async (plants) => {
+            const cells = new Map([['2,64,2', 'short_grass'], ['3,64,3', 'poppy'], ['4,64,4', 'stone']]);
+            const w = { nameAt: (x, y, z) => cells.get(`${x},${y},${z}`) || (y <= 63 ? 'stone' : 'air'), kindAt: (x, y, z) => { const n = cells.get(`${x},${y},${z}`) || (y <= 63 ? 'stone' : 'air'); return n === 'stone' ? 'solid' : 'air'; } };
+            const job = pit.createPitJob({ x0: 0, z0: 0, x1: 7, z1: 7, top: 64, bottom: 64 }, {}, { method: 'rows', road: false, plants }), region = job.plan.regions[0], mined = [];
+            const env = { w, have: () => 9, pause: async () => {}, here: () => ({ x: 0, y: 64, z: 0 }), exec: async (n, a) => { if (n === 'mine') { mined.push(`${a.x},${a.y},${a.z}`); cells.delete(`${a.x},${a.y},${a.z}`); } return { ok: true }; } };
+            for (let u = 0; u < region.layers * region.rows; u++) await job.runUnit(region.id, { unit: u }, env);
+            const left = []; for (let u = 0; u < region.layers * region.rows; u++) left.push(...pit.wrongCells(job.plan, region, u, w));
+            return { mined, left: left.length };
+        };
+        const site = await run(true), plain = await run(false);
+        assert(site.mined.includes('2,64,2') && site.mined.includes('3,64,3') && site.mined.includes('4,64,4') && site.left === 0, `site: plants dug (${site.mined})`);
+        assert(!plain.mined.includes('2,64,2') && !plain.mined.includes('3,64,3') && plain.mined.includes('4,64,4'), `negative control: a plain pit leaves them (${plain.mined})`);
+    });
+
     console.log('\npit trees: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

@@ -17,6 +17,11 @@ const STATION_TICKS = 600;           // a walk to a station gets 30 s (the comma
 const MAX_UNITS = 16_000_000;
 const EXPERT_BAND = 2;               // layers per unit of the expert method (the arm reaches two layers below the feet from a station)
 const PASSABLE = new Set(['air', 'climb']);
+// A pit for a build site (`plants`, createPitJob): the job wants its cells empty, so a cell with no collision box that is not air (grass, flowers, ferns, vines, snow layers, torches)
+// is still to dig; a plain pit walks through them as air (081's site b081f: 96 such cells at the ground layer stood after the pit, its rounds 2 and 3 saw nothing to do in 0 s and
+// the builder broke them with clicks)
+const NOT_AIR = (w, c) => !/^(air|cave_air|void_air)$/.test(String((w.nameAt && w.nameAt(c.x, c.y, c.z)) || 'air').replace(/^minecraft:/, ''));
+const openCell = (plan, w, c) => PASSABLE.has(w.kindAt(c.x, c.y, c.z)) && !(plan.clearPlants && NOT_AIR(w, c));
 // Natural tree blocks. One that hangs high above the ground below it cannot be reached on foot: the planner expands 20,000 cells and gives up
 // (30-85 s per try, six tries per unit, bots end up standing on the canopy) - the live pit of 2026-11-07 with top y 90 over ground at y 64 and a tree.
 // The pit leaves such blocks alone (they are not ground; the audit does not count them) and says how many it left.
@@ -231,7 +236,7 @@ async function runUnit(plan, region, u, env) {
     // the region's tree pass is running in another bot (it claimed the region's first unit, the others go on with theirs: several bots in one region, a build site's crew)
     const me = env.bot && env.bot.username, treeBusy = () => { const t = plan.trees && plan.trees.get(region.id); return !!(t && t.busy && t.by !== me); };
     const fail = (res, cell, stage) => ({ ok: false, reason: res.reason, detail: { ...(res.detail || {}), cell, block: env.w.nameAt ? env.w.nameAt(cell.x, cell.y, cell.z) : undefined, stage, ...r } });
-    const open = (c) => PASSABLE.has(env.w.kindAt(c.x, c.y, c.z));
+    const open = (c) => openCell(plan, env.w, c);
     const leave = (c) => { if (plan.accepted) plan.accepted.add(`${c.x},${c.y},${c.z}`); };          // a block left on purpose (a fixture, a floating block): the layer check does not send the unit back for it
     // Fill what sealPlan lists. `before`: only fluid that can be seen now (a pocket sealed inside stone cannot be clicked, and it
     // cannot flow until the cell next to it opens: live run p4, a water cell in the wall next to the last stone); after the dig
@@ -680,7 +685,7 @@ function cellState(plan, region, u, w) {
     for (const c of unitCells(plan, region, u)) {
         const k = w.kindAt(c.x, c.y, c.z);
         if (k === 'unknown') { unknown++; continue; }
-        if (PASSABLE.has(k) || UNBREAKABLE.test((w.nameAt && w.nameAt(c.x, c.y, c.z)) || '') || aerialTree(w, c)) continue;
+        if ((PASSABLE.has(k) && !(plan.clearPlants && NOT_AIR(w, c))) || UNBREAKABLE.test((w.nameAt && w.nameAt(c.x, c.y, c.z)) || '') || aerialTree(w, c)) continue;
         if (plan.accepted && plan.accepted.has(`${c.x},${c.y},${c.z}`)) continue;                      // left on purpose: a fixture, a block the bot stood on
         wrong.push(c);
     }
@@ -740,8 +745,8 @@ function audit(plan, ledger, w, now, state, { budget = AUDIT_BUDGET, full = fals
 }
 
 /** A pit as a crew job: { ledger, plan, runUnit(regionId, unit, env) }. */
-function createPitJob(box, ledgerOpts = {}, { lanes = 0, method = 'rows', tile = TILE, road = true } = {}) {
-    const plan = planPit(box, { lanes, method, tile, road }); plan.accepted = new Set();
+function createPitJob(box, ledgerOpts = {}, { lanes = 0, method = 'rows', tile = TILE, road = true, plants = false } = {}) {
+    const plan = planPit(box, { lanes, method, tile, road }); plan.accepted = new Set(); plan.clearPlants = !!plants;
     const ledger = new Ledger(ledgerOpts), byId = new Map(), auditState = { cursor: new Map(), counts: new Map() };
     for (const r of plan.regions) { ledger.addRegion(r); byId.set(r.id, r); }
     // sweep: the check at the end (pit_sweep.js): every chunk is walked to, read from the top layer down, and what still holds a block goes back to work.
