@@ -455,7 +455,7 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         takeCancelCause: () => { const c = stopCause || (bot.__preempt ? 'reflex' : null); stopCause = null; return c; },
         // The top of the stack (docs/implemented/COMMAND-STACK-v1.md): an instruction and its arguments go through the router, which reads the unmet preconditions and the bot's state, writes the
         // chain (unstick, move, equip ...) and runs the instruction last. The operator's commands, `gather` and (setting `routerPit`) the jobs call this, not `exec`.
-        command: (name, args) => require('../../stack/router').run({
+        command: (name, args, co = {}) => require('../../stack/router').run({ deadline: co.deadline || 0,
             bot, w, here: feet, cancelled: () => !!unitCancel.cancelled, night: () => envObj.nightGuard(),
             exec: (n, a, o = {}) => execute(bot, n, a, { cancel: unitCancel, ...o }),
             travel: (t, o) => envObj.travel(t, o),
@@ -496,7 +496,8 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
             say: (m) => console.log(`[obtain] ${bot.username} ${m}`),
         }, item, n),
         // `o.maxTicks`: a shorter budget than the command's own (a walk to a station that has not arrived in 30 s is not going to; the worker's ladder takes over).
-        exec: (name, args, o = {}) => (viaStack(name) && !o.raw ? envObj.command(name, args) : CHEST_OPS.has(name) ? queued(args, unitCancel, (c) => execute(bot, name, args, { cancel: c })) : execute(bot, name, args, { cancel: o.cancel || unitCancel, ...(Number.isInteger(o.maxTicks) ? { maxTicks: o.maxTicks } : {}) })),          // o.cancel: a walker's own token (nav's watch stops a step when a mob comes)
+        // o.deadline (ms since the epoch, TASK-075): the router's chain ends there and its travel carries it; a plain instruction gets the ticks left as its budget (b081m: one leaf 627 s)
+        exec: (name, args, o = {}) => (viaStack(name) && !o.raw ? envObj.command(name, args, o) : CHEST_OPS.has(name) ? queued(args, unitCancel, (c) => execute(bot, name, args, { cancel: c })) : execute(bot, name, args, { cancel: o.cancel || unitCancel, ...(Number.isInteger(o.maxTicks) ? { maxTicks: o.maxTicks } : o.deadline ? { maxTicks: Math.max(40, Math.round((o.deadline - Date.now()) / 50)) } : {}) })),          // o.cancel: a walker's own token (nav's watch stops a step when a mob comes)
         // For the water rescue: stopped by the operator only. `drowning()` is what sends the worker to the rescue, so the rescue's own commands must not be cancelled by it
         // (live 2026-11-09: every swim and fill came back `cancelled` at once, the worker claimed the next unit, which was cancelled at once too: 99,639 failures in a loop that never yielded and froze all 20 bots).
         execFree: (name, args) => (CHEST_OPS.has(name) ? queued(args, cancel, (c) => execute(bot, name, args, { cancel: c })) : execute(bot, name, args, { cancel })),

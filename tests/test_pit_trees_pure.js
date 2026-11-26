@@ -282,5 +282,20 @@ const left = (w, box = BOX) => scan(w, box).length;
         assert(!off.runs.some((r) => r[0] === 'descend'), 'no descent for a pillar the bot does not stand on');
     });
 
+    await test('a tree block within the server\'s reach is mined blind at once (no aimed mine and its retries first: b081m, a leaf 627 s, a vine 373 s); rock within reach still gets the aimed mine (negative control)', async () => {
+        const pit = require('../src/work/jobs/pit');
+        const run = async (name) => {
+            const cells = new Map([['2,65,1', name]]);
+            const w = { nameAt: (x, y, z) => cells.get(`${x},${y},${z}`) || (y <= 63 ? 'stone' : 'air'), kindAt: (x, y, z) => ((cells.get(`${x},${y},${z}`) || (y <= 63 ? 'stone' : 'air')) === 'air' ? 'air' : 'solid') };
+            const job = pit.createPitJob({ x0: 0, z0: 0, x1: 7, z1: 7, top: 65, bottom: 65 }, {}, { method: 'rows', road: false }), region = job.plan.regions[0];
+            const calls = [];
+            const env = { w, have: () => 9, pause: async () => {}, here: () => ({ x: 1, y: 64, z: 1 }), exec: async (n, a) => { if (n === 'mine') { calls.push(a.blind ? 'blind' : 'aimed'); cells.delete(`${a.x},${a.y},${a.z}`); } return { ok: true }; } };
+            for (let u = 0; u < region.layers * region.rows; u++) await job.runUnit(region.id, { unit: u }, env);
+            return calls;
+        };
+        assert.deepStrictEqual(await run('vine'), ['blind']); assert.deepStrictEqual(await run('oak_leaves'), ['blind']);
+        assert.deepStrictEqual(await run('stone'), ['aimed']);
+    });
+
     console.log('\npit trees: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

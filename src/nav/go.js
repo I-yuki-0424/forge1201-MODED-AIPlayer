@@ -229,7 +229,8 @@ async function go(env0, target, o = {}) {
         const r = await walk(W, env0, target, o);
         // a walk that ended without its goal (stuck, unreachable, a timeout) takes its own movement blocks within 48 away too, never placing (a pillar stood at the end of move_b
         // mbv075a w1 when the walk gave up; at the goal the walk sweeps itself)
-        if (!r.ok && !o.noSweep && !['cancelled', 'died', 'disconnected', 'wrong_dimension'].includes(r.reason)) { try { const sw = await sweep(env0, { max: 12, radius: 48 }); if (r.detail && r.detail.nav) r.detail.nav.sweptAfter = sw.removed; } catch (_) { /* the walk's result stands */ } }
+        // (a caller with a deadline, the pit's trip within reach of a cell: only its blocks nearby, 8; the rest go at its next unit's cleanTemp and the job's end. b081m: navS outside planning and steps)
+        if (!r.ok && !o.noSweep && !['cancelled', 'died', 'disconnected', 'wrong_dimension'].includes(r.reason)) { try { const ts = Date.now(); const sw = await sweep(env0, { max: 12, radius: o.deadline ? 8 : 48 }); if (r.detail && r.detail.nav) { r.detail.nav.sweptAfter = sw.removed; r.detail.nav.sweepMs = (r.detail.nav.sweepMs || 0) + Date.now() - ts; } } catch (_) { /* the walk's result stands */ } }
         return r;
     } finally { W.dispose(); if (o.digStructure && bot) bot.__keep = keep; }
 }
@@ -238,7 +239,7 @@ async function walk(W, env0, target, o) {
     const env = Object.create(env0);
     env.exec = (n, a, opt = {}) => env0.exec(n, a, { ...opt, cancel: opt.cancel || W.token });
     env.run = env0.run;
-    const bot = env.bot, info = { segments: 0, steps: 0, pillars: 0, bridges: 0, digs: 0, removed: 0, left: 0, replans: 0, fights: 0, planCpuMs: 0, planMs: 0, moveMs: 0 };
+    const bot = env.bot, info = { segments: 0, steps: 0, pillars: 0, bridges: 0, digs: 0, removed: 0, left: 0, replans: 0, fights: 0, planCpuMs: 0, planMs: 0, moveMs: 0, sweepMs: 0, waitMs: 0 };
     const stats = { cpuMs: 0 };          // the planner's own CPU time (plan.js searchAsync); planMs is its wall time (with the other bots' turns), moveMs the steps (moving, digging, waiting for the server)
     const surface = !!target.surface;
     const lvl = Number.isInteger(target.level) && !Number.isInteger(target.y);
@@ -265,7 +266,7 @@ async function walk(W, env0, target, o) {
             // its own movement blocks left on the way (out of reach when it passed them, or under its feet then): walked back to and broken now, at the walk's end, never with a
             // new block (a journey has no job end and its sweep: move_a w4 MvE4 arrived with one 15 blocks behind it, ma075a)
             // (once per walk: when that took it off the goal, it walks back to it, and then ends)
-            if (!o.noSweep && !swept) { swept = true; const sw = await sweep(env0, { max: 12, radius: 48 }); info.removed += sw.removed; if (sw.left) info.sweptLeft = sw.left; if (!goal.is({ ...env.here(), kind: 'stand' })) continue; td = await tidy(env); }
+            if (!o.noSweep && !swept) { swept = true; const ts = Date.now(); const sw = await sweep(env0, { max: 12, radius: o.deadline ? 8 : 48 }); info.sweepMs += Date.now() - ts; info.removed += sw.removed; if (sw.left) info.sweptLeft = sw.left; if (!goal.is({ ...env.here(), kind: 'stand' })) continue; td = await tidy(env); }
             info.left = td.left.length;
             return done({ ok: true, ...(td.left.length ? { left: td.left.map((r) => ({ x: r.x, y: r.y, z: r.z })) } : {}) });
         }
@@ -297,7 +298,7 @@ async function walk(W, env0, target, o) {
         if (!plan) {
             // not on a node (in a bush, half in a wall, mid-air): let the body settle, then the action layer's walk to the nearest cell
             // (for up to 8 s: a fight's knock-back or a fall keeps the body off any node for a few seconds; five tries in two seconds ended move_b mbv075a w1 'stuck' mid-fight)
-            await sleep(400);
+            await sleep(400); info.waitMs += 400;
             if (++noNode > 20) return done({ ok: false, reason: 'stuck', detail: { why: 'the bot is not standing anywhere the planner can start from', at: here } });
             continue;
         }
@@ -326,7 +327,7 @@ async function walk(W, env0, target, o) {
             if (failed.reason !== 'interrupted') { if (k === lastFail) failsHere++; else { failsHere = 1; firstFailAt = Date.now(); } lastFail = k; }
             // four failures at one place AND a minute spent there (a server that lags while it generates chunks timed four quick tries out at the start of a 2000-block walk)
             if (failsHere >= 4 && Date.now() - firstFailAt > 60000) return done({ ok: false, reason: failed.reason || 'stuck', detail: { why: `the same step failed four times here: ${failed.step} (${failed.why || failed.reason})`, failed } });
-            await sleep(Math.min(4000, 250 * 2 ** Math.min(4, failsHere)));
+            { const ms = Math.min(4000, 250 * 2 ** Math.min(4, failsHere)); await sleep(ms); info.waitMs += ms; }
         }
         const now = env.here(), d = surface ? 0 : hd(now, t);
         if (!surface && !(failed && failed.reason === 'interrupted')) { if (d < bestD - 2) { bestD = d; still = 0; } else if (++still >= (o.stuckAfter || 8)) return done({ ok: false, reason: 'stuck', detail: { why: `${o.stuckAfter || 8} segments without getting closer (${Math.round(d)} blocks left)`, failed } }); }

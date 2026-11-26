@@ -154,6 +154,19 @@ function fakeBot(scene, pos, { pack = [], held = null, entities = {} } = {}) {
         assert.ok(cubeDist({ x: s.here.x + 0.5, y: s.here.y + 1.62, z: s.here.z + 0.5 }, { x: 12, y: 1, z: 0 }) <= AIM_REACH, 'it moved into reach');
     });
 
+    await test('router: the caller\'s deadline ends the chain (timeout, no further step) and goes with its travel; without one the chain runs to the instruction (negative control) (TASK-075: one pit leaf took 627 s inside one mine)', async () => {
+        const s = sandbox({ ...STONE_AT(12, 0) }, { x: 0, y: 1, z: 0 }), d = deps(s); let seen = null;
+        const ex = d.exec; d.exec = async (n, a, o) => { if (n === 'move_to') { s.calls.push(['move_to', 'slow']); await new Promise((res) => setTimeout(res, 120)); return { ok: false, reason: 'unreachable', detail: {} }; } return ex(n, a, o); };
+        d.deadline = Date.now() + 60;
+        const r = await router.run(d, { name: 'mine', args: { x: 12, y: 1, z: 0 } });
+        assert.strictEqual(r.reason, 'timeout', JSON.stringify(r));
+        assert.strictEqual(s.calls.filter((c) => c[0] === 'move_to').length, 1, 'no step after the deadline: ' + JSON.stringify(s.calls));
+        await router.perform({ ...d, travel: async (t, o) => { seen = o; return { ok: true }; } }, { do: 'travel', to: { x: 1, y: 1, z: 1 } });
+        assert.ok(seen && seen.deadline === d.deadline, 'the travel carries the deadline');
+        const s2 = sandbox({ ...STONE_AT(12, 0) }, { x: 0, y: 1, z: 0 }), r2 = await router.run(deps(s2), { name: 'mine', args: { x: 12, y: 1, z: 0 } });
+        assert.strictEqual(r2.ok, true);
+    });
+
     await test('router: the same error (in_reach) with the bot sealed in -> unstick FIRST, then move, then the instruction: the chain depends on the state, not on the error', async () => {
         // a 1x1 pocket: stone on all four sides, two high, and a roof
         const cells = { ...STONE_AT(12, 0) };

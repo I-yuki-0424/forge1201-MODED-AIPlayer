@@ -109,7 +109,7 @@ async function decide(deps, goal, unmet, st) {
 async function perform(deps, s) {
     switch (s.do) {
         case 'move': return deps.exec('move_to', { x: s.to.x, y: s.to.y, z: s.to.z }, { atomic: true });
-        case 'travel': return s.exact ? deps.travel({ x: s.to.x, y: s.to.y, z: s.to.z }, { near: 0, nearY: 0 }) : deps.travel({ x: s.to.x, y: s.to.y, z: s.to.z, level: s.to.y }, { near: 3, nearY: 3 });
+        case 'travel': { const dl = deps.deadline ? { deadline: deps.deadline } : {}; return s.exact ? deps.travel({ x: s.to.x, y: s.to.y, z: s.to.z }, { near: 0, nearY: 0, ...dl }) : deps.travel({ x: s.to.x, y: s.to.y, z: s.to.z, level: s.to.y }, { near: 3, nearY: 3, ...dl }); }
         case 'unstick': return deps.escape ? deps.escape() : { ok: false, reason: 'stuck', detail: { why: 'no stuck-escape expert in this environment' } };
         case 'equip': return deps.exec('equip', { item: s.item }, { atomic: true });
         case 'obtain': return deps.obtain ? deps.obtain(s.item, s.count) : { ok: false, reason: 'missing_item', detail: { item: s.item, why: 'this environment cannot get items' } };
@@ -132,8 +132,10 @@ async function run(deps, goal) {
     const done = (r) => (chain.length ? { ...r, detail: { ...(r.detail || {}), router: chain } } : r);
     // the state before anything else: night under the open sky -> dig in first (nav/shelter.js; a no-op by day or under a roof)
     if (deps.night) { const n = await deps.night(); if (n && n.waited) chain.push({ do: 'shelter', waited: n.waited, ok: !!n.ok }); }
+    const late = () => deps.deadline && Date.now() > deps.deadline;          // the caller's deadline (TASK-075: the pit's bound per cell)
     for (let i = 0; i < MAX_STEPS; i++) {
         if (deps.cancelled && deps.cancelled()) return done({ ok: false, reason: 'cancelled', detail: {} });
+        if (i > 0 && late()) return done({ ok: false, reason: 'timeout', detail: { why: 'the caller\'s deadline passed', last: last && last.detail } });
         // The router decides FIRST (owner 2026-11-14: "the place almost every command passes through first, not only the error cases"): the preconditions are read from the state before
         // the instruction runs, and the chain (travel, unstick, move, equip, obtain) is written from them; the instruction's own precondition_failed is the check after each attempt.
         let unmet = i === 0 && deps.bot ? pre(deps, goal) : null;
@@ -149,6 +151,7 @@ async function run(deps, goal) {
         const d = await decide(deps, goal, unmet, st);
         if (d.fail) return done({ ok: false, reason: d.fail.reason, detail: { ...d.fail.detail, unmet } });
         for (const s of d.steps) {
+            if (late()) return done({ ok: false, reason: 'timeout', detail: { why: 'the caller\'s deadline passed', unmet } });
             const sr = await perform(deps, s);
             if (s.do === 'travel') st.travelled++;
             if (s.do === 'obtain') chain.push({ do: 'obtain', item: s.item, count: s.count, ok: !!sr.ok, ...(sr.ok ? {} : { reason: sr.reason }), steps: sr.detail && sr.detail.steps });
