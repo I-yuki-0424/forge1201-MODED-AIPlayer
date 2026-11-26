@@ -820,7 +820,8 @@ async function clearByPit(job, name, bot, mv, cancel, work) {
         P.watch = setInterval(() => {
             if (P.done) { clearInterval(P.watch); return; }
             const g = P.impl.ledger.progress();
-            if (g.done !== P.seen.done) { P.seen = { done: g.done, at: Date.now() }; return; }
+            // (every unit done: the pit's own end (its final sweep, the tree pass, its movement blocks) is running, and it is not cut short)
+            if (g.done !== P.seen.done || g.finished) { P.seen = { done: g.done, at: Date.now() }; return; }
             if (Date.now() - P.seen.at > PIT_STALL_MS && P.impl.wrapUp) { job.log(`clearing by the pit: no unit finished for ${Math.round(PIT_STALL_MS / 60000)} min (${g.done} of ${g.total}, ${g.leased} leased): wrapped up`); P.stalled = true; P.impl.wrapUp(); clearInterval(P.watch); }
         }, 10000);
     }
