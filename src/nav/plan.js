@@ -148,7 +148,10 @@ function moves(V0, n, o) {
         if (c !== null) {
             for (let d = 2; d <= (V.maxDrop === MAX_DROP ? MAX_DROP : 3) + 1; d++) {
                 const kk = V.kind(x, y - d, z);
-                if (kk === 'solid') { add({ x, y: y - d + 1, z, kind: 'stand', move: 'digdown', cost: 1.5 + c + 0.3 * (d - 2), dig: [{ x, y: y - 1, z }] }); break; }
+                // (or a partial block: its top is a floor for the next digdown in turn. A bot on any partial-shape top, bamboo, a fence, a wall, scaffolding, dripstone, has no floor for a
+                // bridge or a pillar; with landings on solid blocks only, a stalk of bamboo 12 high left it no move at all: move_a ma075b, world 4, seed 5479556643456516314, "1 cell
+                // expanded" at x1 and x2. Down it, one block at a time, as a player breaks what it stands on)
+                if (kk === 'solid' || kk === 'partial') { add({ x, y: y - d + 1, z, kind: 'stand', move: 'digdown', cost: 1.5 + c + 0.3 * (d - 2), dig: [{ x, y: y - 1, z }] }); break; }
                 if (!passable(kk)) break;
             }
         }

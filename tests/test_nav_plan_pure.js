@@ -117,4 +117,18 @@ test('ground five to eight below the edge: not a drop, a bridge (and then a desc
     assert.ok(r && !r.partial, 'there is a way down'); assert.ok(r.path.some((n) => n.move === 'bridge') && r.path.some((n) => n.move === 'descend'), r.path.map((n) => n.move).join(','));
 });
 
+test('on top of any partial-shape column (bamboo 12 high, a stack of fences), ground far below: down it one block at a time by digdown, never "every way is closed" (move_a ma075b)', () => {
+    for (const block of ['bamboo', 'oak_fence', 'scaffolding']) {
+        const w = world(); for (let y = 64; y <= 75; y++) w.set(0, y, 0, 'partial');
+        const W = { ...w, nameAt: (x, y, z) => (x === 0 && z === 0 && y >= 64 && y <= 75 ? block : w.nameAt(x, y, z)) };
+        const r = P.plan(W, { x: 0, y: 76, z: 0, ground: true }, P.cellGoal({ x: 20, y: 64, z: 0 }), { dig: () => 1, radius: 40, maxNodes: 20000 });
+        assert.ok(r && r.path.length > 1 && !r.partial, `${block}: ${r ? `${r.expanded} cells, ${r.path.map((n) => n.move).join(',')}` : 'no plan'}`);
+        assert.ok(r.path.filter((n) => n.move === 'digdown').length >= 8, `${block}: ${r.path.map((n) => n.move).join(',')}`);
+    }
+    // negative control: the same start with nothing to dig (noDig) has no move at all, as every start on such a top had before
+    const w = world(); for (let y = 64; y <= 75; y++) w.set(0, y, 0, 'partial');
+    const r0 = P.plan(w, { x: 0, y: 76, z: 0, ground: true }, P.cellGoal({ x: 20, y: 64, z: 0 }), { dig: () => 1, noDig: true, noPlace: true, radius: 40, maxNodes: 2000 });
+    assert.ok(!r0 || r0.path.length <= 1 || r0.partial, 'without the digdown there is no way off');
+});
+
 console.log('nav plan tests passed');

@@ -161,12 +161,15 @@ async function clearCell(env, c) {
         const k = env.w.kindAt(c.x, c.y, c.z);
         if (k === 'air' || k === 'climb' || k === 'water') return { ok: true };
         let m = await env.exec('mine', { x: c.x, y: c.y, z: c.z, collect: false }, { raw: true, maxTicks: 400 });
-        if (!m.ok && env.w.kindAt(c.x, c.y, c.z) === 'solid' && !FATAL.has(m.reason)) m = await env.exec('mine', { x: c.x, y: c.y, z: c.z, collect: false, blind: true }, { raw: true, maxTicks: 400 });
+        if (!m.ok && !['air', 'climb', 'water'].includes(env.w.kindAt(c.x, c.y, c.z)) && !FATAL.has(m.reason)) m = await env.exec('mine', { x: c.x, y: c.y, z: c.z, collect: false, blind: true }, { raw: true, maxTicks: 400 });
         if (!m.ok && FATAL.has(m.reason)) return m;
-        if (!m.ok && env.w.kindAt(c.x, c.y, c.z) === 'solid') return m;
+        if (!m.ok && !['air', 'climb', 'water'].includes(env.w.kindAt(c.x, c.y, c.z))) return m;
         await sleep(120);
     }
-    return { ok: env.w.kindAt(c.x, c.y, c.z) !== 'solid', reason: 'stuck', detail: { why: 'a falling block keeps filling the cell', cell: c } };
+    // done only when the cell is open: a partial block (bamboo, a fence) the mine did not break passed as "not solid" and the walk went on as if it were gone
+    const k = env.w.kindAt(c.x, c.y, c.z);
+    if (k === 'air' || k === 'climb' || k === 'water') return { ok: true };
+    return { ok: false, reason: 'stuck', detail: { why: k === 'solid' ? 'a falling block keeps filling the cell' : `the ${k} block was not broken`, cell: c } };
 }
 
 /** Carry out one step; {ok, reason?, detail?}. */
@@ -187,7 +190,11 @@ async function perform(env, s) {
         }
         case 'digdown': {
             const f0 = env.here();
-            const r = await clearCell(env, end.dig[0]);
+            // the block under the feet is in reach as it is: mined blind, no walk to a place with a view (the action layer's walk cannot start on a partial top: "start cell not
+            // standable", the bot on bamboo, 079's probe), then the plain clear for what is left
+            const fl = end.dig[0];
+            if (!['air', 'climb', 'water'].includes(env.w.kindAt(fl.x, fl.y, fl.z))) { const m = await env.exec('mine', { x: fl.x, y: fl.y, z: fl.z, collect: false, blind: true }, { raw: true, maxTicks: 400 }); if (!m.ok && FATAL.has(m.reason)) return m; }
+            const r = await clearCell(env, fl);
             if (!r.ok) return r;
             for (let i = 0; i < 40; i++) { const f = env.here(); if (f.y < f0.y && env.bot.entity.onGround) return { ok: true }; await sleep(100); }
             return { ok: false, reason: 'stuck', detail: { why: 'the floor was broken but the bot did not come down' } };
