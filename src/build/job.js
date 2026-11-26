@@ -749,7 +749,14 @@ class BuildJob {
             // top touches the cell can do it (ranked by pillar height, they never made the first twelve: 4 495 cells parked, live 2026-11-22 sB2 w2)
             const AIRY = (h) => !h || S.AIR.has(h.name) || h.name === 'water' || h.name === 'lava';
             const lonely = (seed.kind === 'place' || seed.kind === 'scaffold') && [[0, 1, 0], [0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]].every(([dx, dy, dz]) => AIRY(seen(bot, { x: seed.x + dx, y: seed.y + dy, z: seed.z + dz })));
-            for (const f of stationsAround(seed, this.o.reach, down)) {
+            // the top of a column of temporary blocks deeper than the landing takes back (move.js LEAN_DEPTH): from on top, dug down as the bot comes down, when its top is reached
+            // on foot; dug from beside, its top went and the rest stood out of reach (released columns of 5-10 were 54-87 % of the seconds over two, bt075a w1-w3)
+            if (seed.kind === 'untemp' && !this.ledger.has({ x: seed.x, y: seed.y + 1, z: seed.z })) {
+                let d = 0; while (d < 64 && this.ledger.has({ x: seed.x, y: seed.y - 1 - d, z: seed.z })) d++;
+                const f = { x: seed.x, y: seed.y + 1, z: seed.z }, fk = key(f.x, f.y, f.z), fc2 = fl ? fl.cost.get(fk) : undefined;
+                if (d >= 4 && view.fits(f.x, f.y, f.z) && !blocked(f.x, f.y, f.z) && !(inReach && !inReach(f)) && fl && fc2 !== undefined && !((fl.placed && fl.placed.get(fk)) > 0)) best = { f, batch: [{ ...seed, way: true, descend: true }] };
+            }
+            for (const f of (best ? [] : stationsAround(seed, this.o.reach, down))) {
                 if (cands.length >= 40 || Date.now() - t0 > 400) break;          // (1.7 s claims in a pocket blocked every bot's keep-alive, live 2026-11-23 ha2 w1)
                 if (blocked(f.x, f.y, f.z) || blocked(f.x, f.y + 1, f.z) || bodyCovers(f, seed) || this.avoided(name, f)) { rej.blocked++; continue; }
                 if (inReach && !inReach(f)) { rej.unreachable = (rej.unreachable || 0) + 1; outOfReach++; continue; }

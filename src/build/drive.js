@@ -321,7 +321,10 @@ function fixture(job, name, c, item) { job.addTemp(c, 'fixture', name, item); jo
 async function release(job, name, bot, mv, cancel, next = null, label = 'step') {
     const L = job.ledger;
     if (!L.of(name).some((e) => !e.released && !e.orphan)) { L.begin(name, label); return 0; }
-    const f0 = feet(bot), sameCol = !!next && next.x === f0.x && next.z === f0.z;
+    // (the column kept for the next stance is the one the bot stands ON: beside its pillar's top, with the next stance on the cell it stands on, the walk back was skipped and
+    // the pillar dug from beside as far as it could be seen: 5 of 7 left standing, bt075b w3 "leaves a column of 5 at 62,26 ... walkBack null")
+    const f0 = feet(bot), onOwn = !!(L.get({ x: f0.x, y: f0.y - 1, z: f0.z }) || {}).by && L.get({ x: f0.x, y: f0.y - 1, z: f0.z }).by === name;
+    const sameCol = !!next && next.x === f0.x && next.z === f0.z && onOwn;
     const tr = Date.now();
     let wb = null, up = null;
     if (!sameCol) { wb = await mv.walkBack(cancel); up = await mv.unpillar(null, () => false, cancel); }
@@ -337,6 +340,9 @@ async function release(job, name, bot, mv, cancel, next = null, label = 'step') 
         if (h) L.check(c, h.name);
         if (!L.has(c) || e.state === 'pending') continue;
         if (e.x === me.x && e.z === me.z && e.y === me.y - 1) { L.fail(c, 'under its placer (no way down)'); continue; }
+        // a column of its own deeper under the bot's feet than the landing takes back (move.js LEAN_DEPTH) is not dug from beside: its top dug, the rest stood out of everybody's
+        // reach; whole, it is taken from its top as the bot comes down (the untemp task's descend, the placer's first)
+        if (e.how === 'pillar') { let b0 = e.y; while ((L.get({ x: e.x, y: b0 - 1, z: e.z }) || {}).by === name) b0--; if (b0 < me.y - 1 - 4) { L.fail(c, 'a tall column: from its top'); continue; } }
         if (boxDist(eye, c) > job.o.reach) continue;
         if (underCrew(job, bot, c.x, c.y, c.z) || onRouteOfOther(job, name, c.x, c.y, c.z)) { L.fail(c, 'a crew member on it'); continue; }
         if (holdsFluid(bot, c.x, c.y, c.z)) { L.fail(c, 'holds a fluid back'); continue; }
