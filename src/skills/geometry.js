@@ -86,7 +86,11 @@ function raycast(o, d, maxDist, shapesAt) {
  */
 function aimPoints(eye, cell, shapesAt, { reach = BLOCK_REACH, face = null, limit = 4 } = {}) {
     const out = [];
-    const shapes = shapesAt(cell.x, cell.y, cell.z) || [];
+    // a block with no collision box (grass, a flower, a torch, a snow layer) is still a target by its outline, as the game's own crosshair takes it (`shapesAt.outline`, world.js): without it
+    // no aim point existed and the router called such a cell "inside rock" (a build site's pit with plants: true, bt075h, 2026-11-26)
+    let shapes = shapesAt(cell.x, cell.y, cell.z) || [];
+    if (!shapes.length && typeof shapesAt.outline === 'function') shapes = shapesAt.outline(cell.x, cell.y, cell.z) || [];
+    const own = shapes, shapesFor = (x, y, z) => (x === cell.x && y === cell.y && z === cell.z ? own : shapesAt(x, y, z));
     for (const s of shapes) {
         const box = [cell.x + s[0], cell.y + s[1], cell.z + s[2], cell.x + s[3], cell.y + s[4], cell.z + s[5]];
         for (let f = 0; f < 6; f++) {
@@ -106,7 +110,7 @@ function aimPoints(eye, cell, shapesAt, { reach = BLOCK_REACH, face = null, limi
                 const dist = Math.hypot(point.x - eye.x, point.y - eye.y, point.z - eye.z);
                 if (dist > reach) continue;
                 const d = { x: (point.x - eye.x) / dist, y: (point.y - eye.y) / dist, z: (point.z - eye.z) / dist };
-                const hit = raycast(eye, d, dist + 0.01, shapesAt);
+                const hit = raycast(eye, d, dist + 0.01, shapesFor);
                 if (hit && hit.x === cell.x && hit.y === cell.y && hit.z === cell.z) out.push({ point, face: hit.face, dist });
             }
         }

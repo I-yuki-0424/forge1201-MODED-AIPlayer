@@ -115,6 +115,9 @@ function fromBot(bot) {
         w = { blockAt, kindAt: (x, y, z) => { const b = blockAt(x, y, z); return noVines && b && b.name === 'vine' ? 'air' : kindOf(b); }, shapesAt: (x, y, z) => shapesOf(blockAt(x, y, z)),
             nameAt: (x, y, z) => blockAt(x, y, z)?.name ?? null };
     }
+    // the outline of a block with no collision box (a target for aimPoints: grass, flowers, torches, snow layers), none for air and fluids
+    const OUTLINE = [[0.125, 0, 0.125, 0.875, 0.8125, 0.875]];
+    w.shapesAt.outline = (x, y, z) => { const n = String(w.nameAt(x, y, z) || ''); return !n || /^(air|cave_air|void_air|water|lava|bubble_column)$/.test(n.replace(/^minecraft:/, '')) ? [] : OUTLINE; };
     // `bot.__avoidFloor(x, y, z)`: a floor the planner must not plan to stand on (another bot's scaffolding: owner 2026-11-11, "stop the bot from trying to ride on people's scaffolding"). Looked up at call time.
     w.avoidFloor = (x, y, z) => !!(bot.__avoidFloor && bot.__avoidFloor(x, y, z));
     w.maxDrop = () => bot.__maxDrop || 0;

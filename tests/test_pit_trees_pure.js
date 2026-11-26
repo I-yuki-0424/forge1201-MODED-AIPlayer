@@ -157,5 +157,14 @@ const left = (w, box = BOX) => scan(w, box).length;
         assert(!plain.mined.includes('2,64,2') && !plain.mined.includes('3,64,3') && plain.mined.includes('4,64,4'), `negative control: a plain pit leaves them (${plain.mined})`);
     });
 
+    await test('a plant (no collision box) is aimed at by its outline: aim points exist beside it, through air, none without the outline (negative control; bt075h: "inside rock" for short_grass)', () => {
+        const { aimPoints } = require('../src/skills/geometry');
+        const shapes = (x, y, z) => (y <= 63 ? [[0, 0, 0, 1, 1, 1]] : []);
+        const withOutline = Object.assign((x, y, z) => shapes(x, y, z), { outline: (x, y, z) => (x === 2 && y === 64 && z === 0 ? [[0.125, 0, 0.125, 0.875, 0.8125, 0.875]] : []) });
+        const eye = { x: 0.5, y: 65.62, z: 0.5 }, cell = { x: 2, y: 64, z: 0 };
+        assert(aimPoints(eye, cell, withOutline).length > 0, 'grass two cells away: in sight by its outline');
+        assert.strictEqual(aimPoints(eye, cell, shapes).length, 0, 'negative control: collision shapes only, nothing to aim at');
+    });
+
     console.log('\npit trees: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });
