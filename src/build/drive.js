@@ -47,6 +47,8 @@ function rules(job, bot) {
         // another bot's temporary block (no drop lands on one: it may be gone when the bot arrives)
         isTemp: (x, y, z) => job.ledger.has({ x, y, z }),
         othersTemp: (x, y, z) => { const m = job.ledger.get({ x, y, z }); return !!m && m.by !== bot.username; },
+        // another bot's pillar, bridge or scaffold block in use (a route over it kept its placer from taking it back, move.js)
+        othersMove: (x, y, z) => { const m = job.ledger.get({ x, y, z }); return !!m && m.by !== bot.username && !m.orphan && (m.how === 'pillar' || m.how === 'bridge' || m.how === 'scaffold'); },
         ownTemp: (x, y, z) => { const m = job.ledger.get({ x, y, z }); return !!m && m.by === bot.username; },
         ownPillar: (x, y, z) => { const m = job.ledger.get({ x, y, z }); return !!m && m.by === bot.username && m.how === 'pillar' && !m.released; },
         mayDig: (x, y, z) => !underCrew(job, bot, x, y, z) && !onRouteOfOther(job, bot.username, x, y, z),

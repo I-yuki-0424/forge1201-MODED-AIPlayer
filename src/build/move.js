@@ -246,6 +246,9 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
             // never through another bot's body (several bots planned the same cell and pushed each other off a cliff, or jumped in the same column, owner 2026-11-23)
             // (costs, not bans: as bans they were behind most failed searches, [diag] ha19-ha20; the body rule only counts near the bot, see drive.js)
             if (view.rules.occupied && (view.rules.occupied(x, y, z) || view.rules.occupied(x, y + 1, z))) extraCost += 60;
+            // never onto another bot's temporary block: its placer takes it back as it steps off (Mover._behind), and a route over it stops that (onRouteOfOther: "a crew member
+            // on it or its route", the most common reason a column stood after its bot left it, bt075f)
+            if (view.rules.othersMove && view.rules.othersMove(x, y - 1, z)) return;
             if (move === 'pillar' && view.rules.columnBusy && view.rules.columnBusy(x, z)) extraCost += 40;
             // a bridge over a fall into lava or the void costs more (it is walked sneaking, see follow; refused outright, a site over the Nether's lava sea had no way at all,
             // live 2026-11-23 gb5 w4; walked upright, seven bots fell off such bridges, gb1 w5)
