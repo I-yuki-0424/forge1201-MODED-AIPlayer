@@ -318,8 +318,11 @@ async function work(job, name, bot, mv, cl, cancel) {
             // temporary block taken away since the way was chosen, by this bot's release or another's untemp), so the block landed one cell off (b081m: slabs under their layer,
             // glass and a piston one cell beside their own); nor a block another bot is taking away now
             if (way.n) {
-                const [nx, ny, nz] = way.n, q = bot.blockAt(new Vec3(nx, ny, nz), false), nk = `${nx},${ny},${nz}`, ot = job.tasks.get(nk);
-                const gone = !q || S.AIR.has(q.name) || q.name === 'water' || q.name === 'lava' || REPLACEABLE.test(q.name);
+                const [nx, ny, nz] = way.n, nk = `${nx},${ny},${nz}`, ot = job.tasks.get(nk);
+                const isGone = () => { const q = bot.blockAt(new Vec3(nx, ny, nz), false); return !q || S.AIR.has(q.name) || q.name === 'water' || q.name === 'lava' || REPLACEABLE.test(q.name); };
+                // (a block this bot has just put down, the one before in its row, may not be back from the server yet: a moment for it)
+                let gone = isGone(); for (let i = 0; gone && i < 8 && done.some((d) => d.k === nk); i++) { await sleep(50, 'server: the clicked block'); gone = isGone(); }
+                if (gone) job.stats.clickGoneWhy = Object.assign(job.stats.clickGoneWhy || {}, { [done.some((d) => d.k === nk) ? 'own' : ot ? ot.kind : 'other']: ((job.stats.clickGoneWhy || {})[done.some((d) => d.k === nk) ? 'own' : ot ? ot.kind : 'other'] || 0) + 1 });
                 const leaving = ot && (ot.kind === 'untemp' || ot.kind === 'clear' || ot.kind === 'scaffold') && job.claims.has(nk) && job.claims.get(nk) !== name;
                 if (gone || leaving) { job.stats.clickGone = (job.stats.clickGone || 0) + 1; results.push({ tk, ok: false, why: 'skipped' }); continue; }
             }
