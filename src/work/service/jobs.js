@@ -90,9 +90,11 @@ class JobsPart {
         const method = spec.method === undefined ? (this.settings.pitExpert === false ? 'sweep' : 'expert') : spec.method, road = spec.road === undefined ? !['sweep', 'expert'].includes(method) : !!spec.road;
         need(['sweep', 'rows', 'expert'].includes(method), 'method: expert, sweep or rows');
         let impl;
-        try { impl = pit.createPitJob(box, PIT_LEDGER, { lanes, method, road }); } catch (e) { throw new Problem(e.message); }
+        // plants: the pit also takes what has no collision box (vines, lichen, sculk veins, grass, snow layers): a box that must end empty (mine_b: one sculk_vein kept a layer dirty, mb075p w1)
+        const plants = !!spec.plants;
+        try { impl = pit.createPitJob(box, PIT_LEDGER, { lanes, method, road, plants }); } catch (e) { throw new Problem(e.message); }
         const depot = spec.depot ? this._depot(spec.depot) : null;
-        const job = this._newJob('pit', spec.name || `pit ${box.x1 - box.x0 + 1}x${box.z1 - box.z0 + 1}x${box.top - box.bottom + 1}`, { box, depot, lanes, method, road, dim: D.dim, ...(D.limits ? { limits: D.limits } : {}) }, impl);
+        const job = this._newJob('pit', spec.name || `pit ${box.x1 - box.x0 + 1}x${box.z1 - box.z0 + 1}x${box.top - box.bottom + 1}`, { box, depot, lanes, method, road, ...(plants ? { plants } : {}), dim: D.dim, ...(D.limits ? { limits: D.limits } : {}) }, impl);
         job.policy = this._pitPolicy(depot);
         this._guardOverlap(job, spec.force);
         return this._register(job, spec);
@@ -232,7 +234,7 @@ class JobsPart {
         if (j.kind === 'construct') { const job = this._rebuildConstruct(j); job.created = j.created; return job; }
         const base = { id: j.id, kind: j.kind, name: j.name, spec: j.spec, created: j.created };
         let impl;
-        if (j.kind === 'pit') impl = pit.createPitJob(normalizeBox(j.spec.box, j.spec.dim || 'overworld', j.spec.limits || null), PIT_LEDGER, { lanes: j.spec.lanes || 0, method: j.spec.method || 'rows', road: j.spec.road === undefined ? true : !!j.spec.road });
+        if (j.kind === 'pit') impl = pit.createPitJob(normalizeBox(j.spec.box, j.spec.dim || 'overworld', j.spec.limits || null), PIT_LEDGER, { lanes: j.spec.lanes || 0, method: j.spec.method || 'rows', road: j.spec.road === undefined ? true : !!j.spec.road, plants: !!j.spec.plants });
         else {
             const b = await bp.read(fs.readFileSync(path.join(this.o.dataDir, 'jobs', path.basename(j.spec.file))));
             impl = build.createBuildJob(bp.cells(b), j.spec.origin, { leaseMs: 45000, maxAttempts: 6 }, { known: this.known, zones: j.spec.zones || 1, mode: ['layer', 'zlayer'].includes(j.spec.mode) ? j.spec.mode : 'area', window: Number(j.spec.window) || 0, ...(j.spec.tile ? { tile: j.spec.tile } : {}) });

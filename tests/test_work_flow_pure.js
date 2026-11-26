@@ -190,6 +190,10 @@ function fakeWorld(ground = 0, init = {}) {
         assert.throws(() => svc.botsInRange(20, 30), /no bot/); assert.throws(() => svc.botsInRange('a', 3), /whole numbers/);
         const a = svc.createPit({ name: 'A', box: { x0: 0, z0: 0, x1: 15, z1: 15, top: 64, bottom: 62 }, range: { from: 1, to: 6 } });
         const b = svc.createPit({ name: 'B', box: { x0: 100, z0: 0, x1: 115, z1: 15, top: 64, bottom: 62 }, range: { from: 7, to: 12 } });
+        // plants (TASK-075, mine_b's empty box: a sculk_vein kept a layer dirty): asked for, the pit takes blocks without collision too; not asked for, it leaves them (negative control)
+        { const P = svc.createPit({ name: 'P', box: { x0: 300, z0: 0, x1: 315, z1: 15, top: 64, bottom: 62 }, plants: true });
+          assert.strictEqual(svc.jobs.get(P.id).impl.plan.clearPlants, true); assert.strictEqual(svc.jobs.get(P.id).spec.plants, true);
+          assert.strictEqual(svc.jobs.get(a.id).impl.plan.clearPlants, false); svc.cancelJob && svc.cancelJob(P.id); }
         assert.deepStrictEqual(a.bots, ['Work1', 'Work2', 'Work3', 'Work4', 'Work5', 'Work6']); assert.deepStrictEqual(b.bots, ['Work7', 'Work8', 'Work9', 'Work10', 'Work11', 'Work12']);
         assert.strictEqual(svc.jobs.get(a.id).spec.lanes, 6, 'one lane per picked bot'); assert.strictEqual(svc.bots.get('Work3').job, a.id); assert.strictEqual(svc.bots.get('Work9').job, b.id);
         assert.throws(() => svc.createPit({ name: 'C', box: { x0: 200, z0: 0, x1: 215, z1: 15, top: 64, bottom: 62 }, range: { from: 1, to: 2 } }), /works on/, 'Work1 and Work2 belong to A: a second job cannot take them');

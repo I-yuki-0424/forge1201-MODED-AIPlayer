@@ -73,7 +73,7 @@ const LIMIT_MIN = Number(process.env.LIMIT_MIN || 240), DEPTH = Number(process.e
     const t0 = Date.now();
     let state = 'control';
     if (!T.CONTROL) {
-        const pit = svc.createPit({ box, bots: [name], start: true, ...(process.env.METHOD ? { method: process.env.METHOD } : {}) });
+        const pit = svc.createPit({ box, bots: [name], start: true, plants: true, ...(process.env.METHOD ? { method: process.env.METHOD } : {}) });
         let last = 0, killed = false;
         for (const limit = T.budget(() => (svc.bots.get(name) || {}).bot, LIMIT_MIN); !limit.over();) {
             const j = svc.jobs.get(pit.id); if (!j || j.state === 'finished' || j.state === 'cancelled') { state = j ? j.state : 'gone'; break; }
