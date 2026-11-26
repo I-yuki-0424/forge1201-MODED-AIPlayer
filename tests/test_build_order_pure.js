@@ -116,4 +116,15 @@ test('a bed is clicked only while its head cell is empty: not from a pillar in t
     assert.strictEqual(job._way(job._world(bot, null), tk, { x: 5, y: 64, z: 1 }), null, 'a temporary block in the head cell: no click');
 });
 
+test('a floating trapdoor (facing west, top half) gets its scaffold where a click gives that state: beside it to the east, not below (negative control: a stone block takes the cell below)', () => {
+    const palette = [{ name: 'minecraft:air', props: {} }, { name: 'minecraft:spruce_trapdoor', props: { facing: 'west', half: 'top', open: 'true', waterlogged: 'false', powered: 'false' } }, { name: 'minecraft:stone', props: {} }];
+    const mk = (s) => { const blocks = []; for (let x = 0; x < 3; x++) for (let y = 0; y < 3; y++) for (let z = 0; z < 3; z++) blocks.push({ x, y, z, s: x === 1 && y === 1 && z === 1 ? s : 0 }); return new Target({ size: [3, 3, 3], palette, blocks }, { x: 0, y: 64, z: 0 }); };
+    for (const [s, want] of [[1, '2,65,1'], [2, '1,64,1']]) {
+        const t = mk(s), job = new BuildJob(t, { log: () => {} }); job.tasks = new Map(); job.buckets = new Map();
+        const tk = { k: '1,65,1', i: t.idx(1, 65, 1), x: 1, y: 65, z: 1, kind: 'place' };
+        assert(job._scaffoldFor(tk)); const sc = [...job.tasks.values()].find((q) => q.kind === 'scaffold');
+        assert.strictEqual(sc.k, want, `${t.stateOf(tk.i).name}: scaffold at ${sc.k}`);
+    }
+});
+
 (async () => { for (const [name, fn] of queue) { await fn(); n++; console.log(`  ok ${name}`); } console.log(`test_build_order_pure: ${n} passed`); })().catch((e) => { console.error(e); process.exit(1); });

@@ -354,7 +354,11 @@ class BuildJob {
 
     /** A scaffold task in a cell beside tk that is to end up empty (below first), unless one is there already. */
     _scaffoldFor(tk) {
-        for (const [dx, dy, dz] of [[0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]]) {
+        // only a cell whose block, clicked, gives the wanted state (Target.supportsOf): a trapdoor facing west, top half, goes against the block east of it or above it, never
+        // the one below it (the 64 floating trapdoors of iron-farm-34 got a scaffold below and stayed 'ready, no stance' to the end of hc1/hd1)
+        const sup = tk.i >= 0 ? this.t.supportsOf(tk.i) : null;
+        const dirs = sup ? sup.map(([x, y, z]) => [x - tk.x, y - tk.y, z - tk.z]).sort((a, b) => (a[1] < 0 ? 0 : a[1] === 0 ? 1 : 2) - (b[1] < 0 ? 0 : b[1] === 0 ? 1 : 2)) : [[0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]];          // below first when it gives the state, then beside (the bot stands on the scaffold and leans over to click its side through the cell), above last
+        for (const [dx, dy, dz] of dirs) {
             const c = { x: tk.x + dx, y: tk.y + dy, z: tk.z + dz }, k = key(c.x, c.y, c.z);
             if (this.parked.has(k)) continue;
             if (this.tasks.has(k)) { if (this.tasks.get(k).kind === 'scaffold') return false; continue; }

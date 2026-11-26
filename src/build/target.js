@@ -102,9 +102,11 @@ class Target {
             const i = left[0], [x, y, z] = sup.get(i)[0];
             out.push({ cell: i, via: this.idx(x, y, z) }); ok.add(i); changed = true;
         }
-        this._cycles = out;
+        this._cycles = out; this._sup = sup;
         return out;
     }
+    /** The cells a click can give cell i's state against (vanilla's rules, computed with the cycles): [[x, y, z], ...], or null for a cell nothing is placed in. */
+    supportsOf(i) { if (!this._sup) this.cycles(); return this._sup.get(i) || null; }
 
     /** Every portal of the blueprint: its cells, and the lighting (the obsidian under its lowest middle cell, clicked on top). */
     _portals() {
