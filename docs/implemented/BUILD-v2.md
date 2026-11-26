@@ -568,3 +568,16 @@ pit digs with its layer, contract point 5), timeout with 5 of 67 units (the pit 
 a pit problem, not a temporary-block one). The 3 pumpkins stood because a timed-out pit had no end pass at all: `pit.js wrapUp` now gives it one (the movement blocks and nav's
 sweep), called by `mine_b.js` for `WRAP_MIN` (default 5) before the scan. `mb075c` (the same box, with the wrap-up, speed x3 by 079's profile, 60 game minutes = 21 min): **0** pumpkins
 left, 39 registered blocks (lake 14, seal 6 of the first 20: the box's rubble ground), wrap-up 45 s, 1 death, the pit as stalled as before.
+
+The standard run with the wrap-up (`mb075e`, worlds 1-3, new seeds, 240 game minutes at x3, plus `mb075d` on world 4):
+
+| World (seed) | Fluid in the box | Pumpkins left (scan) | What they were | Wrap-up |
+| :-- | --: | --: | :-- | :-- |
+| w1 (2085753754334713954) | 738 water + 84 lava | **0** | (477 rubble fills registered: the box's ground) | 30 s, finished |
+| w2 (-8077720576801942768) | 60 | 5 | the pit bot's pillars | did not run: the bot was not in its worker loop (300 s, job running) |
+| w3 (-3266761227149522799) | 1 208 | 44 | lake fills of pumpkins once 798 fills had used up the rubble | 33 s, finished |
+| w4 (-8835564041475972616) | | 2 | pillars high on a mountain box (spawn y 129) | did not run: "replace-tool while waiting" the whole 300 s |
+
+w3's cause is removed (`sealItem`: on the test worlds a fill never falls back to the operator's block; out of rubble the pit digs some). Open: the pit's wrap-up only runs
+when the bot's worker is in its loop; a bot waiting for a tool or cooling down after failures (the service's states, outside this task's files) skips it, and its last
+pillars stand (w2, w4). Every box stayed dirty (118-122 layers): the pit stalls in water ("seal: no standing cell within reach (inside rock)") as before this task.
