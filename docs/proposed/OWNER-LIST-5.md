@@ -261,3 +261,20 @@ a few seconds every time: separate the cause (processing time, an error repeated
 
 **Done when:** a full iron-farm-34 build finishes cell-correct on a 1.21.1 test world (server-graded), with zero temporary blocks left
 (075's scan); the pause table before and after; the builder's own clearing code removed.
+
+## Addendum 2026-11-26 (owner, about 19:00 JST)
+
+1. **Priority and the reboot window.** This work has priority over all other work on the VPS, and the server restart may be cancelled for it.
+   The night of 2026-11-27 (03:00-06:00 JST) is cancelled by the schedule hold `sch_4b2ECi3ZFo0y21ra` on `vps` (rootwatch maint reads the
+   schedule and skips a night with a hold in it). Runs may go through that window; WIP commits, schedule holds and progress notes stay
+   binding (Claude Code itself can restart). Later nights stay as before unless the owner decides otherwise.
+2. **Rust for the bottlenecks, after stability (TASK-20261126-082).** Once the whole system is stable and completes successfully (081
+   done), the bottleneck parts move to Rust: chunk and path computation are visible load today. Not a full redesign: port the hot parts
+   and share them between the bots, the builder and `tools/sim` (which already has the 1.21.1 physics and block states, 078). Start from
+   measurements: 079's CPU profile of `build_t` (planner 60 % of busy CPU, block reads 23 %) and 081's pause table. Until then no task
+   ports code; tasks record the hot paths they find.
+3. **Container contents (076, then 081).** The owner's Nether blueprint with container contents set (sorter filters):
+   `/mnt/data/forgeaip-play/schematics/owner-20261126/ironfarm-3x-nether-side.litematic` (sha256 `db25cfe1...2dbcead`, 1 255 blocks,
+   506 block entities: 231 hoppers, 195 chests, 54 droppers, 6 dispensers, 20 comparators; 61 containers hold items). Not committed: the
+   repo is public and this is the owner's design. 076 carries block-entity `Items` through `src/work/jobs/litematic.js` and grades filling
+   all 61 containers server-side with `set_contents`; 081 then builds this blueprint end to end (blocks and contents).
