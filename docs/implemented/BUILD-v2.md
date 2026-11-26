@@ -559,4 +559,5 @@ timeout at 41 of 70 units. `mb075b` (world 4, seed -974350776696569252 = the box
 run on that box: 128, the whole kit, at 240 min), 163 registered blocks left, all fluid fills in the box of dug rubble (lake 12, seal 7, rescue 1 of the first 20 listed: ground the
 pit digs with its layer, contract point 5), timeout with 5 of 67 units (the pit stalls on "seal: no standing cell within reach (inside rock)", as on 26.x and before this task:
 a pit problem, not a temporary-block one). The 3 pumpkins stood because a timed-out pit had no end pass at all: `pit.js wrapUp` now gives it one (the movement blocks and nav's
-sweep), called by `mine_b.js` for `WRAP_MIN` (default 5) before the scan.
+sweep), called by `mine_b.js` for `WRAP_MIN` (default 5) before the scan. `mb075c` (the same box, with the wrap-up, speed x3 by 079's profile, 60 game minutes = 21 min): **0** pumpkins
+left, 39 registered blocks (lake 14, seal 6 of the first 20: the box's rubble ground), wrap-up 45 s, 1 death, the pit as stalled as before.
