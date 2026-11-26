@@ -278,3 +278,8 @@ a few seconds every time: separate the cause (processing time, an error repeated
    506 block entities: 231 hoppers, 195 chests, 54 droppers, 6 dispensers, 20 comparators; 61 containers hold items). Not committed: the
    repo is public and this is the owner's design. 076 carries block-entity `Items` through `src/work/jobs/litematic.js` and grades filling
    all 61 containers server-side with `set_contents`; 081 then builds this blueprint end to end (blocks and contents).
+4. **Two more moves count as survival play (owner, 2026-11-26 evening).** Digging the block below the block under the bot's feet (a normal
+   player can do it), and placing a block below the block under the bot's feet, as Tweakeroo does (a common mod, so not a cheat). The line
+   the owner draws: what a vanilla survival player does, plus what a common client-side utility mod of the Tweakeroo kind does, is not a
+   cheat; creative flight, creative items and placing into air with nothing to click still are. Movement (NAV, 075), the builder (081) and
+   the pit may use both moves where they shorten a way or replace a temporary block.
