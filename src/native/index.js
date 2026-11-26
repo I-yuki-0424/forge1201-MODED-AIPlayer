@@ -1,14 +1,27 @@
 'use strict';
 // The bot's own physics, inventory and dig time under a mineflayer bot (TASK-20261125-076, docs/implemented/NATIVE-v1.md). The transport calls `wire(bot)` right
-// after creating a bot (src/transport/index.js). Each part is OFF until the live comparison has been accepted (orchestrator, 2026-11-26: other tasks are
-// measuring and must not get a second changed variable); a setting switches it on:
-//   NATIVE_PHYSICS=1     native physics        NATIVE_INVENTORY=1   native window clicks       NATIVE_DIG=1   native dig time
-// (NATIVE_INPUTS=1: force.js / reflex.js / bed.js use the body's inputs instead of mineflayer's dig / placeBlock / activateBlock, src/skills/inputs.js)
-// (or `wire(bot, { physics: false, ... })`). mineflayer stays the protocol client, chunk and entity store; see the dependence list in the doc.
+// after creating a bot (src/transport/index.js). The parts:
+//   NATIVE_PHYSICS     native physics           NATIVE_INVENTORY   native window clicks       NATIVE_DIG   native dig time
+//   NATIVE_INPUTS      force.js / reflex.js / bed.js use the body's inputs instead of mineflayer's dig / placeBlock / activateBlock (src/skills/inputs.js)
+// Default: ON where the live comparison with mineflayer's was made and accepted (orchestrator 2026-11-27: Fabric 1.21.1, the test worlds and its creative console), OFF
+// everywhere else (the Forge 1.20.1 play console with its mod items and FML3 registry, the 26.1.2 consoles: nothing compared there yet, NATIVE-v1 section 7).
+// This is the ONE place that decides; =1 / =0 force a part on or off on any version (or `wire(bot, { physics: false, ... })`).
+// mineflayer stays the protocol client, chunk and entity store; see the dependence list in the doc.
 const physics = require('./physics');
 const dig = require('./dig');
 
-const on = (env, opt) => (opt !== undefined ? !!opt : process.env[env] === '1');
+const ENV = { physics: 'NATIVE_PHYSICS', inventory: 'NATIVE_INVENTORY', dig: 'NATIVE_DIG', inputs: 'NATIVE_INPUTS' };
+const ACCEPTED = new Set(['fabric 1.21.1']);          // `<platform> <version>` where native was compared on the same seeds and found not worse
+
+/** Native by default on this bot? Its platform (src/transport/platform.js) and the version it speaks (bot.version, known from the login on). */
+function accepted(bot) { return ACCEPTED.has(`${require('../transport/platform').platform()} ${bot && bot.version}`); }
+
+/** Is a part (physics | inventory | dig | inputs) on for this bot: the option, else NATIVE_<PART>=1 / =0, else the accepted versions. */
+function enabled(part, bot, opt) {
+    if (opt !== undefined) return !!opt;
+    const v = process.env[ENV[part]];
+    return v === '1' ? true : v === '0' ? false : accepted(bot);
+}
 
 /** Physics: native simulatePlayer under mineflayer's loop (before the fall guard wraps it), and the server told when the sprint the physics allows changes. */
 function wirePhysics(bot) {
@@ -34,8 +47,10 @@ function wirePhysics(bot) {
  * Wire the native parts into a freshly created bot (before its login). Returns { physics, inventory, dig } (each true when on).
  */
 function wire(bot, o = {}) {
-    const want = { physics: on('NATIVE_PHYSICS', o.physics), inventory: on('NATIVE_INVENTORY', o.inventory), dig: on('NATIVE_DIG', o.dig) };
+    const want = { physics: false, inventory: false, dig: false };
     const done = { physics: false, inventory: false, dig: false };
+    // decided at the login: then the version the bot speaks is known (MC_VERSION may be unset: mineflayer asks the server)
+    bot.once('login', () => { for (const k of Object.keys(want)) want[k] = enabled(k, bot, o[k]); });
     // mineflayer's plugins are injected before the login (loader.js: inject_allowed once the version is known): at the login packet bot.physics and
     // bot.clickWindow exist and no window packet has come yet (the player's inventory follows the login)
     bot.once('login', () => {
@@ -52,4 +67,4 @@ function wire(bot, o = {}) {
     return bot.__native;
 }
 
-module.exports = { wire, wirePhysics };
+module.exports = { wire, wirePhysics, enabled, accepted, ACCEPTED };

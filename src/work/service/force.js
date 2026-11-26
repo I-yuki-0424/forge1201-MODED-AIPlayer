@@ -55,9 +55,9 @@ class ForcePart {
         try {
             const under = bot.blockAt(bot.entity.position.floored().offset(0, -1, 0));
             if (under && w.kindAt(f.x, f.y - 1, f.z) === 'solid' && !CONTAINER.test(under.name) && !this.isFixture(under.name, under.position.x, under.position.y, under.position.z)) {
-                // NATIVE_INPUTS=1: the body's own attack on the block under the feet (its top face), as every dig of the action layer (TASK-20261125-076), not mineflayer's bot.dig;
+                // native inputs (src/native enabled('inputs')): the body's own attack on the block under the feet (its top face), as every dig of the action layer (TASK-20261125-076), not mineflayer's bot.dig;
                 // `__preempt` stays set meanwhile, so no command takes the body back before the fall
-                if (process.env.NATIVE_INPUTS === '1') {
+                if (require('../../native').enabled('inputs', bot)) {
                     await sleep(120);             // the running command sees the preempt on its next tick and lets go of the keys
                     try { await require('../../skills/inputs').digCell(bot, under.position, { face: 1, maxMs: 7000 }); } catch (_) { /* the step-off below still runs */ }
                 } else {

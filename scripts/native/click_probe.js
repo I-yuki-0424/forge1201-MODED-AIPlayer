@@ -78,7 +78,7 @@ const diff = (a, b) => { const out = []; for (const k of new Set([...a.keys(), .
         rows.push({ cmd, ok: !!(r.result && r.result.ok), reason: r.result && r.result.reason, conflicts: d, corrections: nw ? nw.stats.corrections : null, clicks: nw ? nw.stats.clicks : null });
         console.log(`[click_probe] ${cmd} ${r.result && r.result.ok ? 'ok' : `${r.result && r.result.reason} ${JSON.stringify(r.result && r.result.detail).slice(0, 200)}`} conflicts ${d.length}${d.length ? ' ' + JSON.stringify(d).slice(0, 300) : ''}`);
     }
-    const native = process.env.NATIVE_INVENTORY === '1';
+    const native = !!(svc.bots.get(name) && svc.bots.get(name).bot && svc.bots.get(name).bot.__native && svc.bots.get(name).bot.__native.done.inventory);
     rep.trial(name, conflicts === 0, { seed, native, conflicts, ops: rows.map((x) => ({ cmd: x.cmd, ok: x.ok, reason: x.reason, conflicts: x.conflicts.length, corrections: x.corrections, clicks: x.clicks })), detail: rows.filter((x) => x.conflicts.length).map((x) => ({ cmd: x.cmd, conflicts: x.conflicts })) });
     rep.write({ seed, native });
     process.exit(0);

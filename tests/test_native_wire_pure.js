@@ -95,11 +95,22 @@ console.log('native wiring');
     });
 
     // ---- wire() ------------------------------------------------------------------------------------------------------------------
-    await test('wire: off by default (mineflayer\'s physics, clicks, dig time); NATIVE_*=1 switch each in at login; a sprint the physics refuses is told to the server', async () => {
+    await test('wire: native by default only on Fabric 1.21.1 (mineflayer\'s physics, clicks, dig time elsewhere); NATIVE_*=1 / =0 switch each at login; a sprint the physics refuses is told to the server', async () => {
         const PP = require('prismarine-physics');
         const mk = () => { const f = fakeBot(); const ctl = {}; Object.assign(f.bot, { physics: { simulatePlayer: () => null }, getControlState: (k) => !!ctl[k], setControlState: (k, v) => { ctl[k] = v; f.client.write('entity_action', { actionId: v ? 'start_sprinting' : 'stop_sprinting' }); }, entity: { id: 7 }, digTime: () => 'mineflayer', game: { gameMode: 'survival' } }); return f; };
         const b = mk(); native.wire(b.bot); b.bot.emit('login'); await sleep(5);
         assert.deepStrictEqual(b.bot.__native.done, { physics: false, inventory: false, dig: false }); assert.strictEqual(b.bot.digTime(), 'mineflayer');
+        // the default by platform and version: on only where it was compared (Fabric 1.21.1); =0 / =1 override
+        const plat = process.env.MC_PLATFORM;
+        const at = async (platform, version, env = {}) => { process.env.MC_PLATFORM = platform; Object.assign(process.env, env); const f = mk(); f.bot.version = version; native.wire(f.bot); f.bot.emit('login'); await sleep(5); for (const k of Object.keys(env)) delete process.env[k]; return f.bot.__native.done; };
+        assert.deepStrictEqual(await at('fabric', '1.21.1'), { physics: true, inventory: true, dig: true }, 'Fabric 1.21.1: native by default');
+        assert.deepStrictEqual(await at('fabric', '1.21.1', { NATIVE_PHYSICS: '0' }), { physics: false, inventory: true, dig: true }, '=0 switches one part back');
+        assert.deepStrictEqual(await at('forge', '1.20.1'), { physics: false, inventory: false, dig: false }, 'Forge 1.20.1 (the play console): mineflayer by default');
+        assert.deepStrictEqual(await at('fabric', '26.1.2'), { physics: false, inventory: false, dig: false }, '26.1.2: mineflayer by default');
+        assert.deepStrictEqual(await at('forge', '1.20.1', { NATIVE_DIG: '1' }), { physics: false, inventory: false, dig: true }, '=1 switches one part in anywhere');
+        assert.strictEqual(native.enabled('inputs', { version: '1.21.1' }), false, 'MC_PLATFORM forge left over: no');
+        process.env.MC_PLATFORM = 'fabric'; assert.strictEqual(native.enabled('inputs', { version: '1.21.1' }), true);
+        if (plat === undefined) delete process.env.MC_PLATFORM; else process.env.MC_PLATFORM = plat;
         process.env.NATIVE_PHYSICS = '1'; process.env.NATIVE_INVENTORY = '1'; process.env.NATIVE_DIG = '1';
         const a = mk(); native.wire(a.bot); a.bot.emit('login'); await sleep(5);
         delete process.env.NATIVE_PHYSICS; delete process.env.NATIVE_INVENTORY; delete process.env.NATIVE_DIG;

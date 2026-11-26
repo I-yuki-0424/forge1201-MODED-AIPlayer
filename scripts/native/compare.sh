@@ -8,6 +8,6 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 h=$(TZ=Asia/Tokyo date +%H); if [ "$h" -ge 3 ] && [ "$h" -lt 6 ]; then echo "03:00-06:00 JST: not started" >&2; exit 3; fi
 for mode in ${MODES:-mf native}; do
   h=$(TZ=Asia/Tokyo date +%H); if [ "$h" -ge 3 ] && [ "$h" -lt 6 ]; then echo "03:00-06:00 JST: $mode not started" >&2; exit 3; fi
-  EXTRA=(); [ "$mode" = native ] && EXTRA=(NATIVE_PHYSICS=1 NATIVE_INVENTORY=1 NATIVE_DIG=1 NATIVE_INPUTS=1)
+  v=0; [ "$mode" = native ] && v=1; EXTRA=(NATIVE_PHYSICS=$v NATIVE_INVENTORY=$v NATIVE_DIG=$v NATIVE_INPUTS=$v)          # both explicit: the default depends on the version
   REPO=$HERE SEEDS="$SEED" FIRST=7 RUN="cmp-$TEST-$SEED-$mode" "$HERE/scripts/t26/suite.sh" "$TEST" 1 "${EXTRA[@]}" "$@" | tail -3
 done
