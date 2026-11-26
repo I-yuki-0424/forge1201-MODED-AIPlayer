@@ -113,6 +113,29 @@ count (`ServerPlayerGameMode`), and the body waits one spare tick, so neither di
   `invalid_target` within a second (the report did not yet carry the failure detail), and `set_contents` then had no items. The rerun on the same world passed (ct-dbg). The
   cause was not identified; `withdraw` is the existing gui command, not this task's code.
 
+- **The owner's Nether blueprint** (orchestrator 2026-11-26: `ironfarm-3x-nether-side.litematic`, sha256 db25cfe1..., 1 255 blocks, 486 containers of which 61 hold
+  items: 37 hoppers, 24 droppers; iron ingots, poppies, sticks, shulker boxes, 2 white shulker boxes; no chest holds items). The file is the owner's design and is **not in
+  this repository**: `/mnt/data/forgeaip-play/schematics/owner-20261126/`, copied for the harness to `/mnt/data/forgeaip-play/t26/out/bp-076/`. `litematic.js` already keeps
+  every block entity's NBT (Items with slot, item, count, components) through `parse`, `toBlueprint` and `place` (rotation and mirror: unit test); the hook reads them.
+  Fixed on the way: a double chest is ONE 54-slot goal at its right half (the double screen shows the right half first); a goal per half with `exact` would have emptied
+  the other half. **Server-graded test `scripts/native/container_b.js`**: the game frozen (`tick freeze`, checked by a probe hopper over a chest that must keep its stick),
+  the 61 containers set empty by RCON with their blueprint states three cells apart (`LAYOUT=grid`), supply chests with exactly the items (3 634 iron, 722 poppies, 107 + 2
+  shulker boxes, 64 sticks: 179 stacks, so the bot works in batches that fit its 28 free slots: `withdraw` what the batch lacks, then one `set_contents` per container,
+  through the console's router), plus a double chest with one stack per half; judge: `data get block` Items of each container equal to the blueprint's slot by slot, both
+  halves of the double chest as planned. Native modules (the 1.21.1 default), peaceful, Fabric 1.21.1, world 7, 2026-11-27:
+
+| Run | Seed | Result |
+| :-- | :-- | :-- |
+| ctb-4 | 5477162645604014481 | PASS: 61/61 containers exact, double chest both halves, 62 set_contents all ok, 34 withdraws, 207 s |
+| ctb-5 | -6368493699292007257 | PASS: 61/61, double chest ok, 207 s |
+| ctb-6 | 8077363910366738472 | PASS: 61/61, double chest ok, 207 s |
+| ctb-noop (control) | -2898344269723470260 | FAIL as required: 0/61, double chest empty |
+
+  Per-container results (block, blueprint cell, world cell, wanted and found slots, the bot's step) are in `/mnt/data/forgeaip-play/t26/out/ctb-*/container_b-w7.json`.
+  **In place it does not work today, and that is reachability, not inventory:** with every container at its own blueprint cell (`LAYOUT=blueprint`, ctb-3) the router found
+  no standing cell within reach for most of them, and the bot ended enclosed in the container lattice. In the finished farm most of them are closed in by other blocks; a
+  survival build sets them as it places them, before their faces close (the hook's contract, TASK-081's job).
+
 ## 6. Trace format
 
 TASK-078's format ([SIM-PARITY-v1](SIM-PARITY-v1.md) section 5, format 1: `hello`, `st`, `chunk`, `blk`) plus the `tick` line:
@@ -168,6 +191,7 @@ with the head out of the water; the breath reflex lets go of sprint and looks up
   sprint key is a hold (released = no sprint); the sneak key acts in the tick it is pressed (the traces drive fake players by actions, which agree).
 - Inventory: fuel and smeltable tables are heuristics of the vanilla data (a wrong furnace shift-click prediction is corrected by the server); crafting results are the
   server's; brewing, anvil, merchant, enchanting, beacon, loom, grindstone, stonecutter, smithing screens keep mineflayer's click; 1.21.5+ component hashes are not computed.
-- `set_contents` needs room in the pack for what `exact` takes out and does not fetch from supply chests itself.
+- `set_contents` needs room in the pack for what `exact` takes out and does not fetch from supply chests itself (container_b's batches do that in the harness; a build job does it
+  from its supply). Stacks with components (named items, filled shulker boxes) are left out of the hook's goals and counted in `skipped`.
 - From TASK-075: `src/work/bot/moves.js` pillar and descend dig and place "blind" through the block under the feet (`frame.cell`), which a vanilla client could not click.
   Not changed here (the body's `cell` frames, not this task's files).
