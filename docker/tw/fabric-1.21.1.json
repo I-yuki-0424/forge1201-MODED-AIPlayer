@@ -6,7 +6,7 @@
  "image": "itzg/minecraft-server@sha256:96d1da46d7b59bce34e86d527fdcfdc92a9636e83fbf94a3bb279de6ae07c17c",
  "tag": "w121",
  "portBase": 25620,
- "speed": {"default": 1, "place_a": 4, "mine_b": 3, "move_b": 3, "place_b": 3, "mine_a": 2, "move_a": 2, "place_c": 1, "build_t": 1},
+ "speed": {"default": 1, "place_a": 4, "mine_b": 3, "move_b": 3, "place_b": 3, "mine_a": 2, "move_a": 1, "place_c": 1, "build_t": 1},
  "note": "The test worlds since 2026-11-25 (TASK-20261125-074, owner: move to Fabric 1.21.1). simple-autopickup puts a broken block's drops into the breaker's pack (owner Small 5).",
  "mods": [
   {
