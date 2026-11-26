@@ -239,7 +239,7 @@ const left = (w, box = BOX) => scan(w, box).length;
         const w = { nameAt: (x, y, z) => cells.get(`${x},${y},${z}`) || (y <= 63 ? 'stone' : 'air'), kindAt: (x, y, z) => ((cells.get(`${x},${y},${z}`) || (y <= 63 ? 'stone' : 'air')) === 'air' ? 'air' : 'solid') };
         const job = pit.createPitJob({ x0: 0, z0: 0, x1: 7, z1: 7, top: 64, bottom: 64 }, {}, { method: 'rows', road: false }), region = job.plan.regions[0];
         let navs = 0, mines = 0;
-        const env = { w, have: () => 9, pause: async () => {}, recover: async () => {}, here: () => ({ x: 0, y: 64, z: 20 }), nav: async () => { navs++; return { ok: false, reason: 'unreachable' }; },
+        const env = { w, have: () => 9, pause: async () => {}, recover: async () => {}, here: () => ({ x: 0, y: 64, z: 20 }), nav: async (t, o) => { navs++; assert(o.deadline && o.deadline - Date.now() <= 60000 && o.deadline > Date.now(), 'each trip has its deadline'); return { ok: false, reason: 'timeout' }; },
             exec: async (n, a) => { if (n !== 'mine') return { ok: true }; if (cells.has(`${a.x},${a.y},${a.z}`)) { mines++; return { ok: false, reason: 'stuck', detail: { why: 'the same unmet precondition', unmet: [{ need: 'in_reach', dist: 9, max: 4.2 }] } }; } return { ok: true }; } };
         let fails = 0; for (let u = 0; u < region.layers * region.rows; u++) { const r = await job.runUnit(region.id, { unit: u }, env); if (!r.ok) fails++; }
         assert(fails >= 1, 'the unit fails visibly (handed back)');
