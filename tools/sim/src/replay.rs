@@ -250,7 +250,7 @@ fn sim_command(s: &mut Sim, name: &str, a: &J, temp: &str) -> Option<(bool, Stri
             if r.is_null() { s.do_place(arg_cell(a)?, block) }
             else {
                 let dir = match r.get("support").s() { "north" => [0, 0, -1], "south" => [0, 0, 1], "west" => [-1, 0, 0], "east" => [1, 0, 0], "up" => [0, 1, 0], "down" => [0, -1, 0], _ => return Some((false, "invalid_args".into(), 0)) };
-                s.do_place_recipe(arg_cell(a)?, item, block, dir)
+                s.do_place_recipe(arg_cell(a)?, item, block, dir, r.get("yRot").f())
             }
         }
         "craft" | "smelt" => {
@@ -391,7 +391,7 @@ pub fn replay(t: &Trace, d: Rc<Data>, near: i32, others: &[Win]) -> (Vec<Row>, B
             from: sfrom };
         // undo the simulator's changes: back to the recorded blocks (edits made by recorded events stay as they were before the command)
         for (p, old) in &olds { s.set(p[0], p[1], p[2], *old); }
-        s.vine = vine0; s.falling.clear();
+        s.vine = vine0; s.falling.clear(); s.lifting.clear();
         let lays = (c.name == "move:bridge" || c.name == "run:bridge") && !(c.args.get("keep").b() || c.args.get("road").b() || c.args.get("build").b());
         for (p, n) in &real.blocks { if d.block(d.bid(n)).kind == Kind::Solid { if lays && p[1] == c.args.get("y").i() as i32 - 1 { bridged.insert(*p); } } else { bridged.remove(p); } }
         let ag = agree(&real, &sim);

@@ -79,7 +79,8 @@ pub fn placement(name: &str, clicked: &str, hy: f64, yaw: f64, pitch: f64, solid
         "chest" | "facing_opposite" => (n, p(&[("facing", opp(facing))])),
         "nearest" => (n, p(&[("facing", opp(look))])),
         "observer" => (n, p(&[("facing", look)])),
-        "gate" | "bed" => (n, p(&[("facing", facing)])),
+        "gate" => (n, p(&[("facing", facing)])),
+        "bed" => (n, p(&[("facing", facing), ("part", "foot")])),
         "door" => if clicked == "down" { return None } else { (n, p(&[("facing", facing)])) },
         "pillar" => (n, p(&[("axis", if clicked == "up" || clicked == "down" { "y" } else if clicked == "east" || clicked == "west" { "x" } else { "z" })])),
         "ladder" => if horiz(clicked) { (n, p(&[("facing", clicked)])) } else { return None },
@@ -247,6 +248,15 @@ impl Server {
                 for (k, v) in props { if let Some(e) = kv.iter_mut().find(|e| e.0 == k) { e.1 = v; } }
                 if tn == "water" { if let Some(e) = kv.iter_mut().find(|e| e.0 == "waterlogged") { e.1 = "true".into(); } }
                 let st = self.d.state_of(&name, &kv).unwrap_or(self.d.bid(&name));
+                // a bed is two blocks: the head in the cell the placer faces, refused when that cell is not free (BedBlock.getStateForPlacement)
+                if name.ends_with("_bed") {
+                    let fv = DIRS.iter().find(|d| d.0 == dir_of_yrot(q.get("yaw").f())).map(|d| d.1).unwrap_or([0, 0, 1]);
+                    let h = [t[0] + fv[0], t[1], t[2] + fv[2]];
+                    if !self.s.blk(h[0], h[1], h[2]).map_or(false, |b| crate::sim::replaceable(&self.d.block(b).name)) { return J::o(vec![("ok", J::Bool(false)), ("why", J::st("no room for the head"))]); }
+                    let mut hk = kv.clone();
+                    if let Some(e) = hk.iter_mut().find(|e| e.0 == "part") { e.1 = "head".into(); }
+                    if let Some(hs) = self.d.state_of(&name, &hk) { self.s.set(h[0], h[1], h[2], hs); }
+                }
                 self.s.set(t[0], t[1], t[2], st);
                 J::o(vec![("ok", J::Bool(true)), ("at", J::nums(&[t[0] as f64, t[1] as f64, t[2] as f64])), ("changes", self.changes())])
             }

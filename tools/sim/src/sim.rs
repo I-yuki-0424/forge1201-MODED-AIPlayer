@@ -69,6 +69,12 @@ pub struct Sim {
     /// Falling blocks in the air: (tick it lands, cell it lands in, block). The column over a dug cell becomes falling entities at once and lands
     /// when vanilla gravity brings it down (move_b corpus mvb-r1: the sand over a dug cell was air at the end of the dig and landed later).
     pub falling: Vec<(i64, [i32; 3], u16)>,
+    /// Gravity blocks over a dug cell that are still in place: (tick they leave it, cell, block). FallingBlock.onPlace schedules the block tick 2
+    /// ticks after the neighbour update; only then does the cell turn to air (and the entity start to fall).
+    pub lifting: Vec<(i64, [i32; 3], u16)>,
+    /// Ticks into the current command at which the next `break_block` happens (the block update of the dig), so the world clocks it starts run
+    /// from that moment, not from the command's start.
+    pub dig_t: i64,
     /// The player's tick physics (physics.rs) when the tables have block states: the work-layer moves run their body on it.
     pub phys: Option<Rc<crate::physics::Phys>>,
     /// The server puts drops straight into the pack (the 1.21.1 test worlds' auto-pickup mod): collecting a drop costs no walk.
@@ -132,7 +138,7 @@ pub fn tool_rank(n: &str) -> i32 { ["wooden", "golden", "stone", "iron", "diamon
 impl Sim {
     pub fn new(d: Rc<Data>, tile: Rc<Tile>, seed: u64) -> Sim {
         Sim { d, tile, edits: HashMap::new(), pos: [0; 3], yaw: 0.0, hp: 20.0, food: 20.0, sat: 5.0, exh: 0.0, inv: vec![None; 36], tick: 0, mobs: vec![], next_id: 1, rng: Rng(seed | 1),
-            site: [0; 3], fuel: 0.0, hostile_scale: 1.0, craft_slots: None, dead: false, mobf: None, ph: vec![], view: [0; 3], track: [0; 3], air: 300.0, hits: 0, dmg: vec![], day_seen: 0, regen_t: 0.0, kills: HashMap::new(), audit: HashMap::new(), journal: None, exact: None, ground: true, eff: HashMap::new(), vine: HashMap::new(), astar: false, atomic: false, hand: None, plan_nodes: PLAN_NODES, max_drop: 3, no_vines: false, avoid: std::collections::HashSet::new(), floor_by_other: false, own_floor: false, falling: vec![], phys: None, autopickup: false, reach: None, scan_on: false, way: None, scan_res: None, recent: vec![] }
+            site: [0; 3], fuel: 0.0, hostile_scale: 1.0, craft_slots: None, dead: false, mobf: None, ph: vec![], view: [0; 3], track: [0; 3], air: 300.0, hits: 0, dmg: vec![], day_seen: 0, regen_t: 0.0, kills: HashMap::new(), audit: HashMap::new(), journal: None, exact: None, ground: true, eff: HashMap::new(), vine: HashMap::new(), astar: false, atomic: false, hand: None, plan_nodes: PLAN_NODES, max_drop: 3, no_vines: false, avoid: std::collections::HashSet::new(), floor_by_other: false, own_floor: false, falling: vec![], lifting: vec![], dig_t: 0, phys: None, autopickup: false, reach: None, scan_on: false, way: None, scan_res: None, recent: vec![] }
     }
     // ---- world access ----
     #[inline] pub fn blk(&self, x: i32, y: i32, z: i32) -> Option<u16> { if let Some(&b) = self.edits.get(&(x, y, z)) { Some(b) } else { self.tile.get(x, y, z) } }
@@ -585,7 +591,11 @@ impl Sim {
         // the update, then 0.04 blocks/tick^2 with 0.98 drag), stacked from the first solid block under the hole up
         let mut yy = y + 1;
         let mut col = vec![];
-        while gravity_block(self.name(x, yy, z)) { col.push(self.blk(x, yy, z).unwrap()); self.set(x, yy, z, self.d.air); yy += 1; }
+        // one after the other from the bottom: each block's tick comes 2 ticks after the one under it left (FallingBlock.tick checks the cell
+        // below; the neighbour update of that cell schedules the next); mvb-r1 #382: the sand over a dug cell air in the dig's window, the two above
+        // it in the next command's
+        let t0 = self.tick + self.dig_t;
+        while gravity_block(self.name(x, yy, z)) { let b = self.blk(x, yy, z).unwrap(); col.push(b); self.lifting.push((t0 + 2 * (yy - y) as i64, [x, yy, z], b)); yy += 1; }
         if !col.is_empty() {
             let mut floor = y;
             while floor > y - 64 && self.is_air(x, floor - 1, z) && !self.falling.iter().any(|f| f.1 == [x, floor - 1, z]) { floor -= 1; }
@@ -593,7 +603,7 @@ impl Sim {
                 let (from, to) = (y + 1 + i as i32, floor + i as i32);
                 let (mut v, mut d, mut n) = (0.0f64, 0.0f64, 0i64);
                 while d < (from - to) as f64 && n < 400 { v = (v - 0.04) * 0.98; d -= v; n += 1; }
-                self.falling.push((self.tick + 2 + n, [x, to, z], b));
+                self.falling.push((t0 + 2 * (i as i64 + 1) + n, [x, to, z], b));
             }
         }
         self.pop_unsupported([x, y, z]);
@@ -669,7 +679,13 @@ impl Sim {
     // ---- world clocks ----
     /// Advance `ticks`; mobs act, hunger and health follow. Stops early on death (the Out carries `died`).
     pub fn advance(&mut self, ticks: i64, ev: &mut Vec<Ev>) {
-        // falling blocks that land within this stretch of time
+        // gravity blocks that leave their cells within this stretch, then the falling blocks that land within it
+        if !self.lifting.is_empty() {
+            let until = self.tick + ticks;
+            let (go, keep): (Vec<_>, Vec<_>) = self.lifting.drain(..).partition(|f| f.0 <= until);
+            self.lifting = keep;
+            for (_, c, b) in go { if self.blk(c[0], c[1], c[2]) == Some(b) { self.set(c[0], c[1], c[2], self.d.air); } }
+        }
         if !self.falling.is_empty() {
             let until = self.tick + ticks;
             let (land, keep): (Vec<_>, Vec<_>) = self.falling.drain(..).partition(|f| f.0 <= until);
@@ -795,7 +811,7 @@ impl Sim {
                 let ticks = dig_ticks(plan.1) + MINE_AIMED;
                 self.ph = vec![("dig", ticks)];
                 self.exh += 0.005;
-                self.break_block(t[0], t[1], t[2], &mut ev);
+                self.dig_t = ticks - DIG_AFTER; self.break_block(t[0], t[1], t[2], &mut ev); self.dig_t = 0;
                 self.settle_fall();
                 self.reach = None;
                 return self.finish(Out::ok(ticks, vec![]), ev);
@@ -812,7 +828,7 @@ impl Sim {
         let ticks = dig_ticks(plan.1);
         self.ph = vec![("dig_blind", ticks)];
         self.exh += 0.005;
-        self.break_block(t[0], t[1], t[2], &mut ev);
+        self.dig_t = ticks - DIG_AFTER; self.break_block(t[0], t[1], t[2], &mut ev); self.dig_t = 0;
         self.settle_fall();
         self.reach = None;
         self.finish(Out::ok(ticks, vec![]), ev)
@@ -829,7 +845,7 @@ impl Sim {
         self.ph = vec![("walk", walk), ("dig", ticks - walk)];
         self.look_at([t[0], self.pos[1], t[2]]);
         self.exh += 0.005;
-        self.break_block(t[0], t[1], t[2], &mut ev);
+        self.dig_t = ticks - DIG_AFTER; self.break_block(t[0], t[1], t[2], &mut ev); self.dig_t = 0;
         self.settle_fall();
         self.reach = None;
         self.finish(Out::ok(ticks, vec![]), ev)
@@ -837,7 +853,9 @@ impl Sim {
     /// block.js placeWithRecipe: the click goes on face `face` of the support block next to the target (support = target + `dir`); the server checks
     /// reach to the clicked block, not the line of sight, so only a stand cell within reach (eye to the support's centre <= reach + 0.5, not in the
     /// target's column) is needed; two look ticks, the click, one tick, the server's block (PLACE_RECIPE in all).
-    pub fn do_place_recipe(&mut self, t: [i32; 3], item: &str, block: &str, dir: [i32; 3]) -> Out {
+    /// A bed is two blocks (BedBlock.getStateForPlacement / setPlacedBy): the head goes into the cell the placer faces (`yrot`: 0 south, 90 west,
+    /// 180 north, 270 east), and the game refuses the bed when that cell is not free (pc-r1/pc-r2: every bed placed both halves).
+    pub fn do_place_recipe(&mut self, t: [i32; 3], item: &str, block: &str, dir: [i32; 3], yrot: f64) -> Out {
         let bid = self.d.bid(block);
         if bid == self.d.unknown { return Out::fail("invalid_args", 0, vec![]).with(self, vec![]); }
         let cur = match self.blk(t[0], t[1], t[2]) { Some(b) => self.d.block(b).name.clone(), None => return Out::fail("unreachable", 0, vec![]).with(self, vec![]) };
@@ -851,6 +869,12 @@ impl Sim {
         let walk = match self.approach_to(&|_s, n, r| free(n) && dist(n) <= r + 0.5, &|_s, _e| true, Some([sup[0] as f64 + 0.5, sup[1] as f64 + 0.5, sup[2] as f64 + 0.5])) {
             Ok(w) => w, Err((r, tk)) => { let o = Out::fail(r, tk, vec![]); return self.finish(o, vec![]); } };
         let ticks = walk + PLACE_RECIPE;
+        if block.ends_with("_bed") {
+            let f = [[0, 1], [-1, 0], [0, -1], [1, 0]][(((yrot / 90.0).round() as i64 % 4 + 4) % 4) as usize];
+            let h = [t[0] + f[0], t[1], t[2] + f[1]];
+            if !self.blk(h[0], h[1], h[2]).map_or(false, |b| replaceable(&self.d.block(b).name)) { let o = Out::fail("not_confirmed", ticks, vec![]); return self.finish(o, vec![]); }
+            self.set(h[0], h[1], h[2], bid);
+        }
         self.take(item, 1); self.set(t[0], t[1], t[2], bid);
         self.finish(Out::ok(ticks, vec![]), vec![Ev::Stat("used", item.to_string(), 1)])
     }
@@ -866,7 +890,7 @@ impl Sim {
         self.ph = vec![("walk", walk), ("dig", MINE_AIM + MINE_CONFIRM + plan.1.max(1) + 1), ("collect_drop", ticks - walk - (MINE_AIM + MINE_CONFIRM + plan.1.max(1) + 1))];
         self.look_at([t[0], self.pos[1], t[2]]);
         self.exh += 0.005;
-        self.break_block(t[0], t[1], t[2], &mut ev);
+        self.dig_t = (walk + MINE_AIM + MINE_CONFIRM + plan.1.max(1)).min(ticks); self.break_block(t[0], t[1], t[2], &mut ev); self.dig_t = 0;
         self.settle_fall();
         self.reach = None;
         self.finish(Out::ok(ticks, vec![]), ev)
@@ -925,7 +949,7 @@ impl Sim {
                     }
                     None => { let r = if self.d.block(bid).diggable { "missing_tool" } else { "invalid_target" }; return Out::fail(r, ticks, ev.clone()).with(self, ev); }
                 }
-                self.break_block(c[0], c[1], c[2], &mut ev);
+                self.dig_t = ticks; self.break_block(c[0], c[1], c[2], &mut ev); self.dig_t = 0;
             }
         }
         ticks += TUNNEL_STEP; self.ph.push(("tunnel_step", TUNNEL_STEP));
