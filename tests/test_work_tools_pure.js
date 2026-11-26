@@ -129,7 +129,8 @@ const tool = (name, max, used) => ({ name, maxDurability: max, durabilityUsed: u
         const env = { w, have: () => 9, exec: async (n, a) => { if (n === 'mine') { mined.push(a.y); cells.delete(`${a.x},${a.y},${a.z}`); } return { ok: true }; }, here: () => ({ x: 5, y: 64, z: 5 }), pause: async () => {} };
         let skipped = 0, ok = true;
         for (let u = 0; u < region.layers * region.rows; u++) { const r = await pit.runUnit(plan, region, { unit: u }, env); ok = ok && r.ok; skipped += r.detail.skipped || 0; }
-        assert.ok(ok); assert.ok(mined.every((y) => y <= 69), `only blocks within reach were dug: ${mined}`); assert.ok(mined.includes(64) && mined.includes(69)); assert.ok(skipped >= 12, `skipped ${skipped}`);
+        // (within the tree pass's LOW of the ground, 3: from 67 up the trunk is the tree pass's, pit.js AERIAL_UP, TASK-20261125-075; it was 6)
+        assert.ok(ok); assert.ok(mined.every((y) => y <= 66), `only blocks within reach were dug: ${mined}`); assert.ok(mined.includes(64) && mined.includes(66)); assert.ok(skipped >= 12, `skipped ${skipped}`);
         assert.deepStrictEqual(pit.wrongCells(plan, region, 0, w).filter((c) => c.y >= 70), [], 'the audit does not count them');
     });
 
