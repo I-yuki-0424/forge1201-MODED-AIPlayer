@@ -230,7 +230,7 @@ async function walk(W, env0, target, o) {
     const goal = surface ? P.surfaceGoal(env.w, env.here()) : P.cellGoal(t, { near, nearY });
     const done = (r) => ({ ...r, detail: { ...(r.detail || {}), nav: { ...info, at: env.here() } } });
     say(env, `goal ${surface ? 'surface' : JSON.stringify(t)} near ${near}/${nearY}${o.why ? ' (' + o.why + ')' : ''} from ${JSON.stringify(env.here())}${TRACE ? ' <- ' + String(new Error().stack).split('\n').slice(3, 7).map((l) => l.trim().replace(/^at /, '').replace(/\(\/app\//, '(')).join(' < ') : ''}`);
-    let bestD = surface ? Infinity : hd(env.here(), t), still = 0, failsHere = 0, lastFail = null, firstFailAt = 0;
+    let bestD = surface ? Infinity : hd(env.here(), t), still = 0, failsHere = 0, lastFail = null, firstFailAt = 0, swept = false;
     const maxSeg = o.maxSegments || 80;
     for (let seg = 0; seg < maxSeg; seg++) {
         if (env0.cancel && env0.cancel.cancelled) return done({ ok: false, reason: 'cancelled' });
@@ -243,6 +243,10 @@ async function walk(W, env0, target, o) {
                 const off = stepOff(env, here, goal);
                 if (off && (await env.exec('move_to', off, { raw: true, maxTicks: 120 })).ok) { td = await tidy(env); info.removed += td.removed; }
             }
+            // its own movement blocks left on the way (out of reach when it passed them, or under its feet then): walked back to and broken now, at the walk's end, never with a
+            // new block (a journey has no job end and its sweep: move_a w4 MvE4 arrived with one 15 blocks behind it, ma075a)
+            // (once per walk: when that took it off the goal, it walks back to it, and then ends)
+            if (!o.noSweep && !swept) { swept = true; const sw = await sweep(env0, { max: 12, radius: 48 }); info.removed += sw.removed; if (sw.left) info.sweptLeft = sw.left; if (!goal.is({ ...env.here(), kind: 'stand' })) continue; td = await tidy(env); }
             info.left = td.left.length;
             return done({ ok: true, ...(td.left.length ? { left: td.left.map((r) => ({ x: r.x, y: r.y, z: r.z })) } : {}) });
         }
@@ -310,20 +314,20 @@ async function walk(W, env0, target, o) {
  * The end of a job (or anything that wants none left): walk to each movement block of this bot still registered in its dimension, nearest first, never placing a block on the way, and break it.
  * Returns {removed, left}. `max` blocks per call.
  */
-async function sweep(env, { max = 60 } = {}) {
+async function sweep(env, { max = 60, radius = Infinity } = {}) {
     const bot = env.bot, T = bot && bot.__temps, out = { removed: 0, left: 0, cells: [] };
     if (!T) return out;
     const dim = fixtures.dimOf(bot), me = bot.username, tried = new Set();
     for (let i = 0; i < max; i++) {
         if (env.cancel && env.cancel.cancelled) break;
-        const f = env.here(), list = T.list((r) => r.dim === dim && r.by === me && ['pillar', 'bridge', 'scaffold', 'reflex'].includes(r.kind) && !tried.has(`${r.x},${r.y},${r.z}`)).sort((a, b) => Math.hypot(a.x - f.x, a.y - f.y, a.z - f.z) - Math.hypot(b.x - f.x, b.y - f.y, b.z - f.z));
+        const f = env.here(), list = T.list((r) => r.dim === dim && r.by === me && ['pillar', 'bridge', 'scaffold', 'reflex'].includes(r.kind) && !tried.has(`${r.x},${r.y},${r.z}`) && Math.hypot(r.x - f.x, r.z - f.z) <= radius).sort((a, b) => Math.hypot(a.x - f.x, a.y - f.y, a.z - f.z) - Math.hypot(b.x - f.x, b.y - f.y, b.z - f.z));
         if (!list.length) break;
         const r = list[0];
         if (env.w.kindAt(r.x, r.y, r.z) === 'unknown' && Math.hypot(r.x - f.x, r.z - f.z) > 100) { out.left = list.length; break; }
         const before = T.size;
         let td = await tidy(env); out.removed += td.removed;
         if (T.size < before) continue;
-        const t = { x: r.x, y: r.y + 1, z: r.z }, opt = { near: 3, nearY: 3, noPlace: true, noShelter: true, maxSegments: 12 };
+        const t = { x: r.x, y: r.y + 1, z: r.z }, opt = { near: 3, nearY: 3, noPlace: true, noShelter: true, maxSegments: 12, noSweep: true };
         const g = env.nav ? await env.nav(t, opt) : await go(env, t, opt);
         td = await tidy(env); out.removed += td.removed;
         // unreachable without placing: reported and left in the registry (forgotten, it stood in the world in nobody's list: owner list 5 Large 1, cause a), not walked to again in this sweep
