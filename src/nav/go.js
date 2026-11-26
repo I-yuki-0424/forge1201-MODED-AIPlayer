@@ -251,6 +251,8 @@ async function walk(W, env0, target, o) {
     for (let seg = 0; seg < maxSeg; seg++) {
         if (env0.cancel && env0.cancel.cancelled) return done({ ok: false, reason: 'cancelled' });
         if (env.wrongDim && env.wrongDim()) return done({ ok: false, reason: 'wrong_dimension' });
+        // o.deadline (ms since the epoch): a caller with a cheaper way out (the pit hands the cell back) stops the walk between segments (TASK-075: NAV trips to canopy leaves took up to 221 s)
+        if (o.deadline && Date.now() > o.deadline && !goal.is({ ...env.here(), kind: 'stand' })) return done({ ok: false, reason: 'timeout', detail: { why: 'the caller\'s deadline passed' } });
         const here = env.here();
         if (goal.is({ ...here, kind: 'stand' })) {
             let td = await tidy(env); info.removed += td.removed;

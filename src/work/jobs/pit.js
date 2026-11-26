@@ -180,7 +180,7 @@ function unitCells(plan, region, u) {
     return out;
 }
 
-const NAV_TRIPS = 3;
+const NAV_TRIPS = 3, NAV_TRIP_MS = 60000;          // per unit; one trip (bt075t5-7, units over 30 s: 39 trips, median 33 s, p90 81 s, max 221 s)
 const reachFail = (m) => m && (m.reason === 'unreachable' || !!(m.detail && Array.isArray(m.detail.unmet) && m.detail.unmet.some((u) => u && u.need === 'in_reach')));
 const RETRY = new Set(['not_visible', 'not_confirmed', 'stuck', 'unreachable', 'target_lost', 'timeout']);
 const CELL_FAILS = new Set([...RETRY, 'invalid_target']);       // failures that belong to one cell: the rest of the tile can still be dug
@@ -261,7 +261,7 @@ async function runUnit(plan, region, u, env) {
         if (!env.nav || navFor.has(k) || (r.navReach || 0) >= NAV_TRIPS) return m;
         navFor.add(k); r.navReach = (r.navReach || 0) + 1;
         const t0 = Date.now();
-        const g = await env.nav({ x: c.x, y: c.y, z: c.z }, { near: 2, nearY: 2, why: 'pit: within reach of a cell' }).catch((e) => ({ ok: false, reason: 'internal', detail: { error: String(e && e.message || e) } }));
+        const g = await env.nav({ x: c.x, y: c.y, z: c.z }, { near: 2, nearY: 2, why: 'pit: within reach of a cell', deadline: Date.now() + NAV_TRIP_MS }).catch((e) => ({ ok: false, reason: 'internal', detail: { error: String(e && e.message || e) } }));
         r.navMs = (r.navMs || 0) + (Date.now() - t0);
         if (g && FATAL_MINE.has(g.reason)) return g;
         if (open(c)) return { ok: true };
