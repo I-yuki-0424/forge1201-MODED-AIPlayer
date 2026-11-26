@@ -641,6 +641,9 @@ async function supplyTrip(job, name, bot, mv, need, cancel) {
             job.log(`${name}: no way to the materials at ${site.x} ${site.y} ${site.z} (${r.why})${r.region && Date.now() - (job.edgeAt || 0) > 60000 ? (job.edgeAt = Date.now(), `; edge ${edgeOf(mv, r.region)}`) : ''}`);
             // boxed in (the search found next to no cells): dig out round the head and out of it (bots stood boxed in by the build for the rest of the run, ha26 w4)
             if (r.nodes !== undefined && r.nodes <= 2) { await unwedge(job, name, bot, mv); await escape(job, name, bot, mv, cancel); }
+            // shut in by the build (a hall closed by its floor, walls and ceiling: the search found every cell it can reach and none leads out, b081i: 'no more cells, 1 543
+            // cells'): out of that pocket through the build, as a player digs out; the dug cells are the build's again at the next survey (escape digs, then the job surveys)
+            else if (r.region && /no more cells/.test(String(r.why))) { const ok = await escape(job, name, bot, mv, cancel, r.region); if (ok && job.stage === 'place') { job.log(`${name}: dug out of a closed part of the build; the box is surveyed again`); job.stage = 'survey'; } }
             return false;
         }
         if (bot.inventory.items().some((i) => /shulker_box$/.test(i.name))) await SUP.putBack(bot, site);          // boxes it carries (picked up somewhere) go back first
