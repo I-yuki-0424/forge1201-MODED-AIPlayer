@@ -212,7 +212,7 @@ function lavaCache(bot) {
  */
 /** Searches of the process, for the progress line: count, wall ms, failed, and walks that took the flood's route instead (PLANS). */
 const PLANS = { n: 0, ms: 0, failed: 0, flood: 0 };
-function plan(view, start, goal, h, o = {}) { const t0 = Date.now(); PLANS.n++; return PZ.within('cpu: plan', () => plan0(view, start, goal, h, o)).then((r) => { PLANS.ms += Date.now() - t0; if (!r && !o.flood) PLANS.failed++; return r; }); }
+function plan(view, start, goal, h, o = {}) { const t0 = Date.now(); PLANS.n++; return PZ.within(o.flood ? "cpu: flood (the claim's reach)" : 'cpu: plan (a walk)', () => plan0(view, start, goal, h, o)).then((r) => { PLANS.ms += Date.now() - t0; if (!r && !o.flood) PLANS.failed++; return r; }); }
 async function plan0(view, start, goal, h, { maxNodes = 40000, temps = 0, box = null, budgetMs = 4000, lavaCost = 0, maxDrop = 4, flood = false, out = null, leanDepth = LEAN_DEPTH } = {}) {
     const open = new Heap(), best = new Map(), placed = flood ? new Map() : null, nodes = flood ? new Map() : null;          // (flood: every node, a route to any cell of it without a new search)          // (flood: the temporary blocks the best way to each cell places)
     // height to gain costs about a pillar step each (a weaker estimate searched whole hillsides before climbing 17 blocks to a tree top, live 2026-11-22)
