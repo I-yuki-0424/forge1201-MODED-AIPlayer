@@ -34,6 +34,10 @@ const TERRAIN = /^(dirt|grass_block|coarse_dirt|podzol|rooted_dirt|mud|clay|ston
 // blocks that are full cubes (the click search may count one the claim places before as standing)
 const FULL = /^(stone|smooth_stone|cobblestone|stone_bricks|glass|dirt|netherrack|obsidian|blackstone|basalt|polished_.*|.*_planks|.*_concrete|.*_terracotta|.*_wool|redstone_block|iron_block|gold_block|diamond_block|emerald_block|lapis_block|coal_block|quartz_block|.*_stained_glass|tinted_glass|sandstone|end_stone|purpur_block|deepslate.*|tuff|calcite|andesite|diorite|granite|bricks|mud_bricks|.*_log|.*_wood)$/;
 
+/** Is a block of this name one the build places that terrain never makes (a block of the blueprint's items that no world generates: smooth stone, glass, slabs, pistons)? */
+const NATURAL = /^(stone|granite|diorite|andesite|deepslate|tuff|calcite|dirt|coarse_dirt|rooted_dirt|podzol|mycelium|grass_block|mud|clay|sand|red_sand|sandstone|red_sandstone|gravel|snow_block|ice|packed_ice|blue_ice|obsidian|netherrack|basalt|blackstone|end_stone|terracotta|.*_terracotta|.*_ore|.*_log|.*_wood|.*_leaves|moss_block|dripstone_block|amethyst_block|budding_amethyst|magma_block|soul_sand|soul_soil|glowstone|pumpkin|melon|cobblestone|mossy_cobblestone|bedrock)$/;
+function ownKind(t, name) { const n = S.bare(name); return !NATURAL.test(n) && t.items.has(n); }
+
 class BuildJob {
     /**
      * @param target  Target (target.js)
@@ -116,6 +120,10 @@ class BuildJob {
                     // a temporary block of the operator's kind that no ledger knows (the pit's movement blocks of a bot whose list did not hold them, b081h: 4 pumpkins): the crew's
                     // to take away like any orphan, not ground left by the pit
                     if (h && tempNames.has(S.bare(h.name)) && tk.kind === 'clear') { this.ledger.intend(tk, h.name, 'pillar', 'pit'); this.ledger.observe(tk, h.name); const e = this.ledger.get(tk); if (e) { e.orphan = { at: Date.now(), why: 'left by the pit' }; e.released = e.released || { at: Date.now(), why: 'left by the pit' }; } tasks.delete(k); adopted++; continue; }
+                    // a block of the build itself in a cell the blueprint (or the phase its piston rests in) has otherwise: the crew's own placing, or one of its pistons moved it
+                    // (b081m: 12 cells, slabs pulled under their layer, glass pushed up, a sticky piston, smooth stone over a retracted piston). Not terrain: the crew digs it and
+                    // places what belongs there, as with any block of its own
+                    if (h && tk.kind === 'clear' && ownKind(this.t, h.name)) { (this.stats.ownRedo = (this.stats.ownRedo || 0) + 1); continue; }
                     this._park(tk, 'left by the pit'); tasks.delete(k); n++;
                     const nm = h ? S.bare(h.name) : '?'; by[nm] = (by[nm] || 0) + 1; if (ex.length < 12) ex.push(`${k} ${tk.kind} ${nm}`);
                 }

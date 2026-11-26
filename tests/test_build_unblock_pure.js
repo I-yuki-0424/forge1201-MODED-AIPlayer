@@ -104,6 +104,16 @@ test('a clear task with a placing after it is not dropped when its cell is empty
     assert.strictEqual(job._already(d, fakeBot(new Map(), [])), false);
 });
 
+test('after the pit\'s rounds a block of the build in a cell that is to be empty stays the crew\'s to dig (a piston moved it); terrain there is parked as left by the pit (negative control)', async () => {
+    const { t, w } = scene('smooth_stone');
+    w.set('0,66,0', { name: 'glass' }); w.set('2,66,2', { name: 'dirt' });          // corners of the top layer are air in the blueprint
+    const job = new BuildJob(t, { available: new Set(['smooth_stone', 'stone', 'glass']) });
+    job.log = () => {}; job.supply = { totals: {} }; job.pitRounds = 3;
+    await job.resurvey(fakeBot(w, []), 'test');
+    assert.strictEqual((job.tasks.get('0,66,0') || {}).kind, 'clear', 'glass: the crew digs it');
+    assert.ok(!job.tasks.has('2,66,2') && job.parked.get('2,66,2') === 'left by the pit', 'dirt: the pit\'s');
+});
+
 (async () => {
     let n = 0;
     for (const [name, fn] of queue) { await fn(); n++; console.log(`ok - ${name}`); }
