@@ -746,7 +746,7 @@ class Mover {
                 const plane = [sup[0] + 0.5 + dx * 0.4999, 0, sup[2] + 0.5 + dz * 0.4999];
                 const hit = [dx ? plane[0] : sup[0] + 0.5, sup[1] + 0.5, dz ? plane[2] : sup[2] + 0.5];
                 const r = P.rayFirst(P.botWorld(b), eye, hit);
-                if (!r || r.cell[0] !== sup[0] || r.cell[1] !== sup[1] || r.cell[2] !== sup[2]) return { ok: false, why: 'bridge: the support side is not in sight' };
+                if (!r || r.cell[0] !== sup[0] || r.cell[1] !== sup[1] || r.cell[2] !== sup[2]) { const nm = (c) => { const q = b.blockAt(new Vec3(c[0], c[1], c[2]), false); return q ? q.name : '?'; }; return { ok: false, why: `bridge: the support side is not in sight (support ${nm(sup)}, the ray ${r ? `hit ${nm(r.cell)} at ${r.cell.join(',')}` : 'hit nothing'}, eye ${eye.map((v) => v.toFixed(2)).join(',')})` }; }
                 await this.lookAtPoint(new Vec3(...hit));
                 if (!own) this._temp(s.place, 'bridge', item);          // before the click
                 b._client.write('block_place', { hand: 0, location: new Vec3(...sup), direction: V.FACE[face], cursorX: hit[0] - sup[0], cursorY: hit[1] - sup[1], cursorZ: hit[2] - sup[2], insideBlock: false, worldBorderHit: false, sequence: (this.seq = (this.seq || 0) + 1) });
