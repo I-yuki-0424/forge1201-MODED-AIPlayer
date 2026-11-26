@@ -286,6 +286,9 @@ async function work(job, name, bot, mv, cl, cancel) {
         if (tk.kind === 'place') {
             const rr = job.t.recipeOf(tk);
             if (S.matches(job.t.wantOf(tk), h)) { results.push({ tk, ok: true }); continue; }
+            // never into a block of its own pillar while its step lasts: the build's block on the pillar's top took the bot's way back and stranded the column under it (columns of
+            // 7 and 8 under a placed block, bt075b w1 "walkBack 0"); the cell is built once the pillar is gone
+            { const own = job.ledger.get(tk); if (own && own.by === name && own.how === 'pillar' && !own.released) { results.push({ tk, ok: false, why: 'skipped' }); continue; } }
             if (!(S.AIR.has(h.name) || REPLACEABLE.test(h.name) || h.name === 'water' || h.name === 'lava')) { await mv.dig(tk); }
             if (!(await mv.hold(rr.item))) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
             // never the block that leaves the bot's own cell without a way out (Bd4f set glass on all four sides on a piston, as the blueprint has it, and was shut in: owner
