@@ -729,3 +729,13 @@ NAV took 11-15 % of the bots' time. The other slow units spent half their time i
 cells are mostly ground (stone, grass, dirt), not trees. **Not met:** zero tree cells on every forest site within the limit, and the pace of a rock site. Two causes are
 still open on the pit side. (1) The layer gate serialises the last region behind one slow unit (t8: 120 units pending, 1 leased). (2) Bots near the bed outside the box
 fail 'too far from the station' because NAV ends 'stuck' and the lift is refused (survival).
+**Runs b081g-b081k (2026-11-26/27 night) and what each changed.**
+
+| Run (code) | What it showed | Change |
+| :-- | :-- | :-- |
+| `b081g` (4c9db61e) | stopped in its pit (the fixes below were ready) | |
+| `b081h` (f56c4688) | the pit hand-over adopted 4 movement blocks of the pit; 71 cells left by the pit after 3 rounds: 4 pumpkins in no ledger, a birch tree | orphan pumpkins adopted by the build ledger (6d9b8886, a safety net); 075: trees (b4ad1672) |
+| `b081i` (ed009df3) | a snowy taiga: 125 spruce cells left by the pit; sinks 163/163, no stranding at height; 4 bots shut in closed halls of the build ('no more cells, 1 543 cells') | 075's root fix (208176ae: any cell the station misses gets a NAV trip, then a blind mine); dig-out of a closed hall (e0d643bd); the order rule closesIn and a dig-out that prefers blocks the crew gets back (6f6d80c3) |
+| `b081j` | no dry site in 30 draws around the nearest forest | (harness) |
+| `b081k` (e0d643bd, a forest) | pit 1 190 s; my 6-min cap fired while 6 units were still at work (28 leaves left, decaying); then **6 257 of about 7 600 blocks placed in 128 minutes of placing**, the best run so far; sinks 2 395/2 395; 5 shut-ins dug out; 1 death; the tail held by 49 trapdoor scaffolds and 4 trapdoors 'no stance reaches it' under the slab floor over them | the cap at 15 min (157add02); placing under the feet (3047130b): standing on the block over a cell, its bottom face is clicked; the floating trapdoor's scaffold goes over it, in the opening of the slab floor, and the bot puts the trapdoor in under its feet (d6352a31) |
+
