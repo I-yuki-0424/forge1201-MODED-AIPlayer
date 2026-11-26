@@ -222,7 +222,13 @@ async function go(env0, target, o = {}) {
     const W = watch(env0), bot = env0.bot, keep = bot && bot.__keep;
     // `digStructure` (a builder walled in by its own work): the cells of the structure may be dug on this walk; the unit that owns a dug cell places it again
     if (o.digStructure && bot) bot.__keep = null;
-    try { return await walk(W, env0, target, o); } finally { W.dispose(); if (o.digStructure && bot) bot.__keep = keep; }
+    try {
+        const r = await walk(W, env0, target, o);
+        // a walk that ended without its goal (stuck, unreachable, a timeout) takes its own movement blocks within 48 away too, never placing (a pillar stood at the end of move_b
+        // mbv075a w1 when the walk gave up; at the goal the walk sweeps itself)
+        if (!r.ok && !o.noSweep && !['cancelled', 'died', 'disconnected', 'wrong_dimension'].includes(r.reason)) { try { const sw = await sweep(env0, { max: 12, radius: 48 }); if (r.detail && r.detail.nav) r.detail.nav.sweptAfter = sw.removed; } catch (_) { /* the walk's result stands */ } }
+        return r;
+    } finally { W.dispose(); if (o.digStructure && bot) bot.__keep = keep; }
 }
 
 async function walk(W, env0, target, o) {
@@ -237,7 +243,7 @@ async function walk(W, env0, target, o) {
     const goal = surface ? P.surfaceGoal(env.w, env.here()) : P.cellGoal(t, { near, nearY });
     const done = (r) => ({ ...r, detail: { ...(r.detail || {}), nav: { ...info, at: env.here() } } });
     say(env, `goal ${surface ? 'surface' : JSON.stringify(t)} near ${near}/${nearY}${o.why ? ' (' + o.why + ')' : ''} from ${JSON.stringify(env.here())}${TRACE ? ' <- ' + String(new Error().stack).split('\n').slice(3, 7).map((l) => l.trim().replace(/^at /, '').replace(/\(\/app\//, '(')).join(' < ') : ''}`);
-    let bestD = surface ? Infinity : hd(env.here(), t), still = 0, failsHere = 0, lastFail = null, firstFailAt = 0, swept = false;
+    let bestD = surface ? Infinity : hd(env.here(), t), still = 0, failsHere = 0, lastFail = null, firstFailAt = 0, swept = false, noNode = 0;
     const maxSeg = o.maxSegments || 80;
     for (let seg = 0; seg < maxSeg; seg++) {
         if (env0.cancel && env0.cancel.cancelled) return done({ ok: false, reason: 'cancelled' });
@@ -283,8 +289,9 @@ async function walk(W, env0, target, o) {
         info.segments++;
         if (!plan) {
             // not on a node (in a bush, half in a wall, mid-air): let the body settle, then the action layer's walk to the nearest cell
+            // (for up to 8 s: a fight's knock-back or a fall keeps the body off any node for a few seconds; five tries in two seconds ended move_b mbv075a w1 'stuck' mid-fight)
             await sleep(400);
-            if (++failsHere > 4) return done({ ok: false, reason: 'stuck', detail: { why: 'the bot is not standing anywhere the planner can start from', at: here } });
+            if (++noNode > 20) return done({ ok: false, reason: 'stuck', detail: { why: 'the bot is not standing anywhere the planner can start from', at: here } });
             continue;
         }
         say(env, `seg ${seg} from ${here.x},${here.y},${here.z}: ${plan.partial ? 'partial' : 'full'} plan, ${plan.path.length - 1} moves (${[...new Set(plan.path.slice(1).map((n) => n.move))].join(',')}), ${plan.expanded} cells`);
