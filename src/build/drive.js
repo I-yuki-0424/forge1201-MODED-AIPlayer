@@ -81,7 +81,7 @@ function rules(job, bot) {
  */
 const CONNECTS = /(_pane|^iron_bars|_bars|_wall|_fence)$/;
 /** The blueprint's block in a cell of the box (bare name), for touchesShape: the shapes still to be built. */
-const planned = (job) => (x, y, z) => { if (!job.t.inside(x, y, z)) return null; const w = job.t.wantOf({ x, y, z }); return w ? S.bare(w.name) : null; };
+const planned = (job) => (x, y, z) => { if (!job.t.inside(x, y, z)) return null; const w = job.t.stateOf(job.t.idx(x, y, z)); return w ? S.bare(w.name) : null; };
 const SHAPE_COST = 60;
 function touchesShape(nameAt, x, y, z) {
     if (nameAt(x, y - 1, z) === 'redstone_wire') return 'wire';

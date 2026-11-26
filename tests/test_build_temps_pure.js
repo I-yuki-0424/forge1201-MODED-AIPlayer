@@ -253,6 +253,25 @@ test('a block the server puts back soon after its removal (a rejected dig) keeps
     assert(!L.has(c) && L.classify(c).cause === 'a', 'long after: not ours (placed again)');
 });
 
+test('work: a place or clear task never takes a block of the bot\'s own pillar, nor fills the two cells over its top, while its step lasts (bt075b w1, bt075c w2/w3); released, it may', async () => {
+    const t = new Target(tiny(), { x: 0, y: 64, z: 0 });
+    const job = new BuildJob(t, {}); job.stage = 'place';
+    const w = new Map(); for (let x = -3; x <= 5; x++) for (let z = -3; z <= 5; z++) w.set(`${x},63,${z}`, { name: 'stone' });
+    for (let y = 64; y <= 65; y++) { const c = { x: 1, y, z: 1 }; w.set(`1,${y},1`, { name: 'pumpkin' }); job.addTemp(c, 'pillar', 'a', 'pumpkin'); job.ledger.observe(c, 'pumpkin'); }
+    const bot = fakeBot(w, { x: 2.5, y: 66, z: 1.5 }); bot.players = {}; bot.inventory = { items: () => [{ name: 'stone', count: 64 }] };
+    const calls = [];
+    const mv = { goto: async () => ({ ok: true }), note: () => {}, hold: async () => true, holdNothing: async () => true, dig: async (c) => { calls.push(`dig ${c.y}`); return true; }, click: async (n) => { calls.push(`click ${n}`); }, lean: async () => {}, unlean: async () => {}, unpillar: async () => 0, mine: new Map() };
+    const way = { at: [1, 63, 1], face: 'up', hit: [1.5, 64, 1.5], n: [1, 63, 1] };
+    const tk = (y, kind) => ({ k: `1,${y},1`, x: 1, y, z: 1, kind, way, want: { name: 'minecraft:stone', props: {} } });
+    const tasks = [tk(65, 'place'), tk(66, 'place'), tk(67, 'place'), tk(64, 'clear')];
+    const res = await D.work(job, 'a', bot, mv, { station: { x: 2, y: 66, z: 1 }, tasks }, { cancelled: false });
+    for (const k of ['1,65,1', '1,66,1', '1,67,1', '1,64,1']) assert.strictEqual((res.find((r) => r.tk.k === k) || {}).why, 'skipped', `${k} skipped (${JSON.stringify(res.map((r) => [r.tk.k, r.why]))})`);
+    assert(!calls.some((c) => c.startsWith('dig 6')), `nothing of the pillar dug (${calls})`);
+    job.ledger.release('a');
+    const res2 = await D.work(job, 'a', bot, mv, { station: { x: 2, y: 66, z: 1 }, tasks: [tk(66, 'place')] }, { cancelled: false });
+    assert.notStrictEqual((res2[0] || {}).why, 'skipped', 'negative control: released, the cell over it is worked');
+});
+
 test('the flood tells a cell reached on foot from one reached by placing blocks (untemp stances and column tops only on foot)', async () => {
     const M = require('../src/build/move');
     const w = new Map(); for (let x = -6; x <= 6; x++) for (let z = -6; z <= 6; z++) w.set(`${x},69,${z}`, { name: 'stone' });
