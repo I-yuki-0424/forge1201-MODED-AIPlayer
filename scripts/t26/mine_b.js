@@ -65,9 +65,11 @@ const LIMIT_MIN = Number(process.env.LIMIT_MIN || 240), DEPTH = Number(process.e
     let state = 'control';
     if (!T.CONTROL) {
         const pit = svc.createPit({ box, bots: [name], start: true, ...(process.env.METHOD ? { method: process.env.METHOD } : {}) });
-        let last = 0;
+        let last = 0, killed = false;
         for (const limit = T.budget(() => (svc.bots.get(name) || {}).bot, LIMIT_MIN); !limit.over();) {
             const j = svc.jobs.get(pit.id); if (!j || j.state === 'finished' || j.state === 'cancelled') { state = j ? j.state : 'gone'; break; }
+            // KILL_AT_END=1 when the job ends by itself: the ledger is finished and the worker's end pass (cleanup, nav's sweep) is running; the bot is killed in it (mb075k ended before the limit)
+            if (process.env.KILL_AT_END === '1' && !killed && j.impl && j.impl.ledger && j.impl.ledger.finished && j.impl.ledger.finished()) { killed = true; await T.sleep(Number(process.env.KILL_AFTER_MS || 4000)); console.log(`[wrap] killing ${name} during the job's own end (KILL_AT_END)`); await S.cmd(`kill ${name}`); }
             if (Date.now() - last > 120000) { last = Date.now(); const v = svc._jobView(j); console.log(`[mine_b w${T.WORLD}] ${Math.round((Date.now() - t0) / 60000)} min ${JSON.stringify(v.progress || v.summary || {}).slice(0, 200)} temps ${svc.temps.size}`); }
             await T.sleep(3000);
         }
@@ -77,7 +79,7 @@ const LIMIT_MIN = Number(process.env.LIMIT_MIN || 240), DEPTH = Number(process.e
             if (j && j.impl && j.impl.wrapUp && Number(process.env.WRAP_MIN ?? 5) > 0) {
                 if (svc.wrapJob) svc.wrapJob(pit.id); else j.impl.wrapUp(); const tw = Date.now();
                 // KILL_AT_END=1: the bot is killed a few seconds into the end's cleanup (the live negative test of TASK-075 item 4: the respawned bot must still take every block away)
-                if (process.env.KILL_AT_END === '1') { await T.sleep(Number(process.env.KILL_AFTER_MS || 4000)); console.log(`[wrap] killing ${name} during the end (KILL_AT_END)`); await S.cmd(`kill ${name}`); }
+                if (process.env.KILL_AT_END === '1' && !killed) { await T.sleep(Number(process.env.KILL_AFTER_MS || 4000)); console.log(`[wrap] killing ${name} during the end (KILL_AT_END)`); await S.cmd(`kill ${name}`); }
                 while (Date.now() - tw < Number(process.env.WRAP_MIN ?? 5) * 60000) { const jj = svc.jobs.get(pit.id); if (!jj || jj.state !== 'running') break; await T.sleep(3000); }
                 console.log(`[wrap] ${Math.round((Date.now() - tw) / 1000)} s, job ${(svc.jobs.get(pit.id) || {}).state}, registered ${svc.temps.size}: ${JSON.stringify(((svc.jobs.get(pit.id) || {}).impl || {}).plan ? svc.jobs.get(pit.id).impl.plan.endReport || {} : {}).slice(0, 300)}`);
             }
