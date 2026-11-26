@@ -9,6 +9,7 @@
 const fixtures = require('../../skills/fixtures');
 
 const MAX = 4000, MAX_AGE_MS = 3 * 24 * 3600 * 1000;
+const LATE_MS = 5000;                                                              // a placement the server applies this late is still a placement (an entry is not forgotten before)
 const KINDS = new Set(['seal', 'pillar', 'scaffold', 'reflex', 'rescue', 'lake', 'bridge', 'road']);          // lake: the pit's layered water rule (pit_lake.js): floor blocks over water that the next layer digs, the job's end takes the rest. road: the shared bridge from the End platform to the work (never taken away by a passer; the pit's own cleanup takes it at the end)
 const CLEAN_NEAR = new Set(['pillar', 'scaffold', 'reflex', 'bridge']);            // movement blocks: taken away by the bot that placed them, as soon as it has passed; by another only when the placer is gone (orphans)
 const ORPHAN_MS = 20000, ORPHAN_CLEAR = 3;                                         // an orphan is taken after this long, and never while another bot is within this many blocks
@@ -97,7 +98,7 @@ async function cleanTemps(env, o = {}) {
         if (out.tried >= max || Date.now() - t0 > maxMs || (env.cancelled && env.cancelled())) break;
         const kind = env.w.kindAt(r.x, r.y, r.z);
         if (kind === 'unknown') continue;                                                      // not in view: the next bot that passes
-        if (kind !== 'solid') { temps.remove(dim, r); out.forgotten++; continue; }              // gone already (or replaced by water): nothing to break
+        if (kind !== 'solid') { if (temps.now() - (r.at || 0) >= LATE_MS) { temps.remove(dim, r); out.forgotten++; } continue; }              // gone already (or replaced by water): nothing to break; (not within a placement's late window: it may still come, TASK-075)
         if (!HOLDS_BACK.has(r.kind) && (!temps.mayClean || !temps.mayClean(env.bot, r))) continue;                           // another bot's block, its placer still playing or somebody near it: not ours to break
         if (env.w.nameAt && r.item && !String(env.w.nameAt(r.x, r.y, r.z) || '').endsWith(String(r.item).replace(/^minecraft:/, ''))) { temps.remove(dim, r); out.forgotten++; continue; }       // another block now: not ours any more
         const f = env.here();

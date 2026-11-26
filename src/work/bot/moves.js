@@ -135,7 +135,7 @@ async function descend(ctx, { levels }) {
             if (bot.__temps) bot.__temps.add({ dim: fixtures.dimOf(bot), x: below.x, y: below.y, z: below.z, item, kind: 'pillar', by: bot.username });     // registered before the click (see pillar)
             await ctx.tick({ use: true, cell: { x: under.x, y: under.y, z: under.z, face: 0 } });         // face 0 = the underside of the block under the feet
             await ctx.tick({});
-            try { await ctx.until(() => w.blockAt(below.x, below.y, below.z)?.name === item, 12, 'not_confirmed'); } catch (e) { await ctx.idle(10); if (w.blockAt(below.x, below.y, below.z)?.name !== item) { if (bot.__temps && w.kindAt(below.x, below.y, below.z) !== 'solid') bot.__temps.remove(fixtures.dimOf(bot), below); throw e; } }
+            try { await ctx.until(() => w.blockAt(below.x, below.y, below.z)?.name === item, 12, 'not_confirmed'); } catch (e) { await ctx.idle(10); if (w.blockAt(below.x, below.y, below.z)?.name !== item) throw e; }          // (the entry stays, as for the pillar: a late placement is still in the list)
         }
         ctx.phase('descend_break', { cell: under });
         const r = await mine(ctx, { ...under, collect: false, blind: true, hand: true }).then(() => null, (e) => e);

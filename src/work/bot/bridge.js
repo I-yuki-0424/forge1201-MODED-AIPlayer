@@ -47,7 +47,7 @@ async function extend(ctx, y, F, N, items, placed) {
         if (T && !ctx.__build) T.add({ dim, x: floor.x, y: floor.y, z: floor.z, item, kind: ctx.__road ? 'road' : 'bridge', by: bot.username });          // registered before the click (owner 2026-11-14: a late placement was in nobody's list)
         await ctx.tick({ ...look, use: true });
         await ctx.tick(look);
-        try { await ctx.until(got, 12, 'not_confirmed', look); } catch (e) { await ctx.idle(10); if (!got()) { if (T && w.kindAt(floor.x, floor.y, floor.z) !== 'solid') T.remove(dim, floor); throw e; } }
+        try { await ctx.until(got, 12, 'not_confirmed', look); } catch (e) { await ctx.idle(10); if (!got()) { /* the entry stays: a late placement is still in the list (TASK-075) */ throw e; } }
         placed.push(floor);
     }
     await ctx.until(() => { fellIf(ctx, y, placed.length); const f = feetCell(bot.entity.position); return f.x === N.x && f.z === N.z && f.y === y && bot.entity.onGround; }, 40, 'stuck', walk);

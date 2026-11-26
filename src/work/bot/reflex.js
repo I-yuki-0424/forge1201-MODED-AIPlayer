@@ -84,10 +84,13 @@ function attach(bot, { world, enabled = () => true, onEvent = () => {} } = {}) {
                             if (kind(c.x + dx, c.y, c.z + dz) !== 'solid') continue;
                             const ref = bot.blockAt(bot.entity.position.floored().offset(dx, c.y - f.y, dz));
                             if (!ref) continue;
+                            // registered BEFORE the click: a placement the server applied after the 250 ms wait was in nobody's list (TASK-20261125-075, the pit's orphan pumpkins of
+                            // 081's b081h; the registry forgets an entry whose cell holds no block when it looks)
+                            if (bot.__temps) bot.__temps.add({ dim: require('../../skills/fixtures').dimOf(bot), x: c.x, y: c.y, z: c.z, item: mat && mat.name, kind: 'reflex', by: bot.username });
                             const ok = process.env.NATIVE_INPUTS === '1'
                                 ? await require('../../skills/inputs').placeAgainst(bot, ref.position, { x: -dx, y: 0, z: -dz }, 250).catch(() => false)      // the body's use button on that face (TASK-20261125-076)
                                 : await Promise.race([bot.placeBlock(ref, { x: -dx, y: 0, z: -dz }).then(() => true, () => false), sleep(250).then(() => false)]);
-                            if (ok) { placed++; if (bot.__temps) bot.__temps.add({ dim: require('../../skills/fixtures').dimOf(bot), x: c.x, y: c.y, z: c.z, item: mat && mat.name, kind: 'reflex', by: bot.username }); onEvent('reflex_placed', c); }
+                            if (ok) { placed++; onEvent('reflex_placed', c); }
                             break;
                         }
                     }

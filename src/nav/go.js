@@ -100,6 +100,7 @@ function ownTemp(env) {
 }
 
 /** Break the movement blocks of this bot within reach (never the one under its feet, never walking for it). Returns {removed, left: [cells out of reach]}. */
+const LATE_MS = 5000;          // a registered block not seen yet is kept this long (the server may apply the placement late)
 async function tidy(env, { reach = 4.2 } = {}) {
     const bot = env.bot, T = bot && bot.__temps, out = { removed: 0, left: [] };
     if (!T) return out;
@@ -107,7 +108,9 @@ async function tidy(env, { reach = 4.2 } = {}) {
     const mine = T.list((r) => r.dim === dim && r.by === me && (r.kind === 'pillar' || r.kind === 'bridge' || r.kind === 'scaffold' || r.kind === 'reflex'));
     for (const r of mine) {
         if (env.cancel && env.cancel.cancelled) break;
-        if (env.w.kindAt(r.x, r.y, r.z) !== 'solid') { T.remove(dim, r); continue; }                  // gone already
+        // gone already; but an entry younger than a placement's late window may be a block the server has not shown yet: kept (forgotten at once, a late block was in nobody's list:
+        // the pit's orphan pumpkins of 081's b081h, TASK-075)
+        if (env.w.kindAt(r.x, r.y, r.z) !== 'solid') { if (Date.now() - (r.at || 0) >= LATE_MS) T.remove(dim, r); continue; }
         const nm = String((env.w.nameAt && env.w.nameAt(r.x, r.y, r.z)) || '');
         if ((r.item && !nm.endsWith(String(r.item).replace(/^minecraft:/, ''))) || (bot.__keep && bot.__keep(r.x, r.y, r.z))) { T.remove(dim, r); continue; }      // another block there now (a wall of the build took the cell): not ours any more
         const P0 = bot.entity.position, under = r.y === f.y - 1 && P0.x + 0.3 > r.x && P0.x - 0.3 < r.x + 1 && P0.z + 0.3 > r.z && P0.z - 0.3 < r.z + 1;

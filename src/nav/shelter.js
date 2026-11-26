@@ -61,7 +61,7 @@ async function shelter(env, dig, { maxWaitMs = 12 * 60000, cancel = null } = {})
         if (T) T.add({ dim, ...cover, item, kind: 'scaffold', by: bot.username });
         const p = await env.exec('place', { ...cover, item }, { raw: true, maxTicks: 160 });
         covered = !!p.ok || w.kindAt(cover.x, cover.y, cover.z) === 'solid';
-        if (!covered && T) T.remove(dim, cover);
+        // (not covered yet: the entry stays, a late placement is still in the list; the walk's tidy forgets it once the cell is seen empty for a while, TASK-075)
     }
     const t0 = Date.now();
     while (isNight(bot) && Date.now() - t0 < maxWaitMs) {

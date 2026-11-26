@@ -211,5 +211,16 @@ const left = (w, box = BOX) => scan(w, box).length;
         assert(!given.ok && !given.again, `given up by the pass: the unit fails it visibly (${JSON.stringify(given)})`);
     });
 
+    await test('the work layer\'s registry does not forget a fresh entry whose block is not seen yet (a late placement), but does after the late window (negative control); b081h\'s orphan pumpkins', async () => {
+        const { Temps, cleanTemps } = require('../src/work/bot/temps');
+        let t = 0; const T = new Temps(() => t);
+        T.add({ dim: 'overworld', x: 1, y: 70, z: 1, item: 'pumpkin', kind: 'pillar', by: 'p' });
+        const env = { temps: T, bot: { username: 'p', game: { dimension: 'overworld' } }, here: () => ({ x: 0, y: 70, z: 0 }), w: { kindAt: () => 'air', nameAt: () => 'air' }, exec: async () => ({ ok: true }) };
+        t = 1000; await cleanTemps(env, { radius: 12 });
+        assert.strictEqual(T.size, 1, 'one second after the click, its cell still empty: kept (the server may apply it late)');
+        t = 9000; await cleanTemps(env, { radius: 12 });
+        assert.strictEqual(T.size, 0, 'nine seconds later, still empty: never placed, forgotten');
+    });
+
     console.log('\npit trees: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });
