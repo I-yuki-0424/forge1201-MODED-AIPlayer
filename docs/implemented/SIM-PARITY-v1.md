@@ -70,35 +70,46 @@ shares of the modelled commands (ticks: of those both ok).
 
 | command | n | modelled | outcome | outcome+cell+blocks+inventory | ticks |
 | :-- | --: | :-- | :-- | :-- | :-- |
-| mine | 2397 | 100.0 % / 98.7 % | 89.0 % / 99.5 % | 73.6 % / 97.7 % | 0.0 % / 98.4 % |
-| place | 2134 | 100.0 % / 100.0 % | 56.8 % / 99.9 % | 34.5 % / 98.6 % | 10.3 % / 97.6 % |
-| move_to | 1428 | 100.0 % / 99.4 % | 91.0 % / 99.4 % | 84.5 % / 98.4 % | 47.5 % / 79.2 % |
+| mine | 2397 | 100.0 % / 98.7 % | 89.0 % / 99.5 % | 73.6 % / 97.9 % | 0.0 % / 98.4 % |
+| place | 2134 | 100.0 % / 100.0 % | 56.8 % / 99.9 % | 34.5 % / 98.9 % | 10.3 % / 97.6 % |
+| move_to | 1428 | 100.0 % / 99.4 % | 91.0 % / 99.4 % | 84.5 % / 98.7 % | 47.5 % / 79.2 % |
 | equip | 175 | 100.0 % / 100.0 % | 100.0 % / 100.0 % | 98.3 % / 98.9 % | 100.0 % / 100.0 % |
 | tunnel | 24 | 100.0 % / 100.0 % | 91.7 % / 95.8 % | 87.5 % / 95.8 % | 0.0 % / 0.0 % |
-| move:bridge (+ run:bridge) | 532 | 0 / 98.1 % | - / 99.6 % | - / 97.7 % | - / 92.9 % |
-| move:pillar | 487 | 0 / 100.0 % | - / 92.8 % | - / 89.9 % | - / 86.1 % |
-| move:descend | 238 | 0 / 100.0 % | - / 99.6 % | - / 96.6 % | - / 91.6 % |
+| move:bridge (+ run:bridge) | 532 | 0 / 98.1 % | - / 99.6 % | - / 97.9 % | - / 92.9 % |
+| move:pillar | 487 | 0 / 100.0 % | - / 94.7 % | - / 93.2 % | - / 86.1 % |
+| move:descend | 238 | 0 / 100.0 % | - / 99.6 % | - / 98.3 % | - / 91.6 % |
 | activate, pour, pickup, withdraw, supply moves | 244 | 0 / 0 | - | - | - |
-| **total** | **7,660** | **80.4 % / 96.2 %** | **78.7 % / 99.2 %** | **63.4 % / 97.6 %** | **19.5 % / 93.0 %** |
+| **total** | **7,660** | **80.4 % / 96.2 %** | **78.7 % / 99.3 %** | **63.4 % / 98.1 %** | **19.5 % / 93.0 %** |
 
 Per run now (outcome / all / ticks): pa-r1 100 / 100 / 100 %, pb-r1 99.2 / 98.0 / 94.8 %, mb-r1 99.8 / 99.6 / 98.9 %, mvb-r1 99.3 / 98.1 /
-99.0 %, pc-r1 98.7 / 97.1 / 90.6 %, pc-r2 99.4 / 97.1 / 91.4 % (stage A on pc-r2: 73.4 / 55.3 / 22.1 %). The action layer's own commands
-(no work-layer moves, 6,120): outcome **99.6 %**, all **98.2 %**. Without the 24 `pillar` commands of pc-r1 on another bot's block (the
-floor's owner was not recorded yet; recorded since pc-r2): outcome 99.5 %, all 97.9 %.
+99.0 %, pc-r1 98.8 / 97.4 / 90.6 %, pc-r2 99.6 / 98.3 / 91.4 % (stage A on pc-r2: 73.4 / 55.3 / 22.1 %). The action layer's own commands
+(no work-layer moves, 6,120): outcome **99.6 %**, all **98.5 %**.
 
-Divergences by category, stage A -> now: dig_time 2041 -> 36, movement_reach 1772 -> 71, place_time 1009 -> 47, placement_rules 986 -> 7,
-walk_time 671 -> 269, dig_rules 355 -> 22, drops 158 -> 9, gravity_blocks 10 -> 3; compared apart: world_clock 43, random_drops 40.
+| corpus | modelled | outcome | all | ticks |
+| :-- | --: | --: | --: | --: |
+| all six runs | 7,367 | 99.3 % | **98.1 %** | 93.0 % |
+| without pc-r1 (five runs) | 4,676 | 99.5 % | 98.5 % | 94.4 % |
+| all six runs without the 24 pc-r1 pillars whose floor's owner was not recorded | 7,343 | 99.6 % | 98.4 % | |
+
+**Which figure the target is judged on: all six runs, 98.1 %.** pc-r1 was recorded before the recorder kept the floor's owner, so 24 of its
+commands measure a recorder gap (fixed since pc-r2), not the simulator; but its other 2,667 commands are the largest multi-bot sample in the
+corpus and carry exactly the divergences that are left (neighbours' bodies, fluids), so dropping the run would flatter the simulator more than
+the gap distorts it. The figure without the 24 commands (98.4 %) and without the run (98.5 %) are given so the effect of the gap can be read
+off; the verdict is the same on all three.
+
+Divergences by category, stage A -> now: dig_time 2041 -> 36, movement_reach 1772 -> 72, place_time 1009 -> 47, placement_rules 986 -> 2,
+walk_time 671 -> 269, dig_rules 355 -> 17, drops 158 -> 9, gravity_blocks 10 -> 3; compared apart: world_clock 46, random_drops 40.
 Sum of simulated over real ticks per command: move_to 1.01, mine 1.02, place 0.93, pillar 0.98, descend 0.95, bridge 0.96, tunnel 1.55.
 
-**Against the targets** (section 3): outcome and reason **99.2 %** (target 98 %: met on every run); outcome, cell, blocks and inventory
-**97.6 %** (target 98 %: met on the action layer's commands, 98.2 %, and on pb, mb, mvb; not on the two place_c runs, 97.1 %, which carry the
-work-layer moves of three bots building side by side); ticks **93.0 %** (target 90 %: met; walks 79 %). What keeps the place_c runs under
-98 % is listed in section 6, items 1-4.
+**Against the targets** (section 3): outcome and reason **99.3 %** (target 98 %: met on every run); outcome, cell, blocks and inventory
+**98.1 %** (target 98 %: met; met on every run but pc-r1, 97.4 %); ticks **93.0 %** (target 90 %: met; walks 79 %). What is left is listed in
+section 6.
 
 How the numbers moved after the first version of this document (outcome / all / ticks on the whole corpus): 96.1 / 93.0 / 91.2 % ->
 the player's tick physics in Rust (`tools/sim/src/physics.rs`, a port of TASK-076's `src/native/physics` for 1.21.1; all 19 golden traces
 of `tests/golden_native` replay within the JS test's tolerance) driving `descend` and `bridge` (the 143 physics `stuck`: descend 64.7 ->
-99.5 %, bridge 88.3 -> 99.6 %) 99.2 / 96.0 / 92.5 % -> the rules below marked (2026-11-26) 99.2 / 97.6 / 93.0 %.
+99.5 %, bridge 88.3 -> 99.6 %) 99.2 / 96.0 / 92.5 % -> the rules below marked (2026-11-26) 99.2 / 97.6 / 93.0 % -> the pillar's free
+cell and the moves' own cells in the attribution 99.3 / 98.1 / 93.0 %.
 
 ### The fixes, each a rule of the game or the action layer
 
@@ -118,6 +129,8 @@ of `tests/golden_native` replay within the JS test's tolerance) driving `descend
 | movement_reach (2026-11-26) | A plan that does not reach the goal still walks: planner.js returns the path to the expanded node with the lowest heuristic (`partial`), motion.js walks it and plans again (five times, then `stuck`); the simulator said `unreachable` where it stood (57 mines, 11 walks ended in another cell). | `plan_follow`: the same partial walks and re-plans. |
 | gravity_blocks (2026-11-26) | Sand over a dug cell leaves it 2 ticks after the dig's block update, the block above 2 ticks after that (FallingBlock's scheduled tick checks the cell below); the simulator emptied the whole column at once (mvb-r1 #382: the sand over the dug cell was air in the dig's window, the two above it in the next command's). | Each block of the column leaves its cell 2 ticks after the one under it, timed from the dig's moment inside the command (`Sim::dig_t`). |
 | placement_rules (2026-11-26) | A bed is two blocks: the head goes into the cell the placer faces (10 beds in pc-r1/pc-r2). | The same, refused without room for the head. |
+| placement_rules (2026-11-26, pillar) | 11 pillars ended `not_confirmed` on the server, the simulator stacked the block. From the recordings: in 6 a neighbour's body overlapped the cell at that moment (its position on the line between the start and the end of its own recorded command: standing in the cell, or bridging through it); in 3 (pc-r1 #675-677) the feet cell held the iron farm's redstone wire, which a placement cannot replace; 2 are not explained (pc-r1 #735: the neighbour stood two cells above, not in the cell; pc-r2 #640: the neighbour reached the top cell near the end of a 19-level pillar, the level timing is a share of the window, not measured). | The server's rule: no block into a cell that is not replaceable or that another body overlaps; the replay gives the simulator the other bots' bodies across the command's window (`Sim::bodies`). |
+| attribution (2026-11-26) | A move owned only its start and end cells, so the blocks a 15-level pillar stacked and took away in between were nearer to a neighbour's cells and went to the neighbour (a measurement error of the replayer, not a simulator one). | A command owns the cells it works on (`cmd_cells`): a pillar's and a descend's column, a bridge's floor cells. The changes still counted against a command now have no other bot's command within 17 blocks: they are fluids spreading and vines (section 6). |
 | compare (2026-11-26) | Vines spreading into air (VineBlock random tick) appeared as block changes of walks; the simulator's side counted a vine losing a face as a change, the real side does not. | Vine spread is a world-clock change; both sides compare block names. |
 
 The RL `run` mode keeps its validated flood planner (`astar` off) but now also gets the new world rules (supports, vines, falling blocks,
@@ -125,26 +138,27 @@ the replaceable list); its SIM-RUST-v1 numbers were measured before these and ar
 
 ## 6. What still differs (do not read simulator numbers past this list)
 
-The remaining 182 commands that differ in outcome, cell, blocks or inventory (of 7,367 modelled), by cause:
+The remaining 142 commands that differ in outcome, cell, blocks or inventory (1.9 % of 7,367 modelled), by cause:
 
-1. **`pillar`** (49): on another bot's block (24, pc-r1 only: the floor's owner is recorded since pc-r2, where these are gone),
-   `not_confirmed` on the server (11: the stacked block did not come back within 12 ticks, three times in a row at one spot in pc-r1; most
-   likely a neighbouring bot's body in the cell, which the simulator does not see), and blocks changed by the neighbouring bots of place_c
-   that the nearest-command rule gives to the wrong bot (about 10).
-2. **Planner and aim corner cases** (about 50): mines and placements the real planner found another stand cell for, or none, where the
-   simulator found one (partial block shapes of the sky deck: scaffolding, slabs, the iron farm's trapdoors), and a few the other way.
-3. **Fluids over time** (15): water and lava spreading cell by cell next to a placement or a dig; the simulator floods a dug cell's
+1. **Stance choice on partial shapes and planner corner cases** (about 70, 0.95 %): mines, placements and walks where the real planner stood
+   on another cell or found none (`mine` / `place` ending in another cell: 46; `unreachable` the other way: about 20), mostly on the sky deck's
+   scaffolding, slabs, walls and the iron farm's trapdoors, which the two planners treat differently at the edges.
+2. **`pillar`** (32, 0.43 %): 24 on another bot's block in pc-r1 (the floor's owner was not recorded yet), 2 `not_confirmed` not explained
+   (pc-r1 #735, pc-r2 #640, section 5), the rest blocks of a neighbouring bot's build under way in the same column.
+3. **Fluids over time** (15, 0.20 %): water and lava spreading cell by cell next to a placement or a dig; the simulator floods a dug cell's
    neighbourhood at once (water) or not at all (lava).
-4. **Walk ticks** (ticks only): 79 % of `move_to` within tolerance (the server is 98 % self-consistent here): the settle on the last cell
+4. **The builder's own controls and vines** (about 15): blocks placed by `src/build/move.js` (not recorded) inside another command's window,
+   vines on a felled tree that the simulator keeps.
+5. **Walk ticks** (ticks only): 79 % of `move_to` within tolerance (the server is 98 % self-consistent here): the settle on the last cell
    and the turns are not in a per-move time. `tunnel` ticks are 1.55x the real ones (24 commands).
-5. **Bot state the simulator only has when recorded**: avoid floors, the floor's owner and the bot's own bridge blocks (recorded since pc-r2 /
+6. **Bot state the simulator only has when recorded**: avoid floors, the floor's owner and the bot's own bridge blocks (recorded since pc-r2 /
    2026-11-26), the rest of the temporary-block registry, the work layer's mine box (`protected`), a cancelled command's timing.
-6. **Not modelled at all** (3.8 % of the corpus): `activate` (except beds), `pour`, `pickup`, `withdraw`, `deposit`, `look_at`, `toss`,
+7. **Not modelled at all** (3.8 % of the corpus): `activate` (except beds), `pour`, `pickup`, `withdraw`, `deposit`, `look_at`, `toss`,
    `set_contents`, the supply moves (`take_many`, `deposit_many`, `take_shulker`), the builder's own controls (`src/build/move.js`),
    reflexes, mobs (the replay runs peaceful), hunger on Peaceful, light, fluids over time, redstone, block states beyond vine faces (a
    stair's facing compares by name).
-7. **Data**: minecraft-data 1.21.1 lists 1,470 recipes against 2,409 for 1.20.1 (not verified: no corpus command crafted).
-8. **The recorder's own cost**: up to 140 ms of event loop per bot at its first command (25 chunk snapshots), then 1-6 ms per new chunk.
+8. **Data**: minecraft-data 1.21.1 lists 1,470 recipes against 2,409 for 1.20.1 (not verified: no corpus command crafted).
+9. **The recorder's own cost**: up to 140 ms of event loop per bot at its first command (25 chunk snapshots), then 1-6 ms per new chunk.
 
 ## 7. Testing backend: the packet front end (backend B)
 
