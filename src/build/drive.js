@@ -277,6 +277,8 @@ async function work(job, name, bot, mv, cl, cancel) {
             if (underCrew(job, bot, tk.x, tk.y, tk.z) || onRouteOfOther(job, name, tk.x, tk.y, tk.z)) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
             const td = Date.now(); await unblockDig(job, name, bot, mv, tk, h); job.time.dig += Date.now() - td; done.push(tk); continue;
         }
+        // (never a block of its own pillar while its step lasts, dug from beside by a clear task: the top went and the rest stood, bt075c w2 "task clear 67,72,9 / dig pumpkin")
+        if ((tk.kind === 'clear' || tk.kind === 'untemp') && !S.AIR.has(h.name)) { const own = job.ledger.get(tk); if (own && own.by === name && own.how === 'pillar' && !own.released && !(feet(bot).x === tk.x && feet(bot).z === tk.z)) { results.push({ tk, ok: false, why: 'skipped' }); continue; } }
         if (tk.kind === 'clear' || tk.kind === 'untemp') { if (S.AIR.has(h.name)) { results.push({ tk, ok: true }); continue; } if (underCrew(job, bot, tk.x, tk.y, tk.z) || onRouteOfOther(job, name, tk.x, tk.y, tk.z)) { results.push({ tk, ok: false, why: 'skipped' }); continue; } const td = Date.now(); await mv.dig(tk); job.time.dig += Date.now() - td; done.push(tk); continue; }
         // seals, fills and scaffolds are temporary blocks too: registered before the click (a scaffold in a box cell was in no list and stood to the end, hc1)
         if (tk.kind === 'seal' || tk.kind === 'fill' || tk.kind === 'scaffold') { const it = mv.rules.temp() || job.tempItem; if (!(await mv.hold(it))) { results.push({ tk, ok: false, why: 'skipped' }); continue; } job.addTemp(tk, tk.kind, name, it); await click(mv, way); done.push(tk); continue; }

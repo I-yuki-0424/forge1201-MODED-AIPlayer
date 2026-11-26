@@ -658,7 +658,10 @@ class Mover {
         for (let i = 0; i < 30 && !placed; i++) {
             await sleep(50);
             if (b.entity.position.y > below.y + 1.12 && b.entity.velocity.y > -0.2) {
-                if (!own) this._temp(below, 'pillar', item);          // before the click (the blueprint's own block is the build, not a temporary block)
+                // (the click is on the top face of the block under `below`; when that cell holds nothing solid (air, grass, snow: the bot is not where the plan had it, mid-jump after
+                // a failed step up) the server puts the block INTO the clicked cell, one lower: registered there, else it was in nobody's list, bt075c w1/w2 "unregistered pumpkin")
+                const sup = b.blockAt(new Vec3(below.x, below.y - 1, below.z), false), into = !sup || sup.boundingBox === 'empty' || PLACEABLE.test(sup.name) ? { x: below.x, y: below.y - 1, z: below.z } : below;
+                if (!own) this._temp(into, 'pillar', item);          // before the click (the blueprint's own block is the build, not a temporary block)
                 b._client.write('block_place', { hand: 0, location: new Vec3(below.x, below.y - 1, below.z), direction: 1, cursorX: 0.5, cursorY: 1, cursorZ: 0.5, insideBlock: false, worldBorderHit: false, sequence: (this.seq = (this.seq || 0) + 1) });
                 b.swingArm(); placed = true;
             }
