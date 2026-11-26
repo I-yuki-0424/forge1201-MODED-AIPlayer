@@ -397,7 +397,8 @@ class BuildJob {
      * The run's time is over before the build is (a harness limit, an operator's stop): the crew does not leave its temporary blocks standing (owner list 5 Large 1: a clean site
      * at the end of every run). Every step is over now: the next survey keeps only the untemp tasks, and the job ends when they are done.
      */
-    wrapUp() { if (this.wrapping) return; this.wrapping = true; this.log(`wrapping up: ${this.ledger.size} temporary blocks to take away, nothing else`); this.stage = 'survey'; }
+    wrapUp() { if (this.wrapping) return; this.wrapping = true; if (this.pitPhase && !this.pitPhase.done && this.pitPhase.impl.wrapUp) this.pitPhase.impl.wrapUp();          // a pit still at work ends with its own wrap-up (its movement blocks)
+        this.log(`wrapping up: ${this.ledger.size} temporary blocks to take away, nothing else`); this.stage = 'survey'; }
     /**
      * The site's terrain goes through the pit (owner list 5 Large 3: "pit has proven mining, yet removing terrain in the way of a build is a separate custom system: reuse the
      * dedicated mechanism"): after the first survey, the box's columns from the highest cell to clear down to the lowest are an open-pit job (src/work/jobs/pit.js, the same plan,
