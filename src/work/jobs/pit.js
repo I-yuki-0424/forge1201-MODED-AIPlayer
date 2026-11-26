@@ -180,6 +180,8 @@ function unitCells(plan, region, u) {
     return out;
 }
 
+const NAV_TRIPS = 3;
+const reachFail = (m) => m && (m.reason === 'unreachable' || !!(m.detail && Array.isArray(m.detail.unmet) && m.detail.unmet.some((u) => u && u.need === 'in_reach')));
 const RETRY = new Set(['not_visible', 'not_confirmed', 'stuck', 'unreachable', 'target_lost', 'timeout']);
 const CELL_FAILS = new Set([...RETRY, 'invalid_target']);       // failures that belong to one cell: the rest of the tile can still be dug
 const NEIGH4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
@@ -247,6 +249,26 @@ async function runUnit(plan, region, u, env) {
     // cannot flow until the cell next to it opens: live run p4, a water cell in the wall next to the last stone); after the dig
     // the opened cell is the window onto it, so everything is filled then, the pocket first and the opened cell last.
     const liftedFor = new Set(), bridgedFor = new Set(), droppedFor = new Set(), navFor = new Set();
+    // A cell the station cannot reach, whatever it holds (rock, any tree block, a snow layer, a block of the crew's own pillar): blind from where the bot stands when the eye is within
+    // the server's reach (4.6), else NAV takes the bot within reach (walk, dig, pillar, bridge, descend, the block two below; owner ruling 2026-11-26) and the mine is tried again.
+    // One trip per cell and NAV_TRIPS per unit: a unit with more such cells hands them back failed (the ledger gives the unit to the next round or bot) instead of working a whole
+    // tree for minutes (081's b081k: six units ran six minutes). One root fix instead of a rule per tree shape (b081d oak canopy, b081h birch crown, b081i spruce to the snow).
+    const eyeDist = (c) => { const h = env.here ? env.here() : null; return h ? Math.hypot(h.x + 0.5 - (c.x + 0.5), h.y + 1.62 - (c.y + 0.5), h.z + 0.5 - (c.z + 0.5)) : Infinity; };
+    const navReach = async (c, m) => {
+        if (open(c)) return m;
+        if (eyeDist(c) <= 4.6) { r.blindReach = (r.blindReach || 0) + 1; const b = await env.exec('mine', { x: c.x, y: c.y, z: c.z, collect: false, blind: true }); if (b.ok || open(c)) return b; }
+        const k = `${c.x},${c.y},${c.z}`;
+        if (!env.nav || navFor.has(k) || (r.navReach || 0) >= NAV_TRIPS) return m;
+        navFor.add(k); r.navReach = (r.navReach || 0) + 1;
+        const t0 = Date.now();
+        const g = await env.nav({ x: c.x, y: c.y, z: c.z }, { near: 2, nearY: 2, why: 'pit: within reach of a cell' }).catch((e) => ({ ok: false, reason: 'internal', detail: { error: String(e && e.message || e) } }));
+        r.navMs = (r.navMs || 0) + (Date.now() - t0);
+        if (g && FATAL_MINE.has(g.reason)) return g;
+        if (open(c)) return { ok: true };
+        return env.exec('mine', eyeDist(c) <= 4.6 ? { x: c.x, y: c.y, z: c.z, collect: false, blind: true } : mineArgs(c));
+    };
+    // the slowest cell of the unit, for the log of slow units (construct.js)
+    const noteCell = (c, t0) => { const ms = Date.now() - t0; if (!r.slowCell || ms > r.slowCell.ms) r.slowCell = { x: c.x, y: c.y, z: c.z, block: env.w.nameAt ? env.w.nameAt(c.x, c.y, c.z) : null, ms }; };
     // A placement the bot cannot reach a face for (unreachable) or that ends in a swim it cannot get out of (stuck): the same walk is not tried again. The server puts the bot on a standable
     // cell beside the fluid cell, once per cell, and the placement is tried from there (a different approach); if that fails too, the failure goes up and the unit is parked.
     const placeAt = async (f, item) => {
@@ -336,11 +358,15 @@ async function runUnit(plan, region, u, env) {
         if (standsOnFloater(env, c)) { r.skipped++; r.floating = (r.floating || 0) + 1; leave(c); return null; }
         // Success is what the world shows: a `mine` that ended in the drop pickup (target_lost: the item was picked up by another
         // bot or despawned) has still opened the cell. Transient reasons (another bot in the crosshair, a slipped aim) get retries.
+        const c0 = Date.now();
         let m = await env.exec('mine', mineArgs(c));
+        // Out of reach from the station (unmet in_reach, 'unreachable'): no retry ladder (six tries with recoveries changed nothing and cost minutes per cell in a tree, 081's b081k);
+        // blind when the eye is within the server's reach, else one NAV trip within reach (navReach below)
+        if (!m.ok && !open(c) && reachFail(m)) { m = await navReach(c, m); noteCell(c, c0); }
         // A few seconds between attempts (something in the way moves on, the server catches up), and a small fix before each one:
         // jump, sidestep, go back to where the bot last worked (env.recover; the worker's ladder).
         // Retrying a cell nobody can reach changes nothing: one more look for 'unreachable', then the unit fails and is tried again later (repair passes).
-        for (let tries = 0; !m.ok && !open(c) && tries < (m.reason === 'unreachable' ? 1 : 6) && RETRY.has(m.reason); tries++) { if (env.recover) await env.recover(Math.min(tries + 2, 4), m); await (env.pause ? env.pause(10 + 10 * tries) : null); m = await env.exec('mine', mineArgs(c)); }
+        for (let tries = 0; !m.ok && !open(c) && tries < (m.reason === 'unreachable' || reachFail(m) ? 1 : 6) && RETRY.has(m.reason); tries++) { if (env.recover) await env.recover(Math.min(tries + 2, 4), m); await (env.pause ? env.pause(10 + 10 * tries) : null); m = await env.exec('mine', mineArgs(c)); }
         // The bot stands on the block (the `mine` command never stands above its target; on a one-block pillar there is no other cell): dig it from where it stands, blind. It drops one
         // block onto the pillar below (the floor check above guarantees there is one within three cells). Live pit 2026-11-07: bots walked between the rim and such pillars for an hour.
         // The same when the block is anywhere within the server's reach (about 5 blocks from the eye; the server checks the distance, not the line of sight): a cell in a one-wide shaft
@@ -378,20 +404,7 @@ async function runUnit(plan, region, u, env) {
                 if (got) { r.descended = (r.descended || 0) + got; m = await env.exec('mine', mineArgs(c)); }
             }
         }
-        // Whatever the cell holds (rock, a tree block, a snow layer, a block of the crew's own pillar) and whatever the station could not do: NAV takes the bot within reach of it, by
-        // the moves it has for any walk (walk, dig, pillar, bridge, descend, the block two below), once per cell, and the mine is tried again, blind when the eye is within reach. A cell
-        // the unit could not reach from its station was failed eight times in a row or handed to a tree pass that might not take it either (081's b081d, b081h, b081i: oak canopy,
-        // birch crown, spruce down to the snow; units on pumpkins 6.7-18 out of reach): one root fix instead of a rule per tree shape (TASK-20261125-075)
-        if (!m.ok && !open(c) && !FATAL_MINE.has(m.reason) && m.reason !== 'protected' && env.nav && !navFor.has(`${c.x},${c.y},${c.z}`)) {
-            navFor.add(`${c.x},${c.y},${c.z}`);
-            const g = await env.nav({ x: c.x, y: c.y, z: c.z }, { near: 2, nearY: 2, why: 'pit: within reach of a cell' }).catch((e) => ({ ok: false, reason: 'internal', detail: { error: String(e && e.message || e) } }));
-            if (g && FATAL_MINE.has(g.reason)) return fail(g, c, 'reach');
-            if (!open(c)) {
-                const h = env.here ? env.here() : null, d = h ? Math.hypot(h.x + 0.5 - (c.x + 0.5), h.y + 1.62 - (c.y + 0.5), h.z + 0.5 - (c.z + 0.5)) : Infinity;
-                r.navReach = (r.navReach || 0) + 1;
-                m = await env.exec('mine', d <= 4.6 ? { x: c.x, y: c.y, z: c.z, collect: false, blind: true } : mineArgs(c));
-            }
-        }
+        if (!m.ok && !open(c) && !FATAL_MINE.has(m.reason) && m.reason !== 'protected') m = await navReach(c, m);
         if (!m.ok && m.reason === 'protected') { r.skipped++; r.protected = (r.protected || 0) + 1; leave(c); return null; }       // the owner's chest or a tagged block inside the box: left standing (src/skills/fixtures.js)
         if (!m.ok && !open(c)) return fail(m, c, 'mine');
         r.mined++;

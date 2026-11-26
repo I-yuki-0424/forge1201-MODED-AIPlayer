@@ -233,5 +233,19 @@ const left = (w, box = BOX) => scan(w, box).length;
         assert(calls.some((c) => c[0] === 'place' && c[1] === 'blind' && c[2] === '2,64,5'), `the water cell sealed blind (${JSON.stringify(calls.filter((c) => c[0] === 'place'))})`);
     });
 
+    await test('pace: a reach failure skips the retry ladder, NAV goes at most three times per unit and a unit with more such cells hands them back (081 b081k: six tree units ran six minutes)', async () => {
+        const pit = require('../src/work/jobs/pit');
+        const cells = new Map(); for (let x = 1; x <= 6; x++) cells.set(`${x},64,3`, 'oak_leaves');
+        const w = { nameAt: (x, y, z) => cells.get(`${x},${y},${z}`) || (y <= 63 ? 'stone' : 'air'), kindAt: (x, y, z) => ((cells.get(`${x},${y},${z}`) || (y <= 63 ? 'stone' : 'air')) === 'air' ? 'air' : 'solid') };
+        const job = pit.createPitJob({ x0: 0, z0: 0, x1: 7, z1: 7, top: 64, bottom: 64 }, {}, { method: 'rows', road: false }), region = job.plan.regions[0];
+        let navs = 0, mines = 0;
+        const env = { w, have: () => 9, pause: async () => {}, recover: async () => {}, here: () => ({ x: 0, y: 64, z: 20 }), nav: async () => { navs++; return { ok: false, reason: 'unreachable' }; },
+            exec: async (n, a) => { if (n !== 'mine') return { ok: true }; if (cells.has(`${a.x},${a.y},${a.z}`)) { mines++; return { ok: false, reason: 'stuck', detail: { why: 'the same unmet precondition', unmet: [{ need: 'in_reach', dist: 9, max: 4.2 }] } }; } return { ok: true }; } };
+        let fails = 0; for (let u = 0; u < region.layers * region.rows; u++) { const r = await job.runUnit(region.id, { unit: u }, env); if (!r.ok) fails++; }
+        assert(fails >= 1, 'the unit fails visibly (handed back)');
+        assert(navs <= 3 * fails, `NAV trips capped per unit (${navs} for ${fails} failed units)`);
+        assert(mines <= 6 * 3, `no six-try ladder per cell (${mines} mines for 6 cells)`);
+    });
+
     console.log('\npit trees: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });
