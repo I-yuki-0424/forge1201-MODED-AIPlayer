@@ -21,7 +21,11 @@ const PASSABLE = new Set(['air', 'climb']);
 // (30-85 s per try, six tries per unit, bots end up standing on the canopy) - the live pit of 2026-11-07 with top y 90 over ground at y 64 and a tree.
 // The pit leaves such blocks alone (they are not ground; the audit does not count them) and says how many it left.
 const { TREE } = require('./pit_trees');          // the tree pass (pit_trees.js) clears these before the digging and again at the end; what it could not reach is still left alone here
-const AERIAL_UP = 6;                        // blocks above the ground below: from there on a tree block is out of reach for a bot standing on the ground
+// blocks above the ground below: from there on a tree block is the tree pass's (pit_trees.js, which takes everything over LOW from a pillar beside it), not a unit's: a unit
+// cannot pillar for it, and leaves and logs 4-6 over the ground made every unit under a canopy fail ("stuck at mine: the same unmet precondition", "unreachable: inside rock",
+// "invalid_target at rise: nothing solid under the feet / no head room": 081's site b081d, 1.21.1 world 4, the pit at 2 239 of 2 304 units with the crew waiting on the layer gate)
+const AERIAL_UP = require('./pit_trees').LOW;
+const isTreeAt = (w, c) => TREE.test(String((w.nameAt && w.nameAt(c.x, c.y, c.z)) || '').replace(/^minecraft:/, ''));
 function aerialTree(w, c) {
     const bare = (n) => String(n || '').replace(/^minecraft:/, '');
     if (!TREE.test(bare(w.nameAt && w.nameAt(c.x, c.y, c.z)))) return false;
@@ -224,6 +228,8 @@ async function runUnit(plan, region, u, env) {
     // A sweep leaves the drops where they fall and picks everything up once at the end (a walk per block would cost more than the digging).
     // The expert method mines BLIND: its stations put every cell within the arm's reach, and the server checks only the distance (no walk to a place with a view, no step into a hole).
     const mineArgs = (c) => (expert ? { x: c.x, y: c.y, z: c.z, collect: false, blind: true } : sweep ? { x: c.x, y: c.y, z: c.z, collect: false } : c);
+    // the region's tree pass is running in another bot (it claimed the region's first unit, the others go on with theirs: several bots in one region, a build site's crew)
+    const me = env.bot && env.bot.username, treeBusy = () => { const t = plan.trees && plan.trees.get(region.id); return !!(t && t.busy && t.by !== me); };
     const fail = (res, cell, stage) => ({ ok: false, reason: res.reason, detail: { ...(res.detail || {}), cell, block: env.w.nameAt ? env.w.nameAt(cell.x, cell.y, cell.z) : undefined, stage, ...r } });
     const open = (c) => PASSABLE.has(env.w.kindAt(c.x, c.y, c.z));
     const leave = (c) => { if (plan.accepted) plan.accepted.add(`${c.x},${c.y},${c.z}`); };          // a block left on purpose (a fixture, a floating block): the layer check does not send the unit back for it
@@ -306,6 +312,8 @@ async function runUnit(plan, region, u, env) {
     };
     const handleCell = async (c, last) => {
         if (isSolid(env.w, c.x, c.y, c.z) && aerialTree(env.w, c)) { r.skipped++; r.aerial = (r.aerial || 0) + 1; return null; }       // out of reach by design, see aerialTree
+        // the region's tree pass is running (another bot): its tree blocks are its, the unit leaves them (the layer check sends the unit back if one is still there afterwards)
+        if (treeBusy() && isTreeAt(env.w, c)) { r.skipped++; r.treeWait = (r.treeWait || 0) + 1; return null; }
         await lakeFill(c);
         let s = await seal(c, true);
         if (!s.ok) return s.reason === 'missing_item' && !last ? 'defer' : fail(s, c, 'seal');
@@ -381,7 +389,7 @@ async function runUnit(plan, region, u, env) {
     if (process.env.PIT_TREES !== '0' && env.run && env.here && env.exec) {
         const reg = plan.trees || (plan.trees = new Map());
         if (!reg.has(region.id)) {
-            reg.set(region.id, { busy: true });
+            reg.set(region.id, { busy: true, by: me });
             try {
                 const m = region.meta, tr = await require('./pit_trees').clearTrees(env, { x0: m.x0, x1: m.x1, z0: m.z0, z1: m.z1, top: m.top });
                 reg.set(region.id, { done: true }); r.trees = { mined: tr.mined, risen: tr.risen, columns: tr.columns, left: tr.left, failed: tr.failed.length, ms: tr.ms };
@@ -391,11 +399,11 @@ async function runUnit(plan, region, u, env) {
     }
     // Nothing to dig here (only open air, unbreakable blocks and tree blocks out of reach): done, and the bot does not walk anywhere. Walking to the station
     // of such a tile sent bots up the canopy of a tree (the planner takes the nearest reachable cell to a station in mid-air: live pit of 2026-11-07).
-    if (cells.every((c) => open(c) || UNBREAKABLE.test(env.w.nameAt(c.x, c.y, c.z) || '') || (isSolid(env.w, c.x, c.y, c.z) && aerialTree(env.w, c)))) {
+    if (cells.every((c) => open(c) || UNBREAKABLE.test(env.w.nameAt(c.x, c.y, c.z) || '') || (isSolid(env.w, c.x, c.y, c.z) && (aerialTree(env.w, c) || (treeBusy() && isTreeAt(env.w, c)))))) {
         r.skipped += cells.length; r.idle = true;
         return { ok: true, reason: null, detail: r };
     }
-    if (expert) return require('./pit_expert').runExpert({ plan, region, unit: u.unit, env, r, cells, handle, open, goToStation: (S) => goToStation(S, handle, env, open, r), sweepDrops, UNBREAKABLE, aerialTree, CELL_FAILS, EXPERT_BAND });
+    if (expert) return require('./pit_expert').runExpert({ plan, region, unit: u.unit, env, r, cells, handle, open, goToStation: (S) => goToStation(S, handle, env, open, r), sweepDrops, UNBREAKABLE, aerialTree: (c) => aerialTree(env.w, c) || (treeBusy() && isTreeAt(env.w, c)), CELL_FAILS, EXPERT_BAND });
     if (sweep && cells.station && env.here) {
         const g = await goToStation(cells.station, handle, env, open, r);
         if (g) return g;

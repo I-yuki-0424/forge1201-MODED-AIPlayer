@@ -118,5 +118,28 @@ const left = (w, box = BOX) => scan(w, box).length;
         assert.strictEqual(res.ok, true, JSON.stringify(res)); assert.strictEqual(cells().length, 0); assert.strictEqual(cobble(w), 0); assert.strictEqual(pos.y, GROUND + 1);
     });
 
+    await test('a unit leaves tree blocks over LOW above the ground (the tree pass\'s), and every tree block while another bot\'s tree pass of the region runs (b081d: units under a canopy failed "stuck at mine", "inside rock", "nothing solid under the feet")', async () => {
+        const pit = require('../src/work/jobs/pit');
+        const world = () => { const m = new Map(), k = (x, y, z) => `${x},${y},${z}`; const nameAt = (x, y, z) => m.get(k(x, y, z)) ?? (y <= 99 ? 'stone' : 'air'); return { nameAt, kindAt: (x, y, z) => (nameAt(x, y, z) === 'air' ? 'air' : 'solid'), set: (x, y, z, n) => m.set(k(x, y, z), n) }; };
+        const w0 = world(); w0.set(3, 103, 3, 'oak_leaves'); w0.set(4, 102, 4, 'oak_leaves');
+        assert.strictEqual(pit.aerialTree(w0, { x: 3, y: 103, z: 3 }), true, 'four over the ground: the tree pass\'s (was six: units tried and failed)');
+        assert.strictEqual(pit.aerialTree(w0, { x: 4, y: 102, z: 4 }), false, 'three over the ground: a unit mines it from the ground');
+        const box = { x0: 0, z0: 0, x1: 15, z1: 15, top: 101, bottom: 96 };
+        const run = async (pass) => {
+            const w = world(); w.set(5, 100, 5, 'oak_leaves'); w.set(5, 101, 5, 'oak_log'); w.set(9, 100, 9, 'stone');
+            const job = pit.createPitJob(box, {}, { method: 'expert', road: false }), reg = job.plan.regions[0];
+            job.plan.trees = new Map([[reg.id, pass]]);
+            const log = [], pos = { x: 0, y: 100, z: 0 };
+            const env = { w, bot: { username: 'Me' }, here: () => ({ ...pos }), have: () => 64, exec: async (n, a) => { log.push([n, a]); if (n === 'move_to') { Object.assign(pos, { x: a.x, y: a.y, z: a.z }); return { ok: true }; } if (n === 'mine') { w.set(a.x, a.y, a.z, 'air'); return { ok: true }; } return { ok: true }; } };
+            const r = await job.runUnit(reg.id, { unit: 0 }, env);
+            return { r, mined: log.filter((l) => l[0] === 'mine').map((l) => `${l[1].x},${l[1].y},${l[1].z}`) };
+        };
+        const busy = await run({ busy: true, by: 'Other' });
+        assert(busy.r.ok, JSON.stringify(busy.r).slice(0, 300));
+        assert(!busy.mined.includes('5,100,5') && !busy.mined.includes('5,101,5') && busy.mined.includes('9,100,9'), `another bot's tree pass: the unit leaves the tree, digs the rest (${busy.mined})`);
+        const done = await run({ done: true });
+        assert(done.mined.includes('5,100,5') && done.mined.includes('5,101,5'), `negative control: the pass is over, the unit digs the low tree (${done.mined})`);
+    });
+
     console.log('\npit trees: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });
