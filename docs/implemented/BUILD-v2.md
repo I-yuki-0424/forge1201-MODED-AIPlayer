@@ -693,3 +693,14 @@ block under the feet is dug, the bot is one lower, standing on its new block; a 
 (`scripts/t26/sink_probe.js`, H 12): the server placed every block under the floor, the bot came down to the ground, 9 placed, 0 left (`sink-probe-1.log`). With it,
 a search that ran out to a stance rules out the stances around it for three minutes (89d644cc), so the claim does not offer the next cell beside an unreachable one.
 
+
+**Pit and NAV side after the ruling (TASK-075 continued, 2026-11-26 evening; src/build is TASK-081's from here).**
+
+| Run (1.21.1, worlds 1-3, new seeds) | Result |
+| :-- | :-- |
+| `mb075f` mine_b, 240 game min at x3, wrap-up through the service (`wrapJob`, `_endPass`) | pumpkins left 2 / 1 / 1: pillar blocks hanging in the dug box (the pit's end now takes them: `cleanHanging` includes movement blocks), one block dropped from the registry by moves.js after a short wait (now kept registered) |
+| `mb075g` mine_b | **w1 PASS** (box empty, 0 pumpkins); w2 2 pumpkins (the bot died during the end's cleanup after running out of pumpkins: the pack kept only one stack of the operator's block, now all of it); w3 0 pumpkins (145 fills of dug rubble, the pit stalled in water as before) |
+| `bt075i` / `bt075j` build_t, the site cleared by the pit (081's `planPit`, `plants: true`) | no tree block failed a unit; before 018dfdd9 every plant failed ('inside rock', then 'not_visible': no collision shape to aim at); after it the pit finished on all three worlds with 0 stuck (864 / 3 168 / 1 152 units in 281 / 1 161 / 783 s) and left 0 / 0 / 1 clear tasks to the builder |
+| `mbv075a` / `mbv075b` move_b | 1/3, then 3/3 PASSED with 0 / 0 / 0 temporary blocks left (the walk that gave up mid-fight now waits 8 s off a node, and a walk that ends without its goal sweeps its own blocks) |
+| `start_probe` (seed 5479556643456516314, ma075b's bamboo tops) | 4/4 bots off the bamboo and walking (NAV: digdown onto partial blocks, only digdown on a partial top, the floor mined blind, clearCell honest) |
+| `under_probe` (owner ruling, addendum 4) | 3/3: the server accepts a block placed against the bottom face of the floor, blind, and the floor dug after it (moves.js `descend` already does this) |
