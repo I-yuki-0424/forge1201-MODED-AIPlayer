@@ -105,6 +105,12 @@ class BuildJob {
             this.untemps = new Set([...tasks.values()].filter((tk) => tk.kind === 'untemp'));
             this.fluidLeft = [...tasks.values()].some((tk) => tk.kind === 'fill' || tk.kind === 'seal');
             this._breakCycles(bot);
+            // the terrain is the pit's alone: once its rounds are used up, what it left (a cell it could not dig, water that came back) is parked with that reason, the builder
+            // does not dig the site itself (owner list 5 Large 3: no builder-specific digger)
+            if (this.pitRounds >= PIT_ROUNDS && !(this.pitPhase && !this.pitPhase.done)) {
+                let n = 0; for (const [k, tk] of [...tasks]) { if (!(tk.kind === 'clear' || tk.kind === 'fill' || tk.kind === 'seal')) continue; this._park(tk, 'left by the pit'); tasks.delete(k); n++; }
+                if (n) this.log(`${n} cells the pit left after ${this.pitRounds} rounds are parked (the builder does not dig the site)`);
+            }
             this.buckets = new Map();
             for (const tk of tasks.values()) { const k = `${Math.floor(tk.x / 8)},${Math.floor(tk.y / 8)},${Math.floor(tk.z / 8)}`; (this.buckets.get(k) || this.buckets.set(k, []).get(k)).push(tk); }
             this.claims.clear();
@@ -499,6 +505,8 @@ class BuildJob {
         if (process.env.BUILD_PIT === '0' || this.pitFor === this.tasks) return null;
         this.pitFor = this.tasks;
         if ((this.pitRounds || 0) >= PIT_ROUNDS) return null;
+        // the site only, before the first block of the build stands: a pit digs every block of its columns, built ones too
+        if (this.stats.placed > 0) { this.pitRounds = PIT_ROUNDS; return null; }
         let top = -Infinity, bottom = Infinity, n = 0;
         for (const tk of this.tasks.values()) {
             if (!(tk.kind === 'clear' || tk.kind === 'fill' || (tk.kind === 'place' && tk.wrong))) continue;
