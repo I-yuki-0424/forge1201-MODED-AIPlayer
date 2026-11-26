@@ -323,7 +323,8 @@ async function release(job, name, bot, mv, cancel, next = null, label = 'step') 
     if (!L.of(name).some((e) => !e.released && !e.orphan)) { L.begin(name, label); return 0; }
     const f0 = feet(bot), sameCol = !!next && next.x === f0.x && next.z === f0.z;
     const tr = Date.now();
-    if (!sameCol) { await mv.walkBack(cancel); await mv.unpillar(null, () => false, cancel); }
+    let wb = null, up = null;
+    if (!sameCol) { wb = await mv.walkBack(cancel); up = await mv.unpillar(null, () => false, cancel); }
     const me = feet(bot), eye = eyeOf(bot.entity.position), P = require('./place'), world = P.botWorld(bot);
     const column = (e) => sameCol && e.x === me.x && e.z === me.z && e.y < me.y;
     const ownLife = (e) => e.how === 'seal' || e.how === 'fill' || e.how === 'scaffold' || e.how === 'fixture';
@@ -343,6 +344,9 @@ async function release(job, name, bot, mv, cancel, next = null, label = 'step') 
         if (await mv.dig(c)) { job.dropTemp(c); job.stats.untemp++; n++; } else L.fail(c, 'the dig failed');
     }
     const left = L.release(name, { stay: (e) => ownLife(e) || column(e), why: `${label} begins` });
+    // a pillar of its own left standing when its step ends (it should have been the way down): where, how high, and what the bot did (the first 40 of the job)
+    { const cols = new Map(); for (const e of left) if (e.how === 'pillar') { const ck = `${e.x},${e.z}`, c0 = cols.get(ck); if (!c0 || e.y > c0.top) cols.set(ck, { top: e.y, n: (c0 ? c0.n : 0) + 1 }); else c0.n++; }
+      for (const [ck, c] of cols) if (c.n >= 2 && (job.leftLog = (job.leftLog || 0) + 1) <= 40) job.log(`[temps] ${name} leaves a column of ${c.n} at ${ck} (top ${c.top}) at the end of ${label} standing at ${me.x},${me.y},${me.z}; walkBack ${wb} unpillar ${up}; last moves ${mv.trace.slice(-4).join(' | ')}`); }
     if (left.length) job._offerTemps(Date.now(), true);
     L.begin(name, label);
     job.time.walk += Date.now() - tr;
