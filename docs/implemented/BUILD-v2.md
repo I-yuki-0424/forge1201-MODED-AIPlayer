@@ -656,3 +656,15 @@ search every five minutes, runs instead of a full claim per stance.
 Hot paths for TASK-082 (Rust), from 079's profile and these tables: the builder's A* (`move.js plan`), the claim's stance search (`job.claim` seeds: `stationsAround`, the click
 search `place.ways` with its rays), the bridge-distance map per level, and the work layer's NAV planner during the pit (event-loop blocks of 1.2-2.3 s in b081c's pit phase).
 
+**Before (`b081a`, code 2867180a = main before 081's changes, world 4 seed -3849703754884137004, 8 bots, first 31 minutes: clearing, then placing; 1 247 blocks placed,
+the stage still `prepare` with 329 cells to clear):** 1 405 pauses over 0.5 s, 1 962 bot-seconds (13.5 % of the crew's time).
+
+| Class | Pauses | Seconds | Share | Largest labels |
+| :-- | --: | --: | --: | :-- |
+| cpu | 743 | 714 | 36 % | the bot's own plan 606 s (621 pauses) |
+| other | 485 | 648 | 33 % | unlabelled drive sleeps 453 s (labelled since: read-back, click, supply queue), supply trips 167 s |
+| retry | 70 | 493 | 25 % | the plan after a failed walk 481 s (63 pauses, about 8 s each: searches that cannot succeed ran to the 4 s budget) |
+| server | 107 | 114 | 6 % | the mover's tick waits (look, click) |
+
+In the placing minutes alone (15-31) retry was 45 % (443 s) and cpu 33 %.
+
