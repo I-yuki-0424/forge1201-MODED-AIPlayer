@@ -15,6 +15,9 @@ const FATAL = new Set(['died', 'disconnected', 'cancelled', 'wrong_dimension']);
 const WALKS = new Set(['walk', 'up', 'drop', 'swim', 'climb']);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const hd = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+// The progress of a walk toward its goal: across, and up or down when the goal has a level (a station 14 levels above a bot in a dug pit: the climb is progress too; with the
+// horizontal distance alone the walk gave up after 8 pillar segments, '8 segments without getting closer (29 blocks left)', bt075u3, 1.21.1)
+const progressDist = (a, t) => Math.hypot(a.x - t.x, a.z - t.z, Number.isInteger(t.y) ? a.y - t.y : 0);
 const TRACE = !!process.env.NAV_TRACE;
 const T0 = Date.now(), say = (env, m) => { if (TRACE) console.log(`[nav] ${Math.round((Date.now() - T0) / 100) / 10}s ${env.bot ? env.bot.username : '?'} ${m}`); };          // seconds since the process began
 
@@ -248,7 +251,7 @@ async function walk(W, env0, target, o) {
     const goal = surface ? P.surfaceGoal(env.w, env.here()) : P.cellGoal(t, { near, nearY });
     const done = (r) => ({ ...r, detail: { ...(r.detail || {}), nav: { ...info, at: env.here() } } });
     say(env, `goal ${surface ? 'surface' : JSON.stringify(t)} near ${near}/${nearY}${o.why ? ' (' + o.why + ')' : ''} from ${JSON.stringify(env.here())}${TRACE ? ' <- ' + String(new Error().stack).split('\n').slice(3, 7).map((l) => l.trim().replace(/^at /, '').replace(/\(\/app\//, '(')).join(' < ') : ''}`);
-    let bestD = surface ? Infinity : hd(env.here(), t), still = 0, failsHere = 0, lastFail = null, firstFailAt = 0, swept = false, noNode = 0;
+    let bestD = surface ? Infinity : progressDist(env.here(), t), still = 0, failsHere = 0, lastFail = null, firstFailAt = 0, swept = false, noNode = 0;
     const maxSeg = o.maxSegments || 80;
     for (let seg = 0; seg < maxSeg; seg++) {
         if (env0.cancel && env0.cancel.cancelled) return done({ ok: false, reason: 'cancelled' });
@@ -329,7 +332,7 @@ async function walk(W, env0, target, o) {
             if (failsHere >= 4 && Date.now() - firstFailAt > 60000) return done({ ok: false, reason: failed.reason || 'stuck', detail: { why: `the same step failed four times here: ${failed.step} (${failed.why || failed.reason})`, failed } });
             { const ms = Math.min(4000, 250 * 2 ** Math.min(4, failsHere)); await sleep(ms); info.waitMs += ms; }
         }
-        const now = env.here(), d = surface ? 0 : hd(now, t);
+        const now = env.here(), d = surface ? 0 : progressDist(now, t);
         if (!surface && !(failed && failed.reason === 'interrupted')) { if (d < bestD - 2) { bestD = d; still = 0; } else if (++still >= (o.stuckAfter || 8)) return done({ ok: false, reason: 'stuck', detail: { why: `${o.stuckAfter || 8} segments without getting closer (${Math.round(d)} blocks left)`, failed } }); }
     }
     return done({ ok: false, reason: 'timeout', detail: { why: `more than ${maxSeg} segments` } });
@@ -361,4 +364,4 @@ async function sweep(env, { max = 60, radius = Infinity } = {}) {
     return out;
 }
 
-module.exports = { go, tidy, sweep, steps, digCostFor, protectedFor, perform, ownTemp };
+module.exports = { progressDist, go, tidy, sweep, steps, digCostFor, protectedFor, perform, ownTemp };

@@ -138,4 +138,12 @@ test('on top of any partial-shape column (bamboo 12 high, a stack of fences), gr
     assert.ok(!r0 || r0.path.length <= 1 || r0.partial, 'without the digdown there is no way off');
 });
 
+test('walk progress counts the climb or the descent toward a goal with a level (a station 14 levels up from a bot in a dug pit gave up after 8 pillar segments, bt075u3); without a level it is the distance across (negative control)', () => {
+    const { progressDist } = require('../src/nav/go');
+    const t = { x: 1109, y: 77, z: 717 }, before = { x: 1102, y: 63, z: 748 }, afterClimb = { x: 1102, y: 72, z: 748 };
+    assert.ok(progressDist(afterClimb, t) < progressDist(before, t) - 2, 'nine levels up are progress');
+    const flat = { x: 1109, z: 717 };
+    assert.strictEqual(progressDist(afterClimb, flat), progressDist(before, flat), 'no level: the climb does not count');
+});
+
 console.log('nav plan tests passed');
