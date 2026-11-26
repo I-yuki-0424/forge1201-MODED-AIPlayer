@@ -1,5 +1,5 @@
 'use strict';
-// The vanilla player movement, one client tick (TASK-20261125-076, docs/proposed/NATIVE-v1.md). Written from the game's own order of calls so that each
+// The vanilla player movement, one client tick (TASK-20261125-076, docs/implemented/NATIVE-v1.md). Written from the game's own order of calls so that each
 // step can be checked against a server trace on its own:
 //
 //   Entity.baseTick        fluids (height, current, lava), eyes in water, swimming
@@ -11,7 +11,7 @@
 //
 // The state is a plain object (see `fresh`): position, velocity, flags, and the inputs of the tick (keys, look, attributes, effects). Angles are the game's:
 // yaw and pitch in degrees (yRot / xRot). Elytra flight, riding, creative flight, entity pushing and the client's push out of blocks are not modelled
-// (docs/proposed/NATIVE-v1.md, "Gaps").
+// (docs/implemented/NATIVE-v1.md, "Gaps").
 const M = require('./mth');
 const S = require('./shapes');
 const { View } = require('./blocks');

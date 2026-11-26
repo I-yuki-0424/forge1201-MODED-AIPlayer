@@ -62,6 +62,7 @@ All coordinates are block cells (integers). "Success" is what the command waits 
 | `smelt` | `item count? x? y? z?` | nearest furnace / smoker / blast furnace, fuel from the inventory (not the input), wait, take the output | output in the inventory | `missing_item`, `missing_materials` (fuel), `no_station` |
 | `deposit` | `item count x y z` | open the chest or barrel there, move `count` in | the container holds `count` more | `missing_item`, `invalid_target` |
 | `withdraw` | `item count x y z` | open it, take `count` out | `count` more in the inventory | `missing_item` (container), `invalid_target` |
+| `set_contents` | `x y z` and `contents [{slot item count}]` or `signal item`; `exact?` | open the container (chest, barrel, shulker box, hopper, dropper, dispenser), click the given items into the given slots from the pack, or the fewest of `item` for a comparator strength; `exact` empties the rest (TASK-20261125-076, [NATIVE-v1](NATIVE-v1.md)) | the server's window contents equal the goal | `missing_item`, `invalid_target`, `not_confirmed`, `precondition_failed` (atomic: `in_reach`, `item_in_pack`) |
 
 ### Failure taxonomy (closed, `REASONS` in `runner.js`)
 

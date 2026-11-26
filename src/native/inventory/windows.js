@@ -4,7 +4,7 @@
 // The server's packets are the truth: every set_slot / window_items / cursor packet overwrites the prediction; a prediction the server corrected is
 // counted (`stats.corrections`), and `sync()` asks for the full state (a no-op click with an impossible state id makes the server send window_items).
 //
-// Two causes of the click trouble seen with mineflayer (measured offline, scripts/native/probe_click_wire.js; docs/proposed/NATIVE-v1.md), both handled here:
+// Two causes of the click trouble seen with mineflayer (measured offline, scripts/native/probe_click_wire.js; docs/implemented/NATIVE-v1.md), both handled here:
 //   - the carried-stack corrections: up to 1.21.1 set_slot(window -1, slot -1), from 1.21.2 set_cursor_item; mineflayer 4.39 handles neither, so after a
 //     click the server corrected, its cursor stays wrong until the next full window_items and the next click carries the wrong cursor;
 //   - from 1.21.5 the click carries HashedSlot (item, count, a CRC32C per component); mineflayer writes hash 0 for every component, so every click

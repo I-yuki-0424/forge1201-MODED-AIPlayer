@@ -5,7 +5,7 @@
 //   {"t":"st","id":<state id of that version>,"n":<block name>,"p":{properties}}
 //   {"t":"chunk","ms":..,"tick":..,"cx":..,"cz":..,"minY":..,"height":..,"enc":"u16le-deflate-b64","cells":..}   index ((y - minY) * 16 + z) * 16 + x
 //   {"t":"blk","ms":..,"tick":..,"p":[x,y,z],"s":<state id>}
-// and this task adds the `tick` line (proposed in that section; documented in docs/proposed/NATIVE-v1.md "Trace format"):
+// and this task adds the `tick` line (proposed in that section; documented in docs/implemented/NATIVE-v1.md "Trace format"):
 //   {"t":"tick","ms":..,"tick":n,"row":[t, phase, keys, x, y, z, vx, vy, vz, yaw, pitch, onGround, slot]}
 // `row` has the shape of the runner's per-tick rows (src/skills/runner.js): keys 'FBLRJSNAU' ('.' = up, then Q / X), yaw / pitch in mineflayer's radians,
 // onGround 0/1. Unlike the runner's rows (state BEFORE the tick, rounded to 1e-3), a `tick` line holds the state AFTER the physics tick that ran with
