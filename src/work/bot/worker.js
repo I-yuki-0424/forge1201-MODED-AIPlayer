@@ -25,6 +25,23 @@ async function runWorker(job, id, env, { cancel = { cancelled: false }, policy =
     if (env && typeof env === 'object') { env.act = act; env.sub = (name) => { if (subOpt) { try { subOpt(name); } catch (_) { /* a display hook never stops work */ } } }; }
     const backoff = backoffOpt || backoffMs;
     const tries = {};
+    // The job's end (its cleanup: the movement blocks, the pit's hanging blocks; nav's sweep). A death in the middle of it does not end it: the respawned bot waits for its spawn and
+    // does it again, up to three times (TASK-20261125-075 item 4: a bot that died during the end cleanup left its last two pumpkins for good, mine_b mb075g w2).
+    const endPass = async () => {
+        const bot = env && env.bot;
+        for (let round = 0; round < 3; round++) {
+            let died = false; const onDeath = () => { died = true; };
+            if (bot && bot.on) bot.on('death', onDeath);
+            try {
+                if (job.cleanup) await job.cleanup(env);
+                if (!died && env.navOn && env.navOn()) await require('../../nav/go').sweep(env);
+            } finally { if (bot && bot.removeListener) bot.removeListener('death', onDeath); }
+            if (!died || cancel.cancelled) return;
+            onEvent('end_after_death', { id, round: round + 1 });
+            await new Promise((res) => { const t = setTimeout(res, 30000); if (bot && bot.once) bot.once('spawn', () => { clearTimeout(t); res(); }); });
+            await sleep(2000);
+        }
+    };
     // A recovery script (work/script.js) for what the bot lacks, run before it gives up and waits for the operator.
     // A handler is a script, or a function of the failed result that picks one (missing_tool: the class of tool the block needs; missing_item: the item that ran out).
     const recover = async (reason, failed) => {
@@ -90,7 +107,7 @@ async function runWorker(job, id, env, { cancel = { cancelled: false }, policy =
                     }
                     if (sw.busy && ++sweepWaits < 900) { await sleep(pollMs); continue; }       // another bot is looking at a chunk: it may send units back, be there for them
                 } else if (L.finished() && finalAudits < 3 && ++finalAudits && audit(true)) continue;
-                if (L.finished()) { if (job.cleanup) await job.cleanup(env); if (env.navOn && env.navOn()) await require('../../nav/go').sweep(env); return { ended: 'finished', units, failed }; }          // nav's sweep: none of this bot's movement blocks outlives the job
+                if (L.finished()) { await endPass(); return { ended: 'finished', units, failed }; }          // nav's sweep: none of this bot's movement blocks outlives the job
                 // The next layer waits for units other bots are still running; if nobody is running anything, nothing will change.
                 if (L.progress().leased === 0 && !L.checkBusy(now()) && ++idle > 20) { L.leave(id, now()); return { ended: 'stalled', units, failed }; }
                 act('idle');                                    // nothing claimable: the next layer waits for other bots' units, or the units left are on hold after a failure

@@ -47,7 +47,7 @@ const COMMANDS = {
     look_at: { fn: lookAt, args: { ...XYZ_OPT, entity: 'entity?' }, oneOf: [['x', 'y', 'z'], ['entity']], ticks: 40 },
     mine: { fn: mine, args: { ...XYZ, collect: 'bool?', blind: 'bool?' }, ticks: walkTicks(1200) },    // collect:false / blind:true are work-layer options (src/work), not offered to the RL policy
     tunnel: { fn: tunnel, args: { dir: 'dir', dy: 'dy' }, ticks: 2400 },
-    place: { fn: place, args: { ...XYZ, item: 'item', fluid: 'bool?', temp: 'name?', recipe: 'recipe?', block: 'item?' }, ticks: walkTicks(1200) },    // namespaced ids allowed: pure bots place mod blocks (work/build.js)
+    place: { fn: place, args: { ...XYZ, item: 'item', fluid: 'bool?', temp: 'name?', recipe: 'recipe?', block: 'item?', blind: 'bool?' }, ticks: walkTicks(1200) },    // namespaced ids allowed: pure bots place mod blocks (work/build.js)
     pour: { fn: pour, args: { ...XYZ, item: 'item', waterlog: 'bool?' }, ticks: walkTicks(1200) },    // a water / lava bucket: a source in the cell, or the water of a waterlogged block (work/build.js)
     activate: { fn: activate, args: { ...XYZ, item: 'item?', sneak: 'bool?', blind: 'bool?' }, ticks: walkTicks(600) },
     pickup: { fn: pickup, args: { entity: 'entity?', item: 'name?' }, oneOf: [['entity'], ['item']], ticks: 1200 },

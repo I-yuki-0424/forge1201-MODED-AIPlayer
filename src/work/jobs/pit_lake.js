@@ -140,7 +140,9 @@ async function fillLake(c, seeds) {
             let item = sealItem(env);
             if (!item && env.run && env.within) { const hv = await env.run('harvest', { items: c.items }); if (hv.ok && hv.detail && hv.detail.got) { stats.harvested++; item = sealItem(env); } }
             if (!item) return done({ reason: 'missing_item', detail: { why: 'no blocks left to fill the lake with', filled: stats.filled } });
-            const p = await env.exec('place', { x: f.x, y: f.y, z: f.z, item, fluid: true, temp: 'lake' }, { raw: true, maxTicks: 160 });
+            let p = await env.exec('place', { x: f.x, y: f.y, z: f.z, item, fluid: true, temp: 'lake' }, { raw: true, maxTicks: 160 });
+            // (no face in sight: a blind click on a support within reach, as the pit's seals; TASK-075, owner ruling 2026-11-26)
+            if (!p.ok && ['unreachable', 'not_visible', 'stuck'].includes(p.reason)) { const b = await env.exec('place', { x: f.x, y: f.y, z: f.z, item, fluid: true, temp: 'lake', blind: true }, { raw: true, maxTicks: 80 }); if (b.ok) p = b; }
             if (p.ok) { stats.filled++; placed++; rowFails = 0; stats.placed.push({ x: f.x, y: f.y, z: f.z }); continue; }
             if (p.reason === 'died' || p.reason === 'disconnected' || p.reason === 'cancelled') return done({ reason: p.reason, detail: p.detail });
             const k = key(f.x, f.y, f.z); cellFails.set(k, (cellFails.get(k) || 0) + 1);

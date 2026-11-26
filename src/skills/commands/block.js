@@ -174,7 +174,7 @@ function supports(w, cell) {
 const overlaps = (pos, c) => pos.x + 0.3 > c.x && pos.x - 0.3 < c.x + 1 && pos.z + 0.3 > c.z && pos.z - 0.3 < c.z + 1 && pos.y + 1.8 > c.y && pos.y < c.y + 1;
 
 /** place {x, y, z, item, fluid?}: place the block item into that cell, against any solid neighbour. `fluid` allows a cell of water or lava. */
-async function place(ctx, { x, y, z, item, fluid = false, temp = null, recipe = null, block = null }) {
+async function place(ctx, { x, y, z, item, fluid = false, temp = null, recipe = null, block = null, blind = false }) {
     const bot = ctx.bot, w = ctx.world, cell = { x, y, z };
     if (!bot.registry.blocksByName[block || item]) throw new SkillError('invalid_args', { item, block, why: 'not a placeable block item' });
     const cur = w.blockAt(x, y, z);
@@ -187,6 +187,10 @@ async function place(ctx, { x, y, z, item, fluid = false, temp = null, recipe = 
     if (recipe) return placeWithRecipe(ctx, { cell, item, expect: block || item, recipe, temp });
     const refs = supports(w, cell);
     if (!refs.length) throw new SkillError('invalid_target', { why: 'no solid neighbour to place against', target: cell });
+    // `blind` (work layer, fluid seals): the click on a support face within reach from where the bot stands, no walk, no line of sight; the vanilla server checks the reach to the
+    // clicked block only (under_probe: a block placed against the bottom face of the floor, 3/3 on 1.21.1). A water cell whose only supports are behind the block the bot is
+    // about to dig had no stand cell with a view at all, and the pit stalled ('seal: no standing cell within reach', mine_b mb075g w3, TASK-075)
+    if (blind) return placeBlind(ctx, { cell, item, refs, temp });
     const free = (c) => !(c.x === x && c.z === z && (c.y === y || c.y + 1 === y));
     const seen = () => {
         const out = refs.filter((r) => clearOfEntities(ctx, aimPoints(ctx.body.eye(), r.cell, w.shapesAt, { face: r.face, limit: 5, reach: AIM_REACH })).length);
@@ -227,6 +231,26 @@ async function place(ctx, { x, y, z, item, fluid = false, temp = null, recipe = 
         if (++tried >= 3) break;
     }
     throw new SkillError(tried ? 'not_confirmed' : 'not_visible', { target: cell, tried });
+}
+
+/** The blind click of `place {blind}`: the nearest support face within BLIND_REACH of the eye, clicked by the body's cell frame. */
+async function placeBlind(ctx, { cell, item, refs, temp }) {
+    const bot = ctx.bot, w = ctx.world, eye = ctx.body.eye(), { x, y, z } = cell;
+    const faceMid = (r) => { const n = FACES[r.face]; return { x: r.cell.x + 0.5 + n[0] * 0.5, y: r.cell.y + 0.5 + n[1] * 0.5, z: r.cell.z + 0.5 + n[2] * 0.5 }; };
+    const cands = refs.filter((r) => !r.interactive).map((r) => ({ r, d: Math.hypot(faceMid(r).x - eye.x, faceMid(r).y - eye.y, faceMid(r).z - eye.z) })).filter((o) => o.d <= BLIND_REACH - 0.5).sort((a, b) => a.d - b.d);
+    if (!cands.length) throw new SkillError('unreachable', { why: 'no support face within reach for a blind click', target: cell });
+    if (overlaps(bot.entity.position, cell)) throw new SkillError('precondition_failed', { unmet: [{ need: 'cell_free', cell }] });
+    await holdOrFail(ctx, item, undefined, 'item_held');
+    const placed = () => w.blockAt(x, y, z)?.name === item;
+    for (const { r } of cands.slice(0, 3)) {
+        const n = FACES[r.face], cursor = { x: n[0] > 0 ? 1 : n[0] < 0 ? 0 : 0.5, y: n[1] > 0 ? 1 : n[1] < 0 ? 0 : 0.5, z: n[2] > 0 ? 1 : n[2] < 0 ? 0 : 0.5 };
+        ctx.phase('place_blind', { against: r.cell, face: r.face });
+        if (temp && bot.__temps) bot.__temps.add({ dim: fixtures.dimOf(bot), x, y, z, item, kind: temp, by: bot.username });          // before the click
+        await ctx.tick({ use: true, cell: { x: r.cell.x, y: r.cell.y, z: r.cell.z, face: r.face, cursor } });
+        await ctx.tick({});
+        try { await ctx.until(placed, 10, 'not_confirmed'); fixtures.markPlaced(bot, item, cell); return { against: r.cell, face: r.face, blind: true }; } catch (e) { if (e.reason !== 'not_confirmed') throw e; }
+    }
+    throw new SkillError('not_confirmed', { target: cell, blind: true });
 }
 
 /**

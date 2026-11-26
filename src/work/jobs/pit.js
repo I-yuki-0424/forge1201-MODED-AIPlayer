@@ -251,6 +251,10 @@ async function runUnit(plan, region, u, env) {
     // cell beside the fluid cell, once per cell, and the placement is tried from there (a different approach); if that fails too, the failure goes up and the unit is parked.
     const placeAt = async (f, item) => {
         let p = await env.exec('place', { x: f.x, y: f.y, z: f.z, item, fluid: true, temp: 'seal' });
+        // no face of it in sight from any stand cell (a water cell whose supports are behind the block the bot is about to dig, or under its own floor): a blind click on a support
+        // face within reach from here; the server checks the reach, not the line (owner ruling 2026-11-26, under_probe 3/3). The stall of mine_b's watery chunks: 'seal: no standing
+        // cell within reach of the target exists (inside rock)' parked unit after unit (mb075g w3, mb075f w2, mine_b-w121-a)
+        if (!p.ok && ['unreachable', 'not_visible', 'stuck', 'precondition_failed'].includes(p.reason)) { const b = await env.exec('place', { x: f.x, y: f.y, z: f.z, item, fluid: true, temp: 'seal', blind: true }); if (b.ok) { r.sealBlind = (r.sealBlind || 0) + 1; p = b; } }
         const key = `p${f.x},${f.y},${f.z}`;
         if (!p.ok && (p.reason === 'unreachable' || p.reason === 'stuck') && env.lift && !liftedFor.has(key)) {
             liftedFor.add(key);

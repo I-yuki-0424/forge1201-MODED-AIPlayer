@@ -102,7 +102,8 @@ async function rescue(env, box, { why = null, maxFill = 48 } = {}) {
             for (const c of plan.fill) {
                 item = sealItem(env);
                 if (!item) return { ...out, ok: false, reason: 'missing_item', detail: { why: 'no block to stop the water with', tried: SEAL_ITEMS } };
-                const p = await exec('place', { x: c.x, y: c.y, z: c.z, item, fluid: true, temp: 'rescue' });
+                let p = await exec('place', { x: c.x, y: c.y, z: c.z, item, fluid: true, temp: 'rescue' });
+                if (!p.ok && ['unreachable', 'not_visible', 'stuck'].includes(p.reason)) { const b = await exec('place', { x: c.x, y: c.y, z: c.z, item, fluid: true, temp: 'rescue', blind: true }); if (b.ok) p = b; }          // (blind, as the pit's seals: TASK-075)
                 if (!p.ok) { if (p.reason === 'died' || p.reason === 'disconnected' || p.reason === 'cancelled') return { ...out, ok: false, reason: p.reason, detail: p.detail }; continue; }
                 out.filled++;
             }

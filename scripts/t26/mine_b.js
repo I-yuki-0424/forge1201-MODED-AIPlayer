@@ -3,6 +3,7 @@
 // unbreakable), 2 stacks of temporary blocks, food; Normal, no keepInventory. The job counts as done ONLY if not a single block (fluids included) is left in the box: the SERVER compares
 // every layer with air in the sky (`execute if blocks ... masked`; the untouched chunk must fail the same check: the control). Required: 100 %.
 //   scripts/t26/run.sh N mine_b.js [LIMIT_MIN=240] [DEPTH=layers from the top, a rehearsal] [W=16] [METHOD=sweep|expert|rows] [CONTROL=noop]
+//   [KILL_AT_END=1 [KILL_AFTER_MS=4000]]: kill the bot during the end's cleanup at the time limit (TASK-075's negative test: nothing may be left anyway)
 //   [POND=WxD] plants a pond (W x W cells across, D deep, flush with the ground, source blocks) in the middle of the box before the run: a SMOKE test of the water rule, never evidence
 //   (built with commands); [PIT_LAKE=0] turns the lake fill off (A/B). The natural coast/aquifer chunks are the evidence.
 const T = require('./lib');
@@ -75,6 +76,8 @@ const LIMIT_MIN = Number(process.env.LIMIT_MIN || 240), DEPTH = Number(process.e
             // the time is over before the pit: the crew takes its movement blocks away first (pit.js wrapUp; owner list 5 Large 1: a clean site at the end of every run), WRAP_MIN at most
             if (j && j.impl && j.impl.wrapUp && Number(process.env.WRAP_MIN ?? 5) > 0) {
                 if (svc.wrapJob) svc.wrapJob(pit.id); else j.impl.wrapUp(); const tw = Date.now();
+                // KILL_AT_END=1: the bot is killed a few seconds into the end's cleanup (the live negative test of TASK-075 item 4: the respawned bot must still take every block away)
+                if (process.env.KILL_AT_END === '1') { await T.sleep(Number(process.env.KILL_AFTER_MS || 4000)); console.log(`[wrap] killing ${name} during the end (KILL_AT_END)`); await S.cmd(`kill ${name}`); }
                 while (Date.now() - tw < Number(process.env.WRAP_MIN ?? 5) * 60000) { const jj = svc.jobs.get(pit.id); if (!jj || jj.state !== 'running') break; await T.sleep(3000); }
                 console.log(`[wrap] ${Math.round((Date.now() - tw) / 1000)} s, job ${(svc.jobs.get(pit.id) || {}).state}, registered ${svc.temps.size}: ${JSON.stringify(((svc.jobs.get(pit.id) || {}).impl || {}).plan ? svc.jobs.get(pit.id).impl.plan.endReport || {} : {}).slice(0, 300)}`);
             }

@@ -222,5 +222,38 @@ const left = (w, box = BOX) => scan(w, box).length;
         assert.strictEqual(T.size, 0, 'nine seconds later, still empty: never placed, forgotten');
     });
 
+    await test('the job\'s end survives a death: the respawned bot does the cleanup again (mb075g w2: died during it, two pumpkins left); without a death once (negative control)', async () => {
+        const { runWorker } = require('../src/work/bot/worker');
+        const { Ledger } = require('../src/work/jobs/crew');
+        const { EventEmitter } = require('events');
+        const run = async (dieFirst) => {
+            const L = new Ledger({ maxAttempts: 3 }); L.addRegion({ id: 'r', anchor: { x: 0, z: 0 }, layers: 1, rows: 1 });
+            const bot = new EventEmitter(); let calls = 0;
+            const job = { ledger: L, runUnit: async () => ({ ok: true }), cleanup: async () => { calls++; if (dieFirst && calls === 1) { bot.emit('death'); setTimeout(() => bot.emit('spawn'), 20); } } };
+            const env = { bot, pos: () => ({ x: 0, z: 0 }), here: () => ({ x: 0, y: 0, z: 0 }), now: Date.now, exec: async () => ({ ok: true }) };
+            const res = await runWorker(job, 'b', env, { pollMs: 2, backoff: () => 1 });
+            return { res, calls };
+        };
+        const died = await run(true), plain = await run(false);
+        assert.strictEqual(died.res.ended, 'finished'); assert.strictEqual(died.calls, 2, `the cleanup ran again after the respawn (${died.calls})`);
+        assert.strictEqual(plain.calls, 1);
+    });
+
+    await test('a seal whose fluid cell has no face in sight from any stand cell is placed by a blind click on a support within reach (the watery-chunk stall of mine_b)', async () => {
+        const pit = require('../src/work/jobs/pit');
+        const cells = new Map([['2,64,5', 'water']]);
+        const w = { nameAt: (x, y, z) => cells.get(`${x},${y},${z}`) || (y <= 64 && !(x === 1 && y === 64 && z === 5 && cells.get('1,64,5') === 'air') ? 'stone' : 'air'), kindAt(x, y, z) { const n = this.nameAt(x, y, z); return n === 'air' ? 'air' : n === 'water' ? 'water' : 'solid'; } };
+        const job = pit.createPitJob({ x0: 0, z0: 0, x1: 7, z1: 7, top: 64, bottom: 64 }, {}, { method: 'rows', road: false }), region = job.plan.regions[0];
+        const calls = [];
+        const env = { w, have: (x) => (x === 'cobblestone' ? 64 : 0), pause: async () => {}, here: () => ({ x: 0, y: 65, z: 5 }), exec: async (n, a) => {
+            calls.push([n, a.blind ? 'blind' : 'sighted', `${a.x},${a.y},${a.z}`]);
+            if (n === 'place') { if (!a.blind) return { ok: false, reason: 'unreachable', detail: { why: 'no standing cell within reach of the target exists (it is inside rock)' } }; cells.set(`${a.x},${a.y},${a.z}`, 'cobblestone'); return { ok: true }; }
+            if (n === 'mine') { cells.set(`${a.x},${a.y},${a.z}`, 'air'); return { ok: true }; }
+            return { ok: true };
+        } };
+        let ok = true; for (let u = 0; u < region.layers * region.rows; u++) { const r = await job.runUnit(region.id, { unit: u }, env); ok = ok && r.ok; }
+        assert(calls.some((c) => c[0] === 'place' && c[1] === 'blind' && c[2] === '2,64,5'), `the water cell sealed blind (${JSON.stringify(calls.filter((c) => c[0] === 'place'))})`);
+    });
+
     console.log('\npit trees: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });
