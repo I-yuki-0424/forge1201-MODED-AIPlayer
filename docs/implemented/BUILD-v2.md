@@ -675,3 +675,21 @@ stance had 68 doable cells within reach, 66 of them with no click from it. They 
 these cells as ready makes the claim's "ready" and "doable" figures look larger than the work it can do; the per-minute line now also prints the doable cells in reach of the
 chosen stance and how many had no click (`bb1c03e7`).
 
+### Runs (Fabric 1.21.1 test world 4, iron-farm-34, 8 bots, a new random seed each, pumpkins the only temporary block, speed x1)
+
+| Run (code) | What it showed | Change |
+| :-- | :-- | :-- |
+| `b081a` (2867180a, before 081) | 30 min: 1 247 placed, the stage still `prepare` with 329 cells to clear; the pause table before (above) | (baseline, stopped at 30 min) |
+| `b081b` (expert pit) | two bots entered the pit with an empty pack after a trip that brought nothing (missing_item x22), the others with their area's materials; expert stations "could not stand" 18x | kit-only trip before the pit; sweep method |
+| `b081c` (sweep pit) | the pit cleared 7 018 cells in 702 s (5 left); then every bot's first claim threw: drive's new `work` option shadowed `work()` | renamed (2371e5d6) |
+| `b081d` | the pit sat at 2 239 / 2 304 units for 20 min on a forest site (tree blocks its units could not take, 7 bots waiting) | 6-min stall cap (safety net); 075's tree fix (ebf6798e, c627010e) |
+| `b081f` (26e2d282) | pit 396 s (5 518 cells, 0 stuck, no trees on the site, cap not fired); 96 plant cells left (the pit's model saw them as air), broken by the builder; then placing: 1 548 at 30 min, 4 028 at 68, 4 932 at 96 (57 parked). From minute ~85 six of eight bots were stranded at y 108-122: "no way to the materials" 125 times, searches of 40 000 cells from the top of the build | see below; stopped at 96 min (its judge was decided) |
+
+**The stranding (b081f).** 075's lifetime rule takes a pillar back as soon as its step is over, so the way up a bot took no longer exists when it wants to come down; the
+planner's only ways down were drops of at most six, and the build's glass walls offer none. The pause table showed it: minutes 80-92 had 2 397 bot-seconds of
+`retry: plan` (67 pauses of about 35 s, 85 % of all pause time). The remedy is a move, not a keep rule: **sink** (`move.js`, owner ruling of 2026-11-26, OWNER-LIST-5
+addendum 4, Tweakeroo-class placement): a temporary block goes under the block the bot stands on (that block's bottom face clicked; the server checks reach, not sight), the
+block under the feet is dug, the bot is one lower, standing on its new block; a column of its own going down, taken away as it goes, which fits 075's rule. Probe on world 4
+(`scripts/t26/sink_probe.js`, H 12): the server placed every block under the floor, the bot came down to the ground, 9 placed, 0 left (`sink-probe-1.log`). With it,
+a search that ran out to a stance rules out the stances around it for three minutes (89d644cc), so the claim does not offer the next cell beside an unreachable one.
+
