@@ -265,8 +265,32 @@ async function runUnit(plan, region, u, env) {
         r.navMs = (r.navMs || 0) + (Date.now() - t0);
         const ni = g && g.detail && g.detail.nav; if (ni) { r.navPlanCpu = (r.navPlanCpu || 0) + (ni.planCpuMs || 0); r.navPlan = (r.navPlan || 0) + (ni.planMs || 0); r.navMove = (r.navMove || 0) + (ni.moveMs || 0); }
         if (g && FATAL_MINE.has(g.reason)) return g;
-        if (open(c)) return { ok: true };
-        return env.exec('mine', eyeDist(c) <= 4.6 ? { x: c.x, y: c.y, z: c.z, collect: false, blind: true } : mineArgs(c));
+        const got = open(c) ? { ok: true } : await env.exec('mine', eyeDist(c) <= 4.6 ? { x: c.x, y: c.y, z: c.z, collect: false, blind: true } : mineArgs(c));
+        if (got.ok || open(c)) await canopy();
+        return got;
+    };
+    // Where a trip has brought the bot (in a canopy, on a pillar beside a crown), every tree block of the box within reach goes too, blind, whichever unit it belongs to: one trip
+    // serves a cluster of leaves instead of one trip per unit (bt075t8-10: 140 trips, nearly all for one cell). Never a block under a bot (its own column below the feet, or the cell
+    // under another bot), at most 48 per trip; the units find those cells open and go on.
+    const canopy = async () => {
+        const h = env.here ? env.here() : null, b = plan.box; if (!h || !b) return;
+        const oth = (env.others ? env.others() : []).map((o) => ({ x: Math.floor(o.x), y: Math.floor(o.y), z: Math.floor(o.z) }));
+        const cand = [];
+        for (let dx = -4; dx <= 4; dx++) for (let dy = -3; dy <= 5; dy++) for (let dz = -4; dz <= 4; dz++) {
+            const t = { x: h.x + dx, y: h.y + dy, z: h.z + dz };
+            if (t.x < b.x0 || t.x > b.x1 || t.z < b.z0 || t.z > b.z1 || t.y > b.top || t.y < b.bottom) continue;
+            if (!isTreeAt(env.w, t) || eyeDist(t) > 4.4) continue;
+            if (dx === 0 && dz === 0 && dy < 0) continue;
+            if (oth.some((o) => o.x === t.x && o.z === t.z && o.y - 1 === t.y)) continue;
+            cand.push(t);
+        }
+        cand.sort((p, q) => q.y - p.y);              // from the top: nothing is cut from under a block still to come
+        for (const t of cand.slice(0, 48)) {
+            if (!isTreeAt(env.w, t)) continue;
+            const m = await env.exec('mine', { x: t.x, y: t.y, z: t.z, collect: false, blind: true });
+            if (m && FATAL_MINE.has(m.reason)) return;
+            if (m && m.ok) r.canopy = (r.canopy || 0) + 1;
+        }
     };
     // time in cells (the rest of a unit is its walks to stations) and the slowest cell with what it held and how it ended, for the log of slow units (construct.js)
     const noteCell = (c, t0, block, res) => { const ms = Date.now() - t0; r.cellMs = (r.cellMs || 0) + ms; if (!r.slowCell || ms > r.slowCell.ms) r.slowCell = { x: c.x, y: c.y, z: c.z, block, ms, end: res === null ? 'ok' : res === 'defer' ? 'defer' : (res && res.reason) || null }; };
@@ -597,7 +621,7 @@ async function goToStation(S, handle, env, open, r) {
             if (env.travel && routed < 2) {
                 // The exact cell first (a bot that fell out of the pit through a cave: from (29,-16) at y 68 the exact cell was walked in 14 s on 2026-11-16, 3 tries of the level form failed), then the column near its level.
                 routed++; const t = routed === 1 ? await env.travel({ x: S.x, y: S.y, z: S.z }, { near: 2 }) : await env.travel({ x: S.x, z: S.z, level: S.y }, { near: 8, nearY: 6 });
-                if (t.ok) { r.routed = (r.routed || 0) + 1; continue; } r.routeFail = `${r.routeFail ? r.routeFail + ',' : ''}${t.reason}`;
+                if (t.ok) { r.routed = (r.routed || 0) + 1; continue; } r.routeFail = `${r.routeFail ? r.routeFail + ',' : ''}${t.reason}${t.detail && t.detail.why ? ` (${String(t.detail.why).slice(0, 70)})` : ''}`;          // (the why: bt075t10's 'stuck' beside the bed, unexplained)
             }
             return { ok: false, reason: 'unreachable', detail: { why: `too far from the station to dig a corridor toward it${r.launchTried ? ` (launch cell: ${r.launchTried})` : ''}`, botSide: true, stage: 'station', cell: S, at: { x: Math.floor(here.x), y: Math.floor(here.y), z: Math.floor(here.z) }, ...r } };
         }

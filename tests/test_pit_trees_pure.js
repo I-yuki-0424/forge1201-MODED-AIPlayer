@@ -247,5 +247,22 @@ const left = (w, box = BOX) => scan(w, box).length;
         assert(mines <= 6 * 3, `no six-try ladder per cell (${mines} mines for 6 cells)`);
     });
 
+    await test('canopy: after a NAV trip the bot takes every tree block of the box within reach, from the top, never one under a bot or in its own column below the feet, never one out of reach', async () => {
+        const pit = require('../src/work/jobs/pit');
+        const cells = new Map([['3,70,3', 'oak_leaves'], ['4,71,3', 'oak_leaves'], ['2,69,4', 'oak_leaves'], ['2,67,3', 'oak_leaves'], ['5,68,3', 'oak_leaves'], ['7,70,7', 'oak_leaves'], ['3,66,6', 'stone']]);
+        const w = { nameAt: (x, y, z) => cells.get(`${x},${y},${z}`) || (y <= 63 ? 'stone' : 'air'), kindAt: (x, y, z) => ((cells.get(`${x},${y},${z}`) || (y <= 63 ? 'stone' : 'air')) === 'air' ? 'air' : 'solid') };
+        const job = pit.createPitJob({ x0: 0, z0: 0, x1: 7, z1: 7, top: 72, bottom: 64 }, {}, { method: 'rows', road: false }), region = job.plan.regions[0];
+        const pos = { x: 0, y: 64, z: 0 }, mined = [];
+        const env = { w, have: () => 9, pause: async () => {}, here: () => ({ ...pos }), others: () => [{ name: 'B', x: 5.5, y: 69, z: 3.5 }],
+            nav: async () => { pos.x = 2; pos.y = 68; pos.z = 3; return { ok: true }; },
+            exec: async (n, a) => { if (n !== 'mine') return { ok: true }; const k = `${a.x},${a.y},${a.z}`; if (k === '3,70,3' && pos.x === 0) return { ok: false, reason: 'unreachable', detail: { unmet: [{ need: 'in_reach' }] } }; mined.push(k); cells.delete(k); return { ok: true }; } };
+        const u = [...Array(region.layers * region.rows).keys()].find((i) => pit.unitCells(job.plan, region, i).some((c) => c.x === 3 && c.y === 70 && c.z === 3));
+        await job.runUnit(region.id, { unit: u }, env);
+        assert(mined.includes('3,70,3') && mined.includes('4,71,3') && mined.includes('2,69,4'), `the trip's cell and the leaves in reach (${mined})`);
+        assert(mined.indexOf('4,71,3') < mined.indexOf('2,69,4'), 'from the top');
+        assert(!mined.includes('2,67,3'), 'not in its own column below the feet'); assert(!mined.includes('5,68,3'), 'not the block under another bot');
+        assert(!mined.includes('7,70,7'), 'not out of reach'); assert(!mined.includes('3,66,6'), 'not rock');
+    });
+
     console.log('\npit trees: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });
