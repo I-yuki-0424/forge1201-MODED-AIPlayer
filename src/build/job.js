@@ -408,7 +408,7 @@ class BuildJob {
      * units, layer gate, water rules and final sweep as a pit of the work console), worked by the crew before anything is placed (drive.js clearByPit). Null when nothing is to
      * be dug.
      */
-    planPit() {
+    planPit(bot = null) {
         if (this.pitPhase && !this.pitPhase.done) return this.pitPhase;
         // once per survey (its tasks): a pit that left cells (its sweep gave up on them) is followed by another one over what is left, PIT_ROUNDS at most
         if (this.pitFor === this.tasks) return null;
@@ -424,6 +424,8 @@ class BuildJob {
         let top = -Infinity, bottom = Infinity, n = 0;
         for (const tk of this.tasks.values()) {
             if (!(tk.kind === 'clear' || tk.kind === 'fill' || (tk.kind === 'place' && tk.wrong))) continue;
+            // (a plant or a snow layer is no ground for the pit: its world model counts it as air; the builder breaks it with a click. b081f: rounds 2 and 3 over 96 such cells did nothing)
+            if (bot && tk.kind === 'clear') { const h = seen(bot, tk); if (h && h.shape === 'empty' && SV.REPLACEABLE.test(h.name)) continue; }
             if (!this.t.inside(tk.x, tk.y, tk.z)) continue;
             n++; if (tk.y > top) top = tk.y; if (tk.y < bottom) bottom = tk.y;
         }

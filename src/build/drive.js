@@ -933,7 +933,7 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
             // the terrain first, by the pit (after the first survey, with the tools of the first trip in the pack)
             // (only with its tools and temporary blocks in the pack: the trip before the pit fetches those and nothing else; b081b: two bots went in with an empty pack after a
             // trip that brought nothing and ended their pit worker 22 times on missing_item; the others carried their whole area's materials into the pit)
-            if (pitWork && job.stage !== 'survey' && !job.wrapping && job.planPit() && !job.pitPhase.done) {
+            if (pitWork && job.stage !== 'survey' && !job.wrapping && job.planPit(bot) && !job.pitPhase.done) {
                 const kit = needsFor(job, bot, {});
                 if (!Object.keys(kit).length) {
                     await settle(null, 'pit');
