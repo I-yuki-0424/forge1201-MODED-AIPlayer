@@ -598,7 +598,7 @@ async function goToStation(S, handle, env, open, r) {
                 routed++; const t = routed === 1 ? await env.travel({ x: S.x, y: S.y, z: S.z }, { near: 2 }) : await env.travel({ x: S.x, z: S.z, level: S.y }, { near: 8, nearY: 6 });
                 if (t.ok) { r.routed = (r.routed || 0) + 1; continue; } r.routeFail = `${r.routeFail ? r.routeFail + ',' : ''}${t.reason}`;
             }
-            return { ok: false, reason: 'unreachable', detail: { why: `too far from the station to dig a corridor toward it${r.launchTried ? ` (launch cell: ${r.launchTried})` : ''}`, botSide: true, stage: 'station', cell: S, ...r } };
+            return { ok: false, reason: 'unreachable', detail: { why: `too far from the station to dig a corridor toward it${r.launchTried ? ` (launch cell: ${r.launchTried})` : ''}`, botSide: true, stage: 'station', cell: S, at: { x: Math.floor(here.x), y: Math.floor(here.y), z: Math.floor(here.z) }, ...r } };
         }
         const next = lineCells(here, S, S.y).find((c) => !open(c) && !UNBREAKABLE.test(env.w.nameAt(c.x, c.y, c.z) || ''));
         if (!next) return null;
