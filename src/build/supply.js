@@ -4,7 +4,7 @@
 // pick it up, put it back into the chest. One bot at a chest at a time (the caller locks). Items only ever come out of the containers; nothing is made from nothing.
 const { Vec3 } = require('vec3');
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms, label = 'server: container') => require('./pauses').sleep(ms, label);
 const SHULKER = /(^|_)shulker_box$/;
 const SUP_TOOLISH = /(_pickaxe|_axe|_shovel|_hoe|shears|shulker_box)$/;
 const TOOL = /(_pickaxe|_axe|_shovel|_hoe|shears)$/;
@@ -116,7 +116,7 @@ async function fetch(bot, site, needs, mover, spot, { log = () => {}, depot = []
     const saw = (name, n) => { if (needs[name] !== undefined) present[name] = (present[name] || 0) + n; };
     const lock = (c) => { const k = `${c.x},${c.y},${c.z}`, h = locks.get(k); if (h && h.by !== me && h.until > Date.now()) return false; locks.set(k, { by: me, until: Date.now() + 30000 }); return true; };
     const unlock = (c) => { const k = `${c.x},${c.y},${c.z}`; if ((locks.get(k) || {}).by === me) locks.delete(k); };
-    const waitLock = async (c, ms) => { const t = Date.now() + ms; while (!lock(c)) { if (Date.now() > t || over()) return false; await sleep(250); } return true; };
+    const waitLock = async (c, ms) => { const t = Date.now() + ms; while (!lock(c)) { if (Date.now() > t || over()) return false; await sleep(250, 'wait: chest held by another bot'); } return true; };
     // more than it asked for (a window two bots had open at once moved whole stacks: one bot took 1 152 smooth stone for 364 and the crew ran short, live 2026-11-23 ha1 w2):
     // whole stacks of the surplus go back into the window at once
     const giveBack = async (w, name) => {

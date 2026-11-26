@@ -1,10 +1,15 @@
 'use strict';
 // Reading the world through a bot: a cell's state as {name, props (strings), shape}, the eye of a body, the distance from an eye to a cell's box.
 const { Vec3 } = require('vec3');
+const FB = require('./fastblock');
 
 const AIR_SEEN = Object.freeze({ name: 'air', props: Object.freeze({}), shape: 'empty' });
 /** The state the bot sees at a cell: {name, props, shape} or null when the chunk is not loaded. */
 function seen(bot, c) {
+    // by state id: one frozen {name, props, shape} per state (fastblock.js; a new Block, Biome and property object per read was 23 % of the crew's CPU, SPEED-v1)
+    const id = FB.stateId(bot, c.x, c.y, c.z);
+    if (id === null) return null;
+    if (id !== undefined) { const e = FB.entry(bot, id); return e.air && e.block.name === 'air' ? AIR_SEEN : e.seen; }
     const b = bot.blockAt(new Vec3(c.x, c.y, c.z), false);
     if (!b) return null;
     if (b.name === 'air') return AIR_SEEN;                      // most of a box: no property object to build

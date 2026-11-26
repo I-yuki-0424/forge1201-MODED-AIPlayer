@@ -9,7 +9,7 @@ const { Vec3 } = require('vec3');
 const { feet } = require('./move');
 const SUP = require('./supply');
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms, label = 'wait: hand-over') => require('./pauses').sleep(ms, label);
 const NEAR = { xz: 12, y: 8 };                  // the cells whose items a bot keeps for itself
 // the giver throws when the asker stands this far from it (horizontally, about level): a toss thrown level flies about two and a half cells and lands at the asker's feet,
 // out of the giver's own reach (from beside it the giver took its toss back, live 2026-11-25 hb6; aimed down from 2.3-3.2 it fell between the two, hb1)

@@ -3,6 +3,7 @@
 // crosshair of a vanilla client would pick), within reach, such that vanilla's rules (vanilla.js) give exactly the wanted state. Pure: the world is an accessor.
 const V = require('./vanilla');
 const S = require('./state');
+const FB = require('./fastblock');
 
 const REACH = 4.4;                         // the client picks up to 4.5 from the eye
 const EYE = 1.62, EYE_SNEAK = 1.27;
@@ -17,6 +18,10 @@ function botWorld(bot, over = null) {
         block(x, y, z) {
             const k = `${x},${y},${z}`;
             if (over && over.has(k)) return over.get(k);
+            // by state id, shared per state (fastblock.js)
+            const id = FB.stateId(bot, x, y, z);
+            if (id === null) return null;
+            if (id !== undefined) { const e = FB.entry(bot, id); return e.air ? AIR : e.place; }
             const b = bot.blockAt(new Vec3(x, y, z), false);
             if (!b) return null;
             if (b.name === 'air' || b.name === 'cave_air') return AIR;

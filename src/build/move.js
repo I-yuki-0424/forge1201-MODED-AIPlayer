@@ -11,6 +11,7 @@ const P = require('./place');
 const V = require('./vanilla');
 const FG = require('./fallguard');
 const PZ = require('./pauses');
+const FB = require('./fastblock');
 
 // (a mover's waits are ticks for the server to apply a look, a click, a step: labelled so, the pause table tells them from planning, pauses.js)
 const sleep = (ms, label = 'server: mover tick wait') => PZ.sleep(ms, label);
@@ -60,7 +61,7 @@ class View {
     raw(x, y, z) {
         const k = key(x, y, z);
         let b = this.cache.get(k);
-        if (b === undefined) { b = this.bot.blockAt(new Vec3(x, y, z), false); this.cache.set(k, b); }
+        if (b === undefined) { b = FB.blockAt(this.bot, x, y, z); this.cache.set(k, b); }          // by state id, one shared Block per state (fastblock.js)
         return b;
     }
     /** 'free' (a body can be in it), 'solid' (it stands on it / bumps into it), 'avoid' or 'unknown'. */

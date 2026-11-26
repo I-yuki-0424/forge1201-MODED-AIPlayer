@@ -133,7 +133,7 @@ const S = {
         for (const p of l) {
             ms += p.ms;
             const c = cls[p.cls] || (cls[p.cls] = { n: 0, s: 0 }); c.n++; c.s += p.ms / 1000;
-            const k = `${p.cls}: ${p.top.replace(/\(.*\)$/, '').trim()}`; const tt = top[k] || (top[k] = { n: 0, s: 0 }); tt.n++; tt.s += p.ms / 1000;
+            const lb = p.top.replace(/\(.*\)$/, '').trim(), k = lb.startsWith(p.cls === 'bot' ? 'wait' : p.cls) ? lb : `${p.cls}: ${lb}`; const tt = top[k] || (top[k] = { n: 0, s: 0 }); tt.n++; tt.s += p.ms / 1000;
             if (p.fail) fail[p.fail] = (fail[p.fail] || 0) + 1;
         }
         const r1 = (o) => Object.fromEntries(Object.entries(o).sort((a, b) => b[1].s - a[1].s).map(([k, v]) => [k, { n: v.n, s: Math.round(v.s) }]));
