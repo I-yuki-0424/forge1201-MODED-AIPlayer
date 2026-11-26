@@ -537,6 +537,8 @@ Temporary blocks put down in 30 minutes: 2 370 / 3 295 / 1 726 against 623 / 1 4
 | `bt075a` (leaveColumn, pit fills) | 47 / 24 / 17 | a 2, b 1, c 85 | 10 250 / 6 246 / 3 842 | 1 633 / 1 064 / 316 | 15 / 11 / 0 |
 | `bt075c` (f91f7fc0: + goto walks back, release, tempOnly, place/no-trip rules) | **1 / 2 / 3** | a 4 (3 rolled-back digs, 1 no entry), b 1 (a pillar laid after the count touched 0), c 1 (wrap time out) | 1 001 / 2 369 / 1 615 | 594 / 1 183 / 584 | 0 (4 wires built beside standing blocks: now skipped) |
 | `bt075d` (5d4ff4ae: + restore of rolled-back digs, quiet wrap end, wires never built beside temporary blocks) | 6 / 1 / (w3: the crew never read the chest, no work, not counted) | c 7: 2 under its placer (a bridge block over a gap at the time limit), 3 a crew member on it, 2 orphaned by the pause at the end | 2 364 / 1 143 | **1 913 / 1 737** | 0 / 0 (built beside: 0 / 0) |
+| `bt075e` (8729fa6f: + step off temporary blocks in the wrap-up, planned-wire lookup fixed) | 31 / **0** / 2 | w1: c 31 (29 orphaned when the wrap-up paused the crew, 2 under its placer: the wrap-up's staircases at the top of the build, y about 105, did not converge in 10 min); w3: c 2 orphaned (the job called itself finished in the wrap-up with 2 standing) | 1 681 / 443 / ? | 1 324 / 1 438 / (w1 in wrap) | 0 |
+| `bt075f` (fd5d61ec: + nav walk-end sweep, `_behind` reasons logged) | (w1: no dry site in 30 draws, harness) / 4 / 5 | c 9: 6 orphaned (the job finished in the wrap-up; fixed in 5dfb6743: a wrap-up is never finished while blocks stand), 3 "a tall column: from its top" never reached | 1 792 / 1 776 | 1 219 / 1 949 | 0 |
 
 The seeds differ from run to run (the T26 standard), so the rows compare the same harness on different terrain. Over two as a share of bot time (8 bots, about 40 minutes): 39-75 % in the
 smoke runs, 5-12 % in bt075c. What is left over two in bt075c: columns of four or less in the seconds while the landing takes them back (6-56 %), columns of more than four still
@@ -546,6 +548,11 @@ standing beside a stance that is not their top (9-78 %, the cases fixed after f9
 1 430). bt075c at minute 29: 594 / 1 183 / 584, bt075a 1 633 / 1 064 / 316; the smoke runs before the change 623 / 1 436 / 39. The spread comes from the terrain (bt075a w3 and the
 smoke w3 were jungles: 22 000-36 000 cells to clear before the first block); on equal minutes the new rules are within hc1's range but not above its median, and the version and
 worlds differ, so "not worse than hc1" is not shown on equal terms.
+
+**move_a / move_b (nav, registry scan).** move_b on 1.21.1 (074's `move_b-w121-a`, 2026-11-26 morning): 0 / 0 / 0 left. move_a: `ma075a` (world 4, x1, seed
+-1552390885555710857): 4 of 4 reached, left 0 / 0 / 0 / 1 (MvE4: one block 15 cells behind its end, out of reach when it passed; nav's walk now sweeps its own blocks within
+48 at the goal); `ma075b`: world 4 came up at speed x2 (079's per-test speeds on main: move_a 2): 0 of 4, three bots "unreachable, 1 cell expanded" at the start, not a
+temporary-block matter (reported to the orchestrator); `ma075c` (x1, SPEED=1): see the report.
 
 **mine_b (the pit; registry `src/work/bot/temps.js`, scan of the box +-12 for pumpkins).** `mb075a` (world 4, seed 6421017476795594789, a dry chunk, 60 min): 0 left, 0 registered,
 timeout at 41 of 70 units. `mb075b` (world 4, seed -974350776696569252 = the box of mine_b-w121-a w3, 954 + 121 water cells, 90 min, rubble fills): **3** pumpkins left (the old
