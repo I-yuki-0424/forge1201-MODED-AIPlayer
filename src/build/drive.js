@@ -21,7 +21,7 @@ const { runWorker } = require('../work/bot/worker');
 const PEER = process.env.BUILD_PEER !== '0';
 const { FULL } = require('./job');
 
-const PIT_STALL_MS = Number(process.env.BUILD_PIT_STALL_MIN || 6) * 60000;          // a pit with no unit finished this long is wrapped up (clearByPit)
+const PIT_STALL_MS = Number(process.env.BUILD_PIT_STALL_MIN || 15) * 60000;          // a pit with no unit finished this long is wrapped up (clearByPit)
 const COST_LAVA = 60;                // escapes and evacuations may pass beside lava (never into it) at this cost per cell
 const sleep = (ms, label = 'other: drive sleep') => PZ.sleep(ms, label);
 const UNBREAKABLE = /^(bedrock|barrier|end_portal_frame|end_portal|end_gateway|nether_portal|command_block|chain_command_block|repeating_command_block|structure_block|jigsaw|reinforced_deepslate|light)$/;
