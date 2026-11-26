@@ -38,8 +38,12 @@ const UNBREAKABLE = /^(bedrock|barrier|end_portal_frame|end_portal|nether_portal
 const { isHigh } = require('../bot/force');
 const SEAL_ITEMS = ['cobblestone', 'cobbled_deepslate', 'dirt', 'netherrack', 'stone', 'andesite', 'diorite', 'granite', 'tuff', 'deepslate'];
 /** The block to seal with: the usual ones first, else any placeable, non-falling, low-value block in the pack (env.tempItem; owner 2026-11-10), `n` of it at least. */
-// (the test worlds: the operator's temporary block first, tempblocks.only: a seal is a temporary block, owner list 5 Large 1 point 5, and the scan looks for that block)
-const sealItem = (env, n = 1) => ((o) => (o.length ? o : SEAL_ITEMS))(require('../bot/tempblocks').only()).find((x) => env.have(x) - (env.reserved ? env.reserved(x) : 0) >= n) || (env.tempItem ? env.tempItem(n) : null);
+// Every caller fills a FLUID cell of the box or its one-cell ring (a seal before a dig, the lake fill, the water rescue's footing, water.js floodPlan: box cells only): the block
+// replaces the water as ground, a box cell's is dug with its layer (the test's server check sees any block left in the box) and the ring's keeps the lake out of the finished pit
+// (the job's result, contract TASK-20261125-075 point 5). So the dug rubble first, as a player fills with what it digs; the operator's temporary block (pumpkins on the test worlds)
+// only when there is none. Pumpkins first (c288de5e) spent the whole kit of 128 on water in all three 1.21.1 mine_b worlds (lake 446 / 129 / 942 fluid cells in the box) and left
+// nothing to climb with ("no low-value block to stack", w3): 128 pumpkins standing in each box at the time limit, mine_b-w121-a.
+const sealItem = (env, n = 1) => SEAL_ITEMS.find((x) => env.have(x) - (env.reserved ? env.reserved(x) : 0) >= n) || require('../bot/tempblocks').only().find((x) => env.have(x) - (env.reserved ? env.reserved(x) : 0) >= n) || (env.tempItem ? env.tempItem(n) : null);
 
 /**
  * Box {x0, z0, x1, z1, top, bottom} (inclusive columns; `top` = y of the first block layer to dig, `bottom` = y of the last).
