@@ -592,12 +592,12 @@ impl Sim {
                 // block hung on it, one under it (or under a vine that just went) hung from it.
                 let _ = side;
                 let pops = if name == "vine" {
-                    match self.vine.get(&p).copied() {
+                    match self.vine.get(&p).copied().or_else(|| self.vine_state_bits(p)) {
                         Some(bits) => {
                             let mut keep = 0u8;
                             for (bit, d) in VINE_SIDES { if bits & bit != 0 && (solid(self, [p[0] + d[0], p[1], p[2] + d[2]]) || (self.name(p[0], p[1] + 1, p[2]) == "vine" && self.vine.get(&[p[0], p[1] + 1, p[2]]).map_or(false, |a| a & bit != 0))) { keep |= bit; } }
                             if bits & VINE_UP != 0 && solid(self, [p[0], p[1] + 1, p[2]]) { keep |= VINE_UP; }
-                            if keep != 0 { if keep != bits { self.vine.insert(p, keep); q.push_back(p); } false } else { self.vine.remove(&p); true }
+                            if keep != 0 { if keep != bits { self.vine.insert(p, keep); self.set_vine_state(p, keep); q.push_back(p); } false } else { self.vine.remove(&p); true }
                         }
                         None => (f[1] == 0 || f[1] == -1) && !solid(self, [p[0], p[1] + 1, p[2]]),
                     }
@@ -609,6 +609,22 @@ impl Sim {
                 if pops { self.set(p[0], p[1], p[2], self.d.air); q.push_back(p); }
             }
         }
+    }
+    /// A vine's faces from its block state (per-state tables: region-file worlds, `serve`), when no recorded faces are held for the cell.
+    fn vine_state_bits(&self, p: [i32; 3]) -> Option<u8> {
+        if !self.d.states { return None; }
+        let id = self.blk(p[0], p[1], p[2])?;
+        let mut b = 0u8;
+        for (k, bit) in [("north", VINE_N), ("south", VINE_S), ("west", VINE_W), ("east", VINE_E), ("up", VINE_UP)] { if self.d.prop(id, k) == Some("true") { b |= bit; } }
+        if b == 0 { None } else { Some(b) }
+    }
+    /// With per-state tables the cell's state follows the faces a vine kept (what the server sends the client).
+    fn set_vine_state(&mut self, p: [i32; 3], bits: u8) {
+        if !self.d.states { return; }
+        let Some(id) = self.blk(p[0], p[1], p[2]) else { return };
+        let mut kv = self.d.props_of_state(id);
+        for (k, bit) in [("north", VINE_N), ("south", VINE_S), ("west", VINE_W), ("east", VINE_E), ("up", VINE_UP)] { if let Some(e) = kv.iter_mut().find(|e| e.0 == k) { e.1 = (bits & bit != 0).to_string(); } }
+        if let Some(st) = self.d.state_of("vine", &kv) { if st != id { self.set(p[0], p[1], p[2], st); } }
     }
     /// Breadth-first water flow from the opened cell (see break_block).
     fn flow(&mut self, water: u16, src: [i32; 3]) {

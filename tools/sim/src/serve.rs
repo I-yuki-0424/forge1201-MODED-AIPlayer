@@ -93,6 +93,19 @@ pub fn placement(name: &str, clicked: &str, hy: f64, yaw: f64, pitch: f64, solid
     })
 }
 
+/// One tick's destroy progress of block `bid` with `tool` held ("" = the hand) and its Efficiency level (Block.getDestroyProgress before the ground and
+/// water factors): speed / hardness / 30 when the tool harvests it, / 100 when not (a pickaxe-only block by hand breaks, slowly, and drops nothing);
+/// the tool's speed only on the blocks it is for, Efficiency (level^2 + 1) only on top of a speed above 1. None for an unbreakable block.
+pub fn break_progress(d: &Data, bid: u16, tool: &str, eff: i32) -> Option<(f64, bool)> {
+    let b = d.block(bid);
+    if !b.diggable || b.hard < 0.0 { return None; }
+    if b.hard == 0.0 { return Some((f64::INFINITY, true)); }
+    let harvest = match &b.harvest { None => true, Some(list) => !tool.is_empty() && list.iter().any(|x| x == tool) };
+    let mut speed = if tool.is_empty() { 1.0 } else { b.mult.iter().find(|m| m.0 == tool).map(|m| m.1).unwrap_or(1.0) };
+    if speed > 1.0 && eff > 0 { speed += (eff * eff + 1) as f64; }
+    Some((speed / b.hard / if harvest { 30.0 } else { 100.0 }, harvest))
+}
+
 pub struct Server { pub d: Rc<Data>, pub s: Sim }
 impl Server {
     fn changes(&mut self) -> J {
@@ -198,14 +211,17 @@ impl Server {
             }
             "block" => J::o(vec![("s", J::n(self.s.blk(i("x"), i("y"), i("z")).map_or(-1.0, |b| b as f64)))]),
             "dig" => {
+                // ServerPlayerGameMode: START (elapsed -1) breaks at once when one tick's progress is >= 1; STOP breaks when progress x (ticks + 1) >= 0.7;
+                // else the answer carries `need` (ticks to 100 %), when the server breaks it on its own (the delayed destroy, front.js schedules it)
                 let (x, y, z) = (i("x"), i("y"), i("z"));
                 let bid = match self.s.blk(x, y, z) { Some(b) => b, None => return J::o(vec![("ok", J::Bool(false))]) };
                 let tool = q.get("tool").s().trim_start_matches("minecraft:").to_string();
-                self.s.eff.clear(); if q.get("eff").i() > 0 { self.s.eff.insert(tool.clone(), q.get("eff").i() as i32); }
-                let (need, harvest) = match self.s.tool_ticks(bid, &tool) { Some(t) => t, None => self.s.tool_ticks(bid, "").map_or((i64::MAX / 4, false), |t| (t.0, false)) };
-                let need = if q.get("ground").b() || q.get("ground").is_null() { need } else { need * 5 };
+                let slow = if !q.get("ground").is_null() && !q.get("ground").b() { 5.0 } else { 1.0 } * if q.get("water").b() { 5.0 } else { 1.0 };
+                let (per, harvest) = match break_progress(&self.d, bid, &tool, q.get("eff").i() as i32) { Some(t) => t, None => return J::o(vec![("ok", J::Bool(false)), ("why", J::st("unbreakable"))]) };
+                let per = per / slow;
                 let elapsed = q.get("elapsed").i();
-                if !(elapsed as f64 + 1.0 >= 0.7 * need as f64) { return J::o(vec![("ok", J::Bool(false)), ("need", J::n(need as f64))]); }
+                let ok = if elapsed < 0 { per >= 1.0 } else { per * (elapsed + 1) as f64 >= 0.7 };
+                if !ok { return J::o(vec![("ok", J::Bool(false)), ("need", J::n((1.0 / per).ceil().min(1e9)))]); }
                 // the tool in a scratch pack so the simulator's harvest rule sees it; what else is in the pack afterwards is the drop
                 self.s.inv = vec![None; 36];
                 if !tool.is_empty() { self.s.give(&tool, 1); }
@@ -305,6 +321,21 @@ mod tests {
         let st = d.state_of("oak_stairs", &[("facing".into(), "east".into()), ("half".into(), "top".into())]).unwrap();
         let p = d.props_of_state(st);
         assert!(p.contains(&("facing".into(), "east".into())) && p.contains(&("half".into(), "top".into())));
+    }
+    /// Destroy progress as the server counts it: stone by hand breaks (7.5 s, no drop), with a wooden pickaxe in 1.15 s and drops; Efficiency only on
+    /// the right tool; short grass at once; bedrock never.
+    #[test]
+    fn destroy_progress_follows_the_server() {
+        let d = d();
+        let (hand, h0) = break_progress(&d, d.bid("stone"), "", 0).unwrap();
+        assert!(!h0 && ((1.0 / hand).ceil() as i64) == 150);
+        let (pick, h1) = break_progress(&d, d.bid("stone"), "wooden_pickaxe", 0).unwrap();
+        assert!(h1 && ((1.0 / pick).ceil() as i64) == 23);
+        let (e5, _) = break_progress(&d, d.bid("stone"), "wooden_pickaxe", 5).unwrap();
+        assert!(e5 > pick * 10.0);
+        assert_eq!(break_progress(&d, d.bid("dirt"), "wooden_pickaxe", 5).unwrap().0, break_progress(&d, d.bid("dirt"), "", 0).unwrap().0);
+        assert!(break_progress(&d, d.bid("short_grass"), "", 0).unwrap().0 >= 1.0);
+        assert!(break_progress(&d, d.bid("bedrock"), "", 0).is_none());
     }
     /// Placement as the game gives it (orient.js model): stairs face the way the player looks, a log follows the clicked face, a torch on a side
     /// face is a wall torch facing away from the wall.

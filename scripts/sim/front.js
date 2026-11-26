@@ -8,8 +8,8 @@
 //     break time with the tool's drop (straight into the pack: the test worlds' auto-pickup), placement states from the click and the look,
 //     supports, water, falling blocks, and the harness's world commands (setblock, fill, clone, execute if/unless block(s)).
 //   - runs the clocks SIM_SPEED times faster (performance.now and the physics poll, as src/transport/time_scale.js does up to 10x).
-// What it does not have (the list in the doc): block states from the look (stairs, logs and slabs are placed in their default state), block updates
-// (falling blocks, fluids, plants losing their support), entities other than the players, light, mobs, hunger.
+// What it does not have (the list in the doc): entities other than the players (item drops, mobs), fluids over time, light, hunger, containers,
+// two-block placements (doors, beds: the lower half only), redstone.
 //   node --require ./scripts/sim/record.js --require ./scripts/sim/front.js scripts/sim/play.js  with TRACE=<run> CAPTURE=<capture.jsonl> SIM_SPEED=20
 const path = require('path');
 const fs = require('fs');
@@ -102,7 +102,7 @@ class Server {
         if (!this.loading.has(k)) this.loading.set(k, this.serve.ask({ op: 'chunk', cx, cz }).then((j) => {
             let c = null;
             if (j.cells) {
-                const cells = new Uint16Array(Buffer.from(j.cells, 'base64').buffer.slice(0));
+                const raw = Buffer.from(j.cells, 'base64'), cells = new Uint16Array(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.length));  // a pooled Buffer can start at an odd offset
                 c = new Chunk({ minY: j.minY, worldHeight: j.height });
                 const p = new Vec3(0, 0, 0);
                 for (let i = 0; i < cells.length; i++) { if (!cells[i]) continue; p.x = i % 16; p.z = (i >> 4) % 16; p.y = Math.floor(i / 256) + j.minY; c.setBlockStateId(p, cells[i]); }
@@ -165,14 +165,26 @@ class Server {
         for (const s of order) { if (!p.inv[s]) { const a = Math.min(left, info.stackSize); const it = itemFrom(spec, a); p.inv[s] = it; left -= a; this.setSlot(p, s); if (!left) return n; } }
         return n - left;
     }
+    /** The eye in water (no Aqua Affinity here): a fifth of the dig speed, as on the ground's absence. */
+    eyeInWater(p) { const s = this.get(Math.floor(p.pos.x), Math.floor(p.pos.y + 1.62), Math.floor(p.pos.z)); return s !== null && nameOf(s) === 'water'; }
     async dig(p, x, y, z, elapsed) {
         const held = p.inv[36 + p.held];
-        const j = await this.serve.ask({ op: 'dig', x, y, z, tool: held ? held.name : '', eff: effOf(held), ground: p.ground, elapsed });
-        if (!j.ok) { stats.refused++; const s = this.get(x, y, z); if (s !== null) this.blockChange(x, y, z, s); return false; }
+        const j = await this.serve.ask({ op: 'dig', x, y, z, tool: held ? held.name : '', eff: effOf(held), ground: p.ground, water: this.eyeInWater(p), elapsed });
+        if (!j.ok) return j;
         stats.digs++;
         this.apply(j.changes);
         for (const [n, c] of j.drops || []) this.give(p, n, c);                      // drops straight into the pack (the test worlds' auto-pickup)
-        return true;
+        return j;
+    }
+    /** Delayed destroys (ServerPlayerGameMode.hasDelayedDestroy): a dig stopped before 70 % goes on on the server and breaks the block at 100 %. */
+    delayed() {
+        const now = this.tick;
+        for (const p of this.players.values()) {
+            const d = p.delayed; if (!d || now < d.at) continue;
+            p.delayed = null;
+            if (this.get(d.x, d.y, d.z) !== d.s) continue;                              // the block changed meanwhile: nothing to finish
+            this.dig(p, d.x, d.y, d.z, d.need);
+        }
     }
     async onPacket(client, name, a) {
         stats.packetsIn++;
@@ -189,13 +201,15 @@ class Server {
                 if (a.status === 0) {
                     p.dig = { x, y, z, t: this.tick };
                     // an instant break: the server breaks at the start (the 70 % rule with a need of 0)
-                    const held = p.inv[36 + p.held];
-                    const j = await this.serve.ask({ op: 'dig', x, y, z, tool: held ? held.name : '', eff: effOf(held), ground: p.ground, elapsed: -1 });
-                    if (j.ok) { stats.digs++; this.apply(j.changes); for (const [n, c] of j.drops || []) this.give(p, n, c); p.dig = null; }
+                    const j = await this.dig(p, x, y, z, -1);
+                    if (j.ok) p.dig = null;
                 } else if (a.status === 2) {
                     const d = p.dig;
-                    if (d && d.x === x && d.y === y && d.z === z) await this.dig(p, x, y, z, this.tick - d.t);
-                    else { stats.refused++; const s = this.get(x, y, z); if (s !== null) this.blockChange(x, y, z, s); }
+                    const j = d && d.x === x && d.y === y && d.z === z ? await this.dig(p, x, y, z, this.tick - d.t) : { ok: false };
+                    if (!j.ok) {
+                        stats.refused++; const s = this.get(x, y, z); if (s !== null) this.blockChange(x, y, z, s);
+                        if (j.need && !p.delayed) p.delayed = { x, y, z, s, need: j.need, at: d.t + j.need - 1 };
+                    }
                     p.dig = null;
                 } else if (a.status === 1) p.dig = null;
                 else if (a.status === 3 || a.status === 4) { const slot = 36 + p.held, it = p.inv[slot]; if (it) { if (a.status === 3 || it.count <= 1) p.inv[slot] = null; else it.count--; } }
@@ -305,7 +319,14 @@ function install() {
     performance.now = () => virtual;
     const si = global.setInterval, ci = global.clearInterval;
     const polls = new Map(); let nextPoll = 1;
-    si.call(global, () => { virtual += 50; for (const fn of [...polls.values()]) { try { fn(); } catch (e) { console.error('[front] physics poll', e && e.message); } } }, Math.max(1, 50 / SPEED));
+    let ticks = 0;
+    si.call(global, () => {
+        virtual += 50; ticks++;
+        for (const fn of [...polls.values()]) { try { fn(); } catch (e) { console.error('[front] physics poll', e && e.message); } }
+        server.delayed();
+        // the world clocks of serve (falling blocks landing) on the same game clock, one request per 5 ticks
+        if (ticks % 5 === 0 && server.serve.info) server.serve.ask({ op: 'tick', n: 5 }).then((j) => server.apply(j.changes));
+    }, Math.max(1, 50 / SPEED));
     global.setInterval = function stepped(fn, ms, ...rest) {
         if (fn && fn.name === 'doPhysics') { const h = { front: nextPoll++ }; polls.set(h.front, fn); return h; }
         return si.call(this, fn, ms, ...rest);
@@ -320,8 +341,6 @@ function install() {
     // RCON answered here
     const rconMod = require(path.join(ROOT, 'src/rl/rcon.js'));
     rconMod.Rcon = class FakeRcon { constructor() {} async connect() { await server.serve.ready; return this; } async command(c) { return server.rcon(c); } end() {} close() {} };
-    // the world clocks of serve (falling blocks landing) run with the game clock: one tick request per 10 ticks
-    si.call(global, () => { if (server.serve.info) server.serve.ask({ op: 'tick', n: 10 }).then((j) => server.apply(j.changes)); }, Math.max(1, 500 / SPEED));
     process.on('exit', () => { console.log(`[front] ${JSON.stringify(stats)}`); server.serve.close(); });
     console.log(`[front] in-process server for ${VERSION}, clocks x${SPEED}`);
     return server;
