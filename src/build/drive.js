@@ -744,6 +744,16 @@ async function supplyTrip(job, name, bot, mv, need, cancel) {
             } else if (Date.now() - (job.fullLog || 0) > 60000) { job.fullLog = Date.now(); job.log(`${name}: pack full (${SUP.freeSlots(bot)} free), nothing it may put back: ${JSON.stringify(SUP.carried(bot)).slice(0, 200)}`); }
         }
         job.depot = job.depot || [];
+        // every shulker box standing round the chest is the depot's, whether the list kept it or not: a box set down again elsewhere (or by a bot that left) dropped out of the
+        // list and its stock with it, so the chest read 'out' of smooth stone while a box beside it held 16 stacks (b081p: Bd4f, 17 trips for nothing; chest -59,64,90, box -56,65,90)
+        { const FV = { up: [0, 1, 0], down: [0, -1, 0], north: [0, 0, -1], south: [0, 0, 1], west: [-1, 0, 0], east: [1, 0, 0] };
+          for (let dx = -6; dx <= 6; dx++) for (let dy = -3; dy <= 3; dy++) for (let dz = -6; dz <= 6; dz++) {
+              const x = site.x + dx, y = site.y + dy, z = site.z + dz, q = bot.blockAt(new Vec3(x, y, z), false);
+              if (!q || !SUP.SHULKER.test(q.name) || job.depot.some((d) => d.x === x && d.y === y && d.z === z)) continue;
+              const f = FV[(q.getProperties ? q.getProperties() : {}).facing] || FV.up;
+              job.depot.push({ x, y, z, fx: f[0], fy: f[1], fz: f[2] }); job.stats.depotFound = (job.stats.depotFound || 0) + 1;
+              job.log(`supply: a box at ${x},${y},${z} the depot list did not hold is the depot's again`);
+          } }
         const res = await SUP.fetch(bot, site, wants, mv, spot, { log: job.log, depot: job.depot, locks: job.boxLocks || (job.boxLocks = new Map()), me: name, cancel });
         job.stats.trips++;
         job.log(`${name}: supply trip for ${JSON.stringify(wants).slice(0, 160)}: got ${JSON.stringify(res.got).slice(0, 200)}${Object.keys(res.short).length ? `; short ${JSON.stringify(res.short).slice(0, 200)}` : ''}`);
