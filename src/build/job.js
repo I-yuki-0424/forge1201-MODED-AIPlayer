@@ -787,7 +787,11 @@ class BuildJob {
                 }
                 // a temporary block is taken away only from where the bot can stand now: a new pillar to reach an old one made pillars without end (owner 2026-11-23)
                 // (nor a standing cell the way to which places blocks: the same treadmill one step removed, owner list 5 Large 1)
-                if (seed.kind === 'untemp' && (!standing || (fl && (fl.placed && fl.placed.get(key(f.x, f.y, f.z))) > 0))) { rej.unsupported++; continue; }
+                // (but the bot's own block, and any block once the run is wrapping up, from a stance that needs blocks too: since a route leaves no column of its own standing
+                // out of reach (move.js leaveColumn) the pillar to such a stance is dug as the bot comes down, one step with the block it takes, so the count only goes down;
+                // on foot only, 13-17 released blocks in the air were never tried in ten minutes of wrap-up, build_t-w121-smoke w1-w3, "c: released, not tried yet")
+                const mayBuildUp = this.wrapping || (this.ledger.get(seed) || {}).by === name;
+                if (seed.kind === 'untemp' && !mayBuildUp && (!standing || (fl && (fl.placed && fl.placed.get(key(f.x, f.y, f.z))) > 0))) { rej.unsupported++; continue; }
                 if (lonely && (standing || dug || wet || Math.abs(f.x - seed.x) + Math.abs(f.y - 1 - seed.y) + Math.abs(f.z - seed.z) !== 1)) { rej.nothingToClick++; continue; }
                 const eye = eyeOf({ x: f.x + 0.5, y: f.y, z: f.z + 0.5 });
                 if (boxDist(eye, seed) > this.o.reach) { rej.far++; continue; }
