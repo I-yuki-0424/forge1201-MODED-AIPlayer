@@ -165,4 +165,23 @@ test('the pit hands its movement blocks over: what the work layer lists as the b
     assert(job.tasks.get('2,65,2') && job.tasks.get('2,65,2').kind === 'untemp', 'an untemp task at once');
 });
 
+test('no placement closes the last way out of the space a crew member is in (a room of the build with one opening; negative controls: another cell, nobody inside)', () => {
+    const { Vec3 } = require('vec3');
+    const D = require('../src/build/drive');
+    const registry = require('prismarine-registry')('1.21.1'), Chunk = require('prismarine-chunk')(registry), World = require('prismarine-world')(registry);
+    const world = new World(null).sync, chunk = new Chunk({ minY: -64, worldHeight: 384 }), stone = registry.blocksByName.stone.defaultState;
+    for (let x = 0; x < 16; x++) for (let z = 0; z < 16; z++) chunk.setBlockStateId(new Vec3(x, 63, z), stone);
+    // a 5 x 5 room (inside 1..3) of walls 64..66 and a ceiling at 67, its opening two high at 4,64..65,2; a block in its lower cell leaves a one-high gap, no way out
+    for (let x = 0; x <= 4; x++) for (let z = 0; z <= 4; z++) for (let y = 64; y <= 67; y++) { const wall = x === 0 || x === 4 || z === 0 || z === 4 || y === 67; if (wall) chunk.setBlockStateId(new Vec3(x, y, z), stone); }
+    chunk.setBlockStateId(new Vec3(4, 64, 2), 0); chunk.setBlockStateId(new Vec3(4, 65, 2), 0);
+    world.setColumn(0, 0, chunk);
+    const palette = [{ name: 'minecraft:air', props: {} }], blocks = []; for (let x = 0; x < 12; x++) for (let z = 0; z < 12; z++) for (let y = 0; y < 8; y++) blocks.push({ x, y, z, s: 0 });
+    const t = new Target({ size: [12, 8, 12], palette, blocks }, { x: -2, y: 63, z: -2 });
+    const job = new BuildJob(t, { log: () => {} });
+    const mk = (x, y, z) => ({ username: 'a', players: {}, registry, world, entity: { position: new Vec3(x + 0.5, y, z + 0.5) }, blockAt: (p) => world.getBlock(p) });
+    assert.strictEqual(D.closesIn(job, mk(2, 64, 2), { x: 4, y: 64, z: 2 }), true, 'the opening closes the bot in');
+    assert.strictEqual(D.closesIn(job, mk(2, 64, 2), { x: 2, y: 64, z: 3 }), false, 'negative control: a cell inside');
+    assert.strictEqual(D.closesIn(job, mk(8, 64, 8), { x: 4, y: 64, z: 2 }), false, 'negative control: nobody inside');
+});
+
 (async () => { for (const [name, fn] of queue) { await fn(); n++; console.log(`  ok ${name}`); } console.log(`test_build_order_pure: ${n} passed`); })().catch((e) => { console.error(e); process.exit(1); });

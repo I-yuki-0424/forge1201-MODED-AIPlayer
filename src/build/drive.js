@@ -307,6 +307,8 @@ async function work(job, name, bot, mv, cl, cancel) {
             if (!(await mv.hold(rr.item))) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
             // never the block that leaves the bot's own cell without a way out (Bd4f set glass on all four sides on a piston, as the blueprint has it, and was shut in: owner
             // 2026-11-23); that block is placed from another stance
+            // (nor the block that closes the last way out of the space a crew member is in: it waits until nobody is inside)
+            if (closesIn(job, bot, tk)) { job.stats.closeWaits = (job.stats.closeWaits || 0) + 1; results.push({ tk, ok: false, why: 'skipped' }); continue; }
             if (shutsIn(bot, tk) || crewAt(job, bot).some((q) => shutsInAt(bot, { x: Math.floor(q.x), y: Math.floor(q.y + 0.16), z: Math.floor(q.z) }, tk))) { results.push({ tk, ok: false, why: 'skipped' }); continue; }          // (any crew member: bots were boxed in by the others' blocks, ha26 w4)
             // a wire or a pane is not built beside a temporary block that stands (its removal would change the shape: bt075c w1 built 4 wires so): it waits until the block is gone
             { const wn = S.bare((job.t.wantOf(tk) || {}).name || ''); if (wn === 'redstone_wire' || CONNECTS.test(wn)) { const at = (x, y, z) => { if (x === tk.x && y === tk.y && z === tk.z) return wn; const b = bot.blockAt(new Vec3(x, y, z), false); return b && b.name; }; let near = false; for (let dx = -1; dx <= 1 && !near; dx++) for (let dy = -1; dy <= 1 && !near; dy++) for (let dz = -1; dz <= 1 && !near; dz++) { const e = job.ledger.get({ x: tk.x + dx, y: tk.y + dy, z: tk.z + dz }); if (e && e.state === 'placed' && touchesShape(at, e.x, e.y, e.z)) near = true; } if (near) { results.push({ tk, ok: false, why: 'skipped' }); continue; } } }
@@ -407,6 +409,36 @@ async function unscaffold(job, bot, mv) {
 
 /** Would a block in cell c leave the bot's body (feet cell f, head f+1) without a way out: no side with both cells open, and nothing open over the head? */
 function shutsIn(bot, c) { return shutsInAt(bot, feet(bot), c); }
+/**
+ * Would a block in cell c close the last way out of the space a crew member stands in (a hall of the build closed by its floor, walls and ceiling: b081i, a bot shut in a
+ * region of 1 543 cells)? A flood over the cells a body can pass (no collision box) from the member's feet, with c solid, up to CLOSE_CELLS: a way out is a column outside the
+ * box's footprint or a cell over the box's top. Exhausted without one: the block waits until nobody is inside (the root of what the dig-out (escape) repairs). Bots within 16.
+ */
+const CLOSE_CELLS = 3000;
+function closesIn(job, bot, c) {
+    const b = job.t.box, k = (x, y, z) => `${x},${y},${z}`, ck = k(c.x, c.y, c.z);
+    const free = (x, y, z) => { if (x === c.x && y === c.y && z === c.z) return false; const h = seen(bot, { x, y, z }); return !!h && h.shape === 'empty' && !FLUID(h); };
+    const out = (x, y, z) => x < b.x || x >= b.x + b.sx || z < b.z || z >= b.z + b.sz || y >= b.y + b.sy;
+    const members = [feet(bot), ...crewAt(job, bot).map((q) => ({ x: Math.floor(q.x), y: Math.floor(q.y + 0.16), z: Math.floor(q.z) }))].filter((f) => Math.abs(f.x - c.x) <= 16 && Math.abs(f.z - c.z) <= 16 && Math.abs(f.y - c.y) <= 16 && !out(f.x, f.y, f.z));
+    for (const f of members) {
+        const seenSet = new Set([k(f.x, f.y, f.z)]), q = [[f.x, f.y, f.z]];
+        let exit = false;
+        for (let i = 0; i < q.length && !exit; i++) {
+            if (q.length > CLOSE_CELLS) { exit = true; break; }          // large enough to count as open (a search that big finds its own way)
+            const [x, y, z] = q[i];
+            for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]]) {
+                const X = x + dx, Y = y + dy, Z = z + dz, kk = k(X, Y, Z);
+                if (seenSet.has(kk) || kk === ck) continue;
+                if (out(X, Y, Z)) { exit = true; break; }
+                // a cell a body can be in: free, with the one over or under it free too (a one-high gap is no way out)
+                if (!free(X, Y, Z) || !(free(X, Y + 1, Z) || free(X, Y - 1, Z))) continue;
+                seenSet.add(kk); q.push([X, Y, Z]);
+            }
+        }
+        if (!exit) return true;
+    }
+    return false;
+}
 function shutsInAt(bot, f, c) {
     const at = (x, y, z) => (x === c.x && y === c.y && z === c.z) ? false : (() => { const b = bot.blockAt(new Vec3(x, y, z), false); return !!b && b.boundingBox === 'empty'; })();
     const near = Math.abs(c.x - f.x) <= 1 && Math.abs(c.z - f.z) <= 1 && c.y >= f.y && c.y <= f.y + 2;
@@ -452,14 +484,38 @@ async function unwedge(job, name, bot, mv) {
 
 /** A bot that cannot walk anywhere (closed in) breaks its way up and out, through whatever is in the way; the next survey puts built cells back. */
 async function escape(job, name, bot, mv, cancel, pocket = null) {
-    const f = feet(bot), b = job.t.box, loose = { canDig: (x, y, z, blk, view = null) => !UNBREAKABLE.test(blk.name) && !CONTAINER.test(blk.name) && !holdsFluid(bot, x, y, z, view), temp: mv.rules.temp, onTemp: mv.rules.onTemp };
-    const m2 = new Mover(bot, { ...loose, onUntemp: mv.rules.onUntemp });
-    m2.mine = mv.mine;
+    const f = feet(bot), b = job.t.box;
+    // a built block is dug on the way out only when the crew gets it back (recover.js: glass needs Silk Touch, obsidian a diamond pickaxe) or the supply holds a spare
+    // (the owner's rule from TASK-073); a second try takes any block when the first finds no way, and what it costs is counted (job.lost, the progress line's stats.lostDigs)
+    const built = (x, y, z, blk) => job.t.inside(x, y, z) && !job.t.isAir(job.t.idx(x, y, z)) && S.matches(job.t.at(x, y, z), seen(bot, { x, y, z }) || { name: blk.name, props: {} });
+    const itemOf = (x, y, z) => { const r = job.t.recipeOf({ x, y, z, i: job.t.idx(x, y, z) }); return r && r.item; };
+    const recoverable = (x, y, z, blk) => { const it = itemOf(x, y, z); return !it || RC.getBack(bot, blk.name, it).ok || job.spareOf(it) >= 1; };
+    const looseOf = (strict) => ({ canDig: (x, y, z, blk, view = null) => !UNBREAKABLE.test(blk.name) && !CONTAINER.test(blk.name) && !holdsFluid(bot, x, y, z, view) && (!strict || !built(x, y, z, blk) || recoverable(x, y, z, blk)), temp: mv.rules.temp, onTemp: mv.rules.onTemp });
+    let m2 = null;
+    const mover = (strict) => {
+        const m = new Mover(bot, { ...looseOf(strict), onUntemp: mv.rules.onUntemp }); m.mine = mv.mine;
+        const dig0 = m.dig.bind(m);
+        m.dig = async (c, o) => {
+            const blk = bot.blockAt(new Vec3(c.x, c.y, c.z), false), isBuilt = !!blk && built(c.x, c.y, c.z, blk), it = isBuilt ? itemOf(c.x, c.y, c.z) : null;
+            const back = isBuilt && it ? RC.getBack(bot, blk.name, it).ok : true;
+            const ok = await dig0(c, o);
+            if (ok && isBuilt) {
+                const st = job.stats.digOut || (job.stats.digOut = { dug: 0, back: 0, lost: 0, names: {} }); st.dug++; st.names[S.bare(blk.name)] = (st.names[S.bare(blk.name)] || 0) + 1;
+                if (back) st.back++; else { st.lost++; if (it) (job.lost || (job.lost = new Map())).set(it, ((job.lost && job.lost.get(it)) || 0) + 1); }
+                job.log(`${name}: dug the built ${S.bare(blk.name)} at ${c.x},${c.y},${c.z} on the way out (${back ? 'got back' : `not got back: one of the ${job.spareOf(it) + 1} spare ${it}`})`);
+            }
+            return ok;
+        };
+        return m;
+    };
+    m2 = mover(true);
     // out sideways to the nearest open cell three or more away at about the same height: never up to the top of the box (a 60-high box made every closed-in bot build a pillar
     // of 60 that the crew then climbed and tore down, for an hour: owner 2026-11-23); the plan's costs prefer walking and digging to pillaring
     job.stats.escapes++;
     // (out of a pocket: to a cell outside the cells it could reach, `pocket`)
-    const r = await m2.goto(f, { goal: pocket ? (x, y, z) => !pocket.has(`${x},${y},${z}`) : (x, y, z) => Math.hypot(x - f.x, z - f.z) >= 3 && Math.abs(y - f.y) <= 2, cancel, maxNodes: 20000, lavaCost: COST_LAVA });
+    const goal = pocket ? (x, y, z) => !pocket.has(`${x},${y},${z}`) : (x, y, z) => Math.hypot(x - f.x, z - f.z) >= 3 && Math.abs(y - f.y) <= 2;
+    let r = await m2.goto(f, { goal, cancel, maxNodes: 20000, lavaCost: COST_LAVA });
+    if (!r.ok && !cancel.cancelled) { m2 = mover(false); r = await m2.goto(f, { goal, cancel, maxNodes: 20000, lavaCost: COST_LAVA }); }
     job.log(`${name}: closed in at ${f.x} ${f.y} ${f.z}: ${r.ok ? 'out' : 'no way out (' + r.why + ')'}`);
     if (!r.ok) tell(job, name, bot, 'stuck', `closed in at ${f.x} ${f.y} ${f.z}, no way out (${String(r.why).slice(0, 80)})`);
     return r.ok;
@@ -1108,4 +1164,4 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
     } finally { bot.removeListener('death', onDeath); bot.removeListener('death', onDied); bot.removeListener('blockUpdate', onBlock); job.orphanOf(name, 'left the crew'); clearInterval(sampler); bot.removeListener('spawnReset', onReset); bot.__builderOwns = false; job.leave(name); if (job.pool) job.pool.leave(name); for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sneak', 'sprint']) bot.setControlState(k, false); }
 }
 
-module.exports = { drive, work, holds, rules, pour, escape, needsFor, boxSpot, bench, release, unscaffold, touchesShape, planned, adoptWorkTemps };
+module.exports = { drive, work, holds, rules, pour, escape, needsFor, boxSpot, bench, release, unscaffold, touchesShape, planned, adoptWorkTemps, closesIn };
