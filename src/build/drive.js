@@ -16,6 +16,7 @@ const tempKinds = () => { const o = TB.only(); return o.length ? o : SUP.TEMPS; 
 const RC = require('./recover');
 const { Pool } = require('./pool');
 const PZ = require('./pauses');
+const { runWorker } = require('../work/bot/worker');
 // the crew's shared pool: bots hand items to each other on request (pool.js); BUILD_PEER=0 goes back to the chest only, with hand-backs
 const PEER = process.env.BUILD_PEER !== '0';
 const { FULL } = require('./job');
@@ -795,12 +796,34 @@ async function bench(job, name, bot, mv, cancel) {
 /**
  * The loop of one bot until the build is done, the bot is gone or `cancel`. Returns { ended: 'finished' | 'cancelled' | 'disconnected' | 'wrong_mode' }.
  */
+/**
+ * The site's terrain by the pit (job.planPit): this bot works the pit job's units with the work layer (runWorker, the pit's own runUnit, nav moves, the action layer's mine)
+ * until the pit is finished, then the build goes on. `work` comes from the service: { env(): the bot's work environment, opts: runWorker options (handlers, events) }.
+ */
+async function clearByPit(job, name, bot, mv, cancel, work) {
+    const P = job.pitPhase;
+    const env = work.env();
+    if (!env) { job.pitDone('no work environment for the bots'); return null; }
+    env.within = P.box; bot.__mineBox = P.box;
+    bot.__builderOwns = false;                    // the work layer's fall and breath reflexes are the pit's
+    let res;
+    try { res = await runWorker(P.impl, name, env, { cancel, pollMs: 1000, ...(work.opts || {}) }); }
+    finally { bot.__mineBox = null; bot.__builderOwns = true; }
+    if (res.ended === 'finished' || P.impl.ledger.finished()) job.pitDone(`${name}: ${res.ended}`);
+    else if (!['died', 'disconnected', 'cancelled', 'wrong_dimension'].includes(res.ended)) {
+        P.ends = (P.ends || 0) + 1; job.log(`${name}: pit worker ended ${res.ended}${res.last ? ` (${res.last})` : ''}; ${res.units} units, ${res.failed} failed`);
+        if (P.ends > 6 * Math.max(1, job.bots.size)) job.pitDone(`${P.ends} worker ends without the pit finishing`);
+        await sleep(3000, 'retry: pit worker ended');
+    }
+    return res;
+}
+
 /** One bot of the crew, its pauses classified (pauses.js): the drive runs in the bot's own store. */
 function drive(job, name, bot, opts = {}) {
     const stop = PZ.attach(bot, name);
     return PZ.run(name, () => drive0(job, name, bot, opts)).finally(stop);
 }
-async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySites = [] } = {}) {
+async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySites = [], work = null } = {}) {
     if (bot.game && !['survival', 'creative'].includes(bot.game.gameMode)) return { ended: 'wrong_mode' };
     job.sites = supplySites;
     job.ownBlock = job.ownBlock || ((x, y, z) => !!ownBlockItem(job, x, y, z));
@@ -887,6 +910,13 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
             { const b0 = job.t.box, p = bot.entity.position, d = Math.hypot(p.x - (b0.x + b0.sx / 2), p.z - (b0.z + b0.sz / 2)); if (d > 200) { job.log(`${name} is ${Math.round(d)} blocks from the site (respawned far away): it leaves the crew`); return { ended: 'too_far' }; } }
             if (inNether(bot) && job.available.has('respawn_anchor') && !(job.spawnSet && job.spawnSet.has(name)) && !job.anchorBusy && Date.now() - ((job.anchorTry && job.anchorTry.get(name)) || 0) > 120000) { (job.anchorTry || (job.anchorTry = new Map())).set(name, Date.now()); await settle(null, 'anchor'); await anchor(job, name, bot, mv, cancel); }
             if (job.exhausted()) { await PZ.within('cpu: survey', () => job.resurvey(bot, `${name}: stage ${job.stage} done`)); continue; }
+            // the terrain first, by the pit (after the first survey, with the tools of the first trip in the pack)
+            if (work && job.stage !== 'survey' && !job.wrapping && job.planPit() && !job.pitPhase.done && !(Object.keys(needsFor(job, bot, {})).length && !(job.lastTrip && job.lastTrip.has(name)))) {
+                await settle(null, 'pit');
+                const r = await PZ.within('pit', () => clearByPit(job, name, bot, mv, cancel, work));
+                if (r && (r.ended === 'died' || r.ended === 'disconnected')) return { ended: r.ended };
+                progress(); continue;
+            }
             // the fall guard's count (ticks it held a body back from a fall) and the pool's, for the progress line
             if (mv.guard) {
                 (job.guardStops || (job.guardStops = new Map())).set(name, mv.guard.stops); job.stats.guard = [...job.guardStops.values()].reduce((a, n) => a + n, 0);

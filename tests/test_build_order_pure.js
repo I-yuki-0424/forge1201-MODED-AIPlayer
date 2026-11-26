@@ -55,4 +55,18 @@ test('the job breaks the cycle: a scaffold task in the second cell, the first wa
     assert(['place'].includes(job2.tasks.get(kb).kind) && !job2.tasks.get(ka).waitFor);
 });
 
+test('the terrain is the pit\'s: the box columns from the highest cell to clear down to the lowest become an open-pit job (negative control: nothing to dig, no pit; BUILD_PIT=0)', () => {
+    const t = box([]);
+    const job = new BuildJob(t, { log: () => {} });
+    job.tasks = new Map([['1,65,1', { k: '1,65,1', i: t.idx(1, 65, 1), x: 1, y: 65, z: 1, kind: 'clear' }], ['2,66,2', { k: '2,66,2', i: t.idx(2, 66, 2), x: 2, y: 66, z: 2, kind: 'clear' }], ['0,64,0', { k: '0,64,0', i: t.idx(0, 64, 0), x: 0, y: 64, z: 0, kind: 'place' }]]);
+    const P = job.planPit();
+    assert(P && P.impl && P.impl.ledger, 'a pit job');
+    assert.deepStrictEqual(P.box, { x0: 0, x1: 3, z0: 0, z1: 3, top: 66, bottom: 65 });
+    assert.strictEqual(job.planPit(), P, 'planned once');
+    job.pitDone('test'); assert(P.done && job.stage === 'survey');
+    const j2 = new BuildJob(t, { log: () => {} }); j2.tasks = new Map([['0,64,0', { k: '0,64,0', i: 0, x: 0, y: 64, z: 0, kind: 'place' }]]);
+    assert.strictEqual(j2.planPit(), null);
+    process.env.BUILD_PIT = '0'; const j3 = new BuildJob(t, { log: () => {} }); j3.tasks = job.tasks; assert.strictEqual(j3.planPit(), null); delete process.env.BUILD_PIT;
+});
+
 (async () => { for (const [name, fn] of queue) { await fn(); n++; console.log(`  ok ${name}`); } console.log(`test_build_order_pure: ${n} passed`); })().catch((e) => { console.error(e); process.exit(1); });

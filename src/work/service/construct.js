@@ -83,7 +83,26 @@ class ConstructPart {
     _driveConstruct(job, rec, cancel) {
         const build = job.impl.build;
         this._dirty();
-        drive(build, rec.name, rec.bot, { cancel, supplySites: this._supplySites(job) }).then((res) => {
+        // the terrain goes through the pit (build/job.js planPit): the bot's work environment and the worker's options, as a pit job's bot gets them (workers.js _startWorker)
+        const work = {
+            env: () => {
+                const env = this.envFactory && this.envFactory(rec.bot, cancel, { worker: true });
+                if (!env) return null;
+                env.sites = this.sites; env.jobDim = job.spec.dim ? require('../world/dimensions').canon(job.spec.dim) : null;
+                if (env.configure) env.configure({ retireWorn: !!this.settings.retireWorn, defend: this.settings.defend !== false, planNodes: this.o.planNodes || 6000 });
+                return env;
+            },
+            opts: {
+                handlers: this.settings.scripts ? { missing_tool: (r) => this._toolScript(rec, r && r.detail && r.detail.block), missing_item: (r) => require('../bot/script').fetchScript(r && r.detail) } : null,
+                scriptEnv: () => ({ sites: this.sites, box: build.pitPhase && build.pitPhase.box }),
+                onEvent: (ev, d) => {
+                    if (ev === 'parked') this.note('info', `${d.id} parked pit ${d.region} u${d.unit} (${d.reason}${d.detail && d.detail.stage ? ` at ${d.detail.stage}` : ''}${d.detail && d.detail.why ? `: ${String(d.detail.why).slice(0, 120)}` : ''})`, { job: job.id });
+                    if (ev === 'unit' && !d.ok && d.reason !== 'cancelled') this.note('debug', `${d.id} pit ${d.region} u${d.unit} ${d.reason}${d.detail && d.detail.why ? `: ${String(d.detail.why).slice(0, 100)}` : ''}`, { job: job.id });
+                    if (ev === 'script') this.note(d.ok ? 'info' : 'warn', `${d.id} script ${d.name} for ${d.reason}: ${d.ended}`, { job: job.id });
+                },
+            },
+        };
+        drive(build, rec.name, rec.bot, { cancel, supplySites: this._supplySites(job), work }).then((res) => {
             if (res.ended === 'wrong_mode') { rec.retired = `game mode ${rec.bot && rec.bot.game && rec.bot.game.gameMode}: a builder works in survival (or creative)`; this.note('warn', `bot ${rec.name}: ${rec.retired}`, { job: job.id }); }
             this._workerEnded(job, rec, res, cancel);
         }, (e) => this._workerEnded(job, rec, { ended: 'error', error: String(e && e.stack || e).slice(0, 300) }, cancel));

@@ -487,6 +487,38 @@ class BuildJob {
      */
     wrapUp() { if (this.wrapping) return; this.wrapping = true; this.log(`wrapping up: ${this.ledger.size} temporary blocks to take away, nothing else`); this.stage = 'survey'; }
     /**
+     * The site's terrain goes through the pit (owner list 5 Large 3: "pit has proven mining, yet removing terrain in the way of a build is a separate custom system: reuse the
+     * dedicated mechanism"): after the first survey, the box's columns from the highest cell to clear down to the lowest are an open-pit job (src/work/jobs/pit.js, the same plan,
+     * units, layer gate, water rules and final sweep as a pit of the work console), worked by the crew before anything is placed (drive.js clearByPit). Null when nothing is to
+     * be dug. BUILD_PIT=0 keeps the builder's own clearing (the comparison run).
+     */
+    planPit() {
+        if (this.pitPhase !== undefined) return this.pitPhase;
+        if (process.env.BUILD_PIT === '0') return (this.pitPhase = null);
+        let top = -Infinity, bottom = Infinity, n = 0;
+        for (const tk of this.tasks.values()) {
+            if (!(tk.kind === 'clear' || tk.kind === 'fill' || (tk.kind === 'place' && tk.after))) continue;
+            if (!this.t.inside(tk.x, tk.y, tk.z)) continue;
+            n++; if (tk.y > top) top = tk.y; if (tk.y < bottom) bottom = tk.y;
+        }
+        if (!n) return (this.pitPhase = null);
+        const b = this.t.box, box = { x0: b.x, x1: b.x + b.sx - 1, z0: b.z, z1: b.z + b.sz - 1, top, bottom };
+        const pit = require('../work/jobs/pit'), { PIT_LEDGER } = require('../work/service/common');
+        const lanes = Math.max(1, this.bots.size || 1), method = process.env.BUILD_PIT_METHOD || 'expert';
+        const impl = pit.createPitJob(box, PIT_LEDGER, { lanes, method, road: false });
+        this.pitPhase = { box, impl, done: false, cells: n, at: Date.now(), method };
+        this.log(`clearing by the pit: ${n} cells to dig in ${box.x0}..${box.x1} x ${box.z0}..${box.z1}, y ${bottom}..${top} (${impl.plan.regions.length} regions, method ${method})`);
+        return this.pitPhase;
+    }
+    /** The pit is done (every unit, or the operator's time): the box is surveyed again and the build goes on with what is left. */
+    pitDone(why) {
+        const P = this.pitPhase; if (!P || P.done) return;
+        P.done = true; this.stage = 'survey';
+        const pr = P.impl.ledger.progress ? P.impl.ledger.progress() : {};
+        this.log(`clearing by the pit done (${why}) after ${Math.round((Date.now() - P.at) / 1000)} s: ${JSON.stringify(pr).slice(0, 300)}`);
+    }
+
+    /**
      * Support cycles of the blueprint (Target.cycles: two hoppers facing each other, each the other's only click support): the cell `via` holds a temporary block first (a scaffold
      * task in that cell, the block of `cell` waits for it), the block of `cell` goes against it, the scaffold is taken out and `via` gets its own place task back (_scaffoldServed).
      * Only while `cell` is still to place and `via` is empty; at every survey (the tasks are new then).
