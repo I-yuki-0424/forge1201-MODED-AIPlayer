@@ -64,6 +64,8 @@ pub struct Sim {
     pub avoid: std::collections::HashSet<[i32; 3]>,
     /// The block under the feet was placed by another bot (the shared temporary-block registry, `bot.__temps`): `pillar` refuses to climb on it.
     pub floor_by_other: bool,
+    /// The floor under the body is the bot's own bridge block (bridge.js: taken away once the bot has stepped off it).
+    pub own_floor: bool,
     /// Falling blocks in the air: (tick it lands, cell it lands in, block). The column over a dug cell becomes falling entities at once and lands
     /// when vanilla gravity brings it down (move_b corpus mvb-r1: the sand over a dug cell was air at the end of the dig and landed later).
     pub falling: Vec<(i64, [i32; 3], u16)>,
@@ -112,6 +114,8 @@ pub const PLAN_NODES: usize = 20000;
 /// Walking constants of `path_ticks` (place_b corpus pb-r1, 1.21.1; see the doc): a step up (the jump and the landing) and the fixed part of a
 /// walk (the plan, the first turn, the settle on the cell centre).
 pub const WALK_UP: f64 = 9.0; pub const WALK_START: f64 = 3.0;
+/// motion.js MAX_REPLANS: plans after the first before a walk gives up `stuck`.
+pub const MAX_REPLANS: usize = 5;
 /// block.js BLIND_REACH: a blind dig is refused farther than this from the eye.
 pub const BLIND_REACH: f64 = 5.0;
 /// Ticks of a dig as body.js does it: the start packet and k = ceil(break ms / 50) + 1 swing ticks, then the finish packet; an instant break
@@ -128,7 +132,7 @@ pub fn tool_rank(n: &str) -> i32 { ["wooden", "golden", "stone", "iron", "diamon
 impl Sim {
     pub fn new(d: Rc<Data>, tile: Rc<Tile>, seed: u64) -> Sim {
         Sim { d, tile, edits: HashMap::new(), pos: [0; 3], yaw: 0.0, hp: 20.0, food: 20.0, sat: 5.0, exh: 0.0, inv: vec![None; 36], tick: 0, mobs: vec![], next_id: 1, rng: Rng(seed | 1),
-            site: [0; 3], fuel: 0.0, hostile_scale: 1.0, craft_slots: None, dead: false, mobf: None, ph: vec![], view: [0; 3], track: [0; 3], air: 300.0, hits: 0, dmg: vec![], day_seen: 0, regen_t: 0.0, kills: HashMap::new(), audit: HashMap::new(), journal: None, exact: None, ground: true, eff: HashMap::new(), vine: HashMap::new(), astar: false, atomic: false, hand: None, plan_nodes: PLAN_NODES, max_drop: 3, no_vines: false, avoid: std::collections::HashSet::new(), floor_by_other: false, falling: vec![], phys: None, autopickup: false, reach: None, scan_on: false, way: None, scan_res: None, recent: vec![] }
+            site: [0; 3], fuel: 0.0, hostile_scale: 1.0, craft_slots: None, dead: false, mobf: None, ph: vec![], view: [0; 3], track: [0; 3], air: 300.0, hits: 0, dmg: vec![], day_seen: 0, regen_t: 0.0, kills: HashMap::new(), audit: HashMap::new(), journal: None, exact: None, ground: true, eff: HashMap::new(), vine: HashMap::new(), astar: false, atomic: false, hand: None, plan_nodes: PLAN_NODES, max_drop: 3, no_vines: false, avoid: std::collections::HashSet::new(), floor_by_other: false, own_floor: false, falling: vec![], phys: None, autopickup: false, reach: None, scan_on: false, way: None, scan_res: None, recent: vec![] }
     }
     // ---- world access ----
     #[inline] pub fn blk(&self, x: i32, y: i32, z: i32) -> Option<u16> { if let Some(&b) = self.edits.get(&(x, y, z)) { Some(b) } else { self.tile.get(x, y, z) } }
@@ -235,7 +239,11 @@ impl Sim {
             self.pos = here; self.reach = None;
             let found = if self.astar {
                 let h = move |c: [i32; 3]| match aim { Some(a) => (((c[0] as f64 + 0.5 - a[0]).powi(2) + (c[1] as f64 + EYE - a[1]).powi(2) + (c[2] as f64 + 0.5 - a[2]).powi(2)).sqrt() - reach).max(0.0), None => 0.0 };
-                self.plan(here, &|s, n| Some(n) != excl && goal(s, n, reach), &h, self.plan_nodes).map(|(n, g)| (n, g as f32))
+                match self.plan_follow(here, &|s, n| Some(n) != excl && goal(s, n, reach), &h, self.plan_nodes) {
+                    Ok((n, g)) => Some((n, g as f32)),
+                    // a partial walk that ended without the goal: the body is where the last partial path took it
+                    Err((why, at, walked)) => { self.pos = at; self.reach = None; return Err((why, 2 * ticks + 1 + walked.round() as i64)); }
+                }
             } else { self.stand_for(|s, n| Some(n) != excl && goal(s, n, reach)) };
             let (n, c) = match found { Some(x) => x, None => { self.pos = start; self.reach = None; return Err(("unreachable", 2 * ticks + 1)) } };
             ticks += if self.astar { c.ceil() as i64 } else { self.ticks_for(c) };
@@ -334,7 +342,25 @@ impl Sim {
     /// planner.js plan: A* from `start` to the first node popped that satisfies `is_goal`, with the heuristic `h`, at most `max_nodes` expansions.
     /// (goal, path cost), or None (no goal found, or the start is no node).
     pub fn plan(&self, start: [i32; 3], is_goal: &dyn Fn(&Sim, [i32; 3]) -> bool, h: &dyn Fn([i32; 3]) -> f64, max_nodes: usize) -> Option<([i32; 3], f64)> {
-        let k0 = self.node_kind(start[0], start[1], start[2])?;
+        self.plan_walk(start, is_goal, h, max_nodes).ok()
+    }
+    /// motion.js follow with planner.js plan: the goal found, or else the walk to the expanded node with the lowest heuristic (planner.js `best`)
+    /// and a new plan from there, `MAX_REPLANS` times at most (then `stuck`); a partial path of one node (the best is where the body stands) is
+    /// `unreachable`. Ok(goal, ticks of the whole walk), Err((reason, the cell the body got to, ticks walked)).
+    pub fn plan_follow(&self, start: [i32; 3], is_goal: &dyn Fn(&Sim, [i32; 3]) -> bool, h: &dyn Fn([i32; 3]) -> f64, max_nodes: usize) -> Result<([i32; 3], f64), (&'static str, [i32; 3], f64)> {
+        let (mut here, mut walked) = (start, 0.0);
+        for _ in 0..=MAX_REPLANS {
+            match self.plan_walk(here, is_goal, h, max_nodes) {
+                Ok((n, t)) => return Ok((n, walked + t)),
+                Err(Some((b, t))) => { walked += t - WALK_START; here = b; }          // the end of a partial path: no settle, the plan goes on from the cell
+                Err(None) => return Err(("unreachable", here, walked)),
+            }
+        }
+        Err(("stuck", here, walked))
+    }
+    /// One plan: Ok(goal, path ticks), Err(Some(best node, path ticks)) when the goal is not found and the best node is not the start, Err(None) else.
+    fn plan_walk(&self, start: [i32; 3], is_goal: &dyn Fn(&Sim, [i32; 3]) -> bool, h: &dyn Fn([i32; 3]) -> f64, max_nodes: usize) -> Result<([i32; 3], f64), Option<([i32; 3], f64)>> {
+        let k0 = self.node_kind(start[0], start[1], start[2]).ok_or(None)?;
         #[derive(PartialEq)] struct E(f64, u64, [i32; 3]);
         impl Eq for E {}
         impl PartialOrd for E { fn partial_cmp(&self, o: &Self) -> Option<Ordering> { Some(self.cmp(o)) } }
@@ -346,18 +372,17 @@ impl Sim {
         seen.insert(start, (0.0, k0, false));
         heap.push(E(h(start), seq, start));
         let (mut expanded, mut nb) = (0usize, Vec::with_capacity(16));
+        let (mut best, mut best_h) = (start, h(start));
+        fn unwind(parent: &HashMap<[i32; 3], [i32; 3]>, n: [i32; 3]) -> Vec<[i32; 3]> { let mut path = vec![n]; while let Some(p) = parent.get(path.last().unwrap()) { path.push(*p); } path.reverse(); path }
         while let Some(E(_, _, n)) = heap.pop() {
             if expanded >= max_nodes { break; }
             let (g, k, closed) = seen[&n];
             if closed { continue; }
             seen.insert(n, (g, k, true));
             expanded += 1;
-            if is_goal(self, n) {
-                let mut path = vec![n];
-                while let Some(p) = parent.get(path.last().unwrap()) { path.push(*p); }
-                path.reverse();
-                return Some((n, self.path_ticks(&path)));
-            }
+            if is_goal(self, n) { let path = unwind(&parent, n); return Ok((n, self.path_ticks(&path))); }
+            let hn = h(n);
+            if hn < best_h { best = n; best_h = hn; }
             self.p_neighbours(n, k, &mut nb);
             for &(m, cost) in &nb {
                 let ng = g + cost;
@@ -369,7 +394,7 @@ impl Sim {
                 heap.push(E(ng + h(m), seq, m));
             }
         }
-        None
+        if best == start { Err(None) } else { let path = unwind(&parent, best); Err(Some((best, self.path_ticks(&path)))) }
     }
     /// First solid cell along the line from the eye of a standing cell to the centre of `t` is `t` itself.
     pub fn sees(&self, from: [i32; 3], t: [i32; 3]) -> bool {
@@ -595,7 +620,7 @@ impl Sim {
                     match self.vine.get(&p).copied().or_else(|| self.vine_state_bits(p)) {
                         Some(bits) => {
                             let mut keep = 0u8;
-                            for (bit, d) in VINE_SIDES { if bits & bit != 0 && (solid(self, [p[0] + d[0], p[1], p[2] + d[2]]) || (self.name(p[0], p[1] + 1, p[2]) == "vine" && self.vine.get(&[p[0], p[1] + 1, p[2]]).map_or(false, |a| a & bit != 0))) { keep |= bit; } }
+                            for (bit, d) in VINE_SIDES { if bits & bit != 0 && (solid(self, [p[0] + d[0], p[1], p[2] + d[2]]) || (self.name(p[0], p[1] + 1, p[2]) == "vine" && self.vine.get(&[p[0], p[1] + 1, p[2]]).copied().or_else(|| self.vine_state_bits([p[0], p[1] + 1, p[2]])).map_or(false, |a| a & bit != 0))) { keep |= bit; } }
                             if bits & VINE_UP != 0 && solid(self, [p[0], p[1] + 1, p[2]]) { keep |= VINE_UP; }
                             if keep != 0 { if keep != bits { self.vine.insert(p, keep); self.set_vine_state(p, keep); q.push_back(p); } false } else { self.vine.remove(&p); true }
                         }
@@ -722,7 +747,10 @@ impl Sim {
         let d = if self.astar {
             let h = move |c: [i32; 3]| (((c[0] - t[0]) as f64).powi(2) + ((c[2] - t[2]) as f64).powi(2)).sqrt() + 0.5 * (c[1] - t[1]).abs() as f64;
             let here = self.pos;
-            self.plan(here, &|_s, c| c == t, &h, self.plan_nodes).map(|x| x.1 as f32)
+            match self.plan_follow(here, &|_s, c| c == t, &h, self.plan_nodes) {
+                Ok(x) => Some(x.1 as f32),
+                Err((why, at, walked)) => { if at != here { self.pos = at; self.exact = None; } self.reach = None; return Out::fail(why, 1 + fall + walked.round() as i64, vec![]).with(self, vec![]); }
+            }
         } else { self.reach().dist.get(&t).copied() };
         let astar = self.astar;
         match d {

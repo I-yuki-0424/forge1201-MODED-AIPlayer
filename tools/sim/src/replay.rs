@@ -5,7 +5,7 @@
 //! divergence never carries into the next command; every divergence gets one or more categories.
 //!
 //!   forgeaip-sim replay TRACE.jsonl... [--data data/data-1.21.1.json] [--rows rows.jsonl] [--json summary.json] [--near 6]
-use crate::data::Data;
+use crate::data::{Data, Kind};
 use crate::inflate;
 use crate::json::{self, J};
 use crate::sim::{Sim, Stack};
@@ -49,7 +49,7 @@ impl State {
     /// Item counts in the 36 main slots (mineflayer slots 9-44), which is all the simulator holds.
     fn counts(&self) -> BTreeMap<String, i64> { let mut m = BTreeMap::new(); for (s, n, c) in &self.inv { if (9..=44).contains(s) { *m.entry(n.clone()).or_insert(0) += *c as i64; } } m }
 }
-pub struct Cmd { pub id: u64, pub refid: Option<u64>, pub atomic: bool, pub env: (usize, i32, bool), pub avoid: Vec<[i32; 3]>, pub floor_by: bool, pub layer: String, pub name: String, pub args: J, pub t0: f64, pub t1: f64, pub before: State, pub after: State, pub ok: bool, pub reason: String, pub ticks: Option<i64> }
+pub struct Cmd { pub id: u64, pub refid: Option<u64>, pub atomic: bool, pub env: (usize, i32, bool), pub avoid: Vec<[i32; 3]>, pub floor_by: bool, pub floor_own: Option<bool>, pub layer: String, pub name: String, pub args: J, pub t0: f64, pub t1: f64, pub before: State, pub after: State, pub ok: bool, pub reason: String, pub ticks: Option<i64> }
 /// One bot's trace.
 pub struct Trace {
     pub bot: String, pub version: String,
@@ -122,6 +122,8 @@ impl Trace {
                         // the planner settings; a trace without them (format 1 before 2026-11-26) came from the T26 harness, whose bots are all work-service bots: 6,000 nodes, vines as air
                         env: { let e = j.get("env"); if e.is_null() { (6000, 3, true) } else { (e.get("planNodes").i().max(1) as usize, if e.get("maxDrop").i() > 0 { e.get("maxDrop").i() as i32 } else { 3 }, e.get("noVines").b()) } },
                         floor_by: !j.get("env").get("floorBy").is_null(),
+                        // the floor is this bot's own bridge block (bridge.js takes it away on the first step); None in traces from before 2026-11-26 13:30
+                        floor_own: if j.get("env").is_null() || j.get("env").get("floorOwn").is_null() { None } else { Some(j.get("env").get("floorOwn").s() == "bridge") },
                         avoid: j.get("env").get("avoid").arr().iter().map(|c| [c.at(0).i() as i32, c.at(1).i() as i32, c.at(2).i() as i32]).collect(),
                         layer: j.get("layer").s().to_string(), name: j.get("name").s().to_string(), args: j.get("args").clone(), t0: j.get("ms").f(), t1: f64::NAN,
                         before: State::parse(j.get("before")), after: State::default(), ok: false, reason: String::new(), ticks: None }); }
@@ -349,6 +351,8 @@ pub fn replay(t: &Trace, d: Rc<Data>, near: i32, others: &[Win]) -> (Vec<Row>, B
     let mut cur = Cursor::new(t, d.clone());
     let mut skipped = BTreeMap::new();
     let mut rows = vec![];
+    // the bot's own bridge blocks still standing (the registry bot.__temps, kind `bridge`), from the recorded outcomes when the trace does not carry them
+    let mut bridged: std::collections::HashSet<[i32; 3]> = std::collections::HashSet::new();
     for c in &t.cmds {
         // the world up to the command's start: every recorded block update before it (the bot's own earlier ones and everyone else's)
         cur.advance(c.t0);
@@ -362,6 +366,8 @@ pub fn replay(t: &Trace, d: Rc<Data>, near: i32, others: &[Win]) -> (Vec<Row>, B
         let vine0 = s.vine.clone();
         let inv0 = { let mut m = BTreeMap::new(); for (n, q) in s.held() { m.insert(n, q as i64); } m };
         s.avoid = c.avoid.iter().copied().collect(); s.floor_by_other = c.floor_by;
+        let cb = c.before.cell();
+        s.own_floor = c.floor_own.unwrap_or_else(|| bridged.contains(&[cb[0], cb[1] - 1, cb[2]]));
         s.atomic = c.atomic; s.plan_nodes = c.env.0; s.max_drop = c.env.1; s.no_vines = c.env.2;
         let out = if c.layer == "execute" || c.name.starts_with("move:") || c.name == "run:bridge" { sim_command(s, &c.name, &c.args, &t.temp) } else { None };
         s.atomic = false;
@@ -371,7 +377,8 @@ pub fn replay(t: &Trace, d: Rc<Data>, near: i32, others: &[Win]) -> (Vec<Row>, B
         for ((x, y, z), old) in &journal { olds.entry([*x, *y, *z]).or_insert(*old); }
         let (cb, ca, named) = (c.before.cell(), c.after.cell(), arg_cells(&c.args));
         let seen = |p: &[i32; 3]| dist2(*p, cb) <= near * near || dist2(*p, ca) <= near * near || named.iter().any(|q| dist2(*p, *q) <= near * near);
-        for (p, old) in &olds { let now = s.blk(p[0], p[1], p[2]).unwrap_or(d.air); if now != *old && seen(p) { sim_blocks.insert(*p, d.block(now).name.clone()); } }
+        // by name, as the real side counts them (a vine losing a face is no change)
+        for (p, old) in &olds { let now = s.blk(p[0], p[1], p[2]).unwrap_or(d.air); if d.block(now).name != d.block(*old).name && seen(p) { sim_blocks.insert(*p, d.block(now).name.clone()); } }
         let inv1 = { let mut m = BTreeMap::new(); for (n, q) in s.held() { m.insert(n, q as i64); } m };
         let supported = out.is_some();
         let (sok, sreason, sticks) = out.unwrap_or((false, "unsupported".into(), 0));
@@ -385,6 +392,8 @@ pub fn replay(t: &Trace, d: Rc<Data>, near: i32, others: &[Win]) -> (Vec<Row>, B
         // undo the simulator's changes: back to the recorded blocks (edits made by recorded events stay as they were before the command)
         for (p, old) in &olds { s.set(p[0], p[1], p[2], *old); }
         s.vine = vine0; s.falling.clear();
+        let lays = (c.name == "move:bridge" || c.name == "run:bridge") && !(c.args.get("keep").b() || c.args.get("road").b() || c.args.get("build").b());
+        for (p, n) in &real.blocks { if d.block(d.bid(n)).kind == Kind::Solid { if lays && p[1] == c.args.get("y").i() as i32 - 1 { bridged.insert(*p); } } else { bridged.remove(p); } }
         let ag = agree(&real, &sim);
         let cats = if supported { categorize(&c.name, &real, &sim, &ag) } else { vec![] };
         rows.push(Row { bot: t.bot.clone(), id: c.id, name: c.name.clone(), supported, real, sim, agree: ag, cats });

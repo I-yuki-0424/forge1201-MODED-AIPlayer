@@ -151,7 +151,7 @@ impl Sim {
                 self.pos = [n[0], y, n[1]]; self.exact = None; self.invalidate();
             }
             let old = [f[0], y - 1, f[2]];
-            if !keep && laid.contains(&old) { ticks += self.dig_here(old, &mut ev); }
+            if !keep && (laid.contains(&old) || (std::ptr::eq(n, &cells[0]) && self.own_floor)) { ticks += self.dig_here(old, &mut ev); }
         }
         let o = Out { ok: true, reason: "ok", ticks, ev: vec![] };
         self.finish_pub(o, ev)

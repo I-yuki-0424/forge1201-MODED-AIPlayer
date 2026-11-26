@@ -191,6 +191,7 @@ class BotRec {
                 const dim = g === 'the_nether' ? 'nether' : g === 'the_end' ? 'end' : g;
                 const rec = T.get(dim, { x: Math.floor(p.x), y: Math.floor(p.y + 1e-3) - 1, z: Math.floor(p.z) });
                 if (rec && rec.by && rec.by !== this.bot.username && !['road', 'seal', 'rescue'].includes(rec.kind)) env.floorBy = rec.by;
+                if (rec && rec.by === this.bot.username) env.floorOwn = rec.kind;                    // bridge.js takes its own `bridge` block away on the first step
             }
         } catch (_) { /* no registry */ }
         this.line({ t: 'cmd', id, ref, layer, name, args: args || {}, atomic: !!(opts && opts.atomic), maxTicks: (opts && opts.maxTicks) || null, env, ...(recMs ? { recMs } : {}),
