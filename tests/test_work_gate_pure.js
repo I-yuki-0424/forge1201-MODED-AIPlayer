@@ -100,5 +100,15 @@ const P = { x: 0, z: 0 };
         assert.strictEqual(N.claim('B', P, 2, { batch: 6 }), null, 'without lookahead the second bot idles');
     });
 
+    await test('worker: a lease the bot holds by mistake while it waits is not renewed: it expires and the unit is run (bt075u2: 8 bots waited 10 min behind one leased unit nobody ran)', async () => {
+        const L = new Ledger({ leaseMs: 3000 }); L.addRegion({ id: 'r', anchor: { x: 0, z: 0 }, layers: 1, rows: 2 });          // (renewed every 1 s while working)
+        const ran = []; let leaked = false;
+        // while it runs its first unit, the bot takes the other one by mistake (a lease leaked outside the loop)
+        const job = { ledger: L, runUnit: async (rid, u) => { if (!leaked) { leaked = true; const lk = L.claim('B', P, Date.now()); assert.ok(lk && lk.units.length === 1); } ran.push(u.unit); return { ok: true }; } };
+        const env = { pos: () => P, here: () => ({ x: 0, y: 0, z: 0 }), now: Date.now, exec: async () => ({ ok: true }) };
+        const r = await Promise.race([runWorker(job, 'B', env, { pollMs: 20, policy: null }), new Promise((res) => setTimeout(() => res({ ended: 'hung' }), 9000))]);
+        assert.strictEqual(r.ended, 'finished', JSON.stringify(r)); assert.deepStrictEqual(ran.sort(), [0, 1]);
+    });
+
     console.log('ALL OK'); process.exit(0);
 })().catch((e) => { console.error(e); process.exit(1); });

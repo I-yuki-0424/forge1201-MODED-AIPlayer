@@ -70,7 +70,10 @@ async function runWorker(job, id, env, { cancel = { cancelled: false }, policy =
     // A bot that cannot go on is put back on its feet before it rests or waits (env.goBack: the last place that worked), not left where it stopped.
     const bringBack = async (why) => { if (!env.goBack) return; try { const r = await env.goBack(why); onEvent('sent_back', { id, ok: !!r.ok, reason: r.reason, why }); } catch (_) { /* resting where it stands is the old behaviour */ } };
     L.join(id);
-    const hb = setInterval(() => L.heartbeat(id, now()), Math.max(1000, L.leaseMs / 3));
+    // Leases are kept alive only while the bot works its claim: a bot waiting with nothing to claim renews nothing, so a lease it holds by mistake expires and the unit goes back
+    // (bt075u2, dark forest, 1.21.1: 8 bots waited 'no unit to claim (layer gate)' for 10 minutes behind one leased unit nobody ran)
+    let working = false;
+    const hb = setInterval(() => { if (working) L.heartbeat(id, now()); }, Math.max(1000, L.leaseMs / 3));
     // Wait in slices so that a cancel is seen within a second.
     const wait = async (ms) => { for (let t = 0; t < ms && !cancel.cancelled; t += 500) await sleep(Math.min(500, ms - t)); };
     try {
@@ -83,6 +86,7 @@ async function runWorker(job, id, env, { cancel = { cancelled: false }, policy =
             if (env.nightGuard) { act('night'); const ng = await env.nightGuard(); if (ng && ng.waited) onEvent('night', { id, waited: ng.waited }); }
             act('claim');
             const claim = L.claim(id, env.pos(), now(), { batch });
+            working = !!claim;
             if (!claim) {
                 // The layer gate: the layer above is settled but not read yet: one bot reads every cell of it, what still holds a block goes back to work before the layer below is opened.
                 if (L.gate && job.checkLayer) {
