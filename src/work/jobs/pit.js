@@ -735,10 +735,18 @@ function createPitJob(box, ledgerOpts = {}, { lanes = 0, method = 'rows', tile =
     // sweep: the check at the end (pit_sweep.js): every chunk is walked to, read from the top layer down, and what still holds a block goes back to work.
     const sweep = makeSweeper({ plan, ledger, state: auditState, cellState });
     auditState.layer = new Map();
-    return { kind: 'pit', ledger, plan, checkLayer: (env, ck, now) => checkLayer(plan, ledger, byId, auditState, env, ck, now), cleanup: async (env) => { if (!ledger.finished()) return null; const rep = plan.endReport || (plan.endReport = {}); rep.trees = await cleanTrees(plan, env); const TM = require('../bot/temps'), t = await TM.cleanTemps(env, { box: plan.box, max: 60, maxMs: 120000, kinds: new Set([...TM.KINDS].filter((k) => k !== 'seal' && k !== 'rescue' && k !== 'lake')) }); rep.temps = t;
+    // The run's time is over before the pit (wrapUp, the test harness's time limit; owner list 5 Large 1: a clean site at the end of every run): no unit is claimed any more, the
+    // crew's worker takes the end of the job (cleanup: the movement blocks, nav's sweep) as for a finished pit, without the end's tree, hanging-block and lake-fill passes (the box
+    // is not dug, those blocks are its ground until it is)
+    const fin = ledger.finished.bind(ledger), claim0 = ledger.claim.bind(ledger);
+    ledger.finished = () => !!plan.wrapping || fin();
+    ledger.claim = (...a) => (plan.wrapping ? null : claim0(...a));
+    const wrapUp = () => { plan.wrapping = true; };
+    const wrapClean = async (env) => { const TM = require('../bot/temps'), rep = plan.endReport || (plan.endReport = {}); rep.wrap = await TM.cleanTemps(env, { box: plan.box, max: 120, maxMs: 240000, kinds: new Set([...TM.KINDS].filter((k) => k !== 'seal' && k !== 'rescue' && k !== 'lake')) }); return rep.wrap; };
+    return { kind: 'pit', ledger, plan, wrapUp, checkLayer: (env, ck, now) => checkLayer(plan, ledger, byId, auditState, env, ck, now), cleanup: async (env) => { if (plan.wrapping) return wrapClean(env); if (!ledger.finished()) return null; const rep = plan.endReport || (plan.endReport = {}); rep.trees = await cleanTrees(plan, env); const TM = require('../bot/temps'), t = await TM.cleanTemps(env, { box: plan.box, max: 60, maxMs: 120000, kinds: new Set([...TM.KINDS].filter((k) => k !== 'seal' && k !== 'rescue' && k !== 'lake')) }); rep.temps = t;
             // seals and lake-fill blocks hang over the floor of a deep pit: the pillar walk takes them (a plain mine of one cost the whole time budget: "enclosed", 120 s, and left a pillar block behind)
             rep.hanging = await cleanHanging(plan, env).catch((e) => ({ error: String(e && e.message || e) }));
-            await cleanLakeBlocks(plan, env); rep.seals = await TM.cleanTemps(env, { box: plan.box, max: 20, maxMs: 60000, kinds: new Set(['seal', 'rescue', 'lake']) }); return t; }, runUnit: (regionId, unit, env) => runUnit(plan, byId.get(regionId), unit, env), audit: (env, now, opts) => audit(plan, ledger, env.w, now, auditState, opts), sweep, rescue: (env, why) => require('../bot/water').rescue(env, plan.box, { why }) };
+            await cleanLakeBlocks(plan, env); rep.seals = await TM.cleanTemps(env, { box: plan.box, max: 20, maxMs: 60000, kinds: new Set(['seal', 'rescue', 'lake']) }); return t; }, runUnit: (regionId, unit, env) => runUnit(plan, byId.get(regionId), unit, env), audit: (env, now, opts) => (plan.wrapping ? { checked: 0, reopened: [], gaveUp: [] } : audit(plan, ledger, env.w, now, auditState, opts)), sweep: (env, now) => (plan.wrapping ? {} : sweep(env, now)), rescue: (env, why) => require('../bot/water').rescue(env, plan.box, { why }) };
 }
 
 module.exports = { cleanTrees, cleanLakeBlocks, sealItem, MAX_UNITS, goToStation, checkLayer, LAYER_ROUNDS, standsOnFloater, aerialTree, planPit, laneBoxes, planRoad, stationsOf, lineCells, unitCells, sealPlan, orderFill, isFluid, exposed, runUnit, wrongCells, cellState, audit, createPitJob, SEAL_ITEMS, CHUNK, TILE, SWEEP_R };

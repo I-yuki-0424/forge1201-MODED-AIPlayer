@@ -272,6 +272,23 @@ test('work: a place or clear task never takes a block of the bot\'s own pillar, 
     assert.notStrictEqual((res2[0] || {}).why, 'skipped', 'negative control: released, the cell over it is worked');
 });
 
+test('pit: fluid fills use the dug rubble first, the operator\'s temporary block only without it; at the time limit the pit wraps up (no claim, finished for the worker, its end cleans the movement blocks only)', async () => {
+    const pit = require('../src/work/jobs/pit');
+    const have = { cobblestone: 20, pumpkin: 128 }, env = { have: (x) => have[x] || 0 };
+    assert.strictEqual(pit.sealItem(env), 'cobblestone', 'rubble first (pumpkins first spent the 128 of mine_b-w121-a on water)');
+    have.cobblestone = 0; have.dirt = 0;
+    const o = require('../src/work/bot/tempblocks').only();
+    assert.strictEqual(pit.sealItem(env), o.length ? o[0] : (pit.SEAL_ITEMS.find((x) => env.have(x)) || null), 'without rubble: the operator\'s block (test worlds) or nothing');
+    const j = pit.createPitJob({ x0: 0, z0: 0, x1: 15, z1: 15, top: 70, bottom: 60 });
+    assert(!j.ledger.finished() && j.ledger.claim('a', { x: 0, y: 70, z: 0 }, Date.now(), { batch: 1 }), 'a running pit');
+    j.wrapUp();
+    assert(j.ledger.finished() && j.ledger.claim('b', { x: 0, y: 70, z: 0 }, Date.now(), { batch: 1 }) === null, 'wrapped up: finished for the worker, nothing claimed');
+    assert.deepStrictEqual(await j.sweep({}, Date.now()), {}, 'no chunk sweep');
+    const calls = []; const env2 = { temps: { list: () => [] }, bot: { username: 'p' }, here: () => ({ x: 0, y: 70, z: 0 }), w: {}, exec: async (c) => { calls.push(c); return { ok: true }; } };
+    await j.cleanup(env2);
+    assert(!calls.length && j.plan.endReport && j.plan.endReport.wrap && !('trees' in j.plan.endReport), 'only the movement blocks (none here): no tree, hanging or lake pass');
+});
+
 test('the flood tells a cell reached on foot from one reached by placing blocks (untemp stances and column tops only on foot)', async () => {
     const M = require('../src/build/move');
     const w = new Map(); for (let x = -6; x <= 6; x++) for (let z = -6; z <= 6; z++) w.set(`${x},69,${z}`, { name: 'stone' });
