@@ -208,7 +208,8 @@ function unwind(n) {
 }
 
 function search(w, start, goal, o = {}) { const it = searchSteps(w, start, goal, o); for (;;) { const r = it.next(); if (r.done) return r.value; } }
-async function searchAsync(w, start, goal, o = {}) { const it = searchSteps(w, start, goal, o); for (;;) { const r = it.next(); if (r.done) return r.value; await new Promise((res) => setImmediate(res)); } }
+// o.stats {cpuMs}: the time spent in the search itself, without the turns given to the other bots of the process (TASK-075/082: how much of a NAV trip is planning)
+async function searchAsync(w, start, goal, o = {}) { const it = searchSteps(w, start, goal, o); for (;;) { const t0 = o.stats ? performance.now() : 0; const r = it.next(); if (o.stats) o.stats.cpuMs += performance.now() - t0; if (r.done) return r.value; await new Promise((res) => setImmediate(res)); } }
 
 /**
  * The plan the walker uses: first on foot only (no dig, no block placed, exact A*), and only when that cannot reach the goal, with every move (weighted). A human walks where walking

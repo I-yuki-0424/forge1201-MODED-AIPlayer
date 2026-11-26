@@ -263,6 +263,7 @@ async function runUnit(plan, region, u, env) {
         const t0 = Date.now();
         const g = await env.nav({ x: c.x, y: c.y, z: c.z }, { near: 2, nearY: 2, why: 'pit: within reach of a cell', deadline: Date.now() + NAV_TRIP_MS }).catch((e) => ({ ok: false, reason: 'internal', detail: { error: String(e && e.message || e) } }));
         r.navMs = (r.navMs || 0) + (Date.now() - t0);
+        const ni = g && g.detail && g.detail.nav; if (ni) { r.navPlanCpu = (r.navPlanCpu || 0) + (ni.planCpuMs || 0); r.navPlan = (r.navPlan || 0) + (ni.planMs || 0); r.navMove = (r.navMove || 0) + (ni.moveMs || 0); }
         if (g && FATAL_MINE.has(g.reason)) return g;
         if (open(c)) return { ok: true };
         return env.exec('mine', eyeDist(c) <= 4.6 ? { x: c.x, y: c.y, z: c.z, collect: false, blind: true } : mineArgs(c));

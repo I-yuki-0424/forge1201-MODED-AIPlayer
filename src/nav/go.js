@@ -238,7 +238,8 @@ async function walk(W, env0, target, o) {
     const env = Object.create(env0);
     env.exec = (n, a, opt = {}) => env0.exec(n, a, { ...opt, cancel: opt.cancel || W.token });
     env.run = env0.run;
-    const bot = env.bot, info = { segments: 0, steps: 0, pillars: 0, bridges: 0, digs: 0, removed: 0, left: 0, replans: 0, fights: 0 };
+    const bot = env.bot, info = { segments: 0, steps: 0, pillars: 0, bridges: 0, digs: 0, removed: 0, left: 0, replans: 0, fights: 0, planCpuMs: 0, planMs: 0, moveMs: 0 };
+    const stats = { cpuMs: 0 };          // the planner's own CPU time (plan.js searchAsync); planMs is its wall time (with the other bots' turns), moveMs the steps (moving, digging, waiting for the server)
     const surface = !!target.surface;
     const lvl = Number.isInteger(target.level) && !Number.isInteger(target.y);
     const t = surface ? null : { x: target.x, y: Number.isInteger(target.y) ? target.y : (lvl ? target.level : undefined), z: target.z };
@@ -290,8 +291,9 @@ async function walk(W, env0, target, o) {
         const foreign = !!(T0 && T0.get(dim0, { x: here.x, y: here.y - 1, z: here.z }));
         const own = (x, y, z) => own0(x, y, z) || (foreign && x === here.x && y === here.y - 1 && z === here.z), underTemp = !!own(here.x, here.y - 1, here.z);
         const start = { ...here, ...(bot && bot.entity && bot.entity.onGround && !bot.entity.isInWater ? { ground: true } : {}), ...(underTemp ? { placed: true } : {}) };           // on a slab, a fence top, a bed: a start the grid would not call a node; on its own temporary block: a descent is possible
-        const plan = await P.planAsync(env.w, start, goal, { dig: digCostFor(bot), protectedCell: protectedFor(env), noPlace: !!o.noPlace, noDig: !!o.noDig, maxNodes: o.maxNodes || 14000, footNodes: o.footNodes, score, blocks: packBlocks(bot), keep: bot && bot.__keep ? bot.__keep : null, isTemp: own, foreignFloor: foreign && !own0(here.x, here.y - 1, here.z) });
-        info.segments++;
+        const tp = Date.now();
+        const plan = await P.planAsync(env.w, start, goal, { stats, dig: digCostFor(bot), protectedCell: protectedFor(env), noPlace: !!o.noPlace, noDig: !!o.noDig, maxNodes: o.maxNodes || 14000, footNodes: o.footNodes, score, blocks: packBlocks(bot), keep: bot && bot.__keep ? bot.__keep : null, isTemp: own, foreignFloor: foreign && !own0(here.x, here.y - 1, here.z) });
+        info.segments++; info.planMs += Date.now() - tp; info.planCpuMs = Math.round(stats.cpuMs);
         if (!plan) {
             // not on a node (in a bush, half in a wall, mid-air): let the body settle, then the action layer's walk to the nearest cell
             // (for up to 8 s: a fight's knock-back or a fall keeps the body off any node for a few seconds; five tries in two seconds ended move_b mbv075a w1 'stuck' mid-fight)
@@ -307,7 +309,9 @@ async function walk(W, env0, target, o) {
             if (env0.cancel && env0.cancel.cancelled) return done({ ok: false, reason: 'cancelled' });
             if (o.deadline && Date.now() > o.deadline) return done({ ok: false, reason: 'timeout', detail: { why: 'the caller\'s deadline passed (between steps)' } });          // (bt075t10: one segment ran 150 s past a 60 s deadline)
             await W.feed();
+            const tm = Date.now();
             const r = await perform(env, s);
+            info.moveMs += Date.now() - tm;
             if (!r.ok && r.reason === 'cancelled' && !(env0.cancel && env0.cancel.cancelled)) { for (let i = 0; i < 150 && bot && bot.__preempt; i++) await sleep(100); info.fights++; failed = { step: s.kind, reason: 'interrupted', at: env.here(), reflex: true }; break; }
             info.steps++;
             if (s.kind === 'pillar') info.pillars += s.cells.length; else if (s.kind === 'bridge') info.bridges += s.cells.length; else if (s.kind === 'dig' || s.kind === 'digdown') info.digs++;
