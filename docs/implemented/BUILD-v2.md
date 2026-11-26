@@ -706,3 +706,26 @@ a search that ran out to a stance rules out the stances around it for three minu
 | `under_probe` (owner ruling, addendum 4) | 3/3: the server accepts a block placed against the bottom face of the floor, blind, and the floor dug after it (moves.js `descend` already does this) |
 | `ma075d` move_a (x1) | 9/12 reached (75 %: a failure by the standard; the morning's 1.21.1 run had 6/12), the temp scan found 0 on all 12 bots |
 | `bt075k` build_t, the site's pit after the b081h fixes (tree pass: a low block the plain mine misses goes the aerial way, given-up blocks back to the units; registry: late window, reflex registers before its click) | w1 (y 122-131): 1 440/1 440 units in 534 s, 0 stuck, 0 clear tasks left to the builder; w2: 2 160/2 160 in 1 062 s, 0 stuck, 0 clear left; w3 (a village, 10 937 cells): still in its first round at the run's limit; no unregistered pumpkin reported on any world |
+
+**Unreachable cells on forest sites: one root fix (TASK-075, 2026-11-27 night, 081's b081d / b081h / b081i / b081k).**
+A cell a pit unit cannot reach from its station is no longer a special case per tree shape (oak canopy, birch crown, spruce down to the snow, the crew's own pumpkin
+6.7-18 out of reach, a snow layer). Whatever it holds, a reach failure (unmet `in_reach`, `unreachable`) goes straight to a blind mine when the eye is within 4.6, else
+to one NAV trip within reach (`env.nav`, near 2: walk, dig, pillar, bridge, descend, the block two below), then the mine again (208176ae, 58414e14). No six-try retry
+ladder for a reach failure; at most three NAV trips per unit; each trip has a 60 s deadline, checked between segments and between steps (214693e6, 3f110f6a; `go()`
+option `deadline`). A tree block is a cell like any other: no aerial skip, no "left to the tree pass", the layer is not done while one stands; the tree pass is only a
+speed-up. Units over 30 s are logged (`pit <region> u<n> slow <s> s: {nav, navS, blind, cellsS, mined, trees, cell}`), and a unit's failure carries `routeFail`,
+`liftFail` and where the bot stood.
+
+| Run (1.21.1, `SITE_BIOME`, `LIMIT_MIN=45`) | Cells | Pit | Tree blocks left in the box (server scan) |
+| :-- | --: | :-- | :-- |
+| `bt075t3` birch_forest (208176ae) | 5425 | finished, 955 s, stuck 0 | 0 |
+| `bt075t8` taiga / spruce (314af84f) | 9087 | cut by the time limit at 2697 s, 2903/3024 units | 82 (70 spruce_leaves, 12 spruce_log); 2 pumpkins |
+| `bt075t9` dark_forest (314af84f) | 16353 | cut at 2695 s, 3701/3744 units | 4 (dark oak log and leaves, a mushroom block); 2 pumpkins |
+| `bt075t10` jungle (314af84f, no between-steps deadline yet) | 16285 | cut at 2699 s, 4525/6336 units | 3422 (the pit was unfinished); 15 pumpkins |
+
+Pace: rock sites ran 7.3-11.4 cells/s (`bt075h/j/k`), the forests about 3.4 (taiga), 6.1 (dark forest) and 4.3 (jungle). Units over 30 s took 41-47 % of the bots' time.
+Tree-pass units had medians of 108-211 s. Units with a NAV trip had medians of 46-64 s, p90 138-450 s, and nearly always one trip (the cap of three does not bind).
+NAV took 11-15 % of the bots' time. The other slow units spent half their time in cells and half in station walks. The rate falls steadily with depth: the late slow
+cells are mostly ground (stone, grass, dirt), not trees. **Not met:** zero tree cells on every forest site within the limit, and the pace of a rock site. Two causes are
+still open on the pit side. (1) The layer gate serialises the last region behind one slow unit (t8: 120 units pending, 1 leased). (2) Bots near the bed outside the box
+fail 'too far from the station' because NAV ends 'stuck' and the lift is refused (survival).
