@@ -351,8 +351,8 @@ async function release(job, name, bot, mv, cancel, next = null, label = 'step') 
     }
     const left = L.release(name, { stay: (e) => ownLife(e) || column(e), why: `${label} begins` });
     // a pillar of its own left standing when its step ends (it should have been the way down): where, how high, and what the bot did (the first 40 of the job)
-    { const cols = new Map(); for (const e of left) if (e.how === 'pillar') { const ck = `${e.x},${e.z}`, c0 = cols.get(ck); if (!c0 || e.y > c0.top) cols.set(ck, { top: e.y, n: (c0 ? c0.n : 0) + 1 }); else c0.n++; }
-      for (const [ck, c] of cols) if (c.n >= 2 && (job.leftLog = (job.leftLog || 0) + 1) <= 40) job.log(`[temps] ${name} leaves a column of ${c.n} at ${ck} (top ${c.top}) at the end of ${label} standing at ${me.x},${me.y},${me.z}; walkBack ${wb} unpillar ${up}; last moves ${mv.trace.slice(-4).join(' | ')}`); }
+    { const cols = new Map(); for (const e of left) if (e.how === 'pillar') { const ck = `${e.x},${e.z}`, c0 = cols.get(ck); if (!c0 || e.y > c0.top) cols.set(ck, { top: e.y, n: (c0 ? c0.n : 0) + 1, step: e.step, age: Math.round((Date.now() - e.at) / 1000) }); else c0.n++; }
+      for (const [ck, c] of cols) if (c.n >= 2 && (job.leftLog = (job.leftLog || 0) + 1) <= 40) job.log(`[temps] ${name} leaves a column of ${c.n} at ${ck} (top ${c.top}, placed in step ${c.step} ${c.age} s ago) as ${label} begins, standing at ${me.x},${me.y},${me.z}; walkBack ${wb} unpillar ${up}; last moves ${mv.trace.slice(-4).join(' | ')}`); }
     if (left.length) job._offerTemps(Date.now(), true);
     L.begin(name, label);
     job.time.walk += Date.now() - tr;
