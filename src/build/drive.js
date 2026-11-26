@@ -809,6 +809,8 @@ async function clearByPit(job, name, bot, mv, cancel, work) {
     let res;
     try { res = await runWorker(P.impl, name, env, { cancel, pollMs: 1000, ...(work.opts || {}) }); }
     finally { bot.__mineBox = null; bot.__builderOwns = true; }
+    // the pit's rubble out of the pack (the test worlds put every drop straight into it): the materials need the room
+    try { await SUP.dropRubble(bot, keepRubble(job), { minFree: 40 }); } catch (_) { /* a full pack is dealt with before the next work too */ }
     if (res.ended === 'finished' || P.impl.ledger.finished()) job.pitDone(`${name}: ${res.ended}`);
     else if (!['died', 'disconnected', 'cancelled', 'wrong_dimension'].includes(res.ended)) {
         P.ends = (P.ends || 0) + 1; job.log(`${name}: pit worker ended ${res.ended}${res.last ? ` (${res.last})` : ''}; ${res.units} units, ${res.failed} failed`);
