@@ -581,3 +581,30 @@ The standard run with the wrap-up (`mb075e`, worlds 1-3, new seeds, 240 game min
 w3's cause is removed (`sealItem`: on the test worlds a fill never falls back to the operator's block; out of rubble the pit digs some). Open: the pit's wrap-up only runs
 when the bot's worker is in its loop; a bot waiting for a tool or cooling down after failures (the service's states, outside this task's files) skips it, and its last
 pillars stand (w2, w4). Every box stayed dirty (118-122 layers): the pit stalls in water ("seal: no standing cell within reach (inside rock)") as before this task.
+
+**The two-per-bot rule as ruled by the orchestrator (2026-11-26 evening), binding from here on.** At most two temporary blocks per bot at any time (one to stand on, one to place
+against); the column a bot stands on while it pillars counts as one structure in use. Measured exceptions:
+(a) a column being dug back from beside it is the removal in progress: at most one per bot, and the bot does nothing else until it is gone;
+(b) water fills and seals inside the build box are bound to their cell, not to a bot: they do not count toward a bot's two, each is removed by its own cell's task, and the end
+scan must still find zero; their count over time is reported (`temps.byHow` fill/seal, and `kept`);
+(c) a scaffold belongs to its block's claim: at most one per bot, gone when its block stands, in the same claim.
+Everything else counts.
+
+Re-measured under this rule from the runs' per-second records (`looseHow`: fills and seals left out, one scaffold per bot left out; (a) was already left out by `TempLedger.loose`
+since stage C), bot-seconds over two, w1 / w2 / w3:
+
+| Run | Before the ruling | Under the ruling |
+| :-- | :-- | :-- |
+| `build_t-w121-smoke` | 7 480 / 12 877 / 14 360 | 7 480 / 12 827 / 14 360 |
+| `bt075a` | 10 250 / 6 246 / 3 842 | 10 250 / 6 172 / 3 842 |
+| `bt075c` | 1 001 / 2 369 / 1 615 | 1 001 / 2 369 / 723 |
+| `bt075d` | 2 364 / 1 143 / - | 2 324 / 1 143 / - |
+| `bt075e` | 1 681 / 443 / 416 | 1 559 / 443 / 364 |
+| `bt075f` | - / 1 792 / 1 776 | - / 269 / 1 752 |
+| `bt075g` | 3 155 / 147 / 464 | **3 155 / 147 / 454** (about 16 % / 0.8 % / 2.4 % of bot time) |
+
+What is left in bt075g w1 (a jungle being cleared; 3 155 s): columns of more than four (1 905 s, of them 775 with a bridge block) and of four or less (1 250 s). The log names
+two causes, both on the build side (src/build, TASK-081 from here): released columns "a tall column: from its top" (174 times in the run) that wait for a bot to climb onto
+their top, because the stance beside a pillar's top ended without the walk back (`walkBack 0`: the walk onto the top failed or its head cell was taken) and the descend claim
+for such a top is offered only on foot and only to its placer (another bot's due block is `doomed` for routes); and `Mover._behind` stopping at "not in sight" (7) or "a crew
+member on it or its route" (3) on the columns of four or less. Handed to 081 (see the report of 2026-11-26).
