@@ -202,34 +202,17 @@ class BuildJob {
             return true;
         }
         // a wrong block dug out of a cell to place (kind clear, `after` place) belongs to the place stage: it was never ready there and held the crew idle for good (live 2026-11-23 fx1 w1)
-        if (STAGE_OF[tk.kind] !== this.stage && !(tk.after && STAGE_OF[tk.after] === this.stage)) {
-            // placing overlaps clearing: a block goes in as soon as its own neighbourhood is cleared (a few hard cells anywhere held the whole build in the prepare stage, live 2026-11-22)
-            if (!(this.stage === 'prepare' && (tk.kind === 'place' || tk.kind === 'fix' || tk.kind === 'scaffold') && this._clearAround(tk))) return false;
-        }
+        if (STAGE_OF[tk.kind] !== this.stage && !(tk.after && STAGE_OF[tk.after] === this.stage)) return false;
         // relaxed (a stall): the order rules go, never the fluid rule (relaxed clearing dug the rock round lava pockets and the lava ran through the dug box: five deaths in six
         // seconds, live 2026-11-23 fz8 w5)
         if (this.relaxed) return !(tk.kind === 'clear' && [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]].some(([dx, dy, dz]) => { const h = seen(bot, { x: tk.x + dx, y: tk.y + dy, z: tk.z + dz }); return h && (h.name === 'water' || h.name === 'lava' || h.props.waterlogged === 'true'); }));
         if (tk.kind === 'scaffold') return true;
         if (tk.kind === 'clear') {
+            // (a clear task now is a wrong block in a cell to build, or a scaffold's cell: the site's terrain and fluids are the pit's, job.planPit)
             // a scaffold stays until the block it was put there for stands (its lifetime, _scaffoldServed), not while any block beside it waits
             if (this.scaffoldFor && this.scaffoldFor.has(tk.k)) return false;
-            // natural leaves fall by themselves once the logs near them are gone (a player cuts the trunk, not the crown): they wait while a log stands within six
-            const here = seen(bot, tk);
-            if (here && /_leaves$/.test(here.name) && here.props.persistent !== 'true' && this._logNear(bot, tk)) return false;
-            // top-down, layer by layer (the crew stands on the floor it digs: a column cleared ahead of its neighbours is a shaft whose lower cells no eye sees, live 2026-11-22);
             // never next to a fluid (it would run in)
-            // the nine cells above first (no shaft runs ahead of its neighbours; a local rule, so one stuck cell holds only what is under it)
-            // natural leaves above do not count: they wait for the logs below them to go (they decay), so counting them locked trees for good (3 of 5 987 clear tasks ready,
-            // live 2026-11-22 sL2)
-            if (this._covered(tk, bot)) return false;
-            for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]]) {
-                const c = { x: tk.x + dx, y: tk.y + dy, z: tk.z + dz }, h = seen(bot, c);
-                if (h && (h.name === 'water' || h.name === 'lava' || h.props.waterlogged === 'true')) {
-                    // a fluid nobody is to fill or seal: a task for it (the clearing beside it waited for good, live 2026-11-22 sR2 w5)
-                    if (h.props.waterlogged !== 'true') this._fluidTask(c);
-                    return false;
-                }
-            }
+            for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]]) { const h = seen(bot, { x: tk.x + dx, y: tk.y + dy, z: tk.z + dz }); if (h && (h.name === 'water' || h.name === 'lava' || h.props.waterlogged === 'true')) return false; }
             return true;
         }
         if (tk.kind === 'place' || tk.kind === 'fix') {
@@ -269,41 +252,6 @@ class BuildJob {
         const tx = Math.floor((x - b.x) / TILE), tz = Math.floor((z - b.z) / TILE);
         if (tx < 0 || tz < 0 || tx >= L.nx || tz >= L.nz) return Infinity;
         return L.low[tx + tz * L.nx] + this.win();
-    }
-
-    /** The fill and seal tasks by 8-cell grid square, rebuilt when the task map is replaced (a survey) or every 20 s (filled ones drop out by the identity check). */
-    _fluidGrid() {
-        const now = Date.now();
-        if (this._fg && this._fgTasks === this.tasks && now - this._fgAt < 20000) return this._fg;
-        const g = new Map();
-        for (const o of this.tasks.values()) { if (o.kind !== 'fill' && o.kind !== 'seal') continue; const k = `${Math.floor(o.x / 8)},${Math.floor(o.y / 8)},${Math.floor(o.z / 8)}`; (g.get(k) || g.set(k, []).get(k)).push(o); }
-        this._fg = g; this._fgTasks = this.tasks; this._fgAt = now;
-        return g;
-    }
-
-    /** A fill (inside the box) or seal (outside) task for the fluid in cell c, unless there is one or it is parked. */
-    _fluidTask(c) {
-        const k = key(c.x, c.y, c.z);
-        if (this.tasks.has(k)) return;
-        this.parked.delete(k);            // a fluid parked earlier is work again
-        const inside = this.t.inside(c.x, c.y, c.z);
-        const t = { k, x: c.x, y: c.y, z: c.z, i: inside ? this.t.idx(c.x, c.y, c.z) : -1, kind: inside ? 'fill' : 'seal' };
-        this.tasks.set(k, t);
-        const bk = `${Math.floor(c.x / 8)},${Math.floor(c.y / 8)},${Math.floor(c.z / 8)}`; (this.buckets.get(bk) || this.buckets.set(bk, []).get(bk)).push(t);
-        this.fluidLeft = true; this._fg = null;
-    }
-
-    /** A clear task for the block over fluid task tk when nothing else reaches it (not a built cell, not a container); true when one was added. */
-    _openOver(bot, tk) {
-        const c = { x: tk.x, y: tk.y + 1, z: tk.z }, k = key(c.x, c.y, c.z), h = seen(bot, c);
-        if (!h || S.AIR.has(h.name) || h.name === 'water' || h.name === 'lava' || /(chest|barrel|shulker_box|hopper|bedrock|furnace|_bed)$/.test(h.name)) return false;
-        if (this.t.inside(c.x, c.y, c.z) && !this.t.isAir(this.t.idx(c.x, c.y, c.z))) return false;
-        if (this.tasks.has(k) || this.parked.has(k)) return false;
-        const t = { k, x: c.x, y: c.y, z: c.z, i: this.t.inside(c.x, c.y, c.z) ? this.t.idx(c.x, c.y, c.z) : -1, kind: 'clear', opens: tk.k };
-        this.tasks.set(k, t);
-        const bk = `${Math.floor(c.x / 8)},${Math.floor(c.y / 8)},${Math.floor(c.z / 8)}`; (this.buckets.get(bk) || this.buckets.set(bk, []).get(bk)).push(t);
-        this.log(`opening ${k} over the ${tk.kind} ${tk.k} (${h.name})`);
-        return true;
     }
 
     /**
@@ -374,34 +322,6 @@ class BuildJob {
         return false;
     }
 
-    /** Is a clear task still in one of the nine cells above clear task tk (natural leaves do not count; whether a task's cell is leaves is looked up once)? Cheap: map lookups. */
-    _covered(tk, bot) {
-        for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
-            const up = this.tasks.get(key(tk.x + dx, tk.y + 1, tk.z + dz));
-            if (!up || up.kind !== 'clear' || this.parked.has(up.k)) continue;
-            if (up.leaf === undefined) { const uh = seen(bot, up); up.leaf = !!uh && /_leaves$/.test(uh.name) && uh.props.persistent !== 'true'; up.falls = !!uh && /^(sand|red_sand|gravel|suspicious_sand|suspicious_gravel|.*_concrete_powder)$/.test(uh.name); }
-            if (up.leaf) continue;
-            // a cell over it that no stance has reached for 20 s does not hold it (it is dug from the side, the one over it stays; not under sand or gravel, which would fall):
-            // 14 unreachable top cells held 20 349 under them, live 2026-11-23 gd2 w5
-            const ns = this.noStance.get(up.k); if (ns && Date.now() - ns > 20000 && !up.falls) continue;
-            // a cell over it that waits only because a fluid is beside it does not hold it either: dug under, it stays and keeps holding the fluid back (four such cells under the
-            // Nether's ceiling held 19 258, live 2026-11-23 gg1 w4)
-            if (!up.falls) { if (!up.wetAt || Date.now() - up.wetAt > 10000) { up.wet = wetAround(bot, up); up.wetAt = Date.now(); } if (up.wet) continue; }
-            return true;
-        }
-        return false;
-    }
-
-    /** A log within six cells (leaves near one do not decay). */
-    _logNear(bot, c) {
-        for (let dy = -6; dy <= 6; dy++) for (let dx = -6; dx <= 6; dx++) for (let dz = -6; dz <= 6; dz++) {
-            if (Math.abs(dx) + Math.abs(dy) + Math.abs(dz) > 6) continue;
-            const h = seen(bot, { x: c.x + dx, y: c.y + dy, z: c.z + dz });
-            if (h && /(_log|_wood|_stem|mangrove_roots)$/.test(h.name) && (this.tasks.get(key(c.x + dx, c.y + dy, c.z + dz)) || {}).kind === 'clear') return true;      // only a log that is to go (one outside the box stays: its leaves would wait for ever)
-        }
-        return false;
-    }
-
     /** Is the cell of task tk already what the task would make it? */
     _already(tk, bot) {
         const h = seen(bot, tk);
@@ -413,30 +333,11 @@ class BuildJob {
         return false;
     }
 
-    /** No clearing, filling or sealing left in the cell, its neighbours and the three layers above them (then it can be built while the rest is still cleared). */
-    _clearAround(tk) {
-        for (let dy = -1; dy <= 3; dy++) for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
-            const o = this.tasks.get(key(tk.x + dx, tk.y + dy, tk.z + dz));
-            if (o && (o.kind === 'clear' || o.kind === 'fill' || o.kind === 'seal') && !this.parked.has(o.k)) return false;
-        }
-        // fluids still to fill or seal within four cells (a global "fluids left" held every block of the box for one fill nobody could reach, live 2026-11-22); through a grid of
-        // the fluid tasks (looking up 300 cells for every task made each claim take 450 ms, live 2026-11-22 sZ)
-        const fg = this._fluidGrid();
-        if (fg.size) {
-            const G = 8, gx = Math.floor(tk.x / G), gy = Math.floor(tk.y / G), gz = Math.floor(tk.z / G);
-            for (let ax = gx - 1; ax <= gx + 1; ax++) for (let ay = gy - 1; ay <= gy + 1; ay++) for (let az = gz - 1; az <= gz + 1; az++) {
-                const l = fg.get(`${ax},${ay},${az}`); if (!l) continue;
-                for (const o of l) if (this.tasks.get(o.k) === o && (o.kind === 'fill' || o.kind === 'seal') && Math.abs(o.x - tk.x) <= 4 && Math.abs(o.y - tk.y) <= 4 && Math.abs(o.z - tk.z) <= 4 && Math.abs(o.x - tk.x) + Math.abs(o.y - tk.y) + Math.abs(o.z - tk.z) <= 6) return false;
-            }
-        }
-        return true;
-    }
-
     /** Why task `tk` is not ready (for the stall log): the first rule that holds it. */
     whyNot(tk, bot, now) {
         if (this.parked.has(tk.k)) return 'parked';
         if ((this.cool.get(tk.k) || 0) > now) return 'cooling';
-        if (STAGE_OF[tk.kind] !== this.stage && !(this.stage === 'prepare' && (tk.kind === 'place' || tk.kind === 'fix') && this._clearAround(tk))) return this.stage === 'prepare' && (tk.kind === 'place' || tk.kind === 'fix') ? 'clearing or fluids around it' : `stage ${STAGE_OF[tk.kind]}`;
+        if (STAGE_OF[tk.kind] !== this.stage && !(tk.after && STAGE_OF[tk.after] === this.stage)) return this.stage === 'prepare' ? 'the site is being cleared (the pit)' : `stage ${STAGE_OF[tk.kind]}`;
         if ((tk.kind === 'place' || tk.kind === 'fix') && tk.y > this.topAt(tk.x, tk.z)) return `above the window (local top ${this.topAt(tk.x, tk.z)})`;
         const r = tk.i >= 0 ? this.t.recipeOf(tk) : null;
         if (tk.kind === 'place' && r) for (const d of r.deps) {
@@ -501,12 +402,12 @@ class BuildJob {
      * The site's terrain goes through the pit (owner list 5 Large 3: "pit has proven mining, yet removing terrain in the way of a build is a separate custom system: reuse the
      * dedicated mechanism"): after the first survey, the box's columns from the highest cell to clear down to the lowest are an open-pit job (src/work/jobs/pit.js, the same plan,
      * units, layer gate, water rules and final sweep as a pit of the work console), worked by the crew before anything is placed (drive.js clearByPit). Null when nothing is to
-     * be dug. BUILD_PIT=0 keeps the builder's own clearing (the comparison run).
+     * be dug.
      */
     planPit() {
         if (this.pitPhase && !this.pitPhase.done) return this.pitPhase;
         // once per survey (its tasks): a pit that left cells (its sweep gave up on them) is followed by another one over what is left, PIT_ROUNDS at most
-        if (process.env.BUILD_PIT === '0' || this.pitFor === this.tasks) return null;
+        if (this.pitFor === this.tasks) return null;
         this.pitFor = this.tasks;
         if ((this.pitRounds || 0) >= PIT_ROUNDS) return null;
         // the site only, before the first block of the build stands: a pit digs every block of its columns, built ones too
@@ -735,7 +636,6 @@ class BuildJob {
                 // the cheap reasons first (map lookups only): most of a box to clear lies under cells still to clear, most of a box to build above the window; the costly
                 // checks (the world's blocks) only for the rest (6 000 costly checks per claim saw 5 ready tasks out of 28 000, the ready top layer out of reach, live 2026-11-22 sM2)
                 // (a covered cell is looked at again after 2 s: 14 000 of them checked on every claim used up the scan's 60 ms before it reached the ready ones, live 2026-11-23 fz4 w2)
-                if (tk.kind === 'clear' && !this.relaxed && this.stage === 'prepare') { if ((tk.covUntil || 0) > now) continue; if (this._covered(tk, bot)) { tk.covUntil = now + 2000; continue; } }
                 // (in every stage: in the prepare stage the scan read the world for 7 500 blocks above the window and ran out of time before the ready ones, live 2026-11-23 fz6 w2)
                 if ((tk.kind === 'place' || tk.kind === 'fix') && !this.relaxed && tk.y > this.topAt(tk.x, tk.z)) continue;
                 // already as it should be (dug on someone's way, leaves that decayed, a block another bot put there): done, not offered (a clear task on air found no stance and was parked, live 2026-11-22)
@@ -915,7 +815,6 @@ class BuildJob {
                 if (!way) { rej.way++; continue; }
                 const batch = [{ ...seed, way }];
                 for (const tk of c.reach) { if (tk === seed || batch.length >= BATCH) continue; const w = this._way(world, tk, c.f); if (w) batch.push({ ...tk, way: w }); }
-                if (down && seed.kind === 'clear') this._deepen(bot, world, c.f, batch, floors);
                 if (seed.kind === 'place') this._widen(bot, world, c.f, batch, has, now);
                 best = { f: c.f, batch };
                 break;
@@ -940,9 +839,6 @@ class BuildJob {
                 // a block in the air whose own orientation no pillar edge gives (a chest faces the player): a scaffold block beside it first, in a cell that stays empty in the
                 // end, below it if that can be; the block then goes against the scaffold from any side (Nether chests over the lava sea were parked, live 2026-11-22 sG2 w6)
                 if (lonely && seed.kind === 'place' && this._scaffoldFor(seed)) { this.noStance.delete(seed.k); continue; }
-                // a fluid sealed in the rock has no face in sight: the block over it is dug first (lava and water do not run up), then the block goes in through that hole
-                // (every fill of a lava pocket in netherrack was parked and the clearing over it waited, 26 840 cells, live 2026-11-23 ga2 w5)
-                if ((seed.kind === 'fill' || seed.kind === 'seal') && this._openOver(bot, seed)) { this.noStance.delete(seed.k); continue; }
                 // a task no stance reaches is parked after a few looks (it waits for the next round, when the build has changed what can be reached): a handful of hidden cells
                 // held the whole build in the prepare stage (live 2026-11-22 sv8)
                 // a fluid task is never parked (the cells next to it wait on it for good): it cools and is looked at again
@@ -978,7 +874,6 @@ class BuildJob {
             const why = { claimed: 0, 'under a cell to clear': 0, 'above the window': 0 }; let n = 0;
             for (const tk of this.tasks.values()) {
                 if (this.claims.has(tk.k)) { why.claimed++; continue; }
-                if (tk.kind === 'clear' && this._covered(tk, bot)) { why['under a cell to clear']++; continue; }
                 if ((tk.kind === 'place' || tk.kind === 'fix') && this.stage === 'place' && tk.y > this.topAt(tk.x, tk.z)) { why['above the window']++; continue; }
                 if (n++ > 4000) { why['not looked at'] = (why['not looked at'] || 0) + 1; continue; }
                 const w = this.whyNot(tk, bot, now).replace(/ \d.*$/, '').replace(/waits for .*/, 'waits for a dependency').replace(/next to .*/, 'next to a fluid'); why[w] = (why[w] || 0) + 1;
@@ -1056,40 +951,6 @@ class BuildJob {
         if (pillarAt) over.set(`${pillarAt.x},${pillarAt.y - 1},${pillarAt.z}`, { name: this.tempItem || 'dirt', props: {}, shapes: [[0, 0, 0, 1, 1, 1]] });
         const w = P.botWorld(bot, over); w.over = over;
         return w;
-    }
-
-    /**
-     * Clearing from one stance as a player does it: everything within reach, top-down, not only the top layer that is ready now. A cell under cells to clear joins the claim when
-     * every one of those is in the claim before it (they are dug first; the world for the sight test has them dug). The bot then works a block of the ground from one stance instead
-     * of moving a few cells for each layer (owner 2026-11-23, problem 3). Never the column under its own feet or the floor of another bot; never next to a fluid; not natural leaves.
-     */
-    _deepen(bot, world, f, batch, floors) {
-        const inB = new Set(batch.map((t) => t.k)), eye = eyeOf({ x: f.x + 0.5, y: f.y, z: f.z + 0.5 }), cand = [];
-        for (const t of batch) if (t.kind === 'clear') world.over.set(t.k, P.AIR);
-        for (let dy = 5; dy >= -1; dy--) for (let dx = -5; dx <= 5; dx++) for (let dz = -5; dz <= 5; dz++) {
-            const x = f.x + dx, y = f.y + dy, z = f.z + dz, k = key(x, y, z), tk = this.tasks.get(k);
-            if (!tk || tk.kind !== 'clear' || tk.after || inB.has(k) || this.claims.has(k) || this.parked.has(k) || floors.has(k)) continue;
-            // never below the floor, and not the floor ring around the stance (bots dug the ground out around themselves and stood on a lone column, owner 2026-11-23)
-            if (y < f.y - 1 || (y === f.y - 1 && Math.abs(x - f.x) <= 1 && Math.abs(z - f.z) <= 1)) continue;
-            if (bodyCovers(f, tk) || boxDist(eye, tk) > this.o.reach) continue;
-            cand.push(tk);
-        }
-        cand.sort((a, b) => b.y - a.y);
-        const WET = (h) => h && (h.name === 'water' || h.name === 'lava' || h.props.waterlogged === 'true');
-        let added = 0;
-        for (const tk of cand) {
-            if (batch.length >= BATCH) break;
-            let held = false;
-            for (let ax = -1; ax <= 1 && !held; ax++) for (let az = -1; az <= 1; az++) { const up = this.tasks.get(key(tk.x + ax, tk.y + 1, tk.z + az)); if (up && up.kind === 'clear' && !this.parked.has(up.k) && !inB.has(up.k) && up.leaf !== true) { held = true; break; } }
-            if (held) continue;
-            const h = seen(bot, tk);
-            if (!h || (/_leaves$/.test(h.name) && h.props.persistent !== 'true')) continue;
-            if ([[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]].some(([dx, dy, dz]) => WET(seen(bot, { x: tk.x + dx, y: tk.y + dy, z: tk.z + dz })))) continue;
-            const w = P.clickable(world, tk, f);
-            if (!w) continue;
-            batch.push({ ...tk, way: w }); inB.add(tk.k); world.over.set(tk.k, P.AIR); added++;
-        }
-        return added;
     }
 
     /** How a task is done from stance f: a click (place.ways) for blocks, a face in sight for digging, or true for work that brings its own aim. Null: not from here. */
