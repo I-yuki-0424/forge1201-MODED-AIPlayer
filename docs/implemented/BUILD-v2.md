@@ -740,6 +740,23 @@ fail 'too far from the station' because NAV ends 'stuck' and the lift is refused
 | `b081k` (e0d643bd, a forest) | pit 1 190 s; my 6-min cap fired while 6 units were still at work (28 leaves left, decaying); then **6 257 of about 7 600 blocks placed in 128 minutes of placing**, the best run so far; sinks 2 395/2 395; 5 shut-ins dug out; 1 death; the tail held by 49 trapdoor scaffolds and 4 trapdoors 'no stance reaches it' under the slab floor over them | the cap at 15 min (157add02); placing under the feet (3047130b): standing on the block over a cell, its bottom face is clicked; the floating trapdoor's scaffold goes over it, in the opening of the slab floor, and the bot puts the trapdoor in under its feet (d6352a31) |
 | `b081l` (6c3cc1bd) | stopped in its pit after 2 min for d6352a31 | |
 | `b081m` (d6352a31, a forest) | pit round 1 5 295 s: the slowest units one leaf or vine cell for 370-650 s, and a tail of 16 min behind one leased unit (075: 6722aa58 bounds a cell's time; f98a9a0d lets a lease held while waiting expire); rounds 2 and 3 for 3 and 2 of the pit's own pumpkins; then **about 75 blocks a minute** placed over its first 40 minutes of placing (b081k: 49), 5 cells put in under the feet, sinks 709/709; but the first survey after the third round parked 12 cells of the build's own blocks as 'left by the pit' (slabs one under their layer, glass, a sticky piston, smooth stone over a retracted piston: its pistons had moved them), for good | a block whose kind is a blueprint item no terrain makes stays the crew's to dig and place again; terrain stays the pit's (b824af58). Stopped at minute 145 |
+| `b081n` (b824af58) | stopped in its pit after 9 min for the machine rule below | |
+| `b081o` (7eda0d59, a forest) | pit 189 s; about 75 blocks a minute, 1 812 placed by minute 34; no piston fired, no block landed off its cell, 127 clicks dropped on a clicked block that was gone; at minute 26 the crew stood still in stage prepare: 18 smooth stones over pistons placed unpowered were taken for the machine's other phase and dug, and those clears put the stage back to prepare | the other-phase rule only for a machine whose sources stand; a build block dug from a cell that stays empty is placing work (1d3ef6d0); a click waits a moment for the bot's own block before it (968060b3) |
+
+**Machines built safely (orchestrator 2026-11-27, `src/build/machine.js`).** iron-farm-34 is one machine by the rule below: 7 353 cells, 48 sticky pistons facing up under
+smooth stone, a redstone-block clock with two horizontal pistons, 24 redstone torches in a tower and one redstone block, no observers. In b081m 3 of the 12 cells left over
+lay on a piston's push line (smooth stone at +2 over a retracted piston, glass at +3): the torches and the redstone block went in as soon as their support stood and powered the
+half-built circuit. The other 9 lay on no piston line: blocks one cell off their own (slabs under their layer, glass and a piston beside theirs), most likely a click on a block
+that was gone by then (the server puts the block into the clicked cell itself when that cell is replaceable).
+- *Order*: a machine is a group of redstone parts within two cells of each other, with a margin of one and its pistons' push lines (13). Its power sources (redstone block,
+  redstone torch, a lever that is on) are placed only when every other block of it stands; an observer only when the cell it watches stands. Every piston is placed with nothing
+  powering it, and the survey builds the cells in front of it as the blueprint has them (the head's cell empty) until the sources stand; then the piston extends into the empty
+  head cell and pushes nothing. Offline: no recipe of iron-farm-34 depends on a source (no deadlock); the tower's smooth stones over the torch cells take a scaffold beside.
+- *Watch*: a piston of the build that fires and a cell that turns into `moving_piston` are counted, before any source stands (`stats.machine.moved` / `fires`, the progress
+  line's `machineMoved`: the target is zero) and after (`movedPowered` / `firesPowered`: the finished machine running), each with the powered parts near it (`[machine]`).
+- *Read-back*: a block that lands in one of the 26 cells round its own is logged with the click (`[misplaced]`, `stats.misplaced`); a click on a clicked block that is gone
+  or that another bot is taking away is not sent (`stats.clickGone`, `clickGoneWhy`).
+
 
 
 
