@@ -95,4 +95,25 @@ test('a run: after a batch along a row the bot steps on along the row and takes 
     assert.strictEqual(job2.claimNext(bot, 'a', { station: { x: 2, y: 64, z: 1 }, placed }), null);
 });
 
+test('a bed is clicked only while its head cell is empty: not from a pillar in that cell (159 beds "got air" in hc1/hd1; negative control: the head cell empty, a way)', () => {
+    const { Vec3 } = require('vec3');
+    const registry = require('prismarine-registry')('1.21.1'), Chunk = require('prismarine-chunk')(registry), World = require('prismarine-world')(registry);
+    const world = new World(null).sync, chunk = new Chunk({ minY: -64, worldHeight: 384 }), stone = registry.blocksByName.stone.defaultState;
+    for (let x = 0; x < 16; x++) for (let z = 0; z < 16; z++) chunk.setBlockStateId(new Vec3(x, 63, z), stone);
+    world.setColumn(0, 0, chunk);
+    const palette = [{ name: 'minecraft:air', props: {} }, { name: 'minecraft:white_bed', props: { facing: 'west', part: 'foot', occupied: 'false' } }, { name: 'minecraft:white_bed', props: { facing: 'west', part: 'head', occupied: 'false' } }];
+    const blocks = []; for (let x = 0; x < 6; x++) for (let z = 0; z < 3; z++) blocks.push({ x, y: 0, z, s: x === 3 && z === 1 ? 1 : x === 2 && z === 1 ? 2 : 0 });
+    const t = new Target({ size: [6, 1, 3], palette, blocks }, { x: 0, y: 64, z: 0 });
+    const job = new BuildJob(t, { log: () => {} });
+    const bot = { registry, world, blockAt: (p) => world.getBlock(p) };
+    const tk = { k: '3,64,1', i: t.idx(3, 64, 1), x: 3, y: 64, z: 1, kind: 'place' };
+    assert(t.recipeOf(tk).room, 'the recipe names the head cell');
+    const free = job._way(job._world(bot, null), tk, { x: 5, y: 64, z: 1 });
+    assert(free, 'negative control: head cell empty, a way from the floor east of the foot');
+    // the stance on a pillar in the head cell (its block in the stance's world)
+    assert.strictEqual(job._way(job._world(bot, { x: 2, y: 65, z: 1 }), tk, { x: 2, y: 65, z: 1 }), null, 'no click from a pillar in the head cell');
+    chunk.setBlockStateId(new Vec3(2, 64, 1), registry.blocksByName.pumpkin.defaultState);
+    assert.strictEqual(job._way(job._world(bot, null), tk, { x: 5, y: 64, z: 1 }), null, 'a temporary block in the head cell: no click');
+});
+
 (async () => { for (const [name, fn] of queue) { await fn(); n++; console.log(`  ok ${name}`); } console.log(`test_build_order_pure: ${n} passed`); })().catch((e) => { console.error(e); process.exit(1); });

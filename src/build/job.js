@@ -1097,7 +1097,11 @@ class BuildJob {
         if (k === 'place' || k === 'scaffold') {
             let want, item;
             if (k === 'scaffold') { item = this.tempItem; if (!item) return null; want = { name: item, props: {} }; }
-            else { const r = this.t.recipeOf(tk); if (!r || !r.item) return null; want = this.t.wantOf(tk); item = r.item; }
+            else {
+                const r = this.t.recipeOf(tk); if (!r || !r.item) return null; want = this.t.wantOf(tk); item = r.item;
+                // a two-cell block (a bed's head, a door's upper half): its other cell empty at the click, in this stance's world too (its pillar block is not in it)
+                if (r.room && r.room.some((d) => { const b = world.block(tk.x + d[0], tk.y + d[1], tk.z + d[2]); return !b || !(S.AIR.has(S.bare(b.name)) || SV.REPLACEABLE.test(S.bare(b.name))); })) return null;
+            }
             const w = P.ways(world, tk, want, item, [f], { max: 1 })[0];
             if (w) return w;
             // beside the top of the block it stands on (a cell in the air): leaning over the edge toward it

@@ -52,7 +52,9 @@ function recipe(t, at = () => null) {
     if (!item) return null;
     let r;
     const f = p.facing;
-    if (/_bed$/.test(n)) r = place(item, 'up', { h: f });                                                        // foot here, head at +facing
+    // foot here, head at +facing; `room`: the head's cell must be empty at the click, or the server places nothing (BedBlock.getStateForPlacement: the head cell must be replaceable).
+    // A bot pillared up in the head cell and clicked the side of its own pillar: 159 beds 'got air' in hc1/hd1, b081a 780,74,570 "head cell had pumpkin"
+    if (/_bed$/.test(n)) r = place(item, 'up', { h: f }, { room: [VEC[f]] });
     else if (/^(chest|trapped_chest)$/.test(n)) {
         // facing = the opposite of the look. A double chest: the RIGHT half first with sneak (stays single), then the LEFT half without sneak joins it (the clockwise neighbour is tried first).
         const type = p.type || 'single';
@@ -77,7 +79,7 @@ function recipe(t, at = () => null) {
         if (p.type === 'double') { r = place(item, 'up', { h: 'north' }); r.again = { face: FACE.up }; }
         else r = place(item, p.type === 'top' ? 'down' : 'up', { h: 'north' });
     } else if (/_door$/.test(n)) {
-        r = place(item, 'up', { h: f }, { deps: [[0, -1, 0]] });
+        r = place(item, 'up', { h: f }, { deps: [[0, -1, 0]], room: [[0, 1, 0]] });          // the upper half's cell empty at the click (DoorBlock.getStateForPlacement)
         // hinge: vanilla decides it from the neighbours and the click position; the cursor on the hinge side is a hint, the result is read back
         const side = p.hinge === 'right' ? CW[f] : CCW[f], v = VEC[side];
         r.cursor = [0.5 + v[0] * 0.3, 0.5, 0.5 + v[2] * 0.3];
