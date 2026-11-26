@@ -1,9 +1,10 @@
 # NATIVE-v1: the bot's own player physics, inventory clicks, dig time and container contents instead of mineflayer's
 
 `TASK-20261125-076` (owner list 5, Large 4 and Large 3.4; contract in [OWNER-LIST-5](../proposed/OWNER-LIST-5.md)). Built and tested offline on 2026-11-25 (stage A), wired and
-measured live on the Fabric 1.21.1 test world 7 on 2026-11-26 (stage B). **State:** every part is on `main` and **opt-in** (`NATIVE_PHYSICS=1`, `NATIVE_INVENTORY=1`,
-`NATIVE_DIG=1`, `NATIVE_INPUTS=1`); mineflayer's stay the default until the orchestrator switches the default (other tasks were measuring with mineflayer's on 2026-11-26).
-`set_contents` is always available.
+measured live on the Fabric 1.21.1 test world 7 on 2026-11-26 (stage B). **State (2026-11-27):** every part is on `main`; **native is the default on Fabric 1.21.1**
+(the test worlds and the 1.21.1 creative console), where the same-seed comparison of section 7 found it not worse; **mineflayer's stays the default everywhere else** (the
+Forge 1.20.1 play console, the 26.1.2 consoles: nothing compared there). One place decides (`src/native/index.js`: `enabled(part, bot)`, `ACCEPTED`); `NATIVE_PHYSICS`,
+`NATIVE_INVENTORY`, `NATIVE_DIG`, `NATIVE_INPUTS` `=1` / `=0` force a part on or off on any version. `set_contents` is always available.
 
 ## 1. What still came from mineflayer (measured 2026-11-25, the bot path: everything but the legacy `bot_actuator.js` / `src/actuator/`)
 
@@ -122,18 +123,35 @@ TASK-078's format ([SIM-PARITY-v1](SIM-PARITY-v1.md) section 5, format 1: `hello
 
 `scripts/native/compare.sh TEST SEED`: the test with mineflayer's modules, then with the native ones, each on a new world of the same seed.
 
-`scripts/native/compare_report.js` puts the runs side by side. Native = `NATIVE_PHYSICS=1 NATIVE_INVENTORY=1 NATIVE_DIG=1 NATIVE_INPUTS=1`. Peaceful except `move_a` (Normal).
+`scripts/native/compare_report.js` puts the runs side by side. Native = `NATIVE_PHYSICS=1 NATIVE_INVENTORY=1 NATIVE_DIG=1 NATIVE_INPUTS=1`, mineflayer = all four `=0`.
+Peaceful except `move_a` (Normal). Run 2026-11-26 12:44 to 2026-11-27 04:55 on code d7e9ac76 (after the swim fix below); results `/mnt/data/forgeaip-play/t26/out/cmp-<test>-<seed>-{mf,native}`.
+`mine_b` is one trial per world and fails in both modes on 1.21.1 (as in TASK-074's own runs: unreachable stations, the 4 h limit), so its units are compared too.
 
 | Test | Seed | mineflayer: passed, mean s per trial, deaths | native: passed, mean s, deaths |
 | :-- | :-- | :-- | :-- |
 | place_a | 7601 | 4/4, 31 s, 0 | 4/4, 31 s, 0 |
 | place_a | 7602 | 4/4, 31 s, 0 | 4/4, 32 s, 0 |
 | place_a | 7603 | 4/4, 31 s, 0 | 4/4, 31 s, 0 |
-| move_a | 7601 | pending (re-run after the swim fix below) | pending |
-| move_a | 7602, 7603 | pending | pending |
-| mine_b | 7601-7603 | pending | pending |
+| move_a | 7601 | 3/4, 1385 s, 1 | 3/4, 1364 s, 4 |
+| move_a | 7602 | 2/4, 1050 s, 2 | 4/4, 1308 s, 0 |
+| move_a | 7603 | 4/4, 1171 s, 0 | 3/4, 1245 s, 1 |
+| mine_b | 7601 | 0/1 (59/63 units, 4 stuck), 5861 s, 1 | 0/1 (62/63 units, 1 stuck), 4889 s, 0 |
+| mine_b | 7602 | 0/1 (64/64 units, 12 pumpkins left), 4600 s, 0 | 0/1 (64/64 units, 12 pumpkins left), 4549 s, 0 |
+| mine_b | 7603 | 0/1 (14/70 units, 10 stuck, 4 h limit), 14403 s, 1 | 0/1 (14/70 units, 5 stuck, 4 h limit), 14404 s, 0 |
 
-**place_a: 12/12 with either, the same time per bridge.**
+**Verdict: native is not worse.** place_a 12/12 either way; move_a mineflayer 9/12, native 10/12; mine_b fails in both modes on every seed, and native has as many units
+done or more, as few stuck or fewer, and no death against two. One number is worse with native: move_a deaths, 5 against 3. Four of the five are one bot: 7601 native MvE7,
+stuck on the east line (z -8) at **x 671, y 69, z -8** (NAV: 30 segments, 3 pillars, "8 segments without getting closer", 549 s waited for the night), killed there by a
+drowned, two zombies and a stray between 04:26 and 04:28 UTC. The pre-fix native run of the same seed stopped on the east line too (z -1, at **x 687, y 71**), while
+mineflayer's two east bots on that seed (lines z -2 and z 5) got through. The other failures: native 7603 MvE7 at **x 703, y 64, z 3** (38 segments, 7 fights, 1 death);
+mineflayer 7601 MvW7 at **x -592, y 69, z -2**, 7602 MvE7 a walk that timed out four times at **x -33, y 62, z -18**, 7602 MvS7 at **x -148, y 61, z 189**. **For 075 / NAV:** seed 7601
+around x 670-690 on z -8..-1 stopped the native east bot twice and is worth a look as a movement case (a new world of seed 7601, `scripts/t26/up.sh 7 --new --seed 7601`).
+
+**Before native becomes the default anywhere else** (the orchestrator's condition, 2026-11-27): the same comparison on that platform and version, same seeds, server-graded.
+For the Forge 1.20.1 play console that means a disposable copy of the play world (`scripts/world/test-up.sh`, never the play world) with its mod set (Create and the rest of
+`modpack/forgeaip-create.lock.json`): move_a- and mine_b-type runs on natural terrain there, place on mod blocks, and the click probe (`scripts/native/click_probe.js`) with mod
+items in containers (Create's items carry NBT and the FML3 registry gives mod ids); `src/native/physics` reads block shapes from the version's data, so mod blocks' collision
+boxes must come from `src/transport/mod_registry.js`' table, which is not yet checked against the native physics. Then add `forge 1.20.1` to `ACCEPTED`.
 
 **move_a found a real difference, and its cause was in the walk, not in the physics.** The first `move_a` 7601 pair (2026-11-26 01:20-02:11, before the fix):
 mineflayer 4/4, 0 deaths; native 1/4, 6 deaths, three of them `drowned` in the server log within the first 11 minutes, the other bots stuck after their deaths. Under
@@ -141,7 +159,7 @@ water the game's sprint is swimming, and a swimming body moves along its look (`
 held sprint in water ("the way a player swims against a current") and left the pitch where the last dig or place had put it, usually pointing down: on the native physics
 the bot swam along the bottom (offline: sprint + jump + forward, look 0.5 rad down, the body stays at the bottom; without sprint it surfaces in 2 s, test in
 `test_native_physics_pure.js`). prismarine-physics has no swimming, so this never showed with mineflayer's physics. Fix: in water the walk looks level and sprints only
-with the head out of the water; the breath reflex lets go of sprint and looks up; the fight reflex does not sprint in water. Both modes are re-run on the fixed code.
+with the head out of the water; the breath reflex lets go of sprint and looks up; the fight reflex does not sprint in water. The table above is on the fixed code (both modes).
 
 ## 8. Known gaps
 
