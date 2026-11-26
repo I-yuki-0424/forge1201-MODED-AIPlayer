@@ -624,3 +624,35 @@ instead of small areas; separate the cause of the bots' pauses. Contract: `docs/
 | white beds parked "got minecraft:air" (159 cells) | 15 of 15 | the bot pillared up in the bed's head cell and clicked the side of its own pillar; the server refuses a bed whose head cell is not replaceable (b081a `[bed]` 780,74,570: "head cell had pumpkin") | recipes name the other cell of two-cell blocks (`room`: a bed's head, a door's upper half); no click while it holds a block, in the stance's own world too |
 | glass 146, smooth stone 117, obsidian 66, beds 35, slabs 22: parked "no way to the stance" | most | the planner's `[diag]`: 3 345 of 3 457 failed searches had a way without the `doomed` rule (others' temporary blocks due for removal are no floor); 075's ledger removed most of those blocks since | (075); measured again below |
 
+### Clearing is the pit's (item 1)
+
+After the first survey the box's columns from the highest cell to clear down to the lowest become an open-pit job (`job.planPit`: `pit.createPitJob(box, PIT_LEDGER,
+{ method: 'sweep', road: false })`, the work console's own plan, units, layer gate, water rules, final sweep and end passes). Each bot fetches its kit (tools and temporary blocks,
+nothing of the build) and works the pit's units with the work layer (`drive.js clearByPit` -> `runWorker(pit, ...)` with the bot's work environment from the service,
+`construct.js`), nothing of the build is placed meanwhile; then the box is surveyed again. Up to three pit rounds run over what a pit left, all before the first block stands (a pit
+digs every block of its columns); whatever is still left then is parked "left by the pit". A run's wrap-up wraps up a pit still at work. The builder's own clearing is gone
+(`6fbbe1fa`): the top-down "covered" rule, the leaves-wait-for-logs rule, fluid fill/seal task creation, the fluid-pocket opener, deepening from one stance and placing that overlapped
+clearing. A clear task is now a wrong block in a cell to build or a scaffold's cell. The pit method: sweep (dug with sight from a station per tile); on the same mine_b box `cmp4`
+sweep passed and expert failed, and in b081b the expert's stations "could not stand" 18 times in ten minutes.
+
+### Work units by shape (item 3)
+
+After a batch of placing, the bot steps on along the line its blocks lie on (the longer axis of what it placed, one to three cells, same level, on ground or the build) and takes
+what it reaches there (`job.claimNext`: the cells near the next stance only, no scan of the box, no seed ranking, no flood); a full claim only when the line ends. A bridge, a
+wall or a floor strip is one run of stances without a claim between them. `BUILD_RUNS=0` turns it off.
+
+### Pauses (item 4)
+
+`src/build/pauses.js`: an action is a dig (from its start to its end), a click (use on a block, use of an item, a window click), a tick in which the body moved; every gap over
+0.5 s between two actions is classified by where its milliseconds went: `cpu` (this bot's own claim, plan, flood, or the shared thread busy with another bot's), `retry` (after a
+failed step), `bot` (waiting for another bot: hand-over, the chest's queue, nothing claimable), `server` (a look's tick, the block update after a click, a container), `other`.
+The code names what it does with labels (`within`, `sleep(ms, label)`), the bot is found by AsyncLocalStorage, long synchronous sections are charged to the other bots.
+`build_t` prints `[pauses N min]` per minute and the whole table at the end; `scripts/t26/pause_report.py LOG` sums a log.
+
+Changes by cause: block reads by state id (`fastblock.js`, one shared Block per state: 23 % of the crew's CPU in 079's profile), a walk to a stance inside the bot's flood takes
+the flood's route without a new search, a walk to a claimed stance gets 1.5 s of planning CPU (hopeless searches ran to the 4 s budget), the rule-by-rule diagnosis of a failed
+search every five minutes, runs instead of a full claim per stance.
+
+Hot paths for TASK-082 (Rust), from 079's profile and these tables: the builder's A* (`move.js plan`), the claim's stance search (`job.claim` seeds: `stationsAround`, the click
+search `place.ways` with its rays), the bridge-distance map per level, and the work layer's NAV planner during the pit (event-loop blocks of 1.2-2.3 s in b081c's pit phase).
+
