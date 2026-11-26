@@ -120,6 +120,9 @@ function setSub(label) { const st = als.getStore(), r = st && rec(st.name); if (
 /** The bot's last step failed (why): the pause that follows is a retry. */
 function failed(why) { const st = als.getStore(), r = st && rec(st.name); if (r) r.afterFail = String(why || 'failed').replace(/-?\d+/g, '#').slice(0, 60); }
 
+/** How long this bot has gone without an action (ms) and what it is in (its label stack, innermost last): a live view of a pause still open. */
+function open(name, t = now()) { const r = rec(name); return r ? { ms: t - r.last, stack: [...r.stack], sub: r.sub || null, fail: r.afterFail } : null; }
+
 /** Run the bot's whole drive in its store. */
 function run(name, fn) { return als.run({ name }, fn); }
 
@@ -144,4 +147,4 @@ const S = {
     },
 };
 
-module.exports = { attach, within, sync, slice, failed, run, sleep, now, setSub, table: (o) => S.table(o), list: S.list, PAUSE_MS, classOf };
+module.exports = { attach, within, sync, slice, failed, run, sleep, now, setSub, open, table: (o) => S.table(o), list: S.list, PAUSE_MS, classOf };

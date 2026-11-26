@@ -961,6 +961,16 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
     let looseLog = 0;
     const sampler = setInterval(() => { try { if (bot.entity && job.ledger.size) { const f = feet(bot), n = job.ledger.sample(name, f); if (n > 2 && Date.now() - looseLog > 60000) { looseLog = Date.now(); job.log(`[temps] ${name} at ${f.x},${f.y},${f.z} holds ${n} beyond its column: ${job.ledger.lastLoose.join('; ')}; last moves ${mv.trace.slice(-3).join(' | ')}`); } } } catch (_) { /* a sample is only a count */ } }, 1000);
     // the step is over: the bot's own temporary blocks go before it does anything else (release)
+    // a bot without any action for a minute (no packet, no step): once per pause, where it is, what it is in and its mover's last steps (b081k: 33 pauses of 70-360 s
+    // in the mover's tick waits that no other line explained)
+    let stallAt = 0;
+    const stallWatch = setInterval(() => { try {
+        const o = PZ.open(name); if (!o || o.ms < 60000) { stallAt = 0; return; }
+        if (stallAt) return; stallAt = Date.now();
+        const p = bot.entity && bot.entity.position;
+        job.stats.stalls = (job.stats.stalls || 0) + 1;
+        job.log(`[stall] ${name} no action for ${Math.round(o.ms / 1000)} s at ${p ? `${p.x.toFixed(2)},${p.y.toFixed(2)},${p.z.toFixed(2)}` : '?'} in ${o.stack.join(' > ') || '-'}${o.sub ? ` (${o.sub})` : ''}${o.fail ? `, after ${o.fail}` : ''}; controls ${['forward', 'back', 'left', 'right', 'jump', 'sneak'].filter((c) => bot.controlState && bot.controlState[c]).join('+') || 'none'}${mv.guard ? `; guard held ${mv.guard.stops}` : ''}; ${mv.trace.slice(-4).join(' | ')}`);
+    } catch (_) { /* a report never breaks the drive */ } }, 15000);
     const settle = (next = null, label = 'step') => PZ.within('release', () => release(job, name, bot, mv, cancel, next, label));
     // the server dropped the spawn point (the bed broken or shut in): set again
     const onReset = () => { if (job.spawnSet) job.spawnSet.delete(name); if (job.anchorTry) job.anchorTry.delete(name); job.log(`${name}: the server reset its spawn point`); };
@@ -1162,7 +1172,7 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
             job.report(name, res);
         }
         return { ended: 'cancelled' };
-    } finally { bot.removeListener('death', onDeath); bot.removeListener('death', onDied); bot.removeListener('blockUpdate', onBlock); job.orphanOf(name, 'left the crew'); clearInterval(sampler); bot.removeListener('spawnReset', onReset); bot.__builderOwns = false; job.leave(name); if (job.pool) job.pool.leave(name); for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sneak', 'sprint']) bot.setControlState(k, false); }
+    } finally { bot.removeListener('death', onDeath); bot.removeListener('death', onDied); bot.removeListener('blockUpdate', onBlock); job.orphanOf(name, 'left the crew'); clearInterval(sampler); clearInterval(stallWatch); bot.removeListener('spawnReset', onReset); bot.__builderOwns = false; job.leave(name); if (job.pool) job.pool.leave(name); for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sneak', 'sprint']) bot.setControlState(k, false); }
 }
 
 module.exports = { drive, work, holds, rules, pour, escape, needsFor, boxSpot, bench, release, unscaffold, touchesShape, planned, adoptWorkTemps, closesIn };

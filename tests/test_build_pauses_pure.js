@@ -33,6 +33,14 @@ const busy = (ms) => { const t = Date.now(); while (Date.now() - t < ms); };
     assert.strictEqual(mine[0].cls, 'bot'); assert.strictEqual(mine[0].top, 'wait: hand-over');
     assert.strictEqual(mine[1].cls, 'retry'); assert.strictEqual(mine[1].fail, 'no way');
     console.log('  ok a wait for another bot, a retry; a short gap and a dig are no pause');
+    // a pause still open: how long, and the labels it is under (the stall report); an action closes it (negative control)
+    await PZ.run('pzA', async () => {
+        click(a);
+        await PZ.within('walk', async () => { await sleep(120); const o = PZ.open('pzA'); assert.ok(o.ms >= 100 && o.stack.join() === 'walk', JSON.stringify(o)); });
+        click(a); assert.ok(PZ.open('pzA').ms < 50, 'closed by the click');
+    });
+    assert.strictEqual(PZ.open('nobody'), null);
+    console.log('  ok an open pause is seen live with its labels; an action closes it');
     // another bot's synchronous section: charged to this bot as cpu other
     await Promise.all([
         PZ.run('pzB', async () => { click(b); await PZ.sleep(800, 'other: idle'); click(b); }),
@@ -49,5 +57,5 @@ const busy = (ms) => { const t = Date.now(); while (Date.now() - t < ms); };
     const t = PZ.table({ since: 0 });
     assert(t.byClass.bot && t.byClass.retry && t.byClass.cpu);
     stopA(); stopB();
-    console.log('test_build_pauses_pure: 3 passed');
+    console.log('test_build_pauses_pure: 4 passed');
 })().catch((e) => { console.error(e); process.exit(1); });
