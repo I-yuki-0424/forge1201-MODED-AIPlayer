@@ -289,6 +289,15 @@ test('pit: fluid fills use the dug rubble first, the operator\'s temporary block
     assert(!calls.length && j.plan.endReport && j.plan.endReport.wrap && !('trees' in j.plan.endReport), 'only the movement blocks (none here): no tree, hanging or lake pass');
 });
 
+test('a route never stands on another bot\'s movement block in use (negative control: without the rule it walks over it)', async () => {
+    const M = require('../src/build/move');
+    const w = new Map(); for (let x = -2; x <= 6; x++) w.set(`${x},69,0`, { name: 'stone' }); w.delete('2,69,0'); w.set('2,69,0', { name: 'pumpkin' });          // a one-wide path, one cell of it another bot's bridge block
+    const other = (x, y, z) => x === 2 && y === 69 && z === 0;
+    const go = (rules) => M.plan(new M.View(fakeBot(w), { canDig: () => false, ...rules }), { x: 0, y: 70, z: 0 }, (x, y, z) => x === 5 && y === 70 && z === 0, { x: 5, y: 70, z: 0 }, { temps: 0, maxNodes: 3000 });
+    assert(await go({}), 'negative control: over it');
+    assert.strictEqual(await go({ othersMove: other }), null, 'not over another bot\'s block in use');
+});
+
 test('the flood tells a cell reached on foot from one reached by placing blocks (untemp stances and column tops only on foot)', async () => {
     const M = require('../src/build/move');
     const w = new Map(); for (let x = -6; x <= 6; x++) for (let z = -6; z <= 6; z++) w.set(`${x},69,${z}`, { name: 'stone' });
