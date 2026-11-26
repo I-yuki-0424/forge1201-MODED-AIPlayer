@@ -228,7 +228,9 @@ async function click(mv, way) { if (way.lean) await mv.lean(way.lean[0], way.lea
 async function work(job, name, bot, mv, cl, cancel) {
     const results = [];
     const tw = Date.now();
-    const r = await mv.goto(cl.station, { cancel, maxNodes: 30000 });
+    // (a search to a stance gets 1.5 s of CPU: the claim offers stances inside the bot's flood first, and a hopeless search to one outside it ran to the 4 s budget, the
+    // largest share of the pauses after a failure in b081a: 'retry: plan', 40 pauses of 8 s in ten minutes)
+    const r = await mv.goto(cl.station, { cancel, maxNodes: 30000, budgetMs: 1500 });
     job.time.walk += Date.now() - tw;
     if (!r.ok) {
         // a stance the bot cannot get to counts against its tasks (as 'skipped' they came back for ever: live 2026-11-22 sD w2, 22 tree tops for 40 minutes)

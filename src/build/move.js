@@ -818,7 +818,7 @@ class Mover {
     /**
      * Go to a cell `goal` accepts (or `to` itself). Plans, follows, re-plans when the bot leaves the plan (up to `tries`). { ok, why, steps }.
      */
-    async goto(to, { goal = null, cancel = { cancelled: false }, tries = 6, maxNodes = 40000, box = null, lavaCost = 0, maxDrop: md = null } = {}) {
+    async goto(to, { goal = null, cancel = { cancelled: false }, tries = 6, maxNodes = 40000, box = null, lavaCost = 0, maxDrop: md = null, budgetMs = 4000 } = {}) {
         const g = goal || ((x, y, z) => x === to.x && y === to.y && z === to.z);
         let steps = 0, last = null;
         await this.unsink();
@@ -833,11 +833,11 @@ class Mover {
             // the bot's own cell not loaded yet (after a teleport, a respawn): wait for the chunks
             if (view.kind(start.x, start.y, start.z) === 'unknown') { await sleep(1000, 'server: chunk not loaded'); continue; }
             const maxDrop = md ?? ((this.bot.health || 0) >= 16 ? 6 : 4);          // k: the floor k cells under the feet, a fall of k - 1 (three without damage)
-            const route = (!box && !lavaCost && md === null && g(to.x, to.y, to.z) && this._fromFlood(start, to, temps)) || await plan(view, start, g, to, { maxNodes, temps, box, lavaCost, maxDrop });
+            const route = (!box && !lavaCost && md === null && g(to.x, to.y, to.z) && this._fromFlood(start, to, temps)) || await plan(view, start, g, to, { maxNodes, temps, box, lavaCost, maxDrop, budgetMs });
             if (!route) {
                 const l = plan.last || {};
                 // which of the crew's rules made the search fail (at most once a minute per bot): the plan again without one rule at a time; the first that finds a way is logged
-                if ((l.why === 'nodes' || l.why === 'time') && Date.now() - (this.diagAt || 0) > 60000) {
+                if ((l.why === 'nodes' || l.why === 'time') && Date.now() - (this.diagAt || 0) > 300000) {          // (every five minutes per bot: five more searches each time)
                     this.diagAt = Date.now();
                     for (const drop of ['doomed', 'occupied', 'columnBusy', 'noPillar', 'noTemp']) {
                         if (!this.rules[drop]) continue;

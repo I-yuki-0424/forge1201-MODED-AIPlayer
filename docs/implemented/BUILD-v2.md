@@ -608,3 +608,19 @@ two causes, both on the build side (src/build, TASK-081 from here): released col
 their top, because the stance beside a pillar's top ended without the walk back (`walkBack 0`: the walk onto the top failed or its head cell was taken) and the descend claim
 for such a top is offered only on foot and only to its placer (another bot's due block is `doomed` for routes); and `Mover._behind` stopping at "not in sight" (7) or "a crew
 member on it or its route" (3) on the columns of four or less. Handed to 081 (see the report of 2026-11-26).
+
+## Making a build finish (TASK-20261125-081, owner list 5 Large 3.1-3.3; Fabric 1.21.1 test world 4)
+
+Owner: no construction has fully succeeded; the pit's proven mining is not reused for the site's terrain; find why the placements left in the last run were left; units by shape
+instead of small areas; separate the cause of the bots' pauses. Contract: `docs/proposed/OWNER-LIST-5.md`, section TASK-20261125-081.
+
+### What was left in hc1/hd1 and why (26.1.2, 15 Overworld crews of eight, iron-farm-34, 210 min; logs parsed against the blueprint)
+
+| What was left | Crews | Cause | Change |
+| :-- | --: | :-- | :-- |
+| the stage never left `prepare` (1-190 clear tasks to the end), so the late stage (36 portal lightings, 1 512 portal cells) never ran | 15 of 15 | the builder's own clearing: a few cells (under covered cells, beside fluids, out of reach) held the stage for hours | the site's terrain is the pit's (below); what a pit leaves after its rounds is parked "left by the pit" and does not hold the stage |
+| the two hoppers at the bottom (3,-11,-1 and 3,-11,0 of the blueprint), "ready, no stance" | 10 of 15 (13 with them left) | a support cycle: they face each other, a hopper faces into the block it is clicked against, so each needs the other standing first; no order places either (not the glass above, as 073 read it) | `Target.cycles()` finds such cycles from vanilla's placement rules (one in iron-farm-34, 29 in the Nether side); the job puts a temporary block into one cell, the other block goes against it, the temporary block is dug and the cell gets its own block |
+| 64 floating spruce trapdoors (all six neighbours air; facing west, top half), "ready, no stance" | most | the lonely-block scaffold went below the cell first; a click on a block below gives only a bottom half | the scaffold goes where a click gives the wanted state (`Target.supportsOf`): beside (east) or above |
+| white beds parked "got minecraft:air" (159 cells) | 15 of 15 | the bot pillared up in the bed's head cell and clicked the side of its own pillar; the server refuses a bed whose head cell is not replaceable (b081a `[bed]` 780,74,570: "head cell had pumpkin") | recipes name the other cell of two-cell blocks (`room`: a bed's head, a door's upper half); no click while it holds a block, in the stance's own world too |
+| glass 146, smooth stone 117, obsidian 66, beds 35, slabs 22: parked "no way to the stance" | most | the planner's `[diag]`: 3 345 of 3 457 failed searches had a way without the `doomed` rule (others' temporary blocks due for removal are no floor); 075's ledger removed most of those blocks since | (075); measured again below |
+
