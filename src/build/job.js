@@ -438,6 +438,23 @@ class BuildJob {
         return 'ready';
     }
 
+    /** Every task left, with why it is left (owner list 5 Large 3.1: find why the placements left in a run were left): kind, block, the order rule or state that holds it, no stance,
+     *  fails, parked reason; `byWhy` counts them. `bot` reads the world (default: a crew member). */
+    leftover(bot = null) {
+        const b = bot || (this.pool && [...this.pool.bots.values()].find((x) => x && x.entity)) || null, now = Date.now(), cells = [], byWhy = {};
+        for (const tk of this.tasks.values()) {
+            if (tk.kind === 'untemp') continue;
+            let why = this.parked.has(tk.k) ? `parked: ${this.parked.get(tk.k)}` : b ? this.whyNot(tk, b, now) : '?';
+            if (why === 'ready' && this.noStance.has(tk.k)) why = 'ready, no stance';
+            if (this.claims.has(tk.k)) why += ' (claimed)';
+            const block = tk.i >= 0 ? S.bare(this.t.wantOf(tk).name) : tk.kind;
+            const k = `${tk.kind} ${block}: ${why.replace(/-?\d+/g, '#').replace(/ \(has .*$/, '').slice(0, 70)}`; byWhy[k] = (byWhy[k] || 0) + 1;
+            if (cells.length < 400) cells.push({ k: tk.k, kind: tk.kind, block, why: why.slice(0, 160), fails: this.fails.get(tk.k) || 0, unblock: this.unblocks && this.unblocks.has(tk.k) ? this.unblocks.get(tk.k) : undefined });
+        }
+        for (const [k, why] of this.parked) if (!this.tasks.has(k)) { const kk = `parked: ${String(why).replace(/-?\d+/g, '#').slice(0, 70)}`; byWhy[kk] = (byWhy[kk] || 0) + 1; if (cells.length < 400) cells.push({ k, why: `parked: ${why}` }); }
+        return { n: cells.length, byWhy: Object.fromEntries(Object.entries(byWhy).sort((x, y) => y[1] - x[1])), cells };
+    }
+
     /**
      * Cells a station must not take: the bodies of the other bots, the cells of tasks other bots hold now (they are about to be filled), and in the late stage the cells that will hold
      * a block. A target cell that is not claimed yet may be stood in: a player stands on the floor it builds (forbidding every target cell of the window left the inside of a 48x48

@@ -20,6 +20,7 @@ const lit = require('../../src/work/jobs/litematic');
 const S = require('../../src/build/state');
 const { Target } = require('../../src/build/target');
 const P = require('../../src/build/pistons');
+const PZ = require('../../src/build/pauses');
 
 const NETHER = (process.env.DIM || 'overworld') === 'nether', BOTS = Math.min(12, Math.max(1, Number(process.env.BOTS || 8))), LIMIT_MIN = Number(process.env.LIMIT_MIN || 120);
 const FILE = process.env.LITEMATIC || '/app/tests/fixtures/iron-farm-34.litematic';
@@ -182,7 +183,7 @@ async function main() {
             let last = 0; const limit = T.budget(bot0, LIMIT_MIN);                  // game minutes (lib.js budget: the same game time at every tick rate)
             while (!limit.over()) {
                 if (job.state === 'finished' || job.state === 'cancelled') { state = job.state; break; }
-                if (Date.now() - last > 60000) { last = Date.now(); const s = job.impl.build.status(); const lagMs = (lag.max / 1e6).toFixed(0), lagP = (lag.percentile(99) / 1e6).toFixed(0); lag.reset(); console.log(`[progress ${Math.round((Date.now() - t0) / 60000)} min] lag max ${lagMs} ms p99 ${lagP} ms stage ${s.stage} right ${s.right}/${s.total} work ${JSON.stringify(s.work)} claimed ${s.claimed} parked ${s.parked} frontier ${s.frontier} time ${JSON.stringify(s.time)} stats ${JSON.stringify(s.stats)} temps ${tempsLine(job.impl.build)}`); }
+                if (Date.now() - last > 60000) { last = Date.now(); const s = job.impl.build.status(); const lagMs = (lag.max / 1e6).toFixed(0), lagP = (lag.percentile(99) / 1e6).toFixed(0); lag.reset(); console.log(`[progress ${Math.round((Date.now() - t0) / 60000)} min] lag max ${lagMs} ms p99 ${lagP} ms stage ${s.stage} right ${s.right}/${s.total} work ${JSON.stringify(s.work)} claimed ${s.claimed} parked ${s.parked} frontier ${s.frontier} time ${JSON.stringify(s.time)} stats ${JSON.stringify(s.stats)} temps ${tempsLine(job.impl.build)}`); console.log(`[pauses ${Math.round((Date.now() - t0) / 60000)} min] ${JSON.stringify(PZ.table({ since: Date.now() - 60000 }))}`); }
                 await sleep(2000);
             }
             if (state === 'control') state = 'timeout';
@@ -212,6 +213,8 @@ async function main() {
     // every temporary block left standing, found by the scan (the server's chunk data as a client holds it) and each given its cause by the job's ledger (a/b/c/d)
     const temps = tempReport(bot0(), target, M, [sx, sy, sz], job ? job.impl.build : null, scan0);
     console.log(`[temps] ${JSON.stringify(temps.summary)}`);
+    console.log(`[pauses] ${JSON.stringify(PZ.table())}`);
+    if (job) { const lo = job.impl.build.leftover(bot0()); console.log(`[left] ${lo.n} tasks: ${JSON.stringify(lo.byWhy)}`); for (const c of lo.cells.slice(0, 60)) console.log(`  left ${c.k} ${c.kind || ''} ${c.block || ''}: ${c.why}${c.fails ? ` x${c.fails}` : ''}`); }
     for (const c of temps.cells.slice(0, 20)) console.log(`  temp ${c.x},${c.y},${c.z} ${c.name} ${c.cause}: ${c.why}`);
     console.log(`[judge] ${J.checked} cells checked; WRONG ${wrong.length} ${JSON.stringify(wrongBy)}; right in what the builder decides but not in what the world decides (power, connections, flows): ${dynamic.length} ${JSON.stringify(dynBy)}; cells in front of pistons in the other phase: ${J.phase.length}`);
     // what each wrong cell holds (a bot's chunks): a temporary block, natural ground, a fluid (hc1 could not tell its 3 000-7 000 wrong air cells apart)
@@ -219,7 +222,7 @@ async function main() {
     console.log(`[judge] wrong cells by what they hold: ${JSON.stringify(Object.entries(wrongHas).sort((a, b) => b[1] - a[1]).slice(0, 30))}`);
     for (const w of wrong.slice(0, 40)) console.log(`  wrong ${w.at.join(',')} want ${w.want} has ${w.has}`);
     const pass = !NOJUDGE && controlFails && state === 'finished' && wrong.length === 0;
-    rep.trial(`${parsed.meta.name}${NETHER ? '@nether' : ''}`, pass, { state, err, minutes: Math.round((Date.now() - t0) / 6000) / 10, strict, wrong: wrong.length, wrongBy, wrongHas, wrongCells: wrong.slice(0, 80), dynamic: dynamic.length, dynamicBy: dynBy, dynamicCells: dynamic.slice(0, 40), phaseCells: J.phase.length, controlFails, box: M, size: [sx, sy, sz], chest: C, boxes: boxes.length, result: res, status: st, history: job ? job.impl.build.history : null, temps: { ...temps.summary, cells: temps.cells.slice(0, 200) }, seed });
+    rep.trial(`${parsed.meta.name}${NETHER ? '@nether' : ''}`, pass, { state, err, minutes: Math.round((Date.now() - t0) / 6000) / 10, strict, wrong: wrong.length, wrongBy, wrongHas, wrongCells: wrong.slice(0, 80), dynamic: dynamic.length, dynamicBy: dynBy, dynamicCells: dynamic.slice(0, 40), phaseCells: J.phase.length, controlFails, box: M, size: [sx, sy, sz], chest: C, boxes: boxes.length, result: res, status: st, history: job ? job.impl.build.history : null, temps: { ...temps.summary, cells: temps.cells.slice(0, 200) }, pauses: PZ.table(), leftover: job ? job.impl.build.leftover() : null, seed });
     rep.write({ seed, file: FILE, required: '100 %' });
     await srv.cmd(`forceload remove ${M.x - 16} ${M.z - 16} ${M.x + sx + 16} ${M.z + sz + 16}`);
     await svc.stop(); process.exit(pass ? 0 : 1);

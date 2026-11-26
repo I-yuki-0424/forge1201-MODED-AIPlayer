@@ -10,8 +10,10 @@ const { Vec3 } = require('vec3');
 const P = require('./place');
 const V = require('./vanilla');
 const FG = require('./fallguard');
+const PZ = require('./pauses');
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// (a mover's waits are ticks for the server to apply a look, a click, a step: labelled so, the pause table tells them from planning, pauses.js)
+const sleep = (ms, label = 'server: mover tick wait') => PZ.sleep(ms, label);
 const key = (x, y, z) => `${x},${y},${z}`;
 // how far the centre goes out when leaning over an edge: 0.1 beyond it, 0.2 of the body still on the block (at 0.25 beyond it, 0.05 on, bots slipped off pit edges, live
 // 2026-11-22 sK2 w5); the support's side face is in sight from there
@@ -207,7 +209,8 @@ function lavaCache(bot) {
  * A plan from the bot's feet cell to a cell `goal(x, y, z)` accepts (h: a heuristic point). Returns [{ x, y, z, move, dig: [cells], place: cell | null }] (the first entry is the start) or null.
  * `temps`: how many temporary blocks the plan may use.
  */
-async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = null, budgetMs = 4000, lavaCost = 0, maxDrop = 4, flood = false, out = null, leanDepth = LEAN_DEPTH } = {}) {
+function plan(view, start, goal, h, o = {}) { return PZ.within('cpu: plan', () => plan0(view, start, goal, h, o)); }
+async function plan0(view, start, goal, h, { maxNodes = 40000, temps = 0, box = null, budgetMs = 4000, lavaCost = 0, maxDrop = 4, flood = false, out = null, leanDepth = LEAN_DEPTH } = {}) {
     const open = new Heap(), best = new Map(), placed = flood ? new Map() : null;          // (flood: the temporary blocks the best way to each cell places)
     // height to gain costs about a pillar step each (a weaker estimate searched whole hillsides before climbing 17 blocks to a tree top, live 2026-11-22)
     // weighted (a quicker search, a little longer way): a goal in the air is reached over a bridge at ten times a walk's cost, which an estimate at walking cost hid: the search
@@ -226,15 +229,15 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
     // the cells reached only as such a stance count as reached for the flood and the region (folded in under their plain key)
     const fold = () => { for (const [k, g] of [...best]) { if (!k.endsWith('|o')) continue; best.delete(k); const b = k.slice(0, -2); if (!best.has(b) || best.get(b) > g) { best.set(b, g); if (placed && placed.has(k)) placed.set(b, placed.get(k)); } if (placed) placed.delete(k); } };
     const inBox = (x, y, z) => !box || (x >= box.x0 && x <= box.x1 && y >= box.y0 && y <= box.y1 && z >= box.z0 && z <= box.z1);
-    let n = 0, spent = 0, slice = Date.now(), closest = null;
+    let n = 0, spent = 0, slice = Date.now(), closest = null, pzs = PZ.now();
     while (open.size && n++ < maxNodes) {
         // a long search gives the event loop back after 25 ms of its own time and ends after `budgetMs` of it (by node counts, a slice beside the Nether's lava, where every cell
         // looks at 78 others, held all eight bots for 1.5-6 s: ping, owner 2026-11-23 problem 5; a synchronous search froze the work console for 25 s, live 2026-11-22)
-        if (n % 32 === 0 && Date.now() - slice > 25) { spent += Date.now() - slice; if (spent > budgetMs) { fold(); plan.last = { why: 'time', nodes: n, best, placed, closest }; if (out) Object.assign(out, plan.last); return null; } await new Promise((r) => setImmediate(r)); slice = Date.now(); }
+        if (n % 32 === 0 && Date.now() - slice > 25) { PZ.slice('plan', pzs); spent += Date.now() - slice; if (spent > budgetMs) { fold(); plan.last = { why: 'time', nodes: n, best, placed, closest }; if (out) Object.assign(out, plan.last); return null; } await new Promise((r) => setImmediate(r)); slice = Date.now(); pzs = PZ.now(); }
         const c = open.pop();
         // the cell closest to the estimate's point (for the log: where a failed search got stuck)
         { const d = Math.abs(c.x - h.x) + Math.abs(c.y - h.y) * 1.5 + Math.abs(c.z - h.z); if (!closest || d < closest.d) closest = { x: c.x, y: c.y, z: c.z, d, t: c.t, g: Math.round(c.g) }; }
-        if (goal(c.x, c.y, c.z)) { const out = []; for (let q = c; q; q = q.p) out.push({ x: q.x, y: q.y, z: q.z, move: q.move, dig: q.dig || null, place: q.place || null, off: !!q.off, tempOnly: !!q.tempOnly }); return out.reverse(); }
+        if (goal(c.x, c.y, c.z)) { PZ.slice('plan', pzs); const out = []; for (let q = c; q; q = q.p) out.push({ x: q.x, y: q.y, z: q.z, move: q.move, dig: q.dig || null, place: q.place || null, off: !!q.off, tempOnly: !!q.tempOnly }); return out.reverse(); }
         if ((best.get(bkey(c.x, c.y, c.z, c.off)) ?? Infinity) < c.g) continue;
         if (c.off) continue;          // the stance beside a tall column's top: the route ends here or not at all
         const add = (x, y, z, cost, move, extra = {}) => {
@@ -335,6 +338,7 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
         if (view.diggable(c.x, c.y - 1, c.z) && view.stands(c.x, c.y - 2, c.z)) add(c.x, c.y - 1, c.z, COST.drop + view.digTicks(c.x, c.y - 1, c.z), 'down', { dig: [{ x: c.x, y: c.y - 1, z: c.z }] });
     }
     // searched out: every cell the bot can get to from here (the caller offers it only stances among them)
+    PZ.slice('plan', pzs);
     fold();
     plan.last = { why: open.size ? 'nodes' : 'no more cells', nodes: n, region: open.size ? null : best, best, placed, closest };
     if (out) Object.assign(out, plan.last);
@@ -809,7 +813,7 @@ class Mover {
             if (g(start.x, start.y, start.z)) return { ok: true, steps };
             const view = new View(this.bot, this.rules), temps = this.rules.temp() ? this.bot.inventory.items().filter((i) => i.name === this.rules.temp()).reduce((a, i) => a + i.count, 0) : 0;
             // the bot's own cell not loaded yet (after a teleport, a respawn): wait for the chunks
-            if (view.kind(start.x, start.y, start.z) === 'unknown') { await sleep(1000); continue; }
+            if (view.kind(start.x, start.y, start.z) === 'unknown') { await sleep(1000, 'server: chunk not loaded'); continue; }
             const maxDrop = md ?? ((this.bot.health || 0) >= 16 ? 6 : 4);          // k: the floor k cells under the feet, a fall of k - 1 (three without damage)
             const route = await plan(view, start, g, to, { maxNodes, temps, box, lavaCost, maxDrop });
             if (!route) {
@@ -826,7 +830,8 @@ class Mover {
                 }
                 // nothing at all from where the bot believes it is (its picture of its own position is off: live 2026-11-22 the server had it on the chest, the bot a cell higher):
                 // a jump lets the physics and the server's correction settle it, then plan again
-                if (l.nodes <= 2 && t < tries - 1) { this.bot.setControlState('jump', true); await sleep(350); this.bot.setControlState('jump', false); await sleep(700); continue; }
+                PZ.failed(`no way (${l.why})`);
+                if (l.nodes <= 2 && t < tries - 1) { this.bot.setControlState('jump', true); await sleep(350, 'retry: jump to settle the position'); this.bot.setControlState('jump', false); await sleep(700, 'retry: jump to settle the position'); continue; }
                 return { ok: false, nodes: l.nodes, region: l.region ? new Set(l.region.keys()) : null, why: `no plan (${l.why}, ${l.nodes} cells from ${start.x},${start.y},${start.z}${l.closest ? `, closest ${l.closest.x},${l.closest.y},${l.closest.z} (${l.closest.t} temps)` : ''}; ${temps} ${this.rules.temp()}; goal ${view.kind(to.x, to.y, to.z)}/${view.kind(to.x, to.y + 1, to.z)} over ${view.kind(to.x, to.y - 1, to.z)}${view.stands(to.x, to.y - 1, to.z) ? ' stands' : ''}${view.nearLava(to.x, to.y, to.z) ? ' lava' : ''})`, from: start, steps };
             }
             // the blocks the route stands on: the crew does not dig them while the bot walks (job, drive.js rules.onRoute)
