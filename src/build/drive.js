@@ -973,7 +973,7 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
                 if (idle > 25 && job.stage !== 'settle') { tell(job, name, bot, 'idle', job.nothingWhy || job.lastClaimInfo || 'no task found'); progress(); }        // idle with nothing to do is not stuck
                 // nothing for it (its area done, the others full): it waits on the bench, off the box and away from the chest, out of everybody's way (owner 2026-11-23 list 4 problem 7)
                 if (idle === 6 && job.stage !== 'settle' && !job.wrapping) { await bench(job, name, bot, mv, cancel); job.floods && job.floods.delete(name); }
-                else if (idle % 5 === 1) await mv.spread(crewAt(job, bot));
+                else if (idle % 5 === 1 && !job.wrapping) await mv.spread(crewAt(job, bot));          // (not while wrapping up: a step aside laid blocks after the last was taken)
                 await sleep(job.stage === 'settle' ? 1000 : 400); job.time.idle += Date.now() - ti; continue;
             }
             idle = 0;

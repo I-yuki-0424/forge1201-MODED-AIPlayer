@@ -13,6 +13,7 @@ const bare = (n) => String(n || '').replace(/^minecraft:/, '');
 const key = (x, y, z) => `${x},${y},${z}`;
 const HIST_MAX = 50000;
 const LATE_MS = 5000;
+const RESTORE_MS = 15000;           // a block the server puts back this soon after its removal was never removed
 const LEAN_DEPTH = 4;               // move.js LEAN_DEPTH: how deep a column beside its floor the bot takes back from where it stands              // a placement not seen after this long, its cell empty, was never made
 
 class TempLedger {
@@ -80,8 +81,11 @@ class TempLedger {
 
     /** A block change the server sent (any bot's view). Confirms a pending placement, ends an entry whose cell is empty again or holds something else. */
     observe(c, name) {
-        const e = this.map.get(key(c.x, c.y, c.z)); if (!e) return null;
+        let e = this.map.get(key(c.x, c.y, c.z));
         const n = bare(name);
+        // the server put back a block whose dig the bot took as done (a dig it did not accept, a rollback): the entry lives on (end scans found such blocks "placed again after
+        // its entry ended (removed ...)", bt075c w1)
+        if (!e) { const h = this.hist.get(key(c.x, c.y, c.z)); if (h && h.state === 'removed' && h.item === n && this.now() - h.endedAt < RESTORE_MS) { e = h; e.state = 'placed'; delete e.endedAt; this.hist.delete(e.k); this.map.set(e.k, e); this.n.removed--; this.n.restored = (this.n.restored || 0) + 1; return e; } return null; }
         if (n === e.item) { if (e.state === 'pending') { e.state = 'placed'; e.seenAt = this.now(); this.n.placed++; this._peak(e.by, e); } return e; }
         if (e.state === 'pending') { if (AIR.has(n)) e.refused = true; return e; }          // the server's answer to a refused click is the cell as it is; settled by check()
         if (AIR.has(n) || n === 'water' || n === 'lava') return this._end(e, 'removed');

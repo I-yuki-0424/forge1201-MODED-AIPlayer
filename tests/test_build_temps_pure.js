@@ -243,6 +243,16 @@ test('release beside its own tall pillar: the walk back is taken even when the n
     assert.deepStrictEqual(order, ['unsink', 'walkBack', 'unpillar']);
 });
 
+test('a block the server puts back soon after its removal (a rejected dig) keeps its entry; later it is another block (negative control)', () => {
+    let t = 0; const L = new TempLedger({ now: () => t }); const c = { x: 3, y: 70, z: 3 };
+    L.intend(c, 'pumpkin', 'pillar', 'a'); L.observe(c, 'pumpkin'); L.release('a');
+    t = 1000; L.removed(c); assert(!L.has(c));
+    t = 1500; L.observe(c, 'pumpkin'); assert(L.has(c) && L.get(c).state === 'placed' && L.due(L.get(c)), 'restored, still due');
+    assert.strictEqual(L.classify(c).cause, 'c');
+    t = 2000; L.removed(c); t = 40000; L.observe(c, 'pumpkin');
+    assert(!L.has(c) && L.classify(c).cause === 'a', 'long after: not ours (placed again)');
+});
+
 test('the flood tells a cell reached on foot from one reached by placing blocks (untemp stances and column tops only on foot)', async () => {
     const M = require('../src/build/move');
     const w = new Map(); for (let x = -6; x <= 6; x++) for (let z = -6; z <= 6; z++) w.set(`${x},69,${z}`, { name: 'stone' });
