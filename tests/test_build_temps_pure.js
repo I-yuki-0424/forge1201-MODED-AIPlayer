@@ -222,6 +222,27 @@ test('release: the step is over: own blocks in reach and sight are dug, the rest
     assert(job.tasks.has('0,69,0'));
 });
 
+test('release beside its own tall pillar: the walk back is taken even when the next stance is over the bot\'s own cell, and the column is never dug from beside (bt075b w3: 5 of 7 left); every walk walks back first', async () => {
+    const t = new Target(tiny(), { x: 100, y: 64, z: 100 });
+    const job = new BuildJob(t, {}); job.stage = 'place';
+    const w = new Map(); for (let x = -3; x <= 5; x++) for (let z = -3; z <= 3; z++) w.set(`${x},63,${z}`, { name: 'stone' });
+    for (let y = 64; y <= 69; y++) w.set(`1,${y},0`, { name: 'stone' });                                       // the build beside the pillar, its top at 69
+    for (let y = 64; y <= 69; y++) { const c = { x: 0, y, z: 0 }; w.set(`0,${y},0`, { name: 'pumpkin' }); job.addTemp(c, 'pillar', 'a', 'pumpkin'); job.ledger.observe(c, 'pumpkin'); }
+    const bot = fakeBot(w, { x: 1.5, y: 70, z: 0.5 });                                                         // beside the pillar's top, on the build
+    let walked = 0; const dug = [];
+    const mv = { walkBack: async () => { walked++; return 0; }, unpillar: async () => 0, dig: async (c) => { dug.push(c.y); return true; }, mine: new Map() };
+    await D.release(job, 'a', bot, mv, { cancelled: false }, { x: 1, y: 71, z: 0 }, 'claim');
+    assert.strictEqual(walked, 1, 'the next stance is over its own cell, not on its pillar: walked back (negative control: the old sameCol skipped it)');
+    assert.deepStrictEqual(dug, [], `nothing dug from beside the tall column (${dug})`);
+    assert.strictEqual(job.ledger.get({ x: 0, y: 69, z: 0 }).lastFail, 'a tall column: from its top');
+    // Mover.goto: walkBack before anything else
+    const M = require('../src/build/move'); const order = [];
+    const m2 = Object.create(M.Mover.prototype); Object.assign(m2, { bot: fakeBot(w, { x: 1.5, y: 70, z: 0.5 }), rules: { canDig: () => false, temp: () => null }, trace: [], mine: new Map() });
+    m2.unsink = async () => order.push('unsink'); m2.walkBack = async () => { order.push('walkBack'); return 0; }; m2.unpillar = async () => { order.push('unpillar'); return 0; };
+    await m2.goto({ x: 3, y: 64, z: 0 }, { tries: 0 });
+    assert.deepStrictEqual(order, ['unsink', 'walkBack', 'unpillar']);
+});
+
 test('the flood tells a cell reached on foot from one reached by placing blocks (untemp stances and column tops only on foot)', async () => {
     const M = require('../src/build/move');
     const w = new Map(); for (let x = -6; x <= 6; x++) for (let z = -6; z <= 6; z++) w.set(`${x},69,${z}`, { name: 'stone' });
