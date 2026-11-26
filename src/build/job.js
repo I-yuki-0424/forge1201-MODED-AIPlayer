@@ -132,6 +132,13 @@ class BuildJob {
     _itemOk(tk) { if (tk.kind === 'clear' || tk.kind === 'fix') return true; const it = this._itemOf(tk); return !it || this.available.has(it); }
 
     _finish(sv) {
+        // wrapping up with temporary blocks still standing: not finished (finished, the crew left and its last blocks were orphaned for good, bt075e w3); their parked untemp tasks
+        // are tried again, as long as the run's wrap-up time lasts
+        if (this.wrapping && this.ledger.list((e) => !e.keep).length) {
+            this.parked.clear(); this.fails.clear(); this.cool.clear(); if (this.parkedTk) this.parkedTk.clear();
+            this._offerTemps(Date.now(), true); this.stage = 'survey';
+            return;
+        }
         // parked cells get more rounds (a neighbour that was missing may stand now, a mob may have moved): every cell is tried again, up to ROUNDS times
         if (this.parked.size && this.rounds < ROUNDS) {
             this.rounds++;
