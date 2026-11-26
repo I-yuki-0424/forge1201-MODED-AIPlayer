@@ -305,6 +305,7 @@ async function walk(W, env0, target, o) {
         let failed = null;
         for (const s of list) {
             if (env0.cancel && env0.cancel.cancelled) return done({ ok: false, reason: 'cancelled' });
+            if (o.deadline && Date.now() > o.deadline) return done({ ok: false, reason: 'timeout', detail: { why: 'the caller\'s deadline passed (between steps)' } });          // (bt075t10: one segment ran 150 s past a 60 s deadline)
             await W.feed();
             const r = await perform(env, s);
             if (!r.ok && r.reason === 'cancelled' && !(env0.cancel && env0.cancel.cancelled)) { for (let i = 0; i < 150 && bot && bot.__preempt; i++) await sleep(100); info.fights++; failed = { step: s.kind, reason: 'interrupted', at: env.here(), reflex: true }; break; }
