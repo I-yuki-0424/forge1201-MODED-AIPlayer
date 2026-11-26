@@ -124,7 +124,14 @@ test('on top of any partial-shape column (bamboo 12 high, a stack of fences), gr
         const r = P.plan(W, { x: 0, y: 76, z: 0, ground: true }, P.cellGoal({ x: 20, y: 64, z: 0 }), { dig: () => 1, radius: 40, maxNodes: 20000 });
         assert.ok(r && r.path.length > 1 && !r.partial, `${block}: ${r ? `${r.expanded} cells, ${r.path.map((n) => n.move).join(',')}` : 'no plan'}`);
         assert.ok(r.path.filter((n) => n.move === 'digdown').length >= 8, `${block}: ${r.path.map((n) => n.move).join(',')}`);
+        // nothing but digdown while the floor is the column (a walk does not start on a partial top: start_probe on ma075b's bamboo)
+        const firstOff = r.path.findIndex((n, i) => i > 0 && n.move !== 'digdown');
+        assert.ok(firstOff === -1 || r.path[firstOff - 1].y <= 65, `${block}: left the column at y ${firstOff > 0 ? r.path[firstOff - 1].y : '?'} by ${firstOff > 0 ? r.path[firstOff].move : '?'}`);
     }
+    // a column beside a solid block at its top's height: still down first, not a walk off the partial top onto it
+    { const w = world(); for (let y = 64; y <= 75; y++) w.set(0, y, 0, 'partial'); w.set(1, 75, 0, 'solid');
+      const r = P.plan({ ...w, nameAt: (x, y, z) => (x === 0 && z === 0 && y >= 64 && y <= 75 ? 'bamboo' : w.nameAt(x, y, z)) }, { x: 0, y: 76, z: 0, ground: true }, P.cellGoal({ x: 20, y: 64, z: 0 }), { dig: () => 1, radius: 40, maxNodes: 20000 });
+      assert.ok(r && r.path[1] && r.path[1].move === 'digdown', `first move ${r && r.path[1] && r.path[1].move}`); }
     // negative control: the same start with nothing to dig (noDig) has no move at all, as every start on such a top had before
     const w = world(); for (let y = 64; y <= 75; y++) w.set(0, y, 0, 'partial');
     const r0 = P.plan(w, { x: 0, y: 76, z: 0, ground: true }, P.cellGoal({ x: 20, y: 64, z: 0 }), { dig: () => 1, noDig: true, noPlace: true, radius: 40, maxNodes: 2000 });

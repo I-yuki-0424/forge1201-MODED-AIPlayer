@@ -83,7 +83,10 @@ function moves(V0, n, o) {
     const out = [], x = n.x, y = n.y, z = n.z, here = n.kind;
     const keep = o.keep || null;                                    // cells a temporary block must not go into (the structure being built)
     const add = (m) => { if (o.noPlace && m.place) return; if (keep && m.place && keep(m.place.x, m.place.y, m.place.z)) return; out.push(m); };
-    for (const [dx, dz] of CARD) {
+    // on a partial-shape top (bamboo, a fence, a wall, scaffolding: the start, or a digdown's landing) the only move is down: the action layer's walk does not start there ("start cell
+    // not standable": the bots of start_probe on ma075b's bamboo came down five segments by digdown, then a planned walk off the stalk failed eight segments in a row)
+    const partialFloor = here === 'stand' && !n.placed && V.kind(x, y - 1, z) === 'partial';
+    for (const [dx, dz] of (partialFloor ? [] : CARD)) {
         const X = x + dx, Z = z + dz;
         const c0 = V.clear(X, y, Z), c1 = V.clear(X, y + 1, Z);
         // across at the same level (dig the two body cells if needed)
@@ -121,7 +124,7 @@ function moves(V0, n, o) {
             }
         }
     }
-    for (const [dx, dz] of DIAG) {
+    for (const [dx, dz] of (partialFloor ? [] : DIAG)) {
         const X = x + dx, Z = z + dz;
         const k = nodeKindOf(V, X, y, Z, false);
         if (!k) continue;
