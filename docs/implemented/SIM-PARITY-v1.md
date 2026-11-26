@@ -65,35 +65,40 @@ the targets stay at 98 %. 417 commands were left out because their start differe
 
 ## 5. Parity before and after (all six runs: 7,660 commands)
 
-Each cell: stage-A simulator (commit 6b6d18f4) / now. Outcome, all and ticks are shares of the modelled commands (ticks: of those both ok).
+Each cell: stage-A simulator (commit 6b6d18f4) / now (2026-11-26, after the tick physics and the fixes below). Outcome, all and ticks are
+shares of the modelled commands (ticks: of those both ok).
 
 | command | n | modelled | outcome | outcome+cell+blocks+inventory | ticks |
 | :-- | --: | :-- | :-- | :-- | :-- |
-| mine | 2397 | 100.0 % / 98.7 % | 89.0 % / 98.8 % | 73.6 % / 95.8 % | 0.0 % / 98.1 % |
-| place | 2134 | 100.0 % / 100.0 % | 56.8 % / 96.9 % | 34.5 % / 95.0 % | 10.3 % / 97.4 % |
-| move_to | 1428 | 100.0 % / 99.4 % | 91.0 % / 99.2 % | 84.5 % / 97.1 % | 47.5 % / 79.1 % |
+| mine | 2397 | 100.0 % / 98.7 % | 89.0 % / 99.5 % | 73.6 % / 97.7 % | 0.0 % / 98.4 % |
+| place | 2134 | 100.0 % / 100.0 % | 56.8 % / 99.9 % | 34.5 % / 98.6 % | 10.3 % / 97.6 % |
+| move_to | 1428 | 100.0 % / 99.4 % | 91.0 % / 99.4 % | 84.5 % / 98.4 % | 47.5 % / 79.2 % |
 | equip | 175 | 100.0 % / 100.0 % | 100.0 % / 100.0 % | 98.3 % / 98.9 % | 100.0 % / 100.0 % |
-| tunnel | 24 | 100.0 % / 100.0 % | 91.7 % / 91.7 % | 87.5 % / 87.5 % | 0.0 % / 0.0 % |
-| move:bridge (+ run:bridge) | 532 | 0 / 98.1 % | - / 88.3 % | - / 74.9 % | - / 76.8 % |
+| tunnel | 24 | 100.0 % / 100.0 % | 91.7 % / 95.8 % | 87.5 % / 95.8 % | 0.0 % / 0.0 % |
+| move:bridge (+ run:bridge) | 532 | 0 / 98.1 % | - / 99.6 % | - / 97.7 % | - / 92.9 % |
 | move:pillar | 487 | 0 / 100.0 % | - / 92.8 % | - / 89.9 % | - / 86.1 % |
-| move:descend | 238 | 0 / 100.0 % | - / 64.7 % | - / 63.9 % | - / 68.8 % |
+| move:descend | 238 | 0 / 100.0 % | - / 99.6 % | - / 96.6 % | - / 91.6 % |
 | activate, pour, pickup, withdraw, supply moves | 244 | 0 / 0 | - | - | - |
-| **total** | **7,660** | **80.4 % / 96.2 %** | **78.7 % / 96.1 %** | **63.4 % / 93.0 %** | **19.5 % / 91.2 %** |
+| **total** | **7,660** | **80.4 % / 96.2 %** | **78.7 % / 99.2 %** | **63.4 % / 97.6 %** | **19.5 % / 93.0 %** |
 
-Per run now (outcome / all / ticks): pa-r1 100 / 100 / 100 %, pb-r1 97.5 / 95.7 / 94.4 %, mb-r1 99.8 / 98.8 / 98.9 %, mvb-r1 99.3 / 96.8 /
-99.0 %, pc-r1 95.5 / 91.7 / 87.5 %, pc-r2 94.2 / 90.5 / 89.5 % (stage A on pc-r2: 73.4 / 55.3 / 22.1 %). The action layer's own commands
-(no work-layer moves, 6,120): outcome **98.2 %**, all 95.9 %. Without the 143 work-layer moves the server ended `stuck` (physics, below):
-outcome **98.0 %**, all 94.8 %.
+Per run now (outcome / all / ticks): pa-r1 100 / 100 / 100 %, pb-r1 99.2 / 98.0 / 94.8 %, mb-r1 99.8 / 99.6 / 98.9 %, mvb-r1 99.3 / 98.1 /
+99.0 %, pc-r1 98.7 / 97.1 / 90.6 %, pc-r2 99.4 / 97.1 / 91.4 % (stage A on pc-r2: 73.4 / 55.3 / 22.1 %). The action layer's own commands
+(no work-layer moves, 6,120): outcome **99.6 %**, all **98.2 %**. Without the 24 `pillar` commands of pc-r1 on another bot's block (the
+floor's owner was not recorded yet; recorded since pc-r2): outcome 99.5 %, all 97.9 %.
 
-Divergences by category, before -> now: dig_time 2041 -> 43, movement_reach 1772 -> 154, place_time 1009 -> 50, placement_rules 986 -> 81,
-walk_time 671 -> 271, dig_rules 355 -> 43, drops 158 -> 25, gravity_blocks 10 -> 3; compared apart now: world_clock 40, random_drops 40.
+Divergences by category, stage A -> now: dig_time 2041 -> 36, movement_reach 1772 -> 71, place_time 1009 -> 47, placement_rules 986 -> 7,
+walk_time 671 -> 269, dig_rules 355 -> 22, drops 158 -> 9, gravity_blocks 10 -> 3; compared apart: world_clock 43, random_drops 40.
 Sum of simulated over real ticks per command: move_to 1.01, mine 1.02, place 0.93, pillar 0.98, descend 0.95, bridge 0.96, tunnel 1.55.
 
-**Against the targets** (section 3): outcome 96.1 % on the whole corpus (target 98 %: met on the action layer's commands, 98.2 %, and on
-everything but the physics `stuck` of the work-layer moves, 98.0 %; met on pa, mb, mvb; not on pb and the two place_c runs), all 93.0 %
-(not met), ticks 91.2 % (met; walks 79 %). The two causes of the shortfall are not rules a command-level simulator can have: the body's
-physics in `bridge` and `descend` (143 commands) and the work layer's own state beyond what is recorded (section 6). Recording the planner's
-avoid floors and the floor's owner (pc-r2) removed the 24 `pillar` divergences of pc-r1 that came from another bot's scaffolding.
+**Against the targets** (section 3): outcome and reason **99.2 %** (target 98 %: met on every run); outcome, cell, blocks and inventory
+**97.6 %** (target 98 %: met on the action layer's commands, 98.2 %, and on pb, mb, mvb; not on the two place_c runs, 97.1 %, which carry the
+work-layer moves of three bots building side by side); ticks **93.0 %** (target 90 %: met; walks 79 %). What keeps the place_c runs under
+98 % is listed in section 6, items 1-4.
+
+How the numbers moved after the first version of this document (outcome / all / ticks on the whole corpus): 96.1 / 93.0 / 91.2 % ->
+the player's tick physics in Rust (`tools/sim/src/physics.rs`, a port of TASK-076's `src/native/physics` for 1.21.1; all 19 golden traces
+of `tests/golden_native` replay within the JS test's tolerance) driving `descend` and `bridge` (the 143 physics `stuck`: descend 64.7 ->
+99.5 %, bridge 88.3 -> 99.6 %) 99.2 / 96.0 / 92.5 % -> the rules below marked (2026-11-26) 99.2 / 97.6 / 93.0 %.
 
 ### The fixes, each a rule of the game or the action layer
 
@@ -108,24 +113,32 @@ avoid floors and the floor's owner (pc-r2) removed the 24 `pillar` divergences o
 | gravity_blocks | Sand over a dug cell fell instantly; in the game it falls as an entity and lands later. | Falling blocks land after vanilla free fall (+2 ticks); a landing is a world-clock change. |
 | coverage | `pillar`, `descend`, `bridge` were not modelled (place_a is one `bridge` per bot). | `tools/sim/src/moves.rs`: the moves' rules (the stack item: the test world's temporary block first; a bridge's cells one step apart; no pillar on another bot's block), ticks per level / cell from the corpus medians. |
 | attribution | Four bots bridging from one platform: each bot's window held the others' blocks. | A change nearer another bot's concurrent command is that bot's. |
+| physics (2026-11-26) | `descend` and `bridge` ended `stuck` on the server 143 times: the dug floor did not drop a body that overlapped the next column, a sneak step over an edge did not arrive. | `physics.rs` (the player's tick physics: collision with the real block boxes, sneak edge back-off, step-up, fluids, climbing); the moves run their body on it. |
+| bridge (2026-11-26) | The bridge took away the bot's own bridge block it started on (bridge.js unlays the floor of each step when `bot.__temps` holds it as this bot's `bridge`); the simulator only took away blocks laid in the same command: 63 bridges with a pumpkin too many and one fewer in the pack. | The same rule; the recorder records `env.floorOwn`, older traces take it from the recorded outcomes of the bot's earlier bridges. |
+| movement_reach (2026-11-26) | A plan that does not reach the goal still walks: planner.js returns the path to the expanded node with the lowest heuristic (`partial`), motion.js walks it and plans again (five times, then `stuck`); the simulator said `unreachable` where it stood (57 mines, 11 walks ended in another cell). | `plan_follow`: the same partial walks and re-plans. |
+| gravity_blocks (2026-11-26) | Sand over a dug cell leaves it 2 ticks after the dig's block update, the block above 2 ticks after that (FallingBlock's scheduled tick checks the cell below); the simulator emptied the whole column at once (mvb-r1 #382: the sand over the dug cell was air in the dig's window, the two above it in the next command's). | Each block of the column leaves its cell 2 ticks after the one under it, timed from the dig's moment inside the command (`Sim::dig_t`). |
+| placement_rules (2026-11-26) | A bed is two blocks: the head goes into the cell the placer faces (10 beds in pc-r1/pc-r2). | The same, refused without room for the head. |
+| compare (2026-11-26) | Vines spreading into air (VineBlock random tick) appeared as block changes of walks; the simulator's side counted a vine losing a face as a change, the real side does not. | Vine spread is a world-clock change; both sides compare block names. |
 
 The RL `run` mode keeps its validated flood planner (`astar` off) but now also gets the new world rules (supports, vines, falling blocks,
 the replaceable list); its SIM-RUST-v1 numbers were measured before these and are not re-validated here.
 
 ## 6. What still differs (do not read simulator numbers past this list)
 
-1. **The body's physics in the work-layer moves** (143 commands): 84 of 238 `descend` and 59 of 532 `bridge` ended `stuck` on the server:
-   the bot dug its floor and did not drop (pb-r1 #232, #253, #303, #388, #506), a sneak step over an edge did not arrive. The simulator has
-   no body and says `ok`. This is real bot behaviour worth a look by 075/081, and the main reason for the packet front end.
-2. **Planner and aim corner cases** (about 100): placements and mines the real planner found no stand cell for (`unreachable` after a few
-   expansions: 38 placements, 20 mines) or no aim point for (`precondition_failed: line_of_sight`: 25 atomic placements) where the simulator
-   found one, and a few the other way; partial block shapes (slabs, stairs, trapdoors, walls, the sky deck's scaffolding) are full cubes or
-   nothing in the simulator, which is where the two planners part.
-3. **`pillar`** `not_confirmed` (11) and on another bot's block (24, pc-r1 only: recorded since pc-r2, then gone).
-4. **Walk ticks**: 79 % of `move_to` within tolerance (the server is 98 % self-consistent here): the settle on the last cell and the turns
-   are not in a per-move time; a tick-level body is the fix, not another constant. `tunnel` ticks are 1.55x the real ones (24 commands).
-5. **Bot state the simulator only has when recorded**: avoid floors and the floor's owner (recorded since pc-r2), the rest of the
-   temporary-block registry, the work layer's mine box (`protected`), a cancelled command's timing.
+The remaining 182 commands that differ in outcome, cell, blocks or inventory (of 7,367 modelled), by cause:
+
+1. **`pillar`** (49): on another bot's block (24, pc-r1 only: the floor's owner is recorded since pc-r2, where these are gone),
+   `not_confirmed` on the server (11: the stacked block did not come back within 12 ticks, three times in a row at one spot in pc-r1; most
+   likely a neighbouring bot's body in the cell, which the simulator does not see), and blocks changed by the neighbouring bots of place_c
+   that the nearest-command rule gives to the wrong bot (about 10).
+2. **Planner and aim corner cases** (about 50): mines and placements the real planner found another stand cell for, or none, where the
+   simulator found one (partial block shapes of the sky deck: scaffolding, slabs, the iron farm's trapdoors), and a few the other way.
+3. **Fluids over time** (15): water and lava spreading cell by cell next to a placement or a dig; the simulator floods a dug cell's
+   neighbourhood at once (water) or not at all (lava).
+4. **Walk ticks** (ticks only): 79 % of `move_to` within tolerance (the server is 98 % self-consistent here): the settle on the last cell
+   and the turns are not in a per-move time. `tunnel` ticks are 1.55x the real ones (24 commands).
+5. **Bot state the simulator only has when recorded**: avoid floors, the floor's owner and the bot's own bridge blocks (recorded since pc-r2 /
+   2026-11-26), the rest of the temporary-block registry, the work layer's mine box (`protected`), a cancelled command's timing.
 6. **Not modelled at all** (3.8 % of the corpus): `activate` (except beds), `pour`, `pickup`, `withdraw`, `deposit`, `look_at`, `toss`,
    `set_contents`, the supply moves (`take_many`, `deposit_many`, `take_shulker`), the builder's own controls (`src/build/move.js`),
    reflexes, mobs (the replay runs peaceful), hunger on Peaceful, light, fluids over time, redstone, block states beyond vine faces (a
@@ -133,7 +146,7 @@ the replaceable list); its SIM-RUST-v1 numbers were measured before these and ar
 7. **Data**: minecraft-data 1.21.1 lists 1,470 recipes against 2,409 for 1.20.1 (not verified: no corpus command crafted).
 8. **The recorder's own cost**: up to 140 ms of event loop per bot at its first command (25 chunk snapshots), then 1-6 ms per new chunk.
 
-## 7. Testing backend: the packet front end (backend B), prototype
+## 7. Testing backend: the packet front end (backend B)
 
 Decision (stage A, approved): the real bot code on an in-process fake protocol client, server rules on the other side. First measurement
 that could have changed it, the share of the recorded game ticks spent inside `execute` (the rest is the work layer's moves through the
@@ -142,41 +155,45 @@ runner; the builder's own controls in `src/build/move.js` are not even recorded)
 build tests and exactly the commands that carry the remaining divergences; the decision stands.
 
 `scripts/sim/front.js` (loaded with `--require`): every `mineflayer.createBot` gets a `FakeClient` (`createBot({client})`), packets go in
-and out as objects; RCON is answered in-process; the world is the recorded chunks; login replays the captured configuration and login
-packets; rules: movement as the client sends it, digging accepted at >= 70 % of the vanilla break time (as `ServerPlayerGameMode` checks),
-placing the item's default block into a replaceable cell no player stands in, drops into the pack, inventory slots, teleports, game mode;
-clocks `SIM_SPEED` times faster.
+and out as objects; RCON is answered in-process; login replays the captured configuration and login packets; the players (positions, packs,
+slots, teleports, game mode) stay in JavaScript. **The world is `forgeaip-sim serve`** (`tools/sim/src/serve.rs`, one JSON line per request
+over a pipe, 2026-11-26): a block-state world from a recorded run (`TRACE=<dir>`) or from a server's region files (`REGIONS=<dir>`,
+`SIM_SPAWN=x,y,z`), with the simulator's rules: digging as `ServerPlayerGameMode` counts it (progress per tick x (ticks + 1) >= 0.7 at the
+stop, an instant break at the start, a fifth off the ground and with the eye in water, a block that needs a tool breaks slowly by hand and
+drops nothing, a dig stopped early finishes at 100 % as the server's delayed destroy), the tool's drop straight into the pack (the test
+worlds' auto-pickup), blocks that lose their support (vines by their faces, plants, torches, cocoa), water into a dug cell, sand and gravel
+that leave their cells 2 ticks apart and land later; placement states from the click and the look (`Block.getStateForPlacement` per family
+as `orient.js` models it: stairs, slabs, logs, trapdoors, torches and wall torches, chests, furnaces, pistons, observers, hoppers, ladders,
+doors, beds with their head); the harness's world commands (`setblock`, `fill`, `clone`, `execute if|unless block(s)`). The game clock is
+stepped, not scaled: every 50 / `SIM_SPEED` ms of wall time it advances one tick and runs each bot's physics poll once (scaling the wall
+clock let mineflayer catch up several physics steps inside one counted tick: walks came out 5 ticks short), and serve's world clock runs on
+it (one request per 5 ticks).
 
-**Measured** (the place_b run pb-r1 re-played by `play.js` three ways, same 930 commands, same forcing of position and pack):
+**Measured** (recorded runs re-played by `play.js`, every command from its recorded state; the share with the recorded outcome and reason
+counts every re-played command, the pairs only those whose surroundings were the same at the start):
 
-| | the recording (real) | re-play on the real server | re-play on the front end, SIM_SPEED 20 | front end, SIM_SPEED 50 (first 300) |
+| | recording | re-play on the real server | front end, JS world (00:40) | front end on serve (13:00) |
 | :-- | --: | --: | --: | --: |
-| commands with the recorded outcome and reason | - | 910 of 930 (97.8 %) | **915 of 930 (98.4 %)** | 275 of 300 (91.7 %) |
-| pairs with the same start (compare) / agreeing in outcome, cell, blocks, inventory | - | 513 / 99.0 % | 148 / **100 %** | - |
-| game ticks run | 9,222 | 9,302 | 9,132 | 2,400 |
-| wall time per game tick inside commands | 50.1 ms | 50.7 ms | **4.2 ms (12x)** | 2.7 ms (18x) |
-| wall time of the whole run | 502 s | 612 s | 206 s (3x; the rest is play.js's own waits) | |
-| server packets in / out | | | 21,268 / 3,452 | |
+| place_b pb-r1: commands with the recorded outcome and reason | - | 910 of 930 (97.8 %) | 915 of 930 (98.4 %) | 904 of 930 (97.2 %); 904 of 923 (97.9 %) without the 7 below |
+| pb-r1: pairs with the same start / same outcome, cell, blocks, inventory | - | 513 / 99.0 % | 148 / 100 % | **317 / 98.4 %** |
+| pb-r1: wall time per game tick inside commands | 50.0 ms | 50.5 ms | 4.0 ms (12x) | **3.1 ms (16x, one core: `--cpus 1`)** |
+| move_b mvb-r1: commands with the recorded outcome and reason | - | | 389 of 411 (94.6 %) | **401 of 411 (97.6 %)** |
+| mvb-r1: pairs with the same start / same outcome, cell, blocks, inventory / ticks | - | | 383 / 99.5 % / 99.7 % | 382 / **99.7 % / 99.7 %** |
+| mvb-r1: wall time per game tick inside commands | 50 ms | | 2.0 ms (25x) | 2.0 ms (25x) |
 
-The move_b run mvb-r1 (411 commands, a cave walk and digs through sand and gravel) on the front end: 389 of 411 with the recorded outcome
-(94.6 %; the 22 differ in cells the front end does not update: sand and gravel that fell, the death on Normal with no mobs here); 383 pairs
-with the same start, **99.7 %** same outcome and 99.5 % same outcome, cell, blocks and inventory; but its walks took about 5 ticks fewer
-than on the server (move_to ticks within tolerance 1.9 %), 2.2 ms per game tick. The cause of the 5 ticks is not found yet (the place_b
-walks on the front end agreed within tolerance on 92 %).
+The serve world holds the block updates the JS world lacked, so more commands start from the recorded surroundings (pb-r1 pairs 148 ->
+317) and the move_b digs through sand and gravel now come out as on the server (94.6 -> 97.6 %). The 7 place_b commands that differ from the
+recording and did not before are `descend`s that ended `stuck` on the server (#232, #253, #303, #388, #506, #564, #698) and `ok` on the
+front end: since TASK-075's fix in `src/work/bot/moves.js` the bot centres itself before it digs its floor (exactly these five are named
+in its comment), so the current code no longer gets stuck there. That is a change of the bot, not of the front end: a re-play measures the
+code it runs. SIM_SPEED 50 (measured on the JS world, first 300 commands): 91.7 %, the bot's own wall-clock waits start to break; 20 stays
+the setting.
 
-Reading: on the real bot code the front end reproduces the server's outcomes as often as the server reproduces itself (98.4 % against
-97.8 %), at 12x the game speed on one core; at 50x the bot's own wall-clock waits (confirmation windows, sleeps between steps) start to break
-and fidelity drops, so 20 is the setting. Only 148 commands paired by start state because the front end has no world clocks and no block
-updates yet (leaves never decay, vines never fall), so its world drifts from the recording; those are the next rules to move in. The
-prototype is JavaScript; the server rules it needs (supports, vines, falling blocks, placement, dig acceptance) already exist in Rust in
-`tools/sim` and move behind a pipe when it is built out (`forgeaip-sim serve`), with the RCON commands the tests use for setup and grading
-(`fill`, `clone`, `execute if blocks`, `give`) — about 25 commands (stage-A count). Not yet: block states from the look (stairs, logs and
-slabs are placed in their default state), entities other than players (item drops, mobs), fluids, light, hunger, containers.
-
-**What it lets you test, and how fast**: every T26 test runs the same code it runs on the server; a place_b re-play takes 206 s instead of
-612 s, and a world needs no server (no 54 s world start; memory not measured). With setup and grading commands added, the whole T26 suite
-(pit, build, movement) can run on it; movement tests over 2,000 blocks need generated terrain the recording does not have (a region-file
-reader exists in `tools/sim`: the world's own region files are the source).
+Reading: on the real bot code the front end reproduces the server's outcomes about as often as the server reproduces itself (97.9 % and
+97.6 % against the server's 97.8 % on place_b), at 16-25x the game speed on one core and without a Minecraft server (no 54 s world start).
+Not yet: entities other than players (item drops on the ground, mobs), fluids over time, light, hunger, containers (`withdraw`, `deposit`,
+shulker boxes), redstone. The decision stands (backend B); the next step for TASK-079/080 is to run whole T26 tests on it from the test
+worlds' region files (`REGIONS=`), which serve already loads, and grade them with the same RCON commands it answers.
 
 ## 8. How to
 
@@ -189,7 +206,10 @@ tools/sim/target/bookworm/release/forgeaip-sim replay /mnt/data/forgeaip-play/t2
 scripts/t26/up.sh 5 --new --seed <seed>
 REPO=$PWD scripts/t26/run.sh 5 ../sim/play.js TRACE=/out/simrec/pb-r2 SIMREC_DIR=/out/simrec/pb-r2-play NODE_ARGS=--require=./scripts/sim/record.js
 tools/sim/target/bookworm/release/forgeaip-sim compare /mnt/data/forgeaip-play/t26/out/simrec/pb-r2 /mnt/data/forgeaip-play/t26/out/simrec/pb-r2-play
-# the same re-play on the front end (no server; capture once per version with scripts/sim/capture.js)
+# simulator tests (the golden physics traces are read from tests/golden_native)
+docker run --rm --network none -e CARGO_TARGET_DIR=/w/target/bookworm -v "$PWD/tools/sim":/w -v "$PWD/tests":/tests:ro -w /w rust:1-bookworm cargo test --release --offline
+# the same re-play on the front end (no server; tools/sim/build.sh first: front.js starts forgeaip-sim serve, SIM_BIN overrides its path;
+# capture once per version with scripts/sim/capture.js; REGIONS=<world>/region SIM_SPAWN=x,y,z instead of TRACE for a world from region files)
 docker run --rm --name sim-front --network none -v "$PWD":/app:ro -v <node_modules>:/app/node_modules:ro -v /mnt/data/forgeaip-play/t26/out:/out -w /app \
   -e TRACE=/out/simrec/pb-r2 -e SIMREC_DIR=/out/simrec/pb-r2-front -e CAPTURE=/out/simrec/capture-1.21.1.jsonl -e SIM_SPEED=20 -e MC_PLATFORM=fabric -e MC_VERSION=1.21.1 \
   -e BOT_REGISTRY=vanilla -e TEMP_BLOCK=pumpkin -e SYNCMATICA=0 -e DISPLAY=0 node:20-slim node --require ./scripts/sim/record.js --require ./scripts/sim/front.js scripts/sim/play.js

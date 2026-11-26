@@ -20,10 +20,11 @@ pub const CATEGORIES: [&str; 18] = ["movement_reach", "collision", "walk_time", 
     "gravity_blocks", "hunger", "light", "recipes", "inventory_other", "blocks_other", "other_time", "world_clock", "random_drops"];
 
 /// A change no command makes but the server's clocks do (random and scheduled ticks): leaves without a log nearby decay, grass and mycelium under
-/// an opaque block turn to dirt, dirt next to grass turns to grass, farmland dries, snow and ice melt, fire burns out.
+/// an opaque block turn to dirt, dirt next to grass turns to grass, farmland dries, snow and ice melt, fire burns out, vines spread into air
+/// (VineBlock.randomTick; pc/pb corpora: vines appearing in walks that touched nothing near them).
 pub fn world_clock(from: &str, to: &str) -> bool {
     (from.ends_with("_leaves") && to == "air") || (from == "air" && crate::sim::gravity_block(to)) || (matches!(from, "grass_block" | "mycelium" | "podzol") && to == "dirt") || (from == "dirt" && matches!(to, "grass_block" | "mycelium"))
-        || (from == "farmland" && to == "dirt") || (matches!(from, "snow" | "ice") && matches!(to, "air" | "water")) || (from == "fire" && to == "air")
+        || (from == "farmland" && to == "dirt") || (matches!(from, "snow" | "ice") && matches!(to, "air" | "water")) || (from == "fire" && to == "air") || (from == "air" && to == "vine")
 }
 /// Items a broken block drops only by chance (loot tables with a random chance), so one command's drop cannot be expected to match.
 pub fn random_drop(block: &str, item: &str) -> bool {
