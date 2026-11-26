@@ -270,10 +270,35 @@ fn sim_command(s: &mut Sim, name: &str, a: &J, temp: &str) -> Option<(bool, Stri
 /// What another bot of the same run was doing: its command windows and the cells each one is about (start, end, the cells it names). A block
 /// change inside one bot's window that is nearer to another bot's concurrent command than to its own is the other bot's (four bots building
 /// bridges from one platform: place_a pa-r1).
+/// One command of another bot: its window, the cells it works on (`cmd_cells`), and where its body was at the start and at the end.
 #[derive(Clone)]
-pub struct Win { pub t0: f64, pub t1: f64, pub cells: Vec<[i32; 3]> }
+pub struct Win { pub t0: f64, pub t1: f64, pub cells: Vec<[i32; 3]>, pub bot: String, pub p0: [f64; 3], pub p1: [f64; 3] }
 pub fn windows(t: &Trace) -> Vec<Win> {
-    t.cmds.iter().map(|c| { let mut cells = arg_cells(&c.args); cells.push(c.before.cell()); cells.push(c.after.cell()); Win { t0: c.t0, t1: c.t1, cells } }).collect()
+    t.cmds.iter().map(|c| Win { t0: c.t0, t1: c.t1, cells: cmd_cells(c), bot: t.bot.clone(), p0: c.before.pos, p1: c.after.pos }).collect()
+}
+/// The cells a command works on: the ones it names, where the body starts and ends, and for the work layer's moves the cells between: a pillar's
+/// and a descend's column (stacked and taken-away blocks, head room), a bridge's floor cells. Without the columns a pillar 15 levels high owned
+/// only its two ends, and the blocks it stacked in between went to a neighbour whose cells were nearer (place_c: three bots side by side).
+pub fn cmd_cells(c: &Cmd) -> Vec<[i32; 3]> {
+    let (b, a) = (c.before.cell(), c.after.cell());
+    let mut cells = arg_cells(&c.args);
+    cells.push(b); cells.push(a);
+    match c.name.as_str() {
+        "move:pillar" | "move:descend" => { let (lo, hi) = (b[1].min(a[1]) - 2, b[1].max(a[1]) + 2); for y in lo..=hi { cells.push([b[0], y, b[2]]); if a[0] != b[0] || a[2] != b[2] { cells.push([a[0], y, a[2]]); } } }
+        "move:bridge" | "run:bridge" => { let y = c.args.get("y").i() as i32; for q in c.args.get("cells").arr() { cells.push([q.get("x").i() as i32, y - 1, q.get("z").i() as i32]); } cells.push([b[0], b[1] - 1, b[2]]); }
+        _ => {}
+    }
+    cells
+}
+/// Where another bot's body was at time `t` (ms): inside one of its command windows on the line from the start to the end, between two of them
+/// where the last one ended. None when it had not started yet.
+pub fn body_at(wins: &[&Win], t: f64) -> Option<[f64; 3]> {
+    let mut last: Option<&Win> = None;
+    for w in wins {
+        if w.t0 <= t && t <= w.t1 { let f = if w.t1 > w.t0 { (t - w.t0) / (w.t1 - w.t0) } else { 1.0 }; return Some([w.p0[0] + (w.p1[0] - w.p0[0]) * f, w.p0[1] + (w.p1[1] - w.p0[1]) * f, w.p0[2] + (w.p1[2] - w.p0[2]) * f]); }
+        if w.t1 < t && last.map_or(true, |l| l.t1 < w.t1) { last = Some(w); }
+    }
+    last.map(|w| w.p1)
 }
 fn nearest(p: [i32; 3], cells: &[[i32; 3]]) -> i32 { cells.iter().map(|q| dist2(p, *q)).min().unwrap_or(i32::MAX) }
 
@@ -302,7 +327,7 @@ impl Cursor {
         let (cb, ca) = (c.before.cell(), c.after.cell());
         let target = arg_cell(&c.args);
         let named = arg_cells(&c.args);
-        let mut own = named.clone(); own.push(cb); own.push(ca);
+        let mut own = cmd_cells(c);
         let busy: Vec<&Win> = others.iter().filter(|w| w.t0 <= c.t1 && w.t1 >= c.t0).collect();
         let mut blocks: BTreeMap<[i32; 3], String> = BTreeMap::new();
         let mut first: HashMap<[i32; 3], String> = HashMap::new();
@@ -367,6 +392,14 @@ pub fn replay(t: &Trace, d: Rc<Data>, near: i32, others: &[Win]) -> (Vec<Row>, B
         let vine0 = s.vine.clone();
         let inv0 = { let mut m = BTreeMap::new(); for (n, q) in s.held() { m.insert(n, q as i64); } m };
         s.avoid = c.avoid.iter().copied().collect(); s.floor_by_other = c.floor_by;
+        // the other bots' bodies while this command runs (sampled 20 times across its window, as a share of it): a block cannot go into a cell a
+        // body stands in (the server refuses the placement)
+        s.bodies.clear();
+        if c.name == "move:pillar" && c.t1 > c.t0 {
+            let mut bots: BTreeMap<&str, Vec<&Win>> = BTreeMap::new();
+            for w in others { bots.entry(w.bot.as_str()).or_default().push(w); }
+            for ws in bots.values() { for k in 0..=20 { let f = k as f64 / 20.0; if let Some(p) = body_at(ws, c.t0 + f * (c.t1 - c.t0)) { s.bodies.push((f, p)); } } }
+        }
         let cb = c.before.cell();
         s.own_floor = c.floor_own.unwrap_or_else(|| bridged.contains(&[cb[0], cb[1] - 1, cb[2]]));
         s.atomic = c.atomic; s.plan_nodes = c.env.0; s.max_drop = c.env.1; s.no_vines = c.env.2;

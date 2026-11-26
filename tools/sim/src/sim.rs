@@ -66,6 +66,8 @@ pub struct Sim {
     pub floor_by_other: bool,
     /// The floor under the body is the bot's own bridge block (bridge.js: taken away once the bot has stepped off it).
     pub own_floor: bool,
+    /// Other bots' bodies during the command (replay: sampled from their recorded windows): (share of the command's window, feet position).
+    pub bodies: Vec<(f64, [f64; 3])>,
     /// Falling blocks in the air: (tick it lands, cell it lands in, block). The column over a dug cell becomes falling entities at once and lands
     /// when vanilla gravity brings it down (move_b corpus mvb-r1: the sand over a dug cell was air at the end of the dig and landed later).
     pub falling: Vec<(i64, [i32; 3], u16)>,
@@ -138,7 +140,7 @@ pub fn tool_rank(n: &str) -> i32 { ["wooden", "golden", "stone", "iron", "diamon
 impl Sim {
     pub fn new(d: Rc<Data>, tile: Rc<Tile>, seed: u64) -> Sim {
         Sim { d, tile, edits: HashMap::new(), pos: [0; 3], yaw: 0.0, hp: 20.0, food: 20.0, sat: 5.0, exh: 0.0, inv: vec![None; 36], tick: 0, mobs: vec![], next_id: 1, rng: Rng(seed | 1),
-            site: [0; 3], fuel: 0.0, hostile_scale: 1.0, craft_slots: None, dead: false, mobf: None, ph: vec![], view: [0; 3], track: [0; 3], air: 300.0, hits: 0, dmg: vec![], day_seen: 0, regen_t: 0.0, kills: HashMap::new(), audit: HashMap::new(), journal: None, exact: None, ground: true, eff: HashMap::new(), vine: HashMap::new(), astar: false, atomic: false, hand: None, plan_nodes: PLAN_NODES, max_drop: 3, no_vines: false, avoid: std::collections::HashSet::new(), floor_by_other: false, own_floor: false, falling: vec![], lifting: vec![], dig_t: 0, phys: None, autopickup: false, reach: None, scan_on: false, way: None, scan_res: None, recent: vec![] }
+            site: [0; 3], fuel: 0.0, hostile_scale: 1.0, craft_slots: None, dead: false, mobf: None, ph: vec![], view: [0; 3], track: [0; 3], air: 300.0, hits: 0, dmg: vec![], day_seen: 0, regen_t: 0.0, kills: HashMap::new(), audit: HashMap::new(), journal: None, exact: None, ground: true, eff: HashMap::new(), vine: HashMap::new(), astar: false, atomic: false, hand: None, plan_nodes: PLAN_NODES, max_drop: 3, no_vines: false, avoid: std::collections::HashSet::new(), floor_by_other: false, own_floor: false, bodies: vec![], falling: vec![], lifting: vec![], dig_t: 0, phys: None, autopickup: false, reach: None, scan_on: false, way: None, scan_res: None, recent: vec![] }
     }
     // ---- world access ----
     #[inline] pub fn blk(&self, x: i32, y: i32, z: i32) -> Option<u16> { if let Some(&b) = self.edits.get(&(x, y, z)) { Some(b) } else { self.tile.get(x, y, z) } }
@@ -1083,6 +1085,26 @@ pub(crate) mod tests {
         let mut s = Sim::new(d, tile, 7);
         s.pos = [c, 64, c]; s.site = s.pos;
         s
+    }
+    /// The server refuses a pillar block into a cell another body overlaps or that holds something not replaceable (pc-r1/pc-r2 `not_confirmed`).
+    #[test]
+    fn a_pillar_block_needs_a_free_cell() {
+        let mut s = flat();
+        s.pos = [24, 64, 24]; s.give("cobblestone", 8);
+        assert!(s.do_pillar(1, "").ok && s.pos == [24, 65, 24]);
+        let mut s = flat();
+        s.pos = [24, 64, 24]; s.give("cobblestone", 8);
+        s.bodies = vec![(0.5, [24.7, 64.0, 24.5])];                                    // a neighbour's body reaching into the cell
+        let o = s.do_pillar(1, "");
+        assert!(!o.ok && o.reason == "not_confirmed" && s.pos == [24, 64, 24] && s.count("cobblestone") == 8);
+        let mut s = flat();
+        s.pos = [24, 64, 24]; s.give("cobblestone", 8);
+        s.bodies = vec![(0.5, [25.9, 64.0, 24.5])];                                    // beside it: no overlap
+        assert!(s.do_pillar(1, "").ok);
+        let mut s = flat();
+        s.pos = [24, 64, 24]; s.give("cobblestone", 8);
+        let wire = s.d.bid("redstone_wire"); s.set(24, 64, 24, wire);
+        assert_eq!(s.do_pillar(1, "").reason, "not_confirmed");
     }
     #[test]
     fn walking_and_standing() {

@@ -16,6 +16,9 @@ pub const PILLAR_LEVEL: i64 = 11; pub const DESCEND_LEVEL: i64 = 7; pub const BR
 pub const DESCEND_PLACE: i64 = 3;
 /// The aim and the click of a bridge block with the tick physics (aimAtBlock, the use tick, one more; the block itself comes in the same window).
 pub const BRIDGE_CLICK: i64 = 3;
+/// A pillar level the server refused: the jump, the click, 12 ticks waiting for the block (not_confirmed), 10 more idle and a second look, as the
+/// corpus' refused levels took (28-36 ticks, median 29).
+pub const PILLAR_REFUSED: i64 = 29;
 
 impl Sim {
     /// The block a move stacks now: the temporary block when the pack has one, else the first of STACK_ITEMS it has.
@@ -41,6 +44,13 @@ impl Sim {
             if i == 0 && self.floor_by_other { return self.fail_with("invalid_target", 0, ev); }
             for dy in [2, 1] { if !self.is_air(f[0], f[1] + dy, f[2]) { ticks += self.dig_here([f[0], f[1] + dy, f[2]], &mut ev); } }
             let item = match self.stack_item(temp) { Some(i) => i, None => return self.fail_with("missing_item", ticks, ev) };
+            // the server places the block only into a cell that can be replaced (redstone dust, a torch, a rail is not: pc-r1 #675-677 on the
+            // farm's wire) and that no other body overlaps (another bot standing in it or passing through: 8 of the 11 refused levels)
+            let n = self.name(f[0], f[1], f[2]);
+            let free = n.ends_with("air") || crate::sim::replaceable(n) || n == "water";
+            let (lo, hi) = (i as f64 / levels as f64 - 0.05, (i + 1) as f64 / levels as f64 + 0.05);
+            let body = self.bodies.iter().any(|(fr, p)| *fr >= lo && *fr <= hi && p[0] + 0.3 > f[0] as f64 && p[0] - 0.3 < f[0] as f64 + 1.0 && p[2] + 0.3 > f[2] as f64 && p[2] - 0.3 < f[2] as f64 + 1.0 && p[1] < f[1] as f64 + 1.0 && p[1] + 1.8 > f[1] as f64);
+            if !free || body { return self.fail_with("not_confirmed", ticks + PILLAR_REFUSED, ev); }
             let bid = self.d.bid(&item);
             self.take(&item, 1); self.set(f[0], f[1], f[2], bid);
             self.pos = [f[0], f[1] + 1, f[2]]; self.exact = None; self.invalidate();
