@@ -298,6 +298,21 @@ test('a route never stands on another bot\'s movement block in use (negative con
     assert.strictEqual(await go({ othersMove: other }), null, 'not over another bot\'s block in use');
 });
 
+test('service: a pit\'s end and its wrap-up put a bot that is out of its loop (waiting for a tool, cooling down) back to work once, for the end (mb075e w2, mb075d w4)', () => {
+    const { WorkService } = require('../src/work/service');
+    const started = [], notes = [];
+    const pit = require('../src/work/jobs/pit').createPitJob({ x0: 0, z0: 0, x1: 15, z1: 15, top: 70, bottom: 60 });
+    const job = { id: 'j1', state: 'running', kind: 'pit', bots: new Set(['A', 'B']), impl: pit, repairs: 0 };
+    const recs = { A: { name: 'A', state: 'online', retired: 'waiting for a pickaxe', waitFor: { tool: 'stone' }, job: 'j1' }, B: { name: 'B', state: 'online', retired: 'cooling down after unreachable (try 3), resumes by itself', job: 'j1' } };
+    const fake = { jobs: new Map([['j1', job]]), bots: new Map(Object.entries(recs)), note: (l, m) => notes.push(m), _dirty: () => {}, _startWorker(j, rec) { if (!rec.retired) { started.push(rec.name); rec.worker = { cancel: {} }; } } };
+    for (const k of ['_endPass', 'wrapJob', '_maybeFinish']) fake[k] = WorkService.prototype[k];
+    assert.strictEqual(fake.wrapJob('j1'), true);
+    assert(pit.ledger.finished(), 'wrapped up: finished for the workers');
+    assert.deepStrictEqual(started.sort(), ['A', 'B'], 'both bots out of their loop started for the end');
+    recs.A.worker = null; recs.B.worker = null; started.length = 0;
+    fake._endPass(job); assert.deepStrictEqual(started, [], 'once per job: no second start after their end');
+});
+
 test('the flood tells a cell reached on foot from one reached by placing blocks (untemp stances and column tops only on foot)', async () => {
     const M = require('../src/build/move');
     const w = new Map(); for (let x = -6; x <= 6; x++) for (let z = -6; z <= 6; z++) w.set(`${x},69,${z}`, { name: 'stone' });

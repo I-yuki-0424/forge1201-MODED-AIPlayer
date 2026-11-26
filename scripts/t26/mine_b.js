@@ -74,7 +74,7 @@ const LIMIT_MIN = Number(process.env.LIMIT_MIN || 240), DEPTH = Number(process.e
             state = 'timeout'; const j = svc.jobs.get(pit.id);
             // the time is over before the pit: the crew takes its movement blocks away first (pit.js wrapUp; owner list 5 Large 1: a clean site at the end of every run), WRAP_MIN at most
             if (j && j.impl && j.impl.wrapUp && Number(process.env.WRAP_MIN ?? 5) > 0) {
-                j.impl.wrapUp(); const tw = Date.now();
+                if (svc.wrapJob) svc.wrapJob(pit.id); else j.impl.wrapUp(); const tw = Date.now();
                 while (Date.now() - tw < Number(process.env.WRAP_MIN ?? 5) * 60000) { const jj = svc.jobs.get(pit.id); if (!jj || jj.state !== 'running') break; await T.sleep(3000); }
                 console.log(`[wrap] ${Math.round((Date.now() - tw) / 1000)} s, job ${(svc.jobs.get(pit.id) || {}).state}, registered ${svc.temps.size}: ${JSON.stringify(((svc.jobs.get(pit.id) || {}).impl || {}).plan ? svc.jobs.get(pit.id).impl.plan.endReport || {} : {}).slice(0, 300)}`);
             }

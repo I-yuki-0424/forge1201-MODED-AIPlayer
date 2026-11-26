@@ -189,6 +189,29 @@ class WorkersPart {
         }
     }
 
+    /** Every bot of `job` that has no worker and has not run the job's end yet is un-retired and started (its worker takes the end at once). True when one was started. */
+    _endPass(job) {
+        let n = 0;
+        for (const name of job.bots) {
+            const rec = this.bots.get(name);
+            if (!rec || rec.removed || rec.state !== 'online' || rec.worker || rec.endFor === job.id) continue;
+            rec.endFor = job.id; rec.retired = null; rec.waitFor = null; rec.missing = null; clearTimeout(rec.coolTimer);
+            this._startWorker(job, rec); if (rec.worker) n++;
+        }
+        return n > 0;
+    }
+
+    /** The run's time is over before the job (a test harness): the pit's wrap-up (pit.js wrapUp: nothing claimed, the end at once) for every bot, those out of their loop too. */
+    wrapJob(id) {
+        const job = this.jobs.get(id);
+        if (!job || job.state !== 'running' || !job.impl || !job.impl.wrapUp) return false;
+        job.impl.wrapUp();
+        this.note('info', `job ${job.id}: wrapping up (the run's time is over)`);
+        if (![...job.bots].some((n) => this.bots.get(n)?.worker)) this._maybeFinish(job); else this._endPass(job);
+        this._dirty();
+        return true;
+    }
+
     /** Un-retire a bot (after a kit, materials, or a look in the game) and put it back to work. */
     resumeBot(name) {
         const rec = this.bots.get(name);
@@ -269,6 +292,9 @@ class WorkersPart {
     _maybeFinish(job) {
         if ([...job.bots].some((n) => this.bots.get(n)?.worker)) return;                   // wait for the last worker
         const L = job.impl.ledger;
+        // A pit's end (its cleanup: the movement blocks, nav's sweep) runs in each bot's worker; a bot that was out of its loop then (waiting for a tool or an item, cooling down after
+        // failures) is put back to work once for it, before the job is called finished (TASK-20261125-075: its last pillars stood, mine_b mb075e w2 and mb075d w4)
+        if (job.impl.kind === 'pit' && L.finished() && this._endPass(job)) return;
         if (L.stuck.some(RETRIABLE) && job.repairs < QUICK_REPAIRS) {                      // quick repair passes while the crew is still there (some problems pass by themselves): 3, 6, 12, 24, 48, 60 s
             job.repairs++;
             const wait = Math.min(60000, this.o.repairMs * 2 ** (job.repairs - 1));
