@@ -414,8 +414,13 @@ class BuildJob {
         if (this.pitFor === this.tasks) return null;
         this.pitFor = this.tasks;
         if ((this.pitRounds || 0) >= PIT_ROUNDS) return null;
-        // the site only, before the first block of the build stands: a pit digs every block of its columns, built ones too
-        if (this.stats.placed > 0) { this.pitRounds = PIT_ROUNDS; return null; }
+        // a round that stalled (wrapped up by drive.js's watchdog) would stall again on the same cells: no more rounds
+        // the site only, before the first block of the build stands (a pit digs every block of its columns, built ones too)
+        // (either way no more rounds: the survey runs again so that what is left is parked, not dug by the builder)
+        if ((this.pitPhase && this.pitPhase.stalled) || this.stats.placed > 0) {
+            if ([...this.tasks.values()].some((tk) => tk.kind === 'clear' || tk.kind === 'fill' || tk.kind === 'seal')) this.stage = 'survey';
+            this.pitRounds = PIT_ROUNDS; return null;
+        }
         let top = -Infinity, bottom = Infinity, n = 0;
         for (const tk of this.tasks.values()) {
             if (!(tk.kind === 'clear' || tk.kind === 'fill' || (tk.kind === 'place' && tk.wrong))) continue;

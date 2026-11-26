@@ -21,6 +21,7 @@ const { runWorker } = require('../work/bot/worker');
 const PEER = process.env.BUILD_PEER !== '0';
 const { FULL } = require('./job');
 
+const PIT_STALL_MS = Number(process.env.BUILD_PIT_STALL_MIN || 6) * 60000;          // a pit with no unit finished this long is wrapped up (clearByPit)
 const COST_LAVA = 60;                // escapes and evacuations may pass beside lava (never into it) at this cost per cell
 const sleep = (ms, label = 'other: drive sleep') => PZ.sleep(ms, label);
 const UNBREAKABLE = /^(bedrock|barrier|end_portal_frame|end_portal|end_gateway|nether_portal|command_block|chain_command_block|repeating_command_block|structure_block|jigsaw|reinforced_deepslate|light)$/;
@@ -808,6 +809,17 @@ async function clearByPit(job, name, bot, mv, cancel, work) {
     const env = work.env();
     if (!env) { job.pitDone('no work environment for the bots'); return null; }
     env.within = P.box; bot.__mineBox = P.box;
+    // a pit that has finished no unit for PIT_STALL_MS (the last units of a region retried by one bot while the crew waits: b081d, 2 239 of 2 304 units for 20 min, tree blocks
+    // the pit could not reach) is wrapped up: what it left goes to the next round, then is parked; the crew does not wait for ever
+    if (!P.watch) {
+        P.seen = { done: -1, at: Date.now() };
+        P.watch = setInterval(() => {
+            if (P.done) { clearInterval(P.watch); return; }
+            const g = P.impl.ledger.progress();
+            if (g.done !== P.seen.done) { P.seen = { done: g.done, at: Date.now() }; return; }
+            if (Date.now() - P.seen.at > PIT_STALL_MS && P.impl.wrapUp) { job.log(`clearing by the pit: no unit finished for ${Math.round(PIT_STALL_MS / 60000)} min (${g.done} of ${g.total}, ${g.leased} leased): wrapped up`); P.stalled = true; P.impl.wrapUp(); clearInterval(P.watch); }
+        }, 10000);
+    }
     bot.__builderOwns = false;                    // the work layer's fall and breath reflexes are the pit's
     let res;
     // the worker's own steps as pause labels: its claim of a unit, the unit (digging and walking are actions), the back-off after a failure, the idle wait for a unit
