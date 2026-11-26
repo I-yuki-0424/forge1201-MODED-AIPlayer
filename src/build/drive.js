@@ -310,13 +310,13 @@ async function work(job, name, bot, mv, cl, cancel) {
             // a wire or a pane built beside a temporary block that stands all the same (one placed after the check): counted, temps.shapesLate
             { const wn = S.bare((job.t.wantOf(tk) || {}).name || ''); if (wn === 'redstone_wire' || CONNECTS.test(wn)) { const at = (x, y, z) => { if (x === tk.x && y === tk.y && z === tk.z) return wn; const b = bot.blockAt(new Vec3(x, y, z), false); return b && b.name; }; for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) { const e = job.ledger.get({ x: tk.x + dx, y: tk.y + dy, z: tk.z + dz }); if (e && e.state === 'placed' && touchesShape(at, e.x, e.y, e.z)) { const n = job.ledger.n; n.shapesLate = n.shapesLate || {}; const kk = wn === 'redstone_wire' ? 'wire' : 'pane'; n.shapesLate[kk] = (n.shapesLate[kk] || 0) + 1; } } } }
             // clicks after the placement (note, delay, mode, open), counted from what the cell holds now
-            await sleep(120);
+            await sleep(120, 'server: block update after a click');
             const now = seen(bot, tk), fx = now ? clicksFor(job.t.wantOf(tk), now) : null;
             if (fx) { const c = require('./place').clickable(require('./place').botWorld(bot), tk, feet(bot)); if (c) { await mv.holdNothing(); for (let k = 0; k < fx.clicks; k++) await mv.click([tk.x, tk.y, tk.z], c.face, c.hit); } }
             done.push(tk);
         }
     }
-    await sleep(250);
+    await sleep(250, 'server: read back');
     for (const tk of done) {
         const h = holds(job, bot, tk); results.push({ tk, ok: h.ok, why: h.why });
         if (tk._bed && !h.ok && (job.bedLog = (job.bedLog || 0) + 1) <= 60) { const d = tk._bed, f = (job.t.wantOf(tk).props || {}).facing, v = V.VEC[f] || [0, 0, 0], hc = seen(bot, { x: tk.x + v[0], y: tk.y, z: tk.z + v[2] }); job.log(`[bed] ${name} ${tk.k} facing ${f}: ${h.why}; head cell had ${d.head}, has ${hc ? hc.name : '?'}; ${d.way}; yaw before ${d.yaw}, after ${bot.entity.yaw.toFixed(2)}; bodies in the cell ${d.bodies}; from ${d.at.x},${d.at.y},${d.at.z}`); }
@@ -476,7 +476,7 @@ async function evacuate(job, name, bot, mv, cancel, why) {
     const nearest = { x: Math.min(Math.max(f.x, b.x - 3), b.x + b.sx + 2), y: f.y, z: Math.min(Math.max(f.z, b.z - 3), b.z + b.sz + 2) };
     const r = await m2.goto(nearest, { goal: out, cancel, maxNodes: 30000, lavaCost: COST_LAVA });
     job.log(`${name}: evacuation ${r.ok ? 'done' : 'failed (' + r.why + ')'}`);
-    await sleep(15000);
+    await sleep(15000, 'other: after an evacuation');
     return r.ok;
 }
 
@@ -680,7 +680,7 @@ async function enterSupply(job, name, bot, mv, site, cancel) {
             if (Date.now() - t0 > 60000) return false;
             if (job.progressAt) job.progressAt.set(name, Date.now());          // waiting for a turn is not being stuck (the watchdog evacuated bots in line, live 2026-11-23 gh1 w3)
             if (!away) { away = true; tell(job, name, bot, 'wait', `a turn at the materials (${[...g.inside].join(', ')} there, ${g.wait.size} waiting)`); await mv.goto(site, { goal: (x, y, z) => Math.hypot(x - site.x, z - site.z) >= 5 && Math.hypot(x - site.x, z - site.z) <= 9, cancel, maxNodes: 15000, tries: 2 }); continue; }
-            await mv.spread(crewAt(job, bot)); await sleep(500);
+            await mv.spread(crewAt(job, bot)); await sleep(500, 'wait: a turn at the materials');
         }
     } finally { g.wait.delete(name); }
 }
@@ -893,7 +893,7 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
             // the supply: read once by one bot (the next one tries when a read fails)
             if (job.available === null) {
                 job.supplyTried = job.supplyTried || new Set();
-                if (!job.supplyReading && job.supplyTried.has(name) && [...job.bots.keys()].some((n) => !job.supplyTried.has(n))) { await sleep(500); continue; }
+                if (!job.supplyReading && job.supplyTried.has(name) && [...job.bots.keys()].some((n) => !job.supplyTried.has(n))) { await sleep(500, 'wait: another bot reads the supply'); continue; }
                 if (!job.supplyReading) {
                     await settle(null, 'supply read');
                     job.supplyTried.add(name);
@@ -904,7 +904,7 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
                         job.log(`supply read by ${name}: ${Object.keys(s.totals).length} item types; temporary block ${job.tempItem || 'NONE (pillars and bridges impossible)'}`);
                     }, (e) => { job.log(`supply read failed: ${e.message}`); job.supplyReading = null; });
                 }
-                await job.supplyReading; await sleep(200); continue;
+                await job.supplyReading; await sleep(200, 'wait: the supply read'); continue;
             }
             // (at most every two minutes per bot: without glowstone it went for it on every turn of the loop, 107 trips, live 2026-11-23 ha5 w1)
             if (!inNether(bot) && job.available.has(SPAWN_BED) && !(job.spawnSet && job.spawnSet.has(name)) && !job.anchorBusy && Date.now() - ((job.anchorTry && job.anchorTry.get(name)) || 0) > 120000) { (job.anchorTry || (job.anchorTry = new Map())).set(name, Date.now()); await settle(null, 'bed'); await bedSpawn(job, name, bot, mv, cancel); }

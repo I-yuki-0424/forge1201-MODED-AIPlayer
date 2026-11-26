@@ -26,7 +26,7 @@ const emptyBox = (bot, it) => SHULKER.test(it.name) && Object.keys(boxHolds(bot,
 async function open(bot, c) {
     const block = bot.blockAt(new Vec3(c.x, c.y, c.z));
     if (!block) throw new Error('not loaded');
-    const w = await Promise.race([bot.openContainer(block), sleep(5000).then(() => { throw new Error('the container did not open'); })]);
+    const w = await require('./pauses').within('server: container opens', () => Promise.race([bot.openContainer(block), sleep(5000).then(() => { throw new Error('the container did not open'); })]));
     // the window's items can come a moment after it opens: an empty window is read again before it counts as empty (eight bots took a full chest for empty and stood idle,
     // owner 2026-11-23 problem 8)
     for (let i = 0; i < 6 && !w.containerItems().length; i++) await sleep(150);
@@ -52,7 +52,7 @@ async function take(bot, w, it, n) {
         // a small part of a stack (4 glowstone of 48, 1 torch of 23): a partial withdraw, checked against the pack (a quarter rule without it left a Nether anchor uncharged
         // for good, 107 trips, live 2026-11-23 ha5 w1)
         const c0 = carried(bot)[it.name] || 0;
-        try { await w.withdraw(it.type, null, n); } catch (_) { return 0; }
+        try { await require('./pauses').within('server: container', () => w.withdraw(it.type, null, n)); } catch (_) { return 0; }
         await sleep(250);
         const got = (carried(bot)[it.name] || 0) - c0;
         return got > 0 ? got : n;
