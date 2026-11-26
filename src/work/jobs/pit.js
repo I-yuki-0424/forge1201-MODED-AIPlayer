@@ -32,6 +32,9 @@ const { TREE } = require('./pit_trees');          // the tree pass (pit_trees.js
 const AERIAL_UP = require('./pit_trees').LOW;
 const FATAL_MINE = new Set(['died', 'disconnected', 'cancelled']);
 const TREE_PASSES = 3;              // runs of a region's tree pass at most (the first, and again after units left tree blocks to it)
+const isBamboo = (w, c) => /^bamboo(_sapling)?$/.test(String((w.nameAt && w.nameAt(c.x, c.y, c.z)) || '').replace(/^minecraft:/, ''));
+/** The lowest bamboo block of the stalk through c (down to 24 below), when it lies below c: breaking it takes the whole stalk. */
+const bambooRoot = (w, c) => { let y = c.y; while (y > c.y - 24 && isBamboo(w, { x: c.x, y: y - 1, z: c.z })) y--; return y < c.y ? { x: c.x, y, z: c.z } : null; };
 const isTreeAt = (w, c) => TREE.test(String((w.nameAt && w.nameAt(c.x, c.y, c.z)) || '').replace(/^minecraft:/, ''));
 function aerialTree(w, c) {
     const bare = (n) => String(n || '').replace(/^minecraft:/, '');
@@ -293,6 +296,7 @@ async function runUnit(plan, region, u, env) {
         }
     };
     // time in cells (the rest of a unit is its walks to stations) and the slowest cell with what it held and how it ended, for the log of slow units (construct.js)
+    const takeRoot = async (c) => { const root = bambooRoot(env.w, c); if (root && root.y < plan.box.bottom && eyeDist(root) <= 4.4) { const b = await env.exec('mine', { ...root, collect: false, blind: true }); if (b.ok) r.bambooRoots = (r.bambooRoots || 0) + 1; } };
     const noteCell = (c, t0, block, res) => { const ms = Date.now() - t0; r.cellMs = (r.cellMs || 0) + ms; if (!r.slowCell || ms > r.slowCell.ms) r.slowCell = { x: c.x, y: c.y, z: c.z, block, ms, end: res === null ? 'ok' : res === 'defer' ? 'defer' : (res && res.reason) || null }; };
     // A placement the bot cannot reach a face for (unreachable) or that ends in a swim it cannot get out of (stuck): the same walk is not tried again. The server puts the bot on a standable
     // cell beside the fluid cell, once per cell, and the placement is tried from there (a different approach); if that fails too, the failure goes up and the unit is parked.
@@ -384,6 +388,9 @@ async function runUnit(plan, region, u, env) {
         // Success is what the world shows: a `mine` that ended in the drop pickup (target_lost: the item was picked up by another
         // bot or despawned) has still opened the cell. Transient reasons (another bot in the crosshair, a slipped aim) get retries.
         const c0 = Date.now();
+        // Bamboo: the stalk is broken at its lowest block, below the box too (bamboo grows back from its root: 95 bamboo blocks stood in the dug jungle pit bt075v3, 1.21.1;
+        // breaking the lowest block takes the whole stalk and leaves nothing to grow), blind when in reach; otherwise the cell as usual and the root at the bottom layer
+        if (isBamboo(env.w, c)) { const root = bambooRoot(env.w, c); if (root && eyeDist(root) <= 4.4) { const b = await env.exec('mine', { ...root, collect: false, blind: true }); if (b.ok) r.bambooRoots = (r.bambooRoots || 0) + 1; if (open(c)) { r.mined++; return null; } } }
         // A tree block (leaf, vine, log) within the server's reach: blind at once. The aimed mine wants a face in sight, which a leaf in a crown or a vine (no collision box) often has not;
         // its retries took minutes per cell (b081m, 1.21.1: oak_leaves 627 s, a vine 373 s in one cell, no NAV trip)
         let m = isTreeAt(env.w, c) && eyeDist(c) <= 4.4 ? await env.exec('mine', { x: c.x, y: c.y, z: c.z, collect: false, blind: true }) : { ok: false, reason: 'not_tried' };
@@ -452,7 +459,9 @@ async function runUnit(plan, region, u, env) {
     // One cell: the dig with the water rule, then the floor under it (a cell that is open now and has water under it gets its floor block).
     const handle = async (c, last) => {
         const t0 = Date.now(), b0 = env.w.nameAt ? env.w.nameAt(c.x, c.y, c.z) : null;
-        const res = await handleCell(c, last); if (res === null && open(c)) await floorFill(c).catch(() => { /* a floor that cannot be laid now is tried again at the next cell */ });
+        const res = await handleCell(c, last);
+        if (res === null && /^bamboo/.test(String(b0 || '').replace(/^minecraft:/, '')) && c.y === plan.box.bottom) await takeRoot(c).catch(() => { /* the end's sweep looks again */ });          // (the root under the box's bottom)
+        if (res === null && open(c)) await floorFill(c).catch(() => { /* a floor that cannot be laid now is tried again at the next cell */ });
         noteCell(c, t0, b0, res); return res;
     };
     const deferred = [];

@@ -297,5 +297,21 @@ const left = (w, box = BOX) => scan(w, box).length;
         assert.deepStrictEqual(await run('stone'), ['aimed']);
     });
 
+    await test('bamboo is broken at its root, below the box too, so it cannot grow back into the dug pit (bt075v3 jungle: 95 bamboo left); a log column below the box is left alone (negative control)', async () => {
+        const pit = require('../src/work/jobs/pit');
+        const run = async (name) => {
+            const cells = new Map(); for (let y = 61; y <= 68; y++) cells.set(`3,${y},3`, name);
+            const w = { nameAt: (x, y, z) => cells.get(`${x},${y},${z}`) || (y <= 60 ? 'dirt' : 'air'), kindAt: (x, y, z) => ((cells.get(`${x},${y},${z}`) || (y <= 60 ? 'dirt' : 'air')) === 'air' ? 'air' : 'solid') };
+            const job = pit.createPitJob({ x0: 0, z0: 0, x1: 7, z1: 7, top: 68, bottom: 64 }, {}, { method: 'rows', road: false }), region = job.plan.regions[0];
+            const env = { w, have: () => 9, pause: async () => {}, here: () => ({ x: 2, y: 63, z: 3 }),
+                exec: async (n, a) => { if (n !== 'mine') return { ok: true }; const k = `${a.x},${a.y},${a.z}`; if (!cells.has(k)) return { ok: true };
+                    if (/^bamboo/.test(cells.get(k))) { for (let y = a.y; cells.has(`${a.x},${y},${a.z}`); y++) cells.delete(`${a.x},${y},${a.z}`); } else cells.delete(k); return { ok: true }; } };
+            for (let u = 0; u < region.layers * region.rows; u++) await job.runUnit(region.id, { unit: u }, env);
+            return [...cells.keys()];
+        };
+        assert.deepStrictEqual(await run('bamboo'), [], 'the whole stalk is gone, root included');
+        assert.deepStrictEqual((await run('jungle_log')).sort(), ['3,61,3', '3,62,3', '3,63,3'], 'a log below the box stays');
+    });
+
     console.log('\npit trees: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });
