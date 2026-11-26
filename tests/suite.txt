@@ -85,3 +85,4 @@ tests/test_sim_recorder.js
 tests/test_work_assets_pure.js
 tests/test_build_order_pure.js
 tests/test_build_fastblock_pure.js
+tests/test_build_pauses_pure.js
