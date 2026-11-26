@@ -392,7 +392,7 @@ async function unscaffold(job, bot, mv) {
         if (underCrew(job, bot, c.x, c.y, c.z) || onRouteOfOther(job, bot.username, c.x, c.y, c.z)) { job.ledger.fail(c, 'scaffold: a crew member on it'); continue; }
         if (holdsFluid(bot, c.x, c.y, c.z)) { job.ledger.fail(c, 'holds a fluid back'); continue; }
         if (!P.clickable(P.botWorld(bot), c, me)) continue;
-        if (await mv.dig(c)) { job.dropTemp(c); if (job.scaffolds) job.scaffolds.delete(e.k); const t = job.tasks.get(e.k); if (t && (t.kind === 'clear' || t.kind === 'untemp')) job.tasks.delete(e.k); job.stats.untemp++; n++; }
+        if (await mv.dig(c)) { job.dropTemp(c); if (job.scaffolds) job.scaffolds.delete(e.k); const t = job.tasks.get(e.k); if (t && t.after) { t.kind = t.after; delete t.after; } else if (t && (t.kind === 'clear' || t.kind === 'untemp')) job.tasks.delete(e.k); job.stats.untemp++; n++; }
         else job.ledger.fail(c, 'scaffold: the dig failed');
     }
     return n;

@@ -54,6 +54,58 @@ class Target {
     recipeOf(tk) { return tk.want ? R.recipe(tk.want, (dx, dy, dz) => this.at(tk.x + dx, tk.y + dy, tk.z + dz)) : this.recipe[tk.i]; }
     isAir(i) { return this.t[i] === AIR_ID; }
 
+    /**
+     * The cells whose block's click supports (the neighbours a click can give its state against, vanilla.js) are all build cells that cannot stand before it: a support cycle. Two
+     * hoppers facing each other each need the other as the block clicked (a hopper faces into the block it is placed against): no order places either (iron-farm-34: the
+     * pair at the bottom, "ready, no stance" on every crew of hc1/hd1 to the end). A player puts a temporary block into one of them first. Returns [{ cell: i, via: j }]: the
+     * block of cell i goes against a temporary block in cell j, which is taken out before j's own block. Cells with a support on the ground or in a cell that stays empty
+     * (a pillar or a scaffold gives that) start the order; computed once.
+     */
+    cycles() {
+        if (this._cycles) return this._cycles;
+        const V = require('./vanilla'), PLACED = new Set(['facing', 'half', 'type', 'axis', 'face', 'shape', 'part', 'hinge', 'hanging', 'attachment', 'rotation']);
+        const looks = []; for (const [x, z] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) looks.push([x, 0, z], [x * 0.02, -1, z * 0.02], [x * 0.02, 1, z * 0.02], [x, -0.5, z], [x, 0.5, z]);
+        const b = this.box, want = (x, y, z) => { if (!this.inside(x, y, z)) return null; const w = this.palette[this.t[this.idx(x, y, z)]]; return w && !S.AIR.has(S.bare(w.name)) ? w : null; };
+        const sup = new Map();
+        for (let i = 0; i < this.n; i++) {
+            const r = this.recipe[i]; if (!r || r.op !== 'place') continue;
+            const c = this.cell(i), w = this.palette[this.t[i]], wd = S.decidedProps(w.name, w.props);
+            const at = (dx, dy, dz) => { const q = want(c.x + dx, c.y + dy, c.z + dz); return q ? { name: S.bare(q.name), props: q.props } : null; };
+            const solid = (dx, dy, dz) => !!want(c.x + dx, c.y + dy, c.z + dz);
+            const faces = [];
+            for (const F of V.DIRS) {
+                const v = V.VEC[F]; let ok = false;
+                for (const lk of looks) {
+                    for (const hy of F === 'up' ? [0] : F === 'down' ? [1] : [0.25, 0.75]) {
+                        const got = V.predict(r.item, { face: F, hitY: hy, look: lk, sneak: false, at, solid });
+                        if (!got || S.bare(got.name) !== S.bare(w.name)) continue;
+                        ok = Object.entries(wd).every(([k, val]) => !PLACED.has(k) || got.props[k] === val || (k === 'type' && /chest$/.test(w.name) && val === 'right' && got.props[k] === 'single'));
+                        if (ok) break;
+                    }
+                    if (ok) break;
+                }
+                if (ok) faces.push([c.x - v[0], c.y - v[1], c.z - v[2]]);
+            }
+            sup.set(i, faces);
+        }
+        const ok = new Set(), out = [];
+        // a support that needs no build cell first: the ground under the box, or a cell that stays empty (a pillar or a scaffold stands there for the click)
+        const free = ([x, y, z]) => (this.inside(x, y, z) ? !want(x, y, z) : true);
+        for (const [i, f] of sup) if (f.some(free)) ok.add(i);
+        for (let changed = true; changed;) {
+            changed = false;
+            for (const [i, f] of sup) if (!ok.has(i) && f.some(([x, y, z]) => this.inside(x, y, z) && ok.has(this.idx(x, y, z)))) { ok.add(i); changed = true; }
+            if (changed) continue;
+            // a cycle: its first cell goes against a temporary block in one of its supports, the rest follows
+            const left = [...sup.keys()].filter((i) => !ok.has(i) && sup.get(i).length);
+            if (!left.length) break;
+            const i = left[0], [x, y, z] = sup.get(i)[0];
+            out.push({ cell: i, via: this.idx(x, y, z) }); ok.add(i); changed = true;
+        }
+        this._cycles = out;
+        return out;
+    }
+
     /** Every portal of the blueprint: its cells, and the lighting (the obsidian under its lowest middle cell, clicked on top). */
     _portals() {
         const out = [], seen = new Uint8Array(this.n);

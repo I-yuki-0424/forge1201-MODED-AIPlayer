@@ -103,6 +103,7 @@ class BuildJob {
             this.tasks = tasks;
             this.untemps = new Set([...tasks.values()].filter((tk) => tk.kind === 'untemp'));
             this.fluidLeft = [...tasks.values()].some((tk) => tk.kind === 'fill' || tk.kind === 'seal');
+            this._breakCycles(bot);
             this.buckets = new Map();
             for (const tk of tasks.values()) { const k = `${Math.floor(tk.x / 8)},${Math.floor(tk.y / 8)},${Math.floor(tk.z / 8)}`; (this.buckets.get(k) || this.buckets.set(k, []).get(k)).push(tk); }
             this.claims.clear();
@@ -485,11 +486,32 @@ class BuildJob {
      * at the end of every run). Every step is over now: the next survey keeps only the untemp tasks, and the job ends when they are done.
      */
     wrapUp() { if (this.wrapping) return; this.wrapping = true; this.log(`wrapping up: ${this.ledger.size} temporary blocks to take away, nothing else`); this.stage = 'survey'; }
+    /**
+     * Support cycles of the blueprint (Target.cycles: two hoppers facing each other, each the other's only click support): the cell `via` holds a temporary block first (a scaffold
+     * task in that cell, the block of `cell` waits for it), the block of `cell` goes against it, the scaffold is taken out and `via` gets its own place task back (_scaffoldServed).
+     * Only while `cell` is still to place and `via` is empty; at every survey (the tasks are new then).
+     */
+    _breakCycles(bot) {
+        for (const { cell, via } of this.t.cycles()) {
+            const A = this.t.cell(cell), B = this.t.cell(via), ka = key(A.x, A.y, A.z), kb = key(B.x, B.y, B.z), ta = this.tasks.get(ka), tb = this.tasks.get(kb);
+            if (!ta || ta.kind !== 'place' || !tb || tb.kind !== 'place') continue;
+            const h = bot ? seen(bot, B) : null;
+            // the scaffold stands already (a survey while it serves): it stays, the cell's own task waits for the cycle's first block
+            if (h && !S.AIR.has(h.name)) { if (this.ledger.has(B)) { this.tasks.delete(kb); (this.scaffoldFor || (this.scaffoldFor = new Map())).set(kb, ka); } continue; }
+            const s = { k: kb, x: B.x, y: B.y, z: B.z, i: -1, kind: 'scaffold', for: ka, cycle: via };
+            this.tasks.set(kb, s); (this.scaffoldFor || (this.scaffoldFor = new Map())).set(kb, ka); ta.waitFor = kb;
+            this.stats.cycles = (this.stats.cycles || 0) + 1;
+            this.log(`support cycle: ${S.bare(this.t.stateOf(cell).name)} at ${ka} goes against a temporary block in ${kb} (${S.bare(this.t.stateOf(via).name)}'s cell), then ${kb} gets its own block`);
+        }
+    }
+
     /** A scaffold's block stands (or it was parked): the scaffold has served. */
     _scaffoldServed(k, why) {
         for (const [sk, fk] of this.scaffoldFor || []) {
             if (fk !== k) continue;
             this.scaffoldFor.delete(sk);
+            // a cycle's scaffold stands in a build cell: that cell's own block is work again now (its place task digs the scaffold out first)
+            { const [x, y, z] = sk.split(',').map(Number); if (this.t.inside(x, y, z) && !this.t.isAir(this.t.idx(x, y, z)) && !this.tasks.has(sk)) { const nt = { k: sk, i: this.t.idx(x, y, z), x, y, z, kind: 'place' }; this.tasks.set(sk, nt); const bk = `${Math.floor(x / 8)},${Math.floor(y / 8)},${Math.floor(z / 8)}`; (this.buckets.get(bk) || this.buckets.set(bk, []).get(bk)).push(nt); this.log(`support cycle: ${sk} gets its own block now (${why})`); } }
             const [x, y, z] = sk.split(',').map(Number), e = this.ledger.get({ x, y, z });
             if (e && !e.released) { e.released = { at: Date.now(), why }; this.ledger.n.released++; }
         }
