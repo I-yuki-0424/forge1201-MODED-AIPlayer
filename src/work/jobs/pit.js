@@ -589,7 +589,9 @@ async function cleanHanging(plan, env) {
     const inBox = (x, y, z) => x >= box.x0 && x <= box.x1 && z >= box.z0 && z <= box.z1 && y <= box.top && y >= box.bottom;
     const cellsNow = () => {
         const map = new Map();
-        if (temps && dim) for (const r of temps.list((q) => q.dim === dim && (q.kind === 'seal' || q.kind === 'rescue' || q.kind === 'lake') && inBox(q.x, q.y, q.z))) map.set(`${r.x},${r.y},${r.z}`, { x: r.x, y: r.y, z: r.z, reg: true });
+        // (and the movement blocks that hang in the box once the layers under them are dug: a pillar block at y -40 of a finished pit was the one pumpkin left, mine_b mb075f w3;
+        // the plain cleanup's `mine` cannot reach it from the floor, and nav's sweep places nothing to get to it)
+        if (temps && dim) for (const r of temps.list((q) => q.dim === dim && ['seal', 'rescue', 'lake', 'pillar', 'bridge', 'scaffold', 'reflex'].includes(q.kind) && inBox(q.x, q.y, q.z))) map.set(`${r.x},${r.y},${r.z}`, { x: r.x, y: r.y, z: r.z, reg: true });
         for (const k of owned) { const [x, y, z] = k.split(',').map(Number); if (inBox(x, y, z)) map.set(k, { x, y, z, reg: false }); }
         return map;
     };
