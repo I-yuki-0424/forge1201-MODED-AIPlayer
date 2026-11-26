@@ -423,7 +423,7 @@ class BuildJob {
         this.pitRounds = (this.pitRounds || 0) + 1;
         const b = this.t.box, box = { x0: b.x, x1: b.x + b.sx - 1, z0: b.z, z1: b.z + b.sz - 1, top, bottom };
         const pit = require('../work/jobs/pit'), { PIT_LEDGER } = require('../work/service/common');
-        const lanes = Math.max(1, this.bots.size || 1), method = process.env.BUILD_PIT_METHOD || 'expert';
+        const lanes = Math.max(1, this.bots.size || 1), method = process.env.BUILD_PIT_METHOD || 'sweep';          // sweep: dug with sight from a station per tile (on the same mine_b box, cmp4: sweep PASS, expert FAIL; b081b: expert stations 'could not stand' 18x)
         const impl = pit.createPitJob(box, PIT_LEDGER, { lanes, method, road: false });
         this.pitPhase = { box, impl, done: false, cells: n, at: Date.now(), method };
         this.log(`clearing by the pit (round ${this.pitRounds}): ${n} cells to dig in ${box.x0}..${box.x1} x ${box.z0}..${box.z1}, y ${bottom}..${top} (${impl.plan.regions.length} regions, method ${method})`);

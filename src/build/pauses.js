@@ -44,7 +44,7 @@ function mark(r, t = now()) {
         const o = Math.min(b, to) - Math.max(a, f);
         if (o > 0) { add(r, `cpu other: ${label}`, o); rest -= o; }
     }
-    if (rest > 0) add(r, r.stack.length ? r.stack[r.stack.length - 1] : 'other: unlabelled', rest);
+    if (rest > 0) add(r, r.sub || (r.stack.length ? r.stack[r.stack.length - 1] : 'other: unlabelled'), rest);
 }
 function add(r, label, ms) { r.parts.set(label, (r.parts.get(label) || 0) + ms); }
 
@@ -114,6 +114,9 @@ function slice(label, t0) {
     if (t1 - t0 > BLOCK_MS) { blocked.push([t0, t1, owner, `${label} (${owner})`]); while (blocked.length > 4000 || (blocked.length && blocked[0][1] < t1 - 120000)) blocked.shift(); }
 }
 
+/** A label set from outside the bot's code path (the work layer's worker says what it does: claim, unit, backoff, idle), until cleared with null. */
+function setSub(label) { const st = als.getStore(), r = st && rec(st.name); if (r) { mark(r); r.sub = label || null; } }
+
 /** The bot's last step failed (why): the pause that follows is a retry. */
 function failed(why) { const st = als.getStore(), r = st && rec(st.name); if (r) r.afterFail = String(why || 'failed').replace(/-?\d+/g, '#').slice(0, 60); }
 
@@ -141,4 +144,4 @@ const S = {
     },
 };
 
-module.exports = { attach, within, sync, slice, failed, run, sleep, now, table: (o) => S.table(o), list: S.list, PAUSE_MS, classOf };
+module.exports = { attach, within, sync, slice, failed, run, sleep, now, setSub, table: (o) => S.table(o), list: S.list, PAUSE_MS, classOf };

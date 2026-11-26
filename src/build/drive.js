@@ -810,8 +810,10 @@ async function clearByPit(job, name, bot, mv, cancel, work) {
     env.within = P.box; bot.__mineBox = P.box;
     bot.__builderOwns = false;                    // the work layer's fall and breath reflexes are the pit's
     let res;
-    try { res = await runWorker(P.impl, name, env, { cancel, pollMs: 1000, ...(work.opts || {}) }); }
-    finally { bot.__mineBox = null; bot.__builderOwns = true; }
+    // the worker's own steps as pause labels: its claim of a unit, the unit (digging and walking are actions), the back-off after a failure, the idle wait for a unit
+    const ACT = { claim: 'cpu: pit claim', unit: 'other: pit unit', backoff: 'retry: pit back-off after a failed unit', recover: 'retry: pit recovery', idle: 'wait: pit, no unit to claim (layer gate, others)', check: 'other: pit layer check', sweep: 'other: pit final sweep', audit: 'cpu: pit audit', janitor: 'other: pit janitor', script: 'retry: pit script (tool, item)' };
+    try { res = await runWorker(P.impl, name, env, { cancel, pollMs: 1000, ...(work.opts || {}), act: (a) => PZ.setSub(a ? ACT[a] || `other: pit ${a}` : null) }); }
+    finally { PZ.setSub(null); bot.__mineBox = null; bot.__builderOwns = true; }
     // the pit's rubble out of the pack (the test worlds put every drop straight into it): the materials need the room
     try { await SUP.dropRubble(bot, keepRubble(job), { minFree: 40 }); } catch (_) { /* a full pack is dealt with before the next work too */ }
     if (res.ended === 'finished' || P.impl.ledger.finished()) job.pitDone(`${name}: ${res.ended}`);
