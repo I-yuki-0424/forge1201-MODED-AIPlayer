@@ -106,7 +106,19 @@ async function cleanTemps(env, o = {}) {
         if (HOLDS_BACK.has(r.kind) && !holdsNothingBack(env.w, r)) { out.kept++; continue; }    // still holds water back
         if (!temps.claim(dim, r, env.bot.username)) continue;
         out.tried++;
-        const m = await env.exec('mine', { x: r.x, y: r.y, z: r.z, collect: false });
+        let m = await env.exec('mine', { x: r.x, y: r.y, z: r.z, collect: false });
+        // o.reach (the pit's end): a block the mine cannot get to from here (in a dug box: high on a column, deep in a shaft or a water pocket) is reached by NAV first, with every move
+        // of a walk (dig, pillar, bridge, the block two below, a block placed under the floor; owner ruling 2026-11-26), then mined, blind within reach (mb075m/n, 1.21.1: 7 pumpkins
+        // left after the end, 'the same unmet precondition' from 57 levels away)
+        if (!m.ok && o.reach && env.nav && env.w.kindAt(r.x, r.y, r.z) === 'solid' && !['died', 'disconnected', 'cancelled', 'protected'].includes(m.reason) && Date.now() - t0 < maxMs - 15000) {
+            out.navTried = (out.navTried || 0) + 1;
+            const g = await env.nav({ x: r.x, y: r.y, z: r.z }, { near: 2, nearY: 2, why: 'end: within reach of a temporary block', deadline: Date.now() + Math.min(120000, maxMs - (Date.now() - t0) - 10000) }).catch(() => null);
+            if (g && ['died', 'disconnected', 'cancelled'].includes(g.reason)) { m = g; } else if (env.w.kindAt(r.x, r.y, r.z) === 'solid') {
+                const h = env.here(), d = Math.hypot(h.x + 0.5 - (r.x + 0.5), h.y + 1.62 - (r.y + 0.5), h.z + 0.5 - (r.z + 0.5));
+                if (!(h.x === r.x && h.z === r.z && h.y === r.y + 1)) m = await env.exec('mine', { x: r.x, y: r.y, z: r.z, collect: false, ...(d <= 4.5 ? { blind: true } : {}) });
+            }
+            if (m.ok || env.w.kindAt(r.x, r.y, r.z) !== 'solid') out.navBroken = (out.navBroken || 0) + 1;
+        }
         if (m.ok || env.w.kindAt(r.x, r.y, r.z) !== 'solid') { temps.remove(dim, r); out.broken++; continue; }
         if (m.reason) { out.fails = out.fails || {}; out.fails[m.reason] = (out.fails[m.reason] || 0) + 1; out.firstFail = out.firstFail || { cell: [r.x, r.y, r.z], reason: m.reason, at: [f.x, f.y, f.z], detail: JSON.stringify(m.detail || {}).slice(0, 240) }; }
         if (['died', 'disconnected', 'cancelled'].includes(m.reason)) break;

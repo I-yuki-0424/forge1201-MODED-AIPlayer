@@ -101,5 +101,23 @@ const botOf = (name, x, z, dim = 'minecraft:overworld') => ({ username: name, ga
         svc.save(); const again = new WorkService({ dataDir: d, factory: () => ({}), restore: false }); return again.restore().then(() => { assert.ok(again.temps.has('overworld', { x: 1, y: 2, z: 3 }), 'kept across a restart'); clearTimeout(svc._saveTimer); fs.rmSync(d, { recursive: true }); });
     });
 
+    await test('the end (reach): a temporary block the mine cannot get to is reached by NAV and then mined blind (mb075m/n: 7 pumpkins left, 57 levels away); without reach it stays (negative control)', async () => {
+        const TM = require('../src/work/bot/temps');
+        const run = async (reach) => {
+            const temps = new TM.Temps(); temps.add({ x: 10, y: 12, z: 1, kind: 'pillar', by: 'P', item: 'pumpkin' });
+            const solid = new Set(['10,12,1']), pos = { x: 10, y: 69, z: -1 }, calls = [];
+            const env = { temps, bot: { username: 'P', game: { dimension: 'overworld' } }, here: () => ({ ...pos }),
+                w: { kindAt: (x, y, z) => (solid.has(`${x},${y},${z}`) ? 'solid' : 'air'), nameAt: (x, y, z) => (solid.has(`${x},${y},${z}`) ? 'pumpkin' : 'air') },
+                nav: async (t) => { calls.push('nav'); pos.x = t.x + 1; pos.y = t.y; pos.z = t.z; return { ok: true }; },
+                exec: async (n, a) => { calls.push(a.blind ? 'blind' : 'mine'); if (Math.abs(pos.y - a.y) > 5) return { ok: false, reason: 'stuck', detail: { why: 'the same unmet precondition' } }; solid.delete(`${a.x},${a.y},${a.z}`); return { ok: true }; } };
+            const out = await TM.cleanTemps(env, { box: { x0: 0, x1: 15, z0: -5, z1: 15, top: 70, bottom: 0 }, ...(reach ? { reach: true } : {}) });
+            return { out, calls, left: solid.size };
+        };
+        const yes = await run(true);
+        assert.deepStrictEqual(yes.calls, ['mine', 'nav', 'blind']); assert.strictEqual(yes.left, 0); assert.strictEqual(yes.out.navBroken, 1);
+        const no = await run(false);
+        assert.deepStrictEqual(no.calls, ['mine']); assert.strictEqual(no.left, 1);
+    });
+
     console.log('ALL OK'); process.exit(0);
 })().catch((e) => { console.error(e); process.exit(1); });
