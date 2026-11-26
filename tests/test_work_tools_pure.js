@@ -115,7 +115,7 @@ const tool = (name, max, used) => ({ name, maxDurability: max, durabilityUsed: u
         assert.strictEqual(janitor.plan([{ name: 'gravel', count: 64 }], 0, janitor.pitPolicy({ depot, storeMin: 10, sites: () => new Sites([{ name: 'tools', x: 8, y: 9, z: 9, tags: ['tools'] }]) }))[0].op, 'toss', 'a tools chest is not a junk chest');
     });
 
-    await test('pit: a tree block high above the ground is left alone (not tried, not a leftover); low tree blocks and ordinary blocks are dug', async () => {
+    await test('pit: a tree block is a cell like any other: high or low, it is dug (aerialTree still tells which are high)', async () => {
         const pit = require('../src/work/jobs/pit');
         const cells = new Map(); const set = (x, y, z, n) => cells.set(`${x},${y},${z}`, n);
         for (let y = -64; y <= 63; y++) set(5, y, 5, 'stone');                          // ground to y 63
@@ -129,9 +129,9 @@ const tool = (name, max, used) => ({ name, maxDurability: max, durabilityUsed: u
         const env = { w, have: () => 9, exec: async (n, a) => { if (n === 'mine') { mined.push(a.y); cells.delete(`${a.x},${a.y},${a.z}`); } return { ok: true }; }, here: () => ({ x: 5, y: 64, z: 5 }), pause: async () => {} };
         let skipped = 0, ok = true;
         for (let u = 0; u < region.layers * region.rows; u++) { const r = await pit.runUnit(plan, region, { unit: u }, env); ok = ok && r.ok; skipped += r.detail.skipped || 0; }
-        // (within the tree pass's LOW of the ground, 3: from 67 up the trunk is the tree pass's, pit.js AERIAL_UP, TASK-20261125-075; it was 6)
-        assert.ok(ok); assert.ok(mined.every((y) => y <= 66), `only blocks within reach were dug: ${mined}`); assert.ok(mined.includes(64) && mined.includes(66)); assert.ok(skipped >= 12, `skipped ${skipped}`);
-        assert.deepStrictEqual(pit.wrongCells(plan, region, 0, w).filter((c) => c.y >= 70), [], 'the audit does not count them');
+        // (since TASK-20261125-075 a tree block is a cell like any other: the unit takes the whole trunk and the leaf, by NAV when its station cannot; nothing is left aside)
+        assert.ok(ok); assert.ok(mined.includes(64) && mined.includes(80) && mined.includes(85), `the whole tree was dug: ${mined}`);
+        assert.deepStrictEqual(pit.wrongCells(plan, region, 0, w), [], 'nothing left');
     });
 
     await test('pit: a station far above the bot with no way up is reached by a pillar, then the corridor is dug from that layer (live stall of 2026-11-07)', async () => {

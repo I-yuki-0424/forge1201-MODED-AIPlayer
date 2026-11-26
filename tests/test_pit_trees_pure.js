@@ -167,48 +167,26 @@ const left = (w, box = BOX) => scan(w, box).length;
         assert.strictEqual(aimPoints(eye, cell, shapes).length, 0, 'negative control: collision shapes only, nothing to aim at');
     });
 
-    await test('a tree block the unit cannot take (no stand cell with a view: a trunk in a canopy) is left to the tree pass, not a failed unit; the layer check does not hold for it; stone that cannot be taken still fails (negative control; bt075h w1)', async () => {
+    await test('a cell the unit cannot take from its station (a trunk in a canopy, its own pumpkin out of reach, a snow layer) goes to NAV, which takes the bot within reach; then it is dug (081 b081d/h/i); without NAV it fails visibly, never left aside (negative control)', async () => {
         const pit = require('../src/work/jobs/pit');
-        const run = async (name) => {
+        const run = async (name, withNav) => {
             const cells = new Map([['3,64,3', name]]);
             const w = { nameAt: (x, y, z) => cells.get(`${x},${y},${z}`) || (y <= 63 ? 'stone' : 'air'), kindAt: (x, y, z) => ((cells.get(`${x},${y},${z}`) || (y <= 63 ? 'stone' : 'air')) === 'air' ? 'air' : 'solid') };
             const job = pit.createPitJob({ x0: 0, z0: 0, x1: 7, z1: 7, top: 64, bottom: 64 }, {}, { method: 'rows', road: false }), region = job.plan.regions[0];
-            const env = { w, have: () => 9, pause: async () => {}, here: () => ({ x: 0, y: 64, z: 0 }), exec: async (n, a) => (n === 'mine' && a.x === 3 && a.z === 3 ? { ok: false, reason: 'stuck', detail: { why: 'the same unmet precondition' } } : { ok: true }) };
+            const pos = { x: 0, y: 64, z: 0 }; let navs = 0;
+            const env = { w, have: () => 9, pause: async () => {}, here: () => ({ ...pos }),
+                exec: async (n, a) => { if (n !== 'mine') return { ok: true }; if (a.x === 3 && a.z === 3 && Math.hypot(pos.x - 3, pos.z - 3) > 2) return { ok: false, reason: 'stuck', detail: { why: 'the same unmet precondition', unmet: [{ need: 'in_reach' }] } }; cells.set(`${a.x},${a.y},${a.z}`, 'air'); return { ok: true }; },
+                ...(withNav ? { nav: async (t, o) => { navs++; pos.x = t.x - 1; pos.z = t.z; return { ok: true }; } } : {}) };
             let ok = true; for (let u = 0; u < region.layers * region.rows; u++) { const r = await job.runUnit(region.id, { unit: u }, env); ok = ok && r.ok; }
             let wrong = 0; for (let u = 0; u < region.layers * region.rows; u++) wrong += pit.wrongCells(job.plan, region, u, w).length;
-            return { ok, wrong };
+            return { ok, wrong, navs };
         };
-        const log = await run('oak_log');
-        assert(log.ok && log.wrong === 0, `a log: units ok, nothing held (${JSON.stringify(log)})`);
-        const rock = await run('stone');
-        assert(!rock.ok && rock.wrong === 1, `negative control: stone fails its unit (${JSON.stringify(rock)})`);
-    });
-
-    await test('a low tree block the plain mine cannot take (a leaf inside the crown, no line of sight) is taken blind from a column beside it, not given up after one try (b081h: a birch stood through three rounds)', async () => {
-        const T = require('../src/work/jobs/pit_trees');
-        const w = world([[5, GROUND + 1, 5, 'birch_log'], [5, GROUND + 2, 5, 'birch_leaves'], [6, GROUND + 2, 5, 'birch_leaves']]);
-        const { env, calls } = fakeEnv(w, { x: 2, y: GROUND + 1, z: 2 });
-        const base = env.exec;
-        env.exec = async (n, a) => (n === 'mine' && !a.blind && /leaves/.test(w.nameAt(a.x, a.y, a.z)) ? (calls.mine++, { ok: false, reason: 'not_visible' }) : base(n, a));          // a leaf: no sight
-        const r = await T.clearTrees(env, { x0: 0, z0: 0, x1: 10, z1: 10, top: GROUND + 6 });
-        assert.strictEqual(r.left, 0, JSON.stringify(r));
-        assert(calls.blind >= 2 && (r.lowAerial || 0) >= 2, `the leaves went blind from a column (${JSON.stringify(calls)}, lowAerial ${r.lowAerial})`);
-    });
-
-    await test('a tree block the tree pass gave up on is not left by a unit again: the unit fails visibly (never between the two); one the pass has not tried is left and the pass runs again', async () => {
-        const pit = require('../src/work/jobs/pit');
-        const run = async (failedByPass) => {
-            const cells = new Map([['3,64,3', 'oak_log']]);
-            const w = { nameAt: (x, y, z) => cells.get(`${x},${y},${z}`) || (y <= 63 ? 'stone' : 'air'), kindAt: (x, y, z) => ((cells.get(`${x},${y},${z}`) || (y <= 63 ? 'stone' : 'air')) === 'air' ? 'air' : 'solid') };
-            const job = pit.createPitJob({ x0: 0, z0: 0, x1: 7, z1: 7, top: 64, bottom: 64 }, {}, { method: 'rows', road: false }), region = job.plan.regions[0];
-            job.plan.trees = new Map([[region.id, { done: true, n: 1 }]]); if (failedByPass) job.plan.treeFailed = new Set(['3,64,3']);
-            const env = { w, have: () => 9, pause: async () => {}, here: () => ({ x: 0, y: 64, z: 0 }), exec: async (n, a) => (n === 'mine' && a.x === 3 && a.z === 3 ? { ok: false, reason: 'stuck', detail: { why: 'no sight' } } : { ok: true }) };
-            let ok = true; for (let u = 0; u < region.layers * region.rows; u++) { const r = await job.runUnit(region.id, { unit: u }, env); ok = ok && r.ok; }
-            return { ok, again: !!job.plan.trees.get(region.id).again };
-        };
-        const fresh = await run(false), given = await run(true);
-        assert(fresh.ok && fresh.again, `not tried by the pass: left to it, and it is due again (${JSON.stringify(fresh)})`);
-        assert(!given.ok && !given.again, `given up by the pass: the unit fails it visibly (${JSON.stringify(given)})`);
+        for (const name of ['spruce_log', 'spruce_leaves', 'pumpkin', 'stone']) {
+            const r = await run(name, true);
+            assert(r.ok && r.wrong === 0 && r.navs === 1, `${name}: taken after one NAV reach (${JSON.stringify(r)})`);
+        }
+        const none = await run('spruce_leaves', false);
+        assert(!none.ok && none.wrong === 1, `negative control: no NAV, the unit fails it visibly and the layer holds (${JSON.stringify(none)})`);
     });
 
     await test('the work layer\'s registry does not forget a fresh entry whose block is not seen yet (a late placement), but does after the late window (negative control); b081h\'s orphan pumpkins', async () => {

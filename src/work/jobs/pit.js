@@ -246,7 +246,7 @@ async function runUnit(plan, region, u, env) {
     // Fill what sealPlan lists. `before`: only fluid that can be seen now (a pocket sealed inside stone cannot be clicked, and it
     // cannot flow until the cell next to it opens: live run p4, a water cell in the wall next to the last stone); after the dig
     // the opened cell is the window onto it, so everything is filled then, the pocket first and the opened cell last.
-    const liftedFor = new Set(), bridgedFor = new Set(), droppedFor = new Set();
+    const liftedFor = new Set(), bridgedFor = new Set(), droppedFor = new Set(), navFor = new Set();
     // A placement the bot cannot reach a face for (unreachable) or that ends in a swim it cannot get out of (stuck): the same walk is not tried again. The server puts the bot on a standable
     // cell beside the fluid cell, once per cell, and the placement is tried from there (a different approach); if that fails too, the failure goes up and the unit is parked.
     const placeAt = async (f, item) => {
@@ -325,7 +325,6 @@ async function runUnit(plan, region, u, env) {
         } finally { floorBusy = false; }
     };
     const handleCell = async (c, last) => {
-        if (isSolid(env.w, c.x, c.y, c.z) && aerialTree(env.w, c)) { r.skipped++; r.aerial = (r.aerial || 0) + 1; return null; }       // out of reach by design, see aerialTree
         // the region's tree pass is running (another bot): its tree blocks are its, the unit leaves them (the layer check sends the unit back if one is still there afterwards)
         if (treeBusy() && isTreeAt(env.w, c)) { r.skipped++; r.treeWait = (r.treeWait || 0) + 1; return null; }
         await lakeFill(c);
@@ -379,15 +378,21 @@ async function runUnit(plan, region, u, env) {
                 if (got) { r.descended = (r.descended || 0) + got; m = await env.exec('mine', mineArgs(c)); }
             }
         }
-        if (!m.ok && m.reason === 'protected') { r.skipped++; r.protected = (r.protected || 0) + 1; leave(c); return null; }       // the owner's chest or a tagged block inside the box: left standing (src/skills/fixtures.js)
-        // a tree block a unit cannot take (a trunk or leaves in a canopy: no stand cell with a view of it, "the same unmet precondition", "enclosed") is not the unit's failure: trees
-        // are the tree pass's (pillar beside, from the ground), at the region's start and the job's end; the unit goes on (bt075h w1, 1.21.1: oak logs at 110-112 parked units
-        // and the layer gate held the crew)
-        if (!m.ok && !open(c) && isTreeAt(env.w, c) && !FATAL_MINE.has(m.reason) && !(plan.treeFailed && plan.treeFailed.has(`${c.x},${c.y},${c.z}`))) {
-            r.skipped++; r.treeLeft = (r.treeLeft || 0) + 1; (plan.treesLeft || (plan.treesLeft = new Set())).add(`${c.x},${c.y},${c.z}`);
-            const tp = plan.trees && plan.trees.get(region.id); if (tp) tp.again = true;          // the region's tree pass runs again for it
-            return null;
+        // Whatever the cell holds (rock, a tree block, a snow layer, a block of the crew's own pillar) and whatever the station could not do: NAV takes the bot within reach of it, by
+        // the moves it has for any walk (walk, dig, pillar, bridge, descend, the block two below), once per cell, and the mine is tried again, blind when the eye is within reach. A cell
+        // the unit could not reach from its station was failed eight times in a row or handed to a tree pass that might not take it either (081's b081d, b081h, b081i: oak canopy,
+        // birch crown, spruce down to the snow; units on pumpkins 6.7-18 out of reach): one root fix instead of a rule per tree shape (TASK-20261125-075)
+        if (!m.ok && !open(c) && !FATAL_MINE.has(m.reason) && m.reason !== 'protected' && env.nav && !navFor.has(`${c.x},${c.y},${c.z}`)) {
+            navFor.add(`${c.x},${c.y},${c.z}`);
+            const g = await env.nav({ x: c.x, y: c.y, z: c.z }, { near: 2, nearY: 2, why: 'pit: within reach of a cell' }).catch((e) => ({ ok: false, reason: 'internal', detail: { error: String(e && e.message || e) } }));
+            if (g && FATAL_MINE.has(g.reason)) return fail(g, c, 'reach');
+            if (!open(c)) {
+                const h = env.here ? env.here() : null, d = h ? Math.hypot(h.x + 0.5 - (c.x + 0.5), h.y + 1.62 - (c.y + 0.5), h.z + 0.5 - (c.z + 0.5)) : Infinity;
+                r.navReach = (r.navReach || 0) + 1;
+                m = await env.exec('mine', d <= 4.6 ? { x: c.x, y: c.y, z: c.z, collect: false, blind: true } : mineArgs(c));
+            }
         }
+        if (!m.ok && m.reason === 'protected') { r.skipped++; r.protected = (r.protected || 0) + 1; leave(c); return null; }       // the owner's chest or a tagged block inside the box: left standing (src/skills/fixtures.js)
         if (!m.ok && !open(c)) return fail(m, c, 'mine');
         r.mined++;
         // Water that was behind the block is now flowing in. Fill its source, then the cell; if the cell was plugged, dig it again.
@@ -424,11 +429,11 @@ async function runUnit(plan, region, u, env) {
     }
     // Nothing to dig here (only open air, unbreakable blocks and tree blocks out of reach): done, and the bot does not walk anywhere. Walking to the station
     // of such a tile sent bots up the canopy of a tree (the planner takes the nearest reachable cell to a station in mid-air: live pit of 2026-11-07).
-    if (cells.every((c) => open(c) || UNBREAKABLE.test(env.w.nameAt(c.x, c.y, c.z) || '') || (isSolid(env.w, c.x, c.y, c.z) && (aerialTree(env.w, c) || (treeBusy() && isTreeAt(env.w, c)))))) {
+    if (cells.every((c) => open(c) || UNBREAKABLE.test(env.w.nameAt(c.x, c.y, c.z) || '') || (isSolid(env.w, c.x, c.y, c.z) && treeBusy() && isTreeAt(env.w, c)))) {
         r.skipped += cells.length; r.idle = true;
         return { ok: true, reason: null, detail: r };
     }
-    if (expert) return require('./pit_expert').runExpert({ plan, region, unit: u.unit, env, r, cells, handle, open, goToStation: (S) => goToStation(S, handle, env, open, r), sweepDrops, UNBREAKABLE, aerialTree: (c) => aerialTree(env.w, c) || (treeBusy() && isTreeAt(env.w, c)), CELL_FAILS, EXPERT_BAND });
+    if (expert) return require('./pit_expert').runExpert({ plan, region, unit: u.unit, env, r, cells, handle, open, goToStation: (S) => goToStation(S, handle, env, open, r), sweepDrops, UNBREAKABLE, aerialTree: (c) => treeBusy() && isTreeAt(env.w, c), CELL_FAILS, EXPERT_BAND });
     if (sweep && cells.station && env.here) {
         const g = await goToStation(cells.station, handle, env, open, r);
         if (g) return g;
@@ -705,8 +710,8 @@ function cellState(plan, region, u, w) {
     for (const c of unitCells(plan, region, u)) {
         const k = w.kindAt(c.x, c.y, c.z);
         if (k === 'unknown') { unknown++; continue; }
-        if ((PASSABLE.has(k) && !(plan.clearPlants && NOT_AIR(w, c))) || UNBREAKABLE.test((w.nameAt && w.nameAt(c.x, c.y, c.z)) || '') || aerialTree(w, c)) continue;
-        if (plan.treesLeft && plan.treesLeft.has(`${c.x},${c.y},${c.z}`) && isTreeAt(w, c) && !(plan.treeFailed && plan.treeFailed.has(`${c.x},${c.y},${c.z}`))) continue;          // a tree block a unit left to the tree pass (runUnit): not the layer's
+        // (a tree block is a cell like any other: the layer is not done while one stands, whoever takes it, the unit or the tree pass)
+        if ((PASSABLE.has(k) && !(plan.clearPlants && NOT_AIR(w, c))) || UNBREAKABLE.test((w.nameAt && w.nameAt(c.x, c.y, c.z)) || '')) continue;
         if (plan.accepted && plan.accepted.has(`${c.x},${c.y},${c.z}`)) continue;                      // left on purpose: a fixture, a block the bot stood on
         wrong.push(c);
     }
