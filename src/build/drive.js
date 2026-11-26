@@ -66,8 +66,9 @@ function rules(job, bot) {
         onPillar: (c) => { (job.columns || (job.columns = new Map())).set(`${c.x},${c.z}`, { by: bot.username, until: Date.now() + 20000 }); },
         // every temporary block registered before its click, confirmed by the server's block update (the ledger, temps.js)
         onTemp: (c, how, item) => { job.addTemp(c, how || 'temp', bot.username, item); const sv = touchesShape((x, y, z) => { const b = bot.blockAt(new Vec3(x, y, z), false); return b && b.name; }, c.x, c.y, c.z); if (sv) { const n = job.ledger.n; n.shapes = n.shapes || {}; n.shapes[sv] = (n.shapes[sv] || 0) + 1; } },
-        // the planner's extra cost of a temporary block that changes a built block's shape (touchesShape)
-        tempCost: (x, y, z, view) => (touchesShape((a, b, c) => { const q = view.raw(a, b, c); return q && q.name; }, x, y, z) ? SHAPE_COST : 0),
+        // a temporary block that changes a built block's shape (touchesShape): never (a cost of 60 left 11-15 such blocks in a progress line of tb2/tb4 on 1.21.1 world 4, each one
+        // a flicker of the wire beside it twice, TASK-077's packet count); beside a cell where the blueprint still wants a wire or a pane: the cost (it may be gone before that is built)
+        tempCost: (x, y, z, view) => (touchesShape((a, b, c) => { const q = view.raw(a, b, c); return q && q.name; }, x, y, z) ? Infinity : touchesShape(planned(job), x, y, z) ? SHAPE_COST : 0),
         onUntemp: (c) => { job.dropTemp(c); job.stats.untemp++; },
         onTempFail: (c, why) => { job.ledger.fail(c, why); },
     };
@@ -79,6 +80,8 @@ function rules(job, bot) {
  * temporary blocks going in and out beside them, TASK-077 flicker-fl1/fl2.)
  */
 const CONNECTS = /(_pane|^iron_bars|_bars|_wall|_fence)$/;
+/** The blueprint's block in a cell of the box (bare name), for touchesShape: the shapes still to be built. */
+const planned = (job) => (x, y, z) => { if (!job.t.inside(x, y, z)) return null; const w = job.t.wantOf({ x, y, z }); return w ? S.bare(w.name) : null; };
 const SHAPE_COST = 60;
 function touchesShape(nameAt, x, y, z) {
     if (nameAt(x, y - 1, z) === 'redstone_wire') return 'wire';
@@ -289,6 +292,8 @@ async function work(job, name, bot, mv, cl, cancel) {
             // 2026-11-23); that block is placed from another stance
             if (shutsIn(bot, tk) || crewAt(job, bot).some((q) => shutsInAt(bot, { x: Math.floor(q.x), y: Math.floor(q.y + 0.16), z: Math.floor(q.z) }, tk))) { results.push({ tk, ok: false, why: 'skipped' }); continue; }          // (any crew member: bots were boxed in by the others' blocks, ha26 w4)
             const tp = Date.now(); await click(mv, way); job.time.place += Date.now() - tp;
+            // a wire or a pane built beside a temporary block that stands: that block's removal will change its shape (counted, temps.shapesLate; the cause table's "beside a wire")
+            { const wn = S.bare((job.t.wantOf(tk) || {}).name || ''); if (wn === 'redstone_wire' || CONNECTS.test(wn)) { const at = (x, y, z) => { if (x === tk.x && y === tk.y && z === tk.z) return wn; const b = bot.blockAt(new Vec3(x, y, z), false); return b && b.name; }; for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) { const e = job.ledger.get({ x: tk.x + dx, y: tk.y + dy, z: tk.z + dz }); if (e && e.state === 'placed' && touchesShape(at, e.x, e.y, e.z)) { const n = job.ledger.n; n.shapesLate = n.shapesLate || {}; const kk = wn === 'redstone_wire' ? 'wire' : 'pane'; n.shapesLate[kk] = (n.shapesLate[kk] || 0) + 1; } } } }
             // clicks after the placement (note, delay, mode, open), counted from what the cell holds now
             await sleep(120);
             const now = seen(bot, tk), fx = now ? clicksFor(job.t.wantOf(tk), now) : null;
@@ -972,4 +977,4 @@ async function drive(job, name, bot, { cancel = { cancelled: false }, supplySite
     } finally { bot.removeListener('death', onDeath); bot.removeListener('death', onDied); bot.removeListener('blockUpdate', onBlock); job.orphanOf(name, 'left the crew'); clearInterval(sampler); bot.removeListener('spawnReset', onReset); bot.__builderOwns = false; job.leave(name); if (job.pool) job.pool.leave(name); for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sneak', 'sprint']) bot.setControlState(k, false); }
 }
 
-module.exports = { drive, work, holds, rules, pour, escape, needsFor, boxSpot, bench, release, unscaffold, touchesShape };
+module.exports = { drive, work, holds, rules, pour, escape, needsFor, boxSpot, bench, release, unscaffold, touchesShape, planned };

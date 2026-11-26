@@ -262,7 +262,7 @@ function tempReport(bot, target, M, size, build, scan0) {
 function tempsLine(build) {
     if (!build || !build.ledger) return '{}';
     const s = build.ledger.status({ reset: true });
-    return JSON.stringify({ inPlace: s.inPlace, pending: s.pending, due: s.due, kept: s.kept, loose: s.loose, looseEver: s.looseEver, looseOver2s: s.looseOver2s, looseHow: s.looseHow, peak: s.peak, peakEver: s.peakEver, over2: s.over2, placed: s.n.placed, removed: s.n.removed, never: s.n.never, orphaned: s.n.orphaned, shapes: s.n.shapes || {}, failed: s.n.failed, byHow: s.byHow });
+    return JSON.stringify({ inPlace: s.inPlace, pending: s.pending, due: s.due, kept: s.kept, loose: s.loose, looseEver: s.looseEver, looseOver2s: s.looseOver2s, looseHow: s.looseHow, peak: s.peak, peakEver: s.peakEver, over2: s.over2, placed: s.n.placed, removed: s.n.removed, never: s.n.never, orphaned: s.n.orphaned, shapes: s.n.shapes || {}, shapesLate: s.n.shapesLate || {}, failed: s.n.failed, byHow: s.byHow });
 }
 
 /**

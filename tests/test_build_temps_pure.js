@@ -269,6 +269,13 @@ test('a temporary block beside a pane or over/beside redstone wire is known as o
     const without = await way({ canDig: () => false }), withCost = await way({ canDig: () => false, tempCost: cost });
     assert(without.includes('0,69,1'), `negative control: without the cost the bridge goes beside the pane (${without})`);
     assert(withCost.length && !withCost.includes('0,69,1'), `with it the bridge goes a cell away (${withCost})`);
+    // built shapes are a ban (drive.js rules.tempCost: Infinity), not a cost: the planner never puts a temporary block there, even where it is the only way
+    const ban = (x, y, z, v) => (D.touchesShape((a, b, c) => { const q = v.raw(a, b, c); return q && q.name; }, x, y, z) ? Infinity : 0);
+    const banned = await way({ canDig: () => false, tempCost: ban });
+    assert(banned.length && !banned.includes('0,69,1'), `banned: around (${banned})`);
+    for (let z = -4; z <= 4; z++) if (z !== 1) g.set(`0,68,${z}`, { name: 'glass_pane', empty: true });          // panes in every other gap cell: the straight bridge is the only way
+    const only = await M.plan(new M.View(fakeBot(g), { canDig: () => false, tempCost: ban }), { x: -1, y: 70, z: 1 }, (x, y, z) => x === 1 && y === 70 && z === 1, { x: 1, y: 70, z: 1 }, { temps: 64, maxNodes: 3000 });
+    assert(!only || !only.some((q) => q.place && q.place.x === 0 && q.place.y === 69 && q.place.z === 1), 'no route through the cell beside the pane, whatever it costs');
 });
 
 test('a stance on a bridge block off its own pillar: the way back is that pillar (the bridge block dug from it, then the pillar as the bot comes down); not a loose block meanwhile', async () => {

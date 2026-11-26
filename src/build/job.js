@@ -344,6 +344,8 @@ class BuildJob {
             if (this.parked.has(k)) continue;
             if (this.tasks.has(k)) { if (this.tasks.get(k).kind === 'scaffold') return false; continue; }
             if (this.t.inside(c.x, c.y, c.z) && !this.t.isAir(this.t.idx(c.x, c.y, c.z))) continue;
+            // never beside a wire or a pane of the blueprint (built or to be built): its shape would change as the scaffold goes in and out (owner list 5 Small 2, TASK-077)
+            if (require('./drive').touchesShape(require('./drive').planned(this), c.x, c.y, c.z)) continue;
             const s = { k, x: c.x, y: c.y, z: c.z, i: -1, kind: 'scaffold', for: tk.k };
             this.tasks.set(k, s); (this.scaffoldFor || (this.scaffoldFor = new Map())).set(k, tk.k);          // its lifetime: until that block stands (or is parked)
             const bk = `${Math.floor(c.x / 8)},${Math.floor(c.y / 8)},${Math.floor(c.z / 8)}`; (this.buckets.get(bk) || this.buckets.set(bk, []).get(bk)).push(s);
