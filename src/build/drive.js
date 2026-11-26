@@ -731,6 +731,18 @@ async function supplyTrip(job, name, bot, mv, need, cancel) {
         const sn = job.sectorNeeds && !(job.pitPhase && !job.pitPhase.done) ? job.sectorNeeds(name) : {}, all = { ...sn };
         for (const [k, n] of Object.entries(need)) all[k] = Math.max(all[k] || 0, n);
         const wants = needsFor(job, bot, all);
+        // a pack still full of the build's own blocks (none of them rubble to drop) takes nothing from the chest: what it carries that this trip does not ask for goes into the
+        // chest first, for the bots whose cells need it (b081p: Bd4f came back with nothing 12 times in 40 min, its pack full)
+        if (SUP.freeSlots(bot) < 6) {
+            const names = [...new Set(bot.inventory.items().map((i) => i.name))].filter((n) => job.t.items.has(n) && !(n in wants) && !SUP.TOOL.test(n) && !SUP.SHULKER.test(n) && !tempKinds().includes(n));
+            const locks = job.boxLocks || (job.boxLocks = new Map()), lk = `${site.x},${site.y},${site.z}`, h = locks.get(lk);
+            if (names.length && !(h && h.by !== name && h.until > Date.now())) {
+                locks.set(lk, { by: name, until: Date.now() + 30000 });
+                try { const out = await SUP.deposit(bot, site, names); job.stats.packDeposits = (job.stats.packDeposits || 0) + 1; job.log(`${name}: pack full (${SUP.freeSlots(bot)} free after): put ${JSON.stringify(out).slice(0, 160)} into the chest first`); }
+                catch (e) { job.log(`${name}: pack full, deposit failed: ${e.message}`); }
+                finally { if ((locks.get(lk) || {}).by === name) locks.delete(lk); }
+            } else if (Date.now() - (job.fullLog || 0) > 60000) { job.fullLog = Date.now(); job.log(`${name}: pack full (${SUP.freeSlots(bot)} free), nothing it may put back: ${JSON.stringify(SUP.carried(bot)).slice(0, 200)}`); }
+        }
         job.depot = job.depot || [];
         const res = await SUP.fetch(bot, site, wants, mv, spot, { log: job.log, depot: job.depot, locks: job.boxLocks || (job.boxLocks = new Map()), me: name, cancel });
         job.stats.trips++;
