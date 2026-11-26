@@ -43,7 +43,9 @@ const SEAL_ITEMS = ['cobblestone', 'cobbled_deepslate', 'dirt', 'netherrack', 's
 // (the job's result, contract TASK-20261125-075 point 5). So the dug rubble first, as a player fills with what it digs; the operator's temporary block (pumpkins on the test worlds)
 // only when there is none. Pumpkins first (c288de5e) spent the whole kit of 128 on water in all three 1.21.1 mine_b worlds (lake 446 / 129 / 942 fluid cells in the box) and left
 // nothing to climb with ("no low-value block to stack", w3): 128 pumpkins standing in each box at the time limit, mine_b-w121-a.
-const sealItem = (env, n = 1) => SEAL_ITEMS.find((x) => env.have(x) - (env.reserved ? env.reserved(x) : 0) >= n) || require('../bot/tempblocks').only().find((x) => env.have(x) - (env.reserved ? env.reserved(x) : 0) >= n) || (env.tempItem ? env.tempItem(n) : null);
+// (on the test worlds, where the operator's block is the only temporary block, never that block: a fill is ground, not a temporary block; out of rubble, the caller digs some,
+// `harvest`. With pumpkins as the fallback, 44 of them stood as lake fill at the end of mb075e once 798 fills had used up the rubble)
+const sealItem = (env, n = 1) => SEAL_ITEMS.find((x) => env.have(x) - (env.reserved ? env.reserved(x) : 0) >= n) || (require('../bot/tempblocks').only().length ? null : (env.tempItem ? env.tempItem(n) : null));
 
 /**
  * Box {x0, z0, x1, z1, top, bottom} (inclusive columns; `top` = y of the first block layer to dig, `bottom` = y of the last).

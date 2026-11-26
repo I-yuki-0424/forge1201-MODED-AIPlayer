@@ -278,7 +278,7 @@ test('pit: fluid fills use the dug rubble first, the operator\'s temporary block
     assert.strictEqual(pit.sealItem(env), 'cobblestone', 'rubble first (pumpkins first spent the 128 of mine_b-w121-a on water)');
     have.cobblestone = 0; have.dirt = 0;
     const o = require('../src/work/bot/tempblocks').only();
-    assert.strictEqual(pit.sealItem(env), o.length ? o[0] : (pit.SEAL_ITEMS.find((x) => env.have(x)) || null), 'without rubble: the operator\'s block (test worlds) or nothing');
+    assert.strictEqual(pit.sealItem(env), null, 'without rubble: nothing (the caller digs rubble; never the operator\'s temporary block for ground)');
     const j = pit.createPitJob({ x0: 0, z0: 0, x1: 15, z1: 15, top: 70, bottom: 60 });
     assert(!j.ledger.finished() && j.ledger.claim('a', { x: 0, y: 70, z: 0 }, Date.now(), { batch: 1 }), 'a running pit');
     j.wrapUp();
