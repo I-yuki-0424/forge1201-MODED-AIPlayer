@@ -234,7 +234,7 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
         const c = open.pop();
         // the cell closest to the estimate's point (for the log: where a failed search got stuck)
         { const d = Math.abs(c.x - h.x) + Math.abs(c.y - h.y) * 1.5 + Math.abs(c.z - h.z); if (!closest || d < closest.d) closest = { x: c.x, y: c.y, z: c.z, d, t: c.t, g: Math.round(c.g) }; }
-        if (goal(c.x, c.y, c.z)) { const out = []; for (let q = c; q; q = q.p) out.push({ x: q.x, y: q.y, z: q.z, move: q.move, dig: q.dig || null, place: q.place || null, off: !!q.off }); return out.reverse(); }
+        if (goal(c.x, c.y, c.z)) { const out = []; for (let q = c; q; q = q.p) out.push({ x: q.x, y: q.y, z: q.z, move: q.move, dig: q.dig || null, place: q.place || null, off: !!q.off, tempOnly: !!q.tempOnly }); return out.reverse(); }
         if ((best.get(bkey(c.x, c.y, c.z, c.off)) ?? Infinity) < c.g) continue;
         if (c.off) continue;          // the stance beside a tall column's top: the route ends here or not at all
         const add = (x, y, z, cost, move, extra = {}) => {
@@ -251,7 +251,10 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
             // live 2026-11-23 gb5 w4; walked upright, seven bots fell off such bridges, gb1 w5)
             if (move === 'bridge' && view.deadly(x, y - 1, z)) extraCost += COST.bridge;
             // a block placed where the blueprint has a plain full block is the build itself, not a temporary block (rules.buildBlock): it costs no temporary block
-            const own = !!extra.place && !!view.rules.buildBlock && !!view.rules.buildBlock(extra.place.x, extra.place.y, extra.place.z);
+            // (but never on top of a column of temporary blocks: the build's block over them is not dug as the bot comes down, so the column under it is stranded, and the route
+            // walked or dropped off it as off the ground: a column of 5 under a blueprint block was left by a drop, bt075a w2; the pillar goes on with temporary blocks)
+            const tempOnly = move === 'pillar' && c.col > 0;
+            const own = !tempOnly && !!extra.place && !!view.rules.buildBlock && !!view.rules.buildBlock(extra.place.x, extra.place.y, extra.place.z);
             // a temporary block that a pane, bars, wall or fence would connect to, or that changes a redstone wire's shape, costs more: the build flickers with every one placed
             // and taken away (owner list 5 Small 2, measured by TASK-077: 14 pane changes in 30 s beside cobblestone temps); used where no other way is (temps.js counts them)
             if (extra.place && !own && view.rules.tempCost) { const tc = view.rules.tempCost(extra.place.x, extra.place.y, extra.place.z, view); if (!Number.isFinite(tc)) return; extraCost += tc; }
@@ -270,7 +273,7 @@ async function plan(view, start, goal, h, { maxNodes = 40000, temps = 0, box = n
             const g = c.g + cost + extraCost, k = bkey(x, y, z, off);
             if (g >= (best.get(k) ?? Infinity)) return;
             best.set(k, g); if (placed) placed.set(k, t);
-            open.push({ x, y, z, g, f: g + hh(x, y, z), t, p: c, move, col, off, ...extra });
+            open.push({ x, y, z, g, f: g + hh(x, y, z), t, p: c, move, col, off, ...(tempOnly ? { tempOnly } : {}), ...extra });
         };
         const headFree = view.free(c.x, c.y + 2, c.z);
         // swimming: from a cell in water (or into water, or out of it onto something to stand on) in the six directions
@@ -641,7 +644,7 @@ class Mover {
 
     /** Pillar: jump and put the temporary block into the cell the feet leave. */
     async pillar(c) {
-        const b = this.bot, below = { x: c.x, y: c.y - 1, z: c.z }, own = this.rules.buildBlock ? this.rules.buildBlock(below.x, below.y, below.z) : null, item = own || this.rules.temp();
+        const b = this.bot, below = { x: c.x, y: c.y - 1, z: c.z }, own = !c.tempOnly && this.rules.buildBlock ? this.rules.buildBlock(below.x, below.y, below.z) : null, item = own || this.rules.temp();
         if (!item || !(await this.hold(item))) return false;
         const p = b.entity.position;
         if (Math.hypot(below.x + 0.5 - p.x, below.z + 0.5 - p.z) > 0.2) await this.walkTo(below, { sneak: true, timeout: 1500 });          // from the cell's centre, or the block lands in the body

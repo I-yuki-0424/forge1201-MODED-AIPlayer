@@ -323,6 +323,12 @@ test('a route leaves a column of its own taller than four only by its last step,
     // a stance-only cell is a stance for the flood (folded under its plain key), never a cell planned on from
     const out = {}; await M.plan(new M.View(fakeBot(world(6)), { canDig: () => false }), { x: 0, y: 70, z: 0 }, () => false, { x: 0, y: 70, z: 0 }, { temps: 64, flood: true, maxNodes: 20000, out });
     assert(out.best.has('3,76,0') && ![...out.best.keys()].some((k) => k.endsWith('|o')), 'edge offered, no stance-only keys leak');
+    // a blueprint block wanted in a pillar cell over temporary blocks: the pillar goes on with temporary blocks (the build's block on top stranded the column under it, bt075a w2)
+    const bb = await M.plan(new M.View(fakeBot(world(6)), { canDig: () => false, buildBlock: (x, y) => (y >= 72 ? 'stone' : null) }), { x: 0, y: 70, z: 0 }, (x, y, z) => x === 3 && y === 76 && z === 0, { x: 3, y: 76, z: 0 }, { temps: 64, maxNodes: 20000 });
+    const pil = (bb || []).filter((q) => q.move === 'pillar');
+    const onTemps = pil.filter((q) => q.x === 0 && q.y >= 73);
+    assert(onTemps.length >= 2 && onTemps.every((q) => q.tempOnly), `the pillar steps over its own temporary blocks place temporary blocks, not the build's (${pil.map((q) => `${q.x},${q.y}${q.tempOnly ? 't' : ''}`)})`);
+    assert(left(bb).every((c) => c.height <= 4 || c.last), 'and the route leaves no tall column standing');
     assert.strictEqual(M.leaveColumn(6, 'walk', true, true), 'last'); assert.strictEqual(M.leaveColumn(4, 'bridge', true, true), 'go'); assert.strictEqual(M.leaveColumn(3, 'drop', true, false), null); assert.strictEqual(M.leaveColumn(0, 'drop', true, false), 'go'); assert.strictEqual(M.leaveColumn(2, 'walk', false, true), null);
 });
 
