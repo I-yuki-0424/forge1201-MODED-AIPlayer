@@ -189,10 +189,15 @@ async function main() {
             // the time is over before the build: the crew takes its temporary blocks away first (WRAP_MIN, default 10; owner list 5 Large 1: a clean site at the end of every run)
             if (state === 'timeout' && Number(process.env.WRAP_MIN ?? 10) > 0) {
                 const B = job.impl.build, tw = Date.now(); B.wrapUp();
-                while (Date.now() - tw < Number(process.env.WRAP_MIN ?? 10) * 60000 && job.state !== 'finished' && B.ledger.list((e) => !e.keep).length) {
+                // (until the ledger has stayed empty for 10 s: a bot that pillared toward a last block after the count first touched 0 left that pillar, bt075c w2; then the crew is
+                // paused, so that nobody lays a block while the judge and the scan run)
+                let quiet = 0;
+                while (Date.now() - tw < Number(process.env.WRAP_MIN ?? 10) * 60000 && job.state !== 'finished' && quiet < 5) {
+                    quiet = B.ledger.list((e) => !e.keep).length ? 0 : quiet + 1;
                     if ((Date.now() - tw) % 60000 < 2100) console.log(`[wrap ${Math.round((Date.now() - tw) / 60000)} min] temps ${tempsLine(B)} work ${JSON.stringify(B.status().work)}`);
                     await sleep(2000);
                 }
+                if (job.state === 'running' && svc.pauseJob) { try { svc.pauseJob(job.id); await sleep(3000); } catch (_) { /* informational */ } }
                 console.log(`[wrap] ${Math.round((Date.now() - tw) / 1000)} s: ${B.ledger.list((e) => !e.keep).length} temporary blocks left in the ledger, job ${job.state}`);
             }
         } catch (e) { err = e.message; state = 'error'; console.error(e); }
