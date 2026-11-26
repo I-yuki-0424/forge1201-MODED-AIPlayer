@@ -528,3 +528,20 @@ Temporary blocks put down in 30 minutes: 2 370 / 3 295 / 1 726 against 623 / 1 4
 | wrap-up: trips for tools and walks to the bench laid new blocks; released blocks in the air were only taken on foot (c) | bt075a w3: 262 put down in the first three minutes of wrap-up; smoke: 13-17 "released, not tried yet" | no trips while wrapping; the bot's own released block, and every block while wrapping, may be taken from a stance that needs blocks (safe now: the route leaves no column standing) |
 | a temporary block beside a built wire or pane: each one flips the wire twice (TASK-077's packet count; the cost of 60 still left 11-15 a progress line) | tb2/tb4 w4, bt075a w1/w2 `temps.shapes.wire` 15 / 11 | a ban in the planner beside built wires and panes; the cost beside cells where the blueprint still wants one; scaffolds never beside a planned wire or pane; a wire built beside a standing temporary block counted (`temps.shapesLate`) |
 | mine_b: the pit's fluid fills (seals, lake fill, water rescue: box cells and the ring) were pumpkins only on the test worlds and spent the whole kit of 128 on water, then the bot had nothing to climb with (b/d: 128 left in each box) | mine_b-w121-a w1-w3 | fills use the dug rubble first (they are ground dug with their layer, or the ring that keeps the lake out: the contract's point 5); pumpkins stay for pillars and the like |
+
+**Measured (build_t, iron-farm-34, 8 bots, 30 min + wrap-up up to 10, `JUDGE=0`, Fabric 1.21.1 worlds 1-3, a new random seed per world and run, speed x1.0).**
+
+| Run (code) | Left at the end, server scan (w1 / w2 / w3) | Cause of what was left | Bot-seconds over two (w1 / w2 / w3) | Blueprint blocks placed at 29 min | Temporary blocks beside a built wire |
+| :-- | :-- | :-- | :-- | :-- | :-- |
+| `build_t-w121-smoke` (8a3713e9) | 24 / 32 / 36 | a 18, b 1, c 73 | 7 480 / 12 877 / 14 360 | 623 / 1 436 / 39 | up to 15 a line (tb2/tb4) |
+| `bt075a` (leaveColumn, pit fills) | 47 / 24 / 17 | a 2, b 1, c 85 | 10 250 / 6 246 / 3 842 | 1 633 / 1 064 / 316 | 15 / 11 / 0 |
+| `bt075c` (f91f7fc0: + goto walks back, release, tempOnly, place/no-trip rules) | **1 / 2 / 3** | a 4 (3 rolled-back digs, 1 no entry), b 1 (a pillar laid after the count touched 0), c 1 (wrap time out) | 1 001 / 2 369 / 1 615 | 594 / 1 183 / 584 | 0 (4 wires built beside standing blocks: now skipped) |
+
+The seeds differ from run to run (the T26 standard), so the rows compare the same harness on different terrain. Over two as a share of bot time (8 bots, about 40 minutes): 39-75 % in the
+smoke runs, 5-12 % in bt075c. What is left over two in bt075c: columns of four or less in the seconds while the landing takes them back (6-56 %), columns of more than four still
+standing beside a stance that is not their top (9-78 %, the cases fixed after f91f7fc0), and in w3 the water fills and seals of the build (52 %) and scaffolds (29 %).
+
+**Pace against hc1** (26.1.2, eight Overworld crews, the same blueprint, minute 30): 424 / 1 140 / 1 324 / 1 355 / 1 506 / 1 826 / 2 614 / 2 795 blueprint blocks (median about
+1 430). bt075c at minute 29: 594 / 1 183 / 584, bt075a 1 633 / 1 064 / 316; the smoke runs before the change 623 / 1 436 / 39. The spread comes from the terrain (bt075a w3 and the
+smoke w3 were jungles: 22 000-36 000 cells to clear before the first block); on equal minutes the new rules are within hc1's range but not above its median, and the version and
+worlds differ, so "not worse than hc1" is not shown on equal terms.
