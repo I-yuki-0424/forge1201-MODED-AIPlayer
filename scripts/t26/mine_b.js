@@ -64,6 +64,9 @@ const LIMIT_MIN = Number(process.env.LIMIT_MIN || 240), DEPTH = Number(process.e
       for (const [j, it] of [...spare, ...spare].entries()) await S.must(`item replace block ${cx} ${cy} ${cz} container.${j} with ${it}`);
       await S.must(`item replace block ${cx} ${cy} ${cz} container.20 with minecraft:cooked_beef 32`);
       svc.addSite({ name: 'tools', x: cx, y: cy, z: cz, purpose: 'tools' });
+      // the respawn point beside the chest (what a bed at a player's base does): the box is at the world spawn, so a bot that died woke on the floor of its own dug pit with an
+      // empty pack, 83 levels under the chest, and could not climb out (mb075r w1, 1.21.1)
+      await S.must(`spawnpoint ${name} ${Math.floor(p.x)} ${Math.floor(p.y)} ${Math.floor(p.z)}`);
       console.log(`[mine_b w${T.WORLD}] tools chest at ${cx} ${cy} ${cz}: ${spare.length * 2} tools`); }
     await T.sleep(2000);
     await T.say(S, `mine_b: ${name} strip-mines ${JSON.stringify(box)} (${W * W * (top - bottom + 1)} cells)`);
