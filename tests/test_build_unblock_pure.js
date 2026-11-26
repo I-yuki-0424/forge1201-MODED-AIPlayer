@@ -68,7 +68,9 @@ async function closed(top, items, totals = {}) {
 
 test('unblock: a smooth stone over the closed cell is dug out (a pickaxe gives it back) and goes back after the cell', async () => {
     const { job, bot, seed, cands, sees } = await closed('smooth_stone', [item('diamond_pickaxe')]);
-    assert.strictEqual(sees, false, 'closed in: no click');
+    // (since the under-the-feet placement, owner ruling 2026-11-26, the closed cell has a click from on top of the block over it: no dig-out is needed there; the dig-out
+    // itself, for a cell no stance reaches, is still what this test checks)
+    assert.strictEqual(sees, true, 'a click from on top, under the feet');
     assert.ok(job._unblock(bot, 'b1', seed, cands));
     const d = job.tasks.get('1,66,1');
     assert.strictEqual(d.kind, 'clear'); assert.strictEqual(d.after, 'place'); assert.strictEqual(d.waitFor, '1,65,1'); assert.ok(d.digBy.has('b1'));

@@ -290,7 +290,7 @@ class BuildJob {
             const rests = N6.some(([ex, ey, ez]) => { const n = { x: c.x + ex, y: c.y + ey, z: c.z + ez, i: this.t.inside(c.x + ex, c.y + ey, c.z + ez) ? this.t.idx(c.x + ex, c.y + ey, c.z + ez) : -1 }; if (n.i < 0) return false; const hn = seen(bot, n); if (hn && hn.name === 'observer') return true; const r = this.t.recipeOf(n); return !!r && (r.deps || []).some((d) => n.x + d[0] === c.x && n.y + d[1] === c.y && n.z + d[2] === c.z) && hn && !S.AIR.has(hn.name); });
             if (rests) { why.push(`${S.bare(h.name)}: holds or is watched`); continue; }
             // does it open a click?
-            const opens = cands.slice(0, 8).some((cd) => { const w = this._world(bot, cd.standing ? null : cd.f, cd.dug ? cd.f : null); w.over.set(k, P.AIR); return !!this._way(w, seed, cd.f); });
+            const opens = cands.slice(0, 8).some((cd) => { const w = this._world(bot, cd.standing ? null : cd.f, cd.dug ? cd.f : null); w.over.set(k, P.AIR); return !!this._way(w, seed, cd.f, { noUnder: true }); });          // (a click that the removal opens: not the under-the-feet one, which needs no removal)
             if (!opens) { why.push(`${S.bare(h.name)}: opens no click`); continue; }
             const item = (this.t.recipeOf({ ...c, i }) || {}).item;
             if (!item) continue;
@@ -971,7 +971,7 @@ class BuildJob {
     }
 
     /** How a task is done from stance f: a click (place.ways) for blocks, a face in sight for digging, or true for work that brings its own aim. Null: not from here. */
-    _way(world, tk, f) {
+    _way(world, tk, f, { noUnder = false } = {}) {
         const k = tk.kind;
         if (k === 'clear' || k === 'untemp') { const c = P.clickable(world, tk, f); return c || null; }
         if (k === 'fix') { const c = P.clickable(world, tk, f); return c ? { click: c } : null; }
@@ -984,7 +984,7 @@ class BuildJob {
                 // a two-cell block (a bed's head, a door's upper half): its other cell empty at the click, in this stance's world too (its pillar block is not in it)
                 if (r.room && r.room.some((d) => { const b = world.block(tk.x + d[0], tk.y + d[1], tk.z + d[2]); return !b || !(S.AIR.has(S.bare(b.name)) || SV.REPLACEABLE.test(S.bare(b.name))); })) return null;
             }
-            const w = P.ways(world, tk, want, item, [f], { max: 1 })[0];
+            const w = P.ways(world, tk, want, item, [f], { max: 1, noUnder })[0];
             if (w) return w;
             // beside the top of the block it stands on (a cell in the air): leaning over the edge toward it
             const dx = tk.x - f.x, dz = tk.z - f.z;

@@ -81,7 +81,7 @@ function sturdy(b, towards) {
 // exact looks for flexible placement: the four cardinals level, and each tilted to almost straight down and up (a pure vertical has no horizontal facing)
 const EXACT = (() => { const out = []; for (const [x, z] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) { out.push([x, 0, z]); out.push([x * 0.02, -1, z * 0.02]); out.push([x * 0.02, 1, z * 0.02]); } return out; })();
 
-function ways(world, T, want, item, stations, { max = 1, reach = REACH, sneakAlways = false } = {}) {
+function ways(world, T, want, item, stations, { max = 1, reach = REACH, sneakAlways = false, noUnder = false } = {}) {
     const out = [], wantD = S.decidedProps(want.name, want.props);
     const at = (dx, dy, dz) => world.block(T.x + dx, T.y + dy, T.z + dz);
     const solid = (dx, dy, dz) => { const towards = Object.keys(V.VEC).find((k) => V.VEC[k][0] === -dx && V.VEC[k][1] === -dy && V.VEC[k][2] === -dz); return sturdy(at(dx, dy, dz), towards); };
@@ -102,7 +102,7 @@ function ways(world, T, want, item, stations, { max = 1, reach = REACH, sneakAlw
             // and the block goes into the cell below it; the server checks reach, not sight (scripts/t26/sink_probe.js). A trapdoor's top half (a click on a bottom face) facing
             // away from the look, a block under a floor the build closed from above: the 64 floating trapdoors of iron-farm-34 had no other stance (b081k: 48 scaffolds and 3
             // trapdoors parked 'no stance reaches it' under the slab layer built over them)
-            if (F === 'down' && s.x === T.x && s.z === T.z && s.y === T.y + 2 && !s.lean) {
+            if (!noUnder && F === 'down' && s.x === T.x && s.z === T.z && s.y === T.y + 2 && !s.lean) {
                 const p = [N[0] + 0.5, N[1] + 1e-4, N[2] + 0.5];
                 for (const lk of EXACT.filter((l) => l[1] < 0)) {
                     const got = V.predict(item, { face: F, hitY: p[1] - T.y, look: lk, sneak: sneak0, at, solid });
