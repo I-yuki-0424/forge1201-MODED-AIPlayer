@@ -104,6 +104,8 @@ All three are tailnet-only (the ports are bound to `100.77.246.23`; the consoles
 Kit for every test: full tool set (diamond pickaxe, axe, shovel, sword, hoe, shears), 64 temporary blocks (pumpkins since 2026-11-25, cobblestone before; `TEMP_BLOCK`), 32 steak; keep_inventory false. A death fails the trial;
 a server move (teleport) fails it. The scale (owner): 80 % or below = complete failure, 90 % = WIP, 100 % = success.
 
+**Game speed (2026-11-26, docs/implemented/SPEED-v1.md):** each test runs at its measured factor of the profile's `speed` (`/tick rate`, set by `up.sh`; `SPEED=1` for a run at the normal rate); time limits count game minutes.
+
 **Difficulty (owner 2026-11-16):** the movement tests (`move_a`, `move_b`) run on **Normal**, every other test (`mine_a`, `mine_b`, `place_a`, `place_b`) on **Peaceful**. A hostile mob was a failure cause that cannot be told
 apart from a fault of the system (mine_a: 18 deaths in one run, place_b: night deaths and timeouts); on Peaceful a failed trial is the system's. `lib.js open(names, settings, difficulty)` sets it, `DIFFICULTY=easy|normal|hard|peaceful` overrides for one
 run, the report carries `difficulty`. Results of runs before this rule were all measured on Normal.
