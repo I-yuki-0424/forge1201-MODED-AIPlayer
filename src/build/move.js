@@ -212,7 +212,7 @@ function lavaCache(bot) {
  */
 function plan(view, start, goal, h, o = {}) { return PZ.within('cpu: plan', () => plan0(view, start, goal, h, o)); }
 async function plan0(view, start, goal, h, { maxNodes = 40000, temps = 0, box = null, budgetMs = 4000, lavaCost = 0, maxDrop = 4, flood = false, out = null, leanDepth = LEAN_DEPTH } = {}) {
-    const open = new Heap(), best = new Map(), placed = flood ? new Map() : null;          // (flood: the temporary blocks the best way to each cell places)
+    const open = new Heap(), best = new Map(), placed = flood ? new Map() : null, nodes = flood ? new Map() : null;          // (flood: every node, a route to any cell of it without a new search)          // (flood: the temporary blocks the best way to each cell places)
     // height to gain costs about a pillar step each (a weaker estimate searched whole hillsides before climbing 17 blocks to a tree top, live 2026-11-22)
     // weighted (a quicker search, a little longer way): a goal in the air is reached over a bridge at ten times a walk's cost, which an estimate at walking cost hid: the search
     // filled 30 000 cells of a Nether cliff and never bridged out to the site (owner 2026-11-23, problem 4 of list 2)
@@ -280,7 +280,8 @@ async function plan0(view, start, goal, h, { maxNodes = 40000, temps = 0, box = 
             const g = c.g + cost + extraCost, k = bkey(x, y, z, off);
             if (g >= (best.get(k) ?? Infinity)) return;
             best.set(k, g); if (placed) placed.set(k, t);
-            open.push({ x, y, z, g, f: g + hh(x, y, z), t, p: c, move, col, off, ...(tempOnly ? { tempOnly } : {}), ...extra });
+            const nd = { x, y, z, g, f: g + hh(x, y, z), t, p: c, move, col, off, ...(tempOnly ? { tempOnly } : {}), ...extra };
+            open.push(nd); if (nodes) nodes.set(k, nd);
         };
         const headFree = view.free(c.x, c.y + 2, c.z);
         // swimming: from a cell in water (or into water, or out of it onto something to stand on) in the six directions
@@ -341,7 +342,7 @@ async function plan0(view, start, goal, h, { maxNodes = 40000, temps = 0, box = 
     // searched out: every cell the bot can get to from here (the caller offers it only stances among them)
     PZ.slice('plan', pzs);
     fold();
-    plan.last = { why: open.size ? 'nodes' : 'no more cells', nodes: n, region: open.size ? null : best, best, placed, closest };
+    plan.last = { why: open.size ? 'nodes' : 'no more cells', nodes: n, region: open.size ? null : best, best, placed, closest, all: nodes };
     if (out) Object.assign(out, plan.last);
     return null;
 }
@@ -526,7 +527,23 @@ class Mover {
         const temps = t ? this.bot.inventory.items().filter((i) => i.name === t).reduce((a, i) => a + i.count, 0) : 0;
         const l = {};          // its own record: plan.last is shared by every bot's searches in this process
         await plan(view, start, () => false, start, { maxNodes, temps, budgetMs, maxDrop: (this.bot.health || 0) >= 16 ? 6 : 4, flood: true, out: l });
-        return { from: key(start.x, start.y, start.z), cost: l.best || new Map(), placed: l.placed || new Map(), complete: !!l.region, at: Date.now() };
+        const out = { from: key(start.x, start.y, start.z), cost: l.best || new Map(), placed: l.placed || new Map(), complete: !!l.region, at: Date.now() };
+        this._flood = { from: out.from, at: out.at, nodes: l.all || null, temps };
+        return out;
+    }
+    /**
+     * The route to `to` out of the last flood from `start` (its nodes keep their parents): the claim offers stances inside that flood, so the walk to one needs no search of its own
+     * (the crew's planning was 60 % of the harness's busy CPU and the largest class of the pauses, TASK-079 profile and the b081a pause table). Null when the flood is from
+     * elsewhere, older than 15 s, made with other temporary blocks in the pack, or does not hold the cell.
+     */
+    _fromFlood(start, to, temps) {
+        const F = this._flood;
+        if (!F || !F.nodes || F.from !== key(start.x, start.y, start.z) || Date.now() - F.at > 15000 || F.temps !== temps) return null;
+        const nd = F.nodes.get(key(to.x, to.y, to.z)) || F.nodes.get(`${key(to.x, to.y, to.z)}|o`);
+        if (!nd) return null;
+        const out = []; for (let q = nd; q; q = q.p) out.push({ x: q.x, y: q.y, z: q.z, move: q.move, dig: q.dig || null, place: q.place || null, off: !!q.off, tempOnly: !!q.tempOnly });
+        if (out.length > 1) this._flood = null;          // used once: the walk changes where the bot is
+        return out.reverse();
     }
     /** The last moves and digs (kept for a death's report). */
     note(what) { const p = this.bot.entity && this.bot.entity.position; this.trace.push(`${new Date().toISOString().slice(11, 19)} ${what}${p ? ` @${p.x.toFixed(1)},${p.y.toFixed(1)},${p.z.toFixed(1)}` : ''}`); if (this.trace.length > 14) this.trace.shift(); }
@@ -816,7 +833,7 @@ class Mover {
             // the bot's own cell not loaded yet (after a teleport, a respawn): wait for the chunks
             if (view.kind(start.x, start.y, start.z) === 'unknown') { await sleep(1000, 'server: chunk not loaded'); continue; }
             const maxDrop = md ?? ((this.bot.health || 0) >= 16 ? 6 : 4);          // k: the floor k cells under the feet, a fall of k - 1 (three without damage)
-            const route = await plan(view, start, g, to, { maxNodes, temps, box, lavaCost, maxDrop });
+            const route = (!box && !lavaCost && md === null && g(to.x, to.y, to.z) && this._fromFlood(start, to, temps)) || await plan(view, start, g, to, { maxNodes, temps, box, lavaCost, maxDrop });
             if (!route) {
                 const l = plan.last || {};
                 // which of the crew's rules made the search fail (at most once a minute per bot): the plan again without one rule at a time; the first that finds a way is logged

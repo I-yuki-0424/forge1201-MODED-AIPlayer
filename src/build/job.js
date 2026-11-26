@@ -24,6 +24,7 @@ const ROUNDS = 3;                  // extra rounds for parked cells before the b
 const PER_SECTOR = 2;              // bots working in one area at a time (its own bot and one helper; the rest wait out of the way: eight bots crowded a one-chunk Nether build, owner 2026-11-23 list 4 problem 7)
 const TILE = 4;                    // columns per side of a tile: the ground plan's unit for areas and for the local layer window
 const REVIVE_MS = 90000;           // parked cells come back while the build runs (not only in the end rounds) once they have waited this long and the crew has nothing ready
+const PIT_ROUNDS = 3;               // pit jobs over the site's terrain (job.planPit): the first, and up to two more over what a pit left
 const STALL_MS = 40000;            // nothing ready for anybody this long while work is left: the ordering rules are relaxed (a dependency that cannot be met)
 const STAGE_OF = { seal: 'prepare', fill: 'prepare', clear: 'prepare', place: 'place', fix: 'place', scaffold: 'place', pour: 'late', ignite: 'late', untemp: 'cleanup' };
 const ORDER = ['prepare', 'place', 'late', 'cleanup'];
@@ -493,21 +494,25 @@ class BuildJob {
      * be dug. BUILD_PIT=0 keeps the builder's own clearing (the comparison run).
      */
     planPit() {
-        if (this.pitPhase !== undefined) return this.pitPhase;
-        if (process.env.BUILD_PIT === '0') return (this.pitPhase = null);
+        if (this.pitPhase && !this.pitPhase.done) return this.pitPhase;
+        // once per survey (its tasks): a pit that left cells (its sweep gave up on them) is followed by another one over what is left, PIT_ROUNDS at most
+        if (process.env.BUILD_PIT === '0' || this.pitFor === this.tasks) return null;
+        this.pitFor = this.tasks;
+        if ((this.pitRounds || 0) >= PIT_ROUNDS) return null;
         let top = -Infinity, bottom = Infinity, n = 0;
         for (const tk of this.tasks.values()) {
-            if (!(tk.kind === 'clear' || tk.kind === 'fill' || (tk.kind === 'place' && tk.after))) continue;
+            if (!(tk.kind === 'clear' || tk.kind === 'fill' || (tk.kind === 'place' && tk.wrong))) continue;
             if (!this.t.inside(tk.x, tk.y, tk.z)) continue;
             n++; if (tk.y > top) top = tk.y; if (tk.y < bottom) bottom = tk.y;
         }
-        if (!n) return (this.pitPhase = null);
+        if (!n) return null;
+        this.pitRounds = (this.pitRounds || 0) + 1;
         const b = this.t.box, box = { x0: b.x, x1: b.x + b.sx - 1, z0: b.z, z1: b.z + b.sz - 1, top, bottom };
         const pit = require('../work/jobs/pit'), { PIT_LEDGER } = require('../work/service/common');
         const lanes = Math.max(1, this.bots.size || 1), method = process.env.BUILD_PIT_METHOD || 'expert';
         const impl = pit.createPitJob(box, PIT_LEDGER, { lanes, method, road: false });
         this.pitPhase = { box, impl, done: false, cells: n, at: Date.now(), method };
-        this.log(`clearing by the pit: ${n} cells to dig in ${box.x0}..${box.x1} x ${box.z0}..${box.z1}, y ${bottom}..${top} (${impl.plan.regions.length} regions, method ${method})`);
+        this.log(`clearing by the pit (round ${this.pitRounds}): ${n} cells to dig in ${box.x0}..${box.x1} x ${box.z0}..${box.z1}, y ${bottom}..${top} (${impl.plan.regions.length} regions, method ${method})`);
         return this.pitPhase;
     }
     /** The pit is done (every unit, or the operator's time): the box is surveyed again and the build goes on with what is left. */
