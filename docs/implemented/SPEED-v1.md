@@ -86,6 +86,29 @@ the parts of a walk that take wall time take the same milliseconds at every k (p
 generating, inferred from its 15-20 ms ticks at 1x, not measured per step; nav/go.js's "failed four times" also needs 60 s of WALL time): at 4x
 the world's nights and mobs got four times as long against each plan, and the deaths followed.
 
+**Three new random seeds (2026-11-26 evening, the owner's standard, after a regression report).** 075's move_a on world 4 at x2 had three
+bots fail at the first second with "unreachable, 1 cell expanded" (ma075b, seed 5479556643456516314). That was not the speed: `spreadplayers`
+had put the bots on top of bamboo stalks 12 high at the spawn (bamboo 75..86, ground 74, read with `execute if block`), and
+`scripts/t26/start_probe.js` on the same cells of the same seed (world 6) fails identically at x1 and at x2. NAV has no move off a bamboo
+top (bamboo is a partial block: no floor for a bridge or a pillar, and digdown only lands on solid blocks); handed to 075 with the probe
+(a planner change alone is not enough: the action layer's mine then refuses the block under the feet, "start cell not standable"; local
+branch t/079-bamboo-ref). 075's other world-4 runs: x2 4/4 (ma075a), x1 2/4 (ma075c), on other seeds.
+
+Then move_a at 1x and 2x on three new random seeds, world 6, one after the other (host load 3.8-6.5, busy 27-42 %, steal 0.0):
+
+| Seed | 1x E / N / S / W | 2x E / N / S / W | deaths 1x / 2x | game s per 100 blocks 1x / 2x | wall time 1x / 2x |
+| :-- | :-- | :-- | :-- | :-- | :-- |
+| -3530275543520009613 | F F P P (2/4) | F F **F** P (1/4) | 4 / 13 | 90 / 125 | 1395 / 731 s |
+| 2229174887817807133 | P P P P (4/4) | P P P **F** (3/4) | 0 / 1 | 60 / 88 | 1447 / 887 s |
+| 1732114183817561932 | F P F P (2/4) | **P F P** P (3/4) | 3 / 1 | 110 / 94 | 1779 / 824 s |
+| all | 8/12 | 7/12 | 7 / 15 | | |
+
+Seven of twelve bots ended the same way at both speeds; three were worse at 2x and two better, which is within what the same seed gives at
+1x alone (3/4 and 1/4 above). But the results are not equal, and the direction that matters is in the deaths: on the first seed the 2x walk
+took 39 % more game time per block and two bots died 5 and 6 times. The cause is the one above: each NAV segment plans for about 5-8 s of wall
+time (9,000-14,000 cells: the first plan came at 5.5 s at x2 and 7.8 s at x1, r-ma) while the bot stands, which is 100-160 ticks at 1x and twice that at 2x for the mobs around it. **move_a stays at
+1x** until planning stops being wall time a mob can use (075/081: plans sliced or capped, section 7).
+
 ## 4. Found on the way: the catch-up burst (fixed)
 
 At x4 a poll is due every 12.5 ms; the harness's event loop was late by more than that at its p99 (25-42 ms in place_a). Mineflayer then ran up to 4
@@ -107,12 +130,12 @@ test's k, `SPEED=k` overrides for one run, `"default"` is every test not named (
 | mine_b | 3 | measured at x1 and x3 only (same box, both PASS, the server at 60.0 every minute); x4 not measured |
 | move_b | 3 | measured at x1 and x3 (PASS, PASS; the server at 59.6-59.7) |
 | place_b | 3 | measured at x1 and x3 twice each (four PASS); the build itself 1.8x faster in wall time, the tidy after it does not scale (section 7) |
-| mine_a | 2 | 4/4 at x1 and x2 (595 s against 1096 s); the server's worst minute at x2 was 21.7 of 40 (chunk generation for four bots 2000 blocks apart): x3 would not be kept |
-| move_a | 2 | the same deterministic failures at x1 and x2 (section 3), deaths not higher after the planner fix; the server's worst minute 33.4 of 40; at x4 it gave 65 of 80 and the bots needed 3-12x the game time per block |
+| mine_a | 2 | (one seed: to be confirmed on three, as move_a was) 4/4 at x1 and x2 (595 s against 1096 s); the server's worst minute at x2 was 21.7 of 40 (chunk generation for four bots 2000 blocks apart): x3 would not be kept |
+| move_a | 1 | not equal on three random seeds (8/12 at 1x, 7/12 at 2x, deaths 7 against 15; section 3): planning time is wall time the mobs use, k times more of it at kx |
 | place_c, build_t | 1 | the harness is the limit: at x2 the crew does the same work per WALL minute as at x1, so a limit counted in game minutes (lib.js budget) gets half the work done (section 6) |
 | default | 1 | |
 
-This is one world and one seed per row (the owner's standard is three new random seeds per test): enough to see a change caused by k at the
+This is one world and one seed per row except move_a (three new random seeds; the owner's standard is three per test): enough to see a change caused by k at the
 places where the tests fail deterministically, not to measure a pass rate. TASK-080's regression suite runs at these factors and will show a
 k-caused change as a difference against its 1x history.
 
@@ -127,10 +150,10 @@ k-caused change as a difference against its 1x history.
 | move_b (k 3) | 264 s | 30 s | (another cave) |
 | place_b (k 3) | 373-486 s | 78-480 s | build part 1.8 (58 -> 32 s); the rest depends on the site's leftover terrain |
 | mine_a (k 2) | 1096 s | 595 s | 1.8 |
-| move_a (k 2) | 1437-1486 s | 828-875 s | 1.7 |
-| **sum** | **about 61 min** | **about 33 min** | **1.8** |
+| move_a (k 1, see section 3) | 1437-1486 s | the same | 1 |
+| **sum** | **about 61 min** | **about 44 min** | **1.4** |
 
-A suite is three worlds of one test in parallel, so the suite's wall time is its slowest world: move_a and mine_a decide it, both at 1.7-1.8.
+A suite is three worlds of one test in parallel, so the suite's wall time is its slowest world: move_a (1x, about 25 min) decides it.
 
 **The standard build run** (build_t, iron-farm-34, 8 bots, Peaceful, the same seed; spd-bt-x1 against spd-bt-x2, 15 game minutes each: LIMIT_MIN read from the progress lines, the runs' arguments were not logged; wall minutes since the harness started):
 
