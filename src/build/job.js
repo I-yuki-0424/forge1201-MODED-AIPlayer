@@ -108,9 +108,19 @@ class BuildJob {
             // the terrain is the pit's alone: once its rounds are used up, what it left (a cell it could not dig, water that came back) is parked with that reason, the builder
             // does not dig the site itself (owner list 5 Large 3: no builder-specific digger)
             if (this.pitRounds >= PIT_ROUNDS && !(this.pitPhase && !this.pitPhase.done)) {
-                let n = 0; const ex = []; for (const [k, tk] of [...tasks]) { if (!(tk.kind === 'clear' || tk.kind === 'fill' || tk.kind === 'seal')) continue;
-                    this._park(tk, 'left by the pit'); tasks.delete(k); n++; if (ex.length < 12) { const h = bot ? seen(bot, tk) : null; ex.push(`${k} ${tk.kind} ${h ? h.name : '?'}`); } }
-                if (n) this.log(`${n} cells the pit left after ${this.pitRounds} rounds are parked (the builder does not dig the site): ${ex.join('; ')}`);
+                let n = 0, adopted = 0; const ex = [], by = {};
+                const tempNames = new Set(require('../work/bot/tempblocks').only());
+                for (const [k, tk] of [...tasks]) {
+                    if (!(tk.kind === 'clear' || tk.kind === 'fill' || tk.kind === 'seal')) continue;
+                    const h = bot ? seen(bot, tk) : null;
+                    // a temporary block of the operator's kind that no ledger knows (the pit's movement blocks of a bot whose list did not hold them, b081h: 4 pumpkins): the crew's
+                    // to take away like any orphan, not ground left by the pit
+                    if (h && tempNames.has(S.bare(h.name)) && tk.kind === 'clear') { this.ledger.intend(tk, h.name, 'pillar', 'pit'); this.ledger.observe(tk, h.name); const e = this.ledger.get(tk); if (e) { e.orphan = { at: Date.now(), why: 'left by the pit' }; e.released = e.released || { at: Date.now(), why: 'left by the pit' }; } tasks.delete(k); adopted++; continue; }
+                    this._park(tk, 'left by the pit'); tasks.delete(k); n++;
+                    const nm = h ? S.bare(h.name) : '?'; by[nm] = (by[nm] || 0) + 1; if (ex.length < 12) ex.push(`${k} ${tk.kind} ${nm}`);
+                }
+                if (adopted) { this.log(`${adopted} temporary blocks the pit left (in no ledger) are the crew's to take away`); setTimeout(() => this._offerTemps(Date.now(), true), 0); }
+                if (n) this.log(`${n} cells the pit left after ${this.pitRounds} rounds are parked (the builder does not dig the site): ${JSON.stringify(by)}; ${ex.join('; ')}`);
             }
             this.buckets = new Map();
             for (const tk of tasks.values()) { const k = `${Math.floor(tk.x / 8)},${Math.floor(tk.y / 8)},${Math.floor(tk.z / 8)}`; (this.buckets.get(k) || this.buckets.set(k, []).get(k)).push(tk); }
