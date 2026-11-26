@@ -241,6 +241,9 @@ async function work(job, name, bot, mv, cl, cancel) {
         const n = (job.noPath.get(name) || 0) + 1; job.noPath.set(name, n);
         job.log(`${name}: no way to ${cl.station.x} ${cl.station.y} ${cl.station.z} (${r.why}, ${n} in a row)`);
         job.avoid(name, cl.station);
+        // a search that ran out (nodes, time) to a stance in the air rules out its neighbours for this bot too: the claim offered the next cell beside it and the bot searched
+        // again for as long (b081f minutes 60-78: 79 'retry: plan' pauses of 11 s, stances 12-30 above the bot that no route of the crew's rules reaches)
+        if (/no plan \((nodes|time)/.test(String(r.why))) for (let dx = -2; dx <= 2; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -2; dz <= 2; dz++) job.avoid(name, { x: cl.station.x + dx, y: cl.station.y + dy, z: cl.station.z + dz });
         // searched out: the cells it can reach from here are known; claims offer it only stances among them until it moves (a bot in a pocket ringed by lava was sent 27 times
         // to stances outside it, live 2026-11-23 fy3 w5)
         if (r.region && r.from) (job.reachOf || (job.reachOf = new Map())).set(name, { from: `${r.from.x},${r.from.y},${r.from.z}`, cells: r.region });
