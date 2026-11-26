@@ -161,7 +161,11 @@ async function walk(ctx, goal, { sprint = true } = {}) {
         const jump = wet || (onClimb && up) || (up && (hdist(pos, centre(next)) < 1.3 || e.isCollidedHorizontally) && Math.abs(angleDiff(yaw, e.yaw)) < 0.6);
         const straight = j - idx >= 4 && !path.slice(idx + 1, j + 3).some((n) => n.move !== 'walk');
         const last = j === path.length - 1;
-        await ctx.tick({ forward: !(last && d < 0.3), jump, sprint: (sprint && straight && !last && !wet && bot.food > 6) || (e.isInWater && bot.food > 6), yaw });          // in a current: forward, jump and sprint the whole time, the way a player swims against it
+        // In water: forward, jump and sprint, the way a player swims against a current, but sprint only with the head out and the look level. Under water the game's
+        // sprint is swimming, which follows the look (Player.travel): with the pitch a dig or place left looking down the body swims along the bottom and drowns
+        // (TASK-20261125-076, move_a seed 7601 on the native physics: 3 bots drowned; prismarine-physics has no swimming, so this never showed before).
+        const headUnder = e.isInWater && w.kindAt(Math.floor(pos.x), Math.floor(pos.y + EYE), Math.floor(pos.z)) === 'water';
+        await ctx.tick({ forward: !(last && d < 0.3), jump, sprint: (sprint && straight && !last && !wet && bot.food > 6) || (e.isInWater && !headUnder && bot.food > 6), yaw, ...(e.isInWater ? { pitch: 0 } : {}) });
     }
 }
 

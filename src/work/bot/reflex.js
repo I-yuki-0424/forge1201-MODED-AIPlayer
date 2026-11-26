@@ -125,6 +125,10 @@ function attach(bot, { world, enabled = () => true, onEvent = () => {} } = {}) {
     async function breath() {
         onEvent('reflex', { kind: 'breath' });
         const t0 = Date.now();
+        // no sprint and the look up: under water the game's sprint is swimming, which follows the look, and a look left pointing down swims the body to the bottom
+        // (TASK-20261125-076: 3 drownings on the native physics, move_a seed 7601)
+        bot.setControlState('sprint', false);
+        Promise.resolve().then(() => bot.look(bot.entity.yaw, Math.PI / 4, true)).catch(() => {});
         bot.setControlState('jump', true);
         while (Date.now() - t0 < 25000 && headWet()) await sleep(100);
         bot.setControlState('jump', false);
@@ -163,13 +167,13 @@ function attach(bot, { world, enabled = () => true, onEvent = () => {} } = {}) {
                 // At arm's length it is hit: the knock-back stops the fuse.
                 if (e.name === 'creeper' && d > 2.6) {
                     await bot.look(Math.atan2(-(p.x - e.position.x), -(p.z - e.position.z)), 0, true);          // facing away from it (mineflayer's yaw: atan2(-dx, -dz) faces dx, dz)
-                    bot.setControlState('forward', true); bot.setControlState('sprint', true); bot.setControlState('jump', bot.entity.isCollidedHorizontally);
+                    bot.setControlState('forward', true); bot.setControlState('sprint', !bot.entity.isInWater); bot.setControlState('jump', bot.entity.isCollidedHorizontally);
                     if (d > 8) break;
                     await sleep(80); continue;
                 }
                 await bot.lookAt(e.position.offset(0, (e.height || 1.8) * 0.85, 0), true);
                 const reach = d <= 3.0;
-                bot.setControlState('forward', !reach && d < 12); bot.setControlState('sprint', !reach && d > 5);
+                bot.setControlState('forward', !reach && d < 12); bot.setControlState('sprint', !reach && d > 5 && !bot.entity.isInWater);          // no sprint in water: it swims along the look, which is on the mob
                 bot.setControlState('jump', !reach && bot.entity.isCollidedHorizontally);
                 if (reach && Date.now() - lastHit > 620) { bot.attack(e); lastHit = Date.now(); hits++; }
                 await sleep(60);

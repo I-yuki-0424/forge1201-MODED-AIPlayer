@@ -221,6 +221,15 @@ t('lava: slower than water, still sinks; flowing water pushes a standing body', 
     assert.ok(p.x > 3, `pushed down the flow to x ${p.x}`);
 });
 
+t('under water the sprint is swimming and follows the look: looking down it stays at the bottom, with no sprint and jump it surfaces (why motion.js swims level, without sprint under water)', () => {
+    const w = world('1.21.1').floor(0).fill(-40, 1, -60, 40, 6, 40, 'water');            // surface at y 7
+    const dive = sim(w, { x: 0.5, y: 2, z: 0.5, pitch: 28.6, onGround: false, keys: keys({ forward: true, jump: true, sprint: true }) }, 200);
+    assert.ok(dive.rows.some((q) => q.pose === 'swimming'), 'swimming pose');
+    assert.ok(dive.s.y < 2, `swam along the bottom (y ${dive.s.y})`);
+    const up = sim(w, { x: 0.5, y: 2, z: 0.5, pitch: 28.6, onGround: false, keys: keys({ forward: true, jump: true }) }, 60);
+    assert.ok(up.s.y > 6 && up.s.pose === 'standing', `surfaced (y ${up.s.y})`);
+});
+
 // ---- (C) the fall guard on top of the native physics ---------------------------------------------------------------------------------
 t('fall guard wraps the native simulatePlayer: a bot walking off a pillar top is held', () => {
     const w = world('1.21.1').set(0, 20, 0, 'stone');
