@@ -536,6 +536,7 @@ Temporary blocks put down in 30 minutes: 2 370 / 3 295 / 1 726 against 623 / 1 4
 | `build_t-w121-smoke` (8a3713e9) | 24 / 32 / 36 | a 18, b 1, c 73 | 7 480 / 12 877 / 14 360 | 623 / 1 436 / 39 | up to 15 a line (tb2/tb4) |
 | `bt075a` (leaveColumn, pit fills) | 47 / 24 / 17 | a 2, b 1, c 85 | 10 250 / 6 246 / 3 842 | 1 633 / 1 064 / 316 | 15 / 11 / 0 |
 | `bt075c` (f91f7fc0: + goto walks back, release, tempOnly, place/no-trip rules) | **1 / 2 / 3** | a 4 (3 rolled-back digs, 1 no entry), b 1 (a pillar laid after the count touched 0), c 1 (wrap time out) | 1 001 / 2 369 / 1 615 | 594 / 1 183 / 584 | 0 (4 wires built beside standing blocks: now skipped) |
+| `bt075d` (5d4ff4ae: + restore of rolled-back digs, quiet wrap end, wires never built beside temporary blocks) | 6 / 1 / (w3: the crew never read the chest, no work, not counted) | c 7: 2 under its placer (a bridge block over a gap at the time limit), 3 a crew member on it, 2 orphaned by the pause at the end | 2 364 / 1 143 | **1 913 / 1 737** | 0 / 0 (built beside: 0 / 0) |
 
 The seeds differ from run to run (the T26 standard), so the rows compare the same harness on different terrain. Over two as a share of bot time (8 bots, about 40 minutes): 39-75 % in the
 smoke runs, 5-12 % in bt075c. What is left over two in bt075c: columns of four or less in the seconds while the landing takes them back (6-56 %), columns of more than four still
