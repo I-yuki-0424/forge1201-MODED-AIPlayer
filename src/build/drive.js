@@ -956,6 +956,7 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
                 }
             }
             // asked for items by a colleague on its way here: it waits for it a moment and throws them over (not off to another stance meanwhile)
+            { const PL = require('./move').PLANS; job.stats.plans = `${PL.n} ${Math.round(PL.ms / 1000)}s failed ${PL.failed} flood-routes ${PL.flood}`; }
             if (job.pool) { await PZ.within('wait: hand-over (giver)', () => job.pool.hold(name, cancel)); const ps = job.pool.status(); job.stats.pool = `${ps.served}/${ps.asked} ${ps.items}it`; }
             // tools and temporary blocks before the work needs them
             const base = needsFor(job, bot, {});
