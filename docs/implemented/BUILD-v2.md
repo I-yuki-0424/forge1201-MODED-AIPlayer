@@ -552,7 +552,7 @@ worlds differ, so "not worse than hc1" is not shown on equal terms.
 **move_a / move_b (nav, registry scan).** move_b on 1.21.1 (074's `move_b-w121-a`, 2026-11-26 morning): 0 / 0 / 0 left. move_a: `ma075a` (world 4, x1, seed
 -1552390885555710857): 4 of 4 reached, left 0 / 0 / 0 / 1 (MvE4: one block 15 cells behind its end, out of reach when it passed; nav's walk now sweeps its own blocks within
 48 at the goal); `ma075b`: world 4 came up at speed x2 (079's per-test speeds on main: move_a 2): 0 of 4, three bots "unreachable, 1 cell expanded" at the start, not a
-temporary-block matter (reported to the orchestrator); `ma075c` (x1, SPEED=1): see the report.
+temporary-block matter (reported to the orchestrator); `ma075c` (x1, `SPEED=1`, seed 5434895445132380191): 2 of 4 reached (a death and "8 segments without getting closer": movement), left 0 / 0 / 0 / 0.
 
 **mine_b (the pit; registry `src/work/bot/temps.js`, scan of the box +-12 for pumpkins).** `mb075a` (world 4, seed 6421017476795594789, a dry chunk, 60 min): 0 left, 0 registered,
 timeout at 41 of 70 units. `mb075b` (world 4, seed -974350776696569252 = the box of mine_b-w121-a w3, 954 + 121 water cells, 90 min, rubble fills): **3** pumpkins left (the old
