@@ -80,6 +80,7 @@ async function clearTrees(env, box, { maxMs = MAX_MS, maxCells = MAX_CELLS, find
     const eye = () => { const h = env.here(); return { x: h.x + 0.5, y: h.y + 1.62, z: h.z + 0.5 }; };
     const inReach = (c) => { const e = eye(); return Math.hypot(e.x - (c.x + 0.5), e.y - (c.y + 0.5), e.z - (c.z + 0.5)) <= REACH; };
     const dead = (r) => r && ['died', 'disconnected', 'cancelled'].includes(r.reason);
+    const lowTried = new Set();
     const give = (c, why) => { failed.set(`${c.x},${c.y},${c.z}`, { x: c.x, y: c.y, z: c.z, why }); };
     const gone = (c) => (done ? done(c) : (() => { const k = w.kindAt(c.x, c.y, c.z); return k === 'air' || !isTree(w.nameAt(c.x, c.y, c.z)); })());
 
@@ -92,12 +93,14 @@ async function clearTrees(env, box, { maxMs = MAX_MS, maxCells = MAX_CELLS, find
         const all = look(new Set(failed.keys()));
         if (!all.length) break;
         // 1. blocks within reach of the ground: logs first (the leaves decay on their own once no log is near), nearest first
-        const low = all.filter((c) => c.y - c.gy <= LOW).sort((a, b) => (/_log|_wood|_stem/.test(bare(w.nameAt(b.x, b.y, b.z))) ? 1 : 0) - (/_log|_wood|_stem/.test(bare(w.nameAt(a.x, a.y, a.z))) ? 1 : 0) || Math.hypot(a.x - here.x, a.z - here.z) - Math.hypot(b.x - here.x, b.z - here.z));
+        // (a low block that `mine` could not take from the ground, a leaf inside the crown with no line of sight to it, goes the aerial way: a column beside it, mined blind;
+        // given up after one try it stayed for good, the birch of 081's b081h at 204,75,305 with 7 leaves round it through three pit rounds)
+        const low = all.filter((c) => c.y - c.gy <= LOW && !lowTried.has(`${c.x},${c.y},${c.z}`)).sort((a, b) => (/_log|_wood|_stem/.test(bare(w.nameAt(b.x, b.y, b.z))) ? 1 : 0) - (/_log|_wood|_stem/.test(bare(w.nameAt(a.x, a.y, a.z))) ? 1 : 0) || Math.hypot(a.x - here.x, a.z - here.z) - Math.hypot(b.x - here.x, b.z - here.z));
         if (low.length) {
             const c = low[0];
             const m = await env.exec('mine', { x: c.x, y: c.y, z: c.z, collect: false });
             if (dead(m)) { res.ok = false; res.reason = m.reason; break; }
-            if (m.ok || gone(c)) { res.mined++; res.direct++; } else give(c, m.reason || 'mine');
+            if (m.ok || gone(c)) { res.mined++; res.direct++; } else { lowTried.add(`${c.x},${c.y},${c.z}`); res.lowAerial = (res.lowAerial || 0) + 1; }
             continue;
         }
         // 2. an aerial block: the lowest one first (a column that rises to it takes the ones around it on the way), the nearest of those

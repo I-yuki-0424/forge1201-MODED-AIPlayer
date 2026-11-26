@@ -31,6 +31,7 @@ const { TREE } = require('./pit_trees');          // the tree pass (pit_trees.js
 // "invalid_target at rise: nothing solid under the feet / no head room": 081's site b081d, 1.21.1 world 4, the pit at 2 239 of 2 304 units with the crew waiting on the layer gate)
 const AERIAL_UP = require('./pit_trees').LOW;
 const FATAL_MINE = new Set(['died', 'disconnected', 'cancelled']);
+const TREE_PASSES = 3;              // runs of a region's tree pass at most (the first, and again after units left tree blocks to it)
 const isTreeAt = (w, c) => TREE.test(String((w.nameAt && w.nameAt(c.x, c.y, c.z)) || '').replace(/^minecraft:/, ''));
 function aerialTree(w, c) {
     const bare = (n) => String(n || '').replace(/^minecraft:/, '');
@@ -378,7 +379,11 @@ async function runUnit(plan, region, u, env) {
         // a tree block a unit cannot take (a trunk or leaves in a canopy: no stand cell with a view of it, "the same unmet precondition", "enclosed") is not the unit's failure: trees
         // are the tree pass's (pillar beside, from the ground), at the region's start and the job's end; the unit goes on (bt075h w1, 1.21.1: oak logs at 110-112 parked units
         // and the layer gate held the crew)
-        if (!m.ok && !open(c) && isTreeAt(env.w, c) && !FATAL_MINE.has(m.reason)) { r.skipped++; r.treeLeft = (r.treeLeft || 0) + 1; (plan.treesLeft || (plan.treesLeft = new Set())).add(`${c.x},${c.y},${c.z}`); return null; }
+        if (!m.ok && !open(c) && isTreeAt(env.w, c) && !FATAL_MINE.has(m.reason) && !(plan.treeFailed && plan.treeFailed.has(`${c.x},${c.y},${c.z}`))) {
+            r.skipped++; r.treeLeft = (r.treeLeft || 0) + 1; (plan.treesLeft || (plan.treesLeft = new Set())).add(`${c.x},${c.y},${c.z}`);
+            const tp = plan.trees && plan.trees.get(region.id); if (tp) tp.again = true;          // the region's tree pass runs again for it
+            return null;
+        }
         if (!m.ok && !open(c)) return fail(m, c, 'mine');
         r.mined++;
         // Water that was behind the block is now flowing in. Fill its source, then the cell; if the cell was plugged, dig it again.
@@ -400,12 +405,15 @@ async function runUnit(plan, region, u, env) {
     // Tree pass (pit_trees.js, owner 2026-11-16): once per region, before its first unit digs, the tree blocks of the box are taken down (low ones from the ground, aerial ones from a pillar
     // beside them). One bot does it; the others do not wait (a unit never depends on it). PIT_TREES=0 turns it off (A/B runs).
     if (process.env.PIT_TREES !== '0' && env.run && env.here && env.exec) {
-        const reg = plan.trees || (plan.trees = new Map());
-        if (!reg.has(region.id)) {
-            reg.set(region.id, { busy: true, by: me });
+        const reg = plan.trees || (plan.trees = new Map()), prev = reg.get(region.id);
+        // (again when units have left tree blocks to it since its last run: up to TREE_PASSES per region)
+        if (!prev || (prev.done && prev.again && (prev.n || 1) < TREE_PASSES)) {
+            reg.set(region.id, { busy: true, by: me, n: (prev && prev.n || 0) + 1 });
             try {
                 const m = region.meta, tr = await require('./pit_trees').clearTrees(env, { x0: m.x0, x1: m.x1, z0: m.z0, z1: m.z1, top: m.top });
-                reg.set(region.id, { done: true }); r.trees = { mined: tr.mined, risen: tr.risen, columns: tr.columns, left: tr.left, failed: tr.failed.length, ms: tr.ms };
+                // a block the pass could not take is no longer the pass's: a unit takes it, or fails visibly (never left between the two: 081's b081h)
+                const tf = plan.treeFailed || (plan.treeFailed = new Set()); for (const f of tr.failed || []) tf.add(`${f.x},${f.y},${f.z}`);
+                reg.set(region.id, { done: true, n: reg.get(region.id).n }); r.trees = { mined: tr.mined, risen: tr.risen, columns: tr.columns, left: tr.left, failed: tr.failed.length, ms: tr.ms };
                 if (!tr.ok && tr.reason && ['died', 'disconnected', 'cancelled'].includes(tr.reason)) { reg.delete(region.id); return { ok: false, reason: tr.reason, detail: { stage: 'trees', ...r } }; }
             } catch (e) { reg.set(region.id, { done: true, error: String(e && e.message || e) }); }
         }
@@ -694,7 +702,7 @@ function cellState(plan, region, u, w) {
         const k = w.kindAt(c.x, c.y, c.z);
         if (k === 'unknown') { unknown++; continue; }
         if ((PASSABLE.has(k) && !(plan.clearPlants && NOT_AIR(w, c))) || UNBREAKABLE.test((w.nameAt && w.nameAt(c.x, c.y, c.z)) || '') || aerialTree(w, c)) continue;
-        if (plan.treesLeft && plan.treesLeft.has(`${c.x},${c.y},${c.z}`) && isTreeAt(w, c)) continue;          // a tree block a unit left to the tree pass (runUnit): not the layer's
+        if (plan.treesLeft && plan.treesLeft.has(`${c.x},${c.y},${c.z}`) && isTreeAt(w, c) && !(plan.treeFailed && plan.treeFailed.has(`${c.x},${c.y},${c.z}`))) continue;          // a tree block a unit left to the tree pass (runUnit): not the layer's
         if (plan.accepted && plan.accepted.has(`${c.x},${c.y},${c.z}`)) continue;                      // left on purpose: a fixture, a block the bot stood on
         wrong.push(c);
     }

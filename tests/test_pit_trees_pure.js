@@ -184,5 +184,32 @@ const left = (w, box = BOX) => scan(w, box).length;
         assert(!rock.ok && rock.wrong === 1, `negative control: stone fails its unit (${JSON.stringify(rock)})`);
     });
 
+    await test('a low tree block the plain mine cannot take (a leaf inside the crown, no line of sight) is taken blind from a column beside it, not given up after one try (b081h: a birch stood through three rounds)', async () => {
+        const T = require('../src/work/jobs/pit_trees');
+        const w = world([[5, GROUND + 1, 5, 'birch_log'], [5, GROUND + 2, 5, 'birch_leaves'], [6, GROUND + 2, 5, 'birch_leaves']]);
+        const { env, calls } = fakeEnv(w, { x: 2, y: GROUND + 1, z: 2 });
+        const base = env.exec;
+        env.exec = async (n, a) => (n === 'mine' && !a.blind && /leaves/.test(w.nameAt(a.x, a.y, a.z)) ? (calls.mine++, { ok: false, reason: 'not_visible' }) : base(n, a));          // a leaf: no sight
+        const r = await T.clearTrees(env, { x0: 0, z0: 0, x1: 10, z1: 10, top: GROUND + 6 });
+        assert.strictEqual(r.left, 0, JSON.stringify(r));
+        assert(calls.blind >= 2 && (r.lowAerial || 0) >= 2, `the leaves went blind from a column (${JSON.stringify(calls)}, lowAerial ${r.lowAerial})`);
+    });
+
+    await test('a tree block the tree pass gave up on is not left by a unit again: the unit fails visibly (never between the two); one the pass has not tried is left and the pass runs again', async () => {
+        const pit = require('../src/work/jobs/pit');
+        const run = async (failedByPass) => {
+            const cells = new Map([['3,64,3', 'oak_log']]);
+            const w = { nameAt: (x, y, z) => cells.get(`${x},${y},${z}`) || (y <= 63 ? 'stone' : 'air'), kindAt: (x, y, z) => ((cells.get(`${x},${y},${z}`) || (y <= 63 ? 'stone' : 'air')) === 'air' ? 'air' : 'solid') };
+            const job = pit.createPitJob({ x0: 0, z0: 0, x1: 7, z1: 7, top: 64, bottom: 64 }, {}, { method: 'rows', road: false }), region = job.plan.regions[0];
+            job.plan.trees = new Map([[region.id, { done: true, n: 1 }]]); if (failedByPass) job.plan.treeFailed = new Set(['3,64,3']);
+            const env = { w, have: () => 9, pause: async () => {}, here: () => ({ x: 0, y: 64, z: 0 }), exec: async (n, a) => (n === 'mine' && a.x === 3 && a.z === 3 ? { ok: false, reason: 'stuck', detail: { why: 'no sight' } } : { ok: true }) };
+            let ok = true; for (let u = 0; u < region.layers * region.rows; u++) { const r = await job.runUnit(region.id, { unit: u }, env); ok = ok && r.ok; }
+            return { ok, again: !!job.plan.trees.get(region.id).again };
+        };
+        const fresh = await run(false), given = await run(true);
+        assert(fresh.ok && fresh.again, `not tried by the pass: left to it, and it is due again (${JSON.stringify(fresh)})`);
+        assert(!given.ok && !given.again, `given up by the pass: the unit fails it visibly (${JSON.stringify(given)})`);
+    });
+
     console.log('\npit trees: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });
