@@ -791,3 +791,16 @@ Not met: zero tree cells on all three, and forest pace of at least 0.8 of rock. 
 - NAV's planner CPU is 0.3-6.4 s per run.
 - Most of the lost time is outside cells and NAV, in station walks. The rate falls steadily as the pit reaches the terrain body under the trees, from 170-220 to 20-30 units/min. **Not the night guard:** an earlier note blamed it, but `scripts/t26/night_probe.js` showed the rule off on these Peaceful worlds (the service's RCON poll of the difficulty works: `isNight` false at 18118 on Peaceful, true at 18103 on Normal, world 1, 2026-11-27).
 - The bamboo on v3 was not dug (cause open: bamboo is passable for the pit unless the job's `plants` asks for it).
+
+**mine_b re-run (`mb075m` worlds 1-2, `mb075n` world 3 with `KILL_AT_END=1`; b7de5d7a; 1.21.1, Peaceful, x3, 2026-11-27 05:41-07:07): 0/3, pumpkins 3 / 3 / 1.**
+- **w1:** the walk-planning hang came back. Pit1 stepped between 4,18,-42 and 4,17,-41 every 20 s for 25 min, with only `unit:plan` and `unit:walk` in the health line and no failure. The expert's station loop had no time bound. Fixed in c095edf7: a unit's stations end after 6 min, and a station that opened no cell is not chosen again.
+- **w2:** 543 registered blocks (lake fills). The 5-min wrap-up ended with the job still running.
+- **w1 and w2:** pumpkins left at varied heights (-12,-10,-39; -12,38,-39; -6,68,-42 / 13,65,4; 15,65,1; 15,6,9). The end pass did not finish within the wrap-up.
+- **w3:** Pit3 was trapped from minute 18 at the bottom of a water pocket (water y 13-17 under stone at 18, Air -19, the breath reflex looping). Fixed in 071ea30a: the reflex digs the roof of the pocket. The kill came at the wrap-up, and the respawned bot could not reach the last pumpkin (10,12,1, in the pocket 57 levels down: 'stuck').
+
+Also landed in this pass:
+- b7de5d7a: bamboo is broken at its root.
+- 278b220e: NAV's no-progress rule counts the climb toward a goal with a level. It covers the bed-side '8 segments without getting closer', and likely 076's move_a seed 7601 east-line stop, which gave up with the same message (not re-measured).
+- f1e8f1e1: night_probe.js, showing the night rule is already off on Peaceful.
+
+None of these is re-measured live yet.
