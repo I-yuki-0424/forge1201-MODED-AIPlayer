@@ -546,3 +546,10 @@ standing beside a stance that is not their top (9-78 %, the cases fixed after f9
 1 430). bt075c at minute 29: 594 / 1 183 / 584, bt075a 1 633 / 1 064 / 316; the smoke runs before the change 623 / 1 436 / 39. The spread comes from the terrain (bt075a w3 and the
 smoke w3 were jungles: 22 000-36 000 cells to clear before the first block); on equal minutes the new rules are within hc1's range but not above its median, and the version and
 worlds differ, so "not worse than hc1" is not shown on equal terms.
+
+**mine_b (the pit; registry `src/work/bot/temps.js`, scan of the box +-12 for pumpkins).** `mb075a` (world 4, seed 6421017476795594789, a dry chunk, 60 min): 0 left, 0 registered,
+timeout at 41 of 70 units. `mb075b` (world 4, seed -974350776696569252 = the box of mine_b-w121-a w3, 954 + 121 water cells, 90 min, rubble fills): **3** pumpkins left (the old
+run on that box: 128, the whole kit, at 240 min), 163 registered blocks left, all fluid fills in the box of dug rubble (lake 12, seal 7, rescue 1 of the first 20 listed: ground the
+pit digs with its layer, contract point 5), timeout with 5 of 67 units (the pit stalls on "seal: no standing cell within reach (inside rock)", as on 26.x and before this task:
+a pit problem, not a temporary-block one). The 3 pumpkins stood because a timed-out pit had no end pass at all: `pit.js wrapUp` now gives it one (the movement blocks and nav's
+sweep), called by `mine_b.js` for `WRAP_MIN` (default 5) before the scan.
