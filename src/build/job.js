@@ -823,7 +823,7 @@ class BuildJob {
                 const batch = [{ ...seed, way }];
                 for (const tk of c.reach) { if (tk === seed || batch.length >= BATCH) continue; const w = this._way(world, tk, c.f); if (w) batch.push({ ...tk, way: w }); }
                 if (seed.kind === 'place') this._widen(bot, world, c.f, batch, has, now);
-                best = { f: c.f, batch };
+                best = { f: c.f, batch, reach: c.reach.length, noWay: c.reach.length + 1 - batch.length };
                 break;
             }
             // a temporary block at the top of a column with no stance beside it: the bot climbs onto it and digs the column down under itself (1 080 of them waited at the
@@ -857,7 +857,7 @@ class BuildJob {
                 continue;
             }
             this.lastClaimInfo = `scanned ${scanned}, ready ${ready.length}, doable ${doable.length}, seeds to here ${doable.indexOf(seed) + 1}, batch ${best.batch.length}, ${Date.now() - t0} ms in seeds`;
-            if (seed.kind === 'place') { const q = this.pstat || (this.pstat = { n: 0, ready: 0, doable: 0, reach: 0, batch: 0 }); q.n++; q.ready += ready.length; q.doable += doable.length; q.batch += best.batch.length; }
+            if (seed.kind === 'place') { const q = this.pstat || (this.pstat = { n: 0, ready: 0, doable: 0, reach: 0, batch: 0 }); q.n++; q.ready += ready.length; q.doable += doable.length; q.batch += best.batch.length; q.reach += best.reach || 0; q.noWay = (q.noWay || 0) + Math.max(0, best.noWay || 0); }
             // never the stance's own floor (it is not dug from on top of it)
             const tasks = best.batch.filter((tk) => tk.descend || !((tk.kind === 'clear' || tk.kind === 'untemp') && tk.x === best.f.x && tk.z === best.f.z && tk.y === best.f.y - 1)).sort((a, b) => ((a.kind === 'clear') !== (b.kind === 'clear') ? (a.kind === 'clear' ? -1 : 1) : 0) || (a.kind === 'clear' ? b.y - a.y : a.y - b.y) || a.x - b.x || a.z - b.z);
             if (!tasks.length) { this.cool.set(seed.k, now + 3000); continue; }
