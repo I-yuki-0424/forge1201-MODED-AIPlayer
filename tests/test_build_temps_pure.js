@@ -313,6 +313,15 @@ test('service: a pit\'s end and its wrap-up put a bot that is out of its loop (w
     fake._endPass(job); assert.deepStrictEqual(started, [], 'once per job: no second start after their end');
 });
 
+test('the operator\'s only temporary block (TEMP_BLOCK) is kept whole when the pack is trimmed, not one stack (mine_b mb075g w2: the kit\'s second stack thrown away); without it, one stack (negative control)', () => {
+    const { execFileSync } = require('child_process');
+    const code = "const T=require('./src/work/bot/tempblocks');process.stdout.write(JSON.stringify([...T.reserve(new Map([['pumpkin',128],['cobblestone',200]]))]))";
+    const only = JSON.parse(execFileSync(process.execPath, ['-e', code], { env: { ...process.env, TEMP_BLOCK: 'pumpkin' } }).toString());
+    assert.deepStrictEqual(only, [['pumpkin', 128]]);
+    const plain = JSON.parse(execFileSync(process.execPath, ['-e', code], { env: { ...process.env, TEMP_BLOCK: '' } }).toString());
+    assert.strictEqual(plain.reduce((a, [, c]) => a + c, 0), 64, `one stack (${JSON.stringify(plain)})`);
+});
+
 test('the flood tells a cell reached on foot from one reached by placing blocks (untemp stances and column tops only on foot)', async () => {
     const M = require('../src/build/move');
     const w = new Map(); for (let x = -6; x <= 6; x++) for (let z = -6; z <= 6; z++) w.set(`${x},69,${z}`, { name: 'stone' });

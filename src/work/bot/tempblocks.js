@@ -89,6 +89,9 @@ function reserve(stacks, n = RESERVE, registry = null, valueOf = null) {
     const kinds = order(stacks, registry, { valueOf }).map((k) => ({ k, c: stacks.get(k) || stacks.get('minecraft:' + k) || 0 }));
     kinds.sort((a, b) => b.c - a.c || BASE.indexOf(a.k) - BASE.indexOf(b.k));
     for (const { k, c } of kinds) { if (left <= 0) break; const take = Math.min(c, left); out.set(k, take); left -= take; }
+    // the operator's own temporary block where it is the only one (the test worlds' pumpkins): every one of them is kept, not one stack (the pit bot's upkeep threw the second
+    // stack of its kit away and it stood "waiting for pumpkin" with one unit of 64 left, mine_b mb075g w2)
+    if (ONLY) for (const n of EXTRA) { const c = stacks.get(n) || stacks.get('minecraft:' + n) || 0; if (c > (out.get(n) || 0)) out.set(n, c); }
     return out;
 }
 
