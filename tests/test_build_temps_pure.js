@@ -272,6 +272,22 @@ test('work: a place or clear task never takes a block of the bot\'s own pillar, 
     assert.notStrictEqual((res2[0] || {}).why, 'skipped', 'negative control: released, the cell over it is worked');
 });
 
+test('work: no click on a block that is gone since the way was chosen (the server would put the block into that cell: b081m, 9 blocks one cell off); negative control: it stands, the click goes', async () => {
+    const t = new Target(tiny(), { x: 0, y: 64, z: 0 });
+    const job = new BuildJob(t, {}); job.stage = 'place';
+    const w = new Map(); for (let x = -3; x <= 5; x++) for (let z = -3; z <= 5; z++) w.set(`${x},63,${z}`, { name: 'stone' });
+    const bot = fakeBot(w, { x: 2.5, y: 64, z: 1.5 }); bot.players = {}; bot.inventory = { items: () => [{ name: 'stone', count: 64 }] };
+    const calls = [];
+    const mv = { goto: async () => ({ ok: true }), note: () => {}, hold: async () => true, holdNothing: async () => true, dig: async () => true, click: async (n) => { calls.push(`click ${n}`); }, lean: async () => {}, unlean: async () => {}, unpillar: async () => 0, mine: new Map() };
+    const way = { at: [1, 64, 3], face: 'up', hit: [1.5, 65, 3.5], n: [1, 64, 3] };          // the block under the cell: a scaffold that is gone
+    const tk = { k: '1,65,3', x: 1, y: 65, z: 3, kind: 'place', way, want: { name: 'minecraft:stone', props: {} } };
+    const res = await D.work(job, 'a', bot, mv, { station: { x: 2, y: 64, z: 1 }, tasks: [tk] }, { cancelled: false });
+    assert.strictEqual((res[0] || {}).why, 'skipped'); assert.strictEqual(calls.length, 0, 'no click'); assert.strictEqual(job.stats.clickGone, 1);
+    w.set('1,64,3', { name: 'pumpkin' });
+    await D.work(job, 'a', bot, mv, { station: { x: 2, y: 64, z: 1 }, tasks: [{ ...tk }] }, { cancelled: false });
+    assert.strictEqual(calls.length, 1, 'negative control: the block stands, the click goes');
+});
+
 test('pit: fluid fills use the dug rubble first, the operator\'s temporary block only without it; at the time limit the pit wraps up (no claim, finished for the worker, its end cleans the movement blocks only)', async () => {
     const pit = require('../src/work/jobs/pit');
     const have = { cobblestone: 20, pumpkin: 128 }, env = { have: (x) => have[x] || 0 };
