@@ -789,6 +789,9 @@ class Mover {
         const g = goal || ((x, y, z) => x === to.x && y === to.y && z === to.z);
         let steps = 0, last = null;
         await this.unsink();
+        // standing beside the top of its own pillar (the stance a route reached by its last step off that column): back onto it and down it before going anywhere else, whatever
+        // asked for the walk (a bed, a hand-over, a trip ... went off without the step's release: a column of 6 stood 57 s while its bot walked 46 cells away, bt075b w3)
+        { const f = feet(this.bot); if (!g(f.x, f.y, f.z)) await this.walkBack(cancel); }
         await this.unpillar(to, g, cancel);
         for (let t = 0; t < tries && !cancel.cancelled; t++) {
             const start = feet(this.bot);
