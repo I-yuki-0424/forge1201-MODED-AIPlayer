@@ -83,7 +83,8 @@ function fakeWorld(ground = 0, init = {}) {
         const w = fakeWorld(60, { '2,64,2': 'water' }); for (let x = 0; x <= 4; x++) for (let z = 0; z <= 4; z++) if (!(x === 2 && z === 2)) w.set(x, 64, z, 'stone');
         const job = pit.createPitJob({ x0: 2, z0: 2, x1: 2, z1: 2, top: 64, bottom: 64 }, {}, { road: false }), reg = job.plan.regions[0], lifts = [], places = [];
         const env = { w, have: () => 9, lift: async (c, o) => { lifts.push(o.skipSame); return { ok: true }; },
-            exec: async (n, a) => { if (n === 'place') { places.push(a.x); return places.length === 1 ? { ok: false, reason: 'unreachable', detail: { why: 'reach placement face' } } : (w.set(a.x, a.y, a.z, a.item), { ok: true }); } w.set(a.x, a.y, a.z, 'air'); return { ok: true }; } };
+            // (the blind click from where the bot stands comes first since TASK-075; here it fails too, so the lift is tried)
+            exec: async (n, a) => { if (n === 'place') { places.push(a.x); return places.length === 1 || a.blind ? { ok: false, reason: 'unreachable', detail: { why: 'reach placement face' } } : (w.set(a.x, a.y, a.z, a.item), { ok: true }); } w.set(a.x, a.y, a.z, 'air'); return { ok: true }; } };
         const r = await job.runUnit(reg.id, { unit: 0, layer: 0, row: 0 }, env);
         assert.ok(r.ok, JSON.stringify(r)); assert.deepStrictEqual(lifts, [true], 'one lift, asked not to move a bot that already stands there'); assert.strictEqual(places.length >= 2, true);
         // a lift that never helps: never more than two per walk
