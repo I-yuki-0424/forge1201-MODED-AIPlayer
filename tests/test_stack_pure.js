@@ -258,6 +258,20 @@ function fakeBot(scene, pos, { pack = [], held = null, entities = {} } = {}) {
         assert.throws(() => layout({ kind: 'wall', block: 'cobblestone', x0: 0, z0: 0, x1: 3, z1: 0, y: 0, height: 65 }), /height: 1..64/, 'other kinds keep 64');
     });
 
+    await test('router: an obtain that fails for want of a tool ends the chain with missing_tool at once (after a death the pack is empty: no exploring again and again, mb075p w2); another obtain failure is decided again (negative control)', async () => {
+        const run = async (reason) => {
+            const s = sandbox({ ...STONE_AT(3, 0) }, { x: 0, y: 1, z: 0 }, { held: 'wooden_pickaxe' }), d = deps(s), base = d.exec; let tries = 0, moved = 0;
+            d.exec = async (name, args, opt) => (name === 'place' ? { ok: false, reason: 'precondition_failed', detail: { unmet: [{ need: 'item_in_pack', item: 'cobblestone', count: 1 }] } } : base(name, args, opt));
+            d.obtain = async () => { tries++; s.here = { x: ++moved * 7, y: 1, z: 0 }; return { ok: false, reason, detail: { why: 'gather cobblestone' } }; };
+            const r = await router.run(d, { name: 'place', args: { x: 3, y: 1, z: 0, item: 'cobblestone' } });
+            return { r, tries };
+        };
+        const tool = await run('missing_tool');
+        assert.strictEqual(tool.r.reason, 'missing_tool'); assert.strictEqual(tool.tries, 1);
+        const other = await run('unreachable');
+        assert.ok(other.tries > 1, `decided again (${other.tries})`);
+    });
+
     await test('router: an item that is not in the pack -> obtain FIRST (then position and hand are read again), and the chain says what the goal layer did', async () => {
         const s = sandbox({ ...STONE_AT(3, 0) }, { x: 0, y: 1, z: 0 }, { held: 'wooden_pickaxe' }); let got = null;
         const d = deps(s); const base = d.exec;

@@ -157,6 +157,9 @@ async function run(deps, goal) {
             if (s.do === 'obtain') chain.push({ do: 'obtain', item: s.item, count: s.count, ok: !!sr.ok, ...(sr.ok ? {} : { reason: sr.reason }), steps: sr.detail && sr.detail.steps });
             if (s.do === 'unstick') st.escaped++;
             if (s.do !== 'obtain') chain.push({ do: s.do, need: unmet.map((u) => u.need), ...(s.why ? { why: s.why } : {}), ...(s.to ? { to: [s.to.x, s.to.y, s.to.z] } : {}), ...(s.item ? { item: s.item } : {}), ...(s.region !== undefined ? { region: s.region } : {}), ok: !!sr.ok, ...(sr.ok ? {} : { reason: sr.reason }) });
+            // an item that cannot be got without a tool the bot lacks (after a death the pack is empty): a need for the job's tool supply, not a reason to explore again
+            // (mine_b mb075p w2, 1.21.1: 'explore for cobblestone, then gather cobblestone: missing_tool' for 20 min, the bot 300 blocks from its pit)
+            if (!sr.ok && s.do === 'obtain' && sr.reason === 'missing_tool') return done(sr);
             if (!sr.ok) { last = sr; if (FATAL.has(sr.reason)) return done(sr); break; }       // read the state again and decide again
         }
     }

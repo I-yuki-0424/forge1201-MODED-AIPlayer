@@ -56,6 +56,15 @@ const LIMIT_MIN = Number(process.env.LIMIT_MIN || 240), DEPTH = Number(process.e
     const controlOk = before.length > 0;                           // the untouched chunk must fail
     await T.onSurface(S, name, x1 + 3, z0 + 8);
     await T.kit(S, name, { blocks: 128, best: true });
+    // A tools chest beside the start (a world condition like a player's base, TASK-075 2026-11-27, orchestrator): a bot that died lost its pack (keep_inventory false) and takes its
+    // pickaxe there (the service's missing_tool script, site purpose 'tools'), as a player would; without it the bot wandered for cobblestone with no pickaxe (mb075p w2)
+    { const p = await T.posOf(S, name), cx = Math.floor(p.x) + 2, cy = Math.floor(p.y), cz = Math.floor(p.z);
+      await S.must(`setblock ${cx} ${cy} ${cz} minecraft:chest replace`);
+      const spare = T.toolItems ? T.toolItems(true) : [];
+      for (const [j, it] of [...spare, ...spare].entries()) await S.must(`item replace block ${cx} ${cy} ${cz} container.${j} with ${it}`);
+      await S.must(`item replace block ${cx} ${cy} ${cz} container.20 with minecraft:cooked_beef 32`);
+      svc.addSite({ name: 'tools', x: cx, y: cy, z: cz, purpose: 'tools' });
+      console.log(`[mine_b w${T.WORLD}] tools chest at ${cx} ${cy} ${cz}: ${spare.length * 2} tools`); }
     await T.sleep(2000);
     await T.say(S, `mine_b: ${name} strip-mines ${JSON.stringify(box)} (${W * W * (top - bottom + 1)} cells)`);
     // temporary blocks (pumpkins) around the box before the job: the end scan counts only new ones (TASK-20261125-075)
