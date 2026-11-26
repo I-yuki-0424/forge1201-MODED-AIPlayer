@@ -221,6 +221,19 @@ t('lava: slower than water, still sinks; flowing water pushes a standing body', 
     assert.ok(p.x > 3, `pushed down the flow to x ${p.x}`);
 });
 
+t('lava escape takes about 1.1 s per block on the native physics: a shore 5 blocks off needs more than the old 6 s reflex budget, 6 blocks fit in the reflex\'s LAVA_MS (mine_b mb075p w2: three lava reflexes of 6 s, then dead)', () => {
+    const { LAVA_MS } = require('../src/work/bot/reflex');
+    const out = (R) => {
+        const w = world('1.21.1').floor(0).fill(-R, 1, -R, R, 2, R, 'lava');
+        for (let x = -R - 3; x <= R + 3; x++) for (let z = -R - 3; z <= R + 3; z++) if (Math.abs(x) > R || Math.abs(z) > R) { w.set(x, 1, z, 'stone'); w.set(x, 2, z, 'stone'); }
+        let n = -1; sim(w, { x: 0.5, y: 1, z: 0.5, onGround: false, keys: keys({ forward: true, jump: true }) }, 600, (st, i) => { if (n < 0 && (Math.abs(Math.floor(st.x)) > R || Math.abs(Math.floor(st.z)) > R) && st.y >= 3) n = i; });
+        return n;
+    };
+    const t5 = out(5), t6 = out(6), t2 = out(2);
+    assert.ok(t5 > 120, `5 blocks: ${t5} ticks, more than the old 6 s`); assert.ok(t6 > 0 && t6 < LAVA_MS / 50, `6 blocks: ${t6} ticks, within LAVA_MS`);
+    assert.ok(t2 > 0 && t2 < 120, `negative control: a near shore (2 blocks, ${t2} ticks) fitted the old budget`);
+});
+
 t('under water the sprint is swimming and follows the look: looking down it stays at the bottom, with no sprint and jump it surfaces (why motion.js swims level, without sprint under water)', () => {
     const w = world('1.21.1').floor(0).fill(-40, 1, -60, 40, 6, 40, 'water');            // surface at y 7
     const dive = sim(w, { x: 0.5, y: 2, z: 0.5, pitch: 28.6, onGround: false, keys: keys({ forward: true, jump: true, sprint: true }) }, 200);

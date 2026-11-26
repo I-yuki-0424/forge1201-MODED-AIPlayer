@@ -23,6 +23,7 @@ function dropBelow(kindAt, x, y, z, limit = 40) {
 }
 
 /** Where to go when standing in lava: the nearest cell (within `r`) that is air with a solid floor and no lava beside it, or null. */
+const LAVA_MS = 20000;
 function escapeCell(kindAt, f, r = 5) {
     let best = null;
     for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) for (let dy = -2; dy <= 5; dy++) {      // a pool can be a few blocks deep: the way out is up
@@ -122,8 +123,10 @@ function attach(bot, { world, enabled = () => true, onEvent = () => {} } = {}) {
         if (potion) {
             try { await bot.equip(potion, 'hand'); bot.activateItem(); await sleep(1800); } catch (_) { /* fall through to walking out */ }
         }
+        // Up to LAVA_MS: in lava the game halves the speed every tick (about 0.8 blocks a second across, the native physics since TASK-076 does as the server does), so an escape cell 4-5
+        // blocks away takes 5-7 s; the 6 s budget ended the reflex in the lava and the work walked back in (mine_b mb075p w2, 1.21.1: three reflexes, then dead)
         const t0 = Date.now();
-        while (Date.now() - t0 < 6000) {
+        while (Date.now() - t0 < LAVA_MS) {
             const f = feet();
             if (kind(f.x, f.y, f.z) !== 'danger' && kind(f.x, f.y + 1, f.z) !== 'danger') break;
             const c = escapeCell(kind, f);
@@ -229,4 +232,4 @@ function attach(bot, { world, enabled = () => true, onEvent = () => {} } = {}) {
     return { state: st, detach: () => { bot.removeListener('physicsTick', tick); bot.__preempt = false; } };
 }
 
-module.exports = { attach, ceilingAbove, dropBelow, escapeCell, FALL_MIN, WATER_AT };
+module.exports = { attach, ceilingAbove, dropBelow, escapeCell, LAVA_MS, FALL_MIN, WATER_AT };
