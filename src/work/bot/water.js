@@ -78,28 +78,9 @@ function floodPlan(w, box, centre, { R = 8, max = 48 } = {}) {
 async function rescue(env, box, { why = null, maxFill = 48 } = {}) {
     const out = { ok: true, surfaced: false, filled: 0, why };
     const exec = env.execFree || env.exec;                // not the unit's cancel token: a bot that is drowning is exactly who needs these commands to run
-    try {
-        let f = env.here();
-        if (inWater(env.w, f)) {
-            // Deep water first goes up: NAV swims only in the surface band and the shore search reaches R cells, so from the bottom of an aquifer neither found a way and the bot,
-            // let go, sank again after every breath reflex (mbc075h w1, seed 4331971738747880703, 1.21.1: water y 29-62 under the pit, drowned twice). `env.surface` holds jump with
-            // the look up (and digs a roof over the column) until the head is out, and leaves jump held so the body stays in the band while the way to the shore is planned.
-            // A closed pocket (no shore at all: mbc075e w2, a pocket outside the box, the bot drowned in it) goes the same way: the roof over the column is dug and the bot comes up into it.
-            let shore = shoreCell(env.w, f, 20);
-            if (env.surface && (!shore || (wet(env.w, f.x, f.y + 1, f.z) && wet(env.w, f.x, f.y + 2, f.z)))) { const s = await env.surface(); out.rose = s && s.ok ? 'ok' : (s && s.reason) || 'failed'; f = env.here(); shore = shoreCell(env.w, f, 20); }
-            out.surfaced = true;
-            if (shore) {
-                // NAV swims (the surface band) and climbs out over the rim; the action layer's plain move_to ended 'stuck' again and again in a pond (T26 lake smoke, 2026-11-16: "water rescue: to the shore, 0 filled (stuck)")
-                let m = env.navFree && env.navOn && env.navOn() ? await env.navFree({ x: shore.x, y: shore.y, z: shore.z }, { near: 0, nearY: 1 }) : null;
-                if (!m || !m.ok) m = await exec('move_to', shore);
-                if (!m.ok && env.recover) await env.recover(2, m);
-            }
-            else if (env.recover) await env.recover(2, { reason: 'in_water' });
-            f = env.here();
-            // Swimming out did not work (a flooded pit bottom: no shore within reach): the server puts the bot on the nearest dry standable cell (env.lift), up to 14 blocks away.
-            if (inWater(env.w, f) && env.lift) { const l = await env.lift(f, { radius: 14, down: 4, up: 12 }); out.lifted = !!l.ok; f = env.here(); }
-            if (inWater(env.w, f)) return { ...out, ok: false, reason: 'stuck', detail: { why: 'still in water after the rescue', at: f, shore } };
-        }
+    let f = null;
+    // the water that runs into the open cells around the bot: filled against something solid (floodPlan), up to three rounds; an error result or null
+    const fill = async () => {
         for (let round = 0; round < 3; round++) {
             const plan = floodPlan(env.w, box, f, { max: maxFill });
             if (!plan.fill.length) break;
@@ -114,6 +95,52 @@ async function rescue(env, box, { why = null, maxFill = 48 } = {}) {
             }
             if (!plan.unsupported.length && !floodPlan(env.w, box, f, { max: maxFill }).fill.length) break;
         }
+        return null;
+    };
+    try {
+        f = env.here();
+        if (inWater(env.w, f)) {
+            // Deep water first goes up: NAV swims only in the surface band and the shore search reaches R cells, so from the bottom of an aquifer neither found a way and the bot,
+            // let go, sank again after every breath reflex (mbc075h w1, seed 4331971738747880703, 1.21.1: water y 29-62 under the pit, drowned twice). `env.surface` holds jump with
+            // the look up (and digs a roof over the column) until the head is out, and leaves jump held so the body stays in the band while the way to the shore is planned.
+            // A closed pocket (no shore at all: mbc075e w2, a pocket outside the box, the bot drowned in it) goes the same way: the roof over the column is dug and the bot comes up into it.
+            let shore = shoreCell(env.w, f, 20);
+            if (env.surface && (!shore || (wet(env.w, f.x, f.y + 1, f.z) && wet(env.w, f.x, f.y + 2, f.z)))) { const s = await env.surface(); out.rose = s && s.ok ? 'ok' : (s && s.reason) || 'failed'; f = env.here(); shore = shoreCell(env.w, f, 20); }
+            out.surfaced = true;
+            const swim = async () => {
+                if (shore) {
+                    // NAV swims (the surface band) and climbs out over the rim; the action layer's plain move_to ended 'stuck' again and again in a pond (T26 lake smoke, 2026-11-16: "water rescue: to the shore, 0 filled (stuck)")
+                    let m = env.navFree && env.navOn && env.navOn() ? await env.navFree({ x: shore.x, y: shore.y, z: shore.z }, { near: 0, nearY: 1 }) : null;
+                    if (!m || !m.ok) m = await exec('move_to', shore);
+                    if (!m.ok && env.recover) await env.recover(2, m);
+                }
+                else if (env.recover) await env.recover(2, { reason: 'in_water' });
+                f = env.here();
+            };
+            await swim();
+            // Swimming out did not work (a flooded pit bottom: no shore within reach): the server puts the bot on the nearest dry standable cell (env.lift), up to 14 blocks away.
+            if (inWater(env.w, f) && env.lift) { const l = await env.lift(f, { radius: 14, down: 4, up: 12 }); out.lifted = !!l.ok; f = env.here(); }
+            // Still in the water (a shore whose way out is under a ledge, mbc075j w2, 1.21.1: 15 rescues in a row 'to the shore (stuck)' until one filled 35 cells): at the surface, a
+            // block goes into a water cell beside the body that has air over it, against whatever solid face it has (a footing: its top is a shore one step up), and the way out is
+            // tried once more from there; with no such cell the water round the pit is filled first
+            if (inWater(env.w, f)) {
+                if (env.surface) await env.surface(8000);
+                f = env.here();
+                let foot = null;
+                for (const [a, , e] of D6.filter(([, b]) => b === 0)) {
+                    const c = { x: f.x + a, y: f.y, z: f.z + e };
+                    if (!wet(env.w, c.x, c.y, c.z) || env.w.kindAt(c.x, c.y + 1, c.z) !== 'air' || env.w.kindAt(c.x, c.y + 2, c.z) !== 'air') continue;
+                    const item = sealItem(env); if (!item) break;
+                    let p = await exec('place', { x: c.x, y: c.y, z: c.z, item, fluid: true, temp: 'rescue' });
+                    if (!p.ok) p = await exec('place', { x: c.x, y: c.y, z: c.z, item, fluid: true, temp: 'rescue', blind: true });
+                    if (p.ok) { out.filled++; out.footing = [c.x, c.y, c.z]; foot = { x: c.x, y: c.y + 1, z: c.z }; break; }
+                }
+                if (!foot) { const e = await fill(); if (e && (e.reason === 'died' || e.reason === 'disconnected')) return e; }
+                f = env.here(); shore = foot || shoreCell(env.w, f, 20); await swim();
+                if (inWater(env.w, f)) return { ...out, ok: false, reason: 'stuck', detail: { why: 'still in water after the rescue', at: f, shore } };
+            }
+        }
+        const e = await fill(); if (e) return e;
         return out;
     } catch (e) { return { ...out, ok: false, reason: 'internal', detail: { error: String(e && e.message || e).slice(0, 160) } }; }
 }
