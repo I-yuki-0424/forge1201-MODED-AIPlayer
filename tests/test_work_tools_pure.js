@@ -240,6 +240,32 @@ const tool = (name, max, used) => ({ name, maxDurability: max, durabilityUsed: u
         assert.strictEqual(b.r.reason, 'stuck', `negative control: ${JSON.stringify(b.r)}`);
     });
 
+    await test('water rescue: a hole in a floor of lake fills over an aquifer (mbc075r w2: 40 min in the water, every water cell round the body under the fills) -> a step is cut into the bank: a footing under the bank block, the bank block broken, out level with the water; negative control: without the step (no block to place) it stays stuck', async () => {
+        const water = require('../src/work/bot/water');
+        const run = async (canPlace) => {
+            const set = new Map(); const k = (x, y, z) => `${x},${y},${z}`;
+            // water y 60..65 everywhere within 6 (an aquifer), the fill platform at y 66 over it, one hole at 0,66,0; dry ground (stone) from x 7 at y <= 66
+            const nameAt = (x, y, z) => { const v = set.get(k(x, y, z)); if (v) return v; if (Math.abs(x) <= 6 && Math.abs(z) <= 6) { if (y >= 60 && y <= 65) return 'water'; if (y === 66) return x === 0 && z === 0 ? 'air' : 'cobblestone'; if (y < 60) return 'stone'; return 'air'; } return y <= 66 ? 'stone' : 'air'; };
+            const w = { nameAt, kindAt: (x, y, z) => { const n = nameAt(x, y, z); return n === 'air' ? 'air' : n === 'water' ? 'water' : 'solid'; } };
+            let at = { x: 0, y: 65, z: 0 }; const log = [];
+            const env = { w, here: () => ({ ...at }), have: (i) => (canPlace && i === 'cobblestone' ? 9 : 0), recover: async () => {},
+                exec: async (n, a) => {
+                    log.push(n);
+                    // a swimmer gets out only onto a block level with the water (the game's rule); on land a step of one
+                    if (n === 'move_to') { const fromWater = w.kindAt(at.x, at.y, at.z) === 'water'; const ok = w.kindAt(a.x, a.y - 1, a.z) === 'solid' && w.kindAt(a.x, a.y, a.z) === 'air' && (fromWater ? a.y - at.y <= 1 : a.y - at.y <= 1); if (ok) { at = { x: a.x, y: a.y, z: a.z }; return { ok: true }; } return { ok: false, reason: 'stuck' }; }
+                    if (n === 'place') { if (!canPlace) return { ok: false, reason: 'missing_item' }; set.set(k(a.x, a.y, a.z), a.item); return { ok: true }; }
+                    if (n === 'mine') { set.set(k(a.x, a.y, a.z), 'air'); return { ok: true }; }
+                    return { ok: true };
+                } };
+            const r = await water.rescue(env, { x0: -6, x1: 6, z0: -6, z1: 6, top: 70, bottom: 55 });
+            return { r, at };
+        };
+        const a = await run(true);
+        assert.ok(a.r.ok && a.r.step, JSON.stringify(a.r)); assert.strictEqual(a.at.y, 66, `out of the water on the footing: ${JSON.stringify(a.at)}`);
+        const b = await run(false);
+        assert.strictEqual(b.r.reason, 'stuck', `negative control: ${JSON.stringify(b.r)}`);
+    });
+
     await test('water rescue: in open water the footing is a water cell up to two away that has a solid face to click (mbc075m w3: water on every side of the body); negative control: none within two -> stuck', async () => {
         const water = require('../src/work/bot/water');
         const run = async (R, start) => {

@@ -136,11 +136,23 @@ async function rescue(env, box, { why = null, maxFill = 48 } = {}) {
                     if ((a === 0 && e === 0) || !wet(env.w, c.x, c.y, c.z) || env.w.kindAt(c.x, c.y + 1, c.z) !== 'air' || env.w.kindAt(c.x, c.y + 2, c.z) !== 'air' || !solidFace(c)) continue;
                     cands.push({ ...c, d: Math.hypot(a, e) });
                 }
-                for (const c of cands.sort((p, q) => p.d - q.d).slice(0, 4)) {
+                // (a step cut into the bank: the water cell beside the body under the bank block, with air over that block. The footing goes in against the bank's bottom face and the
+                // bank block is broken: the footing's top is then level with the water, the one bank a swimmer climbs, and the old bank is a step up from it. A hole in a floor of lake
+                // fills over an aquifer had no other: every water cell round the body was under the fills or in open water, mbc075r w2, seed 3512740157434848104, 1.21.1, 40 min)
+                const steps = [];
+                if (!cands.length) for (const [a, , e] of D6) {
+                    if (!a && !e) continue;
+                    const c = { x: f.x + a, y: f.y, z: f.z + e };
+                    if (wet(env.w, c.x, c.y, c.z) && env.w.kindAt(c.x, c.y + 1, c.z) === 'solid' && env.w.kindAt(c.x, c.y + 2, c.z) === 'air' && env.w.kindAt(c.x, c.y + 3, c.z) === 'air' && wet(env.w, f.x, f.y, f.z) && env.w.kindAt(f.x, f.y + 1, f.z) === 'air') steps.push({ ...c, d: 1, step: true });
+                }
+                for (const c of [...cands.sort((p, q) => p.d - q.d).slice(0, 4), ...steps]) {
                     const item = sealItem(env); if (!item) break;
-                    let p = await exec('place', { x: c.x, y: c.y, z: c.z, item, fluid: true, temp: 'rescue' });
+                    let p = c.step ? { ok: false } : await exec('place', { x: c.x, y: c.y, z: c.z, item, fluid: true, temp: 'rescue' });
                     if (!p.ok) p = await exec('place', { x: c.x, y: c.y, z: c.z, item, fluid: true, temp: 'rescue', blind: true });
-                    if (p.ok) { out.filled++; out.footing = [c.x, c.y, c.z]; foot = { x: c.x, y: c.y + 1, z: c.z }; break; }
+                    if (!p.ok) continue;
+                    out.filled++; out.footing = [c.x, c.y, c.z];
+                    if (c.step) { const m = await exec('mine', { x: c.x, y: c.y + 1, z: c.z, collect: false, blind: true }); if (!m.ok) continue; out.step = [c.x, c.y + 1, c.z]; }
+                    foot = { x: c.x, y: c.y + 1, z: c.z }; break;
                 }
                 if (!foot) { const e = await fill(); if (e && (e.reason === 'died' || e.reason === 'disconnected')) return e; }
                 f = env.here(); shore = foot || shoreCell(env.w, f, 20); await swim();
