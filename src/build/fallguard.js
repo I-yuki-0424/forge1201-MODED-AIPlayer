@@ -12,6 +12,10 @@
 // body steps off is held like any other (five bots died one after the other dropping onto a temporary block that was gone, live 2026-11-25 hb2 w1).
 const { Vec3 } = require('vec3');
 
+// BlockTags.CLIMBABLE (1.21.1; src/native/physics/blocks.js): a body in such a cell does not fall (vanilla onClimbable clamps the fall and resets its distance), so a ladder or vine
+// within the reach of a fall holds the body like a floor. The walk plans climb nodes and drops caught by a ladder (src/skills/planner.js); without this the guard held a bot that
+// stepped onto a vine over a drop.
+const CLIMBABLE = require('../native/physics/blocks').CLIMBABLE;
 const HURTS = /^(lava|magma_block|fire|soul_fire|campfire|soul_campfire|cactus|sweet_berry_bush|wither_rose|pointed_dripstone|powder_snow)$/;
 const HALF = 0.3;
 
@@ -42,6 +46,7 @@ function heldIn(world, cx, cz, y, depth, x = cx + 0.5, z = cz + 0.5) {
         const b = world.getBlock(p);
         if (!b) return true;
         if (b.name === 'water' || b.name === 'bubble_column') return y - (cy + 1) <= depth + 1;
+        if (CLIMBABLE.has(b.name)) return true;
         if (HURTS.test(b.name)) return false;
         const shapes = (b.shapes || []).filter(under);
         if (!shapes.length) continue;

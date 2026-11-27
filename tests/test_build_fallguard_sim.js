@@ -226,6 +226,14 @@ test('openDrops leaves drops within the guard\'s three alone and adds to what is
     assert.deepStrictEqual([...bot.__fallGuard.allow.entries()].sort(), [['1,0', 6.5], ['5,5', 4]]);
 });
 
+test('a ladder or vine within the reach of a fall holds the body (the walk plans climb nodes); negative control: the same cell without it holds nothing', () => {
+    const held = (cells) => FG.held(scene(cells), 1.5, 21, 0.5, 3);
+    assert.strictEqual(held(column(1, 0, 0, 20, 'vine')), true);                   // a vine column from the ground up to the feet
+    assert.strictEqual(held({ '1,19,0': 'ladder' }), true);                          // a ladder two below the feet, nothing under it: caught
+    assert.strictEqual(held({}), false);                                             // air down to the ground: held by nothing
+    assert.strictEqual(held({ '1,10,0': 'ladder' }), false);                         // a ladder eleven below: beyond the reach of a fall of three
+});
+
 (async () => {
     let n = 0;
     for (const [name, fn] of queue) { await fn(); n++; console.log(`ok - ${name}`); }

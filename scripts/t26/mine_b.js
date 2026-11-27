@@ -63,6 +63,8 @@ const LIMIT_MIN = Number(process.env.LIMIT_MIN || 240), DEPTH = Number(process.e
       const spare = T.toolItems ? T.toolItems(true) : [];
       for (const [j, it] of [...spare, ...spare].entries()) await S.must(`item replace block ${cx} ${cy} ${cz} container.${j} with ${it}`);
       await S.must(`item replace block ${cx} ${cy} ${cz} container.20 with minecraft:cooked_beef 32`);
+      // the bot's world must have the chest before the site is added (fg075a w1: "there is nothing at 22 74 6 (air)", the block update had not arrived yet)
+      for (let i = 0; i < 50 && !/chest/.test((bot.blockAt(new Vec3(cx, cy, cz)) || {}).name || ''); i++) await T.sleep(200);
       svc.addSite({ name: 'tools', x: cx, y: cy, z: cz, purpose: 'tools' });
       // the respawn point beside the chest (what a bed at a player's base does): the box is at the world spawn, so a bot that died woke on the floor of its own dug pit with an
       // empty pack, 83 levels under the chest, and could not climb out (mb075r w1, 1.21.1)
