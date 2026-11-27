@@ -232,6 +232,8 @@ async function main() {
                     await sleep(2000);
                 }
                 if (job.state === 'running' && svc.pauseJob) { try { svc.pauseJob(job.id); await sleep(3000); } catch (_) { /* informational */ } }
+                // (each bot takes its own blocks away as it leaves the crew, drive.js LEAVE_MS: until the ledger has not changed for 6 s, at most 40 s)
+                { const tp = Date.now(); let n0 = -1, same = 0; while (Date.now() - tp < 40000 && same < 3) { const n1 = B.ledger.list((e) => !e.keep).length; same = n1 === n0 ? same + 1 : 0; n0 = n1; await sleep(2000); } }
                 console.log(`[wrap] ${Math.round((Date.now() - tw) / 1000)} s: ${B.ledger.list((e) => !e.keep).length} temporary blocks left in the ledger, job ${job.state}`);
             }
         } catch (e) { err = e.message; state = 'error'; console.error(e); }

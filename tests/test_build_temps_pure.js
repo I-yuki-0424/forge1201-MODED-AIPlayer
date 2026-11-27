@@ -596,4 +596,24 @@ test('release: walkBack did not get onto a tall column of its own whose top is b
     }
 });
 
+test('a bot that leaves the crew alive (pause, stop) takes its own blocks away first, as at a step\'s end (b081w4/x4/y4/w5/y5: "under its placer" and "orphaned (left the crew), not tried yet" at the pause); negative controls: a dead bot, a bot with nothing of its own', async () => {
+    const mk = (health, withBlocks) => {
+        const t = new Target(tiny(), { x: 100, y: 64, z: 100 });
+        const job = new BuildJob(t, {}); job.stage = 'place';
+        const w = new Map(); for (let x = -3; x <= 5; x++) for (let z = -3; z <= 3; z++) w.set(`${x},63,${z}`, { name: 'stone' });
+        if (withBlocks) for (let y = 64; y <= 66; y++) { const c = { x: 0, y, z: 0 }; w.set(`0,${y},0`, { name: 'pumpkin' }); job.addTemp(c, 'pillar', 'a', 'pumpkin'); job.ledger.observe(c, 'pumpkin'); }
+        const bot = fakeBot(w, { x: 0.5, y: withBlocks ? 67 : 64, z: 0.5 }); bot.health = health; bot._client = { ended: false };
+        let down = 0;
+        const mv = { walkBack: async () => 0, unpillar: async () => { down++; for (let y = 66; y >= 64; y--) job.dropTemp({ x: 0, y, z: 0 }); return 3; }, dig: async () => true, mine: new Map() };
+        return { job, bot, mv, get down() { return down; } };
+    };
+    const a = mk(20, true);
+    assert.notStrictEqual(await D.leaving(a.job, 'a', a.bot, a.mv), null); assert.strictEqual(a.down, 1, 'down its pillar before it goes');
+    assert.strictEqual(a.job.ledger.of('a').length, 0, 'nothing of its own left to orphan');
+    const dead = mk(0, true);
+    assert.strictEqual(await D.leaving(dead.job, 'a', dead.bot, dead.mv), null); assert.strictEqual(dead.down, 0, 'negative control: a dead bot does nothing (its blocks are orphaned for the crew)');
+    const none = mk(20, false);
+    assert.strictEqual(await D.leaving(none.job, 'a', none.bot, none.mv), null); assert.strictEqual(none.down, 0, 'negative control: nothing of its own');
+});
+
 (async () => { for (const [name, fn] of queue) { await fn(); n++; console.log(`  ok ${name}`); } console.log(`test_build_temps_pure: ${n} passed`); })().catch((e) => { console.error(e); process.exit(1); });

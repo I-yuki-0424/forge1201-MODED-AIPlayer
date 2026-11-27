@@ -474,6 +474,13 @@ async function release(job, name, bot, mv, cancel, next = null, label = 'step') 
     return n;
 }
 
+/** A bot leaves the crew alive and connected (pause, stop): its own blocks go as at a step's end (release, LEAVE_MS). Returns the blocks dug, or null when it does not apply (dead, gone, nothing of its own). */
+async function leaving(job, name, bot, mv) {
+    if (!bot.entity || (bot._client && bot._client.ended) || !((bot.health || 0) > 0) || !job.ledger.of(name).some((e) => !e.orphan)) return null;
+    try { const n = await release(job, name, bot, mv, within({ cancelled: false }, LEAVE_MS), null, 'leave'); job.stats.leaveRelease = (job.stats.leaveRelease || 0) + n; return n; }
+    catch (e) { job.log(`${name}: release on leaving: ${e.message}`); return 0; }
+}
+
 /**
  * A column of its own taller than the landing takes back (move.js LEAN_DEPTH), whose top is near the bot (three cells, its height within one) when the step ends and walkBack did not
  * get onto it: a planned way onto its top (what is in the way dug, the plan's own rules), then the column dug down as the bot comes down. Such a column has no other way down: the
@@ -905,6 +912,7 @@ async function enterSupply(job, name, bot, mv, site, cancel) {
     } finally { g.wait.delete(name); }
 }
 /** A cancel token that is also cancelled `ms` from now. */
+const LEAVE_MS = 30000;              // the release when a bot leaves the crew alive (pause, stop): as long as a step's end may take
 const within = (cancel, ms) => { const end = Date.now() + ms; return { get cancelled() { return cancel.cancelled || Date.now() > end; } }; };
 const nearContainer = (c) => (x, y, z) => Math.abs(x - c.x) <= 2 && Math.abs(z - c.z) <= 2 && y >= c.y - 1 && y <= c.y + 1 && !(Math.abs(x - c.x) <= 1 && z === c.z && y === c.y + 1) && !(x === c.x && z === c.z);
 /** A free cell beside the container (air, on something solid, not the bot's own cells, outside the box) for a shulker box to stand in while it is unpacked. */
@@ -1446,8 +1454,12 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
             if (process.env.BUILD_TRACE) { const by = {}; for (const r of res) { const k = `${r.tk.kind}:${r.ok ? 'ok' : String(r.why).replace(/-?\d+/g, '#').slice(0, 50)}`; by[k] = (by[k] || 0) + 1; } job.log(`[trace] ${name} at ${cl.station.x},${cl.station.y},${cl.station.z} (${cl.tasks.length} tasks): ${JSON.stringify(by)}`); }
             job.report(name, res);
         }
+        // leaving the crew alive (the job paused or stopped): its step ends here, so its own blocks go first, as at the end of every step; left to the finally's orphaning, the
+        // pillar it stood on and the blocks of its last claim had no placer and no taker (b081w4/x4/y4, b081w5/y5 at the pause after the wrap-up: 'under its placer (no way
+        // down)' 1-3 and 'orphaned (left the crew), not tried yet' 2-15 per run)
+        await leaving(job, name, bot, mv);
         return { ended: 'cancelled' };
     } finally { bot.removeListener('death', onDeath); bot.removeListener('death', onDied); bot.removeListener('blockUpdate', onBlock); job.orphanOf(name, 'left the crew'); clearInterval(sampler); clearInterval(stallWatch); unwatch(); unitems(); bot.removeListener('spawnReset', onReset); bot.__builderOwns = false; job.leave(name); if (job.pool) job.pool.leave(name); for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sneak', 'sprint']) bot.setControlState(k, false); }
 }
 
-module.exports = { underBody, lowAnchor, outOfStock, bodyIn, recoverGround, drive, work, holds, rules, pour, escape, needsFor, boxSpot, bench, release, unscaffold, touchesShape, planned, adoptWorkTemps, closesIn, recoverDrops, materials };
+module.exports = { underBody, lowAnchor, outOfStock, bodyIn, recoverGround, drive, work, holds, rules, pour, escape, needsFor, boxSpot, bench, release, leaving, unscaffold, touchesShape, planned, adoptWorkTemps, closesIn, recoverDrops, materials };
