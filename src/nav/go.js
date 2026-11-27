@@ -148,7 +148,10 @@ function steps(path) {
     const out = [];
     for (let i = 1; i < path.length; i++) {
         const n = path[i], last = out[out.length - 1];
-        if (WALKS.has(n.move) && !(n.dig && n.dig.length)) { if (last && last.kind === 'walk' && last.cells.length < 16) last.cells.push(n); else out.push({ kind: 'walk', cells: [n] }); continue; }
+        // the first walk cell after a pillar, bridge or descent is a step of its own: the walker's tidy after it breaks the block left under the feet while it is still beside it (a run
+        // of 16 cells took the bot out of reach first, and the end's sweep, which places nothing, could not get back to a pillar top in a cave: mbc075c w1, 1.21.1, two pumpkins 8 cells
+        // outside the box at y 27 and 31, both placed by a pillar)
+        if (WALKS.has(n.move) && !(n.dig && n.dig.length)) { if (last && last.kind === 'walk' && last.cells.length < 16 && !last.afterPlace) last.cells.push(n); else out.push({ kind: 'walk', cells: [n], ...(last && ['pillar', 'bridge', 'descend'].includes(last.kind) ? { afterPlace: true } : {}) }); continue; }
         if (n.move === 'pillar') { if (last && last.kind === 'pillar' && last.cells[last.cells.length - 1].x === n.x && last.cells[last.cells.length - 1].z === n.z) last.cells.push(n); else out.push({ kind: 'pillar', cells: [n] }); continue; }
         if (n.move === 'descend') { const e = last && last.kind === 'descend' && last.cells[last.cells.length - 1]; if (e && e.x === n.x && e.z === n.z && e.y === n.y + 1) last.cells.push(n); else out.push({ kind: 'descend', cells: [n] }); continue; }
         if (n.move === 'bridge') { if (last && last.kind === 'bridge' && last.cells[last.cells.length - 1].y === n.y && last.cells.length < 32) last.cells.push(n); else out.push({ kind: 'bridge', cells: [n] }); continue; }

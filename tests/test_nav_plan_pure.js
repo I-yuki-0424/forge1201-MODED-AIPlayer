@@ -168,4 +168,12 @@ test('NAV plans a dig only where `mine` would break the block (fg075c: a leaf ab
     assert.strictEqual(protectedFor(env(inBox), refused)(3, 70, 2), true);
 });
 
+test('the first walk cell after a pillar is a step of its own, so the tidy after it takes the pillar top while the bot is beside it (mbc075c w1: two pillar pumpkins left in a cave 8 cells outside the box); negative control: a plain walk stays one run', () => {
+    const n = (x, y, move) => ({ x, y, z: 0, move, dig: [] });
+    const st = steps([n(0, 64, 'start'), n(0, 65, 'pillar'), n(0, 66, 'pillar'), n(1, 66, 'walk'), n(2, 66, 'walk'), n(3, 66, 'walk')]);
+    assert.deepStrictEqual(st.map((s) => [s.kind, s.cells.length]), [['pillar', 2], ['walk', 1], ['walk', 2]]);
+    const plain = steps([n(0, 64, 'start'), n(1, 64, 'walk'), n(2, 64, 'walk'), n(3, 64, 'walk')]);
+    assert.deepStrictEqual(plain.map((s) => [s.kind, s.cells.length]), [['walk', 3]]);
+});
+
 console.log('nav plan tests passed');
