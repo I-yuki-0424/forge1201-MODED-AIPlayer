@@ -87,7 +87,7 @@ async function decide(deps, goal, unmet, st) {
             } else if (isClosed(reach)) {
                 // the target is outside the small region the bot is in: it is stuck, whatever else is the matter
                 if (st.escaped >= 2) return { fail: { reason: 'stuck', detail: { why: 'enclosed, and two escapes did not open a way', region: reach.cells.length } } };
-                steps.push({ do: 'unstick', region: reach.cells.length });
+                steps.push({ do: 'unstick', region: reach.cells.length, target: { x: t.x, y: t.y, z: t.z } });
             } else if (st.travelled < cands.length && st.travelled < 3) {
                 // the walker (NAV) climbs, digs and bridges where the on-foot reach does not go: straight to a standing cell within reach, the nearest untried first
                 steps.push({ do: 'travel', to: cands[st.travelled], exact: true, why: `no standing cell near the target is reachable on foot (candidates ${cands.length}, region ${reach.cells.length})` });
@@ -110,7 +110,7 @@ async function perform(deps, s) {
     switch (s.do) {
         case 'move': return deps.exec('move_to', { x: s.to.x, y: s.to.y, z: s.to.z }, { atomic: true });
         case 'travel': { const dl = deps.deadline ? { deadline: deps.deadline } : {}; return s.exact ? deps.travel({ x: s.to.x, y: s.to.y, z: s.to.z }, { near: 0, nearY: 0, ...dl }) : deps.travel({ x: s.to.x, y: s.to.y, z: s.to.z, level: s.to.y }, { near: 3, nearY: 3, ...dl }); }
-        case 'unstick': return deps.escape ? deps.escape() : { ok: false, reason: 'stuck', detail: { why: 'no stuck-escape expert in this environment' } };
+        case 'unstick': return deps.escape ? deps.escape(s.target || null) : { ok: false, reason: 'stuck', detail: { why: 'no stuck-escape expert in this environment' } };
         case 'equip': return deps.exec('equip', { item: s.item }, { atomic: true });
         case 'obtain': return deps.obtain ? deps.obtain(s.item, s.count) : { ok: false, reason: 'missing_item', detail: { item: s.item, why: 'this environment cannot get items' } };
         default: return { ok: false, reason: 'internal', detail: { why: `unknown step ${s.do}` } };

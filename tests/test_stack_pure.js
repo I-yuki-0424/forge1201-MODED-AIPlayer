@@ -180,6 +180,19 @@ function fakeBot(scene, pos, { pack = [], held = null, entities = {} } = {}) {
         assert.ok(r.detail.router[0].region < router.CLOSED, 'the closed region was measured');
     });
 
+    await test('router: the unstick step carries the target, so the escape can lead toward it where there is no sky (the Nether: 081\'s b081y5, bots climbed 20-30 over the box and were stranded); without a target the escape is called as before', async () => {
+        const cells = { ...STONE_AT(12, 0) };
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) for (const y of [1, 2]) cells[`${dx},${y},${dz}`] = 'stone';
+        cells['0,3,0'] = 'stone';
+        const s = sandbox(cells, { x: 0, y: 1, z: 0 }), d = deps(s); let got = 'none';
+        d.escape = async (t) => { got = t; s.calls.push(['unstick']); s.here = { x: 20, y: 1, z: 5 }; return { ok: true }; };
+        const r = await router.run(d, { name: 'mine', args: { x: 12, y: 1, z: 0 } });
+        assert.strictEqual(r.ok, true, JSON.stringify(r));
+        assert.deepStrictEqual(got, { x: 12, y: 1, z: 0 }, 'the escape knows where the work is');
+        let got2 = 'none'; await router.perform({ escape: async (t) => { got2 = t; return { ok: true }; } }, { do: 'unstick' });
+        assert.strictEqual(got2, null, 'negative control: an unstick without a target');
+    });
+
     await test('router: a bot in its own tunnel (a small closed region) with a target inside rock is NOT stuck: unreachable, no unstick (reproducer: prospecting dug itself back to the surface)', async () => {
         const cells = { ...STONE_AT(8, 0) };                                       // a block inside solid rock: everything around it is stone
         for (let x = 5; x <= 11; x++) for (let z = -3; z <= 3; z++) for (const y of [1, 2, 3]) cells[`${x},${y},${z}`] = 'stone';

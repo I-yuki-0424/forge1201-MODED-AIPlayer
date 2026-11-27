@@ -480,11 +480,16 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
             obtain: (item, n) => envObj.obtain(item, n),
             // The unstick expert first; when it fails, a staircase dug up out of the hole (src/work/bot/travel.js digOut: the same ability the walk uses). A bot that fell into a shaft near the spawn stood in it for 40 minutes
             // while the expert timed out again and again (acceptance world 3, 2026-11-13).
-            escape: async () => {
-                const r = await envObj.expertEscape(null, { why: 'router: the target cannot be reached from where the bot is' });
+            // Under a ceiling (the Nether: bedrock over y 123, no sky anywhere) the open ground is not up: the surface goal never holds there and its search climbed the bots 20-30 blocks
+            // over the box onto the upper terrain, where every station route failed and the pit was wrapped up with 626 of 2 432 units done (081's b081y5, seed 7649914447792910541,
+            // 1.21.1: 8 bots at y 106-114 over a box with its top at 85). There the way out leads toward the target (NAV digs through the rock), and so does the staircase.
+            escape: async (target = null) => {
+                const ceiling = !!(envObj.profile && envObj.profile().ceiling) && target;
+                const r = ceiling ? await envObj.nav({ x: target.x, y: target.y, z: target.z }, { near: 3, nearY: 3, why: 'router: out of a closed region toward the target (a dimension with a ceiling)' })
+                    : await envObj.expertEscape(null, { why: 'router: the target cannot be reached from where the bot is' });
                 if (r && r.ok) return r;
                 const tr = require('./travel'), h = feet();
-                const d = await tr.digOut({ exec: envObj.exec, here: envObj.here, w, cancel: unitCancel }, { x: h.x + 40, z: h.z });
+                const d = await tr.digOut({ exec: envObj.exec, here: envObj.here, w, cancel: unitCancel }, ceiling ? { x: target.x, y: target.y, z: target.z } : { x: h.x + 40, z: h.z }, { ceiling: !!ceiling });
                 return d.ok && d.steps > 0 ? { ok: true, detail: { dugOut: d.steps } } : r;
             },
         }, { name, args }),

@@ -42,15 +42,18 @@ const COMPASS = ['north', 'east', 'south', 'west'], AXIS = { north: [0, -1], eas
  * to the next heading when a step is refused, until the reach from where the bot stands is no longer enclosed. Acceptance world 2, 2026-11-13: a basin 12 levels down ended the way back 515 blocks short;
  * no leg from its floor could be walked and the bot had the tools to dig. Returns {ok, steps} or {ok: false, reason, steps}.
  */
-async function digOut(env, to, { maxSteps = 60 } = {}) {
+async function digOut(env, to, { maxSteps = 60, ceiling = false } = {}) {
     let fails = 0, steps = 0;
+    // `ceiling` (the Nether): no column sees the sky there, so 'out' is an open region, and the steps go toward the target's level, not up: the stairs up to a sky that never comes took
+    // 081's crew 20-30 blocks over its box (b081y5, seed 7649914447792910541, 1.21.1: 8 bots at y 106-114 over a box topped at 85, the pit wrapped up at 626 of 2 432 units)
+    const dyOf = (h) => (!ceiling ? 1 : !Number.isInteger(to.y) ? 0 : to.y > h.y ? 1 : to.y < h.y ? -1 : 0);
     const head = () => { const h = env.here(), dx = to.x - h.x, dz = to.z - h.z; return Math.abs(dx) >= Math.abs(dz) ? (dx > 0 ? 1 : 3) : (dz > 0 ? 2 : 0); };
     let dir = head();
     while (steps < maxSteps) {
         if (env.cancel && env.cancel.cancelled) return { ok: false, reason: 'cancelled', steps };
         const h = env.here();
-        if (await hasExit(env, h, { sky: true })) return { ok: true, steps };
-        const r = await env.exec('tunnel', { dir: COMPASS[dir], dy: 1 });
+        if (await hasExit(env, h, { sky: !ceiling })) return { ok: true, steps };
+        const r = await env.exec('tunnel', { dir: COMPASS[dir], dy: dyOf(h) });
         if (env.trace) env.trace(`dig out ${h.x},${h.y},${h.z} ${COMPASS[dir]}: ${r.ok ? 'ok' : r.reason}`);
         if (r.ok) { steps++; fails = 0; dir = head(); continue; }
         if (['died', 'disconnected', 'cancelled'].includes(r.reason)) return { ok: false, reason: r.reason, steps };
@@ -149,8 +152,9 @@ async function travel(env, to, { leg = LEG, near = NEAR, maxLegs = MAX_LEGS } = 
             last = { reason: r.reason, detail: r.detail, tried: c };
             if (['died', 'disconnected', 'cancelled'].includes(r.reason)) return { ok: false, reason: r.reason, detail: { legs } };
         }
-        if (!moved && env.exec && !(await hasExit(env, here, { sky: true }))) {                 // enclosed: no leg can leave it on foot; dig a staircase up and go on from the rim
-            const d = await digOut(env, to);
+        const ceil = !!(env.profile && env.profile().ceiling);                                   // (the Nether: no sky to dig up to, digOut)
+        if (!moved && env.exec && !(await hasExit(env, here, { sky: !ceil }))) {                 // enclosed: no leg can leave it on foot; dig a staircase up and go on from the rim
+            const d = await digOut(env, to, { ceiling: ceil });
             if (d.ok && d.steps > 0) { mark(env.here()); continue; }
         }
         if (!moved) return { ok: false, reason: (last && last.reason) || 'unreachable', detail: { ...(last && last.detail ? last.detail : {}), legs, at: env.here(), remaining: Math.round(d), why: 'no leg of any length or side could be walked' } };
@@ -159,8 +163,8 @@ async function travel(env, to, { leg = LEG, near = NEAR, maxLegs = MAX_LEGS } = 
         const rem = hd(env.here(), to);
         if (rem < best - 2) { best = rem; slow = 0; }                         // a new closest point: the walk goes on
         else slow += fresh ? 0.25 : 1;                                        // a leg into ground the bot has not been on is exploring (round a ridge): twelve of them without a new closest point, or three on old ground, are stuck
-        if (slow >= 3 && env.exec && !(await hasExit(env, env.here(), { sky: true }))) {         // the same, when the legs wander inside an enclosure without a way out
-            const d = await digOut(env, to);
+        if (slow >= 3 && env.exec && !(await hasExit(env, env.here(), { sky: !ceil }))) {         // the same, when the legs wander inside an enclosure without a way out
+            const d = await digOut(env, to, { ceiling: ceil });
             if (d.ok && d.steps > 0) { slow = 0; mark(env.here()); continue; }
         }
         if (slow >= 3) return { ok: false, reason: 'stuck', detail: { legs: legs + 1, at: env.here(), remaining: Math.round(hd(env.here(), to)), why: 'no new closest point to the target for several legs (twelve into new ground, three over old)' } };

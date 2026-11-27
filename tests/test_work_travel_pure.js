@@ -121,5 +121,18 @@ function sim({ start = { x: 0, y: 64, z: 0 }, water = () => false, wall = () => 
         assert.ok(r.ok, JSON.stringify(r)); assert.ok(tunnels >= 20 && tunnels <= 30, `${tunnels} stair steps`);
         assert.ok(Math.hypot(s.bot.x - 120, s.bot.z) <= 4, `ended at ${s.bot.x},${s.bot.y},${s.bot.z}`);
     });
+    await test('digOut under a ceiling (the Nether: no sky): the steps go toward the target\'s level and an open region is the way out (081\'s b081y5: stairs up to a sky that never came put 8 bots 20-30 over their box); negative control: in the Overworld the steps go up', async () => {
+        const { digOut } = require('../src/work/bot/travel');
+        const run = async (ceiling) => {
+            const dys = []; const w = { kindAt: (x, y, z) => (x === 0 && z === 0 && (y === 70 || y === 71) ? 'air' : 'solid'), nameAt: () => 'netherrack' };          // a closed pocket in rock
+            const env = { w, here: () => ({ x: 0, y: 70, z: 0 }), exec: async (n, a) => { if (n === 'tunnel') dys.push(a.dy); return { ok: false, reason: 'invalid_target' }; } };
+            const r = await digOut(env, { x: 30, y: 50, z: 0 }, { ceiling });
+            return { r, dys };
+        };
+        const a = await run(true);
+        assert.ok(a.dys.length && a.dys.every((d) => d === -1), `toward the target 20 below: ${a.dys}`);
+        const b = await run(false);
+        assert.ok(b.dys.length && b.dys.every((d) => d === 1), `negative control: up in the Overworld: ${b.dys}`);
+    });
     console.log('\nwork travel: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });
