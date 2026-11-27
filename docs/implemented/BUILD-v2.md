@@ -897,3 +897,44 @@ grades only cells that turned into a temporary-block kind during the run (a bloc
 | other | 33 % (unlabelled drive sleeps) | 19 % (the pit's last units during placing 5 254 s) |
 
 The planning share fell from 36 % to 5 % of the pauses (fastblock, the flood's reach, the claim's runs). What is left is waiting for materials the crew no longer has, and retries after a walk that found no way.
+
+### Round 2 (2026-11-27 afternoon): where the materials went, the end of the place stage, bodies stuck on partial blocks
+
+Fabric 1.21.1 test worlds 4 (native physics, inventory and dig: the 1.21.1 default) and 5 (`NATIVE_PHYSICS=0 NATIVE_INVENTORY=0 NATIVE_DIG=0 NATIVE_INPUTS=0`), iron-farm-34, 8 bots,
+supply = blueprint + 5 % (orchestrator: the margin stays; the leaks are found and closed). Every run starts from a frozen snapshot of main in `/mnt/data/forgeaip-play/t26/snap-081*`.
+
+**The item watch (`src/build/items.js`, 54b7ed1e).** Every item entity that appears near the site gets a cause at its spawn and an end. The causes:
+- a toss: a hand-over, or a drop;
+- a dig whose drop missed a full pack;
+- a death;
+- popped: a block of the box turned into air without a dig of the crew; the log names what changed beside it;
+- unknown.
+
+The ends: picked up (and by whom), despawned, or merged. The material ledger (`[materials]`, every five minutes) splits the unaccounted items into four columns: on the ground, despawned,
+dug out of the build without getting it back, and other. From 6eb412ce the ledger re-reads the chest every time a bot closes it (before, it read it only before the take).
+
+| Leak, as the ledger and the server showed it | Run | Cause | Fix |
+| :-- | :-- | :-- | :-- |
+| 1 664 smooth stone and 2 levers 'other'; 'out of stock: lever'; read from the server: Bd5d carried a shulker box of 27 stacks of smooth stone in its pack, Bd4d three boxes of beds | `b081t5` (mineflayer inventory), `b081t4` (native) | a supply box taken out of the chest 'did not come out (another bot took it)' (3-4 times in every run, both modes) and was never put back or set down. In particular, a box that could not be set down went to `putBack`, which knew boxes only by the contents the client shows, and a slot of the pack shows none | boxes are told by name too (`supply.supplyBoxes`, 63ff8960): the supply's unless the blueprint builds with that kind of box. Used by the wait for a box out of the chest (by name, 1.5 s), `putBack`, the box that does not open and the end's repack |
+| two stacks of smooth stone of a hand-over and a redstone despawned beside the giver ('took 0 back') | `b081u4` (native) | the asker had asked for more than its pack held (it got the pistons, glass and trapdoors); the giver's take-back did not find its own stacks | a toss gives no more than the asker's pack takes at that moment (`pool.room`). The take-back finds the stacks through the item watch too. Any build item lying 15 s is picked up by the nearest bot with room (`drive.recoverGround`, `stats.ground`) (92d7f71f) |
+| a stack of 64 trapdoors and one of 64 smooth stone beside the chest, cause unknown | `b081u4` | most likely a split withdraw with a full pack left the stack on the cursor, and closing the window drops it | windows are closed with an empty cursor (`supply.closeSafe`) (92d7f71f) |
+| 54 beds and 24 redstone 'unaccounted' for 10 minutes with nothing lying about | `b081r4` (857d85c1, no item watch yet) | the ledger read the chest only before the take, so pack-full deposits were missing from it | the chest is read after every use (6eb412ce) |
+| glass short at the end of `b081q5` | `b081q5` | evacuations dug through the glass walls with no count: glass without Silk Touch is gone for good | an evacuation digs by the escape's rule: only blocks the crew gets back or has a spare of, then any; every block is counted (`stats.digOut`, `job.lost`, the ledger's dug column) (b194236e) |
+
+**The end of the place stage (54b7ed1e).** An item that no container, no pack and no stack on the site holds any more parks its cells as 'out of stock: item' (`job.stock`, twice a minute).
+The place stage can then end, and the late stage lights the portals. When the item comes back, its cells come back. Probe: a one-portal blueprint (`drivers-081/mkportal.js`,
+an obsidian frame 16 x 5 around 14 x 3 portal cells), world 5, 3 bots: PASS, `lit` 1, the judge 0 wrong, in 2.7 minutes.
+
+**The 32 smooth stones 'one cell above' in b081q5** are not misplaced. The blueprint has those sticky pistons extended (piston at +0, head at +1, stone at +2). `machine.js` builds the stone at +2 and leaves the head cell
+empty until the machine's power sources stand. The sources were never placed (the stock ran out), so the pistons rested retracted, and the judge's rule for the retracted phase expects the
+stone at +1. With the sources in, the pistons extend into the empty head cells.
+
+**Bodies stuck on partial blocks (owner, watching b081r4 on world 4, 2026-11-27; 74d37e7e).**
+- *What happened*: Bd4a stood at y 76.5 on a floating bottom slab, with air under it at y 75 and 74, read from the server. `feet()` put the feet into the slab's own cell, which is not free. The planner found no start ('no more cells, 1 cells' 49 times), and goto's answer was a jump and a new plan, over and over.
+- *The feet*: a body on a partial block (slab, bed, repeater) has its feet in the cell over that block, and the block's top is the floor. A body on the edge of the block beside its cell stands on that block's column.
+- *Moves from there*: a walk or drop off; a bridge that clicks the partial block's side at half its height. No pillar and no jump one higher, because from 0.5 the jump's peak stays under the cell over the feet.
+- *No start*: when the planner finds no start and the body is on the ground, it does not jump. It logs `[move] no start` and the caller's escape takes the way out.
+- *Beds and doors*: a two-cell block is not placed while a body is in its other cell. The server checks only the clicked cell against bodies and sets the bed's head regardless, which is how a bot was embedded in its own bed. The claim refuses such a stance (its own body or a crew member's stance), and the click is not sent while any body reaches into the cell (`stats.roomBody`).
+
+**A column left by its bot (c062e27b, e8e9ba34).** `stats.columnsLeft` counts the blocks of columns a bot leaves standing, by why `unpillar` stopped. In b081t4's first 45 minutes, 50 of 80 such blocks
+were 'a gap under it (pumpkin)'. The block under the bot was a released block of its own column that another bot had claimed to take away, so it read 'doomed'. The way down now reads that block as it stands.
