@@ -507,15 +507,32 @@ async function unwedge(job, name, bot, mv) {
 
 /** A bot that cannot walk anywhere (closed in) breaks its way up and out, through whatever is in the way; the next survey puts built cells back. */
 async function escape(job, name, bot, mv, cancel, pocket = null) {
-    const f = feet(bot), b = job.t.box;
+    const f = feet(bot);
+    let m2 = outMover(job, name, bot, mv, true);
+    // out sideways to the nearest open cell three or more away at about the same height: never up to the top of the box (a 60-high box made every closed-in bot build a pillar
+    // of 60 that the crew then climbed and tore down, for an hour: owner 2026-11-23); the plan's costs prefer walking and digging to pillaring
+    job.stats.escapes++;
+    // (out of a pocket: to a cell outside the cells it could reach, `pocket`)
+    const goal = pocket ? (x, y, z) => !pocket.has(`${x},${y},${z}`) : (x, y, z) => Math.hypot(x - f.x, z - f.z) >= 3 && Math.abs(y - f.y) <= 2;
+    let r = await m2.goto(f, { goal, cancel, maxNodes: 20000, lavaCost: COST_LAVA });
+    if (!r.ok && !cancel.cancelled) { m2 = outMover(job, name, bot, mv, false); r = await m2.goto(f, { goal, cancel, maxNodes: 20000, lavaCost: COST_LAVA }); }
+    job.log(`${name}: closed in at ${f.x} ${f.y} ${f.z}: ${r.ok ? 'out' : 'no way out (' + r.why + ')'}`);
+    if (!r.ok) tell(job, name, bot, 'stuck', `closed in at ${f.x} ${f.y} ${f.z}, no way out (${String(r.why).slice(0, 80)})`);
+    return r.ok;
+}
+
+/**
+ * The mover of a way out (escape, evacuate) that may dig through the build. `strict`: a built block is dug only when the crew gets it back or the supply holds a spare;
+ * otherwise any block. Every built block it digs is logged and counted (stats.digOut; job.lost for what is not got back: glass without Silk Touch is gone).
+ */
+function outMover(job, name, bot, mv, strict) {
     // a built block is dug on the way out only when the crew gets it back (recover.js: glass needs Silk Touch, obsidian a diamond pickaxe) or the supply holds a spare
     // (the owner's rule from TASK-073); a second try takes any block when the first finds no way, and what it costs is counted (job.lost, the progress line's stats.lostDigs)
     const built = (x, y, z, blk) => job.t.inside(x, y, z) && !job.t.isAir(job.t.idx(x, y, z)) && S.matches(job.t.at(x, y, z), seen(bot, { x, y, z }) || { name: blk.name, props: {} });
     const itemOf = (x, y, z) => { const r = job.t.recipeOf({ x, y, z, i: job.t.idx(x, y, z) }); return r && r.item; };
     const recoverable = (x, y, z, blk) => { const it = itemOf(x, y, z); return !it || RC.getBack(bot, blk.name, it).ok || job.spareOf(it) >= 1; };
     const looseOf = (strict) => ({ canDig: (x, y, z, blk, view = null) => !UNBREAKABLE.test(blk.name) && !CONTAINER.test(blk.name) && !holdsFluid(bot, x, y, z, view) && (!strict || !built(x, y, z, blk) || recoverable(x, y, z, blk)), temp: mv.rules.temp, onTemp: mv.rules.onTemp });
-    let m2 = null;
-    const mover = (strict) => {
+    {
         const m = new Mover(bot, { ...looseOf(strict), onUntemp: mv.rules.onUntemp }); m.mine = mv.mine;
         const dig0 = m.dig.bind(m);
         m.dig = async (c, o) => {
@@ -530,18 +547,7 @@ async function escape(job, name, bot, mv, cancel, pocket = null) {
             return ok;
         };
         return m;
-    };
-    m2 = mover(true);
-    // out sideways to the nearest open cell three or more away at about the same height: never up to the top of the box (a 60-high box made every closed-in bot build a pillar
-    // of 60 that the crew then climbed and tore down, for an hour: owner 2026-11-23); the plan's costs prefer walking and digging to pillaring
-    job.stats.escapes++;
-    // (out of a pocket: to a cell outside the cells it could reach, `pocket`)
-    const goal = pocket ? (x, y, z) => !pocket.has(`${x},${y},${z}`) : (x, y, z) => Math.hypot(x - f.x, z - f.z) >= 3 && Math.abs(y - f.y) <= 2;
-    let r = await m2.goto(f, { goal, cancel, maxNodes: 20000, lavaCost: COST_LAVA });
-    if (!r.ok && !cancel.cancelled) { m2 = mover(false); r = await m2.goto(f, { goal, cancel, maxNodes: 20000, lavaCost: COST_LAVA }); }
-    job.log(`${name}: closed in at ${f.x} ${f.y} ${f.z}: ${r.ok ? 'out' : 'no way out (' + r.why + ')'}`);
-    if (!r.ok) tell(job, name, bot, 'stuck', `closed in at ${f.x} ${f.y} ${f.z}, no way out (${String(r.why).slice(0, 80)})`);
-    return r.ok;
+    }
 }
 
 /**
@@ -555,11 +561,12 @@ async function evacuate(job, name, bot, mv, cancel, why) {
     job.stats.evacuations = (job.stats.evacuations || 0) + 1;
     job.log(`${name}: evacuated from ${f.x} ${f.y} ${f.z}: ${why}`);
     tell(job, name, bot, 'evacuate', `${why}; leaving the site from ${f.x} ${f.y} ${f.z}`, true);
-    const loose = { canDig: (x, y, z, blk, view = null) => !UNBREAKABLE.test(blk.name) && !CONTAINER.test(blk.name) && !holdsFluid(bot, x, y, z, view), temp: mv.rules.temp, onTemp: mv.rules.onTemp, onUntemp: mv.rules.onUntemp };
-    const m2 = new Mover(bot, loose); m2.mine = mv.mine;
+    // (through the build only where the crew gets the block back or has a spare, then any block: it dug glass walls without a count, each pane gone for good: b081q5's
+    // 58 failed evacuations in the stock-out tail, glass 59 short at the end)
     const out = (x, y, z) => (x < b.x - 1 || x > b.x + b.sx || z < b.z - 1 || z > b.z + b.sz);
     const nearest = { x: Math.min(Math.max(f.x, b.x - 3), b.x + b.sx + 2), y: f.y, z: Math.min(Math.max(f.z, b.z - 3), b.z + b.sz + 2) };
-    const r = await m2.goto(nearest, { goal: out, cancel, maxNodes: 30000, lavaCost: COST_LAVA });
+    let r = await outMover(job, name, bot, mv, true).goto(nearest, { goal: out, cancel, maxNodes: 30000, lavaCost: COST_LAVA });
+    if (!r.ok && !cancel.cancelled) r = await outMover(job, name, bot, mv, false).goto(nearest, { goal: out, cancel, maxNodes: 30000, lavaCost: COST_LAVA });
     job.log(`${name}: evacuation ${r.ok ? 'done' : 'failed (' + r.why + ')'}`);
     await sleep(15000, 'other: after an evacuation');
     return r.ok;
@@ -1020,8 +1027,9 @@ function materials(job) {
         if (!sup[it]) continue;
         const placed = Math.max(0, need - (left[it] || 0)), un = sup[it] - placed - (packs[it] || 0) - (store[it] || 0);
         // of the unaccounted: lying on the site now, despawned, and the rest that no item entity explains (placed outside the box, a cell the survey reads wrong)
-        const g = ground[it] || 0, d = gone[it] || 0, s = sum[it];
-        out.push({ it, supplied: sup[it], placed, packs: packs[it] || 0, store: store[it] || 0, unaccounted: un, ground: g, despawned: d, other: un - g - d, needLeft: left[it] || 0, spawned: s ? s.spawned : {} });
+        // (and dug out of the build on a way out without getting it back: glass without Silk Touch, outMover)
+        const g = ground[it] || 0, d = gone[it] || 0, s = sum[it], dl = (job.lost && job.lost.get(it)) || 0;
+        out.push({ it, supplied: sup[it], placed, packs: packs[it] || 0, store: store[it] || 0, unaccounted: un, ground: g, despawned: d, dugLost: dl, other: un - g - d - dl, needLeft: left[it] || 0, spawned: s ? s.spawned : {} });
     }
     return out.sort((a, b) => b.unaccounted - a.unaccounted);
 }
@@ -1175,7 +1183,7 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
             }
             // asked for items by a colleague on its way here: it waits for it a moment and throws them over (not off to another stance meanwhile)
             // the material ledger, every five minutes: supplied = placed + packs + chest/depot + unaccounted (lying or lost), per item, in the log and the progress line
-            if (Date.now() - (job.matAt || 0) > 300000 && job.stage !== 'survey') { job.matAt = Date.now(); try { const m = materials(job); job.stats.unaccounted = Object.fromEntries(m.filter((r) => r.unaccounted > 0).slice(0, 8).map((r) => [r.it, r.unaccounted])); job.log(`[materials] supplied = placed + packs + store + unaccounted (ground / despawned / other; dropped by cause): ${m.slice(0, 10).map((r) => `${r.it} ${r.supplied} = ${r.placed} + ${r.packs} + ${r.store} + ${r.unaccounted} (${r.ground}/${r.despawned}/${r.other}; ${JSON.stringify(r.spawned)}) (to place ${r.needLeft})`).join('; ')}`); } catch (e) { job.log(`[materials] ${e.message}`); } }
+            if (Date.now() - (job.matAt || 0) > 300000 && job.stage !== 'survey') { job.matAt = Date.now(); try { const m = materials(job); job.stats.unaccounted = Object.fromEntries(m.filter((r) => r.unaccounted > 0).slice(0, 8).map((r) => [r.it, r.unaccounted])); job.log(`[materials] supplied = placed + packs + store + unaccounted (ground / despawned / dug and not got back / other; dropped by cause): ${m.slice(0, 10).map((r) => `${r.it} ${r.supplied} = ${r.placed} + ${r.packs} + ${r.store} + ${r.unaccounted} (${r.ground}/${r.despawned}/${r.dugLost}/${r.other}; ${JSON.stringify(r.spawned)}) (to place ${r.needLeft})`).join('; ')}`); } catch (e) { job.log(`[materials] ${e.message}`); } }
             // items nobody has any more: their cells out of the stage (twice a minute)
             if (job.available && Date.now() - (job.stockAt || 0) > 30000 && job.stage !== 'survey') { job.stockAt = Date.now(); const out = outOfStock(job), r = job.stock(out); if (r.parked || r.back) job.log(`stock: ${r.parked} cells parked out of stock (${[...out].join(', ') || 'none'}), ${r.back} back`); job.stats.outOfStock = [...out].join(',') || undefined; }
             { const PL = require('./move').PLANS; job.stats.plans = `${PL.n} ${Math.round(PL.ms / 1000)}s failed ${PL.failed} flood-routes ${PL.flood} sinks ${PL.sinks}/${PL.sinks + PL.sinkFailed}`; }
