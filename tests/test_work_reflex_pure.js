@@ -46,6 +46,26 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         a.rf.detach();
     });
 
+    await test('buried: a full block in the eye cell (gravel fell on the bot: mbc075n w2, suffocated in a wall) is dug after three ticks, again while one stands there; negative controls: air at the eye, a chest, a slab', async () => {
+        const mk = (names) => {
+            const bot = new EventEmitter(), events = [], dug = [];
+            let head = names.slice();
+            Object.assign(bot, { entity: { position: { x: 0.5, y: 20, z: 0.5, floored: () => ({ x: 0, y: 20, z: 0 }), offset: (dx, dy) => ({ dy, floored: () => ({}) }) }, onGround: true, velocity: { y: 0 }, isInWater: false },
+                inventory: { items: () => [] }, health: 20, entities: {},
+                blockAt: (v) => (v && v.dy > 1 && head.length ? { name: head[0], boundingBox: 'block', shapes: [head[0] === 'oak_slab' ? [0, 0.5, 0, 1, 1, 1] : [0, 0, 0, 1, 1, 1]] } : { name: 'air', boundingBox: 'empty', shapes: [] }),
+                dig: async (b) => { dug.push(b.name); head.shift(); }, equip: async () => {}, look: async () => {}, setControlState() {}, setQuickBarSlot() {} });
+            const rf = attach(bot, { world: { kindAt: (x, y, z) => (y <= 19 ? 'solid' : 'air') }, onEvent: (n, d) => events.push([n, d.kind || d.name]) });
+            return { bot, rf, events, dug };
+        };
+        const a = mk(['gravel', 'gravel']);
+        a.bot.emit('physicsTick'); a.bot.emit('physicsTick'); assert.strictEqual(a.rf.state.fired, 0, 'not on the first ticks'); a.bot.emit('physicsTick');
+        assert.strictEqual(a.rf.state.fired, 1); await sleep(50); assert.deepStrictEqual(a.dug, ['gravel', 'gravel'], 'both blocks that came down'); assert.strictEqual(a.bot.__preempt, false, 'let go');
+        a.rf.detach();
+        const b = mk([]); for (let i = 0; i < 5; i++) b.bot.emit('physicsTick'); assert.strictEqual(b.rf.state.fired, 0, 'negative control: air at the eye'); b.rf.detach();
+        const c = mk(['chest']); for (let i = 0; i < 5; i++) c.bot.emit('physicsTick'); assert.strictEqual(c.rf.state.fired, 0, 'negative control: a fixture is never dug'); c.rf.detach();
+        const d = mk(['oak_slab']); for (let i = 0; i < 5; i++) d.bot.emit('physicsTick'); assert.strictEqual(d.rf.state.fired, 0, 'negative control: not a full cube'); d.rf.detach();
+    });
+
     await test('the runner stops a command while a reflex has the body (bot.__preempt) and the worker env waits for it', async () => {
         const { Ctx, SkillError } = require('../src/skills/runner');
         const bot = new EventEmitter(); Object.assign(bot, { entity: { position: { x: 0, y: 0, z: 0 }, onGround: true, velocity: { x: 0, y: 0, z: 0 } }, world: {}, setControlState() {}, health: 20 });

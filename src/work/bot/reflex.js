@@ -250,6 +250,20 @@ function attach(bot, { world, enabled = () => true, onEvent = () => {} } = {}) {
         } finally { for (const c of ['forward', 'sprint', 'jump']) bot.setControlState(c, false); }
         done('fight', { hits });
     }
+    // Buried: the eye cell holds a full block (gravel or sand fell onto the bot from the pit's wall: mbc075n w2, 1.21.1, 'Pit2 suffocated in a wall' while it mined at y 42).
+    // The block is dug at once, from where the bot is, again while one stands there (more of the column comes down), for at most 6 s. Never a fixture (a box, a bed) or bedrock.
+    const headBlock = () => {
+        const p = bot.entity.position, b = bot.blockAt && bot.blockAt(p.offset(0, 1.62, 0));
+        const full = b && Array.isArray(b.shapes) && b.shapes.length === 1 && b.shapes[0].join() === '0,0,0,1,1,1';          // a full cube only (a slab, a trapdoor, a fence: the body fits beside it)
+        return full && b.boundingBox === 'block' && !/^(bedrock|barrier|chest|trapped_chest|barrel|ender_chest)$|shulker_box$|_bed$/.test(b.name) ? b : null;
+    };
+    let buried = 0;
+    async function suffocate() {
+        let b = headBlock(); onEvent('reflex', { kind: 'suffocate', block: b && b.name });
+        const t0 = Date.now(); let dug = 0;
+        while (b && Date.now() - t0 < 6000) { try { await bot.dig(b, true); dug++; } catch (_) { await sleep(100); } b = headBlock(); }
+        done('suffocate', { dug });
+    }
     const inLava = () => { const f = feet(); return bot.blockAt && (bot.blockAt(bot.entity.position.floored()) || {}).name === 'lava'; };
     const tick = () => {
         if (st.active || !enabled() || !bot.entity || !bot.entity.position) return;
@@ -264,6 +278,7 @@ function attach(bot, { world, enabled = () => true, onEvent = () => {} } = {}) {
             const f = feet(), d = dropBelow(kind, f.x, f.y, f.z);
             if (d !== null && d >= FALL_MIN) { st.active = true; bot.__preempt = true; bot.__lastReflex = Date.now(); st.fired++; st.since = Date.now(); fall(d).catch(() => done('fall', { error: true })); }
         } else if (!own && e.isInWater && headWet() && ++wet >= 160) { wet = 0; st.active = true; bot.__preempt = true; bot.__lastReflex = Date.now(); st.fired++; st.since = Date.now(); breath().catch(() => done('breath', { error: true })); }
+        else if ((buried = headBlock() ? buried + 1 : 0) >= 3) { buried = 0; st.active = true; bot.__preempt = true; bot.__lastReflex = Date.now(); st.fired++; st.since = Date.now(); suffocate().catch(() => done('suffocate', { error: true })); }
         else if (inLava()) { st.active = true; bot.__preempt = true; bot.__lastReflex = Date.now(); st.fired++; st.since = Date.now(); lava().catch(() => done('lava', { error: true })); }
         else if (bot.health > 0 && (++fightTick % 4 === 0)) { const f = foe(); if (f) { st.active = true; bot.__preempt = true; bot.__lastReflex = Date.now(); st.fired++; st.since = Date.now(); fight(f).catch(() => done('fight', { error: true })); } }
     };
