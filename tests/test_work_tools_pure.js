@@ -300,6 +300,11 @@ const tool = (name, max, used) => ({ name, maxDurability: max, durabilityUsed: u
         assert.strictEqual(senv.canHarvest('stone_pickaxe'), false, 'the stone pickaxe is not a way to get a gold-ore pickaxe'); assert.strictEqual(senv.canHarvest('iron_pickaxe'), true); assert.strictEqual(plain.canHarvest('stone_pickaxe'), true);
         items = [...items, { name: 'iron_pickaxe', count: 1, maxDurability: 250, durabilityUsed: 0 }];
         assert.strictEqual(senv.usableTool('pickaxe').name, 'iron_pickaxe'); assert.strictEqual(senv.usableCount('pickaxe'), 1);
+        // an unbreakable pickaxe is the whole stock (stock-tools 'until 3' takes no more from the chest: mbc075s w3 emptied it and came back from a death to nothing); negative control: a plain one counts once
+        items = [{ name: 'netherite_pickaxe', count: 1, maxDurability: 2031, durabilityUsed: 0, components: [{ type: 'unbreakable', data: {} }] }];
+        assert.strictEqual(env.usableCount('pickaxe'), 9);
+        items = [{ name: 'netherite_pickaxe', count: 1, maxDurability: 2031, durabilityUsed: 0, components: [{ type: 'enchantments', data: {} }] }];
+        assert.strictEqual(env.usableCount('pickaxe'), 1, 'negative control: a plain netherite pickaxe is one');
     });
 
     await test('placeStation: a table goes to a free cell within two blocks when the cells beside the bot are walls, and only x, y, z are kept for the craft command', async () => {

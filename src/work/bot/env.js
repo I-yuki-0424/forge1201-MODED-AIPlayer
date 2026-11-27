@@ -358,7 +358,9 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         // A tool counts only if it is not worn out AND, when a script is asked to fix a missing tool for a block (`this.need`, set by the worker and the service), it can
         // harvest that block: a stone pickaxe is no replacement for the one that was missing for gold ore (live 2026-11-07: replace-tool answered ok and the bot waited on).
         canHarvest: function (itemName) { return canHarvest(itemName, this && this.need); },
-        usableCount: function (cls) { return bot.inventory.items().filter((i) => i.name.endsWith(`_${cls}`) && !require('../../skills/options').isWorn(bot, i) && canHarvest(i.name, this && this.need)).length; },
+        // (an unbreakable one is all the bot needs of its class: it never wears out. The stock of three emptied the tools chest at the start of mine_b, and the bot killed in the
+        // job's end came back to an empty chest with no pickaxe: 4 lake fills left in the box, 'missing_tool', mbc075s w3, seed -9550732655681071, 1.21.1)
+        usableCount: function (cls) { const o = require('../../skills/options'), ok = bot.inventory.items().filter((i) => i.name.endsWith(`_${cls}`) && !o.isWorn(bot, i) && canHarvest(i.name, this && this.need)); return ok.some((i) => o.unbreakable(i)) ? 9 : ok.length; },
         gather: (a) => require('../jobs/gather').gather(bot, a, { cancel, execute: (b, n, x, o) => (viaStack(n) ? envObj.command(n, x) : execute(b, n, x, o)) }),
         usableTool: function (cls) { return bot.inventory.items().find((i) => i.name.endsWith(`_${cls}`) && !require('../../skills/options').isWorn(bot, i) && canHarvest(i.name, this && this.need)) || null; },
         canCraft: (item) => { const it = bot.registry.itemsByName[item]; return !!it && bot.recipesFor(it.id, null, 1, true).length > 0; },

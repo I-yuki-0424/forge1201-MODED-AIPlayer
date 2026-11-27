@@ -25,6 +25,9 @@ function usesLeft(item) {
     return max ? max - (item.durabilityUsed || 0) : null;
 }
 
+/** The stack never wears out: the `unbreakable` item component (1.20.5+), or the Unbreakable tag of older versions. */
+const unbreakable = (item) => !!item && ((Array.isArray(item.components) && item.components.some((c) => c && c.type === 'unbreakable')) || !!(item.nbt && item.nbt.value && item.nbt.value.Unbreakable && item.nbt.value.Unbreakable.value));
+
 const TIERS = Object.freeze(['wooden', 'stone', 'iron', 'golden', 'diamond', 'netherite']);
 /** The material tier of a tool or armour item name (wooden_pickaxe -> wooden, golden_axe -> golden); null for anything else (shears, bows ...). */
 const tierOf = (name) => { const t = String(name || '').split('_')[0]; return TIERS.includes(t) ? t : null; };
@@ -38,4 +41,4 @@ function isWorn(bot, item) {
     return left !== null && left <= Math.max(o.wornMin, Math.ceil(item.maxDurability * o.wornReserve));
 }
 
-module.exports = { DEFAULTS, TIERS, get, configure, usesLeft, isWorn, tierOf };
+module.exports = { DEFAULTS, TIERS, get, configure, usesLeft, unbreakable, isWorn, tierOf };
