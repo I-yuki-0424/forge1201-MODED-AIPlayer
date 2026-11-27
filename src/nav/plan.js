@@ -107,8 +107,11 @@ function moves(V0, n, o) {
                 if (!landed && k === 'air' && (n.placed || (here === 'stand' && solid(V, x, y - 1, z))) && !o.noPlace) add({ x: X, y, z: Z, kind: 'stand', move: 'bridge', cost: BRIDGE, dig: [], place: { x: X, y: y - 1, z: Z }, placed: true });
             }
         }
-        // one up (jump onto the next cell's top), digging the head room and the two body cells if needed
-        if (here !== 'swim' || V.kind(x, y - 1, z) === 'solid') {
+        // one up (jump onto the next cell's top), digging the head room and the two body cells if needed. From water: over shallow ground, or from the surface cell (air over the feet)
+        // of deep water, as a player swims out onto a bank one block over the water (the game lifts a body in water that pushes against a wall with free room 0.6 up: Player.travel,
+        // native physics player.js). Deep water was no way out at all: Pit2 swam 40 min in an aquifer under the dug floor, the bank one block over the water ('to the shore (stuck)' x81,
+        // mbc075r w2, seed 3512740157434848104, 1.21.1).
+        if (here !== 'swim' || V.kind(x, y - 1, z) === 'solid' || V.kind(x, y + 1, z) === 'air') {
             const h = V.clear(x, y + 2, z), b0 = V.clear(X, y + 1, Z), b1 = V.clear(X, y + 2, Z);
             if (h !== null && b0 !== null && b1 !== null && solid(V, X, y, Z) && V.kind(X, y + 1, Z) !== 'water') {
                 const dig = []; if (h) dig.push({ x, y: y + 2, z }); if (b0) dig.push({ x: X, y: y + 1, z: Z }); if (b1) dig.push({ x: X, y: y + 2, z: Z });

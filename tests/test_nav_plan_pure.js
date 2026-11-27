@@ -176,4 +176,20 @@ test('the first walk cell after a pillar is a step of its own, so the tidy after
     assert.deepStrictEqual(plain.map((s) => [s.kind, s.cells.length]), [['walk', 3]]);
 });
 
+test('deep water: out onto a bank one block over the surface (the game lifts a swimmer against a wall); a bank two over it is no way out', () => {
+    // an aquifer under a dug floor (mbc075r w2, 1.21.1): water y 58..62, the surface cell y 62 with air over it, the bank the rock at y 62 (its top a step over the water)
+    const deep = () => { const w = world((x, y) => (y <= 62 ? 'solid' : 'air')); w.fill(0, 58, -2, 4, 62, 2, 'water'); return w; };
+    const w = deep(), o = { dig: () => null, noPlace: true, radius: 20, maxNodes: 4000 };
+    const r = P.search(w, { x: 2, y: 62, z: 0 }, P.cellGoal({ x: 7, y: 63, z: 0 }), o);
+    assert.ok(r && !r.partial, 'a bank one over the surface is a way out of deep water');
+    assert.ok(moveSet(r).has('up'), [...moveSet(r)].join());
+    // negative control: the bank one block higher (the rock up to y 63 round the pool): no way out without digging or placing
+    const w2 = deep(); for (let x = -6; x <= 10; x++) for (let z = -8; z <= 8; z++) if (!(x >= 0 && x <= 4 && z >= -2 && z <= 2)) w2.set(x, 63, z, 'solid');
+    const r2 = P.search(w2, { x: 2, y: 62, z: 0 }, P.cellGoal({ x: 7, y: 64, z: 0 }), o);
+    assert.ok(!r2 || r2.partial, 'two over the surface cannot be climbed out of deep water');
+    // and from a cell one under the surface (head in water) the bank is not climbed directly: the swim up comes first
+    const w3 = deep(); const V = P.view(w3, o);
+    assert.ok(!P.moves(V, { x: 4, y: 61, z: 0, kind: 'swim' }, o).some((m) => m.move === 'up'));
+});
+
 console.log('nav plan tests passed');
