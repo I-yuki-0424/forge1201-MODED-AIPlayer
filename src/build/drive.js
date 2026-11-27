@@ -1021,6 +1021,38 @@ async function recoverDrops(job, name, bot, mv, cancel) {
 }
 
 /**
+ * The build's items lying on the site (items.js: a toss nobody picked up, a block that popped off its support, a stack dropped at the chest): the nearest bot with room walks
+ * onto each before it despawns, as a player picks up what lies about (b081u4: 128 smooth stone of a hand-over and a stack at the chest despawned). A stack is left for 15 s to
+ * whoever it was meant for; one bot per stack (60 s), given up after three failed walks. Counted: stats.ground (tried, picked).
+ */
+async function recoverGround(job, name, bot, mv, cancel) {
+    const W = job.itemWatch; if (!W || !bot.entity || SUP.freeSlots(bot) < 2) return false;
+    const now = Date.now(), p = bot.entity.position, claims = W.claims || (W.claims = new Map());
+    let best = null;
+    for (const r of W.recs.values()) {
+        if (r.fate || !r.item || !job.t.items.has(r.item) || now - r.at < 15000 || now - r.at > 270000 || (r.tries || 0) >= 3) continue;
+        const c = claims.get(r.id); if (c && c.by !== name && now - c.at < 60000) continue;
+        const e = bot.entities[r.id] || r.ent; if (!e || !e.position) continue;
+        const d = e.position.distanceTo(p); if (d > 48) continue;
+        if (!best || d < best.d) best = { r, e, d };
+    }
+    if (!best) return false;
+    const { r, e } = best, q = { x: Math.floor(e.position.x), y: Math.floor(e.position.y + 0.2), z: Math.floor(e.position.z) }, n0 = SUP.carried(bot)[r.item] || 0;
+    claims.set(r.id, { by: name, at: now }); r.tries = (r.tries || 0) + 1;
+    const st = job.stats.ground || (job.stats.ground = { tried: 0, picked: 0 }); st.tried++;
+    try {
+        await PZ.within('trip: items on the ground', async () => {
+            await mv.goto(q, { goal: (x, y, z) => x === q.x && z === q.z && Math.abs(y - q.y) <= 1, cancel, maxNodes: 8000, tries: 1 });
+            for (let i = 0; i < 8 && !r.fate; i++) await sleep(150, 'server: the pickup');
+        });
+    } catch (err) { job.log(`${name}: items on the ground at ${q.x},${q.y},${q.z}: ${err.message}`); }
+    const got = (SUP.carried(bot)[r.item] || 0) - n0;
+    if (got > 0) st.picked += got;
+    if ((job.groundLog = (job.groundLog || 0) + 1) <= 60) job.log(`${name}: ${r.count} ${r.item} lying at ${q.x},${q.y},${q.z} (${r.cause}${r.by ? ` by ${r.by}` : ''}): ${got > 0 ? `picked up ${got}` : r.fate ? `taken by ${r.fateBy || '?'}` : 'not reached'}`);
+    return true;
+}
+
+/**
  * The build's material ledger per item: supplied = placed + in the crew's packs + in the chest and the depot boxes (as last read) + unaccounted (lying on the ground or lost:
  * despawned, burnt). Every item missing at the end has a named place (orchestrator 2026-11-27: b081q4 ran out of smooth stone, redstone and repeaters with the supply at +5 %).
  * `placed` counts the blueprint's cells of the item that are right (its cells less those still to place or parked). Items with something unaccounted, worst first.
@@ -1165,6 +1197,8 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
             { const b0 = job.t.box, p = bot.entity.position, d = Math.hypot(p.x - (b0.x + b0.sx / 2), p.z - (b0.z + b0.sz / 2)); if (d > 200) { job.log(`${name} is ${Math.round(d)} blocks from the site (respawned far away): it leaves the crew`); return { ended: 'too_far' }; } }
             if (inNether(bot) && job.available.has('respawn_anchor') && !(job.spawnSet && job.spawnSet.has(name)) && !job.anchorBusy && Date.now() - ((job.anchorTry && job.anchorTry.get(name)) || 0) > 120000) { (job.anchorTry || (job.anchorTry = new Map())).set(name, Date.now()); await settle(null, 'anchor'); await anchor(job, name, bot, mv, cancel); }
             if (job.drops && job.drops.some((d) => !d.done)) await recoverDrops(job, name, bot, mv, cancel);
+            // the build's items lying about: picked up before they despawn (at most every 10 s per bot)
+            if (job.itemWatch && job.stage !== 'survey' && Date.now() - ((job.groundAt && job.groundAt.get(name)) || 0) > 10000) { (job.groundAt || (job.groundAt = new Map())).set(name, Date.now()); if (await recoverGround(job, name, bot, mv, cancel)) continue; }
             if (job.exhausted()) { await PZ.within('cpu: survey', () => job.resurvey(bot, `${name}: stage ${job.stage} done`)); continue; }
             // the terrain first, by the pit (after the first survey, with the tools of the first trip in the pack)
             // (only with its tools and temporary blocks in the pack: the trip before the pit fetches those and nothing else; b081b: two bots went in with an empty pack after a
@@ -1317,4 +1351,4 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
     } finally { bot.removeListener('death', onDeath); bot.removeListener('death', onDied); bot.removeListener('blockUpdate', onBlock); job.orphanOf(name, 'left the crew'); clearInterval(sampler); clearInterval(stallWatch); unwatch(); unitems(); bot.removeListener('spawnReset', onReset); bot.__builderOwns = false; job.leave(name); if (job.pool) job.pool.leave(name); for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sneak', 'sprint']) bot.setControlState(k, false); }
 }
 
-module.exports = { outOfStock, bodyIn, drive, work, holds, rules, pour, escape, needsFor, boxSpot, bench, release, unscaffold, touchesShape, planned, adoptWorkTemps, closesIn, recoverDrops, materials };
+module.exports = { outOfStock, bodyIn, recoverGround, drive, work, holds, rules, pour, escape, needsFor, boxSpot, bench, release, unscaffold, touchesShape, planned, adoptWorkTemps, closesIn, recoverDrops, materials };

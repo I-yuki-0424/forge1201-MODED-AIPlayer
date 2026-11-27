@@ -112,8 +112,11 @@ class Pool {
         const spawned = new Map(), onSpawn = (e) => { if (e && e.name === 'item') spawned.set(String(e.id), Date.now()); };
         bot.on('entitySpawn', onSpawn);
         const sent = {}, c0 = SUP.carried(bot), a0 = SUP.carried(asker);
+        // no more than the asker's pack takes now: a stack that does not fit lies where it lands (b081u4, native, 1.21.1: Bd4c asked for 100 smooth stone with three
+        // slots free, got the sticky pistons, glass and trapdoors, and two stacks of smooth stone lay until they despawned)
+        const fits = room(asker, r.items);
         for (const [it, n0] of Object.entries(r.items)) {
-            const sp = this.spare(name, it), n = Math.min(n0, sp);
+            const sp = this.spare(name, it), n = Math.min(n0, sp, fits[it] || 0);
             if (n <= 0) continue;
             try { const k = await throwOut(bot, it, n, sp); if (k > 0) sent[it] = k; } catch (err) { this.job.log(`pool: ${name} could not throw ${n} ${it}: ${err.message}`); }
         }
@@ -130,7 +133,13 @@ class Pool {
             // the asker did not get it within a few seconds: the giver takes its throw back (walks onto each stack of it that still lies about), so nothing of it is left on
             // the ground to despawn (b081q4: 6 of 116 hand-overs left their toss lying, nobody picked it up); the request fails and the asker may ask again or go to the chest
             if ((SUP.carried(asker)[first] || 0) <= (a0[first] || 0)) {
-                const mv = this.movers && this.movers.get(name), mine = () => Object.values(bot.entities).filter((e) => e.name === 'item' && spawned.has(String(e.id)) && e.position.distanceTo(p) < 7);
+                // (its toss's stacks: the ones it saw spawn, and the ones the crew's item watch put down to its toss (b081u4: 'took 0 back' with two stacks lying beside it))
+                const W = this.job.itemWatch, mv = this.movers && this.movers.get(name), mine = () => {
+                    const out = new Map();
+                    for (const e of Object.values(bot.entities)) if (e.name === 'item' && spawned.has(String(e.id)) && e.position.distanceTo(p) < 7) out.set(String(e.id), e);
+                    if (W) for (const q of W.recs.values()) if (!q.fate && q.cause === 'toss' && q.by === name && q.at >= r.tossAt - 6000) { const e = bot.entities[q.id] || q.ent; if (e && e.position && e.position.distanceTo(bot.entity.position) < 10) out.set(q.id, e); }
+                    return [...out.values()];
+                };
                 const c2 = SUP.carried(bot);
                 for (let k = 0; k < 6 && mv && mine().length; k++) {
                     const e = mine().sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))[0];
@@ -259,6 +268,19 @@ async function throwOut(bot, it, n, spare) {
     return sent;
 }
 
+/** How many of each item fit into `bot`'s pack now, in the order given: its partial stacks topped up, then free slots (one kept free for what it digs). */
+function room(bot, items) {
+    let free = Math.max(0, SUP.freeSlots(bot) - 1); const out = {};
+    for (const [it, n] of Object.entries(items)) {
+        const st = SUP.stackOf(bot, it); let k = 0;
+        for (const s of bot.inventory.items()) if (s.name === it && s.count < st) k += st - s.count;
+        k = Math.min(n, k);
+        while (k < n && free > 0) { k = Math.min(n, k + st); free--; }
+        if (k > 0) out[it] = k;
+    }
+    return out;
+}
+
 /**
  * A cell for the asker: two to three cells from the giver (horizontally), at about its height, nothing between them at the height the toss flies (the cell half way, at the
  * giver's feet and head): the toss lands there.
@@ -273,4 +295,4 @@ function near(gf, view = null) {
     };
 }
 
-module.exports = { Pool, near, REACH, TTL };
+module.exports = { room, Pool, near, REACH, TTL };
