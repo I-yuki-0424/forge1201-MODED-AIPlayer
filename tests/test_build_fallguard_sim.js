@@ -180,7 +180,7 @@ test('pool: a toss the asker does not get is taken back by the giver (walks onto
         const job = { tasks: new Map(), claims: new Map(), t: { items: new Map() }, log: () => {}, _itemOf: () => null };
         const pool = new Pool(job);
         const packs = { a: { glass: 0 }, b: { glass: 64 } }, ents = {};
-        const mk = (name, x) => { const b = new EventEmitter(); Object.assign(b, { username: name, entity: { position: new Vec3(x + 0.5, 70, 0.5), eyeHeight: 1.62, isInWater: false }, entities: ents, setControlState() {}, look: async () => {}, inventory: { items: () => Object.entries(packs[name]).filter(([, c]) => c > 0).map(([n, c]) => ({ name: n, count: c })) } }); return b; };
+        const mk = (name, x) => { const b = new EventEmitter(); Object.assign(b, { username: name, entity: { position: new Vec3(x + 0.5, 70, 0.5), eyeHeight: 1.62, isInWater: false }, entities: ents, setControlState() {}, look: async () => {}, blockAt: (v) => ({ boundingBox: v.y === 69 ? 'block' : 'empty' }), inventory: { items: () => Object.entries(packs[name]).filter(([, c]) => c > 0).map(([n, c]) => ({ name: n, count: c })) } }); return b; };
         const a = mk('a', 0), b = mk('b', 2.5);
         let id = 0;
         b.tossStack = async (st) => { packs.b[st.name] -= st.count; const e = { id: ++id, name: 'item', position: new Vec3(1.5, 70, 0.5), stack: { ...st } }; ents[e.id] = e; b.emit('entitySpawn', e); if (askerGets) { packs.a[st.name] += st.count; delete ents[e.id]; } };
@@ -194,6 +194,22 @@ test('pool: a toss the asker does not get is taken back by the giver (walks onto
         if (!askerGets) { assert.strictEqual(packs.b.glass, 64, 'taken back'); assert.strictEqual(Object.keys(ents).length, 0, 'nothing lying'); assert.strictEqual(pool.stats.takenBack, 64); }
         else { assert.strictEqual(walked.length, 0, 'negative control: the asker has it, the giver stays'); assert.strictEqual(packs.a.glass, 64); }
         assert.ok(r);
+    }
+});
+
+test('pool: no toss to an asker whose floor ends at its feet (a stance in the air: b081w4, 43 glass fell 38 cells and despawned); negative control: on ground the toss goes', async () => {
+    for (const ground of [false, true]) {
+        const job = { tasks: new Map(), claims: new Map(), t: { items: new Map() }, log: () => {}, _itemOf: () => null };
+        const pool = new Pool(job), packs = { a: { glass: 0 }, b: { glass: 64 } };
+        let thrown = 0;
+        const mk = (name, x) => ({ username: name, entity: { position: new Vec3(x + 0.5, 70, 0.5), eyeHeight: 1.62, isInWater: false }, entities: {}, on() {}, removeListener() {}, setControlState() {}, look: async () => {},
+            blockAt: (v) => ({ boundingBox: v.y === 69 && (ground || v.x >= 0) ? 'block' : 'empty' }), inventory: { items: () => Object.entries(packs[name]).filter(([, c]) => c > 0).map(([n, c]) => ({ name: n, count: c })) } });
+        const a = mk('a', 0), b = mk('b', 2.5);
+        b.tossStack = async (st) => { thrown += st.count; packs.b[st.name] -= st.count; packs.a[st.name] += st.count; }; b.toss = async () => {};
+        pool.join('a', a); pool.join('b', b, { goto: async () => ({ ok: true }) }); pool.spare = () => 64;
+        const r = pool.open('a', 'b', { glass: 64 });
+        await pool.serve('b');
+        if (ground) assert.strictEqual(thrown, 64, 'negative control: on ground the toss goes'); else { assert.strictEqual(thrown, 0, 'nothing thrown over the edge'); assert.strictEqual(r.noFloor, 1); }
     }
 });
 

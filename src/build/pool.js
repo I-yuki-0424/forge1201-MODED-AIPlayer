@@ -100,7 +100,11 @@ class Pool {
         if (!bot || !bot.entity) { this.close(r, 'failed', 'giver gone'); return false; }
         if (!asker || !asker.entity) { this.close(r, 'failed', 'asker gone'); return false; }
         const p = bot.entity.position, q = asker.entity.position;
-        { const d = Math.hypot(q.x - p.x, q.z - p.z); if (d < REACH[0] || d > REACH[1] || Math.abs(q.y - p.y) > 1.2) return false; }
+        { const d = Math.hypot(q.x - p.x, q.z - p.z); if (d < REACH[0] || d > REACH[1] || Math.abs(q.y - p.y) > 1.2) return false;
+          // the toss lands at the asker's feet or a cell beyond: both floors solid, or it falls (b081w4: Bd4a's 43 glass and 30 redstone, thrown to an asker on a stance in the
+          // air, fell 38 cells and despawned); the asker is asked to stand on ground (it waits until the request's time is up, then goes to the chest)
+          const solid = (x, z) => { const b = bot.blockAt(new Vec3(Math.floor(x), Math.floor(q.y) - 1, Math.floor(z)), false); return !!b && b.boundingBox === 'block'; };
+          if (!solid(q.x, q.z) || !solid(q.x + (q.x - p.x) / d, q.z + (q.z - p.z) / d)) { r.noFloor = (r.noFloor || 0) + 1; return false; } }
         // a third bot beside the asker picks the toss up as soon as the asker (items lay among the crew and eight bots took a share, live 2026-11-25 hb3): the giver waits a
         // few seconds for it to pass
         r.readyAt = r.readyAt || Date.now();
