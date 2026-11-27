@@ -126,12 +126,22 @@ async function walk(ctx, goal, { sprint = true } = {}) {
         if (!path) {
             ctx.phase('plan', { from: cell, goal: goal.label });
             const opt = { maxNodes: Math.min(goal.maxNodes || 20000, (bot.__skillOpts && bot.__skillOpts.planNodes) || 20000) };
-            let r = await planAsync(w, cell, goal.isGoal, goal.h, opt);          // sliced: the other bots keep running while this one searches
+            // where the walk's planning time goes (bot.__planStats, read by the harness; TASK-075: 'unit:plan' was 3 111 of 4 800 bot-seconds in a wet mine_b box, mbc075j w1)
+            const plan = async (from) => {
+                const t = Date.now(), q = await planAsync(w, from, goal.isGoal, goal.h, opt), ms = Date.now() - t;
+                const P = bot.__planStats || (bot.__planStats = { n: 0, ms: 0, none: 0, partial: 0, nodes: 0, maxMs: 0, wet: 0, wetMs: 0, by: {} });
+                const k = String(goal.label || '?').split(/[ (]/)[0], g = P.by[k] || (P.by[k] = { n: 0, ms: 0, none: 0, partial: 0 });
+                P.n++; P.ms += ms; P.maxMs = Math.max(P.maxMs, ms); P.nodes += (q && q.expanded) || 0; g.n++; g.ms += ms;
+                if (!q) { P.none++; g.none++; } else if (q.partial) { P.partial++; g.partial++; }
+                if (e.isInWater) { P.wet++; P.wetMs += ms; }
+                return q;
+            };
+            let r = await plan(cell);          // sliced: the other bots keep running while this one searches
             // The body stands on the edge of the next column (its box overhangs the cell of its centre, which has no floor): the walk starts from the cell that holds it. A nudge to the
             // centre of its own cell walked it off the edge (fg075e, mine_b seed 474407178230372896: 'reflex fall, 12 blocks of air below'), and the fall guard held that nudge for good
             // (fg075d: 2 092 stops at -1.74,66,16.5, 'start cell not standable' unit after unit)
             const sup = !r && e.onGround ? supportCell(w, pos) : null;
-            if (sup) r = await planAsync(w, sup, goal.isGoal, goal.h, opt);
+            if (sup) r = await plan(sup);
             if (!r) {
                 // Standing on something the planner does not model (an edge, a partial block): nudge to the cell centre once.
                 const c = centre(cell);
