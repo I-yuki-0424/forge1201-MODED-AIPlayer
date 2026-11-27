@@ -217,6 +217,24 @@ const left = (w, box = BOX) => scan(w, box).length;
         assert.strictEqual(plain.calls, 1);
     });
 
+    await test('the job\'s end runs again when its own round put down a movement block of the bot (mbc075b w2: the fall reflex\'s two blocks came after the cleanup and stayed); a round that put down none ends it (negative control)', async () => {
+        const { runWorker } = require('../src/work/bot/worker');
+        const { Ledger } = require('../src/work/jobs/crew');
+        const { EventEmitter } = require('events');
+        const { Temps } = require('../src/work/bot/temps');
+        const run = async (place) => {
+            const L = new Ledger({ maxAttempts: 3 }); L.addRegion({ id: 'r', anchor: { x: 0, z: 0 }, layers: 1, rows: 1 });
+            const bot = new EventEmitter(); bot.username = 'b'; bot.__temps = new Temps(); let calls = 0;
+            const job = { ledger: L, runUnit: async () => ({ ok: true }), cleanup: async () => { calls++; if (calls === 1 && place) bot.__temps.add({ x: 1, y: 60, z: 1, kind: 'reflex', by: 'b' }); else bot.__temps.remove('overworld', { x: 1, y: 60, z: 1 }); } };
+            const env = { bot, pos: () => ({ x: 0, z: 0 }), here: () => ({ x: 0, y: 0, z: 0 }), now: Date.now, exec: async () => ({ ok: true }) };
+            const res = await runWorker(job, 'b', env, { pollMs: 2, backoff: () => 1 });
+            return { res, calls, left: bot.__temps.size };
+        };
+        const a = await run(true), b = await run(false);
+        assert.strictEqual(a.res.ended, 'finished'); assert.strictEqual(a.calls, 2, `ran again (${a.calls})`); assert.strictEqual(a.left, 0);
+        assert.strictEqual(b.calls, 1);
+    });
+
     await test('a seal whose fluid cell has no face in sight from any stand cell is placed by a blind click on a support within reach (the watery-chunk stall of mine_b)', async () => {
         const pit = require('../src/work/jobs/pit');
         const cells = new Map([['2,64,5', 'water']]);

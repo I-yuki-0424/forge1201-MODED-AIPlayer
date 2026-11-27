@@ -29,14 +29,20 @@ async function runWorker(job, id, env, { cancel = { cancelled: false }, policy =
     // does it again, up to three times (TASK-20261125-075 item 4: a bot that died during the end cleanup left its last two pumpkins for good, mine_b mb075g w2).
     const endPass = async () => {
         const bot = env && env.bot;
+        // (and again when the round itself put down a movement block of this bot: the sweep's walks can fall, and the fall reflex's blocks came after the cleanup and stayed,
+        // mbc075b w2, 1.21.1: two 'reflex' pumpkins in the box at the end)
+        const T = bot && bot.__temps, me = bot && bot.username, MOVES = new Set(['pillar', 'bridge', 'scaffold', 'reflex']);
         for (let round = 0; round < 3; round++) {
             let died = false; const onDeath = () => { died = true; };
             if (bot && bot.on) bot.on('death', onDeath);
+            const t0 = Date.now();
             try {
                 if (job.cleanup) await job.cleanup(env);
                 if (!died && env.navOn && env.navOn()) await require('../../nav/go').sweep(env);
             } finally { if (bot && bot.removeListener) bot.removeListener('death', onDeath); }
-            if (!died || cancel.cancelled) return;
+            const fresh = T && typeof T.list === 'function' ? T.list((r) => r.by === me && MOVES.has(r.kind) && (r.at || 0) >= t0).length : 0;
+            if (cancel.cancelled || (!died && !fresh)) return;
+            if (!died) { onEvent('end_again', { id, round: round + 1, fresh }); continue; }
             onEvent('end_after_death', { id, round: round + 1 });
             await new Promise((res) => { const t = setTimeout(res, 30000); if (bot && bot.once) bot.once('spawn', () => { clearTimeout(t); res(); }); });
             await sleep(2000);
