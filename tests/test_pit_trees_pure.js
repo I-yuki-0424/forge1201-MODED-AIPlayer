@@ -443,5 +443,43 @@ const left = (w, box = BOX) => scan(w, box).length;
         assert.strictEqual(b.w.kindAt(5, GROUND + 9, 5), 'solid', 'negative control: the leaf stays'); assert.ok(rb.failed.length >= 1);
     });
 
+    await test('huge mushroom blocks are tree blocks (fr075c dark forest, 1.21.1: 5 cap blocks left in the dug pit); negative control: the small mushroom plant and stone are not', () => {
+        assert(isTree('minecraft:red_mushroom_block') && isTree('brown_mushroom_block') && isTree('mushroom_stem'));
+        assert(!isTree('red_mushroom') && !isTree('brown_mushroom') && !isTree('stone'));
+        const b = []; for (let x = 5; x <= 9; x++) for (let z = 5; z <= 9; z++) b.push([x, GROUND + 7, z, 'red_mushroom_block']);
+        assert.strictEqual(scan(world(b), BOX).length, 25, 'a cap hanging in the box is the tree pass\'s');
+    });
+
+    await test('a bamboo stalk is one target, its lowest block: one mine takes it all, no pillar (fr075c: 20 bamboo left); negative control: a log column is every block', async () => {
+        const stalk = (n) => { const b = []; for (let y = GROUND + 1; y <= GROUND + 12; y++) b.push([6, y, 6, n]); return world(b); };
+        const w = stalk('bamboo'), found = scan(w, BOX);
+        assert.deepStrictEqual(found.map((c) => c.y), [GROUND + 1], 'only the root is listed');
+        assert.deepStrictEqual(scan(w, BOX, { skip: new Set([`6,${GROUND + 1},6`]) }).map((c) => c.y), [GROUND + 2], 'a root given up: the next block up is the target');
+        const { env, calls } = fakeEnv(w, { x: 4, y: GROUND + 1, z: 6 }), mine = env.exec;
+        env.exec = async (n, a) => { if (n === 'mine' && /^bamboo/.test(w.nameAt(a.x, a.y, a.z))) for (let y = a.y + 1; /^bamboo/.test(w.nameAt(a.x, y, a.z)); y++) w.set(a.x, y, a.z, 'air'); return mine(n, a); };
+        const res = await clearTrees(env, BOX);
+        assert.strictEqual(res.ok, true, JSON.stringify(res)); assert.strictEqual(left(w), 0); assert.strictEqual(calls.mine, 1, 'one mine'); assert.strictEqual(calls.pillar, 0, 'no pillar');
+        assert.strictEqual(scan(stalk('jungle_log'), BOX).length, 12, 'negative control: logs do not fall, each is a target');
+    });
+
+    await test('the pit takes a bamboo root under the box bottom by one NAV trip when it is out of reach (fr075c); negative control: without NAV the root stays and the stalk grows back', async () => {
+        const pit = require('../src/work/jobs/pit');
+        const run = async (withNav) => {
+            const cells = new Map(); for (let y = 61; y <= 68; y++) cells.set(`3,${y},3`, 'bamboo');
+            const w = { nameAt: (x, y, z) => cells.get(`${x},${y},${z}`) || (y <= 60 ? 'dirt' : 'air'), kindAt: (x, y, z) => ((cells.get(`${x},${y},${z}`) || (y <= 60 ? 'dirt' : 'air')) === 'air' ? 'air' : 'solid') };
+            const job = pit.createPitJob({ x0: 0, z0: 0, x1: 7, z1: 7, top: 68, bottom: 64 }, {}, { method: 'rows', road: false }), region = job.plan.regions[0];
+            const pos = { x: 7, y: 63, z: 7 }; let trips = 0;
+            const env = { w, have: () => 9, pause: async () => {}, here: () => ({ ...pos }),
+                exec: async (n, a) => { if (n !== 'mine') return { ok: true }; const k = `${a.x},${a.y},${a.z}`; if (!cells.has(k)) return { ok: true };
+                    for (let y = a.y; cells.has(`${a.x},${y},${a.z}`); y++) cells.delete(`${a.x},${y},${a.z}`); return { ok: true }; } };
+            if (withNav) env.nav = async (t) => { trips++; pos.x = t.x - 1; pos.y = t.y + 2; pos.z = t.z; return { ok: true }; };
+            process.env.PIT_TREES = '0';
+            try { for (let u = 0; u < region.layers * region.rows; u++) await job.runUnit(region.id, { unit: u }, env); } finally { delete process.env.PIT_TREES; }
+            return { left: [...cells.keys()], trips };
+        };
+        const a = await run(true); assert.deepStrictEqual(a.left, [], 'root taken'); assert.ok(a.trips >= 1);
+        const b = await run(false); assert.deepStrictEqual(b.left.sort(), ['3,61,3', '3,62,3', '3,63,3'], 'negative control: the root under the box stays');
+    });
+
     console.log('\npit trees: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

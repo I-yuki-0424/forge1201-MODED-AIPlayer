@@ -308,7 +308,12 @@ async function runUnit(plan, region, u, env) {
         }
     };
     // time in cells (the rest of a unit is its walks to stations) and the slowest cell with what it held and how it ended, for the log of slow units (construct.js)
-    const takeRoot = async (c) => { const root = bambooRoot(env.w, c); if (root && root.y < plan.box.bottom && eyeDist(root) <= 4.4) { const b = await env.exec('mine', { ...root, collect: false, blind: true }); if (b.ok) r.bambooRoots = (r.bambooRoots || 0) + 1; } };
+    // (out of reach from where the cell was dug: one NAV trip within reach, as for any cell, else the stalk grows back into the dug layers from its root: fr075c dark forest, 1.21.1)
+    const takeRoot = async (c) => {
+        const root = bambooRoot(env.w, c); if (!root || root.y >= plan.box.bottom) return;
+        const b = eyeDist(root) <= 4.4 ? await env.exec('mine', { ...root, collect: false, blind: true }) : await navReach(root, { ok: false, reason: 'unreachable' });
+        if (b && (b.ok || open(root))) r.bambooRoots = (r.bambooRoots || 0) + 1;
+    };
     const noteCell = (c, t0, block, res) => { const ms = Date.now() - t0; r.cellMs = (r.cellMs || 0) + ms; if (!r.slowCell || ms > r.slowCell.ms) r.slowCell = { x: c.x, y: c.y, z: c.z, block, ms, end: res === null ? 'ok' : res === 'defer' ? 'defer' : (res && res.reason) || null, steps: Object.fromEntries(Object.entries(steps).filter(([, v]) => v >= 500).map(([k, v]) => [k, Math.round(v / 1000)])) }; };
     // A placement the bot cannot reach a face for (unreachable) or that ends in a swim it cannot get out of (stuck): the same walk is not tried again. The server puts the bot on a standable
     // cell beside the fluid cell, once per cell, and the placement is tried from there (a different approach); if that fails too, the failure goes up and the unit is parked.

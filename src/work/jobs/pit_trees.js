@@ -10,9 +10,12 @@
 //   3. descend the same column (moves.js `descend` takes every block of the pillar away again), re-read the world, take the next block. Nothing of the bot's blocks outlives a column.
 // A block that cannot be done (no standing column, the walk or the pillar failed) is put on a `failed` list, reported, and not tried again; the pass never loops: it ends on a time cap, a cell cap
 // and the cancel token. Pure apart from `env` (w, here, exec, run, cancel): the tests drive it on a fake world.
-const TREE = /(_leaves|_log|_wood|_stem|_hyphae|_vines?|^vine|^bamboo|^mangrove_roots|^nether_wart_block|^warped_wart_block|^shroomlight)$/;
+// (huge mushrooms of the dark forest too: their caps are `red_mushroom_block` / `brown_mushroom_block`, the stem `mushroom_stem`; fr075c, 1.21.1: 5 cap blocks hung in the dug pit,
+// dug as rock they were the cells the bot stood on over the pit, left as floaters)
+const TREE = /(_leaves|_log|_wood|_stem|_hyphae|_vines?|^vine|^bamboo|_mushroom_block|^mangrove_roots|^nether_wart_block|^warped_wart_block|^shroomlight)$/;
 const bare = (n) => String(n || '').replace(/^minecraft:/, '');
 const isTree = (name) => TREE.test(bare(name));
+const BAMBOO = /^bamboo(_sapling)?$/;
 
 const LOW = 3;               // a tree block at most this far above the ground under it is mined from the ground
 const STAGE = 2;             // levels risen between two rounds of mining
@@ -37,7 +40,10 @@ function scan(w, box, { skip = null } = {}) {
             if (solidish(k)) { gy = y; break; }              // ground (a tree block under it belongs to the same trunk: handled as found)
             if (k === 'water' || k === 'lava') { gy = y; break; }
         }
-        for (const y of found) { if (skip && skip.has(`${x},${y},${z}`)) continue; out.push({ x, y, z, gy: gy === null ? -Infinity : gy }); }
+        // a bamboo stalk is one target, its lowest block: breaking it takes the whole stalk, and a stalk cut higher up grows back from what is left (fr075c dark forest, 1.21.1:
+        // 20 bamboo stood in the dug pit; the pass took stalk blocks one by one, from pillars, and left the roots)
+        const bam = (y) => BAMBOO.test(bare(w.nameAt(x, y, z)));
+        for (const y of found) { if (skip && skip.has(`${x},${y},${z}`)) continue; if (bam(y) && found.includes(y - 1) && bam(y - 1) && !(skip && skip.has(`${x},${y - 1},${z}`))) continue; out.push({ x, y, z, gy: gy === null ? -Infinity : gy }); }
     }
     return out;
 }
@@ -170,4 +176,4 @@ async function clearTrees(env, box, { maxMs = MAX_MS, maxCells = MAX_CELLS, find
     }
 }
 
-module.exports = { TREE, isTree, scan, groundOf, columnsFor, clearTrees, LOW, STAGE, REACH, RADIUS };
+module.exports = { TREE, BAMBOO, isTree, scan, groundOf, columnsFor, clearTrees, LOW, STAGE, REACH, RADIUS };
