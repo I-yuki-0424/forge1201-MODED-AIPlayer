@@ -831,3 +831,26 @@ move_a seed 7601 (`ma075s`, 97ac3537, Normal): 3/4. The east bot stopped again o
 | `bt075w4` bamboo_jungle | 4755 | 1019 s | 081's stall cap after 15 min with 1 unit leased: 4210/4320 at 2958 s | 2 vines (bamboo: 0) |
 
 Units over 30 s: spruce 102 (9798 s, median 68 s), dark forest 73 (4890 s, median 49 s), jungle 126 (18 221 s, median 77 s, p90 341 s, some cells 560-700 s), bamboo 63 (6089 s, median 61 s). NAV is 10-20 % of it, the planner's CPU 6-25 s per run. After these runs: every pit unit bounded to 6 min, the canopy sweep to 30 s (39e4917e). **Not met:** zero tree blocks on every site, and a pace of 0.8 of rock (dark forest 0.72; the others over budget).
+
+**Where TASK-081 stands (2026-11-27 12:30; Fabric 1.21.1 test worlds 4 and 5, iron-farm-34, 8 bots).** No run finished cell-correct, so the Done-when is not met.
+- The best runs: `b081q5` (mineflayer) placed 7 332 of 7 608 blocks in 194 min of placing. The judge found 1 923 wrong cells; 1 512 of them are the 36 portals, never lit because the place stage never ended. The other 411: 141 smooth stone, 59 glass, 50 slabs, 26 obsidian, 24 torches and the redstone block (waiting for their machine, by the new rule), 23 repeaters, 18 beds, 14 wires, 8 pistons, 8 trapdoors, 5 comparators, plus 32 smooth stones one cell over their own in front of pistons.
+- `b081q4` (native) judged 3 999 wrong (2 273 not placed).
+- Temporary blocks left at the end: 1 pumpkin (q5), 9 pumpkins (q4).
+- What stopped both is the stock. Every item runs at the blueprint's count plus 5 %, and both crews ran out of the items still to place. Read from the server in q5: of 81 repeaters, 53 stand, 5 are in the packs, none in the chest or depot, and 23 are unaccounted, with no death in that run.
+- The leaks named so far, all addressed in code but not yet measured live:
+  - a dead bot's pack (36fe7261)
+  - a toss left lying (2daab59d)
+  - a depot box lost from the list (6be997ee)
+- The material ledger (2daab59d) names the rest in the next run.
+- The pause table after (`b081q5`, placing minutes 45-240, 8 bots), against the before table (`b081a`, minutes 0-31):
+
+| | before (b081a) | after (b081q5) |
+| :-- | --: | --: |
+| bot time in pauses over 0.5 s | 1 962 s of 14 880 (13 %) | 29 982 s of 93 120 (32 %) |
+| cpu (planning) | 36 % of the pauses | 5 % |
+| retry | 25 % | 34 % (plan after a failed walk 3 171 s, mover ticks 2 120 s) |
+| waiting for another bot / the materials | (in other) | 26 % ('nothing to claim' 4 971 s: the stock out; the turn at the chest 3 611 s) |
+| server | 6 % | 16 % |
+| other | 33 % (unlabelled drive sleeps) | 19 % (the pit's last units during placing 5 254 s) |
+
+The planning share fell from 36 % to 5 % of the pauses (fastblock, the flood's reach, the claim's runs). What is left is waiting for materials the crew no longer has, and retries after a walk that found no way.
