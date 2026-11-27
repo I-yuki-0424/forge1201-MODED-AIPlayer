@@ -61,7 +61,8 @@ test('the terrain is the pit\'s: the box columns from the highest cell to clear 
     job.tasks = new Map([['1,65,1', { k: '1,65,1', i: t.idx(1, 65, 1), x: 1, y: 65, z: 1, kind: 'clear' }], ['2,66,2', { k: '2,66,2', i: t.idx(2, 66, 2), x: 2, y: 66, z: 2, kind: 'clear' }], ['0,64,0', { k: '0,64,0', i: t.idx(0, 64, 0), x: 0, y: 64, z: 0, kind: 'place' }]]);
     const P = job.planPit();
     assert(P && P.impl && P.impl.ledger, 'a pit job');
-    assert.deepStrictEqual(P.box, { x0: 0, x1: 3, z0: 0, z1: 3, top: 66, bottom: 65 });
+    assert.deepStrictEqual(P.box, { x0: 1, x1: 2, z0: 1, z1: 2, top: 66, bottom: 65 }, 'the columns of the cells to dig, not the whole site (b081z4: rounds for 1-2 cells over 48 x 48 columns)');
+    assert.strictEqual(P.impl.plan.regions.length, 1, 'a small box is one region');
     assert.strictEqual(job.planPit(), P, 'the same while it runs');
     job.pitDone('test'); assert(P.done && job.stage === 'survey');
     assert.strictEqual(job.planPit(), null, 'not again for the same survey');

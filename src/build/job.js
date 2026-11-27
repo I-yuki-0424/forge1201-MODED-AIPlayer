@@ -519,17 +519,21 @@ class BuildJob {
             if ([...this.tasks.values()].some((tk) => tk.kind === 'clear' || tk.kind === 'fill' || tk.kind === 'seal')) this.stage = 'survey';
             this.pitRounds = PIT_ROUNDS; return null;
         }
-        let top = -Infinity, bottom = Infinity, n = 0;
+        // the box: the columns of the cells to dig, not the whole site (b081z4, 1.21.1: rounds 2 and 3 for one and two cells were pits over all 48 x 48 columns, 720 and 576
+        // units, a final sweep and an end pass over the site: 12 minutes each)
+        let top = -Infinity, bottom = Infinity, n = 0, x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
         for (const tk of this.tasks.values()) {
             if (!(tk.kind === 'clear' || tk.kind === 'fill' || (tk.kind === 'place' && tk.wrong))) continue;
             if (!this.t.inside(tk.x, tk.y, tk.z)) continue;
             n++; if (tk.y > top) top = tk.y; if (tk.y < bottom) bottom = tk.y;
+            if (tk.x < x0) x0 = tk.x; if (tk.x > x1) x1 = tk.x; if (tk.z < z0) z0 = tk.z; if (tk.z > z1) z1 = tk.z;
         }
         if (!n) return null;
         this.pitRounds = (this.pitRounds || 0) + 1;
-        const b = this.t.box, box = { x0: b.x, x1: b.x + b.sx - 1, z0: b.z, z1: b.z + b.sz - 1, top, bottom };
+        const box = { x0, x1, z0, z1, top, bottom };
         const pit = require('../work/jobs/pit'), { PIT_LEDGER } = require('../work/service/common');
-        const lanes = Math.max(1, this.bots.size || 1), method = process.env.BUILD_PIT_METHOD === 'rows' ? 'rows' : 'sweep';          // sweep or rows only (the expert's model sees plants as air): sweep, dug with sight from a station per tile (on the same mine_b box, cmp4: sweep PASS, expert FAIL; b081b: expert stations 'could not stand' 18x)
+        // a lane per bot, no more lanes than tiles of the box (a 1 x 1 box is one bot's)
+        const lanes = Math.max(1, Math.min(this.bots.size || 1, Math.floor((x1 - x0 + 1) * (z1 - z0 + 1) / 25))), method = process.env.BUILD_PIT_METHOD === 'rows' ? 'rows' : 'sweep';          // sweep or rows only (the expert's model sees plants as air): sweep, dug with sight from a station per tile (on the same mine_b box, cmp4: sweep PASS, expert FAIL; b081b: expert stations 'could not stand' 18x)
         const impl = pit.createPitJob(box, PIT_LEDGER, { lanes, method, road: false, plants: true });          // plants: a cell of a build site holding grass, a flower, a snow layer is still to dig (075, 32b7b157)
         this.pitPhase = { box, impl, done: false, cells: n, at: Date.now(), method };
         this.log(`clearing by the pit (round ${this.pitRounds}): ${n} cells to dig in ${box.x0}..${box.x1} x ${box.z0}..${box.z1}, y ${bottom}..${top} (${impl.plan.regions.length} regions, method ${method})`);
