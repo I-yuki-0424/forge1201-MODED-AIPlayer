@@ -79,12 +79,14 @@ services:
       WORK_MAX_BOTS: "24"
       WORK_WORLD: /world/world
       WORK_ASSETS: /mc-assets
+      WORK_STUCK_DIR: /stuck
       WORK_MC_VERSION: ${TW_MC:?}
     volumes:
       - survival_data:/world:ro
       - ${AIP_REPO:-/home/coder/projects/forge1201-MODED-AIPlayer}:/app:ro
       - /mnt/data/forgeaip-play/survival121/console-data/survival:/work
       - /mnt/data/forgeaip/mc-assets:/mc-assets:ro
+      - /mnt/data/forgeaip-play/t26/out/stuck:/stuck:ro
     ports: [ "100.77.246.23:3035:3020" ]
 
 volumes:

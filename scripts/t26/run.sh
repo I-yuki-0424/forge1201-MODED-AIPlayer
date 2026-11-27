@@ -8,7 +8,8 @@ tw_names "${1:?world number}"; shift; SCRIPT=${1:?script}; shift
 mkdir -p "$TW_HOME/out"
 . "$TW_HOME/.env"; tw_bot_env
 SELF=/home/coder/projects/forge1201-MODED-AIPlayer
+ASSETS=(); [ -d /mnt/data/forgeaip/mc-assets ] && ASSETS=(-v /mnt/data/forgeaip/mc-assets:/mc-assets:ro)          # block textures for the stuck snapshots (src/debug/, TASK-20261127-084)
 EXTRA=(); ARGS=(); for a in "$@"; do case "$a" in --*) ARGS+=("$a");; *=*) EXTRA+=(-e "$a");; *) ARGS+=("$a");; esac; done
-exec docker run --rm --name "live-$TW_TAG-$TW_N-$$" --network "$TW_NET" --memory "${MEM:-3g}" -v "${REPO:-$SELF}":/app:ro -v "$SELF/node_modules":/app/node_modules:ro -v "$TW_HOME/out":/out -w /app \
+exec docker run --rm --name "live-$TW_TAG-$TW_N-$$" --network "$TW_NET" --memory "${MEM:-3g}" -v "${REPO:-$SELF}":/app:ro -v "$SELF/node_modules":/app/node_modules:ro -v "$TW_HOME/out":/out "${ASSETS[@]}" -w /app \
   "${TW_ENV[@]}" "${EXTRA[@]}" \
   "$NODE_IMG" sh -c 'exec node $NODE_ARGS "$0" "$@"' "scripts/t26/$SCRIPT" "${ARGS[@]}"

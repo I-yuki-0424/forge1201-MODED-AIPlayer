@@ -209,6 +209,7 @@ class StuckWatch {
             pos, cell: c, yaw: e.yaw, pitch: e.pitch, onGround: !!e.onGround, health: bot.health, food: bot.food, dim: dimOf(bot), version: bot.version || null,
             controls: ['forward', 'back', 'left', 'right', 'jump', 'sneak', 'sprint'].filter((k) => bot.controlState && bot.controlState[k]),
             phase: rec.phase || null, moveTag: bot.__moveTag || null, job: rec.job || null,
+            moves: bot.__mover && Array.isArray(bot.__mover.trace) ? bot.__mover.trace.slice(-8) : [],          // the build mover's last steps (src/build/move.js note)
             guard: g ? { stops: g.stops, lastStop: g.lastStop, episodes: (g.episodes || []).slice(-4) } : null, route, temps, others,
             before: (service.log || []).filter((l) => l.t >= ev.t - 180000 && l.t <= ev.t && String(l.msg).includes(ev.bot)).slice(-30).map((l) => `${stamp(l.t)} ${l.level} ${l.msg}`),
         };
@@ -234,7 +235,11 @@ class StuckWatch {
         fs.mkdirSync(dir, { recursive: true });
         if (snap && snap.progress) { await new Promise((r) => setImmediate(r)); await this._png(dir, 'progress.png', progressPicture(snap.progress), out); }
         else if (snap) {
-            if (snap.rcon) { try { await S.truth(snap.sc, snap.rcon, { budgetMs: this.o.truthMs, dim: snap.facts.dim }); out.server = { checked: snap.sc.checked, unchecked: snap.sc.unchecked, diff: snap.sc.diff }; } catch (err) { out.server = { error: String(err && err.message || err) }; } }
+            if (snap.rcon) {
+                let n = 0; const rcon = (cmd) => { n++; return snap.rcon(cmd); }, t1 = Date.now();
+                try { await S.truth(snap.sc, rcon, { budgetMs: this.o.truthMs, dim: snap.facts.dim }); out.server = { checked: snap.sc.checked, unchecked: snap.sc.unchecked, diff: snap.sc.diff }; } catch (err) { out.server = { error: String(err && err.message || err) }; }
+                out.server.ms = Date.now() - t1; out.server.commands = n;
+            }
             else out.server = { error: 'no RCON: the bot view only' };
             const tex = this._textures(snap.version);
             out.textures = tex.dir ? path.basename(tex.dir) : 'none (flat colours)';

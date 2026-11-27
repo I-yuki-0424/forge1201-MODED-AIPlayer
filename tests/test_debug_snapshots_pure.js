@@ -147,7 +147,7 @@ function scene(slab = [[0, 0, 0, 1, 0.5, 1]]) {
     await test('watcher: a stall line writes three indexed PNGs, event.json and the index for its bot; the second line within 2 min writes nothing; a line of an unknown bot nothing', async () => {
         const root = tmp('stucke-'), map = new Map(), log = [];
         for (let x = -6; x <= 6; x++) for (let z = -6; z <= 6; z++) map.set(`${x},60,${z}`, { name: 'stone', shapes: [[0, 0, 0, 1, 1, 1]], getProperties: () => ({}) });
-        const bot = { version: '1.21.1', health: 20, food: 20, game: { dimension: 'overworld' }, controlState: { jump: true }, entity: { position: { x: 0.5, y: 61, z: 0.5 }, yaw: 0, pitch: 0, onGround: true }, blockAt: (v) => map.get(`${v.x},${v.y},${v.z}`) || { name: 'air', shapes: [], getProperties: () => ({}) } };
+        const bot = { version: '1.21.1', health: 20, food: 20, game: { dimension: 'overworld' }, controlState: { jump: true }, __mover: { trace: ['10:00:00 step 0,61,-1', '10:00:01 step 0,61,-2'] }, entity: { position: { x: 0.5, y: 61, z: 0.5 }, yaw: 0, pitch: 0, onGround: true }, blockAt: (v) => map.get(`${v.x},${v.y},${v.z}`) || { name: 'air', shapes: [], getProperties: () => ({}) } };
         const svc = { bots: new Map([['B1', { name: 'B1', bot, path: { cells: [[0, 61, 0], [0, 61, -3]], at: Date.now() } }]]), jobs: new Map(), temps: { list: () => [{ x: 1, y: 61, z: 0, by: 'B1', kind: 'pillar' }] }, log, o: {}, note: (l, m) => log.push({ t: Date.now(), level: l, msg: m }) };
         const w = new W.StuckWatch({ root, run: 'unit run', afterMs: 0, pauses: null });
         const line = (m) => { const e = { t: Date.now(), level: 'info', msg: m }; log.push(e); return w.observe(svc, e); };
@@ -160,10 +160,14 @@ function scene(slab = [[0, 0, 0, 1, 0.5, 1]]) {
         for (const f of ['top.png', 'along.png', 'across.png']) assert.strictEqual(readBack(fs.readFileSync(path.join(dir, f))).type, 3, `${f} indexed`);
         const ev = JSON.parse(fs.readFileSync(path.join(dir, 'event.json'), 'utf8'));
         assert.strictEqual(ev.kind, 'stall'); assert.strictEqual(ev.server.error, 'no RCON: the bot view only'); assert.deepStrictEqual(ev.controls, ['jump']); assert.strictEqual(ev.temps.length, 1);
+        assert.deepStrictEqual(ev.moves, ['10:00:00 step 0,61,-1', '10:00:01 step 0,61,-2'], 'the mover\'s last steps');
         assert.ok(ev.before.some((l) => l.includes('[stall] B1')), 'the lines before');
         const ix = JSON.parse(fs.readFileSync(path.join(root, 'unit_run', 'index.json'), 'utf8'));
         assert.deepStrictEqual(ix.byKind, { stall: ['001-stall-B1'] }); assert.strictEqual(ix.refused['stall:interval'], 1);
         assert.ok(JSON.parse(fs.readFileSync(path.join(root, 'status.json'), 'utf8')).bytes > 0, 'status with the folder size');
+        { const { Mover } = require('../src/build/move'), b = { entity: { position: { x: 1, y: 2, z: 3 } } }, a = { bot: b, trace: [] }, c = { bot: b, trace: [] };
+          Mover.prototype.note.call(a, 'step'); assert.strictEqual(b.__mover, a, 'the mover that noted a step is the bot\'s');
+          Mover.prototype.note.call(c, 'dig'); assert.strictEqual(b.__mover, c, 'the last one wins'); assert.notStrictEqual(b.__mover, a, 'not the earlier one (control)'); }
         assert.strictEqual(W.enabled({}), false, 'off by default'); assert.strictEqual(W.enabled({ STUCK_SNAPSHOTS: '0' }), false); assert.strictEqual(W.enabled({ STUCK_SNAPSHOTS: '1' }), true);
     });
 
