@@ -127,9 +127,16 @@ async function rescue(env, box, { why = null, maxFill = 48 } = {}) {
                 if (env.surface) await env.surface(8000);
                 f = env.here();
                 let foot = null;
-                for (const [a, , e] of D6.filter(([, b]) => b === 0)) {
+                // (any water cell within two across at the feet's level whose two cells above are air and that has a solid face to click: open water all round the body has none,
+                // mbc075m w3, 1.21.1: the cells beside the bot were water on every side, the one by the wall a step away was the footing)
+                const solidFace = (c) => D6.some(([a, b, e]) => b !== 1 && env.w.kindAt(c.x + a, c.y + b, c.z + e) === 'solid');
+                const cands = [];
+                for (let a = -2; a <= 2; a++) for (let e = -2; e <= 2; e++) {
                     const c = { x: f.x + a, y: f.y, z: f.z + e };
-                    if (!wet(env.w, c.x, c.y, c.z) || env.w.kindAt(c.x, c.y + 1, c.z) !== 'air' || env.w.kindAt(c.x, c.y + 2, c.z) !== 'air') continue;
+                    if ((a === 0 && e === 0) || !wet(env.w, c.x, c.y, c.z) || env.w.kindAt(c.x, c.y + 1, c.z) !== 'air' || env.w.kindAt(c.x, c.y + 2, c.z) !== 'air' || !solidFace(c)) continue;
+                    cands.push({ ...c, d: Math.hypot(a, e) });
+                }
+                for (const c of cands.sort((p, q) => p.d - q.d).slice(0, 4)) {
                     const item = sealItem(env); if (!item) break;
                     let p = await exec('place', { x: c.x, y: c.y, z: c.z, item, fluid: true, temp: 'rescue' });
                     if (!p.ok) p = await exec('place', { x: c.x, y: c.y, z: c.z, item, fluid: true, temp: 'rescue', blind: true });
