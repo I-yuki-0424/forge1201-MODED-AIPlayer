@@ -1,0 +1,92 @@
+# The owner's survival standing server of the current test-world profile and its work console (owner 2026-11-27, schedule sch_ZBtRD9GIw9NsH6X4): the 1.21.1 successor of
+# 26.1.2's survival-hard (/mnt/data/fabric26-worlds, removed). Same seed (1359280) and server mods as the creative one (docker/tw/creative.yaml); survival, Hard, difficulty locked
+# (DifficultyLocked in level.dat, and nobody holds the permission level 2 that /difficulty needs); no cheats: the only operator is Seia_Y at level 1 (spawn-protection bypass only).
+# Started by scripts/t26/survival.sh up. Tailnet address only: game 100.77.246.23:25630, console 100.77.246.23:3035 (docker publishes past ufw: check `ss -ltn` after a change).
+# RCON stays on the compose network. restart: unless-stopped, so both come back after a reboot of the host.
+name: fabric121-survival
+
+services:
+  survival:
+    image: ${TW_IMAGE:?use scripts/t26/survival.sh}
+    container_name: fabric121-survival-hard
+    restart: unless-stopped
+    stop_grace_period: 60s
+    logging: { driver: json-file, options: { max-size: "50m", max-file: "3" } }
+    mem_limit: 4g
+    cpus: 2
+    environment:
+      EULA: "TRUE"
+      TYPE: FABRIC
+      VERSION: ${TW_MC:?}
+      MEMORY: 3000M
+      USE_AIKAR_FLAGS: "true"
+      LEVEL_TYPE: minecraft:normal
+      SEED: "1359280"
+      MODE: survival
+      FORCE_GAMEMODE: "true"
+      DIFFICULTY: hard
+      HARDCORE: "false"
+      OP_PERMISSION_LEVEL: "1"
+      ENABLE_COMMAND_BLOCK: "false"
+      VIEW_DISTANCE: "10"
+      SIMULATION_DISTANCE: "8"
+      MAX_PLAYERS: "30"
+      ONLINE_MODE: "false"
+      ENFORCE_SECURE_PROFILE: "false"
+      ALLOW_FLIGHT: "true"         # as 26.1.2's survival-hard: a bot standing still in the air is not kicked
+      MAX_TICK_TIME: "-1"
+      PAUSE_WHEN_EMPTY_SECONDS: "0"
+      NETWORK_COMPRESSION_THRESHOLD: "256"
+      ENABLE_RCON: "true"
+      RCON_PASSWORD: ${RCON_PASSWORD:?missing .env}
+      MOTD: "Fabric ${TW_MC} survival hard, no cheats (seed 1359280)"
+      REMOVE_OLD_MODS: "true"
+    healthcheck:
+      test: ["CMD", "mc-health"]
+      interval: 10s
+      timeout: 5s
+      retries: 90
+      start_period: 300s
+    volumes:
+      - survival_data:/data
+      - ${TW_MODS:?}:/mods:ro
+    ports: [ "100.77.246.23:25630:25565" ]
+
+  console-survival:
+    image: ${NODE_IMG:?}
+    container_name: fabric121-console-survival-hard
+    restart: unless-stopped
+    logging: { driver: json-file, options: { max-size: "20m", max-file: "5" } }
+    working_dir: /app
+    mem_limit: 2g
+    cpus: 2
+    entrypoint: ["node", "src/work/console.js"]
+    depends_on:
+      survival: { condition: service_healthy }
+    environment:
+      MC_HOST: survival
+      MC_PORT: "25565"
+      MC_VERSION: ${TW_BOT:?}
+      BOT_REGISTRY: vanilla
+      BOT_MOD_TABLE: /work/none.json
+      RCON_HOST: survival
+      RCON_PORT: "25575"
+      RCON_PASSWORD: ${RCON_PASSWORD:?missing .env}
+      NODE_OPTIONS: --max-old-space-size=1536
+      WORK_DATA: /work
+      WORK_BIND: 0.0.0.0           # inside the container; published on the tailnet address only
+      WORK_PORT: "3020"
+      WORK_MAX_BOTS: "24"
+      WORK_WORLD: /world/world
+      WORK_ASSETS: /mc-assets
+      WORK_MC_VERSION: ${TW_MC:?}
+    volumes:
+      - survival_data:/world:ro
+      - ${AIP_REPO:-/home/coder/projects/forge1201-MODED-AIPlayer}:/app:ro
+      - /mnt/data/forgeaip-play/survival121/console-data/survival:/work
+      - /mnt/data/forgeaip/mc-assets:/mc-assets:ro
+    ports: [ "100.77.246.23:3035:3020" ]
+
+volumes:
+  survival_data:
+    name: fabric121-worlds_survival_hard_data
