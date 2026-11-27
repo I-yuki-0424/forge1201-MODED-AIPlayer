@@ -143,7 +143,7 @@ test('held(): an unloaded column counts as held', () => {
 
 // ---- the pool ----
 function crew(packs, posOf, tasks = []) {
-    const job = { tasks: new Map(tasks.map((t) => [t.k, t])), claims: new Map(), t: { items: new Map() }, log: () => {}, _itemOf: (tk) => tk.item };
+    const job = { tasks: new Map(tasks.map((t) => [t.k, t])), claims: new Map(), t: { items: new Map() }, log: () => {}, _itemOf: (tk) => tk.item, _addNeeds: (need, tk) => { if (tk.item) need[tk.item] = (need[tk.item] || 0) + 1; return need; } };
     const pool = new Pool(job);
     for (const [name, inv] of Object.entries(packs)) {
         const [x, y, z] = posOf[name];
@@ -177,7 +177,7 @@ test('pool: a giver serving a request is not asked again; an expired request is 
 test('pool: a toss the asker does not get is taken back by the giver (walks onto each stack), nothing left lying (b081q4: 6 tosses left on the ground); negative control: the asker gets it, the giver stays', async () => {
     const { EventEmitter } = require('events');
     for (const askerGets of [false, true]) {
-        const job = { tasks: new Map(), claims: new Map(), t: { items: new Map() }, log: () => {}, _itemOf: () => null };
+        const job = { tasks: new Map(), claims: new Map(), t: { items: new Map() }, log: () => {}, _itemOf: () => null, _addNeeds: (need) => need };
         const pool = new Pool(job);
         const packs = { a: { glass: 0 }, b: { glass: 64 } }, ents = {};
         const mk = (name, x) => { const b = new EventEmitter(); Object.assign(b, { username: name, entity: { position: new Vec3(x + 0.5, 70, 0.5), eyeHeight: 1.62, isInWater: false }, entities: ents, setControlState() {}, look: async () => {}, blockAt: (v) => ({ boundingBox: v.y === 69 ? 'block' : 'empty' }), inventory: { items: () => Object.entries(packs[name]).filter(([, c]) => c > 0).map(([n, c]) => ({ name: n, count: c })) } }); return b; };
@@ -199,7 +199,7 @@ test('pool: a toss the asker does not get is taken back by the giver (walks onto
 
 test('pool: no toss to an asker whose floor ends at its feet (a stance in the air: b081w4, 43 glass fell 38 cells and despawned); negative control: on ground the toss goes', async () => {
     for (const ground of [false, true]) {
-        const job = { tasks: new Map(), claims: new Map(), t: { items: new Map() }, log: () => {}, _itemOf: () => null };
+        const job = { tasks: new Map(), claims: new Map(), t: { items: new Map() }, log: () => {}, _itemOf: () => null, _addNeeds: (need) => need };
         const pool = new Pool(job), packs = { a: { glass: 0 }, b: { glass: 64 } };
         let thrown = 0;
         const mk = (name, x) => ({ username: name, entity: { position: new Vec3(x + 0.5, 70, 0.5), eyeHeight: 1.62, isInWater: false }, entities: {}, on() {}, removeListener() {}, setControlState() {}, look: async () => {},

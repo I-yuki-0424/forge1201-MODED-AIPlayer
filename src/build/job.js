@@ -188,6 +188,20 @@ class BuildJob {
     }
     /** How many of its item a task needs: a container's goal its count, a block one. */
     _countOf(tk) { return tk.kind === 'contents' ? tk.count : 1; }
+    /** The goals of the closed container that place task tk puts down, not set yet and in stock: they are set from the same stance right after the placement (drive.work), so
+     *  the block and its contents are one piece of work (b081y5: the goals made tasks after the placement needed a second walk, 20-30 cells down into the Nether box, and
+     *  the walks ended 'no plan'). */
+    _closedGoals(tk) {
+        if (tk.kind !== 'place' || !this.t.contentsAt) return [];
+        const gs = this.t.contentsAt.get(tk.k) || [];
+        return gs.filter((g) => g.closed && !(this.contentsDone && this.contentsDone.has(g.k)) && !this.parked.has(g.k) && (!this.available || this.available.has(g.item)));
+    }
+    /** What a task takes from the pack: [[item, count]] (a closed container's placing: its block and its contents). */
+    _needs(tk) { const it = this._itemOf(tk), out = it ? [[it, this._countOf(tk)]] : []; for (const g of this._closedGoals(tk)) out.push([g.item, g.count]); return out; }
+    /** need[item] += what tk takes (items `skip` says not to ask for left out). */
+    _addNeeds(need, tk, skip = () => false) { for (const [it, n] of this._needs(tk)) if (!skip(it)) need[it] = (need[it] || 0) + n; return need; }
+    /** Does the pack (`has`) hold all that tk takes? */
+    _carries(tk, has) { return this._needs(tk).every(([it, n]) => has(it) >= n); }
     _itemOk(tk) { if (tk.kind === 'clear' || tk.kind === 'fix') return true; const it = this._itemOf(tk); return !it || this.available.has(it); }
 
     _finish(sv) {
@@ -614,7 +628,7 @@ class BuildJob {
         const sec = this.sectorOf(name), need = {};
         for (const tk of this.tasks.values()) {
             if (tk.kind !== 'place' || tk.x < sec.x0 || tk.x > sec.x1 || tk.z < sec.z0 || tk.z > sec.z1) continue;
-            const it = this._itemOf(tk); if (it) need[it] = (need[it] || 0) + 1;
+            this._addNeeds(need, tk);
         }
         c.set(name, { at: now, need });
         return need;
@@ -754,15 +768,15 @@ class BuildJob {
         // never the block a bot stands on (in the Nether a bot fell into the lava when another cleared its floor, live 2026-11-21)
         const floors = new Set([...this.bots.values()].map((b) => b.pos && key(b.pos.x, b.pos.y - 1, b.pos.z)).concat([...this.bots.values()].filter((b) => b.station).map((b) => key(b.station[0].x, b.station[0].y - 1, b.station[0].z))));
         floors.add(key(me.x, me.y - 1, me.z));
-        const doable = ready.filter((tk) => { if ((tk.kind === 'clear' || tk.kind === 'untemp') && floors.has(tk.k)) return false; if (tk.digBy && !tk.digBy.has(name)) return false; const it = item(tk); return !it || tk.kind === 'clear' || tk.kind === 'fix' || tk.kind === 'untemp' || has(it) >= this._countOf(tk); });
+        const doable = ready.filter((tk) => { if ((tk.kind === 'clear' || tk.kind === 'untemp') && floors.has(tk.k)) return false; if (tk.digBy && !tk.digBy.has(name)) return false; return tk.kind === 'clear' || tk.kind === 'fix' || tk.kind === 'untemp' || this._carries(tk, has); });
         // most of the ready placing needs items this bot does not carry and it can do little else: it fetches them (a crew took temporary blocks away while 187 of 234 ready
         // cells waited for items nobody went for, ha26 w4)
         { const dp = doable.filter((tk) => tk.kind === 'place').length, wait = ready.filter((tk) => tk.kind === 'place' && !doable.includes(tk));
-          if (wait.length >= 30 && dp < 10) { const need = {}; for (const tk of wait.slice(0, 200)) { const it = item(tk); if (it && !skip(it)) need[it] = (need[it] || 0) + 1; } if (Object.keys(need).length) return { need }; } }
+          if (wait.length >= 30 && dp < 10) { const need = {}; for (const tk of wait.slice(0, 200)) this._addNeeds(need, tk, skip); if (Object.keys(need).length) return { need }; } }
         // only temporary blocks to take away, while blocks wait for items this bot does not carry: it fetches the items first (with an untemp always doable, no bot went for
         // materials and the crew took 110 temporary blocks a minute away while it placed 25, live 2026-11-23 gf1 w3)
         if (doable.length && doable.every((tk) => tk.kind === 'untemp')) {
-            const need = {}; for (const tk of ready.slice(0, 200)) { if (tk.kind !== 'place' || doable.includes(tk)) continue; const it = item(tk); if (it && !skip(it)) need[it] = (need[it] || 0) + 1; }
+            const need = {}; for (const tk of ready.slice(0, 200)) { if (tk.kind !== 'place' || doable.includes(tk)) continue; this._addNeeds(need, tk, skip); }
             if (Object.keys(need).length) return { need };
         }
         if (!doable.length) {
@@ -771,7 +785,7 @@ class BuildJob {
             // only cells under bots' feet are ready (temporary blocks they stand on): as good as nothing ready, so the stall rule still applies
             if (ready.every((tk) => tk.kind === 'clear' || tk.kind === 'untemp')) { this.nothingWhy = `only cells under bots' feet are ready (${ready.length})`; this._stall(bot, now); return null; }
             // items the chest is out of (`skip`) are not asked for: other bots carry them and place those cells
-            const need = {}; for (const tk of ready.slice(0, 200)) { if (tk.kind === 'fix' || tk.kind === 'clear') continue; const it = item(tk); if (it && !skip(it)) need[it] = (need[it] || 0) + this._countOf(tk); }
+            const need = {}; for (const tk of ready.slice(0, 200)) { if (tk.kind === 'fix' || tk.kind === 'clear') continue; this._addNeeds(need, tk, skip); }
             if (!Object.keys(need).length) { this.nothingWhy = `the ready work needs items other bots carry (${[...new Set(ready.slice(0, 50).map(item).filter(Boolean))].slice(0, 4).join(', ')})`; return null; }
             return { need };
         }
@@ -962,7 +976,7 @@ class BuildJob {
         else if (fl && fl.complete && outOfReach) { (this.pocketed || (this.pocketed = new Set())).add(name); (this.reachOf || (this.reachOf = new Map())).set(name, { from: fl.from, cells: new Set(fl.cost.keys()) }); }
         this.lastClaimInfo = `no stance: scanned ${scanned}, ready ${ready.length}, doable ${doable.length}, ${Date.now() - t0} ms in seeds`;
         // what can be done with what it carries reaches nowhere, but ready work waits for items: fetch them (a crew stood idle with ready blocks and empty packs, live 2026-11-22)
-        { const need = {}; for (const tk of ready) { if (doable.includes(tk)) continue; const it = item(tk); if (it && !skip(it)) need[it] = (need[it] || 0) + this._countOf(tk); } if (Object.keys(need).length) return { need }; }
+        { const need = {}; for (const tk of ready) { if (doable.includes(tk)) continue; this._addNeeds(need, tk, skip); } if (Object.keys(need).length) return { need }; }
         if (now - (this.diagAt || 0) > 30000) {
             this.diagAt = now;
             // every task by the cheap reasons, the costly reason for the first 4000 of the rest
@@ -1005,7 +1019,7 @@ class BuildJob {
             const x = f.x + dx, y = f.y + dy, z = f.z + dz, k = key(x, y, z), tk = this.tasks.get(k);
             if (!tk || tk.kind !== 'place' || (!this.relaxed && tk.y > this.topAt(x, z)) || inB.has(k) || this.claims.has(k) || this.parked.has(k) || (this.cool.get(k) || 0) > now) continue;
             if (bodyCovers(f, tk) || boxDist(eye, tk) > this.o.reach) continue;
-            const it = this._itemOf(tk); if (it && !(has(it) > 0)) continue;
+            if (!this._carries(tk, has)) continue;
             cand.push(tk);
         }
         cand.sort((a, b) => a.y - b.y || Math.hypot(a.x - f.x, a.z - f.z) - Math.hypot(b.x - f.x, b.z - f.z));
@@ -1103,7 +1117,7 @@ class BuildJob {
                 for (let dy = -2; dy <= 3; dy++) for (let dx = -5; dx <= 5; dx++) for (let dz = -5; dz <= 5; dz++) {
                     const tk = this.tasks.get(key(f.x + dx, f.y + dy, f.z + dz));
                     if (!tk || tk.kind !== 'place' || this.claims.has(tk.k) || this.parked.has(tk.k) || floors.has(tk.k) || bodyCovers(f, tk) || boxDist(eye, tk) > this.o.reach) continue;
-                    const it = this._itemOf(tk); if (it && !(has(it) > 0)) continue;
+                    if (!this._carries(tk, has)) continue;
                     if (!this.ready(tk, bot, now)) continue;
                     cand.push(tk);
                 }

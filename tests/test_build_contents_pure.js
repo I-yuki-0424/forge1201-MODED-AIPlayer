@@ -68,6 +68,26 @@ test('a closed container (no face open in the finished build): its goal is place
     assert.strictEqual(job._closesUnfilled(top, bot), false, 'negative control: the goal done, the face may close');
 });
 
+test('a closed container is placed by a bot carrying its contents too (b081y5: the goal made a task after the placement needed a second walk into the Nether box, \'no plan\'); negative controls: an open container needs its block only, a done or out-of-stock goal is not carried', () => {
+    const palette = [{ name: 'minecraft:air', props: {} }, { name: 'minecraft:stone', props: {} }, { name: 'minecraft:dropper', props: { facing: 'up', triggered: 'false' } }];
+    const mk = (open) => { const blocks = []; for (let x = 0; x < 3; x++) for (let y = 0; y < 3; y++) for (let z = 0; z < 3; z++) blocks.push({ x, y, z, s: x === 1 && y === 1 && z === 1 ? 2 : (open && x === 1 && y === 2 && z === 1 ? 0 : 1) });
+        blocks.find((b) => b.s === 2).nbt = { Items: [{ Slot: 4, id: 'minecraft:iron_ingot', count: 64 }] }; return new Target({ size: [3, 3, 3], palette, blocks }, { x: 0, y: 64, z: 0 }); };
+    const place = { k: '1,65,1', x: 1, y: 65, z: 1, i: 0, kind: 'place' };
+    const job = new BuildJob(mk(false), {}); place.i = job.t.idx(1, 65, 1);
+    assert.deepStrictEqual(job._needs(place), [['dropper', 1], ['iron_ingot', 64]]);
+    const has = (m) => (it) => m[it] || 0;
+    assert.strictEqual(job._carries(place, has({ dropper: 1 })), false, 'the block alone is not enough');
+    assert.strictEqual(job._carries(place, has({ dropper: 1, iron_ingot: 64 })), true);
+    assert.deepStrictEqual(job._addNeeds({}, place), { dropper: 1, iron_ingot: 64 });
+    assert.deepStrictEqual(job._addNeeds({}, place, (it) => it === 'iron_ingot'), { dropper: 1 }, 'skip leaves an item out');
+    const open = new BuildJob(mk(true), {});
+    assert.deepStrictEqual(open._needs({ ...place, i: open.t.idx(1, 65, 1) }), [['dropper', 1]], 'negative control: an open container is filled late');
+    (job.contentsDone = new Set()).add('contents@1,65,1:iron_ingot');
+    assert.deepStrictEqual(job._needs(place), [['dropper', 1]], 'negative control: the goal done');
+    job.contentsDone.clear(); job.available = new Set(['dropper']);
+    assert.deepStrictEqual(job._needs(place), [['dropper', 1]], 'negative control: out of stock, the block is not held for it');
+});
+
 test('the walk to a stance: 1.5 s and 30 000 cells while the build is large, 6 s and 80 000 in the tail (b081w4: the last 53 cells parked after searches ran out of time); negative control: a large task list keeps the short budget', async () => {
     const D = require('../src/build/drive');
     for (const [size, want, kind] of [[10, [80000, 6000]], [5000, [30000, 1500]], [5000, [80000, 6000], 'contents']]) {

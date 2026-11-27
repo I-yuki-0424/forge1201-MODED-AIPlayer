@@ -34,7 +34,7 @@ class Pool {
                 if (tk.kind !== 'place' || (job.parked && job.parked.has(tk.k)) || (job.noStance && now - (job.noStance.get(tk.k) ?? now) > 15000)) continue;
                 const mine = job.claims.get(tk.k) === name;
                 if (!mine && (Math.abs(tk.x - me.x) > NEAR.xz || Math.abs(tk.z - me.z) > NEAR.xz || Math.abs(tk.y - me.y) > NEAR.y)) continue;
-                const it = job._itemOf(tk); if (it) need[it] = (need[it] || 0) + 1;
+                job._addNeeds(need, tk);
             }
         }
         this.cache.set(name, { at: now, need });

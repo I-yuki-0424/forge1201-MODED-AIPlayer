@@ -337,12 +337,7 @@ async function work(job, name, bot, mv, cl, cancel) {
         if (tk.kind === 'ignite') { if (!(await mv.hold('flint_and_steel'))) { results.push({ tk, ok: false, why: 'skipped' }); continue; } await mv.click([way.light.x, way.light.y, way.light.z], 'up', way.click.hit); await sleep(300); done.push(tk); continue; }
         // a container's goal: its slots set from the pack through the action layer's instruction (set_contents: the screen opened with the use key, the clicks on the game's
         // rules, graded from the window the server sends back); from the stance, it never walks
-        if (tk.kind === 'contents') {
-            await mv.holdNothing();
-            const r = await require('../skills').execute(bot, 'set_contents', { x: tk.x, y: tk.y, z: tk.z, contents: tk.slots.map(({ slot, item, count }) => ({ slot, item, count })) }, { atomic: true });
-            if (!r.ok && (job.contentsLog = (job.contentsLog || 0) + 1) <= 40) job.log(`${name}: contents of ${tk.x},${tk.y},${tk.z} (${tk.count} ${tk.item}): ${r.reason} ${JSON.stringify(r.detail || {}).slice(0, 200)}`);
-            results.push(r.ok ? { tk, ok: true } : { tk, ok: false, why: `set_contents: ${r.reason}` }); continue;
-        }
+        if (tk.kind === 'contents') { results.push(await setContents(job, name, bot, mv, tk)); continue; }
         if (tk.kind === 'pour') { const ok = await pour(job, bot, mv, tk); results.push(ok ? holds(job, bot, tk) : { ok: false, why: 'no ray into the cell' }); continue; }
         if (tk.kind === 'place') {
             const rr = job.t.recipeOf(tk);
@@ -403,9 +398,23 @@ async function work(job, name, bot, mv, cl, cancel) {
         if (tk._bed && !h.ok && (job.bedLog = (job.bedLog || 0) + 1) <= 60) { const d = tk._bed, f = (job.t.wantOf(tk).props || {}).facing, v = V.VEC[f] || [0, 0, 0], hc = seen(bot, { x: tk.x + v[0], y: tk.y, z: tk.z + v[2] }); job.log(`[bed] ${name} ${tk.k} facing ${f}: ${h.why}; head cell had ${d.head}, has ${hc ? hc.name : '?'}; ${d.way}; yaw before ${d.yaw}, after ${bot.entity.yaw.toFixed(2)}; bodies in the cell ${d.bodies}; from ${d.at.x},${d.at.y},${d.at.z}`); }
         delete tk._bed;
     }
+    // a closed container that stands now has its contents set from here at once (the claim gave it to a bot carrying them, job._needs): no second walk to it (b081y5); a goal
+    // not set here is the crew's task as before (job._contentsAfter)
+    for (const r of results.slice()) {
+        if (!r.ok || r.tk.kind !== 'place' || cancel.cancelled) continue;
+        for (const g of job._closedGoals(r.tk)) { const c = await setContents(job, name, bot, mv, job._contentsTask(g)); if (c.ok) { results.push(c); job.stats.contentsAtPlace = (job.stats.contentsAtPlace || 0) + 1; } }
+    }
     await unscaffold(job, bot, mv);
     // the stance's own pillar and the rest of the step's blocks go when the bot's next step is known (drive's loop: release), not when "no placing is left around it"
     return results;
+}
+
+/** A container's goal tk set from where the bot stands, through the action layer's set_contents. Returns a result for job.report. */
+async function setContents(job, name, bot, mv, tk) {
+    await mv.holdNothing();
+    const r = await require('../skills').execute(bot, 'set_contents', { x: tk.x, y: tk.y, z: tk.z, contents: tk.slots.map(({ slot, item, count }) => ({ slot, item, count })) }, { atomic: true });
+    if (!r.ok && (job.contentsLog = (job.contentsLog || 0) + 1) <= 40) job.log(`${name}: contents of ${tk.x},${tk.y},${tk.z} (${tk.count} ${tk.item}): ${r.reason} ${JSON.stringify(r.detail || {}).slice(0, 200)}`);
+    return r.ok ? { tk, ok: true } : { tk, ok: false, why: `set_contents: ${r.reason}` };
 }
 
 /** The crew's spawn bed or respawn anchor: not a blueprint cell, so a temporary block whose step is the whole build (taken away when nothing else is left). */
