@@ -114,6 +114,13 @@ function keepRubble(job) {
  * Does another bot of the crew stand on the block at (x, y, z), or on one of the two above it (live positions from the server, not those of the last claim)? Broken under it,
  * it falls (Nether crews fell 30-50 blocks off temporary blocks the clearing took away under them, live 2026-11-22 sJ2).
  */
+/** Does any body the bot sees (its own, a crew member's, any player's) reach into cell c (a player's box: 0.6 wide, 1.8 high)? */
+function bodyIn(bot, c) {
+    const ps = Object.values(bot.players || {}).map((p) => p && p.entity && p.entity.position).filter(Boolean);
+    if (bot.entity && bot.entity.position && !ps.includes(bot.entity.position)) ps.push(bot.entity.position);
+    return ps.some((q) => q.x + 0.3 > c.x && q.x - 0.3 < c.x + 1 && q.z + 0.3 > c.z && q.z - 0.3 < c.z + 1 && q.y + 1.8 > c.y && q.y < c.y + 1);
+}
+
 function underCrew(job, bot, x, y, z) {
     for (const p of Object.values(bot.players || {})) {
         if (!p || !p.entity || p.username === bot.username || !job.bots.has(p.username)) continue;
@@ -319,6 +326,9 @@ async function work(job, name, bot, mv, cl, cancel) {
             // the clicked block must still stand when the click goes: the server puts a block into the clicked cell itself when that cell is replaceable (air: a scaffold or a
             // temporary block taken away since the way was chosen, by this bot's release or another's untemp), so the block landed one cell off (b081m: slabs under their layer,
             // glass and a piston one cell beside their own); nor a block another bot is taking away now
+            // a two-cell block (a bed's head, a door's upper half) while any body is in its other cell: the server sets that half regardless and the body is embedded in it
+            // (owner 2026-11-27, b081r4 world 4: a bot's feet in a bed it placed itself, it jumped and pushed until it came free)
+            if (rr.room && rr.room.some((d) => bodyIn(bot, { x: tk.x + d[0], y: tk.y + d[1], z: tk.z + d[2] }))) { job.stats.roomBody = (job.stats.roomBody || 0) + 1; results.push({ tk, ok: false, why: 'skipped' }); continue; }
             if (way.n) {
                 const [nx, ny, nz] = way.n, nk = `${nx},${ny},${nz}`, ot = job.tasks.get(nk);
                 const isGone = () => { const q = bot.blockAt(new Vec3(nx, ny, nz), false); return !q || S.AIR.has(q.name) || q.name === 'water' || q.name === 'lava' || REPLACEABLE.test(q.name); };
@@ -1307,4 +1317,4 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
     } finally { bot.removeListener('death', onDeath); bot.removeListener('death', onDied); bot.removeListener('blockUpdate', onBlock); job.orphanOf(name, 'left the crew'); clearInterval(sampler); clearInterval(stallWatch); unwatch(); unitems(); bot.removeListener('spawnReset', onReset); bot.__builderOwns = false; job.leave(name); if (job.pool) job.pool.leave(name); for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sneak', 'sprint']) bot.setControlState(k, false); }
 }
 
-module.exports = { outOfStock, drive, work, holds, rules, pour, escape, needsFor, boxSpot, bench, release, unscaffold, touchesShape, planned, adoptWorkTemps, closesIn, recoverDrops, materials };
+module.exports = { outOfStock, bodyIn, drive, work, holds, rules, pour, escape, needsFor, boxSpot, bench, release, unscaffold, touchesShape, planned, adoptWorkTemps, closesIn, recoverDrops, materials };

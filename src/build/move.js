@@ -105,6 +105,20 @@ class View {
         // side with its top at 1, and four bots stepped onto one and fell through (live 2026-11-25 hb3 w1)
         return top >= 0.85 && top <= 1 + 1e-6 && shapes.some((s) => s[4] >= 0.85 && s[0] < 0.8 && s[3] > 0.2 && s[2] < 0.8 && s[5] > 0.2);
     }
+    /**
+     * The top of a partial block a body stands on (a slab 0.5, a bed 0.5625, a repeater 0.125: under the middle of the cell, lower than a full top), else null. The planner's
+     * start on such a block (feet() puts the feet in the cell over it): from there a walk or a drop goes off it, a bridge clicks its side face, but no pillar or jump one higher
+     * (from 0.5 the jump's peak stays under the cell over the feet, so the block cannot go in under the body: b081r4 Bd4a on a floating slab).
+     */
+    partialTop(x, y, z) {
+        if (this.stands(x, y, z)) return null;
+        const b = this.raw(x, y, z);
+        if (!b || b.boundingBox !== 'block' || NO_STAND.test(b.name)) return null;
+        const mid = (b.shapes || []).filter((s) => s[0] < 0.8 && s[3] > 0.2 && s[2] < 0.8 && s[5] > 0.2);
+        if (!mid.length) return null;
+        const top = Math.max(...mid.map((s) => s[4]));
+        return top > 0 && top < 0.85 ? top : null;
+    }
     /** Lava beside the body's two cells (a slip or a flow takes the bot) or under the feet (one or two down: a fall). Lava next to the floor block is no danger. */
     nearLava(x, y, z) {
         const k = key(x, y, z); let v = this.lavaNear && this.lavaNear.get(k);
@@ -298,6 +312,8 @@ async function plan0(view, start, goal, h, { maxNodes = 40000, temps = 0, box = 
             // at the surface: a cell whose head is under water costs a dive (routes dived to the sea floor and the bot came up for air again and again, owner 2026-11-23)
             add(x, y, z, COST.swim + (view.kind(x, y + 1, z) === 'water' ? 30 : 0) + (dy < 0 ? 10 : 0), 'swim');
         }
+        // the start on a partial block (feet() puts the feet over it): its top, or null
+        const pf = c.move === 'start' ? view.partialTop(c.x, c.y - 1, c.z) : null, lowFloor = pf !== null && pf < 0.8;
         for (const [dx, dz] of H) {
             const x = c.x + dx, z = c.z + dz, diag = dx && dz;
             if (diag && !(view.fits(c.x + dx, c.y, c.z) && view.fits(c.x, c.y, c.z + dz))) continue;
@@ -313,13 +329,13 @@ async function plan0(view, start, goal, h, { maxNodes = 40000, temps = 0, box = 
                 const onTemp = !!c.place && c.place.x === c.x && c.place.y === c.y - 1 && c.place.z === c.z;
                 // (a bridge step that places the blueprint's own block is the build itself: cheap, so floors are laid by walking over them)
                 // (not a bridge that failed from this cell in the last minute: b081q4/q5, a bed in the stance hid the support's side and the same bridge was tried every 3 s for a minute)
-                if (!landed && !diag && !(view.rules.noBridge && view.rules.noBridge(c.x, c.y, c.z, x, z))) { if (view.placeable(x, c.y - 1, z) && view.kind(x, c.y - 1, z) !== 'water' && (onTemp || (view.stands(c.x, c.y - 1, c.z) && P.full(blk(view, c.x, c.y - 1, c.z))))) add(x, c.y, z, (view.rules.buildBlock && view.rules.buildBlock(x, c.y - 1, z)) ? 12 : COST.bridge + COST.temp, 'bridge', { place: { x, y: c.y - 1, z } }); }
+                if (!landed && !diag && !(view.rules.noBridge && view.rules.noBridge(c.x, c.y, c.z, x, z))) { if (view.placeable(x, c.y - 1, z) && view.kind(x, c.y - 1, z) !== 'water' && (onTemp || pf !== null || (view.stands(c.x, c.y - 1, c.z) && P.full(blk(view, c.x, c.y - 1, c.z))))) add(x, c.y, z, (view.rules.buildBlock && view.rules.buildBlock(x, c.y - 1, z)) ? 12 : COST.bridge + COST.temp, 'bridge', { place: { x, y: c.y - 1, z } }); }
                 continue;
             }
             if (diag) continue;
             // step up one; a jump at the edge of a drop of five or more costs as much as six pillar steps: from the top of a pillar the jump onto the next column missed and the
             // bot fell 20 blocks into the dug box, three deaths in four minutes (live 2026-11-23 ha7 w1); the plan pillars one higher and walks across level instead
-            if (headFree && view.fits(x, c.y + 1, z) && view.stands(x, c.y, z)) { add(x, c.y + 1, z, COST.up + (edgeDrop(view, c, 5) ? 120 : 0), 'up'); continue; }
+            if (headFree && !lowFloor && view.fits(x, c.y + 1, z) && view.stands(x, c.y, z)) { add(x, c.y + 1, z, COST.up + (edgeDrop(view, c, 5) ? 120 : 0), 'up'); continue; }
             // dig a step up: the block in front stays as the step, the two over it and the one over the head go (a bot without blocks at the bottom of a hole two deep beside the
             // chest had no way at all, live 2026-11-23 gd1 w6)
             if (view.stands(x, c.y, z) && !view.free(x, c.y, z)) {
@@ -339,7 +355,7 @@ async function plan0(view, start, goal, h, { maxNodes = 40000, temps = 0, box = 
             }
         }
         // pillar up on a temporary block (head room first, broken when diggable), only from a cell the block can go into
-        if ((temps > c.t || (view.rules.buildBlock && view.rules.buildBlock(c.x, c.y, c.z))) && view.placeable(c.x, c.y, c.z) && view.kind(c.x, c.y + 2, c.z) !== 'avoid' && (headFree || view.diggable(c.x, c.y + 2, c.z))) add(c.x, c.y + 1, c.z, COST.pillar + COST.temp + (headFree ? 0 : view.digTicks(c.x, c.y + 2, c.z)) + (view.rules.noPillar && view.rules.noPillar(c.x, c.y, c.z) ? 40 : 0), 'pillar', { place: { x: c.x, y: c.y, z: c.z }, dig: headFree ? null : [{ x: c.x, y: c.y + 2, z: c.z }] });
+        if (!lowFloor && (temps > c.t || (view.rules.buildBlock && view.rules.buildBlock(c.x, c.y, c.z))) && view.placeable(c.x, c.y, c.z) && view.kind(c.x, c.y + 2, c.z) !== 'avoid' && (headFree || view.diggable(c.x, c.y + 2, c.z))) add(c.x, c.y + 1, c.z, COST.pillar + COST.temp + (headFree ? 0 : view.digTicks(c.x, c.y + 2, c.z)) + (view.rules.noPillar && view.rules.noPillar(c.x, c.y, c.z) ? 40 : 0), 'pillar', { place: { x: c.x, y: c.y, z: c.z }, dig: headFree ? null : [{ x: c.x, y: c.y + 2, z: c.z }] });
         // dig down one (the block under the feet), onto the one under it
         if (view.diggable(c.x, c.y - 1, c.z) && view.stands(c.x, c.y - 2, c.z)) add(c.x, c.y - 1, c.z, COST.drop + view.digTicks(c.x, c.y - 1, c.z), 'down', { dig: [{ x: c.x, y: c.y - 1, z: c.z }] });
         // sink (owner ruling 2026-11-26, OWNER-LIST-5 addendum 4: placing under the block under the feet is a Tweakeroo-class move, digging that block a player's): a temporary
@@ -375,7 +391,33 @@ function toolFor(bot, block) {
 }
 
 /** The feet cell of the bot. */
-function feet(bot) { const p = bot.entity.position; return { x: Math.floor(p.x), y: Math.floor(p.y + 0.16), z: Math.floor(p.z) }; }      // + 0.16: standing on a block a little lower than a full one (soul sand 0.875) is standing on its cell
+/**
+ * The cell of the body's feet: the planner's cells are whole, the body stands in two free cells over the block it stands on. + 0.16: standing on a block a little lower than a full
+ * one (soul sand 0.875) is standing on its cell. On the ground on a PARTIAL block (a slab 0.5, a bed 0.5625, a repeater 0.125, a daylight sensor) the block's own cell is not free:
+ * the feet are the cell over it, and the partial block is the floor (owner 2026-11-27, b081r4 world 4: Bd4a on a floating slab had feet in the slab's cell, the planner found no
+ * start, 'no more cells, 1 cells' 49 times, and the bot only jumped). The supporting block is looked for under the body's whole box (0.6 wide): a body on the edge of a block
+ * beside its cell stands on that block's column.
+ */
+function feet(bot) {
+    const p = bot.entity.position, e = bot.entity, x = Math.floor(p.x), z = Math.floor(p.z), plain = { x, y: Math.floor(p.y + 0.16), z };
+    if (!e.onGround || typeof bot.blockAt !== 'function') return plain;
+    const y0 = Math.floor(p.y - 0.01), top = (cx, cz) => {
+        const b = bot.blockAt(new Vec3(cx, y0, cz), false);
+        if (!b || b.boundingBox !== 'block' || !Array.isArray(b.shapes) || !b.shapes.length) return null;
+        // only a box under the body's own column of the cell (a slab's top half, a bed's frame)
+        const t = Math.max(...b.shapes.filter((q) => cx + q[0] < p.x + 0.3 && cx + q[3] > p.x - 0.3 && cz + q[2] < p.z + 0.3 && cz + q[5] > p.z - 0.3).map((q) => y0 + q[4]), -Infinity);
+        return Math.abs(t - p.y) < 0.06 ? t : null;
+    };
+    // the cell under the body's centre first, then the cells its box reaches over
+    const cells = [[x, z]];
+    for (const cx of [Math.floor(p.x - 0.3), Math.floor(p.x + 0.29)]) for (const cz of [Math.floor(p.z - 0.3), Math.floor(p.z + 0.29)]) if (!cells.some((c) => c[0] === cx && c[1] === cz)) cells.push([cx, cz]);
+    for (const [cx, cz] of cells) {
+        const t = top(cx, cz);
+        if (t === null) continue;
+        return { x: cx, y: y0 + 1, z: cz };          // the cell over the block it stands on, whatever that block's height
+    }
+    return plain;
+}
 
 /** The mover of one bot. */
 class Mover {
@@ -749,7 +791,9 @@ class Mover {
                 const p = b.entity.position, eye = [p.x, p.y + 1.27, p.z], sup = [prev.x, prev.y - 1, prev.z];
                 const face = dx > 0 ? 'east' : dx < 0 ? 'west' : dz > 0 ? 'south' : 'north';
                 const plane = [sup[0] + 0.5 + dx * 0.4999, 0, sup[2] + 0.5 + dz * 0.4999];
-                const hit = [dx ? plane[0] : sup[0] + 0.5, sup[1] + 0.5, dz ? plane[2] : sup[2] + 0.5];
+                // (half way up the support's side: a partial block's side is only as high as its top, a slab's 0.5)
+                const sb = b.blockAt(new Vec3(...sup), false), stop = sb && Array.isArray(sb.shapes) && sb.shapes.length ? Math.max(...sb.shapes.map((q) => q[4])) : 1;
+                const hit = [dx ? plane[0] : sup[0] + 0.5, sup[1] + Math.min(0.5, stop / 2), dz ? plane[2] : sup[2] + 0.5];
                 const r = P.rayFirst(P.botWorld(b), eye, hit);
                 if (!r || r.cell[0] !== sup[0] || r.cell[1] !== sup[1] || r.cell[2] !== sup[2]) { this.badBridge.set(`${key(prev.x, prev.y, prev.z)}>${s.x},${s.z}`, Date.now() + 60000); const nm = (c) => { const q = b.blockAt(new Vec3(c[0], c[1], c[2]), false); return q ? q.name : '?'; }; return { ok: false, why: `bridge: the support side is not in sight (support ${nm(sup)}, the ray ${r ? `hit ${nm(r.cell)} at ${r.cell.join(',')}` : 'hit nothing'}, eye ${eye.map((v) => v.toFixed(2)).join(',')})` }; }
                 await this.lookAtPoint(new Vec3(...hit));
@@ -888,7 +932,10 @@ class Mover {
                 // nothing at all from where the bot believes it is (its picture of its own position is off: live 2026-11-22 the server had it on the chest, the bot a cell higher):
                 // a jump lets the physics and the server's correction settle it, then plan again
                 PZ.failed(`no way (${l.why})`);
-                if (l.nodes <= 2 && t < tries - 1) { this.bot.setControlState('jump', true); await sleep(350, 'retry: jump to settle the position'); this.bot.setControlState('jump', false); await sleep(700, 'retry: jump to settle the position'); continue; }
+                // (no jump when the body is on the ground: a start the planner cannot use is not settled by jumping, the bot jumped on a floating slab for half an hour, b081r4 Bd4a;
+                // the caller takes a deliberate way out, escape. In the air the body is left to land)
+                if (l.nodes <= 2 && t < tries - 1 && !this.bot.entity.onGround) { await sleep(700, 'retry: wait to land'); continue; }
+                if (l.nodes <= 2) { const nm = (y) => { const q = this.bot.blockAt(new Vec3(start.x, y, start.z), false); return q ? q.name : '?'; }; PLANS.noStart = (PLANS.noStart || 0) + 1; if ((this.noStartLog = (this.noStartLog || 0) + 1) <= 20) this.log(`[move] ${this.bot.username}: no start at ${start.x},${start.y},${start.z} (in ${nm(start.y)}, on ${nm(start.y - 1)}, body at ${this.bot.entity.position.y.toFixed(3)}, on the ground ${!!this.bot.entity.onGround})`); }
                 return { ok: false, nodes: l.nodes, region: l.region ? new Set(l.region.keys()) : null, why: `no plan (${l.why}, ${l.nodes} cells from ${start.x},${start.y},${start.z}${l.closest ? `, closest ${l.closest.x},${l.closest.y},${l.closest.z} (${l.closest.t} temps)` : ''}; ${temps} ${this.rules.temp()}; goal ${view.kind(to.x, to.y, to.z)}/${view.kind(to.x, to.y + 1, to.z)} over ${view.kind(to.x, to.y - 1, to.z)}${view.stands(to.x, to.y - 1, to.z) ? ' stands' : ''}${view.nearLava(to.x, to.y, to.z) ? ' lava' : ''})`, from: start, steps };
             }
             // the blocks the route stands on: the crew does not dig them while the bot walks (job, drive.js rules.onRoute)

@@ -1010,6 +1010,9 @@ class BuildJob {
                 const r = this.t.recipeOf(tk); if (!r || !r.item) return null; want = this.t.wantOf(tk); item = r.item;
                 // a two-cell block (a bed's head, a door's upper half): its other cell empty at the click, in this stance's world too (its pillar block is not in it)
                 if (r.room && r.room.some((d) => { const b = world.block(tk.x + d[0], tk.y + d[1], tk.z + d[2]); return !b || !(S.AIR.has(S.bare(b.name)) || SV.REPLACEABLE.test(S.bare(b.name))); })) return null;
+                // nor while a body is in that cell: the server checks only the clicked cell against bodies and sets the other half regardless, and a bot standing in a bed's head
+                // cell is embedded in the bed it placed (owner 2026-11-27, b081r4 world 4): the stance's own body and every crew member's stance
+                if (r.room && r.room.some((d) => { const c = { x: tk.x + d[0], y: tk.y + d[1], z: tk.z + d[2] }; if (bodyCovers(f, c)) return true; for (const o of this.bots.values()) { const st = o && o.station && (Array.isArray(o.station) ? o.station[0] : o.station); if (st && bodyCovers(st, c)) return true; } return false; })) return null;
             }
             const w = P.ways(world, tk, want, item, [f], { max: 1, noUnder })[0];
             if (w) return w;

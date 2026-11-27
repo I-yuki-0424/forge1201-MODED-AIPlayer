@@ -89,3 +89,4 @@ tests/test_build_pauses_pure.js
 tests/test_build_machine_pure.js
 tests/test_build_items_pure.js
 tests/test_build_stock_pure.js
+tests/test_build_partial_pure.js
