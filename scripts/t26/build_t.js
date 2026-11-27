@@ -229,8 +229,11 @@ async function main() {
     const wrongHas = {}; for (const w0 of wrong) { const b = bot0().blockAt(new Vec3(M.x + w0.at[0], M.y + w0.at[1], M.z + w0.at[2]), false); w0.has = b ? b.name : null; const k = `${w0.want.replace(/\[.*$/, '').replace('minecraft:', '')} <- ${w0.has}`; wrongHas[k] = (wrongHas[k] || 0) + 1; }
     console.log(`[judge] wrong cells by what they hold: ${JSON.stringify(Object.entries(wrongHas).sort((a, b) => b[1] - a[1]).slice(0, 30))}`);
     for (const w of wrong.slice(0, 40)) console.log(`  wrong ${w.at.join(',')} want ${w.want} has ${w.has}`);
-    const pass = !NOJUDGE && controlFails && state === 'finished' && wrong.length === 0;
-    rep.trial(`${parsed.meta.name}${NETHER ? '@nether' : ''}`, pass, { state, err, minutes: Math.round((Date.now() - t0) / 6000) / 10, strict, wrong: wrong.length, wrongBy, wrongHas, wrongCells: wrong.slice(0, 80), dynamic: dynamic.length, dynamicBy: dynBy, dynamicCells: dynamic.slice(0, 40), phaseCells: J.phase.length, controlFails, box: M, size: [sx, sy, sz], chest: C, boxes: boxes.length, result: res, status: st, history: job ? job.impl.build.history : null, temps: { ...temps.summary, cells: temps.cells.slice(0, 200) }, pauses: PZ.table(), leftover: job ? job.impl.build.leftover() : null, seed });
+    // the containers' contents (the blueprint's block-entity Items, owner addendum 3): each goal container holds exactly its slots, read from the server
+    const CJ = NOJUDGE || !target.contents.length ? { checked: 0, wrong: [] } : await judgeContents(srv, target);
+    if (CJ.checked) { console.log(`[judge] contents: ${CJ.checked} containers checked; WRONG ${CJ.wrong.length}`); for (const w of CJ.wrong.slice(0, 20)) console.log(`  contents ${w.at} want ${w.want} has ${w.has}`); }
+    const pass = !NOJUDGE && controlFails && state === 'finished' && wrong.length === 0 && CJ.wrong.length === 0;
+    rep.trial(`${parsed.meta.name}${NETHER ? '@nether' : ''}`, pass, { state, err, minutes: Math.round((Date.now() - t0) / 6000) / 10, strict, wrong: wrong.length, wrongBy, wrongHas, wrongCells: wrong.slice(0, 80), dynamic: dynamic.length, dynamicBy: dynBy, dynamicCells: dynamic.slice(0, 40), phaseCells: J.phase.length, contents: { checked: CJ.checked, wrong: CJ.wrong.length, cells: CJ.wrong.slice(0, 40) }, controlFails, box: M, size: [sx, sy, sz], chest: C, boxes: boxes.length, result: res, status: st, history: job ? job.impl.build.history : null, temps: { ...temps.summary, cells: temps.cells.slice(0, 200) }, pauses: PZ.table(), leftover: job ? job.impl.build.leftover() : null, seed });
     rep.write({ seed, file: FILE, required: '100 %' });
     await srv.cmd(`forceload remove ${M.x - 16} ${M.z - 16} ${M.x + sx + 16} ${M.z + sz + 16}`);
     await svc.stop(); process.exit(pass ? 0 : 1);
@@ -285,6 +288,19 @@ function tempsLine(build) {
  * Every cell of the box against the target, by the server (`execute if block`): wrong = the block or a property the builder decides differs (a fluid where air belongs, a flow outside its
  * place, a block left behind); dynamic = right in what the builder decides, different in what the world decides (power, connections, an extended piston and its head, a flow's level).
  */
+/** Every goal container's Items as the server reports them (`data get block`), against the blueprint's slots exactly. */
+async function judgeContents(srv, target) {
+    const cells = new Map(); for (const g of target.contents) cells.set(`${g.x},${g.y},${g.z}`, g.all);
+    const fmt = (l) => l.map((c) => `${c.slot}:${c.item}x${c.count}`).join(' ') || '-', wrong = [];
+    for (const [at, all] of cells) {
+        const [x, y, z] = at.split(',').map(Number), o = strip(await srv.cmd(`data get block ${x} ${y} ${z} Items`)), has = [];
+        for (const m of o.matchAll(/\{([^{}]*)\}/g)) { const q = m[1], slot = /Slot: ?(\d+)b/.exec(q), id = /id: ?"(?:minecraft:)?([^"]+)"/.exec(q), c = /count: ?(\d+)/.exec(q); if (slot && id) has.push({ slot: Number(slot[1]), item: id[1], count: c ? Number(c[1]) : 1 }); }
+        const want = [...all].sort((a, b) => a.slot - b.slot); has.sort((a, b) => a.slot - b.slot);
+        if (fmt(want) !== fmt(has)) wrong.push({ at, want: fmt(want), has: fmt(has) });
+    }
+    return { checked: cells.size, wrong };
+}
+
 async function judge(srv, target) {
     const wrong = [], dynamic = [], phase = [];
     const is = async (c, st) => /^Test passed/.test(strip(await srv.cmd(`execute if block ${c.x} ${c.y} ${c.z} ${st}`)));

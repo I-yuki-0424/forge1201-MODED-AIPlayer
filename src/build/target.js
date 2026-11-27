@@ -5,6 +5,7 @@ const nbt = require('prismarine-nbt');
 const S = require('./state');
 const R = require('./rules');
 const P = require('./pistons');
+const CT = require('../native/inventory/contents');
 
 const AIR_ID = 0;
 
@@ -40,6 +41,17 @@ class Target {
         for (const p of this.portals) for (const i of p.cells) this.recipe[i] = null;        // the lighting stands for every portal cell
         for (let i = 0; i < this.n; i++) { const r = this.recipe[i]; if (r && r.item) this.items.set(r.item, (this.items.get(r.item) || 0) + 1 + (r.repeat || 0) + (r.again ? 1 : 0)); }
         if (this.portals.length) this.items.set('flint_and_steel', (this.items.get('flint_and_steel') || 0) + this.portals.length);
+        // what the blueprint's containers hold (sorter filters: the owner's Nether blueprint, addendum 3): one goal per container and item, its slots set when the container
+        // stands and every block does (the late stage: a filter hopper locks only once its circuit stands); its items are part of the bill
+        this.contents = [];
+        for (const g of CT.blueprintContainers(bp, origin)) {
+            const per = new Map(); for (const c of g.args.contents) (per.get(c.item) || per.set(c.item, []).get(c.item)).push(c);
+            for (const [item, slots] of per) {
+                const count = slots.reduce((a, c) => a + c.count, 0);
+                this.contents.push({ k: `contents@${g.x},${g.y},${g.z}:${item}`, x: g.x, y: g.y, z: g.z, i: this.idx(g.x, g.y, g.z), item, count, slots, all: g.args.contents });
+                this.items.set(item, (this.items.get(item) || 0) + count);
+            }
+        }
         this.pistons = P.pistonsOf(this);
     }
 

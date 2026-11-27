@@ -327,6 +327,14 @@ async function work(job, name, bot, mv, cl, cancel) {
         if (tk.kind === 'seal' || tk.kind === 'fill' || tk.kind === 'scaffold') { const it = mv.rules.temp() || job.tempItem; if (!(await mv.hold(it))) { results.push({ tk, ok: false, why: 'skipped' }); continue; } job.addTemp(tk, tk.kind, name, it); await click(mv, way); done.push(tk); continue; }
         if (tk.kind === 'fix') { await mv.holdNothing(); await mv.click([tk.x, tk.y, tk.z], way.click.face, way.click.hit); for (let k = 1; k < tk.clicks; k++) await mv.click([tk.x, tk.y, tk.z], way.click.face, way.click.hit); done.push(tk); continue; }
         if (tk.kind === 'ignite') { if (!(await mv.hold('flint_and_steel'))) { results.push({ tk, ok: false, why: 'skipped' }); continue; } await mv.click([way.light.x, way.light.y, way.light.z], 'up', way.click.hit); await sleep(300); done.push(tk); continue; }
+        // a container's goal: its slots set from the pack through the action layer's instruction (set_contents: the screen opened with the use key, the clicks on the game's
+        // rules, graded from the window the server sends back); from the stance, it never walks
+        if (tk.kind === 'contents') {
+            await mv.holdNothing();
+            const r = await require('../skills').execute(bot, 'set_contents', { x: tk.x, y: tk.y, z: tk.z, contents: tk.slots.map(({ slot, item, count }) => ({ slot, item, count })) }, { atomic: true });
+            if (!r.ok && (job.contentsLog = (job.contentsLog || 0) + 1) <= 40) job.log(`${name}: contents of ${tk.x},${tk.y},${tk.z} (${tk.count} ${tk.item}): ${r.reason} ${JSON.stringify(r.detail || {}).slice(0, 200)}`);
+            results.push(r.ok ? { tk, ok: true } : { tk, ok: false, why: `set_contents: ${r.reason}` }); continue;
+        }
         if (tk.kind === 'pour') { const ok = await pour(job, bot, mv, tk); results.push(ok ? holds(job, bot, tk) : { ok: false, why: 'no ray into the cell' }); continue; }
         if (tk.kind === 'place') {
             const rr = job.t.recipeOf(tk);
