@@ -234,6 +234,20 @@ test('a ladder or vine within the reach of a fall holds the body (the walk plans
     assert.strictEqual(held({ '1,10,0': 'ladder' }), false);                         // a ladder eleven below: beyond the reach of a fall of three
 });
 
+test('a body on the edge of the next column (its centre over a hole) starts its walk from the cell that holds it (fg075d: 2 092 guard stops on a nudge to the centre); negative control: over the hole alone there is none', () => {
+    const { supportCell } = require('../src/skills/motion');
+    const planner = require('../src/skills/planner');
+    // ground y 65 at x <= -3, a hole 12 deep at x -2..0, z 16
+    const kindAt = (x, y, z) => (y <= 65 && x <= -3 ? 'solid' : y <= 53 ? 'solid' : 'air');
+    const w = { kindAt };
+    const pos = { x: -1.74, y: 66, z: 16.5 };
+    assert.strictEqual(planner.nodeKind(w, -2, 66, 16), null, 'the centre cell is no node (the old walk nudged toward its centre)');
+    assert.deepStrictEqual(supportCell(w, pos), { x: -3, y: 66, z: 16 });
+    const r = planner.plan(w, supportCell(w, pos), (c) => c.x === -8 && c.z === 16, (c) => Math.abs(c.x + 8));
+    assert.ok(r && !r.partial, 'a plan from the support cell');
+    assert.strictEqual(supportCell(w, { x: -1.5, y: 66, z: 16.5 }), null, 'negative control: a body wholly over the hole has no support cell');
+});
+
 (async () => {
     let n = 0;
     for (const [name, fn] of queue) { await fn(); n++; console.log(`ok - ${name}`); }

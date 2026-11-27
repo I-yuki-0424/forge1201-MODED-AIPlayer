@@ -55,6 +55,16 @@ function openDrops(bot, path) {
     return n;
 }
 
+/** The standable cell, among the columns under a body's box (half-width 0.3) at its feet level, that holds it, nearest its centre; null when none does. Pure. */
+function supportCell(w, pos) {
+    const y = Math.floor(pos.y + 0.2), out = [];
+    for (const cx of [Math.floor(pos.x - 0.3 + 1e-4), Math.floor(pos.x + 0.3 - 1e-4)]) for (const cz of [Math.floor(pos.z - 0.3 + 1e-4), Math.floor(pos.z + 0.3 - 1e-4)]) {
+        if (!out.some((c) => c.x === cx && c.z === cz) && standable(w, cx, y, cz)) out.push({ x: cx, y, z: cz });
+    }
+    out.sort((a, b) => hdist(pos, centre(a)) - hdist(pos, centre(b)));
+    return out[0] || null;
+}
+
 /** A neighbouring cell that can be stepped onto at once: feet and head air, solid below, one level down, level or one up. Null when there is none. Pure. */
 function stepOffCell(w, cell) {
     for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) for (const dy of [0, -1, 1]) {
@@ -115,7 +125,13 @@ async function walk(ctx, goal, { sprint = true } = {}) {
         }
         if (!path) {
             ctx.phase('plan', { from: cell, goal: goal.label });
-            const r = await planAsync(w, cell, goal.isGoal, goal.h, { maxNodes: Math.min(goal.maxNodes || 20000, (bot.__skillOpts && bot.__skillOpts.planNodes) || 20000) });          // sliced: the other bots keep running while this one searches
+            const opt = { maxNodes: Math.min(goal.maxNodes || 20000, (bot.__skillOpts && bot.__skillOpts.planNodes) || 20000) };
+            let r = await planAsync(w, cell, goal.isGoal, goal.h, opt);          // sliced: the other bots keep running while this one searches
+            // The body stands on the edge of the next column (its box overhangs the cell of its centre, which has no floor): the walk starts from the cell that holds it. A nudge to the
+            // centre of its own cell walked it off the edge (fg075e, mine_b seed 474407178230372896: 'reflex fall, 12 blocks of air below'), and the fall guard held that nudge for good
+            // (fg075d: 2 092 stops at -1.74,66,16.5, 'start cell not standable' unit after unit)
+            const sup = !r && e.onGround ? supportCell(w, pos) : null;
+            if (sup) r = await planAsync(w, sup, goal.isGoal, goal.h, opt);
             if (!r) {
                 // Standing on something the planner does not model (an edge, a partial block): nudge to the cell centre once.
                 const c = centre(cell);
@@ -275,4 +291,4 @@ async function aimAtBlock(ctx, cell, { face = null, frame = {} } = {}) {
     throw new SkillError('not_visible', { target: cell, tried: pts.length, seen });
 }
 
-module.exports = { openDrops, stepOffCell, follow, cellGoal, reachGoal, approachUntil, approachBlock, aimAtBlock, clearOfEntities, AIM_REACH, feetCell, centre, hdist, same, eyeOf, clearLine };
+module.exports = { openDrops, supportCell, stepOffCell, follow, cellGoal, reachGoal, approachUntil, approachBlock, aimAtBlock, clearOfEntities, AIM_REACH, feetCell, centre, hdist, same, eyeOf, clearLine };
