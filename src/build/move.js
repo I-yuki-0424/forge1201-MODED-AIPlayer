@@ -903,7 +903,16 @@ class Mover {
     /**
      * Go to a cell `goal` accepts (or `to` itself). Plans, follows, re-plans when the bot leaves the plan (up to `tries`). { ok, why, steps }.
      */
-    async goto(to, { goal = null, cancel = { cancelled: false }, tries = 6, maxNodes = 40000, box = null, lavaCost = 0, maxDrop: md = null, budgetMs = 4000 } = {}) {
+    /**
+     * Walk to `to` (or any cell `goal` accepts). When the walk ends, its route is no longer the crew's to keep off (rules.onRouteDone): a route kept for 30 s after its walk
+     * ended held the columns other bots had put up under it since ('a crew member on it or its route': 107 of the 166 columns `_behind` left in b081t4/t5/u4).
+     */
+    async goto(to, o = {}) {
+        // (only the outermost walk: a walk inside a walk, a giver's take-back between two moves, leaves the outer route standing)
+        this.walkDepth = (this.walkDepth || 0) + 1;
+        try { return await this._goto(to, o); } finally { this.walkDepth--; if (!this.walkDepth && this.rules.onRouteDone) { try { this.rules.onRouteDone(); } catch (_) { /* bookkeeping only */ } } }
+    }
+    async _goto(to, { goal = null, cancel = { cancelled: false }, tries = 6, maxNodes = 40000, box = null, lavaCost = 0, maxDrop: md = null, budgetMs = 4000 } = {}) {
         const g = goal || ((x, y, z) => x === to.x && y === to.y && z === to.z);
         let steps = 0, last = null;
         await this.unsink();

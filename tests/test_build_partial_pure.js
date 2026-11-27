@@ -94,5 +94,17 @@ function fakeBot(world, pos, onGround = true) {
         assert.strictEqual(v.stands(0, 63, 0, { doomedToo: false }), false, 'negative control: air does not stand either way');
     }
     console.log('  ok a claimed block of its own column still stands for the way down');
-    console.log('test_build_partial_pure: 4 passed');
+    // 5. a walk's route is the crew's to keep off only while the walk lasts: cleared when the outermost walk ends (an inner walk, a take-back between two moves, does not clear it)
+    {
+        let done = 0;
+        const m = Object.create(M.Mover.prototype); m.rules = { onRouteDone: () => { done++; } };
+        m._goto = async (to) => { if (to === 'outer') { await m.goto('inner'); assert.strictEqual(done, 0, 'the inner walk leaves the outer route'); } return { ok: true }; };
+        await m.goto('outer');
+        assert.strictEqual(done, 1, 'cleared once, when the outer walk ends');
+        m._goto = async () => { throw new Error('boom'); };
+        await m.goto('x').catch(() => {});
+        assert.strictEqual(done, 2, 'cleared after a walk that threw too');
+    }
+    console.log('  ok a route is cleared when its outermost walk ends');
+    console.log('test_build_partial_pure: 5 passed');
 })().catch((e) => { console.error(e); process.exit(1); });
