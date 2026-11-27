@@ -98,7 +98,10 @@ async function clearTrees(env, box, { maxMs = MAX_MS, maxCells = MAX_CELLS, find
         const low = all.filter((c) => c.y - c.gy <= LOW && !lowTried.has(`${c.x},${c.y},${c.z}`)).sort((a, b) => (/_log|_wood|_stem/.test(bare(w.nameAt(b.x, b.y, b.z))) ? 1 : 0) - (/_log|_wood|_stem/.test(bare(w.nameAt(a.x, a.y, a.z))) ? 1 : 0) || Math.hypot(a.x - here.x, a.z - here.z) - Math.hypot(b.x - here.x, b.z - here.z));
         if (low.length) {
             const c = low[0];
-            const m = await env.exec('mine', { x: c.x, y: c.y, z: c.z, collect: false });
+            // within the arm's reach from where the bot stands: blind at once (the server checks the distance, not the line; leaves hide each other), else the aimed mine walks to it
+            let m = inReach(c) ? await env.exec('mine', { x: c.x, y: c.y, z: c.z, collect: false, blind: true }) : { ok: false, reason: 'not_tried' };
+            if (!m.ok && !gone(c) && !dead(m)) m = await env.exec('mine', { x: c.x, y: c.y, z: c.z, collect: false });
+            else if (m.ok) res.lowBlind = (res.lowBlind || 0) + 1;
             if (dead(m)) { res.ok = false; res.reason = m.reason; break; }
             if (m.ok || gone(c)) { res.mined++; res.direct++; } else { lowTried.add(`${c.x},${c.y},${c.z}`); res.lowAerial = (res.lowAerial || 0) + 1; }
             continue;

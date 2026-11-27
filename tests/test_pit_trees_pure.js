@@ -393,6 +393,15 @@ const left = (w, box = BOX) => scan(w, box).length;
         assert.ok(fast.r.ok, JSON.stringify(fast.r).slice(0, 160));
     });
 
+    await test('the tree pass takes a low tree block within reach blind, without a walk (forest pace: aimed mines walked to every low leaf); negative control: one out of reach gets the aimed mine', async () => {
+        const near = world([[1, GROUND + 1, 0, 'oak_leaves']]), a = fakeEnv(near, { x: 0, y: GROUND + 1, z: 0 });
+        await clearTrees(a.env, { x0: -4, x1: 4, z0: -4, z1: 4, top: GROUND + 6 });
+        assert.strictEqual(near.kindAt(1, GROUND + 1, 0), 'air'); assert.strictEqual(a.calls.blind, 1); assert.strictEqual(a.calls.mine, 1, 'one blind mine, no aimed one');
+        const far = world([[4, GROUND + 1, 4, 'oak_leaves']]), b = fakeEnv(far, { x: -4, y: GROUND + 1, z: -4 });
+        await clearTrees(b.env, { x0: -4, x1: 4, z0: -4, z1: 4, top: GROUND + 6 });
+        assert.strictEqual(far.kindAt(4, GROUND + 1, 4), 'air'); assert.strictEqual(b.calls.blind, 0, 'negative control: out of reach, the aimed mine walks to it');
+    });
+
     await test('a column the walk on foot cannot reach is reached by one NAV trip and the aerial block goes (mb075r w2: 249 hanging fills "no progress from the columns"); negative control: without NAV the block is given up', async () => {
         const mk = () => { const w = world([[5, GROUND + 9, 5, 'oak_leaves']]); const f = fakeEnv(w, { x: 0, y: GROUND + 1, z: 0 }); const mv = f.env.exec; f.env.exec = async (n, a) => (n === 'move_to' ? { ok: false, reason: 'unreachable' } : mv(n, a)); return { w, ...f }; };
         const a = mk(); let trips = 0;
