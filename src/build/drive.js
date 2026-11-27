@@ -255,7 +255,10 @@ async function work(job, name, bot, mv, cl, cancel) {
     const tw = Date.now();
     // (a search to a stance gets 1.5 s of CPU: the claim offers stances inside the bot's flood first, and a hopeless search to one outside it ran to the 4 s budget, the
     // largest share of the pauses after a failure in b081a: 'retry: plan', 40 pauses of 8 s in ten minutes)
-    const r = await mv.goto(cl.station, { cancel, maxNodes: 30000, budgetMs: 1500 });
+    // (in the tail, a few hundred tasks left and most of the crew idle, the CPU is free and the last cells are stances high in the air whose routes need more: b081w4's last 53
+    // cells were parked after 'no plan (time, 13-29 thousand cells)' while 1 100 claims a minute found nothing; there it gets 6 s and 80 000 cells)
+    const tail = job.tasks.size < 400;
+    const r = await mv.goto(cl.station, { cancel, maxNodes: tail ? 80000 : 30000, budgetMs: tail ? 6000 : 1500 });
     job.time.walk += Date.now() - tw;
     if (!r.ok) {
         // a stance the bot cannot get to counts against its tasks (as 'skipped' they came back for ever: live 2026-11-22 sD w2, 22 tree tops for 40 minutes)

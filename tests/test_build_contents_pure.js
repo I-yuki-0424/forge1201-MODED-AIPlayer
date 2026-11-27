@@ -68,4 +68,14 @@ test('a closed container (no face open in the finished build): its goal is place
     assert.strictEqual(job._closesUnfilled(top, bot), false, 'negative control: the goal done, the face may close');
 });
 
+test('the walk to a stance: 1.5 s and 30 000 cells while the build is large, 6 s and 80 000 in the tail (b081w4: the last 53 cells parked after searches ran out of time); negative control: a large task list keeps the short budget', async () => {
+    const D = require('../src/build/drive');
+    for (const [size, want] of [[10, [80000, 6000]], [5000, [30000, 1500]]]) {
+        const job = { tasks: new Map(Array.from({ length: size }, (_, i) => [String(i), {}])), noPath: new Map(), time: { walk: 0 }, log: () => {}, avoid: () => {} };
+        let got = null; const mv = { goto: async (_, o) => { got = [o.maxNodes, o.budgetMs]; return { ok: false, why: 'test', nodes: 500 }; } };
+        await D.work(job, 'a', {}, mv, { station: { x: 0, y: 70, z: 0 }, tasks: [] }, { cancelled: false });
+        assert.deepStrictEqual(got, want);
+    }
+});
+
 (async () => { for (const [name, fn] of queue) { await fn(); n++; console.log(`  ok ${name}`); } console.log(`test_build_contents_pure: ${n} passed`); })().catch((e) => { console.error(e); process.exit(1); });
