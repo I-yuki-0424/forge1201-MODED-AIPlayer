@@ -806,3 +806,15 @@ Also landed in this pass:
 - f1e8f1e1: night_probe.js, showing the night rule is already off on Peaceful.
 
 None of these is re-measured live yet.
+
+**mine_b, deaths and recovery (TASK-075, 2026-11-27 07:00-10:35, 1.21.1, native physics default since 82f0d75d, Peaceful).**
+
+| Run | Code | Result |
+| :-- | :-- | :-- |
+| `mb075p` w1 | 31058f02 | job finished at 36 min, 0 pumpkins, 0 deaths; one `sculk_vein` at y -35 kept a layer dirty → the pit spec takes `plants`, and mine_b asks for it (22a0e4d3) |
+| `mb075p` w2 | 31058f02 | died in lava at minute 6 (three reflexes); keep_inventory false left only a pumpkin; then 'explore for cobblestone, gather cobblestone: missing_tool' for 20 min → the router ends an obtain at missing_tool (c4ee3f7c); the lava reflex flees up to 20 s (6ff19e67: lava costs about 1.1 s per block on the native physics, test) |
+| `mb075q` w3 (KILL_AT_END) | 31058f02 | 1 pumpkin (2,-52,5, a pillar block) → the end phase reaches every temporary block by NAV (635b3955) |
+| `mb075r` w1/w2, `mb075s` w3 | 22a0e4d3 | timeouts at 85 min; pumpkins 1 / 0 / 1; falls of 21 and 40 blocks in the dug pit (w1, w3); w1 respawned on its own pit floor at the world spawn with an empty pack → mine_b's setup: a tools chest (c4ee3f7c) and the respawn point beside it (97ac3537), world conditions like a player's base |
+| `fg-on` / `fg-off`, `fg-trace` | 98c687bc+ | the fall guard on every work bot (98c687bc) held the pit bot 1192-1962 times and no unit was done; off: 8 units in 15 min. The stops are real: at 16,67,9, a hole 6 deep just outside the box, the walkers' paths cut past it. The guard is opt-in now (0a5ec9c7, setting `fallGuard`, `FALL_GUARD=1`) until the action layer's walk and NAV keep their paths off such cells |
+
+move_a seed 7601 (`ma075s`, 97ac3537, Normal): 3/4. The east bot stopped again on the east line (688,71,7) after two deaths at night, and left 10 pumpkins at y 67. `scripts/t26/nav_probe.js` on Peaceful walked one bot 640,7 → 760,7 through the same zone in 34 s, so the stop is night survival, not a NAV move.
