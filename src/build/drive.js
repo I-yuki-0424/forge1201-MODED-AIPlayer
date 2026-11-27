@@ -259,7 +259,9 @@ async function work(job, name, bot, mv, cl, cancel) {
     // cells were parked after 'no plan (time, 13-29 thousand cells)' while 1 100 claims a minute found nothing; there it gets 6 s and 80 000 cells)
     // (a container's contents too: a closed one is set before its last face is placed or never, and the walks to them in the owner's Nether box, 20-30 cells down from the
     // supply, were parked after 'no plan (time, 18-22 thousand cells)', b081x5)
-    const tail = job.tasks.size < 400 || cl.tasks.some((tk) => tk.kind === 'contents');
+    // (and a claim whose cells failed before: b081z5's tail (mineflayer, 1.21.1) parked cells 30-40 above the chest after 8 tries, every one 'no plan (time, 12-19 thousand
+    // cells)' with 450-500 tasks left, just over the tail's line)
+    const tail = job.tasks.size < 400 || cl.tasks.some((tk) => tk.kind === 'contents' || (job.fails && (job.fails.get(tk.k) || 0) > 0));
     const r = await mv.goto(cl.station, { cancel, maxNodes: tail ? 80000 : 30000, budgetMs: tail ? 6000 : 1500 });
     job.time.walk += Date.now() - tw;
     if (!r.ok) {

@@ -88,10 +88,10 @@ test('a closed container is placed by a bot carrying its contents too (b081y5: t
     assert.deepStrictEqual(job._needs(place), [['dropper', 1]], 'negative control: out of stock, the block is not held for it');
 });
 
-test('the walk to a stance: 1.5 s and 30 000 cells while the build is large, 6 s and 80 000 in the tail (b081w4: the last 53 cells parked after searches ran out of time); negative control: a large task list keeps the short budget', async () => {
+test('the walk to a stance: 1.5 s and 30 000 cells while the build is large, 6 s and 80 000 in the tail (b081w4: the last 53 cells parked after searches ran out of time) and for a cell that failed before (b081z5); negative controls: a large task list keeps the short budget, a cell with no failure too', async () => {
     const D = require('../src/build/drive');
-    for (const [size, want, kind] of [[10, [80000, 6000]], [5000, [30000, 1500]], [5000, [80000, 6000], 'contents']]) {
-        const job = { tasks: new Map(Array.from({ length: size }, (_, i) => [String(i), {}])), noPath: new Map(), time: { walk: 0 }, log: () => {}, avoid: () => {} };
+    for (const [size, want, kind, failed] of [[10, [80000, 6000]], [5000, [30000, 1500]], [5000, [80000, 6000], 'contents'], [5000, [80000, 6000], 'place', 1], [5000, [30000, 1500], 'place', 0]]) {
+        const job = { tasks: new Map(Array.from({ length: size }, (_, i) => [String(i), {}])), noPath: new Map(), time: { walk: 0 }, log: () => {}, avoid: () => {}, fails: new Map(failed ? [['c', failed]] : []) };
         let got = null; const mv = { goto: async (_, o) => { got = [o.maxNodes, o.budgetMs]; return { ok: false, why: 'test', nodes: 500 }; } };
         await D.work(job, 'a', {}, mv, { station: { x: 0, y: 70, z: 0 }, tasks: kind ? [{ kind, k: 'c', x: 0, y: 70, z: 1 }] : [] }, { cancelled: false });
         assert.deepStrictEqual(got, want);
