@@ -542,6 +542,7 @@ async function goToStation(S, handle, env, open, r) {
     let descents = 0;                    // at most two descents per walk to a station (moves.js `descend`)
     let lifts = 0;                       // at most two server lifts per walk to a station: a lift that lands in the same cell again changes nothing (live: Work17 lifted 0 blocks every 20 s)
     let walks = 0;                       // learned walks to the exact station cell (void dimensions), at most two
+    let navs = 0;                        // NAV trips to the station when the walk on foot cannot get there, at most one
     for (let t = 0; t < 10; t++) {
         // What a rise left behind (the last pillar block) is taken away as soon as the bot has stepped off it, not at the next unit (owner 2026-11-11: "prevent forgetting to destroy scaffolding").
         if (r.rose && env.temp && env.temp.size) { try { await require('../bot/moves').cleanTemp(env); } catch (_) { /* tried again at the next unit */ } }
@@ -611,6 +612,18 @@ async function goToStation(S, handle, env, open, r) {
         if (open(S) && floor) {
             const m = await env.exec('move_to', S, { maxTicks: STATION_TICKS });
             if (m.ok) return null;
+            r.moveFail = `${m.reason}${m.detail && (m.detail.why || m.detail.goal) ? ` (${String(m.detail.why || m.detail.goal).slice(0, 60)})` : ''}`;
+            // The walk goes on foot only (no dig, no block placed). NAV, the one mover that digs, pillars, descends and bridges, takes the bot there when it cannot: once per walk to a
+            // station, bounded like the pit's other trips. Without it a bot boxed in by the leaves of a tree it had half taken down (fg075h, seed 474407178230372896, 1.21.1: 'unreachable
+            // (cell 13,67,7)' from 11,67,9, two cells away) failed every station of the unit and the layer ('could not stand at the station', 13-14 per run with the guard on or off).
+            if (env.nav && navs < 1 && !FATAL_MINE.has(m.reason)) {
+                navs++;
+                const t0 = Date.now(), g = await env.nav({ x: S.x, y: S.y, z: S.z }, { near: 0, nearY: 0, why: 'pit: to the station', deadline: Date.now() + NAV_TRIP_MS }).catch((e) => ({ ok: false, reason: 'internal', detail: { error: String(e && e.message || e) } }));
+                r.navMs = (r.navMs || 0) + (Date.now() - t0); r.navStation = (r.navStation || 0) + 1;
+                if (g && FATAL_MINE.has(g.reason)) return { ok: false, reason: g.reason, detail: { ...(g.detail || {}), botSide: true, stage: 'station_nav', cell: S, ...r } };
+                if (g && g.ok) continue;
+                r.navFail = `${g && g.reason}${g && g.detail && g.detail.why ? ` (${String(g.detail.why).slice(0, 60)})` : ''}`;
+            }
         }
         // The station is three or more levels above the bot and there is no way up on foot (a shaft, a cave under a layer that is still closed): rise by pillar,
         // breaking what is overhead (by hand if no tool fits), and dig the corridor to the station from that layer. Live pit 2026-11-07: four bots stood under an

@@ -47,9 +47,10 @@ class BotsPart {
         const mine = () => rec.bot === bot && !rec.removed;
         // The fall guard under every bot that moves (src/build/fallguard.js, owner 2026-11-24 'make the movement robust'): no step sideways onto a fall of more than three,
         // whatever the physics; installed once the physics is wired (login: native or mineflayer), so it wraps what runs. Only the build's Mover had it: pit bots walked off
-        // 21- and 40-block edges of their own dug pit (mine_b mb075r w1, mb075s w3, 1.21.1). OFF by default until it is fixed for pit moves (setting fallGuard true):
-        // in mine_b it held the bot 1962 times and no unit was done in 15 min (fg-on, seed 474407178230372896; the same seed with it off: 8 units)
-        bot.once('spawn', () => { try { if (this.settings.fallGuard === true) { const g = require('../../build/fallguard').install(bot); if (!g) this.note('warn', `${rec.name}: fall guard not installed (no physics)`); } } catch (e) { this.note('warn', `${rec.name}: fall guard: ${String(e.message).slice(0, 80)}`); } });
+        // 21- and 40-block edges of their own dug pit (mine_b mb075r w1, mb075s w3, 1.21.1). ON for every bot (setting fallGuard false turns it off, an A/B only): the holds
+        // that stopped the pit (fg-on, 1 962 stops, 0 units, seed 474407178230372896) were the walk's nudge over a hole from a start cell it could not plan from (motion.supportCell)
+        // and NAV replanning digs mine refuses (block.js refusal), both fixed and measured on that seed with and without the guard (fg075f / fg075g, BUILD-v2 stage C)
+        bot.once('spawn', () => { try { if (this.settings.fallGuard !== false) { const g = require('../../build/fallguard').install(bot); if (!g) this.note('warn', `${rec.name}: fall guard not installed (no physics)`); } } catch (e) { this.note('warn', `${rec.name}: fall guard: ${String(e.message).slice(0, 80)}`); } });
         bot.once('spawn', () => { if (!mine()) return; rec.state = 'online'; rec.attempts = 0; rec.since = Date.now(); this.note('info', `bot ${rec.name} online`); this._tagDirect(rec); this._dirty(); this._resume(rec); });
         bot.on('spawn', () => { if (mine() && rec.state === 'online') setTimeout(() => this._resume(rec), 2500); });        // respawn after death
         bot.on('death', () => { if (mine()) { this.note('warn', `bot ${rec.name} died`); this.force.reset(rec.name); } });
@@ -87,7 +88,7 @@ class BotsPart {
         }
     }
     _reflexEvent(rec, name, d) {
-        if (name === 'reflex') { rec.reflex = { kind: d.kind, at: Date.now() }; rec.reflexes = (rec.reflexes || 0) + 1; this.note('warn', `${rec.name}: reflex ${d.kind}${d.drop ? ` (${d.drop} blocks of air below)` : ''}${d.kind === 'fall' ? (d.bucket ? ', water bucket' : ', no bucket') : ''}`); this._dirty(); }
+        if (name === 'reflex') { rec.reflex = { kind: d.kind, at: Date.now() }; rec.reflexes = (rec.reflexes || 0) + 1; this.note('warn', `${rec.name}: reflex ${d.kind}${d.drop ? ` (${d.drop} blocks of air below)` : ''}${d.kind === 'fall' ? (d.bucket ? ', water bucket' : ', no bucket') : ''}${d.at ? ` at ${d.at.join(' ')} by ${d.by}` : ''}`); this._dirty(); }
         else if (name === 'reflex_end') this.note('info', `${rec.name}: reflex ${d.name} over${d.error ? ' (failed)' : ''}; the work goes on`);
     }
     /** The server moved a bot (tp): said in the log and in the bot's row, so that a jump is never a mystery. */

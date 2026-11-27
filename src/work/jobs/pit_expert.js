@@ -145,6 +145,7 @@ async function runExpert(c) {
         let g = (here.x === S.x && here.y === S.y && here.z === S.z) ? null : await c.goToStation(S);
         // goToStation answers null both when the bot stands there and when it could not be brought closer ("work from where it is"): the expert needs the exact place.
         if (!g) { const at = env.here(); if (at.x !== S.x || at.y !== S.y || at.z !== S.z) g = { ok: false, reason: 'unreachable', detail: { why: 'could not stand at the station', stage: 'expert_station', cell: S, at, ...r } }; }
+        if (g && process.env.PIT_TRACE === '1') { const { expert: _x, ...rest } = g.detail || {}; console.log(`[pit] ${env.bot && env.bot.username} station ${S.x},${S.y},${S.z} failed: ${g.reason} ${JSON.stringify(rest).slice(0, 600)}`); }
         if (g) {                                                        // this place cannot be reached: another one, four in a row end the unit
             first = first || g; stats.fails++;
             for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++) failedCols.add(`${q.x + dx},${q.z + dz}`);          // what cannot be reached is usually a whole corner: not its neighbours either
