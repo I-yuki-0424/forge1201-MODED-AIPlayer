@@ -142,6 +142,7 @@ class WorkService extends EventEmitter {
         this.log.push(e); if (this.log.length > 400) this.log.shift();
         this.emit('event', e);
         if (level !== 'debug') console.log(`[work] ${level} ${e.msg}`);
+        require('../../debug/stuck').observe(this, e);          // stuck snapshots (TASK-20261127-084): a stuck line schedules three pictures around its bot, off this call
     }
     _dirty() { if (!this._saveTimer) this._saveTimer = setTimeout(() => { this._saveTimer = null; this.save(); }, 500); this._saveTimer.unref?.(); this.emit('change'); }
     save() {

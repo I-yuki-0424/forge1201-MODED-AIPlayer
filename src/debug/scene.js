@@ -65,11 +65,12 @@ const stateOf = (cell) => `minecraft:${cell.n}${cell.p ? `[${cell.p}]` : ''}`;
 /**
  * The server's truth for the scene's cells, over RCON (`execute if block` per cell: the bot's state, then its name, then air), sequential so other RCON users interleave.
  * Fills sc.diff: { 'x,y,z': 'ghost' (bot: a block, server: air) | 'missing' (bot: air, server: a block) | 'state' (same block, other state) | 'other' (another block) }; cells that
- * agree are left out. `rcon(cmd)` -> reply text. Bounded by `budgetMs`; the cells not checked are counted in sc.unchecked.
+ * agree are left out. `rcon(cmd)` -> reply text; `dim` the bot's dimension (minecraft:the_nether). Bounded by `budgetMs`; the cells not checked are counted in sc.unchecked.
  */
-async function truth(sc, rcon, { budgetMs = 20000, now = Date.now } = {}) {
+async function truth(sc, rcon, { budgetMs = 20000, now = Date.now, dim = null } = {}) {
     const t0 = now(), diff = {}; let checked = 0, unchecked = 0;
-    const pass = async (cmd) => /passed/i.test(String(await rcon(cmd)));
+    const ex = dim && /^[a-z0-9_.-]{1,40}:[a-z0-9_./-]{1,60}$/.test(dim) ? `execute in ${dim} if block` : 'execute if block';         // RCON runs in the overworld unless told
+    const pass = async (cmd) => /passed/i.test(String(await rcon(cmd.replace(/^execute if block/, ex))));
     // the cells nearest the bot first: a budget that runs out leaves the edges unchecked, not the body's cells
     const keys = Object.keys(sc.cells).sort((a, b) => dist(sc, a) - dist(sc, b));
     for (const k of keys) {
