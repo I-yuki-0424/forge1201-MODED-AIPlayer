@@ -880,6 +880,19 @@ steps in the slow-unit log, the last command before a fall, the blocks under a g
 | `mbc075c` w2 (8408650362352379667) | timeout 85 min, very wet (2 935 fluid cells) | 122 | 0 | 274 registered (the wrap keeps fills over undug ground) | 1: drowned at 14 min after five breath reflexes that only jumped | the reflex never swam sideways to air | the breath reflex swims to the nearest air (851a1880) |
 | `mbc075d` w3 (1201687708277881827, KILL_AT_END) | finished at 54 min, killed in its end, end done after the respawn | 23 | 0 | 134 registered left by the hanging pass ('no standing column'); 79 rubble blocks over air | 1 (the kill) | fills over water that later ran off hang with no dig under them (the fill-above rule does not see them); one trip per block, 20 blocks in 2 min | clusters after each NAV trip, 400 blocks in 15 min (0fd60155) |
 
+**mine_b closing set 3 (16:38-18:05, code 84892210).**
+
+| Run (world, seed) | End | Dirty layers | Pumpkins (scan) | Fills left | Deaths | Cause found | Change |
+| :-- | :-- | --: | --: | :-- | :-- | :-- | :-- |
+| `mbc075e` w1 (903224742411829344) | finished at 52 min | 1 | 0 | 14 seals and lake fills kept (they hold water back) | 0 | | |
+| `mbc075e` w2 (1733237499209969782) | 'finished' at 43 min with 64/64 units 'done', nothing dug after minute 14 | 109 | not graded: the end scan had 248 000 cells unloaded | 213 registered | 1: drowned in a pocket outside the box | after the death the bot walked 100+ blocks for cobblestone (mine refused 'outside the work area', the tools chest 'refused'), the box unloaded, and the expert's model read the unloaded cells as rock: every unit 'done' | a unit with unloaded cells walks back or fails as the bot's own (ac3cff35); an end scan with unloaded cells is no pass (bb127d36) |
+| `mbc075f` w3 (6760809098413215353, KILL_AT_END) | timeout 85 min, a wet box; the wrap after the kill ran out of its 5 min | 30 | 3 (pillar blocks of the pit's rises and descents, registered) | 283 registered | 1 (the kill) | the blocks stayed 8-25 min out of reach of every later unit | after every unit the bot takes its own movement blocks within reach, stepping off its own block first (849e35e0) |
+
+Over the three sets (nine new worlds, 1.21.1, native physics, guard on): no fall death and no lava death; three drownings on wet boxes (one before the breath fix,
+one in a closed pocket after it); pumpkins left on 4 of 9 worlds (2, 3, 2, 3); those of sets 2 and 3 are traced to their placing command by the leftover history and their causes
+changed since (set 1's pair at x 17 was placed before the history existed). Guard stops per world 0-1 on set 2 and 3. **Not met:** zero on all three worlds of one set; the wet boxes (lake fills kept or hanging, drowning, NAV 'stuck' into
+a wet box) are the open part.
+
 move_a's 10 pumpkins on seed 7601 (`ma075s`) were a wild pumpkin patch: the same 10 cells (x 663-675, y 67) are pumpkins in an untouched world of that seed (scan.js). move_a now
 grades only cells that turned into a temporary-block kind during the run (a block update seen by the bot, never a chunk load).
 
