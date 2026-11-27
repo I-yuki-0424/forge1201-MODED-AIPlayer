@@ -10,4 +10,5 @@ const k = trials.filter((t) => t.ok).length, n = trials.length, rate = n ? k / n
 const scale = rate >= 1 ? 'success' : rate >= 0.9 ? 'WIP' : 'failure';
 console.log(`${test}: ${k}/${n} trials on ${worlds.length} worlds = ${(100 * rate).toFixed(0)} % -> ${scale}; required ${(100 * need).toFixed(0)} %: ${n && rate >= need && worlds.length >= 3 ? 'PASSED' : 'NOT PASSED'}${worlds.length < 3 ? ' (fewer than 3 worlds: not evidence)' : ''}`);
 for (const w of worlds.sort((a, b) => a.world - b.world)) console.log(`  world ${w.world} ${w.seed}: ${w.passed}/${w.of}`);
+for (const t of trials.filter((x) => x.detail && x.detail.fixturesKept && x.detail.fixturesKept.length)) console.log(`  fixtures kept w${t.world} ${t.bot}: ${JSON.stringify(t.detail.fixturesKept)}`);
 for (const t of trials.filter((x) => !x.ok)) console.log(`  FAIL w${t.world} ${t.bot}: ${JSON.stringify(t.detail).slice(0, 400)}`);

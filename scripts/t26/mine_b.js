@@ -87,6 +87,9 @@ const LIMIT_MIN = Number(process.env.LIMIT_MIN || 240), DEPTH = Number(process.e
     if (!T.CONTROL) {
         const pit = svc.createPit({ box, bots: [name], start: true, plants: true, ...(process.env.METHOD ? { method: process.env.METHOD } : {}) });
         let last = 0, killed = false;
+        // KILL_AT_END=1 when the job ends by itself: armed from the worker's own end-pass event (worker.js 'work_end_pass'), so an end shorter than the 3 s poll is hit too
+        // (mbc075k w3: the kill never fired); KILL_END_MS (default 300) after the event
+        if (process.env.KILL_AT_END === '1') { const b0 = svc.bots.get(name).bot; b0.once('work_end_pass', () => { if (killed) return; killed = true; setTimeout(() => { console.log(`[wrap] killing ${name} during the job's own end (KILL_AT_END, end-pass event)`); S.cmd(`kill ${name}`).catch(() => {}); }, Number(process.env.KILL_END_MS || 300)); }); }
         for (const limit = T.budget(() => (svc.bots.get(name) || {}).bot, LIMIT_MIN); !limit.over();) {
             const j = svc.jobs.get(pit.id); if (!j || j.state === 'finished' || j.state === 'cancelled') { state = j ? j.state : 'gone'; break; }
             // KILL_AT_END=1 when the job ends by itself: the ledger is finished and the worker's end pass (cleanup, nav's sweep) is running; the bot is killed in it (mb075k ended before the limit)
@@ -110,7 +113,14 @@ const LIMIT_MIN = Number(process.env.LIMIT_MIN || 240), DEPTH = Number(process.e
         }
     }
     await T.sleep(3000);
-    const left = await dirty();
+    // fixtures kept (orchestrator ruling 2026-11-28): a cell mine refuses by rule (block.js refusal: a natural chest or barrel, a bed, a tagged block) is not dirty; its layer is clean when
+    // nothing else is left in it, each such cell confirmed by the server and listed in the verdict
+    const fk = require('./fixtures_kept').fixturesKept(await dirty(), box, (x, y, z) => { const b = (svc.bots.get(name) || {}).bot; const k = b && b.blockAt(new Vec3(x, y, z)); return k ? k.name : null; },
+        (c, n) => { const b = (svc.bots.get(name) || {}).bot; return !!(b && require('../../src/skills/commands/block').refusal(b, c, n)); });
+    const fixtures = [];
+    for (const f of fk.fixtures) { if (/passed/i.test(T.strip(await S.cmd(`execute if block ${f[0]} ${f[1]} ${f[2]} minecraft:${f[3]}`)))) fixtures.push(f); else fk.dirty.push(f[1]); }
+    const left = [...new Set(fk.dirty)].sort((a, b) => a - b);
+    if (fixtures.length) console.log(`[mine_b w${T.WORLD}] fixtures kept: ${JSON.stringify(fixtures.slice(0, 20))}`);
     let jobEnd = null; try { const j = [...svc.jobs.values()][0]; if (j) { const v = svc.jobDetail(j.id); const jj = svc.jobs.get(j.id); jobEnd = { problems: (svc.problems && svc.problems.list || []).slice(-14).map((q) => JSON.stringify(q).slice(0, 420)), endReport: jj && jj.impl && jj.impl.plan && jj.impl.plan.endReport, progress: v.progress, stuck: v.stuck, report: JSON.stringify(v.report || {}).slice(0, 1200) }; } } catch (_) { /* informational */ }
     const tempsLeft = svc.temps.list((r) => r.x >= x0 - 2 && r.x <= x1 + 2 && r.z >= z0 - 2 && r.z <= z1 + 2).map((r) => [r.x, r.y, r.z, r.kind]);
     const tempScan = TB.scanBox(svc.bots.get(name).bot, scanArea, null, before0);
@@ -118,7 +128,7 @@ const LIMIT_MIN = Number(process.env.LIMIT_MIN || 240), DEPTH = Number(process.e
     for (const c of tempScan.cells.slice(0, 20)) { const h = hist.get(kOf(c)); const still = svc.temps.list((r) => r.x === c.x && r.y === c.y && r.z === c.z)[0]; console.log(`[temps] left ${kOf(c)}: ${h ? JSON.stringify({ ago: Math.round((Date.now() - h.at) / 1000), tag: h.tag, last: h.last, reg: h.reg, rm: h.rm, stillRegistered: still ? still.kind : null }).slice(0, 600) : 'no block update seen (placed out of view, or a world block)'}`); }
     console.log(`[temps] registered anywhere at the end: ${svc.temps.size} (${JSON.stringify(svc.temps.counts())})`);
     if (deaths.read) await deaths.read();
-    rep.trial(name, controlOk && left.length === 0 && !moves[name] && !tempScan.unloaded, { tempScanLeft: tempScan.cells.length, tempScanUnloaded: tempScan.unloaded, tempScanCells: tempScan.cells.slice(0, 40), spawn: p0, pond, lakeFill: process.env.PIT_LAKE !== '0', method: process.env.METHOD || 'default', fluid, sec: Math.round((Date.now() - t0) / 1000), jobEnd, box, controlDirtyLayers: before.length, state, min: Math.round((Date.now() - t0) / 60000), dirtyLayers: left.length, firstDirty: left.slice(0, 12), registeredTempsLeft: tempsLeft.length, temps: tempsLeft.slice(0, 20), deaths: deaths[name], serverMoves: moves[name] || 0, guardStops: ((svc.bots.get(name) || {}).bot || {}).__fallGuard ? svc.bots.get(name).bot.__fallGuard.stops : null, nativePhysics: process.env.NATIVE_PHYSICS !== '0' });
+    rep.trial(name, controlOk && left.length === 0 && !moves[name] && !tempScan.unloaded, { tempScanLeft: tempScan.cells.length, tempScanUnloaded: tempScan.unloaded, tempScanCells: tempScan.cells.slice(0, 40), spawn: p0, pond, lakeFill: process.env.PIT_LAKE !== '0', method: process.env.METHOD || 'default', fluid, sec: Math.round((Date.now() - t0) / 1000), jobEnd, box, controlDirtyLayers: before.length, state, min: Math.round((Date.now() - t0) / 60000), dirtyLayers: left.length, firstDirty: left.slice(0, 12), fixturesKept: fixtures.slice(0, 20), registeredTempsLeft: tempsLeft.length, temps: tempsLeft.slice(0, 20), deaths: deaths[name], serverMoves: moves[name] || 0, guardStops: ((svc.bots.get(name) || {}).bot || {}).__fallGuard ? svc.bots.get(name).bot.__fallGuard.stops : null, nativePhysics: process.env.NATIVE_PHYSICS !== '0' });
     await S.cmd(`forceload remove ${x0} ${z0} ${x1} ${z1}`);
     const k = rep.write({ seed });
     await svc.stop(); process.exit(k ? 0 : 1);
