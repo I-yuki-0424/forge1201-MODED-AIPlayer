@@ -68,8 +68,8 @@ read-only, data `/mnt/data/forgeaip-play/survival121/console-data/survival`). Ch
 Removed the same day (owner: "You may delete the Forge world along with its backup"): the Forge play world `forgeaip-play` + console, volume `forgeaip-play_data`, its restic
 repo (97 GB) and snapshots, the two crontab lines and the systemd unit (disabled; its file and the sudoers rule wait for the owner, vps-dashboard NEEDS_ROOT.md section 13),
 the real-world copy (`forgeaip-real_*`), `forgeaip-demo`, `forgeaip-accept-*`, `forgeaip-world_test-data`, and the three 26.1.2 servers with consoles (creative kept as an archive,
-TEST-WORLDS-T26.md). The stopped Forge build world `forgeaip-world` lost its container; its volume `forgeaip-world_data` and `/mnt/data/forgeaip/snapshots` wait for the owner's answer.
-Disk 83 % -> 49 %.
+TEST-WORLDS-T26.md). The stopped Forge build world `forgeaip-world` went too (owner, the same evening): container, volume `forgeaip-world_data`, `/mnt/data/forgeaip/snapshots`;
+`scripts/world/*` refer to it and are history. Disk 83 % -> 47 %.
 
 ## The 1.21.1 creative standing server and console
 
