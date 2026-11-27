@@ -85,7 +85,7 @@ function install(bot, { maxFall = 3 } = {}) {
             else if (held(world, x0, s.pos.y, z, g.maxFall)) { s.pos.x = x0; s.vel.x = 0; }
             else { s.pos.x = x0; s.pos.z = z0; s.vel.x = 0; s.vel.z = 0; }
             g.stops++; g.lastStop = { at: Date.now(), x: Math.floor(x), y: Math.floor(s.pos.y), z: Math.floor(z) };
-            note(g, bot, x0, y0, z0, x, s.pos.y, z);
+            note(g, bot, x0, y0, z0, x, s.pos.y, z, world);
         } catch (_) { /* the guard never breaks the physics tick */ }
         return out;
     };
@@ -97,11 +97,14 @@ function install(bot, { maxFall = 3 } = {}) {
  * One record per episode of stops (the same mover, within a second of the last stop): where the body was, where the move would have taken it, how often, and who moved it
  * (bot.__moveTag: the action-layer command and, in a walk, the path node it steered to). What tells a mover that plans into a fall from a body that was pushed.
  */
-function note(g, bot, x0, y0, z0, x, y, z) {
+function note(g, bot, x0, y0, z0, x, y, z, world) {
     const now = Date.now(), tag = bot.__moveTag ? JSON.stringify(bot.__moveTag).slice(0, 300) : null, e = g.episodes[g.episodes.length - 1];
     if (e && now - e.last < 1000 && e.tag === tag) { e.n++; e.last = now; return; }
     const r2 = (v) => Math.round(v * 100) / 100;
-    g.episodes.push({ at: now, last: now, n: 1, from: [r2(x0), r2(y0), r2(z0)], to: [r2(x), r2(y), r2(z)], tag });
+    // what lies under the body where the move would have taken it (the cells of each column it covers, from the feet down four): a stop the planner did not expect names its block
+    let under = null;
+    try { under = columns(x, z).map(([cx, cz]) => `${cx},${cz}:` + [0, 1, 2, 3, 4].map((d) => { const b = world.getBlock(new Vec3(cx, Math.floor(y + 1e-3) - d, cz)); return b ? `${b.name}${b.shapes && b.shapes.length ? '' : '()'}` : '?'; }).join('/')).join(' '); } catch (_) { /* a record only */ }
+    g.episodes.push({ at: now, last: now, n: 1, from: [r2(x0), r2(y0), r2(z0)], to: [r2(x), r2(y), r2(z)], tag, under });
     if (g.episodes.length > 16) g.episodes.shift();
 }
 
