@@ -60,11 +60,16 @@ console.log('  ok a piston firing and a moved cell are counted, mid-build apart 
     const job2 = new BuildJob(t, {}); job2.stage = 'place';
     job2.tasks = new Map([...open0()].map((k) => [k, { ...tkOf(t, ...k.split(',').map(Number)) }]));
     const torch = tkOf(t, 3, 65, 1); job2.tasks.set(torch.k, torch);
-    const bot2 = { username: 'a', entity: { position: { x: 0.5, y: 65, z: 0.5 } }, blockAt: () => ({ name: 'air', getProperties: () => ({}), boundingBox: 'empty' }) };
+    const bot2 = { username: 'a', entity: { position: { x: 0.5, y: 65, z: 0.5 } }, blockAt: (p) => (p.y === 64 ? { name: 'stone', getProperties: () => ({}), boundingBox: 'block' } : { name: 'air', getProperties: () => ({}), boundingBox: 'empty' }) };
     assert.strictEqual(job2.ready(torch, bot2, Date.now()), false, 'negative control: not relaxed, the torch waits for its machine');
     job2.relaxed = true;
     assert.strictEqual(job2.ready(torch, bot2, Date.now()), true, 'in a stall the torch goes in');
     console.log('  ok a stall lifts the machine rule (negative control: not relaxed, the source waits)');
+    // the tail: under 150 place tasks for five minutes, the machine rule goes too (with claims held the stall never fires); negative control: the first look starts the clock
+    job2.relaxed = false; const t0 = Date.now() + 20000;
+    assert.strictEqual(job2.ready(torch, bot2, t0), false, 'the tail just began: the torch waits');
+    assert.strictEqual(job2.ready(torch, bot2, t0 + 301000), true, 'five minutes in the tail: the torch goes in');
+    console.log('  ok five minutes in the tail lift the machine rule (negative control: at its start the source waits)');
 }
 function open0() { return ['1,65,1', '1,66,1', '2,65,1']; }
-console.log('test_build_machine_pure: 4 passed');
+console.log('test_build_machine_pure: 5 passed');

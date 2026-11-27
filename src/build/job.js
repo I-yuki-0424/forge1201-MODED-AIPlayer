@@ -26,6 +26,7 @@ const PER_SECTOR = 2;              // bots working in one area at a time (its ow
 const TILE = 4;                    // columns per side of a tile: the ground plan's unit for areas and for the local layer window
 const REVIVE_MS = 90000;           // parked cells come back while the build runs (not only in the end rounds) once they have waited this long and the crew has nothing ready
 const PIT_ROUNDS = 3;               // pit jobs over the site's terrain (job.planPit): the first, and up to two more over what a pit left
+const FEW_LEFT = 150, FEW_MS = 300000;   // the place stage's tail: under this many place tasks for this long, the machine rule goes (job._fewLeft)
 const STALL_MS = 40000;            // nothing ready for anybody this long while work is left: the ordering rules are relaxed (a dependency that cannot be met)
 const STAGE_OF = { seal: 'prepare', fill: 'prepare', clear: 'prepare', place: 'place', fix: 'place', scaffold: 'place', pour: 'late', ignite: 'late', contents: 'late', untemp: 'cleanup' };
 // a task's stage: its kind's, or the one it was given (a block of the build dug out of a cell to stay empty is part of placing, not the site's clearing)
@@ -258,7 +259,7 @@ class BuildJob {
         // a machine is not powered while it is built: its power sources last, an observer after the cell it watches (machine.js)
         // (not in a stall: the cells its machine waits for are ones no stance reaches, parked and tried again in turn, and its sources waited to the end of the run with the
         // place stage, so the 36 portals were never lit: b081w4/w5, 25 power sources behind 30-53 cells high in the air for 90 minutes)
-        if ((tk.kind === 'place' || tk.kind === 'fix') && !this.relaxed && this._machineWaits(tk, now)) return false;
+        if ((tk.kind === 'place' || tk.kind === 'fix') && !this.relaxed && !this._fewLeft(now) && this._machineWaits(tk, now)) return false;
         if (this.relaxed) return !(tk.kind === 'clear' && [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]].some(([dx, dy, dz]) => { const h = seen(bot, { x: tk.x + dx, y: tk.y + dy, z: tk.z + dz }); return h && (h.name === 'water' || h.name === 'lava' || h.props.waterlogged === 'true'); }));
         if (tk.kind === 'scaffold') return true;
         if (tk.kind === 'clear') {
@@ -393,6 +394,17 @@ class BuildJob {
         if (tk.kind === 'seal' || tk.kind === 'fill') return h.name !== 'water' && h.name !== 'lava' && h.props.waterlogged !== 'true' && !/^(seagrass|tall_seagrass|kelp|kelp_plant|bubble_column)$/.test(h.name);
         if (tk.kind === 'place' && tk.i >= 0) { const w = this.t.wantOf(tk); return S.matches(w, h); }
         return false;
+    }
+
+    /**
+     * The tail of the place stage: under FEW_LEFT place tasks for FEW_MS. The machine rule goes then too (b081x4: the stall rule never fired with two bots holding claims, and 25
+     * power sources waited on 56-78 cells no stance reached while the run's time ran out). Counted at most every 10 s.
+     */
+    _fewLeft(now) {
+        if (this.stage !== 'place') return false;
+        const f = this._few || (this._few = { at: 0, n: Infinity, since: 0 });
+        if (now - f.at > 10000) { f.at = now; let n = 0; for (const t of this.tasks.values()) if (t.kind === 'place' && ++n >= FEW_LEFT) break; f.n = n; if (n >= FEW_LEFT) f.since = 0; else if (!f.since) f.since = now; }
+        return f.n < FEW_LEFT && !!f.since && now - f.since >= FEW_MS;
     }
 
     /** The machine rule for tk (machine.js): why it waits, or null. */
