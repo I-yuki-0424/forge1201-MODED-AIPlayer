@@ -318,6 +318,16 @@ test('a dead bot\'s pack: the respawned bot goes to where it fell and walks onto
     assert.strictEqual(went, 0, 'negative controls: too late, and another bot\'s claim'); assert(late.drops[0].done && !late.drops[1].done);
 });
 
+test('the material ledger: supplied = placed + packs + chest/depot + unaccounted, per item (negative control: everything accounted for, nothing unaccounted)', () => {
+    const job = { supply: { totals: { smooth_stone: 100, glass: 20 } }, t: { items: new Map([['smooth_stone', 90], ['glass', 10]]) }, _itemOf: (tk) => tk.item,
+        tasks: new Map([['a', { kind: 'place', item: 'smooth_stone' }], ['b', { kind: 'place', item: 'smooth_stone' }]]), parkedTk: new Map([['c', { tk: { kind: 'place', item: 'smooth_stone' } }]]),
+        packs: new Map([['x', { smooth_stone: 5 }], ['y', { glass: 4 }]]), sites: [{ holdsAll: { smooth_stone: 2, glass: 6 } }], depot: [{ holds: { smooth_stone: 1 } }] };
+    const m = D.materials(job), ss = m.find((r) => r.it === 'smooth_stone'), gl = m.find((r) => r.it === 'glass');
+    assert.deepStrictEqual([ss.placed, ss.packs, ss.store, ss.unaccounted, ss.needLeft], [87, 5, 3, 5, 3], JSON.stringify(ss));          // 100 = 87 + 5 + 3 + 5
+    assert.strictEqual(m[0].it, 'smooth_stone', 'worst first');
+    assert.strictEqual(gl.unaccounted, 0, JSON.stringify(gl));          // negative control: 20 = 10 placed + 4 in packs + 6 in the chest
+});
+
 test('pit: fluid fills use the dug rubble first, the operator\'s temporary block only without it; at the time limit the pit wraps up (no claim, finished for the worker, its end cleans the movement blocks only)', async () => {
     const pit = require('../src/work/jobs/pit');
     const have = { cobblestone: 20, pumpkin: 128 }, env = { have: (x) => have[x] || 0 };

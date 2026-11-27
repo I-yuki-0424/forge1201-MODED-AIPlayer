@@ -174,6 +174,29 @@ test('pool: a giver serving a request is not asked again; an expired request is 
     assert.strictEqual(pool.status().failed, 1);
 });
 
+test('pool: a toss the asker does not get is taken back by the giver (walks onto each stack), nothing left lying (b081q4: 6 tosses left on the ground); negative control: the asker gets it, the giver stays', async () => {
+    const { EventEmitter } = require('events');
+    for (const askerGets of [false, true]) {
+        const job = { tasks: new Map(), claims: new Map(), t: { items: new Map() }, log: () => {}, _itemOf: () => null };
+        const pool = new Pool(job);
+        const packs = { a: { glass: 0 }, b: { glass: 64 } }, ents = {};
+        const mk = (name, x) => { const b = new EventEmitter(); Object.assign(b, { username: name, entity: { position: new Vec3(x + 0.5, 70, 0.5), eyeHeight: 1.62, isInWater: false }, entities: ents, setControlState() {}, look: async () => {}, inventory: { items: () => Object.entries(packs[name]).filter(([, c]) => c > 0).map(([n, c]) => ({ name: n, count: c })) } }); return b; };
+        const a = mk('a', 0), b = mk('b', 2.5);
+        let id = 0;
+        b.tossStack = async (st) => { packs.b[st.name] -= st.count; const e = { id: ++id, name: 'item', position: new Vec3(1.5, 70, 0.5), stack: { ...st } }; ents[e.id] = e; b.emit('entitySpawn', e); if (askerGets) { packs.a[st.name] += st.count; delete ents[e.id]; } };
+        b.toss = async () => {};
+        const walked = [];
+        const mvB = { goto: async (q) => { walked.push(q); for (const [k, e] of Object.entries(ents)) if (Math.floor(e.position.x) === q.x) { packs.b[e.stack.name] += e.stack.count; delete ents[k]; } return { ok: true }; } };
+        pool.join('a', a); pool.join('b', b, mvB);
+        pool.spare = () => 64;
+        const r = pool.open('a', 'b', { glass: 64 });
+        await pool.serve('b');
+        if (!askerGets) { assert.strictEqual(packs.b.glass, 64, 'taken back'); assert.strictEqual(Object.keys(ents).length, 0, 'nothing lying'); assert.strictEqual(pool.stats.takenBack, 64); }
+        else { assert.strictEqual(walked.length, 0, 'negative control: the asker has it, the giver stays'); assert.strictEqual(packs.a.glass, 64); }
+        assert.ok(r);
+    }
+});
+
 // ---- NAV and the work layer (TASK-075: the guard on every work bot; pit bots walked off 21- and 40-block edges of their own pit) ----
 test('a pit bot at the 21-block edge of its dug pit: held (the guard every work bot now has); without it the body falls (negative control)', () => {
     const cells = {}; for (let x = -3; x <= 0; x++) column(x, 0, 0, 20, 'stone', cells); column(1, 0, 0, 0, 'stone', cells);          // the pit floor 20 below, east of the rim

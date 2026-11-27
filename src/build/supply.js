@@ -178,6 +178,8 @@ async function fetch(bot, site, needs, mover, spot, { log = () => {}, depot = []
         await near(bot, mover, site);
         const win = await open(bot, site);
         if (!win.containerItems().length) complete = false;
+        // what the chest holds, its boxes' contents included (the build's material ledger, drive.js materials)
+        { const all = {}; for (const it of win.containerItems()) { if (SHULKER.test(it.name) && !emptyBox(bot, it)) { for (const [k, n] of Object.entries(boxHolds(bot, it))) all[k] = (all[k] || 0) + n; } else all[it.name] = (all[it.name] || 0) + it.count; } site.holdsAll = all; site.holdsAt = Date.now(); }
         try {
             for (const it of win.containerItems()) {
                 if (SHULKER.test(it.name) && !emptyBox(bot, it)) for (const [k, n] of Object.entries(boxHolds(bot, it))) saw(k, n); else saw(it.name, it.count);

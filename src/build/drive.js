@@ -1003,6 +1003,26 @@ async function recoverDrops(job, name, bot, mv, cancel) {
     }
 }
 
+/**
+ * The build's material ledger per item: supplied = placed + in the crew's packs + in the chest and the depot boxes (as last read) + unaccounted (lying on the ground or lost:
+ * despawned, burnt). Every item missing at the end has a named place (orchestrator 2026-11-27: b081q4 ran out of smooth stone, redstone and repeaters with the supply at +5 %).
+ * `placed` counts the blueprint's cells of the item that are right (its cells less those still to place or parked). Items with something unaccounted, worst first.
+ */
+function materials(job) {
+    const sup = (job.supply && job.supply.totals) || {}, out = [];
+    const left = {}; for (const tk of job.tasks.values()) { if (tk.kind !== 'place') continue; const it = job._itemOf(tk); if (it) left[it] = (left[it] || 0) + 1; }
+    if (job.parkedTk) for (const { tk } of job.parkedTk.values()) { if (tk.kind !== 'place') continue; const it = job._itemOf(tk); if (it) left[it] = (left[it] || 0) + 1; }
+    const packs = {}; for (const p of (job.packs || new Map()).values()) for (const [k, n] of Object.entries(p)) packs[k] = (packs[k] || 0) + n;
+    const store = {}; const site = (job.sites || [])[0]; if (site && site.holdsAll) for (const [k, n] of Object.entries(site.holdsAll)) store[k] = (store[k] || 0) + n;
+    for (const c of job.depot || []) if (c.holds) for (const [k, n] of Object.entries(c.holds)) store[k] = (store[k] || 0) + n;
+    for (const [it, need] of job.t.items) {
+        if (!sup[it]) continue;
+        const placed = Math.max(0, need - (left[it] || 0)), un = sup[it] - placed - (packs[it] || 0) - (store[it] || 0);
+        out.push({ it, supplied: sup[it], placed, packs: packs[it] || 0, store: store[it] || 0, unaccounted: un, needLeft: left[it] || 0 });
+    }
+    return out.sort((a, b) => b.unaccounted - a.unaccounted);
+}
+
 /** One bot of the crew, its pauses classified (pauses.js): the drive runs in the bot's own store. */
 function drive(job, name, bot, opts = {}) {
     const stop = PZ.attach(bot, name);
@@ -1040,7 +1060,7 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
     const unwatch = require('./machine').attach(job, bot, job.log);          // the build's pistons that fire and the cells they move (target zero)
     // once a second: how many of its temporary blocks stand beyond the column it stands on (the owner's two-per-bot standard, temps.js sample)
     let looseLog = 0;
-    const sampler = setInterval(() => { try { if (bot.inventory) lastPack = SUP.carried(bot); } catch (_) { /* the next second */ } try { if (bot.entity && job.ledger.size) { const f = feet(bot), n = job.ledger.sample(name, f); if (n > 2 && Date.now() - looseLog > 60000) { looseLog = Date.now(); job.log(`[temps] ${name} at ${f.x},${f.y},${f.z} holds ${n} beyond its column: ${job.ledger.lastLoose.join('; ')}; last moves ${mv.trace.slice(-3).join(' | ')}`); } } } catch (_) { /* a sample is only a count */ } }, 1000);
+    const sampler = setInterval(() => { try { if (bot.inventory) { lastPack = SUP.carried(bot); (job.packs || (job.packs = new Map())).set(name, lastPack); } } catch (_) { /* the next second */ } try { if (bot.entity && job.ledger.size) { const f = feet(bot), n = job.ledger.sample(name, f); if (n > 2 && Date.now() - looseLog > 60000) { looseLog = Date.now(); job.log(`[temps] ${name} at ${f.x},${f.y},${f.z} holds ${n} beyond its column: ${job.ledger.lastLoose.join('; ')}; last moves ${mv.trace.slice(-3).join(' | ')}`); } } } catch (_) { /* a sample is only a count */ } }, 1000);
     // the step is over: the bot's own temporary blocks go before it does anything else (release)
     // a bot without any action for a minute (no packet, no step): once per pause, where it is, what it is in and its mover's last steps (b081k: 33 pauses of 70-360 s
     // in the mover's tick waits that no other line explained)
@@ -1136,6 +1156,8 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
                 }
             }
             // asked for items by a colleague on its way here: it waits for it a moment and throws them over (not off to another stance meanwhile)
+            // the material ledger, every five minutes: supplied = placed + packs + chest/depot + unaccounted (lying or lost), per item, in the log and the progress line
+            if (Date.now() - (job.matAt || 0) > 300000 && job.stage !== 'survey') { job.matAt = Date.now(); try { const m = materials(job); job.stats.unaccounted = Object.fromEntries(m.filter((r) => r.unaccounted > 0).slice(0, 8).map((r) => [r.it, r.unaccounted])); job.log(`[materials] supplied = placed + packs + store + unaccounted: ${m.slice(0, 10).map((r) => `${r.it} ${r.supplied} = ${r.placed} + ${r.packs} + ${r.store} + ${r.unaccounted} (to place ${r.needLeft})`).join('; ')}`); } catch (e) { job.log(`[materials] ${e.message}`); } }
             { const PL = require('./move').PLANS; job.stats.plans = `${PL.n} ${Math.round(PL.ms / 1000)}s failed ${PL.failed} flood-routes ${PL.flood} sinks ${PL.sinks}/${PL.sinks + PL.sinkFailed}`; }
             if (job.pool) { await PZ.within('wait: hand-over (giver)', () => job.pool.hold(name, cancel)); const ps = job.pool.status(); job.stats.pool = `${ps.served}/${ps.asked} ${ps.items}it`; }
             // tools and temporary blocks before the work needs them
@@ -1257,4 +1279,4 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
     } finally { bot.removeListener('death', onDeath); bot.removeListener('death', onDied); bot.removeListener('blockUpdate', onBlock); job.orphanOf(name, 'left the crew'); clearInterval(sampler); clearInterval(stallWatch); unwatch(); bot.removeListener('spawnReset', onReset); bot.__builderOwns = false; job.leave(name); if (job.pool) job.pool.leave(name); for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sneak', 'sprint']) bot.setControlState(k, false); }
 }
 
-module.exports = { drive, work, holds, rules, pour, escape, needsFor, boxSpot, bench, release, unscaffold, touchesShape, planned, adoptWorkTemps, closesIn, recoverDrops };
+module.exports = { drive, work, holds, rules, pour, escape, needsFor, boxSpot, bench, release, unscaffold, touchesShape, planned, adoptWorkTemps, closesIn, recoverDrops, materials };

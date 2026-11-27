@@ -108,21 +108,41 @@ class Pool {
         for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sprint']) bot.setControlState(k, false);
         const e = p.offset(0, bot.entity.eyeHeight || 1.62, 0), t = q.offset(0, 1.1, 0);          // at the asker's body: about level
         try { await bot.look(Math.atan2(-(t.x - e.x), -(t.z - e.z)), Math.atan2(t.y - e.y, Math.hypot(t.x - e.x, t.z - e.z)), true); await sleep(120); } catch (_) { /* the look is a nicety */ }
+        // the toss's own item entities (they spawn as it is thrown): for taking it back when the asker does not get it
+        const spawned = new Map(), onSpawn = (e) => { if (e && e.name === 'item') spawned.set(String(e.id), Date.now()); };
+        bot.on('entitySpawn', onSpawn);
         const sent = {}, c0 = SUP.carried(bot), a0 = SUP.carried(asker);
         for (const [it, n0] of Object.entries(r.items)) {
             const sp = this.spare(name, it), n = Math.min(n0, sp);
             if (n <= 0) continue;
             try { const k = await throwOut(bot, it, n, sp); if (k > 0) sent[it] = k; } catch (err) { this.job.log(`pool: ${name} could not throw ${n} ${it}: ${err.message}`); }
         }
-        if (!Object.keys(sent).length) { this.close(r, 'failed', 'nothing left to spare'); return false; }
+        if (!Object.keys(sent).length) { bot.removeListener('entitySpawn', onSpawn); this.close(r, 'failed', 'nothing left to spare'); return false; }
         await sleep(150);
         { const c1 = SUP.carried(bot), off = Object.keys(sent).filter((it) => (c0[it] || 0) - (c1[it] || 0) <= 0); if (off.length) this.job.log(`pool: ${name}'s toss of ${off.join(', ')} left its pack unchanged`); }
         r.state = 'tossed'; r.sent = sent; r.tossAt = Date.now(); r.tossFrom = p.clone();
         // standing still until the asker has it: the server gives a thrown stack to whoever touches it after two seconds, and a giver that walked on (between the moves of its
         // route) crossed its own toss and took it back (live 2026-11-25 hb7)
         const first = Object.keys(sent)[0];
-        for (let i = 0; i < 18 && (SUP.carried(asker)[first] || 0) <= (a0[first] || 0); i++) await sleep(200);
-        await sleep(400);
+        try {
+            for (let i = 0; i < 18 && (SUP.carried(asker)[first] || 0) <= (a0[first] || 0); i++) await sleep(200);
+            await sleep(400);
+            // the asker did not get it within a few seconds: the giver takes its throw back (walks onto each stack of it that still lies about), so nothing of it is left on
+            // the ground to despawn (b081q4: 6 of 116 hand-overs left their toss lying, nobody picked it up); the request fails and the asker may ask again or go to the chest
+            if ((SUP.carried(asker)[first] || 0) <= (a0[first] || 0)) {
+                const mv = this.movers && this.movers.get(name), mine = () => Object.values(bot.entities).filter((e) => e.name === 'item' && spawned.has(String(e.id)) && e.position.distanceTo(p) < 7);
+                const c2 = SUP.carried(bot);
+                for (let k = 0; k < 6 && mv && mine().length; k++) {
+                    const e = mine().sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))[0];
+                    const q = { x: Math.floor(e.position.x), y: Math.floor(e.position.y + 0.2), z: Math.floor(e.position.z) };
+                    try { await mv.goto(q, { goal: (x, y, z) => x === q.x && z === q.z && Math.abs(y - q.y) <= 1, maxNodes: 3000, tries: 1 }); } catch (_) { break; }
+                    await sleep(600);
+                }
+                const c3 = SUP.carried(bot), back = Object.keys(sent).reduce((a, it) => a + Math.max(0, (c3[it] || 0) - (c2[it] || 0)), 0);
+                this.stats.takenBack = (this.stats.takenBack || 0) + back;
+                this.job.log(`pool: ${r.from} did not get ${name}'s toss: ${name} took ${back} back${mine().length ? `, ${mine().length} stacks still lying` : ''}`);
+            }
+        } finally { bot.removeListener('entitySpawn', onSpawn); }
         return true;
     }
 
