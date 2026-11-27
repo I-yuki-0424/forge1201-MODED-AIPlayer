@@ -407,6 +407,19 @@ async function runUnit(plan, region, u, env) {
         r.floorLeft = seeds.filter((q) => isFluid(env.w, q.x, q.y, q.z)).length;
         } finally { floorBusy = false; }
     };
+    // The floor BEFORE the dig (the floor rule's first half): fluid right under a cell that is still solid is closed against the cell's own bottom face, a blind click within reach
+    // (block.js placeBlind; the owner's addendum 2026-11-26 item 4: placing below a block is survival play). After the dig that face is gone, and a floor cell in the middle of an aquifer
+    // has no other one (water beside and under it): floorFill kept it pending, the hole stayed open over the water and Pit2 fell in (mbc075r w2, seed 3512740157434848104, 1.21.1,
+    // y -28 over water y -32..-29: 40 min in the water, timeout). What cannot be placed now is left to floorFill after the dig, as before.
+    const floorFirst = async (c) => {
+        if (process.env.PIT_LAKE === '0' || process.env.PIT_FLOOR === '0' || process.env.PIT_FLOOR_FIRST === '0' || !env.exec) return;          // (PIT_FLOOR_FIRST=0: A/B)
+        const q = { x: c.x, y: c.y - 1, z: c.z };
+        if (q.y < plan.box.bottom || !isFluid(env.w, q.x, q.y, q.z) || !isSolid(env.w, c.x, c.y, c.z)) return;
+        const item = sealItem(env); if (!item) return;
+        const p = await env.exec('place', { x: q.x, y: q.y, z: q.z, item, fluid: true, temp: 'lake', blind: true });
+        const L = lakeStats();
+        if (p.ok) { L.floorsFirst = (L.floorsFirst || 0) + 1; L.filled++; lakeOwn({ placed: [q] }); } else L.floorFirstFailed = (L.floorFirstFailed || 0) + 1;
+    };
     // where a cell's time goes (the slow-unit log): each step of handleCell by name, in ms (bt075w3 jungle: cells of 547-698 s with no NAV trip at all, cause not visible)
     let steps = {};
     const timed = async (k, p) => { const t = Date.now(); try { return await p; } finally { steps[k] = (steps[k] || 0) + Date.now() - t; } };
@@ -439,6 +452,7 @@ async function runUnit(plan, region, u, env) {
         }
         let offSupport = false;
         if (supportsBody(env, c)) { const off = await stepOffSupport(env, c); if (!off) { r.skipped++; r.floating = (r.floating || 0) + 1; r.support = (r.support || 0) + 1; leave(c); return null; } r.steppedOff = (r.steppedOff || 0) + 1; offSupport = true; }
+        await timed('floor', floorFirst(c));
         // Success is what the world shows: a `mine` that ended in the drop pickup (target_lost: the item was picked up by another
         // bot or despawned) has still opened the cell. Transient reasons (another bot in the crosshair, a slipped aim) get retries.
         const c0 = Date.now();

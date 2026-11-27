@@ -519,6 +519,36 @@ const left = (w, box = BOX) => scan(w, box).length;
         assert.strictEqual(await run('amethyst_block'), 'amethyst_block', 'negative control: an amethyst block outside the box stays');
     });
 
+    await test('the floor before the dig: water under a cell that is still solid is closed against its bottom face first, so no dug cell is left over water (mbc075r w2: an aquifer under the floor, the bot fell in); negative control: with PIT_FLOOR_FIRST=0 the holes stay open', async () => {
+        const pit = require('../src/work/jobs/pit');
+        const run = async (first) => {
+            const cells = new Map(); const at = (x, y, z) => cells.get(`${x},${y},${z}`) || (y >= 65 ? 'air' : y <= 58 ? 'stone' : y === 64 ? 'stone' : (x >= 0 && x <= 7 && z >= 0 && z <= 7 ? 'water' : 'stone'));
+            const kindAt = (x, y, z) => { const n = at(x, y, z); return n === 'air' ? 'air' : n === 'water' ? 'water' : 'solid'; };
+            const w = { nameAt: at, kindAt };
+            const job = pit.createPitJob({ x0: 0, z0: 0, x1: 7, z1: 7, top: 64, bottom: 63 }, {}, { method: 'rows', road: false }), region = job.plan.regions[0];
+            const holes = [], blindFloors = [];
+            const env = { w, have: (i) => (i === 'cobblestone' ? 64 : 0), pause: async () => {}, recover: async () => {}, here: () => ({ x: 3, y: 65, z: -2 }),
+                exec: async (n, a) => {
+                    if (n === 'mine') { cells.set(`${a.x},${a.y},${a.z}`, 'air'); if (a.y === 64 && kindAt(a.x, 63, a.z) === 'water') holes.push([a.x, a.z]); return { ok: true }; }
+                    if (n === 'place') {
+                        // a click needs a solid face beside, under or over the target (the server's rule; placeBlind picks one within reach)
+                        const face = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].some(([dx, dy, dz]) => kindAt(a.x + dx, a.y + dy, a.z + dz) === 'solid');
+                        if (!face) return { ok: false, reason: 'invalid_target' };
+                        cells.set(`${a.x},${a.y},${a.z}`, a.item); if (a.blind && a.y === 63) blindFloors.push([a.x, a.z]); return { ok: true };
+                    }
+                    if (n === 'move_to') return { ok: false, reason: 'unreachable' };
+                    return { ok: true };
+                } };
+            process.env.PIT_TREES = '0'; if (!first) process.env.PIT_FLOOR_FIRST = '0';
+            try { for (let u = 0; u < region.rows; u++) await job.runUnit(region.id, { unit: u }, env); } finally { delete process.env.PIT_TREES; delete process.env.PIT_FLOOR_FIRST; }
+            return { holes, blindFloors };
+        };
+        const a = await run(true);
+        assert.strictEqual(a.holes.length, 0, `no cell of the layer was opened over water: ${JSON.stringify(a.holes.slice(0, 5))}`); assert.strictEqual(a.blindFloors.length, 64, 'each floor cell closed by a blind click');
+        const b = await run(false);
+        assert.ok(b.holes.length > 0, `negative control: ${b.holes.length} holes over water`);
+    });
+
     await test('the tree pass ends after three NAV trips in a row that got nowhere (mbc075q w3: the respawned bot spent 30 min of the job\'s end on futile trips); negative control: trips that arrive go on', async () => {
         const mk = () => { const b = []; for (let i = 0; i < 8; i++) b.push([2 + i, GROUND + 9, 5, 'oak_leaves']); const w = world(b); const f = fakeEnv(w, { x: 0, y: GROUND + 1, z: 0 }); const mv = f.env.exec; f.env.exec = async (n, a) => (n === 'move_to' ? { ok: false, reason: 'unreachable' } : mv(n, a)); return { ...f, w }; };
         const a = mk(); let trips = 0; a.env.nav = async () => { trips++; return { ok: false, reason: 'stuck' }; };
