@@ -115,6 +115,22 @@ function keepRubble(job) {
  * Does another bot of the crew stand on the block at (x, y, z), or on one of the two above it (live positions from the server, not those of the last claim)? Broken under it,
  * it falls (Nether crews fell 30-50 blocks off temporary blocks the clearing took away under them, live 2026-11-22 sJ2).
  */
+/**
+ * A clear task in the place stage digs a block of the build's own kind from a cell that wants another (b081w4: 107 clears while 113 glass went missing with no item on the ground:
+ * glass dug without Silk Touch is gone). Counted by what was dug and what the cell wants (stats.clears), and an item the crew does not get back goes into job.lost (the ledger's
+ * dug column); the first 40 are logged with the cell.
+ */
+function noteClear(job, name, bot, tk, h) {
+    try {
+        const hn = S.bare(h.name); if (!job.t.items.has(hn)) return;
+        const w = job.t.wantOf(tk), wn = w ? S.bare(w.name) : 'outside', st = job.stats.clears || (job.stats.clears = {}), k = `${hn}>${wn}`;
+        st[k] = (st[k] || 0) + 1;
+        const back = RC.getBack(bot, hn, hn).ok;
+        if (!back) (job.lost || (job.lost = new Map())).set(hn, ((job.lost && job.lost.get(hn)) || 0) + 1);
+        if ((job.clearLog = (job.clearLog || 0) + 1) <= 40) job.log(`${name}: clears ${hn} from ${tk.k} (wants ${wn})${back ? '' : ', not got back'}${tk.stageAs ? ` [${tk.stageAs}]` : ''}`);
+    } catch (_) { /* counting only */ }
+}
+
 /** Does any body the bot sees (its own, a crew member's, any player's) reach into cell c (a player's box: 0.6 wide, 1.8 high)? */
 function bodyIn(bot, c) {
     const ps = Object.values(bot.players || {}).map((p) => p && p.entity && p.entity.position).filter(Boolean);
@@ -299,7 +315,7 @@ async function work(job, name, bot, mv, cl, cancel) {
         }
         // (never a block of its own pillar while its step lasts, dug from beside by a clear task: the top went and the rest stood, bt075c w2 "task clear 67,72,9 / dig pumpkin")
         if ((tk.kind === 'clear' || tk.kind === 'untemp') && !S.AIR.has(h.name)) { const own = job.ledger.get(tk); if (own && own.by === name && own.how === 'pillar' && !own.released && !(feet(bot).x === tk.x && feet(bot).z === tk.z)) { results.push({ tk, ok: false, why: 'skipped' }); continue; } }
-        if (tk.kind === 'clear' || tk.kind === 'untemp') { if (S.AIR.has(h.name)) { results.push({ tk, ok: true }); continue; } if (underCrew(job, bot, tk.x, tk.y, tk.z) || onRouteOfOther(job, name, tk.x, tk.y, tk.z)) { results.push({ tk, ok: false, why: 'skipped' }); continue; } const td = Date.now(); await mv.dig(tk); job.time.dig += Date.now() - td; done.push(tk); continue; }
+        if (tk.kind === 'clear' || tk.kind === 'untemp') { if (S.AIR.has(h.name)) { results.push({ tk, ok: true }); continue; } if (underCrew(job, bot, tk.x, tk.y, tk.z) || onRouteOfOther(job, name, tk.x, tk.y, tk.z)) { results.push({ tk, ok: false, why: 'skipped' }); continue; } if (tk.kind === 'clear') noteClear(job, name, bot, tk, h); const td = Date.now(); await mv.dig(tk); job.time.dig += Date.now() - td; done.push(tk); continue; }
         // seals, fills and scaffolds are temporary blocks too: registered before the click (a scaffold in a box cell was in no list and stood to the end, hc1)
         if (tk.kind === 'seal' || tk.kind === 'fill' || tk.kind === 'scaffold') { const it = mv.rules.temp() || job.tempItem; if (!(await mv.hold(it))) { results.push({ tk, ok: false, why: 'skipped' }); continue; } job.addTemp(tk, tk.kind, name, it); await click(mv, way); done.push(tk); continue; }
         if (tk.kind === 'fix') { await mv.holdNothing(); await mv.click([tk.x, tk.y, tk.z], way.click.face, way.click.hit); for (let k = 1; k < tk.clicks; k++) await mv.click([tk.x, tk.y, tk.z], way.click.face, way.click.hit); done.push(tk); continue; }
