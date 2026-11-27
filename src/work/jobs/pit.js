@@ -467,6 +467,8 @@ async function runUnit(plan, region, u, env) {
         // (off its support: blind from where it stepped, the aimed mine would walk back onto it)
         let m = (offSupport || isTreeAt(env.w, c)) && eyeDist(c) <= BLIND ? await timed('blindTree', env.exec('mine', { x: c.x, y: c.y, z: c.z, collect: false, blind: true })) : { ok: false, reason: 'not_tried' };
         if (m.ok || open(c)) { r.blindTree = (r.blindTree || 0) + 1; } else m = await timed('mine', env.exec('mine', mineArgs(c), { deadline: c0 + CELL_MS }));
+        // another player stands on it (block.js mine refuses: b081x5, a crew member fell 21 blocks when its block was dug): the cell fails at once, no fix or trip; the unit comes back later
+        if (!m.ok && m.reason === 'precondition_failed' && m.detail && Array.isArray(m.detail.unmet) && m.detail.unmet.some((u) => u && u.need === 'no_player_on_it')) { r.playerOn = (r.playerOn || 0) + 1; return fail(m, c, 'player_on_it'); }
         // Out of reach from the station (unmet in_reach, 'unreachable'): no retry ladder (six tries with recoveries changed nothing and cost minutes per cell in a tree, 081's b081k);
         // blind when the eye is within the server's reach, else one NAV trip within reach (navReach below)
         if (!m.ok && !open(c) && reachFail(m)) m = await timed('navReach', navReach(c, m));

@@ -104,6 +104,16 @@ function refusal(bot, cell, name) {
     return null;
 }
 
+/** The name of another player whose feet stand on the top of `cell` (its footprint over the cell, the feet within a quarter block of the top), or null. */
+function standerOn(bot, { x, y, z }) {
+    for (const e of Object.values(bot.entities || {})) {
+        if (!e || e === bot.entity || e.type !== 'player' || !e.position) continue;
+        const p = e.position;
+        if (p.x + 0.3 > x && p.x - 0.3 < x + 1 && p.z + 0.3 > z && p.z - 0.3 < z + 1 && Math.abs(p.y - (y + 1)) < 0.25) return e.username || 'player';
+    }
+    return null;
+}
+
 /**
  * mine {x, y, z, collect?, blind?}: break the block with the best tool at hand and pick up what it drops.
  * `collect: false` leaves the drop where it falls (the work layer sweeps a whole standing place and picks everything up once).
@@ -117,6 +127,10 @@ async function mine(ctx, { x, y, z, collect = true, blind = false, hand = false 
     if (/^(air|cave_air|void_air)$/.test(b0.name) || !b0.diggable || ['liquid', 'water'].includes(ctx.world.kindAt(x, y, z))) throw new SkillError('invalid_target', { block: b0.name, target: cell });
     const no = refusal(bot, cell, b0.name);
     if (no) throw new SkillError('protected', { block: b0.name, target: cell, ...(no.why ? { why: no.why } : {}) });
+    // Never the block another player stands on: Bd5b's pit unit dug the pumpkin at 105,93,-4 under Bd5a, which waited on it for the layer gate, and Bd5a fell 21 blocks to its death
+    // (081's b081x5, Nether, seed 5251586736446165203, 1.21.1). Not a fixture: nothing is left for good, the caller tries again once the player has moved.
+    const on = standerOn(bot, cell);
+    if (on) throw new SkillError('precondition_failed', { unmet: [{ need: 'no_player_on_it', player: on, cell }], block: b0.name, target: cell });
     // `hand` (work layer only, never in the action schema): break the block with whatever is in the hand when no tool fits. Slow, no drop that needs the tool,
     // but it takes away a block the bot placed itself (the pillar).
     // A worn-out tool still breaks a block of its own pillar in a moment; bare hands take 7 s per stone. A cobweb is broken by hand too (20 s, no string): only a sword or shears make it
@@ -481,4 +495,4 @@ async function tunnel(ctx, { dir, dy }) {
     return { to: end, mined, tools };
 }
 
-module.exports = { BLIND_REACH, refusal, moveTo, lookAt, mine, place, pour, activate, tunnel, tunnelCells, tunnelProblem, bestTool, faceToward, dropOf, supports, overlaps, REPLACEABLE, DIRS };
+module.exports = { standerOn, BLIND_REACH, refusal, moveTo, lookAt, mine, place, pour, activate, tunnel, tunnelCells, tunnelProblem, bestTool, faceToward, dropOf, supports, overlaps, REPLACEABLE, DIRS };

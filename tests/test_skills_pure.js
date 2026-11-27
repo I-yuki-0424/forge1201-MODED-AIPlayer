@@ -309,5 +309,18 @@ const goalCell = (t) => ({ isGoal: (c) => c.x === t.x && c.y === t.y && c.z === 
         assert.match(skillsPrompt({ botId: 'B1', issuer: 'System', instruction: 'Failed goto: stuck.', isSystemFailure: true, environment: {} }), /SYSTEM FEEDBACK \(previous action result\): "Failed goto: stuck\."/);
     });
 
+    await test('mine never breaks the block another player stands on (b081x5: a crew member fell 21 blocks when a pit unit dug its block); negative controls: a player beside the block, one in mid-air over it, the bot itself', () => {
+        const { standerOn } = require('../src/skills/commands/block');
+        const me = { position: { x: 5.5, y: 65, z: 5.5 } };
+        const bot = (others) => ({ entity: me, entities: Object.fromEntries([me, ...others].map((e, i) => [i, e])) });
+        const pl = (x, y, z, username = 'B') => ({ type: 'player', username, position: { x, y, z } });
+        assert.strictEqual(standerOn(bot([pl(105.48, 94, -3.5)]), { x: 105, y: 93, z: -4 }), 'B', 'Bd5a on the pumpkin at 105,93,-4');
+        assert.strictEqual(standerOn(bot([pl(106.25, 94, -3.5)]), { x: 105, y: 93, z: -4 }), 'B', 'on the edge, its footprint over the block');
+        assert.strictEqual(standerOn(bot([pl(106.4, 94, -3.5)]), { x: 105, y: 93, z: -4 }), null, 'negative control: beside it');
+        assert.strictEqual(standerOn(bot([pl(105.5, 95.2, -3.5)]), { x: 105, y: 93, z: -4 }), null, 'negative control: in the air over it');
+        assert.strictEqual(standerOn(bot([{ type: 'item', position: { x: 105.5, y: 94, z: -3.5 } }]), { x: 105, y: 93, z: -4 }), null, 'negative control: an item');
+        assert.strictEqual(standerOn(bot([]), { x: 5, y: 64, z: 5 }), null, 'negative control: the bot itself (its own pillar)');
+    });
+
     console.log('All skill tests passed.');
 })().catch((e) => { console.error(e); process.exit(1); });
