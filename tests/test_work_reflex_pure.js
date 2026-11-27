@@ -63,5 +63,16 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         assert.strictEqual(ceilingAbove(() => 'air', { x: 0, y: 64, z: 0 }), null, 'head not in water');
     });
 
+    await test('the breath reflex finds the nearest air: under a lid (the pit\'s lake fill over the water) the opening three cells aside, not straight up (mbc075c w2: drowned after five jumps); negative control: open water above is straight up', async () => {
+        const { airNear } = require('../src/work/bot/reflex');
+        // water from y 60 to 64 for |x|,|z| <= 6; a lid of cobblestone at y 65 except the column x 3, z 0; air above
+        const lid = (open) => (x, y, z) => { if (Math.abs(x) > 6 || Math.abs(z) > 6) return 'stone'; if (y < 60) return 'stone'; if (y <= 64) return 'water'; if (y === 65) return open(x, z) ? 'air' : 'cobblestone'; return 'air'; };
+        const a = airNear(lid((x, z) => x === 3 && z === 0), { x: 0.5, y: 61, z: 0.5 });
+        assert.deepStrictEqual({ x: a.x, y: a.y, z: a.z }, { x: 3, y: 65, z: 0 }, JSON.stringify(a));
+        const b = airNear(lid(() => true), { x: 0.5, y: 61, z: 0.5 });
+        assert.deepStrictEqual({ x: b.x, y: b.y, z: b.z }, { x: 0, y: 65, z: 0 }, 'open water: straight up');
+        assert.strictEqual(airNear(lid(() => false), { x: 0.5, y: 61, z: 0.5 }), null, 'a closed lid: no air (the roof dig is the way)');
+    });
+
     console.log('\nwork reflex: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

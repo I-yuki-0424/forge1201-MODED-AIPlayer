@@ -51,6 +51,31 @@ function ceilingAbove(nameAt, pos, reach = 4.5) {
     return y + 1 + 0.5 - eye <= reach ? { x, y: y + 1, z } : null;
 }
 
+/**
+ * The nearest place to breathe from a head under water: a breadth-first swim through water cells (six neighbours, at most `max` cells, `r` across) to a cell of air whose cell
+ * below is water or air (the head comes up into it). Returns { x, y, z, steps } (the air cell) or null. A straight jump finds none under a lid (the pit's lake fill laid over the
+ * water, a roof of stone): the reflex then swims sideways to the opening. Pure: `nameAt(x, y, z)` -> block name or null.
+ */
+function airNear(nameAt, pos, { max = 600, r = 10 } = {}) {
+    const W = (n) => n === 'water' || n === 'bubble_column' || /^(seagrass|tall_seagrass|kelp|kelp_plant)$/.test(n || '');
+    const A = (n) => /^(air|cave_air|void_air)$/.test(n || '');
+    const sx = Math.floor(pos.x), sy = Math.floor(pos.y + 1.62), sz = Math.floor(pos.z);
+    if (!W(nameAt(sx, sy, sz))) return null;
+    const seen = new Set([`${sx},${sy},${sz}`]), q = [[sx, sy, sz, 0]];
+    for (let i = 0; i < q.length && i < max; i++) {
+        const [x, y, z, d] = q[i];
+        for (const [dx, dy, dz] of [[0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]]) {
+            const X = x + dx, Y = y + dy, Z = z + dz, k = `${X},${Y},${Z}`;
+            if (seen.has(k) || Math.abs(X - sx) > r || Math.abs(Z - sz) > r || Y < sy - 3) continue;
+            seen.add(k);
+            const n = nameAt(X, Y, Z);
+            if (A(n) && (W(nameAt(X, Y - 1, Z)) || A(nameAt(X, Y - 1, Z)))) return { x: X, y: Y, z: Z, steps: d + 1 };
+            if (W(n)) q.push([X, Y, Z, d + 1]);
+        }
+    }
+    return null;
+}
+
 function attach(bot, { world, enabled = () => true, onEvent = () => {} } = {}) {
     const st = { active: false, fired: 0, last: null, since: 0 };
     bot.__preempt = false;
@@ -152,9 +177,21 @@ function attach(bot, { world, enabled = () => true, onEvent = () => {} } = {}) {
         bot.setControlState('sprint', false);
         Promise.resolve().then(() => bot.look(bot.entity.yaw, Math.PI / 4, true)).catch(() => {});
         bot.setControlState('jump', true);
-        let dug = false;
+        let dug = false, aim = null, aimAt = 0;
+        const nm = (x, y, z) => { const b = bot.blockAt(new (require('vec3'))(x, y, z)); return b ? b.name : null; };
         while (Date.now() - t0 < 25000 && headWet()) {
             await sleep(100);
+            // swim to the nearest air, not only straight up (a lid of the pit's lake fill or of stone over the water: mbc075c w2, 1.21.1, Pit2 drowned after five breath reflexes
+            // that only jumped); looked up again every half second
+            if (Date.now() - aimAt > 500) {
+                aimAt = Date.now(); aim = airNear(nm, bot.entity.position);
+                const p = bot.entity.position;
+                if (aim && (aim.x !== Math.floor(p.x) || aim.z !== Math.floor(p.z))) {
+                    const dx = aim.x + 0.5 - p.x, dz = aim.z + 0.5 - p.z;
+                    Promise.resolve().then(() => bot.look(Math.atan2(-dx, -dz), Math.PI / 4, true)).catch(() => {});
+                    bot.setControlState('forward', true);
+                } else bot.setControlState('forward', false);
+            }
             // A pocket in an aquifer with a roof (mine_b mb075n w3, 1.21.1: water y 13-17 under stone at 18, the bot at the bottom with Air -19 for minutes, the jump never met air):
             // after 8 s the roof over the water column is dug, if it is within reach, so there is air to come up into
             if (!dug && Date.now() - t0 > 8000) {
@@ -163,8 +200,8 @@ function attach(bot, { world, enabled = () => true, onEvent = () => {} } = {}) {
                 if (roof) { const b = bot.blockAt(new (require('vec3'))(roof.x, roof.y, roof.z)); if (b) { onEvent('reflex', { kind: 'breath_roof', at: roof, block: b.name }); try { await bot.dig(b, true); } catch (_) { /* the jump goes on */ } } }
             }
         }
-        bot.setControlState('jump', false);
-        done('breath', {});
+        bot.setControlState('jump', false); bot.setControlState('forward', false);
+        done('breath', aim ? { swamTo: aim } : {});
     }
     // Fight (owner 2026-11-14, T26 mine_a: 18 deaths in one run, zombies, skeletons, creepers, most while prospecting underground; no command but the walk looked out for mobs). A hostile
     // within 3.5 blocks (a creeper 6) in sight, or one within 12 in sight when the bot was hurt a moment ago: the running command stops, the bot turns to it with the sword and hits on the
@@ -234,4 +271,4 @@ function attach(bot, { world, enabled = () => true, onEvent = () => {} } = {}) {
     return { state: st, detach: () => { bot.removeListener('physicsTick', tick); bot.__preempt = false; } };
 }
 
-module.exports = { attach, ceilingAbove, dropBelow, escapeCell, LAVA_MS, FALL_MIN, WATER_AT };
+module.exports = { attach, ceilingAbove, airNear, dropBelow, escapeCell, LAVA_MS, FALL_MIN, WATER_AT };
