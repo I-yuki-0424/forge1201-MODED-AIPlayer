@@ -1155,3 +1155,20 @@ The crew placed 50-70 % more per minute for about the same pause time per block.
 - *The tail stuck again in b081x4.* 77 cells were left. The stall rule never fired, because two bots held claims, so b8d15e88 did not apply. Five minutes in the tail now lift the machine rule whoever holds claims (426502d5, not in the snapshot).
 - *Two-per-bot in b081x4.* `ontoColumn` fired 42 times. The 'beside it left' class fell from 118 blocks to 39. Bot-seconds over two under the ruling were 17 458, of which 15 598 came from columns of three or more. That class was 1 847 in b081w4, on a different site. Whether standing on the column top counts against the ruling is open.
 - *Contents in b081x5.* 2 goals were set live through `set_contents`, but only 1 container was right at the judge. The walks to the closed hoppers' stances, 20-30 cells below the supply, were parked after `no plan (time)`. Such claims now get the long search (4f4d8135, not in the snapshot).
+
+**Round 4** (2026-11-28 night; the reboot was skipped by the owner's hold, so the runs went past 03:00):
+
+| | b081y4: iron-farm-34, world 4, seed -8008112268647875870, `snap-081j` = cc818bd4 | b081y5: the owner's Nether blueprint, world 5, seed 7649914447792910541, `snap-081k` = f22534a3 |
+| :-- | :-- | :-- |
+| Verdict | FAIL: 2 014 wrong (1 512 unlit portal cells + 502) | FAIL: 10 050 wrong, of which 9 872 are terrain the pit left; contents right in 1 of 61 containers |
+| Placed | 6 399 | 1 094 of about 1 245 |
+| Clearing | `SITE_DRAWS=4` picked the draw with the least to clear: the pit had 4 156 cells, against 19 319 in b081x4 | the pit finished about 620 of its 2 432 units by minute 107 and parked 11 182 cells |
+| Temporary blocks left | 60, of which 45 were 'a tall column: from its top' | 17. The scan now reads from Bd5a in the Nether, so it is valid |
+| Deaths | 1: Bd4c dug the block under the edge of its body at y 119 and fell 48 cells | 1: it respawned at the respawn anchor, so the portal pair was set up but not used |
+
+- *b081y4's tail.* From minute ~185, 359 place cells were left. The claims came back empty (about 1 000 a minute, 'nothing ready') while the per-cell reasons counted 332 of the cells as ready. The likely cause: a stance is kept after its work ends, and two stale stances closed the one area those cells lay in for every other bot. An area now counts as busy only by bots that hold a claim (b8c14b20). This fix is not in either snapshot.
+- *Fixes after round 4, not yet run live:*
+  - a dig never takes a block under any corner of the body (2057af70);
+  - the respawn anchor is charged again below two charges, and a release on a bridge block goes back onto the pillar beside it (f22534a3; that commit is in `snap-081k` but not in `snap-081j`);
+  - the portal pair and the scans from a bot in the build's dimension (30ff1c1f).
+- *Two-per-bot and the owner's line.* Standing on the top of its own column is a vanilla survival move (pillaring up), so it is inside the line. `TempLedger.loose` leaves the column underfoot out of the count, so a column of three or more that the bot stands on needs no cap. What counts is the columns left beside, which are now taken down at the release.
