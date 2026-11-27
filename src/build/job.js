@@ -31,6 +31,7 @@ const STAGE_OF = { seal: 'prepare', fill: 'prepare', clear: 'prepare', place: 'p
 // a task's stage: its kind's, or the one it was given (a block of the build dug out of a cell to stay empty is part of placing, not the site's clearing)
 const stageOf = (tk) => tk.stageAs || STAGE_OF[tk.kind];
 const ORDER = ['prepare', 'place', 'late', 'cleanup'];
+const OUT_OF_STOCK = /^out of stock: /;
 const key = (x, y, z) => `${x},${y},${z}`;
 // natural ground a stance may be dug into (outside the box)
 const TERRAIN = /^(dirt|grass_block|coarse_dirt|podzol|rooted_dirt|mud|clay|stone|deepslate|cobblestone|andesite|diorite|granite|tuff|calcite|gravel|sand|red_sand|sandstone|red_sandstone|terracotta|[a-z_]+_terracotta|netherrack|basalt|blackstone|soul_sand|soul_soil|crimson_nylium|warped_nylium|snow_block|moss_block|[a-z_]*_ore|end_stone|smooth_basalt|dripstone_block)$/;
@@ -103,7 +104,7 @@ class BuildJob {
             if (this.wrapping || !sv.tasks.some((tk) => STAGE_OF[tk.kind] === 'prepare' || STAGE_OF[tk.kind] === 'place' || STAGE_OF[tk.kind] === 'late')) for (const e of this.ledger.list((q) => q.how === 'seal' && !q.released)) { const into = wetAround(bot, e) ? this._floodsInto(e) : null; if (into) this.ledger.keep(e, `seal: the fluid behind it would run into the finished box at ${into}`); else { e.released = { at: Date.now(), why: 'the box is done' }; e.wetOk = true; if (!sv.tasks.some((tk) => tk.k === e.k)) sv.tasks.push({ k: e.k, kind: 'untemp', i: -1, x: e.x, y: e.y, z: e.z }); } }
             for (const tk of sv.tasks) {
                 if (this.parked.has(tk.k)) continue;
-                if (tk.kind !== 'seal' && tk.kind !== 'ignite' && this.available && !this._itemOk(tk)) { this.parked.set(tk.k, `missing_item ${this._itemOf(tk)}`); continue; }
+                if (tk.kind !== 'seal' && tk.kind !== 'ignite' && this.available && !this._itemOk(tk)) { const it = this._itemOf(tk); if (this.outOfStock && this.outOfStock.has(it)) this._park(tk, `out of stock: ${it}`); else this.parked.set(tk.k, `missing_item ${it}`); continue; }
                 tasks.set(tk.k, tk);
             }
             // wrapping up (the run's time is over, wrapUp): only the temporary blocks are work now
@@ -1118,14 +1119,44 @@ class BuildJob {
         let n = 0;
         for (const [k, { tk, at }] of this.parkedTk) {
             if (now - at < REVIVE_MS || this.tasks.has(k)) continue;
-            this.parkedTk.delete(k); this.parked.delete(k); this.fails.delete(k); this.noStance.delete(k); this.cool.delete(k); this.skips.delete(k);
-            this.tasks.set(k, tk);
-            const bk = `${Math.floor(tk.x / 8)},${Math.floor(tk.y / 8)},${Math.floor(tk.z / 8)}`; (this.buckets.get(bk) || this.buckets.set(bk, []).get(bk)).push(tk);
-            if (tk.kind === 'untemp') this.untemps.add(tk);
+            if (OUT_OF_STOCK.test(this.parked.get(k) || '')) continue;          // back only when its item is (stock)
+            this._unpark(k, tk);
             n++;
         }
         if (n) { this.log(`${n} parked cells are tried again (the crew had nothing ready)`); this._frontier(); }
         return n;
+    }
+    _unpark(k, tk) {
+        this.parkedTk.delete(k); this.parked.delete(k); this.fails.delete(k); this.noStance.delete(k); this.cool.delete(k); this.skips.delete(k);
+        this.tasks.set(k, tk);
+        const bk = `${Math.floor(tk.x / 8)},${Math.floor(tk.y / 8)},${Math.floor(tk.z / 8)}`; (this.buckets.get(bk) || this.buckets.set(bk, []).get(bk)).push(tk);
+        if (tk.kind === 'untemp') this.untemps.add(tk);
+    }
+
+    /**
+     * The items nobody has any more (`out`: every container was seen without it, no pack of the crew holds one, none lies on the site): their cells cannot be placed by anyone,
+     * so they are parked 'out of stock' and the place stage can end (b081q5: the stock ran out with 276 cells left, the stage never ended and the 36 portals were never lit; the
+     * power sources of a machine wait only for cells still open, so they go in too). An item that is back (picked up, put into the chest) brings its cells back.
+     * Returns { parked, back }.
+     */
+    stock(out) {
+        if (!this.available) return { parked: 0, back: 0 };
+        const oos = this.outOfStock || (this.outOfStock = new Set());
+        for (const it of out) if (this.available.has(it)) { this.available.delete(it); oos.add(it); }
+        for (const it of [...oos]) if (!out.has(it)) { oos.delete(it); this.available.add(it); }
+        let parked = 0, back = 0;
+        for (const [k, tk] of [...this.tasks]) {
+            if (tk.kind !== 'place' || this.parked.has(k) || this.claims.has(k)) continue;
+            const it = this._itemOf(tk); if (!it || !oos.has(it)) continue;
+            this._park(tk, `out of stock: ${it}`); this.tasks.delete(k); parked++;
+        }
+        if (this.parkedTk) for (const [k, { tk }] of [...this.parkedTk]) {
+            const why = this.parked.get(k) || ''; if (!(OUT_OF_STOCK.test(why) || /^missing_item /.test(why)) || this.tasks.has(k)) continue;
+            const it = this._itemOf(tk); if (!it || oos.has(it) || !this.available.has(it)) continue;
+            this._unpark(k, tk); back++;
+        }
+        if (parked || back) this._frontier();
+        return { parked, back };
     }
 
     /** The bot's record over the last ten minutes: tasks that held, tasks that failed, supply turns that brought nothing. The supply's queue serves the best record first. */

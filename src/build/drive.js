@@ -740,7 +740,7 @@ async function supplyTrip(job, name, bot, mv, need, cancel) {
             const locks = job.boxLocks || (job.boxLocks = new Map()), lk = `${site.x},${site.y},${site.z}`, h = locks.get(lk);
             if (names.length && !(h && h.by !== name && h.until > Date.now())) {
                 locks.set(lk, { by: name, until: Date.now() + 30000 });
-                try { const out = await SUP.deposit(bot, site, names); job.stats.packDeposits = (job.stats.packDeposits || 0) + 1; job.log(`${name}: pack full (${SUP.freeSlots(bot)} free after): put ${JSON.stringify(out).slice(0, 160)} into the chest first`); }
+                try { const out = await SUP.deposit(bot, site, names); for (const k of Object.keys(out || {})) if (job.outOf) job.outOf.delete(k); job.stats.packDeposits = (job.stats.packDeposits || 0) + 1; job.log(`${name}: pack full (${SUP.freeSlots(bot)} free after): put ${JSON.stringify(out).slice(0, 160)} into the chest first`); }
                 catch (e) { job.log(`${name}: pack full, deposit failed: ${e.message}`); }
                 finally { if ((locks.get(lk) || {}).by === name) locks.delete(lk); }
             } else if (Date.now() - (job.fullLog || 0) > 60000) { job.fullLog = Date.now(); job.log(`${name}: pack full (${SUP.freeSlots(bot)} free), nothing it may put back: ${JSON.stringify(SUP.carried(bot)).slice(0, 200)}`); }
@@ -1015,12 +1015,27 @@ function materials(job) {
     const packs = {}; for (const p of (job.packs || new Map()).values()) for (const [k, n] of Object.entries(p)) packs[k] = (packs[k] || 0) + n;
     const store = {}; const site = (job.sites || [])[0]; if (site && site.holdsAll) for (const [k, n] of Object.entries(site.holdsAll)) store[k] = (store[k] || 0) + n;
     for (const c of job.depot || []) if (c.holds) for (const [k, n] of Object.entries(c.holds)) store[k] = (store[k] || 0) + n;
+    const W = job.itemWatch, ground = W ? W.ground() : {}, gone = W ? W.despawned() : {}, sum = W ? W.summary() : {};
     for (const [it, need] of job.t.items) {
         if (!sup[it]) continue;
         const placed = Math.max(0, need - (left[it] || 0)), un = sup[it] - placed - (packs[it] || 0) - (store[it] || 0);
-        out.push({ it, supplied: sup[it], placed, packs: packs[it] || 0, store: store[it] || 0, unaccounted: un, needLeft: left[it] || 0 });
+        // of the unaccounted: lying on the site now, despawned, and the rest that no item entity explains (placed outside the box, a cell the survey reads wrong)
+        const g = ground[it] || 0, d = gone[it] || 0, s = sum[it];
+        out.push({ it, supplied: sup[it], placed, packs: packs[it] || 0, store: store[it] || 0, unaccounted: un, ground: g, despawned: d, other: un - g - d, needLeft: left[it] || 0, spawned: s ? s.spawned : {} });
     }
     return out.sort((a, b) => b.unaccounted - a.unaccounted);
+}
+
+/**
+ * The build's items nobody has any more: every container was seen without it on the last trip that asked (job.outOf, cleared when a trip gets it or a bot puts it back), no
+ * pack of the crew holds one and none lies on the site (items.js). Their cells are parked 'out of stock' (job.stock) so the place stage can end.
+ */
+function outOfStock(job) {
+    const out = new Set(); if (!job.outOf) return out;
+    const packs = {}; for (const p of (job.packs || new Map()).values()) for (const [k, n] of Object.entries(p)) packs[k] = (packs[k] || 0) + n;
+    const ground = job.itemWatch ? job.itemWatch.ground() : {};
+    for (const it of job.t.items.keys()) if (job.outOf.has(it) && !(packs[it] > 0) && !(ground[it] > 0) && !SUP.TOOL.test(it)) out.add(it);
+    return out;
 }
 
 /** One bot of the crew, its pauses classified (pauses.js): the drive runs in the bot's own store. */
@@ -1058,9 +1073,12 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
     };
     bot.on('blockUpdate', onBlock);
     const unwatch = require('./machine').attach(job, bot, job.log);          // the build's pistons that fire and the cells they move (target zero)
+    // every item entity on the site, why it appeared and where it went (items.js): the material ledger's ground and despawned columns
+    const IW = job.itemWatch || (job.itemWatch = new (require('./items').ItemWatch)(job));
+    const unitems = IW.attach(name, bot, { crew: (n) => job.bots.has(n), giver: (n) => !!job.pool && [...job.pool.reqs.values()].some((r) => r.to === n && (r.state === 'coming' || r.state === 'tossed')), free: () => SUP.freeSlots(bot) });
     // once a second: how many of its temporary blocks stand beyond the column it stands on (the owner's two-per-bot standard, temps.js sample)
     let looseLog = 0;
-    const sampler = setInterval(() => { try { if (bot.inventory) { lastPack = SUP.carried(bot); (job.packs || (job.packs = new Map())).set(name, lastPack); } } catch (_) { /* the next second */ } try { if (bot.entity && job.ledger.size) { const f = feet(bot), n = job.ledger.sample(name, f); if (n > 2 && Date.now() - looseLog > 60000) { looseLog = Date.now(); job.log(`[temps] ${name} at ${f.x},${f.y},${f.z} holds ${n} beyond its column: ${job.ledger.lastLoose.join('; ')}; last moves ${mv.trace.slice(-3).join(' | ')}`); } } } catch (_) { /* a sample is only a count */ } }, 1000);
+    const sampler = setInterval(() => { try { const W = job.itemWatch; if (W && Date.now() - (W.refAt || 0) >= 900) { W.refAt = Date.now(); W.refresh(); } } catch (_) { /* the next second */ } try { if (bot.inventory) { lastPack = SUP.carried(bot); (job.packs || (job.packs = new Map())).set(name, lastPack); } } catch (_) { /* the next second */ } try { if (bot.entity && job.ledger.size) { const f = feet(bot), n = job.ledger.sample(name, f); if (n > 2 && Date.now() - looseLog > 60000) { looseLog = Date.now(); job.log(`[temps] ${name} at ${f.x},${f.y},${f.z} holds ${n} beyond its column: ${job.ledger.lastLoose.join('; ')}; last moves ${mv.trace.slice(-3).join(' | ')}`); } } } catch (_) { /* a sample is only a count */ } }, 1000);
     // the step is over: the bot's own temporary blocks go before it does anything else (release)
     // a bot without any action for a minute (no packet, no step): once per pause, where it is, what it is in and its mover's last steps (b081k: 33 pauses of 70-360 s
     // in the mover's tick waits that no other line explained)
@@ -1157,7 +1175,9 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
             }
             // asked for items by a colleague on its way here: it waits for it a moment and throws them over (not off to another stance meanwhile)
             // the material ledger, every five minutes: supplied = placed + packs + chest/depot + unaccounted (lying or lost), per item, in the log and the progress line
-            if (Date.now() - (job.matAt || 0) > 300000 && job.stage !== 'survey') { job.matAt = Date.now(); try { const m = materials(job); job.stats.unaccounted = Object.fromEntries(m.filter((r) => r.unaccounted > 0).slice(0, 8).map((r) => [r.it, r.unaccounted])); job.log(`[materials] supplied = placed + packs + store + unaccounted: ${m.slice(0, 10).map((r) => `${r.it} ${r.supplied} = ${r.placed} + ${r.packs} + ${r.store} + ${r.unaccounted} (to place ${r.needLeft})`).join('; ')}`); } catch (e) { job.log(`[materials] ${e.message}`); } }
+            if (Date.now() - (job.matAt || 0) > 300000 && job.stage !== 'survey') { job.matAt = Date.now(); try { const m = materials(job); job.stats.unaccounted = Object.fromEntries(m.filter((r) => r.unaccounted > 0).slice(0, 8).map((r) => [r.it, r.unaccounted])); job.log(`[materials] supplied = placed + packs + store + unaccounted (ground / despawned / other; dropped by cause): ${m.slice(0, 10).map((r) => `${r.it} ${r.supplied} = ${r.placed} + ${r.packs} + ${r.store} + ${r.unaccounted} (${r.ground}/${r.despawned}/${r.other}; ${JSON.stringify(r.spawned)}) (to place ${r.needLeft})`).join('; ')}`); } catch (e) { job.log(`[materials] ${e.message}`); } }
+            // items nobody has any more: their cells out of the stage (twice a minute)
+            if (job.available && Date.now() - (job.stockAt || 0) > 30000 && job.stage !== 'survey') { job.stockAt = Date.now(); const out = outOfStock(job), r = job.stock(out); if (r.parked || r.back) job.log(`stock: ${r.parked} cells parked out of stock (${[...out].join(', ') || 'none'}), ${r.back} back`); job.stats.outOfStock = [...out].join(',') || undefined; }
             { const PL = require('./move').PLANS; job.stats.plans = `${PL.n} ${Math.round(PL.ms / 1000)}s failed ${PL.failed} flood-routes ${PL.flood} sinks ${PL.sinks}/${PL.sinks + PL.sinkFailed}`; }
             if (job.pool) { await PZ.within('wait: hand-over (giver)', () => job.pool.hold(name, cancel)); const ps = job.pool.status(); job.stats.pool = `${ps.served}/${ps.asked} ${ps.items}it`; }
             // tools and temporary blocks before the work needs them
@@ -1276,7 +1296,7 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
             job.report(name, res);
         }
         return { ended: 'cancelled' };
-    } finally { bot.removeListener('death', onDeath); bot.removeListener('death', onDied); bot.removeListener('blockUpdate', onBlock); job.orphanOf(name, 'left the crew'); clearInterval(sampler); clearInterval(stallWatch); unwatch(); bot.removeListener('spawnReset', onReset); bot.__builderOwns = false; job.leave(name); if (job.pool) job.pool.leave(name); for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sneak', 'sprint']) bot.setControlState(k, false); }
+    } finally { bot.removeListener('death', onDeath); bot.removeListener('death', onDied); bot.removeListener('blockUpdate', onBlock); job.orphanOf(name, 'left the crew'); clearInterval(sampler); clearInterval(stallWatch); unwatch(); unitems(); bot.removeListener('spawnReset', onReset); bot.__builderOwns = false; job.leave(name); if (job.pool) job.pool.leave(name); for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sneak', 'sprint']) bot.setControlState(k, false); }
 }
 
-module.exports = { drive, work, holds, rules, pour, escape, needsFor, boxSpot, bench, release, unscaffold, touchesShape, planned, adoptWorkTemps, closesIn, recoverDrops, materials };
+module.exports = { outOfStock, drive, work, holds, rules, pour, escape, needsFor, boxSpot, bench, release, unscaffold, touchesShape, planned, adoptWorkTemps, closesIn, recoverDrops, materials };
