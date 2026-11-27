@@ -1,0 +1,13 @@
+# The live regression suite (TASK-20261125-080, docs/implemented/CI-v1.md): one line per test, run in this order on test world 9, each on a NEW world of its fixed seed
+# (equal boxes from commit to commit), at the profile's game speed for the test (docker/tw/<profile>.json "speed"). One test per run is repeated on a random seed (rotating).
+# Shortened from the T26 standard where the full test is an hour (move_a 500 blocks instead of 2000, mine_b the top 8 layers): a regression signal, not the owner's evidence.
+# Fields: name  script (under scripts/t26/)  seed  wall-minute cap  NAME=value arguments
+move_a      move_a.js             -3948922381433624433  25  DIST=500 LIMIT_MIN=20
+move_b      move_b.js             7909747904445256419   12  LIMIT_MIN=15
+mine_b      mine_b.js             8573729881198107154   25  DEPTH=8 LIMIT_MIN=60
+tags        ../ci/tags.js         1082013240725284109   10  LIMIT_MIN=6
+place_a     place_a.js            -4868116279633443435  8   LIMIT_MIN=15
+place_b     place_b.js            -1779212649668294440  15  LIMIT_MIN=30
+place_c     place_c.js            8905895637385764084   22  BOTS=3 LIMIT_MIN=15
+build_t     build_t.js            1910909542698516191   22  LITEMATIC=/app/tests/fixtures/sorter-cell.litematic BOTS=2 LIMIT_MIN=15
+container_b ../native/container_b.js 5477162645604014481 15 LITEMATIC=/out/bp-076/ironfarm-3x-nether-side.litematic LIMIT_MIN=4 TOTAL_MIN=10
