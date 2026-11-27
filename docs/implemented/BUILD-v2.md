@@ -1066,3 +1066,16 @@ The owner's Nether blueprint (not in the repo) has 73 goals in 61 containers. Ni
 | `server: mover tick wait` | 114 s | 101 s | 412 s |
 
 The crew placed 50-70 % more per minute for about the same pause time per block. What is left: planner retries, and the claim's flood, which is new since the flood routes. Both are on TASK-082's hot-path list.
+
+**Round 3 runs** (frozen snapshot `snap-081i` = b8d15e88, native physics, judged by the server):
+
+| | b081x4: iron-farm-34, world 4, seed 8455896194728969635, forest, `LIMIT_MIN` 230 | b081x5: the owner's Nether blueprint, world 5, seed 5251586736446165203, `DIM=nether`, `LIMIT_MIN` 200 |
+| :-- | :-- | :-- |
+| Verdict | FAIL: 1 695 wrong (1 512 unlit portal cells, 183 others) | FAIL: 371 of 38 912 cells wrong; contents right in 1 of 61 containers |
+| Placed | 6 652; the pit took 70 minutes (19 319 cells) | 850 of about 1 245; the pit took about 80 minutes (37 083 cells) |
+| Temporary blocks left | 5 | not valid: the scan ran from a bot that had respawned in the Overworld |
+| Deaths | 2 | 5, falls in the 38-deep pit. One bot respawned in the Overworld, and no tagged portal brought it back |
+
+- *The tail stuck again in b081x4.* 77 cells were left. The stall rule never fired, because two bots held claims, so b8d15e88 did not apply. Five minutes in the tail now lift the machine rule whoever holds claims (426502d5, not in the snapshot).
+- *Two-per-bot in b081x4.* `ontoColumn` fired 42 times. The 'beside it left' class fell from 118 blocks to 39. Bot-seconds over two under the ruling were 17 458, of which 15 598 came from columns of three or more. That class was 1 847 in b081w4, on a different site. Whether standing on the column top counts against the ruling is open.
+- *Contents in b081x5.* 2 goals were set live through `set_contents`, but only 1 container was right at the judge. The walks to the closed hoppers' stances, 20-30 cells below the supply, were parked after `no plan (time)`. Such claims now get the long search (4f4d8135, not in the snapshot).
