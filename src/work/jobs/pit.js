@@ -714,6 +714,31 @@ async function goToStation(S, handle, env, open, r) {
     return null;
 }
 
+/**
+ * The unit's step is over: the bot's own movement blocks within reach go now, before it walks off to unrelated work (owner list 5 Large 1, item 3); standing on one (the top of its
+ * own pillar at a station), it steps onto natural ground beside it first. mbc075f w3 (1.21.1): three pillar pumpkins of the pit's rises and descents stayed registered in the box for
+ * 8-25 minutes, out of reach of every later unit, and the end's wrap ran out before it got to them.
+ */
+async function unitTidy(env) {
+    if (!env || !env.bot || !env.bot.__temps || !env.here || !env.exec) return null;
+    if (env.cancel && env.cancel.cancelled) return null;
+    const go = require('../../nav/go'), P = require('../../nav/plan'), fixtures = require('../../skills/fixtures');
+    let td = await go.tidy(env);
+    const h = env.here(), T = env.bot.__temps, dim = fixtures.dimOf(env.bot);
+    if (td.left.some((r) => r.x === h.x && r.z === h.z && r.y === h.y - 1)) {
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+            let moved = false;
+            for (const dy of [0, 1, -1]) {
+                const c = { x: h.x + dx, y: h.y + dy, z: h.z + dz };
+                if (P.nodeKindOf(P.view(env.w), c.x, c.y, c.z, false) !== 'stand' || T.has(dim, { x: c.x, y: c.y - 1, z: c.z })) continue;
+                const m = await env.exec('move_to', c, { maxTicks: 120 }); if (m && m.ok) { moved = true; break; }
+            }
+            if (moved) { td = await go.tidy(env); break; }
+        }
+    }
+    return td;
+}
+
 /** A world for the fall guard's test (src/build/fallguard.js held) with the cell `gone` taken away (air). */
 function without(bot, gone) {
     const AIR = { name: 'air', shapes: [] };
@@ -941,7 +966,7 @@ function createPitJob(box, ledgerOpts = {}, { lanes = 0, method = 'rows', tile =
     return { kind: 'pit', ledger, plan, wrapUp, checkLayer: (env, ck, now) => checkLayer(plan, ledger, byId, auditState, env, ck, now), cleanup: async (env) => { if (plan.wrapping) return wrapClean(env); if (!ledger.finished()) return null; const rep = plan.endReport || (plan.endReport = {}); rep.trees = await cleanTrees(plan, env); const TM = require('../bot/temps'), t = await TM.cleanTemps(env, { box: plan.box, reach: true, max: 60, maxMs: 300000, kinds: new Set([...TM.KINDS].filter((k) => k !== 'seal' && k !== 'rescue' && k !== 'lake')) }); rep.temps = t;
             // seals and lake-fill blocks hang over the floor of a deep pit: the pillar walk takes them (a plain mine of one cost the whole time budget: "enclosed", 120 s, and left a pillar block behind)
             rep.hanging = await cleanHanging(plan, env).catch((e) => ({ error: String(e && e.message || e) }));
-            await cleanLakeBlocks(plan, env); rep.seals = await TM.cleanTemps(env, { box: plan.box, reach: true, max: 400, maxMs: 900000, kinds: new Set(['seal', 'rescue', 'lake']) }); /* 20 blocks in 2 min left 134 of a wet box's fills (mbc075d w3) */ return t; }, runUnit: (regionId, unit, env) => runUnit(plan, byId.get(regionId), unit, env), audit: (env, now, opts) => (plan.wrapping ? { checked: 0, reopened: [], gaveUp: [] } : audit(plan, ledger, env.w, now, auditState, opts)), sweep: (env, now) => (plan.wrapping ? {} : sweep(env, now)), rescue: (env, why) => require('../bot/water').rescue(env, plan.box, { why }) };
+            await cleanLakeBlocks(plan, env); rep.seals = await TM.cleanTemps(env, { box: plan.box, reach: true, max: 400, maxMs: 900000, kinds: new Set(['seal', 'rescue', 'lake']) }); /* 20 blocks in 2 min left 134 of a wet box's fills (mbc075d w3) */ return t; }, runUnit: async (regionId, unit, env) => { const res = await runUnit(plan, byId.get(regionId), unit, env); await unitTidy(env).catch(() => { /* the end's passes look again */ }); return res; }, audit: (env, now, opts) => (plan.wrapping ? { checked: 0, reopened: [], gaveUp: [] } : audit(plan, ledger, env.w, now, auditState, opts)), sweep: (env, now) => (plan.wrapping ? {} : sweep(env, now)), rescue: (env, why) => require('../bot/water').rescue(env, plan.box, { why }) };
 }
 
-module.exports = { cleanTrees, cleanHanging, cleanLakeBlocks, sealItem, MAX_UNITS, goToStation, checkLayer, LAYER_ROUNDS, standsOnFloater, supportsBody, stepOffSupport, aerialTree, planPit, laneBoxes, planRoad, stationsOf, lineCells, unitCells, sealPlan, orderFill, isFluid, exposed, runUnit, wrongCells, cellState, audit, createPitJob, SEAL_ITEMS, CHUNK, TILE, SWEEP_R };
+module.exports = { cleanTrees, cleanHanging, cleanLakeBlocks, sealItem, MAX_UNITS, goToStation, checkLayer, LAYER_ROUNDS, standsOnFloater, supportsBody, stepOffSupport, unitTidy, aerialTree, planPit, laneBoxes, planRoad, stationsOf, lineCells, unitCells, sealPlan, orderFill, isFluid, exposed, runUnit, wrongCells, cellState, audit, createPitJob, SEAL_ITEMS, CHUNK, TILE, SWEEP_R };

@@ -285,6 +285,20 @@ const left = (w, box = BOX) => scan(w, box).length;
         await run(false); await run(true);
     });
 
+    await test('after a unit the bot takes its own movement blocks within reach, stepping off the one it stands on first (mbc075f w3: three pillar pumpkins left in the box for 8-25 min); negative control: another bot\'s block stays', async () => {
+        const pit = require('../src/work/jobs/pit'); const { Temps } = require('../src/work/bot/temps');
+        const solid = new Set(['5,63,5', '7,63,5']); for (let x = 0; x < 12; x++) for (let z = 0; z < 12; z++) solid.add(`${x},62,${z}`);
+        const T = new Temps(); T.add({ x: 5, y: 63, z: 5, kind: 'pillar', by: 'P', item: 'pumpkin' }); T.add({ x: 7, y: 63, z: 5, kind: 'pillar', by: 'Q', item: 'pumpkin' });
+        const pos = { x: 5.5, y: 64, z: 5.5 }, moves = [];
+        const w = { kindAt: (x, y, z) => (solid.has(`${x},${y},${z}`) ? 'solid' : 'air'), nameAt: (x, y, z) => (solid.has(`${x},${y},${z}`) ? (y === 63 ? 'pumpkin' : 'stone') : 'air') };
+        const env = { w, bot: { username: 'P', game: { dimension: 'overworld' }, __temps: T, entity: { position: pos } }, here: () => ({ x: Math.floor(pos.x), y: Math.floor(pos.y), z: Math.floor(pos.z) }),
+            exec: async (n, a) => { if (n === 'move_to') { moves.push(a); pos.x = a.x + 0.5; pos.y = a.y; pos.z = a.z + 0.5; return { ok: true }; } if (n === 'mine') { solid.delete(`${a.x},${a.y},${a.z}`); return { ok: true }; } return { ok: true }; } };
+        await pit.unitTidy(env);
+        assert.ok(moves.length === 1, `stepped off its own block: ${JSON.stringify(moves)}`);
+        assert.ok(!solid.has('5,63,5') && !T.has('overworld', { x: 5, y: 63, z: 5 }), 'its pillar block is gone');
+        assert.ok(solid.has('7,63,5'), 'negative control: the other bot\'s block stays');
+    });
+
     await test('pace: a reach failure skips the retry ladder, NAV goes at most three times per unit and a unit with more such cells hands them back (081 b081k: six tree units ran six minutes)', async () => {
         const pit = require('../src/work/jobs/pit');
         const cells = new Map(); for (let x = 1; x <= 6; x++) cells.set(`${x},64,3`, 'oak_leaves');
