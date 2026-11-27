@@ -256,7 +256,9 @@ class BuildJob {
         // relaxed (a stall): the order rules go, never the fluid rule (relaxed clearing dug the rock round lava pockets and the lava ran through the dug box: five deaths in six
         // seconds, live 2026-11-23 fz8 w5)
         // a machine is not powered while it is built: its power sources last, an observer after the cell it watches (machine.js)
-        if ((tk.kind === 'place' || tk.kind === 'fix') && this._machineWaits(tk, now)) return false;
+        // (not in a stall: the cells its machine waits for are ones no stance reaches, parked and tried again in turn, and its sources waited to the end of the run with the
+        // place stage, so the 36 portals were never lit: b081w4/w5, 25 power sources behind 30-53 cells high in the air for 90 minutes)
+        if ((tk.kind === 'place' || tk.kind === 'fix') && !this.relaxed && this._machineWaits(tk, now)) return false;
         if (this.relaxed) return !(tk.kind === 'clear' && [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]].some(([dx, dy, dz]) => { const h = seen(bot, { x: tk.x + dx, y: tk.y + dy, z: tk.z + dz }); return h && (h.name === 'water' || h.name === 'lava' || h.props.waterlogged === 'true'); }));
         if (tk.kind === 'scaffold') return true;
         if (tk.kind === 'clear') {

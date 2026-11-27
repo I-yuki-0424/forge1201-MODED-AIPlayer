@@ -53,4 +53,18 @@ bot.emit('blockUpdate', blk('stone', 9, 65, 1), blk('moving_piston', 9, 65, 1));
 assert.strictEqual(job.stats.machine.movedPowered, 1, 'negative control: outside the box');
 stop();
 console.log('  ok a piston firing and a moved cell are counted, mid-build apart from the finished machine');
-console.log('test_build_machine_pure: 3 passed');
+// in a stall (nothing ready for anybody, the order rules relaxed) the machine rule goes too: the cells its sources waited for were out of every stance's reach, and the
+// sources and the late stage (the portals) waited to the end of the run (b081w4/w5). Negative control: not relaxed, the torch waits
+{
+    const { BuildJob } = require('../src/build/job');
+    const job2 = new BuildJob(t, {}); job2.stage = 'place';
+    job2.tasks = new Map([...open0()].map((k) => [k, { ...tkOf(t, ...k.split(',').map(Number)) }]));
+    const torch = tkOf(t, 3, 65, 1); job2.tasks.set(torch.k, torch);
+    const bot2 = { username: 'a', entity: { position: { x: 0.5, y: 65, z: 0.5 } }, blockAt: () => ({ name: 'air', getProperties: () => ({}), boundingBox: 'empty' }) };
+    assert.strictEqual(job2.ready(torch, bot2, Date.now()), false, 'negative control: not relaxed, the torch waits for its machine');
+    job2.relaxed = true;
+    assert.strictEqual(job2.ready(torch, bot2, Date.now()), true, 'in a stall the torch goes in');
+    console.log('  ok a stall lifts the machine rule (negative control: not relaxed, the source waits)');
+}
+function open0() { return ['1,65,1', '1,66,1', '2,65,1']; }
+console.log('test_build_machine_pure: 4 passed');
