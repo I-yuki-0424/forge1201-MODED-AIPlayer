@@ -971,6 +971,28 @@ after three ticks, again while more comes down; never a fixture or bedrock. **Ov
 scan, two killed-in-the-end runs among them; no fall and no lava death.** Open: the wet boxes still time out (dirty layers, lake fills registered: the pit's pace in water, not a
 temporary-block matter); a natural chest in the box is a fixture the grader counts as dirty (mbc075k w3).
 
+**Grader: fixtures kept (orchestrator ruling 2026-11-28).** A cell that `mine` refuses by rule (`block.js refusal()`: a natural chest or barrel, a bed, a tagged block) is not dirty:
+mine_b reads every dirty layer, a layer whose only blocks are such cells is clean, each cell is confirmed by the server and listed as "fixtures kept" in `verdict.txt`
+(`scripts/t26/fixtures_kept.js`, test `tests/test_t26_fixtures_kept_pure.js`). Re-graded: `mbc075k` w3 (7117985389101595608) held only one natural chest in its 4 dirty layers -> **PASS**
+(`out/mbc075k/regrade.txt`). KILL_AT_END is armed from the worker's own end-pass event (`work_end_pass`), so a job end shorter than the 3 s poll is hit too.
+
+**Where a wet box's time goes (profile `wp075a` seed -3279954857076817950, `wp075b` seed 2261401093455771374, 30 min each, `PLAN_STATS=1`).** Bot time: digging (`dig_blind`)
+about 50 %, walks about 25 %, **idle 12-23 %**, the walk's planning 0.5-3.7 s in all (the 'unit:plan' minutes of set 5 did not come back). The idle time was the layer check's hold on
+a unit it sent back (about 8 s per reopening, 21-33 reopenings a run): a lone bot waited it out. A done unit that still shows a block now goes back claimable at once; only a
+parked unit keeps its hold (abc8a522). The end pass was counted as 'sweep' (set 6 w2's 29 min); it is its own phase 'end' now.
+
+**mine_b set 8 (2026-11-28 02:18-03:44, code abc8a522; same conditions).**
+
+| Run (world, seed) | End | Dirty layers | Pumpkins | Fixtures kept | Deaths | Idle |
+| :-- | :-- | --: | --: | :-- | :-- | --: |
+| `mbc075p` w1 (-7932703511306839322) | finished at 51 min | 1 (y -34: two amethyst buds grown from budding amethyst at x 16, just outside the box) | **0** | none | 0 | 60 s |
+| `mbc075p` w2 (871327694989636196) | finished at 38 min | 0 | **0** | none | 0 | 5 s |
+| `mbc075q` w3 (-7659750189915788566, KILL_AT_END) | timeout: killed 0.3 s into its own end; the respawned bot at the spawn spent 30 min on NAV trips of the end's tree and hanging passes that got nowhere | 3 | **0** | none | 1 (the kill) | 132 s |
+
+w2 is the first mine_b world of this task that passed the whole test. Changes after set 8 (tests with negative controls): the pit breaks a budding amethyst just outside the box beside
+an opened cell (74617379); the tree pass, and the end's hanging pass built on it, ends after three NAV trips in a row that got nowhere (f494abfb; found with the node inspector on the
+hung harness: `clearTrees < env.nav < go`).
+
 move_a's 10 pumpkins on seed 7601 (`ma075s`) were a wild pumpkin patch: the same 10 cells (x 663-675, y 67) are pumpkins in an untouched world of that seed (scan.js). move_a now
 grades only cells that turned into a temporary-block kind during the run (a block update seen by the bot, never a chunk load).
 
