@@ -381,7 +381,9 @@ async function runUnit(plan, region, u, env) {
     // where a cell's time goes (the slow-unit log): each step of handleCell by name, in ms (bt075w3 jungle: cells of 547-698 s with no NAV trip at all, cause not visible)
     let steps = {};
     const timed = async (k, p) => { const t = Date.now(); try { return await p; } finally { steps[k] = (steps[k] || 0) + Date.now() - t; } };
-    const handleCell = async (c, last) => {
+    const fillDim = env.bot ? require('../bot/temps').dimOf(env.bot) : 'overworld';
+    const isFill = (q) => { const t = env.temps && env.temps.get(fillDim, q); return !!(t && ['lake', 'seal', 'rescue'].includes(t.kind)) || !!(plan.lakeFilled && plan.lakeFilled.has(`${q.x},${q.y},${q.z}`)); };
+    const handleCell = async (c, last, above = false) => {
         // the region's tree pass is running (another bot): its tree blocks are its, the unit leaves them (the layer check sends the unit back if one is still there afterwards)
         if (treeBusy() && isTreeAt(env.w, c)) { r.skipped++; r.treeWait = (r.treeWait || 0) + 1; return null; }
         await timed('lake', lakeFill(c));
@@ -395,6 +397,17 @@ async function runUnit(plan, region, u, env) {
         // fallguard.held, with the block taken away): the bot steps onto a cell that still holds it with the block gone, within reach of it, and digs it from there; with no such
         // cell it is left like a floater. A dig of its own support dropped Pit2 13 blocks at the box edge (mbc075b w2, 1.21.1, native, guard on: the guard lets a body fall whose
         // floor is taken away) and the fall reflex's two blocks were left in the box.
+        // A fill block (the lake fill, a seal, a rescue fill: registered, or the plan's own lake blocks) directly over the cell goes first, or the cell is not dug: dug from under it,
+        // it hangs over the dug layers and nothing takes it away in time (mbc075a w3, seed -5730052918913428628, 1.21.1, a wet box timed out: 512 rubble fills hung over air, scan.js
+        // HANG=1; mb075r w2: 249). Its own water rule (seal, lake) runs as for any cell; a fill that cannot be dug keeps the cell under it closed and the unit fails visibly.
+        if (!above) {
+            const up = { x: c.x, y: c.y + 1, z: c.z };
+            if (up.y <= plan.box.top && !open(up) && isFill(up)) {
+                const fr = await handleCell(up, last, true);
+                if (!open(up)) { r.fillAbove = (r.fillAbove || 0) + 1; return fr && fr !== 'defer' ? fr : fail({ reason: 'not_confirmed', detail: { why: 'the fill block over the cell is still there', fill: up } }, c, 'fill_above'); }
+                r.fillsFirst = (r.fillsFirst || 0) + 1;
+            }
+        }
         let offSupport = false;
         if (supportsBody(env, c)) { const off = await stepOffSupport(env, c); if (!off) { r.skipped++; r.floating = (r.floating || 0) + 1; r.support = (r.support || 0) + 1; leave(c); return null; } r.steppedOff = (r.steppedOff || 0) + 1; offSupport = true; }
         // Success is what the world shows: a `mine` that ended in the drop pickup (target_lost: the item was picked up by another

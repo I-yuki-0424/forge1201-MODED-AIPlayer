@@ -251,6 +251,23 @@ const left = (w, box = BOX) => scan(w, box).length;
         assert(calls.some((c) => c[0] === 'place' && c[1] === 'blind' && c[2] === '2,64,5'), `the water cell sealed blind (${JSON.stringify(calls.filter((c) => c[0] === 'place'))})`);
     });
 
+    await test('a fill block over a cell is dug before the cell, so it never hangs over the dug layer (mbc075a w3: 512 rubble fills over air); a fill that cannot be dug keeps the cell closed; negative control: a plain block over the cell is left to its own unit', async () => {
+        const pit = require('../src/work/jobs/pit');
+        const run = async (fillRegistered, fillBreaks = true) => {
+            const cells = new Map([['3,64,3', 'cobblestone']]);          // the fill, on the box's top layer 64; the box is the one layer 63 (its unit digs 63 only)
+            const w = { nameAt: (x, y, z) => cells.get(`${x},${y},${z}`) || (y <= 63 ? 'stone' : 'air'), kindAt(x, y, z) { const n = this.nameAt(x, y, z); return n === 'air' ? 'air' : n === 'water' ? 'water' : 'solid'; } };
+            const job = pit.createPitJob({ x0: 0, z0: 0, x1: 7, z1: 7, top: 64, bottom: 63 }, {}, { method: 'rows', road: false }), region = job.plan.regions[0];
+            if (fillRegistered) job.plan.lakeFilled = new Set(['3,64,3']);
+            const env = { w, have: () => 9, pause: async () => {}, recover: async () => {}, here: () => ({ x: 3, y: 65, z: 0 }), exec: async (n, a) => {
+                if (n === 'mine') { if (a.y === 64 && !fillBreaks) return { ok: false, reason: 'unreachable' }; cells.set(`${a.x},${a.y},${a.z}`, 'air'); return { ok: true }; } return { ok: true }; } };
+            for (let u = 0; u < region.layers * region.rows; u++) { const lay = Math.floor(u / region.rows); if (lay === 0) continue; await job.runUnit(region.id, { unit: u }, env); }          // only the layer under the fill
+            return { fill: w.kindAt(3, 64, 3), under: w.kindAt(3, 63, 3) };
+        };
+        const a = await run(true); assert.deepStrictEqual(a, { fill: 'air', under: 'air' }, 'the fill went first, then the cell');
+        const b = await run(true, false); assert.deepStrictEqual(b, { fill: 'solid', under: 'solid' }, 'an undiggable fill keeps the cell under it closed');
+        const c = await run(false); assert.deepStrictEqual(c, { fill: 'solid', under: 'air' }, 'negative control: a block that is no fill is its own unit\'s');
+    });
+
     await test('pace: a reach failure skips the retry ladder, NAV goes at most three times per unit and a unit with more such cells hands them back (081 b081k: six tree units ran six minutes)', async () => {
         const pit = require('../src/work/jobs/pit');
         const cells = new Map(); for (let x = 1; x <= 6; x++) cells.set(`${x},64,3`, 'oak_leaves');
