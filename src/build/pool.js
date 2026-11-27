@@ -78,6 +78,8 @@ class Pool {
         if (state === 'done') { this.stats.served++; this.stats.items += Object.values(r.got).reduce((a, n) => a + n, 0); } else this.stats.failed++;
         this.stats.ms += r.end - r.at;
         this.reqs.delete(r.id);
+        // (why the giver did not throw while the asker was there: 46 of b081y4's 92 requests ended 'did not meet' after about 100 s, some with the two 2-8 apart)
+        if (state === 'failed' && r.declined) { why += `; the giver held back: ${JSON.stringify(r.declined)}`; (this.stats.declined || (this.stats.declined = {})); for (const [k, n] of Object.entries(r.declined)) this.stats.declined[k] = (this.stats.declined[k] || 0) + n; }
         this.job.log(`pool: ${r.from} <- ${r.to} ${JSON.stringify(r.items)}: ${state}${why ? ` (${why})` : ''}${Object.keys(r.got).length ? `, got ${JSON.stringify(r.got)}` : ''} in ${Math.round((r.end - r.at) / 1000)} s`);
     }
     /** The request addressed to `name` that waits for its toss, or null (expired ones are dropped). */
@@ -100,15 +102,16 @@ class Pool {
         if (!bot || !bot.entity) { this.close(r, 'failed', 'giver gone'); return false; }
         if (!asker || !asker.entity) { this.close(r, 'failed', 'asker gone'); return false; }
         const p = bot.entity.position, q = asker.entity.position;
-        { const d = Math.hypot(q.x - p.x, q.z - p.z); if (d < REACH[0] || d > REACH[1] || Math.abs(q.y - p.y) > 1.2) return false;
+        const no = (why) => { const d = r.declined || (r.declined = {}); d[why] = (d[why] || 0) + 1; return false; };
+        { const d = Math.hypot(q.x - p.x, q.z - p.z); if (d < REACH[0]) return no('close'); if (d > REACH[1]) return d < 6 ? no('far') : false; if (Math.abs(q.y - p.y) > 1.2) return no('height');
           // the toss lands at the asker's feet or a cell beyond: both floors solid, or it falls (b081w4: Bd4a's 43 glass and 30 redstone, thrown to an asker on a stance in the
           // air, fell 38 cells and despawned); the asker is asked to stand on ground (it waits until the request's time is up, then goes to the chest)
           const solid = (x, z) => { const b = bot.blockAt(new Vec3(Math.floor(x), Math.floor(q.y) - 1, Math.floor(z)), false); return !!b && b.boundingBox === 'block'; };
-          if (!solid(q.x, q.z) || !solid(q.x + (q.x - p.x) / d, q.z + (q.z - p.z) / d)) { r.noFloor = (r.noFloor || 0) + 1; return false; } }
+          if (!solid(q.x, q.z) || !solid(q.x + (q.x - p.x) / d, q.z + (q.z - p.z) / d)) { r.noFloor = (r.noFloor || 0) + 1; return no('no floor'); } }
         // a third bot beside the asker picks the toss up as soon as the asker (items lay among the crew and eight bots took a share, live 2026-11-25 hb3): the giver waits a
         // few seconds for it to pass
         r.readyAt = r.readyAt || Date.now();
-        if (Date.now() - r.readyAt < 8000) for (const [n, o] of this.bots) { if (n === name || n === r.from || !o.entity) continue; const w = o.entity.position; if (Math.hypot(w.x - q.x, w.z - q.z) < 1.8 && Math.abs(w.y - q.y) < 2) return false; }
+        if (Date.now() - r.readyAt < 8000) for (const [n, o] of this.bots) { if (n === name || n === r.from || !o.entity) continue; const w = o.entity.position; if (Math.hypot(w.x - q.x, w.z - q.z) < 1.8 && Math.abs(w.y - q.y) < 2) return no('a third bot'); }
         for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sprint']) bot.setControlState(k, false);
         const e = p.offset(0, bot.entity.eyeHeight || 1.62, 0), t = q.offset(0, 1.1, 0);          // at the asker's body: about level
         try { await bot.look(Math.atan2(-(t.x - e.x), -(t.z - e.z)), Math.atan2(t.y - e.y, Math.hypot(t.x - e.x, t.z - e.z)), true); await sleep(120); } catch (_) { /* the look is a nicety */ }

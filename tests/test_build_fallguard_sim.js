@@ -209,7 +209,10 @@ test('pool: no toss to an asker whose floor ends at its feet (a stance in the ai
         pool.join('a', a); pool.join('b', b, { goto: async () => ({ ok: true }) }); pool.spare = () => 64;
         const r = pool.open('a', 'b', { glass: 64 });
         await pool.serve('b');
-        if (ground) assert.strictEqual(thrown, 64, 'negative control: on ground the toss goes'); else { assert.strictEqual(thrown, 0, 'nothing thrown over the edge'); assert.strictEqual(r.noFloor, 1); }
+        if (ground) assert.strictEqual(thrown, 64, 'negative control: on ground the toss goes'); else { assert.strictEqual(thrown, 0, 'nothing thrown over the edge'); assert.strictEqual(r.noFloor, 1);
+            // why the giver held back is in the request's end (b081y4: 46 of 92 requests 'did not meet' after about 100 s)
+            let line = ''; job.log = (m) => { line = m; }; pool.close(r, 'failed', 'did not meet');
+            assert.deepStrictEqual(pool.stats.declined, { 'no floor': 1 }); assert.ok(/held back: \{"no floor":1\}/.test(line), line); }
     }
 });
 
