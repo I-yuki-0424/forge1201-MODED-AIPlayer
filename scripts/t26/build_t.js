@@ -37,6 +37,11 @@ async function main() {
     const { S: S0, svc, seed } = await T.open(names, { teleport: 'off', autoKit: false });
     const srv = { cmd: (c) => S0.cmd(dimCmd(c)), must: (c) => S0.must(dimCmd(c)) };
     const bot0 = () => svc.bots.get(names[0]).bot;
+    // the bot whose chunks the scans and the judge's readout use: one in the build's dimension, the nearest to the site (b081x5: bot0 had respawned in the Overworld, the
+    // temporary-block scan read 44 800 cells as not loaded and the readout named Overworld blocks)
+    const viewer = () => { const inDim = (b) => b && b.entity && /nether/.test(String(b.game && b.game.dimension)) === NETHER; const all = names.map((n) => svc.bots.get(n) && svc.bots.get(n).bot).filter(inDim);
+        if (!all.length || !M0) return bot0(); const d = (b) => Math.hypot(b.entity.position.x - M0.x, b.entity.position.z - M0.z); return all.sort((a, b) => d(a) - d(b))[0]; };
+    let M0 = null;
     await S0.cmd('gamerule keep_inventory false');
     for (const n of names) { await S0.must(`gamemode survival ${n}`); await S0.cmd(`clear ${n}`); }
     const file = fs.readFileSync(FILE), parsed = lit.parse(file);
@@ -117,7 +122,7 @@ async function main() {
     const groundY = (x, z, top) => { for (let y = top; y > (NETHER ? 32 : -60); y--) { const n = at(x, y, z); if (n && !GROUNDLESS.test(n)) return y; } return null; };
     if (NETHER) { if (nY === null) throw new Error('no dry site in 30 draws (nether: open air over the lava sea or a fortress)'); y0 = nY; }
     else { const g = groundY(cx, cz, 200); if (g === null) throw new Error('no ground under the site'); y0 = g + Math.floor(rnd() * 4) - 2; }
-    const M = { x: cx - Math.floor(sx / 2), y: y0, z: cz - Math.floor(sz / 2) };
+    const M = { x: cx - Math.floor(sx / 2), y: y0, z: cz - Math.floor(sz / 2) }; M0 = { x: M.x + sx / 2, z: M.z + sz / 2 };
     const pos = { x: M.x - placed0.origin.x, y: M.y - placed0.origin.y, z: M.z - placed0.origin.z };
     const target = new Target(lit.place(parsed, { pos, rotation: 'NONE', mirror: 'NONE' }, { keepAir: true }).bp, M);
     console.log(`[build_t] seed ${seed} ${NETHER ? 'nether' : 'overworld'} box ${M.x} ${M.y} ${M.z} size ${sx}x${sy}x${sz}; ${[...target.items.values()].reduce((a, b) => a + b, 0)} items, ${target.portals.length} portals`);
@@ -173,11 +178,18 @@ async function main() {
         await srv.must(`item replace block ${ch.x + half} ${ch.y} ${ch.z} container.${slot} with minecraft:${st.it} ${st.n}`);
     }
     console.log(`[build_t] chest at ${C.x} ${C.y} ${C.z}: ${boxes.length} shulker boxes, ${stacks.length} stacks, ${items.size} item types`);
+    // ---- the Nether's way back (round 4 of TASK-081): a lit portal pair set up by commands as part of the site, tagged as twins for the console's routes. A bot that respawns in
+    // the Overworld (the respawn anchor out of charges: b081x5, one bot left the crew for good, 'no tagged portal leads from overworld to nether') walks to the Overworld gate
+    // and through it, survival moves only; vanilla links the gate at 8x to the one beside the chest ----
+    let gates = null; if (NETHER) { try { gates = await gatePair(srv, S0, names[0], at, groundYAt, C, M, [sx, sy, sz], chests); } catch (e) { console.log(`[build_t] portal pair failed: ${e.message}`); } }
+    if (gates) console.log(`[build_t] portal pair: nether ${gates.n.x} ${gates.n.y} ${gates.n.z}, overworld ${gates.o.x} ${gates.o.y} ${gates.o.z}`);
+    else if (NETHER) console.log('[build_t] portal pair: no place for the Nether gate beside the chest (a bot that respawns in the Overworld stays there)');
     // ---- the crew: beside the chest, survival; the materials chest tagged for the console ----
     for (const [i, n] of names.entries()) await srv.must(`tp ${n} ${C.x + 0.3 + (i % 2) * 0.9} ${C.y + 1} ${C.z + 0.5}`);
     await S0.must(`gamemode survival ${names[0]}`);          // on top of the chest (two cells of air were checked there); players do not collide
     await sleep(5000);
     for (const [i, ch] of chests.entries()) svc.addSite({ name: `mats${i}`, x: ch.x, y: ch.y, z: ch.z, purpose: 'materials', ...(NETHER ? { dim: 'nether' } : {}) });
+    if (gates) { svc.addSite({ name: 'gate_n', ...gates.n, purpose: 'portal', dim: 'nether', leads: 'overworld', twin: 'gate_ow' }); svc.addSite({ name: 'gate_ow', ...gates.o, purpose: 'portal', dim: 'overworld', leads: 'nether', twin: 'gate_n' }); }
     // JUDGE=0: a smoke run (the temporary-block scan only): no cell-by-cell judge before or after (each takes minutes on a 48 x 60 x 48 box); such a trial never passes
     const NOJUDGE = process.env.JUDGE === '0', skip = { wrong: [], dynamic: [], phase: [], checked: 0 };
     const control = NOJUDGE ? { wrong: [{}] } : await judge(srv, target), controlFails = control.wrong.length > 0;
@@ -232,14 +244,15 @@ async function main() {
     const dynBy = {}; for (const w of dynamic) { const k = w.want.replace(/\[.*$/, ''); dynBy[k] = (dynBy[k] || 0) + 1; }
     const res = job ? job.impl.build.result : null, st = job ? job.impl.build.status() : null;
     // every temporary block left standing, found by the scan (the server's chunk data as a client holds it) and each given its cause by the job's ledger (a/b/c/d)
-    const temps = tempReport(bot0(), target, M, [sx, sy, sz], job ? job.impl.build : null, scan0);
+    const VB = viewer(); console.log(`[build_t] scans and readout from ${VB.username} (${VB.game && VB.game.dimension})`);
+    const temps = tempReport(VB, target, M, [sx, sy, sz], job ? job.impl.build : null, scan0);
     console.log(`[temps] ${JSON.stringify(temps.summary)}`);
     console.log(`[pauses] ${JSON.stringify(PZ.table())}`);
-    if (job) { const lo = job.impl.build.leftover(bot0()); console.log(`[left] ${lo.n} tasks: ${JSON.stringify(lo.byWhy)}`); for (const c of lo.cells.slice(0, 60)) console.log(`  left ${c.k} ${c.kind || ''} ${c.block || ''}: ${c.why}${c.fails ? ` x${c.fails}` : ''}`); }
+    if (job) { const lo = job.impl.build.leftover(VB); console.log(`[left] ${lo.n} tasks: ${JSON.stringify(lo.byWhy)}`); for (const c of lo.cells.slice(0, 60)) console.log(`  left ${c.k} ${c.kind || ''} ${c.block || ''}: ${c.why}${c.fails ? ` x${c.fails}` : ''}`); }
     for (const c of temps.cells.slice(0, 20)) console.log(`  temp ${c.x},${c.y},${c.z} ${c.name} ${c.cause}: ${c.why}`);
     console.log(`[judge] ${J.checked} cells checked; WRONG ${wrong.length} ${JSON.stringify(wrongBy)}; right in what the builder decides but not in what the world decides (power, connections, flows): ${dynamic.length} ${JSON.stringify(dynBy)}; cells in front of pistons in the other phase: ${J.phase.length}`);
     // what each wrong cell holds (a bot's chunks): a temporary block, natural ground, a fluid (hc1 could not tell its 3 000-7 000 wrong air cells apart)
-    const wrongHas = {}; for (const w0 of wrong) { const b = bot0().blockAt(new Vec3(M.x + w0.at[0], M.y + w0.at[1], M.z + w0.at[2]), false); w0.has = b ? b.name : null; const k = `${w0.want.replace(/\[.*$/, '').replace('minecraft:', '')} <- ${w0.has}`; wrongHas[k] = (wrongHas[k] || 0) + 1; }
+    const wrongHas = {}; for (const w0 of wrong) { const b = VB.blockAt(new Vec3(M.x + w0.at[0], M.y + w0.at[1], M.z + w0.at[2]), false); w0.has = b ? b.name : null; const k = `${w0.want.replace(/\[.*$/, '').replace('minecraft:', '')} <- ${w0.has}`; wrongHas[k] = (wrongHas[k] || 0) + 1; }
     console.log(`[judge] wrong cells by what they hold: ${JSON.stringify(Object.entries(wrongHas).sort((a, b) => b[1] - a[1]).slice(0, 30))}`);
     for (const w of wrong.slice(0, 40)) console.log(`  wrong ${w.at.join(',')} want ${w.want} has ${w.has}`);
     // the containers' contents (the blueprint's block-entity Items, owner addendum 3): each goal container holds exactly its slots, read from the server
@@ -301,6 +314,48 @@ function tempsLine(build) {
  * Every cell of the box against the target, by the server (`execute if block`): wrong = the block or a property the builder decides differs (a fluid where air belongs, a flow outside its
  * place, a block left behind); dynamic = right in what the builder decides, different in what the world decides (power, connections, an extended piston and its head, a flow's level).
  */
+/**
+ * The Nether's portal pair (test setup by commands): a 4 x 5 obsidian frame lit with nether_portal[axis=x] in a pocket cleared beside the chest (stone floor, a corridor of
+ * two cells to the chest), outside the box and three cells round it, no lava within two; its Overworld twin at 8 x its coordinates on the ground there (the scout reads the
+ * ground and comes back). Returns { n, o } (the lower portal cell of each) or null.
+ */
+async function gatePair(srv, S0, scout, at, groundYAt, C, M, [sx, sy, sz], chests) {
+    const near = (x, y, z) => x >= M.x - 3 && x <= M.x + sx + 2 && z >= M.z - 3 && z <= M.z + sz + 2 && y >= M.y - 3 && y <= M.y + sy + 2;
+    let G = null;
+    const byChest = (x, y, z) => chests.some((ch) => x >= ch.x - 1 && x <= ch.x + 2 && z >= ch.z - 1 && z <= ch.z + 1 && y >= ch.y - 1 && y <= ch.y + 3);
+    for (const [dx, dz] of [[0, -5], [-6, 0], [6, 0], [-6, -5], [6, -5], [0, -8], [-6, 5], [0, 7 + 2 * chests.length]]) {
+        const g = { x: C.x + dx, y: C.y, z: C.z + dz }; let ok = true;
+        for (let x = g.x - 3; x <= g.x + 6 && ok; x++) for (let y = g.y - 3; y <= g.y + 7 && ok; y++) for (let z = g.z - 4; z <= g.z + 4 && ok; z++) {
+            if (near(x, y, z) || (Math.abs(z - g.z) <= 1 && x >= g.x - 1 && x <= g.x + 4 && byChest(x, y, z))) ok = false; else if (/lava/.test(at(x, y, z) || '')) ok = false;
+        }
+        if (ok) { G = g; break; }
+    }
+    if (!G) return null;
+    const N = (c) => srv.must(c);
+    await N(`fill ${G.x - 1} ${G.y} ${G.z - 1} ${G.x + 4} ${G.y + 4} ${G.z + 1} minecraft:air`);
+    await N(`fill ${G.x - 1} ${G.y - 1} ${G.z - 1} ${G.x + 4} ${G.y - 1} ${G.z + 1} minecraft:stone`);
+    // the corridor to the chest: two cells high over a stone floor, first along x, then along z
+    // (never through a chest: both legs run in the column west of it)
+    const cx0 = Math.min(G.x, C.x - 1), cx1 = Math.max(G.x, C.x - 1), zEnd = C.z, cz0 = Math.min(G.z + 1, zEnd), cz1 = Math.max(G.z + 1, zEnd);
+    await N(`fill ${cx0} ${G.y} ${G.z + 1} ${cx1} ${G.y + 1} ${G.z + 1} minecraft:air`); await N(`fill ${cx0} ${G.y - 1} ${G.z + 1} ${cx1} ${G.y - 1} ${G.z + 1} minecraft:stone keep`);
+    await N(`fill ${C.x - 1} ${C.y} ${cz0} ${C.x - 1} ${C.y + 1} ${cz1} minecraft:air`); await N(`fill ${C.x - 1} ${C.y - 1} ${cz0} ${C.x - 1} ${C.y - 1} ${cz1} minecraft:stone keep`);
+    const frame = async (run, x, y, z) => {
+        await run(`fill ${x} ${y} ${z} ${x + 3} ${y + 4} ${z} minecraft:obsidian`);
+        await run(`fill ${x + 1} ${y + 1} ${z} ${x + 2} ${y + 3} ${z} minecraft:nether_portal[axis=x]`);
+    };
+    await frame(N, G.x, G.y - 1, G.z);
+    // the Overworld twin: the scout looks at the ground at 8 x the gate's cell and the frame stands on it, the cells round it cleared
+    const OW = (c) => S0.must(/^execute /.test(c) ? c.replace(/^execute /, 'execute in minecraft:overworld ') : `execute in minecraft:overworld run ${c}`);
+    const ox = G.x * 8, oz = G.z * 8;
+    await OW(`tp ${scout} ${ox + 0.5} 250 ${oz + 0.5}`); await new Promise((r) => setTimeout(r, 9000));
+    let gy = null; for (let i = 0; i < 4 && gy === null; i++) { gy = groundYAt(ox, oz); if (gy === null) await new Promise((r) => setTimeout(r, 4000)); }
+    if (gy === null) gy = 70;
+    await OW(`fill ${ox - 2} ${gy + 1} ${oz - 2} ${ox + 5} ${gy + 6} ${oz + 2} minecraft:air`);
+    await OW(`fill ${ox - 2} ${gy} ${oz - 2} ${ox + 5} ${gy} ${oz + 2} minecraft:stone`);
+    await frame(OW, ox, gy, oz);
+    return { n: { x: G.x + 1, y: G.y, z: G.z }, o: { x: ox + 1, y: gy + 1, z: oz } };
+}
+
 /** Every goal container's Items as the server reports them (`data get block`), against the blueprint's slots exactly. */
 async function judgeContents(srv, target) {
     const cells = new Map(); for (const g of target.contents) cells.set(`${g.x},${g.y},${g.z}`, g.all);
