@@ -178,5 +178,19 @@ function endWorld() {
         assert.strictEqual(stepOffCell({ kindAt: () => 'air' }, { x: 0, y: 0, z: 0 }), null, 'a drop all round: nowhere to step');
     });
 
+    await test('goToStation: a station the walk on foot cannot reach (boxed in by leaves, fg075h) is reached by one NAV trip; negative control: without NAV the station fails', async () => {
+        const S = { x: 13, y: 67, z: 7 }, w = { kindAt: (x, y, z) => (y <= 66 ? 'solid' : 'air'), nameAt: () => 'stone' };
+        const mk = (nav) => { const bot = { x: 11, y: 67, z: 9 }, calls = []; return { bot, calls, env: {
+            w, here: () => ({ ...bot }), cancel: { cancelled: false }, nav,
+            exec: async (name, a) => { calls.push(name); return name === 'move_to' ? { ok: false, reason: 'unreachable', detail: { goal: `cell ${a.x},${a.y},${a.z}` } } : { ok: true }; },
+        } }; };
+        let navCalls = 0;
+        const a = mk(async (t, o) => { navCalls++; assert.strictEqual(o.near, 0); a.bot.x = t.x; a.bot.y = t.y; a.bot.z = t.z; return { ok: true }; });
+        const r = {}; assert.strictEqual(await pit.goToStation(S, async () => null, a.env, () => true, r), null);
+        assert.deepStrictEqual(a.env.here(), S, 'NAV brought it to the station'); assert.strictEqual(navCalls, 1); assert.strictEqual(r.navStation, 1); assert.ok(/unreachable/.test(r.moveFail));
+        const b = mk(undefined), r2 = {}; await pit.goToStation(S, async () => null, b.env, () => true, r2);
+        assert.notDeepStrictEqual(b.env.here(), S, 'negative control: without NAV the bot is not at the station');
+    });
+
     console.log('ALL OK'); process.exit(0);
 })().catch((e) => { console.error(e); process.exit(1); });
