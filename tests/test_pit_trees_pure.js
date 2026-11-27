@@ -549,6 +549,25 @@ const left = (w, box = BOX) => scan(w, box).length;
         assert.ok(b.holes.length > 0, `negative control: ${b.holes.length} holes over water`);
     });
 
+    await test('the rule for a lake fill in the box (one sentence): it is work, so the water it holds back is filled one cell further out, outside the box, and then it is broken; only the fill outside the box stays (mbc075s w3: 4 fills at the box edge kept a layer dirty); negative control: while the water cannot be filled further out, the fill holds it back and stays', async () => {
+        const pit = require('../src/work/jobs/pit');
+        const run = async (canPlace) => {
+            // the dug box x 0..9 (floor y 60); the fill at the box edge (0,61,5) holds back water at (-1,61,5), in the ring outside the box; rock outside at y 61
+            const w = world([[0, 61, 5, 'cobblestone']]);
+            for (let x = -4; x <= -1; x++) for (let z = 0; z <= 9; z++) w.set(x, 61, z, x === -1 && z === 5 ? 'water' : 'stone');
+            const f = fakeEnv(w, { x: 2, y: 61, z: 5 }), mv = f.env.exec, placed = [];
+            f.env.exec = async (n, a) => { if (n === 'place') { if (!canPlace) return { ok: false, reason: 'unreachable' }; w.set(a.x, a.y, a.z, a.item); placed.push([a.x, a.y, a.z]); return { ok: true }; } return mv(n, a); };
+            Object.assign(f.env, { have: (i) => (i === 'cobblestone' ? 9 : 0), pause: async () => {} });
+            const plan = { box: { x0: 0, x1: 9, z0: 0, z1: 9, top: 70, bottom: 61 }, regions: [], lakeFilled: new Set(['0,61,5']) };
+            const res = await pit.cleanHanging(plan, f.env);
+            return { res, fill: w.nameAt(0, 61, 5), ring: w.nameAt(-1, 61, 5), placed };
+        };
+        const a = await run(true);
+        assert.strictEqual(a.ring, 'cobblestone', `the water outside is filled: ${JSON.stringify(a)}`); assert.strictEqual(a.fill, 'air', `the fill in the box is broken: ${JSON.stringify(a.res)}`);
+        const b = await run(false);
+        assert.strictEqual(b.fill, 'cobblestone', 'negative control: the fill still holds the water back and stays'); assert.strictEqual(b.ring, 'water');
+    });
+
     await test('the tree pass ends after three NAV trips in a row that got nowhere (mbc075q w3: the respawned bot spent 30 min of the job\'s end on futile trips); negative control: trips that arrive go on', async () => {
         const mk = () => { const b = []; for (let i = 0; i < 8; i++) b.push([2 + i, GROUND + 9, 5, 'oak_leaves']); const w = world(b); const f = fakeEnv(w, { x: 0, y: GROUND + 1, z: 0 }); const mv = f.env.exec; f.env.exec = async (n, a) => (n === 'move_to' ? { ok: false, reason: 'unreachable' } : mv(n, a)); return { ...f, w }; };
         const a = mk(); let trips = 0; a.env.nav = async () => { trips++; return { ok: false, reason: 'stuck' }; };
