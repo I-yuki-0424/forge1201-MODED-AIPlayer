@@ -214,4 +214,45 @@ function legend(out, sc, y) {
     out.text(PAD.l, y + (row + 1) * 12, 'NUMBER IN A CELL: TOP OF A PARTIAL BLOCK IN 16THS. DARK: FLOOR UNDER THE FEET. BOX: BLOCK AT HEAD LEVEL', [90, 90, 90]);
 }
 
-module.exports = { picture, panel, overlays, Raster, C, PAD, SKY, SKY_SERVER, COL, axes };
+/**
+ * A crew's progress (TASK-084, owner 2026-11-27: every 10 min per crew): the build's box from above (x right, z down) and from the side (x right, y up), each column (row)
+ * coloured by the work left in it: green done, yellow to red the more tasks are left, purple hatched parked, a blue frame where a bot holds a claim; the bots as dots.
+ * `p` = { job, stage, right, total, box: {x,y,z,sx,sy,sz}, top: { 'x,z': [left, parked, claimed] }, side: { 'x,y': [left, parked, claimed] }, bots: [{name,x,y,z}], temps: [{x,y,z}], work }
+ */
+function progressPicture(p) {
+    const b = p.box, C2 = Math.max(3, Math.min(24, Math.floor(560 / Math.max(b.sx, b.sz, b.sy, 1))));
+    const W1 = b.sx * C2, H1 = b.sz * C2, H2 = b.sy * C2, top = 34, gap = 16;
+    const out = new Raster(PAD.l + W1 + gap + W1 + 10, top + Math.max(H1, H2) + 30, [250, 250, 250]);
+    const maxLeft = Math.max(1, ...Object.values(p.top || {}).map((v) => v[0]), ...Object.values(p.side || {}).map((v) => v[0]));
+    const fill = (X, Y, v) => {
+        const [left, parked, claimed] = v || [0, 0, 0];
+        if (!left && !parked) out.rect(X, Y, X + C2, Y + C2, [80, 170, 80]);
+        else { const f = Math.min(1, left / maxLeft); out.rect(X, Y, X + C2, Y + C2, [230 - 10 * f, 200 - 110 * f, 60 - 30 * f]); }
+        if (parked) for (let d = 0; d < 2 * C2; d += 4) for (let i = 0; i < C2; i++) { const y = Y + d - i; if (y >= Y && y < Y + C2) out.set(X + i, y, [150, 60, 220]); }
+        if (claimed && C2 >= 6) out.box(X, Y, X + C2, Y + C2, [40, 90, 230], 1);
+    };
+    const ox1 = PAD.l, ox2 = PAD.l + W1 + gap;
+    for (let i = 0; i < b.sx; i++) for (let j = 0; j < b.sz; j++) fill(ox1 + i * C2, top + j * C2, (p.top || {})[`${b.x + i},${b.z + j}`]);
+    for (let i = 0; i < b.sx; i++) for (let j = 0; j < b.sy; j++) fill(ox2 + i * C2, top + (b.sy - 1 - j) * C2, (p.side || {})[`${b.x + i},${b.y + j}`]);
+    if (C2 >= 4) { for (let i = 1; i < b.sx; i++) { out.rect(ox1 + i * C2, top, ox1 + i * C2 + 1, top + H1, [0, 0, 0], 0.08); out.rect(ox2 + i * C2, top, ox2 + i * C2 + 1, top + H2, [0, 0, 0], 0.08); } }
+    for (const t of p.temps || []) {
+        if (t.x >= b.x && t.x < b.x + b.sx && t.z >= b.z && t.z < b.z + b.sz) out.rect(ox1 + (t.x - b.x) * C2 + C2 / 4, top + (t.z - b.z) * C2 + C2 / 4, ox1 + (t.x - b.x) * C2 + C2 * 3 / 4, top + (t.z - b.z) * C2 + C2 * 3 / 4, COL.temp);
+    }
+    for (const q of p.bots || []) {
+        const X1 = ox1 + (q.x - b.x) * C2, Y1 = top + (q.z - b.z) * C2, X2 = ox2 + (q.x - b.x) * C2, Y2 = top + (b.y + b.sy - q.y) * C2;
+        for (const [X, Y, inside] of [[X1, Y1, X1 >= ox1 && X1 < ox1 + W1 && Y1 >= top && Y1 < top + H1], [X2, Y2, X2 >= ox2 && X2 < ox2 + W1 && Y2 >= top && Y2 < top + H2]]) {
+            if (!inside) continue;
+            out.rect(X - 3, Y - 3, X + 4, Y + 4, COL.body); out.box(X - 4, Y - 4, X + 5, Y + 5, [255, 255, 255], 1);
+            if (C2 >= 6) out.text(X + 6, Y - 2, String(q.name).slice(0, 8), COL.text);
+        }
+    }
+    const work = Object.entries(p.work || {}).map(([k, v]) => `${k} ${v}`).join(' ');
+    out.text(PAD.l, 4, `PROGRESS ${p.job}: STAGE ${p.stage}, RIGHT ${p.right}/${p.total}, ${p.bots.length} BOTS. LEFT: ${work || 'NOTHING'}`.slice(0, Math.floor((out.w - PAD.l) / 4)), COL.text);
+    out.text(ox1, top - 9, `FROM ABOVE (X ${b.x}..${b.x + b.sx - 1} RIGHT, Z ${b.z}..${b.z + b.sz - 1} DOWN)`, COL.text);
+    out.text(ox2, top - 9, `FROM THE SIDE (Y ${b.y}..${b.y + b.sy - 1} UP)`, COL.text);
+    const y0 = top + Math.max(H1, H2) + 8; let x = PAD.l;
+    for (const [t, col] of [['DONE', [80, 170, 80]], ['WORK LEFT (MORE = REDDER)', [225, 120, 40]], ['PARKED', [150, 60, 220]], ['CLAIMED', [40, 90, 230]], ['BOT', COL.body], ['TEMP BLOCK', COL.temp]]) { out.rect(x, y0, x + 9, y0 + 7, col); out.text(x + 12, y0 + 1, t, COL.text); x += 26 + textWidth(t); }
+    return out;
+}
+
+module.exports = { progressPicture, picture, panel, overlays, Raster, C, PAD, SKY, SKY_SERVER, COL, axes };

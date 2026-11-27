@@ -4,14 +4,15 @@
 //   GET /api/stuck/runs                          the runs, newest first, with their counts per cause
 //   GET /api/stuck/run/<run>                     a run's index (events grouped by cause)
 //   GET /api/stuck/event/<run>/<id>              one event's facts (event.json)
-//   GET /api/stuck/img/<run>/<id>/<view>.png     one of its three pictures (top | along | across)
+//   GET /api/stuck/img/<run>/<id>/<view>.png     one of its pictures (top | along | across, or progress)
+//   (/api/stuck/runs also returns status.json: the folder's bytes and its budget)
 const fs = require('fs');
 const path = require('path');
 const { Raw } = require('../http');
 const { Problem } = require('../../service');
 
 const RUN = '([A-Za-z0-9][A-Za-z0-9_-]{0,63})', ID = '(\\d{3,6}-[a-z_]{1,20}-[A-Za-z0-9_]{1,16})';
-const P_RUN = new RegExp(`^/api/stuck/run/${RUN}$`), P_EVENT = new RegExp(`^/api/stuck/event/${RUN}/${ID}$`), P_IMG = new RegExp(`^/api/stuck/img/${RUN}/${ID}/(top|along|across)\\.png$`);
+const P_RUN = new RegExp(`^/api/stuck/run/${RUN}$`), P_EVENT = new RegExp(`^/api/stuck/event/${RUN}/${ID}$`), P_IMG = new RegExp(`^/api/stuck/img/${RUN}/${ID}/(top|along|across|progress)\\.png$`);
 const MAX = 8 * 1024 * 1024;
 
 module.exports = (service, { stuckDir = null } = {}) => {
@@ -33,10 +34,11 @@ module.exports = (service, { stuckDir = null } = {}) => {
             for (const d of fs.readdirSync(stuckDir, { withFileTypes: true })) {
                 if (!d.isDirectory() || !new RegExp(`^${RUN}$`).test(d.name)) continue;
                 const f = inside(d.name, 'index.json'); if (!f) continue;
-                try { const ix = JSON.parse(fs.readFileSync(f, 'utf8')); const by = {}; for (const [k, v] of Object.entries(ix.byCause || {})) by[k] = Array.isArray(v) ? v.length : 0; runs.push({ run: d.name, updated: ix.updated || null, events: (ix.events || []).length, byCause: by, mtime: fs.statSync(f).mtimeMs }); } catch (_) { /* skipped */ }
+                try { const ix = JSON.parse(fs.readFileSync(f, 'utf8')); const by = {}; for (const [k, v] of Object.entries(ix.byKind || {})) by[k] = Array.isArray(v) ? v.length : 0; runs.push({ run: d.name, updated: ix.updated || null, events: (ix.events || []).length, byKind: by, mtime: fs.statSync(f).mtimeMs }); } catch (_) { /* skipped */ }
             }
             runs.sort((a, b) => b.mtime - a.mtime);
-            return { available: true, runs: runs.slice(0, 200) };
+            let status = null; const sf = inside('status.json'); if (sf) { try { status = JSON.parse(fs.readFileSync(sf, 'utf8')); } catch (_) { status = null; } }
+            return { available: true, runs: runs.slice(0, 200), status };
         }
         let x = P_RUN.exec(p); if (x) return readJson(x[1], 'index.json');
         x = P_EVENT.exec(p); if (x) return readJson(x[1], x[2], 'event.json');

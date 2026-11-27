@@ -130,3 +130,10 @@ body.kiosk .btn, body.kiosk .tab { min-height:40px; } body.kiosk input:not([type
 
 /* a map the operator made bigger (the Bigger button next to a selecting map) */
 .map-host.big .map-canvas, body.kiosk .tall-map.big .map-canvas { height:clamp(480px, 82vh, 1100px) !important; min-height:0 !important; }
+
+/* Snapshots page (page_stuck.js) */
+.snap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; }
+.snap-card { border: 1px solid var(--border, #ccc); border-radius: 6px; padding: 8px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.snap-line { white-space: pre-wrap; word-break: break-word; max-height: 4.5em; overflow: auto; }
+.snap-thumb { width: 96px; height: auto; image-rendering: pixelated; cursor: zoom-in; border: 1px solid var(--border, #ccc); }
+.snap-full { max-width: 100%; height: auto; image-rendering: pixelated; }

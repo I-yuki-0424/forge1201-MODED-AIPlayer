@@ -33,7 +33,36 @@ function encodeAsync(w, h, rgba) {
     return new Promise((resolve, reject) => zlib.deflate(r, { level: 6 }, (e, z) => (e ? reject(e) : resolve(wrap(w, h, z)))));
 }
 
-const paeth = (a, b, c) => { const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c); return pa <= pb && pa <= pc ? a : pb <= pc ? b : c; };
+/**
+ * An opaque RGBA image as an indexed PNG (colour type 3, 8 bit): exact when it has at most 256 colours, else the 256 most frequent colours (the overlays, the text and the
+ * sky stay exact) and every other colour mapped to its nearest of them (lossy: textures lose shades). About a third of the RGBA size. Returns { png, colours, lossy }.
+ */
+function indexed(w, h, rgba) {
+    const n = w * h, freq = new Map();
+    for (let i = 0; i < n; i++) { const c = (rgba[i * 4] << 16) | (rgba[i * 4 + 1] << 8) | rgba[i * 4 + 2]; freq.set(c, (freq.get(c) || 0) + 1); }
+    const pal = [...freq.keys()].sort((a, b) => freq.get(b) - freq.get(a)).slice(0, 256), idx = new Map(pal.map((c, i) => [c, i]));
+    const near = (c) => {
+        let best = 0, bd = Infinity; const r = c >> 16, g = (c >> 8) & 255, b = c & 255;
+        for (let i = 0; i < pal.length; i++) { const p = pal[i], dr = r - (p >> 16), dg = g - ((p >> 8) & 255), db = b - (p & 255), d = 2 * dr * dr + 4 * dg * dg + 3 * db * db; if (d < bd) { bd = d; best = i; } }
+        idx.set(c, best); return best;
+    };
+    const out = Buffer.alloc((w + 1) * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const i = (y * w + x) * 4, c = (rgba[i] << 16) | (rgba[i + 1] << 8) | rgba[i + 2]; const k = idx.get(c); out[y * (w + 1) + 1 + x] = k === undefined ? near(c) : k; }
+    const plte = Buffer.alloc(pal.length * 3); pal.forEach((c, i) => { plte[i * 3] = c >> 16; plte[i * 3 + 1] = (c >> 8) & 255; plte[i * 3 + 2] = c & 255; });
+    return { raw: out, plte, colours: freq.size, lossy: freq.size > 256 };
+}
+function wrapIndexed(w, h, plte, idat) {
+    const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 3;
+    return Buffer.concat([SIG, chunk('IHDR', ihdr), chunk('PLTE', plte), chunk('IDAT', idat), chunk('IEND', Buffer.alloc(0))]);
+}
+/** The indexed PNG, compressed on the thread pool. Resolves { png, colours, lossy }. */
+function encodeIndexedAsync(w, h, rgba) {
+    if (!(w > 0 && h > 0) || rgba.length !== w * h * 4) return Promise.reject(new Error('png: bad size'));
+    const q = indexed(w, h, rgba);
+    return new Promise((resolve, reject) => zlib.deflate(q.raw, { level: 9 }, (e, z) => (e ? reject(e) : resolve({ png: wrapIndexed(w, h, q.plte, z), colours: q.colours, lossy: q.lossy }))));
+}
+
+const paeth =(a, b, c) => { const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c); return pa <= pb && pa <= pc ? a : pb <= pc ? b : c; };
 
 /** PNG Buffer -> { width, height, data: Uint8Array RGBA }. */
 function decode(buf) {
@@ -77,4 +106,4 @@ function decode(buf) {
     return { width: w, height: h, data: out };
 }
 
-module.exports = { encode, encodeAsync, decode, crc32 };
+module.exports = { encode, encodeAsync, encodeIndexedAsync, decode, crc32 };
