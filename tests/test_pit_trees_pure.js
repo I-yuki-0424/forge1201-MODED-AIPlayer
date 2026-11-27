@@ -268,6 +268,23 @@ const left = (w, box = BOX) => scan(w, box).length;
         const c = await run(false); assert.deepStrictEqual(c, { fill: 'solid', under: 'air' }, 'negative control: a block that is no fill is its own unit\'s');
     });
 
+    await test('a unit whose cells are not loaded is not done: it walks back near the box once, else it goes back as the bot\'s failure (mbc075e w2: the whole box went done unloaded); negative control: once loaded it is dug', async () => {
+        const pit = require('../src/work/jobs/pit');
+        const run = async (travelLoads) => {
+            let loaded = false; const cells = new Map(); for (let x = 0; x < 8; x++) for (let z = 0; z < 8; z++) cells.set(`${x},64,${z}`, 'stone');
+            const w = { nameAt: (x, y, z) => cells.get(`${x},${y},${z}`) || (y < 64 ? 'stone' : 'air'), kindAt: (x, y, z) => (!loaded ? 'unknown' : (cells.get(`${x},${y},${z}`) || (y < 64 ? 'stone' : 'air')) === 'air' ? 'air' : 'solid') };
+            for (const method of ['expert', 'rows']) {
+                const job = pit.createPitJob({ x0: 0, z0: 0, x1: 7, z1: 7, top: 64, bottom: 64 }, {}, { method, road: false }), region = job.plan.regions[0];
+                const env = { w, have: () => 9, pause: async () => {}, here: () => ({ x: 3, y: 65, z: 3 }), travel: async () => { if (travelLoads) loaded = true; return { ok: true }; },
+                    exec: async (n, a) => { if (n === 'mine') cells.delete(`${a.x},${a.y},${a.z}`); return { ok: true }; } };
+                const r = await job.runUnit(region.id, { unit: 0 }, env);
+                if (!travelLoads) { assert.ok(!r.ok && r.detail && r.detail.botSide && r.detail.stage === 'unloaded', `${method}: ${JSON.stringify(r).slice(0, 160)}`); }
+                else assert.ok(!(r.detail && r.detail.stage === 'unloaded'), `${method}: loaded after the walk, the unit works its cells: ${JSON.stringify(r).slice(0, 160)}`);
+            }
+        };
+        await run(false); await run(true);
+    });
+
     await test('pace: a reach failure skips the retry ladder, NAV goes at most three times per unit and a unit with more such cells hands them back (081 b081k: six tree units ran six minutes)', async () => {
         const pit = require('../src/work/jobs/pit');
         const cells = new Map(); for (let x = 1; x <= 6; x++) cells.set(`${x},64,3`, 'oak_leaves');

@@ -246,6 +246,15 @@ async function runUnit(plan, region, u, env) {
     // the region's tree pass is running in another bot (it claimed the region's first unit, the others go on with theirs: several bots in one region, a build site's crew)
     const me = env.bot && env.bot.username, treeBusy = () => { const t = plan.trees && plan.trees.get(region.id); return !!(t && t.busy && t.by !== me); };
     const fail = (res, cell, stage) => ({ ok: false, reason: res.reason, detail: { ...(res.detail || {}), cell, block: env.w.nameAt ? env.w.nameAt(cell.x, cell.y, cell.z) : undefined, stage, ...r } });
+    // The unit's cells must be in the bot's world: an unloaded cell is nobody's verdict. The expert's model reads it as rock ("left alone") and called the unit done with nothing dug:
+    // mbc075e w2 (1.21.1) drowned, walked 100+ blocks away for cobblestone, and the whole box went 'done' (64/64) unloaded, the final sweep 5 times 'not loaded'. Back near the box once
+    // (the walk), else the unit goes back as the bot's own failure (it is not charged).
+    const unloaded = () => cells.filter((c) => env.w.kindAt(c.x, c.y, c.z) === 'unknown').length;
+    if (unloaded()) {
+        if (env.travel) { const mid = cells[Math.floor(cells.length / 2)]; await env.travel({ x: mid.x, z: mid.z }, { near: 12 }).catch(() => null); }
+        const n = unloaded();
+        if (n) return { ok: false, reason: 'unreachable', detail: { why: `${n} cells of the unit are not loaded (the bot is away from the box)`, botSide: true, stage: 'unloaded', unloaded: n } };
+    }
     const open = (c) => openCell(plan, env.w, c);
     const leave = (c) => { if (plan.accepted) plan.accepted.add(`${c.x},${c.y},${c.z}`); };          // a block left on purpose (a fixture, a floating block): the layer check does not send the unit back for it
     // Fill what sealPlan lists. `before`: only fluid that can be seen now (a pocket sealed inside stone cannot be clicked, and it
