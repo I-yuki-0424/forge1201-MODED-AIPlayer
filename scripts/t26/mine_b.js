@@ -82,7 +82,7 @@ const LIMIT_MIN = Number(process.env.LIMIT_MIN || 240), DEPTH = Number(process.e
             const j = svc.jobs.get(pit.id); if (!j || j.state === 'finished' || j.state === 'cancelled') { state = j ? j.state : 'gone'; break; }
             // KILL_AT_END=1 when the job ends by itself: the ledger is finished and the worker's end pass (cleanup, nav's sweep) is running; the bot is killed in it (mb075k ended before the limit)
             if (process.env.KILL_AT_END === '1' && !killed && j.impl && j.impl.ledger && j.impl.ledger.finished && j.impl.ledger.finished()) { killed = true; await T.sleep(Number(process.env.KILL_AFTER_MS || 4000)); console.log(`[wrap] killing ${name} during the job's own end (KILL_AT_END)`); await S.cmd(`kill ${name}`); }
-            if (Date.now() - last > 120000) { last = Date.now(); const v = svc._jobView(j); console.log(`[mine_b w${T.WORLD}] ${Math.round((Date.now() - t0) / 60000)} min ${JSON.stringify(v.progress || v.summary || {}).slice(0, 200)} temps ${svc.temps.size}`); }
+            if (Date.now() - last > 120000) { last = Date.now(); const v = svc._jobView(j); const fg = ((svc.bots.get(name) || {}).bot || {}).__fallGuard; console.log(`[mine_b w${T.WORLD}] ${Math.round((Date.now() - t0) / 60000)} min ${JSON.stringify(v.progress || v.summary || {}).slice(0, 200)} temps ${svc.temps.size}${fg ? ` guard ${fg.stops} last ${JSON.stringify(fg.lastStop)}` : ''}`); }
             await T.sleep(3000);
         }
         if (state === 'control') {
