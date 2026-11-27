@@ -1085,7 +1085,12 @@ function outOfStock(job) {
     const out = new Set(); if (!job.outOf) return out;
     const packs = {}; for (const p of (job.packs || new Map()).values()) for (const [k, n] of Object.entries(p)) packs[k] = (packs[k] || 0) + n;
     const ground = job.itemWatch ? job.itemWatch.ground() : {};
-    for (const it of job.t.items.keys()) if (job.outOf.has(it) && !(packs[it] > 0) && !(ground[it] > 0) && !SUP.TOOL.test(it)) out.add(it);
+    // (and the chest and the depot hold none as last read, box contents included: a trip that did not get to a box reported torches 'absent' while the chest's boxes held all
+    // 26, and the 24 torch cells were parked out of stock at minute 29, b081v4)
+    const store = {}; const site = (job.sites || [])[0]; if (site && site.holdsAll) for (const [k, n] of Object.entries(site.holdsAll)) store[k] = (store[k] || 0) + n;
+    for (const c of job.depot || []) if (c.holds) for (const [k, n] of Object.entries(c.holds)) store[k] = (store[k] || 0) + n;
+    if (!site || !site.holdsAll) return out;          // the chest not read yet: nothing is out
+    for (const it of job.t.items.keys()) if (job.outOf.has(it) && !(packs[it] > 0) && !(ground[it] > 0) && !(store[it] > 0) && !SUP.TOOL.test(it)) out.add(it);
     return out;
 }
 

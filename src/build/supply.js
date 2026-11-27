@@ -231,7 +231,10 @@ async function fetch(bot, site, needs, mover, spot, { log = () => {}, depot = []
     // 3. a box out of the chest into the depot, then taken from
     useful.sort((a, b) => b.score - a.score);
     for (const bx of useful) {
-        if (!still().length || freeSlots(bot) <= 2 || over()) break;
+        // (a full pack or the trip's time ends the boxes not looked into: what they hold is not 'absent'. Left 'complete', the trip that filled its pack before the box with the
+        // torches reported them absent, and the 24 torch cells went out of stock at minute 29, b081v4)
+        if (!still().length) break;
+        if (freeSlots(bot) <= 2 || over()) { if (still().some(([k]) => bx.h[k] > 0)) complete = false; break; }
         if (!still().some(([k]) => bx.h[k] > 0)) continue;          // what it held was taken from other boxes meanwhile
         const s0 = new Set(supplyBoxes(bot, build).map((i) => i.slot));
         await near(bot, mover, site);                 // back beside the chest (the last box may have been set down a few cells away)

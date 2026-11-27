@@ -76,8 +76,13 @@ function world(rep) {
     console.log('  ok cells of an item nobody has are parked, the stage ends and the portals are next; the item back brings them back');
     // drive.outOfStock: out only when every container was seen without it AND no pack holds it AND none lies on the site
     {
-        const job = { t, outOf: new Map([['obsidian', Date.now() - 1], ['repeater', Date.now() + 1000]]), packs: new Map([['A', { repeater: 2 }]]), itemWatch: { ground: () => ({}) } };
+        const job = { t, outOf: new Map([['obsidian', Date.now() - 1], ['repeater', Date.now() + 1000]]), packs: new Map([['A', { repeater: 2 }]]), itemWatch: { ground: () => ({}) }, sites: [{ holdsAll: {} }], depot: [] };
         assert.deepStrictEqual([...D.outOfStock(job)], ['obsidian'], 'repeater in a pack: not out (negative control)');
+        job.sites[0].holdsAll = { obsidian: 5 };
+        assert.deepStrictEqual([...D.outOfStock(job)], [], 'obsidian in the chest as last read (a box the trip did not get to): not out (negative control)');
+        job.sites[0].holdsAll = {}; job.depot = [{ holds: { obsidian: 2 } }];
+        assert.deepStrictEqual([...D.outOfStock(job)], [], 'obsidian in a depot box: not out');
+        job.depot = [];
         job.itemWatch = { ground: () => ({ obsidian: 3 }) };
         assert.deepStrictEqual([...D.outOfStock(job)], [], 'obsidian lying on the site: not out (negative control)');
         job.outOf = new Map();
