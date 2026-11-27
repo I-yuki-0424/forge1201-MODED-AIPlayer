@@ -676,7 +676,9 @@ async function goToStation(S, handle, env, open, r) {
         // undug slab, 5-26 levels below their units, and failed 'unreachable' for ten minutes. Another bot in the same cell blocks the first block: sidestep, again.
         if (env.run && above >= 3 && Math.hypot(here.x - S.x, here.z - S.z) <= 24) {          // a station above the bot's own column (an undug slab), not one across 24 blocks or more of anything
             if (env.crowded && env.crowded()) { if (env.stepAside) await env.stepAside(); else if (env.recover) await env.recover(3); }
-            let p = await env.run('pillar', { levels: S.y - env.here().y });
+            // (from where it stands after the step aside: the level can be one or none away by now, and a pillar of 0 levels is 'invalid_args', fr075a jungle)
+            const lv = S.y - env.here().y; if (!(lv >= 1)) continue;
+            let p = await env.run('pillar', { levels: Math.min(320, lv) });
             if (!p.ok && (p.reason === 'not_confirmed' || (p.detail && p.detail.crowded)) && (env.stepAside || env.recover)) { if (env.stepAside) await env.stepAside(); else await env.recover(3); p = await env.run('pillar', { levels: Math.max(1, S.y - env.here().y) }); }
             const last = p.detail && p.detail.last; if (last && env.temp) env.temp.set(`${last.x},${last.y},${last.z}`, last);
             r.rose = (r.rose || 0) + ((p.detail && p.detail.levels) || 0);
