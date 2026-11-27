@@ -74,10 +74,23 @@ async function readSupply(bot, sites, reach, { log = () => {} } = {}) {
     return { totals, read, failed };
 }
 
+/**
+ * What the chest holds now, its boxes' contents included, as the window shows it: the build's material ledger reads it (drive.js materials). Read whenever a bot closes the
+ * chest after it took, put back or moved a box (read only before the take, the ledger counted the taken items twice and missed what bots put back: b081r4, 54 beds
+ * 'unaccounted' that pack-full deposits had put back into the chest).
+ */
+function storeRead(bot, site, win) {
+    try {
+        const all = {};
+        for (const it of win.containerItems()) { if (SHULKER.test(it.name) && !emptyBox(bot, it)) { for (const [k, n] of Object.entries(boxHolds(bot, it))) all[k] = (all[k] || 0) + n; } else all[it.name] = (all[it.name] || 0) + it.count; }
+        site.holdsAll = all; site.holdsAt = Date.now();
+    } catch (_) { /* the ledger keeps its last read */ }
+}
+
 /** Items by name back into the container at site (what the bot carries of them, all of it). Returns { item: count } put back. */
 async function deposit(bot, site, names) {
     const win = await open(bot, site), out = {};
-    try { for (const it of bot.inventory.items()) { if (!names.includes(it.name)) continue; await shift(bot, win.inventoryStart + (it.slot - 9)); out[it.name] = (out[it.name] || 0) + it.count; } }
+    try { for (const it of bot.inventory.items()) { if (!names.includes(it.name)) continue; await shift(bot, win.inventoryStart + (it.slot - 9)); out[it.name] = (out[it.name] || 0) + it.count; } await sleep(200); storeRead(bot, site, win); }
     finally { bot.closeWindow(win); await sleep(250); }
     return out;
 }
@@ -85,7 +98,7 @@ async function deposit(bot, site, names) {
 /** Every shulker box the bot carries back into the container at site. */
 async function putBack(bot, site) {
     const win = await open(bot, site);
-    try { for (const it of boxes(bot)) await shift(bot, win.inventoryStart + (it.slot - 9)); }
+    try { for (const it of boxes(bot)) await shift(bot, win.inventoryStart + (it.slot - 9)); await sleep(200); storeRead(bot, site, win); }
     finally { bot.closeWindow(win); }
 }
 
@@ -179,7 +192,7 @@ async function fetch(bot, site, needs, mover, spot, { log = () => {}, depot = []
         const win = await open(bot, site);
         if (!win.containerItems().length) complete = false;
         // what the chest holds, its boxes' contents included (the build's material ledger, drive.js materials)
-        { const all = {}; for (const it of win.containerItems()) { if (SHULKER.test(it.name) && !emptyBox(bot, it)) { for (const [k, n] of Object.entries(boxHolds(bot, it))) all[k] = (all[k] || 0) + n; } else all[it.name] = (all[it.name] || 0) + it.count; } site.holdsAll = all; site.holdsAt = Date.now(); }
+        storeRead(bot, site, win);
         try {
             for (const it of win.containerItems()) {
                 if (SHULKER.test(it.name) && !emptyBox(bot, it)) for (const [k, n] of Object.entries(boxHolds(bot, it))) saw(k, n); else saw(it.name, it.count);
@@ -189,6 +202,7 @@ async function fetch(bot, site, needs, mover, spot, { log = () => {}, depot = []
                 else if (want[it.name] > 0) took(it.name, await take(bot, win, it, want[it.name]));
             }
             await sleep(300); for (const n of Object.keys(needs)) if (!SUP_TOOLISH.test(n)) await giveBack(win, n);
+            await sleep(150); storeRead(bot, site, win);
         } finally { bot.closeWindow(win); await sleep(250); }
     } finally { unlock(site); } else if (still().length) complete = false;
     // 3. a box out of the chest into the depot, then taken from
@@ -199,7 +213,7 @@ async function fetch(bot, site, needs, mover, spot, { log = () => {}, depot = []
         const n0 = boxes(bot).length;
         await near(bot, mover, site);                 // back beside the chest (the last box may have been set down a few cells away)
         if (!(await waitLock(site, 20000))) break;
-        try { const win = await open(bot, site); try { const cur = win.slots[bx.slot]; if (cur && SHULKER.test(cur.name) && !emptyBox(bot, cur)) await shift(bot, bx.slot); } finally { bot.closeWindow(win); await sleep(250); } } finally { unlock(site); }
+        try { const win = await open(bot, site); try { const cur = win.slots[bx.slot]; if (cur && SHULKER.test(cur.name) && !emptyBox(bot, cur)) await shift(bot, bx.slot); await sleep(150); storeRead(bot, site, win); } finally { bot.closeWindow(win); await sleep(250); } } finally { unlock(site); }
         const box = boxes(bot).find((i) => i.slot !== undefined);
         if (!box || boxes(bot).length <= n0) { log(`supply: the box in slot ${bx.slot} did not come out (another bot took it)`); continue; }
         const at = await spot(), pr = at ? await mover.placeItem(box.name, at, { facing: at.facing || 'up' }) : 'no free cell for the depot';          // facing up: a box opens toward its facing (one set down sideways against rock never opened, live 2026-11-22)

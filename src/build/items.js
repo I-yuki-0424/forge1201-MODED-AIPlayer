@@ -84,7 +84,7 @@ class ItemWatch {
         if (first) {
             const s = this._it(r.item); s.spawned[r.cause] = (s.spawned[r.cause] || 0) + r.count;
             const build = this.job.t && this.job.t.items && this.job.t.items.has(r.item);
-            if (build && r.cause !== 'death' && this.logged < 300) { this.logged++; this.log(`[items] ${r.cause} ${r.count} ${r.item} at ${r.pos.x},${r.pos.y},${r.pos.z}${r.by ? ` by ${r.by}` : ''}${r.detail ? ` (${r.detail})` : ''}`); }
+            if (build && r.cause !== 'death' && !(r.cause === 'toss' && r.detail === 'hand-over') && this.logged < 300) { this.logged++; this.log(`[items] ${r.cause} ${r.count} ${r.item} at ${r.pos.x},${r.pos.y},${r.pos.z}${r.by ? ` by ${r.by}` : ''}${r.detail ? ` (${r.detail})` : ''}`); }
         }
     }
     refresh() { for (const r of this.recs.values()) if (!r.fate) this._resolve(r); }
