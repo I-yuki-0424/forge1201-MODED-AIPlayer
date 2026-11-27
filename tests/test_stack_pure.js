@@ -326,6 +326,24 @@ function fakeBot(scene, pos, { pack = [], held = null, entities = {} } = {}) {
         assert.strictEqual(r.ok, true, JSON.stringify(r)); assert.deepStrictEqual(asked, [], 'nothing was gathered: the 64 raw iron were enough');
     });
 
+    await test('goal layer: a pit worker short of cobblestone goes back to its box and never explores away from it (mbc075e w2: explore rings 100+ blocks out after a respawn); negative control: an unconfined bot explores', async () => {
+        const { obtain } = require('../src/stack/obtain');
+        const run = async (box) => {
+            const inv = {}, reg = registry, trips = [];
+            const bot = { registry: reg, __mineBox: box, recipesAll: () => [], inventory: { items: () => Object.entries(inv).filter(([, c]) => c > 0).map(([name, count]) => ({ name, count, type: reg.itemsByName[name].id })) }, findBlock: () => null };
+            let pos = { x: 100, y: 64, z: 100 };
+            const deps = { bot, w: fakeWorld(), here: () => ({ ...pos }), cancelled: () => false, command: async () => ({ ok: true }), exec: async () => ({ ok: true, detail: {} }),
+                travel: async (t) => { trips.push([t.x, t.z]); pos = { x: t.x, y: 64, z: t.z }; return { ok: true }; }, survey: () => ({ total: 0 }),
+                gather: async () => { if (box && Math.hypot(pos.x - 8, pos.z - 8) < 12) { inv.cobblestone = 4; return { ok: true, detail: { got: 4 } }; } return { ok: false, reason: 'invalid_target', detail: {} }; } };
+            const r = await obtain(deps, 'cobblestone', 4);
+            return { r, trips };
+        };
+        const a = await run({ x0: 0, x1: 16, z0: 0, z1: 16, top: 70, bottom: 40 });
+        assert.strictEqual(a.r.ok, true, JSON.stringify(a.r)); assert.deepStrictEqual(a.trips, [[8, 8]], 'one walk back to the box, no rings');
+        const b = await run(null);
+        assert.strictEqual(b.r.ok, false); assert.ok(b.trips.length > 1, `negative control: the free bot explores (${b.trips.length} stops)`);
+    });
+
     await test('exploration: out on rings until the thing is near; prospecting digs a staircase down to the ore level, tunnels, looks again every few steps and gives back where the shaft began', async () => {
         const ex = require('../src/stack/explore');
         let pos = { x: 0, y: 70, z: 0 }, stops = 0;

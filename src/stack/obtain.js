@@ -100,8 +100,15 @@ async function obtain(deps, item, n, depth = 0) {
             return null;
         };
         let stop = await mineAll();
+        // A pit worker mines inside its pit only (bot.__mineBox, owner 2026-11-11): the box is the one place the item can come from. Back to it (after a respawn the bot stands at the
+        // spawn, the box's chunks may not be loaded), once more there, and no exploring away from it (mbc075e w2, 1.21.1: explore rings 100+ blocks out, every pick refused)
+        const box = bot && bot.__mineBox;
+        if (box && missing() > 0 && !stop && deps.travel) {
+            const h = deps.here(), cx = (box.x0 + box.x1) >> 1, cz = (box.z0 + box.z1) >> 1;
+            if (Math.hypot(h.x - cx, h.z - cz) > 12) { const t = await deps.travel({ x: cx, z: cz }, { near: 8 }); log(`back to the work area: ${t && t.ok ? 'ok' : (t && t.reason) || 'failed'}`); stop = await mineAll(); }
+        }
         // Not within reach: look further. Ores: down a staircase to the depth where they are common and along a tunnel; the rest: out on rings over the surface.
-        for (let round = 0; round < 12 && missing() > 0 && !stop && deps.travel && deps.survey; round++) {
+        for (let round = 0; round < 12 && missing() > 0 && !stop && !box && deps.travel && deps.survey; round++) {
             // Ores count only when gather could work them (a block the bot can walk up to, or dig to from a cell it can walk to): iron in a cave 20 levels down is "found" and unreachable.
             const nearest = deps.nearestOre ? async () => (ORE_LEVEL[item] !== undefined ? deps.nearestOre(item, 24) : null) : null;
             const nearby = async () => { const ts = item === 'log' ? bestLogTargets(deps) : [item]; if (deps.workable) { for (const t of ts) if ((await deps.workable(t, 24)) > 0) return true; return false; } return ts.some((t) => ((deps.survey(t, 24) || {}).total || 0) > 0); };

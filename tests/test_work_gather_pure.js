@@ -138,5 +138,13 @@ const ore = (cells, x, y, z, n = 'iron_ore') => { cells[`${x},${y},${z}`] = n; }
         const first = calls; await gather(f.bot, { target: 'raw_iron', count: 1, radius: 20 }, { execute });
         assert.strictEqual(first, 1); assert.strictEqual(calls, 1, 'the second call did not try the dead cell again');
     });
+    await test('gather: a pit worker\'s candidates are inside its work area only (mbc075e w2: every pick refused \'outside the work area\' for the rest of the run); negative control: without the box the nearer outside ore is taken', async () => {
+        const cells = {}; ore(cells, 2, 64, 1); ore(cells, 20, 64, 1);
+        const f = fakeBot(cells); f.bot.__mineBox = { x0: 16, x1: 24, z0: -4, z1: 4, top: 70, bottom: 60 };
+        assert.deepStrictEqual(find(f.bot, resolve(f.bot.registry, 'raw_iron'), 40).map((c) => c.x), [20], 'only the ore in the box');
+        const log = { walks: 0, mined: [] }, r = await gather(f.bot, { target: 'raw_iron', count: 1, radius: 40 }, { execute: fakeExecute(f, log) });
+        assert.ok(r.ok, JSON.stringify(r)); assert.deepStrictEqual(log.mined, [[20, 64, 1]]);
+        const g = fakeBot(cells); assert.deepStrictEqual(find(g.bot, resolve(g.bot.registry, 'raw_iron'), 40).map((c) => c.x), [2, 20], 'negative control: both, nearest first');
+    });
     console.log('ALL OK');
 })().catch((e) => { console.error(e); process.exit(1); });

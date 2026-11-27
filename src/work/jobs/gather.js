@@ -39,8 +39,12 @@ function find(bot, spec, radius, skip = new Set()) {
     // world.findStates reads state ids section by section and skips sections whose palette has none (mineflayer's findBlocks builds a whole Block, biome and block entity included, for every
     // cell: 86 s of CPU in a T26 mine_a run, the event loop blocked 15-22 s and every bot was kicked for the keep-alive)
     const hits = w.sid ? require('../../skills/world').findStates(bot, w, me, radius, (i) => want.has(i.name), { count: 256 }) : bot.findBlocks({ matching: spec.blocks.map((n) => bot.registry.blocksByName[n].id), maxDistance: radius, count: 256 });
+    // what `mine` refuses (a fixture, a block outside a pit worker's work area: skills/commands/block.js refusal, the rule NAV plans by too) is no candidate: after a death in a wet box
+    // the pit bot walked 100+ blocks for cobblestone and every pick came back 'outside the work area' for the rest of the run (mbc075e w2, 1.21.1)
+    const { refusal } = require('../../skills/commands/block');
     for (const p of hits) {
         const key = `${p.x},${p.y},${p.z}`; if (skip.has(key) || isDead(bot, key)) continue;
+        if (refusal(bot, p, String(w.nameAt(p.x, p.y, p.z) || '').replace(/^minecraft:/, ''))) continue;
         const kinds = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].map(([a, b, c]) => w.kindAt(p.x + a, p.y + b, p.z + c));
         const wet = kinds.some((k) => FLUID.has(k)), exposed = kinds.some((k) => k !== 'solid') && !wet;            // a block that touches water or lava is not safe to open
         out.push({ x: p.x, y: p.y, z: p.z, dist: Math.hypot(p.x + 0.5 - me.x, p.y + 0.5 - (me.y + 1.6), p.z + 0.5 - me.z), exposed, wet });
