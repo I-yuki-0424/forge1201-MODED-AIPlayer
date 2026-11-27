@@ -312,7 +312,8 @@ async function plan0(view, start, goal, h, { maxNodes = 40000, temps = 0, box = 
                 // blocks, live 2026-11-23 ga4 w1)
                 const onTemp = !!c.place && c.place.x === c.x && c.place.y === c.y - 1 && c.place.z === c.z;
                 // (a bridge step that places the blueprint's own block is the build itself: cheap, so floors are laid by walking over them)
-                if (!landed && !diag) { if (view.placeable(x, c.y - 1, z) && view.kind(x, c.y - 1, z) !== 'water' && (onTemp || (view.stands(c.x, c.y - 1, c.z) && P.full(blk(view, c.x, c.y - 1, c.z))))) add(x, c.y, z, (view.rules.buildBlock && view.rules.buildBlock(x, c.y - 1, z)) ? 12 : COST.bridge + COST.temp, 'bridge', { place: { x, y: c.y - 1, z } }); }
+                // (not a bridge that failed from this cell in the last minute: b081q4/q5, a bed in the stance hid the support's side and the same bridge was tried every 3 s for a minute)
+                if (!landed && !diag && !(view.rules.noBridge && view.rules.noBridge(c.x, c.y, c.z, x, z))) { if (view.placeable(x, c.y - 1, z) && view.kind(x, c.y - 1, z) !== 'water' && (onTemp || (view.stands(c.x, c.y - 1, c.z) && P.full(blk(view, c.x, c.y - 1, c.z))))) add(x, c.y, z, (view.rules.buildBlock && view.rules.buildBlock(x, c.y - 1, z)) ? 12 : COST.bridge + COST.temp, 'bridge', { place: { x, y: c.y - 1, z } }); }
                 continue;
             }
             if (diag) continue;
@@ -379,11 +380,11 @@ function feet(bot) { const p = bot.entity.position; return { x: Math.floor(p.x),
 /** The mover of one bot. */
 class Mover {
     constructor(bot, rules, { log = () => {} } = {}) {
-        this.bot = bot; this.log = log; this.trace = []; this.mine = new Map(); this.badPillar = new Map();
+        this.bot = bot; this.log = log; this.trace = []; this.mine = new Map(); this.badPillar = new Map(); this.badBridge = new Map();
         // under every move: no step sideways onto a fall of more than three (fallguard.js); planned drops open their columns (follow, step)
         this.guard = FG.install(bot);
         // a pillar that failed in a cell is not planned there again for two minutes (one was tried 13 times in a row, live 2026-11-23 gd1 w2)
-        this.rules = { ...rules, noPillar: (x, y, z) => (this.badPillar.get(key(x, y, z)) || 0) > Date.now() };
+        this.rules = { ...rules, noPillar: (x, y, z) => (this.badPillar.get(key(x, y, z)) || 0) > Date.now(), noBridge: (x, y, z, tx, tz) => (this.badBridge.get(`${key(x, y, z)}>${tx},${tz}`) || 0) > Date.now() };
     }
     /**
      * Standing beside the top of its own pillar (the stance's way up: a bridge block off it, or the build or ground beside it): back onto the pillar's top, its own bridge block
@@ -746,7 +747,7 @@ class Mover {
                 const plane = [sup[0] + 0.5 + dx * 0.4999, 0, sup[2] + 0.5 + dz * 0.4999];
                 const hit = [dx ? plane[0] : sup[0] + 0.5, sup[1] + 0.5, dz ? plane[2] : sup[2] + 0.5];
                 const r = P.rayFirst(P.botWorld(b), eye, hit);
-                if (!r || r.cell[0] !== sup[0] || r.cell[1] !== sup[1] || r.cell[2] !== sup[2]) { const nm = (c) => { const q = b.blockAt(new Vec3(c[0], c[1], c[2]), false); return q ? q.name : '?'; }; return { ok: false, why: `bridge: the support side is not in sight (support ${nm(sup)}, the ray ${r ? `hit ${nm(r.cell)} at ${r.cell.join(',')}` : 'hit nothing'}, eye ${eye.map((v) => v.toFixed(2)).join(',')})` }; }
+                if (!r || r.cell[0] !== sup[0] || r.cell[1] !== sup[1] || r.cell[2] !== sup[2]) { this.badBridge.set(`${key(prev.x, prev.y, prev.z)}>${s.x},${s.z}`, Date.now() + 60000); const nm = (c) => { const q = b.blockAt(new Vec3(c[0], c[1], c[2]), false); return q ? q.name : '?'; }; return { ok: false, why: `bridge: the support side is not in sight (support ${nm(sup)}, the ray ${r ? `hit ${nm(r.cell)} at ${r.cell.join(',')}` : 'hit nothing'}, eye ${eye.map((v) => v.toFixed(2)).join(',')})` }; }
                 await this.lookAtPoint(new Vec3(...hit));
                 if (!own) this._temp(s.place, 'bridge', item);          // before the click
                 b._client.write('block_place', { hand: 0, location: new Vec3(...sup), direction: V.FACE[face], cursorX: hit[0] - sup[0], cursorY: hit[1] - sup[1], cursorZ: hit[2] - sup[2], insideBlock: false, worldBorderHit: false, sequence: (this.seq = (this.seq || 0) + 1) });

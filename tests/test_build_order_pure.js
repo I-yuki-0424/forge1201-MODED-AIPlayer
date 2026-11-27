@@ -126,6 +126,24 @@ test('a floating trapdoor (facing west, top half) gets its scaffold where a clic
     }
 });
 
+test('a bridge that failed from a cell is not planned from it again for a while (b081q4: the same bridge tried every 3 s for a minute); negative control: without the mark, the bridge', async () => {
+    const { Vec3 } = require('vec3');
+    const M = require('../src/build/move');
+    const registry = require('prismarine-registry')('1.21.1'), Chunk = require('prismarine-chunk')(registry), World = require('prismarine-world')(registry);
+    const world = new World(null).sync, chunk = new Chunk({ minY: -64, worldHeight: 384 }), stone = registry.blocksByName.stone.defaultState;
+    for (let x = 0; x < 16; x++) for (let z = 0; z < 16; z++) chunk.setBlockStateId(new Vec3(x, 63, z), stone);
+    chunk.setBlockStateId(new Vec3(5, 79, 5), stone);          // one block 16 over the ground: the way to the next cell is a bridge
+    world.setColumn(0, 0, chunk);
+    const bot = { registry, world, blockAt: (p) => world.getBlock(p), entity: { position: new Vec3(5.5, 80, 5.5) } };
+    const goal = (x, y, z) => y === 80 && x === 6 && z === 5;
+    const base = { canDig: () => false, temp: () => 'pumpkin' };
+    const r = await M.plan(new M.View(bot, base), { x: 5, y: 80, z: 5 }, goal, { x: 6, y: 80, z: 5 }, { temps: 8, maxNodes: 2000, maxDrop: 4 });
+    assert(r && r.some((s0) => s0.move === 'bridge'), `a bridge: ${r && r.map((s0) => s0.move).join(' ')}`);
+    const marked = { ...base, noBridge: (x, y, z, tx, tz) => x === 5 && y === 80 && z === 5 && tx === 6 && tz === 5 };
+    const r2 = await M.plan(new M.View(bot, marked), { x: 5, y: 80, z: 5 }, goal, { x: 6, y: 80, z: 5 }, { temps: 8, maxNodes: 2000, maxDrop: 4 });
+    assert(!r2 || !r2.some((s0, i) => s0.move === 'bridge' && s0.x === 6 && s0.z === 5 && i > 0 && r2[i - 1].x === 5 && r2[i - 1].z === 5 && r2[i - 1].y === 80), 'not that bridge again');
+});
+
 test('the way down from a height whose way up is gone: sinking on its own blocks (place one under the floor, dig the floor; negative control: without temporary blocks, no way)', async () => {
     const { Vec3 } = require('vec3');
     const M = require('../src/build/move');
