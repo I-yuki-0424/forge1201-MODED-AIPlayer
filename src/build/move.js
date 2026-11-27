@@ -91,13 +91,13 @@ class View {
     }
     fits(x, y, z) { return this.free(x, y, z) && this.free(x, y + 1, z); }
     /** Can a body stand on the block at (x, y, z) (its top at the cell's top)? */
-    stands(x, y, z) {
+    stands(x, y, z, { doomedToo = true } = {}) {
         const o = this.over.get(key(x, y, z));
         if (o === 'solid') return true;
         if (o) return false;
         // a block another bot has claimed to dig is gone in a moment: no route stands on it (bots walked over terrain the crew was clearing and fell 25-32 blocks into the
         // dug box, live 2026-11-23 ha6 w4)
-        if (this.rules.doomed && this.rules.doomed(x, y, z)) return false;
+        if (doomedToo && this.rules.doomed && this.rules.doomed(x, y, z)) return false;
         const b = this.raw(x, y, z);
         if (!b || b.boundingBox !== 'block' || NO_STAND.test(b.name)) return false;
         const shapes = b.shapes || [], top = Math.max(...shapes.map((s) => s[4]));
@@ -533,7 +533,9 @@ class Mover {
             const b = this.bot.blockAt(new Vec3(f.x, f.y - 1, f.z), false);
             if (!b || (name && b.name !== name)) { this.mine.delete(k); stop(`the block under it is ${b ? b.name : 'not loaded'}`); break; }
             const v = this.view();
-            if (!v.stands(f.x, f.y - 2, f.z) || v.nearLava(f.x, f.y - 1, f.z)) { stop(v.nearLava(f.x, f.y - 1, f.z) ? 'lava beside it' : `a gap under it (${(v.raw(f.x, f.y - 2, f.z) || {}).name || '?'})`); break; }          // a gap or lava under it: the crew's untemp task takes it later
+            // (the block under it as it stands: a released block of this column that another bot has claimed to take away reads 'doomed' to routes, but the bot comes down onto
+            // it and the claimer cannot dig it under a body; read through that rule, 50 of 80 column blocks in b081t4's first 45 minutes stood as 'a gap under it (pumpkin)')
+            if (!v.stands(f.x, f.y - 2, f.z, { doomedToo: false }) || v.nearLava(f.x, f.y - 1, f.z)) { stop(v.nearLava(f.x, f.y - 1, f.z) ? 'lava beside it' : `a gap under it (${(v.raw(f.x, f.y - 2, f.z) || {}).name || '?'})`); break; }          // a gap or lava under it: the crew's untemp task takes it later
             if ([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => { const q = v.raw(f.x + dx, f.y - 1, f.z + dz); return q && (q.name === 'water' || q.name === 'lava'); })) { stop('it holds back a fluid'); break; }      // it holds back a fluid
             // never a block another bot's route stands on (a bot climbed down its pillar while another walked across its top: falls of 25, live 2026-11-24 ha22 w1)
             if (this.rules.mayDig && !this.rules.mayDig(f.x, f.y - 1, f.z)) { stop('a crew member on it or its route'); break; }

@@ -85,5 +85,14 @@ function fakeBot(world, pos, onGround = true) {
         assert.strictEqual(job._way(world, tk, { x: 1, y: 65, z: 1 }), null, 'a crew member\'s stance in the head cell: no way');
     }
     console.log('  ok a bed whose head cell covers a body is not placed (its own, a crew member\'s); a free head cell is');
-    console.log('test_build_partial_pure: 3 passed');
+    // 4. a column of its own read by the way down: a block another bot claimed to take away is 'doomed' to routes, not to the bot coming down its own column (unpillar)
+    {
+        const w = new Map([['0,64,0', { name: 'pumpkin' }], ['0,65,0', { name: 'pumpkin' }]]);
+        const v = new M.View(fakeBot(w, { x: 0.5, y: 66, z: 0.5 }), { canDig: () => true, doomed: (x, y, z) => x === 0 && y === 64 && z === 0 });
+        assert.strictEqual(v.stands(0, 64, 0), false, 'doomed to a route');
+        assert.strictEqual(v.stands(0, 64, 0, { doomedToo: false }), true, 'it stands for the way down');
+        assert.strictEqual(v.stands(0, 63, 0, { doomedToo: false }), false, 'negative control: air does not stand either way');
+    }
+    console.log('  ok a claimed block of its own column still stands for the way down');
+    console.log('test_build_partial_pure: 4 passed');
 })().catch((e) => { console.error(e); process.exit(1); });
