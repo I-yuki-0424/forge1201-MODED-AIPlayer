@@ -857,6 +857,14 @@ the walk's tick budget ended it); a guard episode now names the blocks under the
 The guard is on for every work bot again (`src/work/service/bots.js`; setting `fallGuard: false` or `FALL_GUARD=0` turns it off for an A/B). The remaining stops are single ticks
 (a slide along an edge) and raw key holds of the recovery fixes (`sidestep`, `back_off`: forward held 0.8 s toward a cell checked one ahead), which the guard bounds.
 
+**mine_b closing set 1 (2026-11-27 13:30-15:05, 1.21.1, native physics, guard on, Peaceful, 240 game min at x3; code e1251fe7 / cf4f7d85).**
+
+| Run (world, seed) | End | Dirty layers | Pumpkins (scan) | Other temporaries | Deaths, falls | Cause found | Change |
+| :-- | :-- | --: | --: | :-- | :-- | :-- | :-- |
+| `mbc075a` w3 (-5730052918913428628, KILL_AT_END) | timeout 85 min, a wet box (1 666 fluid cells), wrap ran out | 85 | 0 | 512 rubble fills hanging over air (scan.js `HANG=1`), 1 556 registered `lake` | 1 (the kill) | the cell under a fill was dug by a later layer while the fill's own unit was given up | a fill directly over a cell goes first, or the cell stays closed (a2879008) |
+| `mbc075b` w1 (4390586315330096192) | finished 60 min | 5 (lava at the bottom, seals kept) | 2 (x 17, y 31 and 20: outside the box, origin not recorded) | 23 seals holding lava back | 0 | not known | mine_b prints each leftover's history (bad43492) |
+| `mbc075b` w2 (-6226881385077031126) | finished 44 min | 2 | 3 (2 fall-reflex blocks at -32,-49/-52,143; 1 at -17,22,153) | | 1 fall of 13 blocks with no command running | the end's NAV sweep fell after the cleanup and its reflex blocks stayed; the floor under the body may have been its own dig | the end runs again when its round placed movement blocks (14f29d6c); the pit never digs the body's support (f066c6df) |
+
 move_a's 10 pumpkins on seed 7601 (`ma075s`) were a wild pumpkin patch: the same 10 cells (x 663-675, y 67) are pumpkins in an untouched world of that seed (scan.js). move_a now
 grades only cells that turned into a temporary-block kind during the run (a block update seen by the bot, never a chunk load).
 
