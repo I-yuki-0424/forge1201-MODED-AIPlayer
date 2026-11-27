@@ -872,6 +872,14 @@ low tree block in reach blind (8ca02513); a closed station away from the bot is 
 breath reflex swims to the nearest air instead of only jumping (851a1880: `mbc075c` w2 drowned under a wet box after five jumping reflexes). Diagnostics: the slowest cell's
 steps in the slow-unit log, the last command before a fall, the blocks under a guard stop, scan.js `HANG=1`, mine_b's history of every leftover temporary block.
 
+**mine_b closing set 2 (15:07-16:35, code bad43492, same conditions).**
+
+| Run (world, seed) | End | Dirty layers | Pumpkins (scan) | Fills left | Deaths | Cause found | Change |
+| :-- | :-- | --: | --: | :-- | :-- | :-- | :-- |
+| `mbc075c` w1 (-6203496559503448345) | timeout 82 min (the end's range check sent 40 units back: 'no station can reach' 6 band cells) | 105 | 2 (8 cells outside the box, y 27/31) | 0 | 0 | both placed by a NAV pillar in a cave; the walk run after it took the bot out of the tidy's reach, the end's sweep places nothing and could not get back | the first walk cell after a pillar/bridge/descent is its own step (31cbcc1b) |
+| `mbc075c` w2 (8408650362352379667) | timeout 85 min, very wet (2 935 fluid cells) | 122 | 0 | 274 registered (the wrap keeps fills over undug ground) | 1: drowned at 14 min after five breath reflexes that only jumped | the reflex never swam sideways to air | the breath reflex swims to the nearest air (851a1880) |
+| `mbc075d` w3 (1201687708277881827, KILL_AT_END) | finished at 54 min, killed in its end, end done after the respawn | 23 | 0 | 134 registered left by the hanging pass ('no standing column'); 79 rubble blocks over air | 1 (the kill) | fills over water that later ran off hang with no dig under them (the fill-above rule does not see them); one trip per block, 20 blocks in 2 min | clusters after each NAV trip, 400 blocks in 15 min (0fd60155) |
+
 move_a's 10 pumpkins on seed 7601 (`ma075s`) were a wild pumpkin patch: the same 10 cells (x 663-675, y 67) are pumpkins in an untouched world of that seed (scan.js). move_a now
 grades only cells that turned into a temporary-block kind during the run (a block update seen by the bot, never a chunk load).
 
