@@ -73,7 +73,9 @@ function buildModel(c, ox, oz, yb) {
                 const wy = yb + y;
                 if (!inside || wy < meta.bottom) { col[y] = ROCK; continue; }
                 const k = w.kindAt(wx, wy, wz);
-                if (k === 'air' || k === 'climb') continue;
+                // (a plant of a pit that clears plants, no collision box: a cell to dig, not air: one glow lichen at the box edge was modelled as air, the band went done without it and
+                // layer -27 stayed dirty, mbc075s w3, seed -9550732655681071, 1.21.1)
+                if (k === 'air' || k === 'climb') { if (!c.open || c.open({ x: wx, y: wy, z: wz })) continue; col[y] = SOLID; continue; }
                 if (k === 'water' || k === 'liquid') { col[y] = WATER; continue; }
                 if (k === 'solid' || k === 'partial') {
                     const name = bare(w.nameAt && w.nameAt(wx, wy, wz));

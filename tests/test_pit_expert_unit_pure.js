@@ -53,6 +53,21 @@ function voidEnv(w, start) {
         assert.throws(() => pit.planPit(box, { method: 'spiral' }), /rows, sweep or expert/);
     });
 
+    await test('a plant in the band (glow lichen on the box wall, no collision box) is a cell to dig for a pit that clears plants: the expert\'s model counts it, so the band is not done without it (mbc075s w3: one glow lichen at the box edge kept layer -27 dirty); negative control: a plain pit walks through it', async () => {
+        const run = async (plants) => {
+            const b = { x0: 0, z0: 0, x1: 15, z1: 15, top: 99, bottom: 98 };
+            const job = pit.createPitJob(b, {}, { method: 'expert', road: false, plants }), reg = job.plan.regions[0];
+            const w0 = fakeWorld(97, { '5,98,0': 'glow_lichen' }), w = { ...w0, kindAt: (x, y, z) => (w0.nameAt(x, y, z) === 'glow_lichen' ? 'air' : w0.kindAt(x, y, z)) };
+            const env = fakeEnv(w, { x: 5, y: 98, z: 3 });
+            const r = await job.runUnit(reg.id, { unit: 0 }, env);
+            return { r, left: w.nameAt(5, 98, 0) };
+        };
+        const a = await run(true);
+        assert.strictEqual(a.left, 'air', `the lichen is dug: ${JSON.stringify(a.r).slice(0, 300)}`);
+        const b = await run(false);
+        assert.strictEqual(b.left, 'glow_lichen', 'negative control: a plain pit leaves it (air to walk through)');
+    });
+
     await test('runUnit: a fresh band is dug completely from far fewer stations than the tile sweep needs (32 for two layers), blind, nothing outside the chunk', async () => {
         const job = pit.createPitJob(box, {}, { method: 'expert', road: false }), reg = job.plan.regions[0];
         const w = fakeWorld(99), env = fakeEnv(w, { x: 0, y: 100, z: 0 });
