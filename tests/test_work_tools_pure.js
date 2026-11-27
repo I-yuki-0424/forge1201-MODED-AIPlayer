@@ -197,6 +197,26 @@ const tool = (name, max, used) => ({ name, maxDurability: max, durabilityUsed: u
         const r2 = await water.rescue(env2, { x0: 0, x1: 5, z0: 0, z1: 5, top: 12, bottom: 0 }); assert.strictEqual(r2.reason, 'stuck', 'without a lift the old answer stands');
     });
 
+    await test('water rescue: from deep water the bot first goes up (env.surface), then to the shore it finds from there (mbc075h w1: water y 29-62, no shore within reach of the bottom, drowned twice); negative control: without surface it is stuck', async () => {
+        const water = require('../src/work/bot/water');
+        const cells = new Map(); const set = (x, y, z, n) => cells.set(`${x},${y},${z}`, n);
+        for (let x = -2; x <= 30; x++) for (let z = -2; z <= 2; z++) { set(x, 0, z, 'stone'); for (let y = 1; y <= 30; y++) set(x, y, z, 'water'); }      // a lake 30 deep, its shore 28 across
+        for (let z = -2; z <= 2; z++) for (let y = 0; y <= 30; y++) set(31, y, z, 'stone');                                                         // the far bank: ground at y 30
+        const w = { nameAt: (x, y, z) => cells.get(`${x},${y},${z}`) || 'air', kindAt: (x, y, z) => { const n = cells.get(`${x},${y},${z}`); return n === 'water' ? 'water' : n ? 'solid' : 'air'; } };
+        const run = async (withSurface) => {
+            let pos = { x: 20, y: 2, z: 0 }, rose = 0; const walks = [];
+            const env = { w, have: () => 0, here: () => ({ ...pos }), recover: async () => {},
+                exec: async (n, a) => { if (n === 'move_to') { walks.push([a.x, a.y, a.z]); if (pos.y >= 29) { pos = { x: a.x, y: a.y, z: a.z }; return { ok: true }; } return { ok: false, reason: 'stuck' }; } return { ok: true }; } };
+            if (withSurface) env.surface = async () => { rose++; pos = { ...pos, y: 30 }; return { ok: true }; };
+            const r = await water.rescue(env, { x0: -2, x1: 30, z0: -2, z1: 2, top: 32, bottom: 0 });
+            return { r, rose, walks, pos };
+        };
+        const a = await run(true);
+        assert.ok(a.r.ok && a.rose === 1, JSON.stringify(a)); assert.deepStrictEqual([a.pos.x, a.pos.y], [31, 31], 'on the bank');
+        const b = await run(false);
+        assert.strictEqual(b.r.reason, 'stuck', `negative control: ${JSON.stringify(b.r)}`);
+    });
+
     await test('env.lift: a one-cell pocket by the target is not "the nearest standable cell": a cell with a way out on foot comes first (two bots stayed sealed in one by a chest)', async () => {
         const { botEnv } = require('../src/work/bot/env');
         const solid = (x, y, z) => y <= 0 || (y <= 2 && ((Math.abs(x) === 1 && z === 0) || (Math.abs(z) === 1 && x === 0)));       // a floor, and four walls around (0,1,0)

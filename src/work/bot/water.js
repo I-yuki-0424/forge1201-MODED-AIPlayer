@@ -81,7 +81,12 @@ async function rescue(env, box, { why = null, maxFill = 48 } = {}) {
     try {
         let f = env.here();
         if (inWater(env.w, f)) {
-            const shore = shoreCell(env.w, f);
+            // Deep water first goes up: NAV swims only in the surface band and the shore search reaches R cells, so from the bottom of an aquifer neither found a way and the bot,
+            // let go, sank again after every breath reflex (mbc075h w1, seed 4331971738747880703, 1.21.1: water y 29-62 under the pit, drowned twice). `env.surface` holds jump with
+            // the look up (and digs a roof over the column) until the head is out, and leaves jump held so the body stays in the band while the way to the shore is planned.
+            // A closed pocket (no shore at all: mbc075e w2, a pocket outside the box, the bot drowned in it) goes the same way: the roof over the column is dug and the bot comes up into it.
+            let shore = shoreCell(env.w, f, 20);
+            if (env.surface && (!shore || (wet(env.w, f.x, f.y + 1, f.z) && wet(env.w, f.x, f.y + 2, f.z)))) { const s = await env.surface(); out.rose = s && s.ok ? 'ok' : (s && s.reason) || 'failed'; f = env.here(); shore = shoreCell(env.w, f, 20); }
             out.surfaced = true;
             if (shore) {
                 // NAV swims (the surface band) and climbs out over the rim; the action layer's plain move_to ended 'stuck' again and again in a pond (T26 lake smoke, 2026-11-16: "water rescue: to the shore, 0 filled (stuck)")

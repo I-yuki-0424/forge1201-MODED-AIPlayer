@@ -194,6 +194,22 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
         defend: gd ? async () => { for (let i = 0; i < 100 && bot.__preempt; i++) await sleep(100); return gd.defend((name, args) => execute(bot, name, args, { cancel })); } : null,
         dispose: () => { if (gd) gd.detach(); }, rememberGood: () => { good = feetCell(bot.entity.position); escapes.clear(); },
         inWater: () => !!bot.entity.isInWater || require('./water').inWater(w, feetCell(bot.entity.position)),
+        // Up to the surface from deep water (water.js rescue): jump held, the look up, a roof over the column dug once when it is within reach; ends with the head out of the water and
+        // jump still held (the caller's walk takes the controls over), or after maxMs
+        surface: async (maxMs = 20000) => {
+            const V = require('vec3'), nm = (x, y, z) => { const b = bot.blockAt(new V(x, y, z)); return b ? b.name : null; };
+            const head = () => { const p = bot.entity.position; return nm(Math.floor(p.x), Math.floor(p.y + 1.62), Math.floor(p.z)) === 'water'; };
+            const t0 = Date.now(); let dug = false;
+            bot.setControlState('sprint', false); bot.setControlState('sneak', false); bot.setControlState('forward', false);
+            await Promise.resolve(bot.look(bot.entity.yaw, Math.PI / 2, true)).catch(() => {});
+            bot.setControlState('jump', true);
+            while (head()) {
+                if (Date.now() - t0 > maxMs) return { ok: false, reason: 'timeout', ms: Date.now() - t0 };
+                if (!dug) { const roof = require('./reflex').ceilingAbove(nm, bot.entity.position); if (roof) { dug = true; const b = bot.blockAt(new V(roof.x, roof.y, roof.z)); if (b) await bot.dig(b, true).catch(() => {}); } }
+                await new Promise((r) => setTimeout(r, 100));
+            }
+            return { ok: true, ms: Date.now() - t0 };
+        },
         items: (near, r) => dropsNear(bot, near, r),
         configure: (o) => { if (o && typeof o.defend === 'boolean') defendOn = o.defend; return require('../../skills/options').configure(bot, o); },
         // `within`: the box of the pit job the bot works in (set by the service): a pillar with nothing to stack takes a block from the undug part of it (moves.js harvestBlock).
