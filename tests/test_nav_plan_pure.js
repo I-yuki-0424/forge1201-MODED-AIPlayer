@@ -146,4 +146,26 @@ test('walk progress counts the climb or the descent toward a goal with a level (
     assert.strictEqual(progressDist(afterClimb, flat), progressDist(before, flat), 'no level: the climb does not count');
 });
 
+test('NAV plans a dig only where `mine` would break the block (fg075c: a leaf above a pit\'s work area was planned as a dig, refused by mine and planned again for 6 min); negative control: without the work area the same dig is planned', () => {
+    const { protectedFor } = require('../src/nav/go');
+    const { refusal } = require('../src/skills/commands/block');
+    // a pit box x 0..15, z 0..15, top 67: mine works up to top + 3 = 70 (2 across, 3 up and down of margin); a wall of stone at x 3 from y 64 to 80, the goal beyond it at y 72
+    const w = world(); for (let y = 64; y <= 80; y++) for (let z = -6; z <= 6; z++) w.set(3, y, z, 'solid');
+    for (let x = 0; x <= 6; x++) for (let z = -6; z <= 6; z++) for (let y = 64; y <= 71; y++) if (x !== 3) w.set(x, y, z, 'solid');          // terrain up to 71 on both sides
+    const mk = (box) => ({ username: 'B', game: { dimension: 'overworld' }, __mineBox: box, __temps: { get: () => null } });
+    const inBox = mk({ x0: 0, x1: 15, z0: 0, z1: 15, top: 67, bottom: -59 });
+    assert.ok(refusal(inBox, { x: 3, y: 72, z: 2 }, 'stone'), 'mine refuses above top + 3');
+    assert.strictEqual(refusal(inBox, { x: 3, y: 70, z: 2 }, 'stone'), null, 'mine breaks at top + 3');
+    const env = (bot) => ({ bot, w, spots: () => [] });
+    assert.strictEqual(protectedFor(env(inBox))(3, 72, 2), true, 'the planner sees the same refusal');
+    assert.strictEqual(protectedFor(env(inBox))(3, 70, 2), false);
+    const plan = (bot) => P.search(w, { x: 2, y: 72, z: 2 }, P.cellGoal({ x: 4, y: 72, z: 2 }, { near: 0, nearY: 0 }), { dig, protectedCell: protectedFor(env(bot)), noPlace: true });
+    const digs = (r) => r.path.flatMap((n) => n.dig || []).filter((c) => c.y > 70);
+    assert.strictEqual(digs(plan(inBox)).length, 0, 'no dig above the work area');
+    assert.ok(digs(plan(mk(null))).length > 0, 'negative control: without a work area the wall above 70 is dug through');
+    // a cell refused on this walk is not planned again
+    const refused = new Set(['3,70,2', '3,71,2']);
+    assert.strictEqual(protectedFor(env(inBox), refused)(3, 70, 2), true);
+});
+
 console.log('nav plan tests passed');

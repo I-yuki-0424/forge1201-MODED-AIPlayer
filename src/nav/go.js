@@ -10,6 +10,7 @@
 const P = require('./plan');
 const night = require('./shelter');
 const fixtures = require('../skills/fixtures');
+const { refusal } = require('../skills/commands/block');
 
 const FATAL = new Set(['died', 'disconnected', 'cancelled', 'wrong_dimension']);
 const WALKS = new Set(['walk', 'up', 'drop', 'swim', 'climb']);
@@ -83,15 +84,17 @@ function digCostFor(bot) {
 }
 
 /** Cells the walk must leave alone: containers and beds, another bot's temporary blocks (it may stand on them), the feet cell of another bot. */
-function protectedFor(env) {
+function protectedFor(env, refused = null) {
     const bot = env.bot, w = env.w, T = bot && bot.__temps, dim = fixtures.dimOf(bot), me = bot && bot.username;
     const spots = env.spots ? env.spots() : [];
     return (x, y, z) => {
+        if (refused && refused.has(`${x},${y},${z}`)) return true;                                 // `mine` refused it on this walk: not planned again
         const n = String((w.nameAt && w.nameAt(x, y, z)) || '');
         if (fixtures.isBox(n) || fixtures.isBed(n)) return true;
         if (bot && bot.__keep && bot.__keep(x, y, z)) return true;                                  // a cell of the structure the bot is building
         const r = T && T.get(dim, { x, y, z });
         if (r && r.by && r.by !== me) return true;
+        if (bot && refusal(bot, { x, y, z }, n.replace(/^minecraft:/, ''))) return true;              // what `mine` would refuse (a fixture, outside a pit's work area): never planned as a dig
         return spots.some((s) => s.name !== me && Math.floor(s.x) === x && Math.floor(s.z) === z && (Math.floor(s.y) - 1 === y || Math.floor(s.y) === y || Math.floor(s.y) + 1 === y));
     };
 }
@@ -251,6 +254,9 @@ async function walk(W, env0, target, o) {
     const goal = surface ? P.surfaceGoal(env.w, env.here()) : P.cellGoal(t, { near, nearY });
     const done = (r) => ({ ...r, detail: { ...(r.detail || {}), nav: { ...info, at: env.here() } } });
     say(env, `goal ${surface ? 'surface' : JSON.stringify(t)} near ${near}/${nearY}${o.why ? ' (' + o.why + ')' : ''} from ${JSON.stringify(env.here())}${TRACE ? ' <- ' + String(new Error().stack).split('\n').slice(3, 7).map((l) => l.trim().replace(/^at /, '').replace(/\(\/app\//, '(')).join(' < ') : ''}`);
+    // cells `mine` refused to break on this walk (protected, not a block it can break): the next plans go round them, instead of the same plan failing at the same dig segment after
+    // segment (fg075c: 8 segments, 35 s per goal, for six minutes)
+    const refused = new Set();
     let bestD = surface ? Infinity : progressDist(env.here(), t), still = 0, failsHere = 0, lastFail = null, firstFailAt = 0, swept = false, noNode = 0;
     const maxSeg = o.maxSegments || 80;
     for (let seg = 0; seg < maxSeg; seg++) {
@@ -296,7 +302,7 @@ async function walk(W, env0, target, o) {
         const own = (x, y, z) => own0(x, y, z) || (foreign && x === here.x && y === here.y - 1 && z === here.z), underTemp = !!own(here.x, here.y - 1, here.z);
         const start = { ...here, ...(bot && bot.entity && bot.entity.onGround && !bot.entity.isInWater ? { ground: true } : {}), ...(underTemp ? { placed: true } : {}) };           // on a slab, a fence top, a bed: a start the grid would not call a node; on its own temporary block: a descent is possible
         const tp = Date.now();
-        const plan = await P.planAsync(env.w, start, goal, { stats, dig: digCostFor(bot), protectedCell: protectedFor(env), noPlace: !!o.noPlace, noDig: !!o.noDig, maxNodes: o.maxNodes || 14000, footNodes: o.footNodes, score, blocks: packBlocks(bot), keep: bot && bot.__keep ? bot.__keep : null, isTemp: own, foreignFloor: foreign && !own0(here.x, here.y - 1, here.z) });
+        const plan = await P.planAsync(env.w, start, goal, { stats, dig: digCostFor(bot), protectedCell: protectedFor(env, refused), noPlace: !!o.noPlace, noDig: !!o.noDig, maxNodes: o.maxNodes || 14000, footNodes: o.footNodes, score, blocks: packBlocks(bot), keep: bot && bot.__keep ? bot.__keep : null, isTemp: own, foreignFloor: foreign && !own0(here.x, here.y - 1, here.z) });
         info.segments++; info.planMs += Date.now() - tp; info.planCpuMs = Math.round(stats.cpuMs);
         if (!plan) {
             // not on a node (in a bush, half in a wall, mid-air): let the body settle, then the action layer's walk to the nearest cell
@@ -320,6 +326,7 @@ async function walk(W, env0, target, o) {
             info.steps++;
             if (s.kind === 'pillar') info.pillars += s.cells.length; else if (s.kind === 'bridge') info.bridges += s.cells.length; else if (s.kind === 'dig' || s.kind === 'digdown') info.digs++;
             say(env, `  ${s.kind} x${s.cells.length} -> ${s.cells[s.cells.length - 1].x},${s.cells[s.cells.length - 1].y},${s.cells[s.cells.length - 1].z}: ${r.ok ? 'ok' : r.reason + ' ' + JSON.stringify(r.detail || {}).slice(0, 200)}`);
+            if (!r.ok && (s.kind === 'dig' || s.kind === 'digdown') && ['protected', 'invalid_target'].includes(r.reason)) for (const c of (r.detail && r.detail.target ? [r.detail.target] : s.cells[s.cells.length - 1].dig || [])) refused.add(`${c.x},${c.y},${c.z}`);
             if (!r.ok) { failed = { step: s.kind, reason: r.reason, why: r.detail && (r.detail.why || r.detail.goal), at: env.here() }; if (FATAL.has(r.reason)) return done({ ok: false, reason: r.reason, detail: { failed } }); break; }
             // a movement block of this bot that it no longer stands on goes now
             if (s.kind === 'walk' || s.kind === 'dig' || s.kind === 'digdown') { const td = await tidy(env); info.removed += td.removed; }

@@ -122,10 +122,12 @@ class Ctx {
  * {ok, reason, detail, ticks, ms, phases, trace}; `trace` rows are
  * [t, phase, keys, x, y, z, vx, vy, vz, yaw, pitch, onGround, hotbar] (keys: FBLRJSNAU, Q drop, X swap).
  */
-async function run(bot, command, args, { maxTicks = 1200, cancel, onEvent, atomic = false } = {}) {
+async function run(bot, command, args, { maxTicks = 1200, cancel, onEvent, atomic = false, label = null } = {}) {
     const ctx = new Ctx(bot, { maxTicks, cancel, onEvent, atomic });
     const t0 = Date.now();
     let out;
+    // who moves the body now (the fall guard's records name it, src/build/fallguard.js; the harness prints it for a bot standing still): the command, the walk's node (motion.js)
+    const prevTag = bot.__moveTag; bot.__moveTag = { cmd: label || command.name || '?', at: Date.now() };
     try {
         const detail = await command(ctx, args);
         out = { ok: true, reason: null, detail: detail || {} };
@@ -136,6 +138,7 @@ async function run(bot, command, args, { maxTicks = 1200, cancel, onEvent, atomi
         try { ctx.body.release(); } catch (_) { /* connection gone */ }
         if (bot.currentWindow) try { bot.closeWindow(bot.currentWindow); } catch (_) { /* ditto */ }
         ctx.dispose();
+        bot.__moveTag = prevTag;
     }
     return { ...out, ticks: ctx.t, ms: Date.now() - t0, phases: ctx.phases, trace: ctx.trace };
 }

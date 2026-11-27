@@ -435,7 +435,7 @@ Object.assign(MOVES, require('./bridge').MOVES);          // bridge, sneak_walk:
 function runMove(bot, name, args = {}, opts = {}) {
     const m = MOVES[name];
     if (!m) return Promise.resolve({ ok: false, reason: 'invalid_args', detail: { why: `unknown move ${name}`, known: Object.keys(MOVES) }, ticks: 0, ms: 0, phases: [], trace: [] });
-    return run(bot, m.fn, args, { ...opts, maxTicks: opts.maxTicks || m.ticks(args) });
+    return run(bot, m.fn, args, { ...opts, maxTicks: opts.maxTicks || m.ticks(args), label: name });
 }
 
 module.exports = { pillar, descend, descendStep, harvestBlock, finishPillar, climbTo, cleanTemp, runMove, takeUsable, takeMany, takeShulker, shulkerHolds, depositMany, stashWorn, pickUsable, wornOut, MOVES, TEMP_ITEMS };

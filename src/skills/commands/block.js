@@ -86,6 +86,25 @@ function faceToward(eye, c) {
 }
 
 /**
+ * Why `mine` refuses to break the block `name` at `cell` for this bot, or null when it may. The one rule for every planner that breaks blocks on its way (NAV plans digs only where this
+ * is null: a NAV plan through a leaf block above the pit's work area was refused by `mine` and planned again, unchanged, for 6 minutes, fg075c, seed 474407178230372896, 1.21.1).
+ *   - owner rule: a box the bot did not place (and a tagged block) is a fixture. The bot may use what is inside, never break it.
+ *   - a pit worker mines inside its pit only (`bot.__mineBox`, set by the work service while the bot works a pit; 2 cells of margin across, 3 up and down): not the End platform's
+ *     obsidian at the entrance, not blocks "where it is in nobody's way" (owner 2026-11-11). Its own temporary blocks are the exception.
+ */
+function refusal(bot, cell, name) {
+    const { x, y, z } = cell;
+    const fixture = skillOpts.get(bot).fixture;
+    if (fixture && !fixtures.isOwn(bot, cell) && fixture(name, x, y, z)) return { why: null };
+    const mb = bot.__mineBox;
+    if (mb && !(x >= mb.x0 - 2 && x <= mb.x1 + 2 && z >= mb.z0 - 2 && z <= mb.z1 + 2 && y <= mb.top + 3 && y >= mb.bottom - 3)) {
+        const t = bot.__temps && bot.__temps.get(fixtures.dimOf(bot), cell);
+        if (!(t && t.by === bot.username)) return { why: 'outside the work area' };
+    }
+    return null;
+}
+
+/**
  * mine {x, y, z, collect?, blind?}: break the block with the best tool at hand and pick up what it drops.
  * `collect: false` leaves the drop where it falls (the work layer sweeps a whole standing place and picks everything up once).
  * `blind: true` digs without a line of sight, within reach (the server checks only the distance): the block two below the feet of
@@ -96,15 +115,8 @@ async function mine(ctx, { x, y, z, collect = true, blind = false, hand = false 
     const b0 = ctx.world.blockAt(x, y, z);
     if (!b0) throw new SkillError('unreachable', { why: 'target chunk not loaded' });
     if (/^(air|cave_air|void_air)$/.test(b0.name) || !b0.diggable || ['liquid', 'water'].includes(ctx.world.kindAt(x, y, z))) throw new SkillError('invalid_target', { block: b0.name, target: cell });
-    // Owner rule: a box the bot did not place (and a tagged block) is a fixture. The bot may use what is inside, never break it.
-    const fixture = skillOpts.get(bot).fixture;
-    if (fixture && !fixtures.isOwn(bot, cell) && fixture(b0.name, x, y, z)) throw new SkillError('protected', { block: b0.name, target: cell });
-    // A pit worker mines inside its pit only (`bot.__mineBox`, set by the work service while the bot works a pit; 2 cells of margin): not the End platform's obsidian at the entrance, not blocks "where it is in nobody's way" (owner 2026-11-11). Its own temporary blocks are the exception.
-    const mb = bot.__mineBox;
-    if (mb && !(x >= mb.x0 - 2 && x <= mb.x1 + 2 && z >= mb.z0 - 2 && z <= mb.z1 + 2 && y <= mb.top + 3 && y >= mb.bottom - 3)) {
-        const t = bot.__temps && bot.__temps.get(fixtures.dimOf(bot), cell);
-        if (!(t && t.by === bot.username)) throw new SkillError('protected', { block: b0.name, target: cell, why: 'outside the work area' });
-    }
+    const no = refusal(bot, cell, b0.name);
+    if (no) throw new SkillError('protected', { block: b0.name, target: cell, ...(no.why ? { why: no.why } : {}) });
     // `hand` (work layer only, never in the action schema): break the block with whatever is in the hand when no tool fits. Slow, no drop that needs the tool,
     // but it takes away a block the bot placed itself (the pillar).
     // A worn-out tool still breaks a block of its own pillar in a moment; bare hands take 7 s per stone. A cobweb is broken by hand too (20 s, no string): only a sword or shears make it
@@ -469,4 +481,4 @@ async function tunnel(ctx, { dir, dy }) {
     return { to: end, mined, tools };
 }
 
-module.exports = { moveTo, lookAt, mine, place, pour, activate, tunnel, tunnelCells, tunnelProblem, bestTool, faceToward, dropOf, supports, overlaps, REPLACEABLE, DIRS };
+module.exports = { refusal, moveTo, lookAt, mine, place, pour, activate, tunnel, tunnelCells, tunnelProblem, bestTool, faceToward, dropOf, supports, overlaps, REPLACEABLE, DIRS };

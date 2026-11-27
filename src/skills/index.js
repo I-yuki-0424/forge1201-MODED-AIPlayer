@@ -102,10 +102,7 @@ async function execute(bot, name, args = {}, opts = {}) {
     }
     const c = COMMANDS[name];
     const maxTicks = opts.maxTicks || (typeof c.ticks === 'function' ? c.ticks(args, bot) : c.ticks);
-    // who moves the body now (the fall guard's records name it: src/build/fallguard.js)
-    const prevTag = bot.__moveTag;
-    bot.__moveTag = { cmd: name };
-    try { return await run(bot, c.fn, args, { ...opts, maxTicks }); } finally { bot.__moveTag = prevTag; }
+    return run(bot, c.fn, args, { ...opts, maxTicks, label: name });
 }
 
 module.exports = { execute, validateArgs, COMMANDS, REASONS };
