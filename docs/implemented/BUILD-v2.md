@@ -1005,6 +1005,23 @@ Over sets 4-9 (18 new worlds): **0 temporary blocks left on all 18** by the serv
 fixtures rule. Open: a bot that falls into an aquifer under the dug floor still cannot get out when the only dry ground is two above the water and no water cell near it has a solid face
 (set 9 w2): the floor fill under a cell opened over water (`floorFill`) did not close those holes; fills that hold water back at the top of the box and glow lichen stay in the box.
 
+**What set 9 left, from server scans of the two kept worlds (2026-11-28 05:30, scan.js GRID on the volumes as the runs left them) and the fixes.**
+- w2 (3512740157434848104): the aquifer lies in the box itself, water y -32..-28 at x -1..7, z 7..16 (and beyond the box at x -1). The pit's layered rule had laid a floor of lake fills at
+  y -27 over it; digging that floor opened holes (2,-27,12) and (2,-27,13) straight over the water, and the bot fell through. Two causes. (a) The floor rule ran after the dig (`floorFill`):
+  once the fill is dug its bottom face, the only support a floor cell in open water has, is gone, so the cell stayed pending and the hole open. Now the fluid under a cell that is still
+  solid is closed first, a blind click against the cell's own bottom face (`floorFirst`, 60986796; the owner's addendum item 4). (b) Out of the hole there was no move: every water cell
+  round the body lay under the fills or in open water, so the footing rule had nothing to place against, and the bank (the fills, one block over the water's top cell) cannot be climbed
+  from deep water. A live probe settled the physics (1.21.1, native physics): from the top cell of water 6 deep a bot does NOT get onto a bank one block higher (NAV 'stuck', 8 segments),
+  it does get onto a bank level with the water (3 s). NAV now plans that level exit from deep water too (bb634437; before, only over shallow ground), and the rescue cuts a step into the
+  bank when nothing else works: a footing in the water cell under the bank block, then the bank block broken, so the footing's top is level with the water and the old bank one step up
+  (0d8d80bf). `water_probe.js STEP=1` (the hole in a floor of fills): PASS in 7 s; the previous code FAIL (still in the water).
+- w3 (-9550732655681071): the glow lichen at (-232,-27,-192) hangs on the box wall. The expert's station model read every cell with no collision box as air, so a band with only a plant
+  left in it was done (e4f89829; the pit has cleared plants since mb075p). The 4 lake fills at the box edge failed in the end with `missing_tool`: stock-tools takes pickaxes until it holds
+  three, so the first life emptied the tools chest (two unbreakable netherite pickaxes) though its own kit pickaxe never wears; killed in the end, the bot came back to an empty chest. An
+  unbreakable tool now counts as the whole stock of its class (734ba2ab).
+- The rules, one sentence each (tests in `test_pit_trees_pure.js` and `test_pit_expert_unit_pure.js`): a lake fill inside the box is work, so the water it holds back is filled one cell
+  further out (outside the box) and then the fill is broken, and only a fill outside the box stays; glow lichen (any plant) in a box that must end empty is a block to break.
+
 move_a's 10 pumpkins on seed 7601 (`ma075s`) were a wild pumpkin patch: the same 10 cells (x 663-675, y 67) are pumpkins in an untouched world of that seed (scan.js). move_a now
 grades only cells that turned into a temporary-block kind during the run (a block update seen by the bot, never a chunk load).
 
