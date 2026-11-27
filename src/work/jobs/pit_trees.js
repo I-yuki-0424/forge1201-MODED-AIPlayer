@@ -22,7 +22,7 @@ const STAGE = 2;             // levels risen between two rounds of mining
 const REACH = 4.1;           // from the eyes (feet + 1.62), blind: the server's own limit is about 4.5-5
 const RADIUS = 3.6;          // horizontal distance from the pillar column up to which blocks are taken from it
 const SCAN_DOWN = 48;        // how far below the box top a column is scanned for tree blocks
-const MAX_CELLS = 1200, MAX_MS = 420000, TRIES = 4, NAV_MS = 60000;
+const MAX_CELLS = 1200, MAX_MS = 420000, TRIES = 4, NAV_MS = 60000, NAV_FAILS = 3;
 
 const solidish = (k) => k === 'solid' || k === 'partial';
 
@@ -87,6 +87,7 @@ async function clearTrees(env, box, { maxMs = MAX_MS, maxCells = MAX_CELLS, find
     const inReach = (c) => { const e = eye(); return Math.hypot(e.x - (c.x + 0.5), e.y - (c.y + 0.5), e.z - (c.z + 0.5)) <= REACH; };
     const dead = (r) => r && ['died', 'disconnected', 'cancelled'].includes(r.reason);
     const lowTried = new Set();
+    let navFails = 0;
     const give = (c, why) => { failed.set(`${c.x},${c.y},${c.z}`, { x: c.x, y: c.y, z: c.z, why }); };
     const gone = (c) => (done ? done(c) : (() => { const k = w.kindAt(c.x, c.y, c.z); return k === 'air' || !isTree(w.nameAt(c.x, c.y, c.z)); })());
 
@@ -129,6 +130,10 @@ async function clearTrees(env, box, { maxMs = MAX_MS, maxCells = MAX_CELLS, find
                     mv = await env.nav(start, { near: 0, nearY: 0, why: 'tree pass: to a column', deadline: Date.now() + NAV_MS }).catch((e) => ({ ok: false, reason: 'internal', detail: { error: String(e && e.message || e) } }));
                     if (dead(mv)) { res.ok = false; res.reason = mv.reason; return finish(); }
                     const h = env.here(); if (mv.ok && !(h.x === start.x && h.z === start.z && h.y === start.y)) mv = { ok: false, reason: 'not_there' };
+                    // NAV_FAILS trips in a row that got nowhere: the pass is futile from where the bot is (respawned at the world spawn 77 levels over the dug pit, mbc075q w3:
+                    // a minute per target, target after target, the job's end stood for 30 min); it ends, the end's later passes and the sweep look again
+                    navFails = mv.ok ? 0 : navFails + 1;
+                    if (navFails >= NAV_FAILS) { res.navGaveUp = true; return finish(); }
                 }
                 if (!mv.ok) continue;
             }

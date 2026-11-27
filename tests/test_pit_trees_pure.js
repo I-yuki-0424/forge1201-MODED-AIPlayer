@@ -519,5 +519,15 @@ const left = (w, box = BOX) => scan(w, box).length;
         assert.strictEqual(await run('amethyst_block'), 'amethyst_block', 'negative control: an amethyst block outside the box stays');
     });
 
+    await test('the tree pass ends after three NAV trips in a row that got nowhere (mbc075q w3: the respawned bot spent 30 min of the job\'s end on futile trips); negative control: trips that arrive go on', async () => {
+        const mk = () => { const b = []; for (let i = 0; i < 8; i++) b.push([2 + i, GROUND + 9, 5, 'oak_leaves']); const w = world(b); const f = fakeEnv(w, { x: 0, y: GROUND + 1, z: 0 }); const mv = f.env.exec; f.env.exec = async (n, a) => (n === 'move_to' ? { ok: false, reason: 'unreachable' } : mv(n, a)); return { ...f, w }; };
+        const a = mk(); let trips = 0; a.env.nav = async () => { trips++; return { ok: false, reason: 'stuck' }; };
+        const ra = await clearTrees(a.env, { x0: 0, x1: 15, z0: 0, z1: 15, top: GROUND + 12 });
+        assert.strictEqual(trips, 3, `three trips, then it ends: ${trips}`); assert.strictEqual(ra.navGaveUp, true);
+        const b = mk(); let tb = 0; b.env.nav = async (t) => { tb++; b.pos.x = t.x; b.pos.y = t.y; b.pos.z = t.z; return { ok: true }; };
+        const rb = await clearTrees(b.env, { x0: 0, x1: 15, z0: 0, z1: 15, top: GROUND + 12 });
+        assert.ok(!rb.navGaveUp && tb >= 1 && left(b.w, { x0: 0, x1: 15, z0: 0, z1: 15, top: GROUND + 12 }) === 0, `negative control: ${JSON.stringify(rb).slice(0, 200)}`);
+    });
+
     console.log('\npit trees: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });
