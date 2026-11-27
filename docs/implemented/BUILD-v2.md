@@ -993,6 +993,18 @@ w2 is the first mine_b world of this task that passed the whole test. Changes af
 an opened cell (74617379); the tree pass, and the end's hanging pass built on it, ends after three NAV trips in a row that got nowhere (f494abfb; found with the node inspector on the
 hung harness: `clearTrees < env.nav < go`).
 
+**mine_b set 9 (2026-11-28 03:44-05:09, code f494abfb; same conditions).**
+
+| Run (world, seed) | End | Dirty layers | Pumpkins | Fixtures kept | Deaths |
+| :-- | :-- | --: | --: | :-- | :-- |
+| `mbc075r` w1 (496337433434537110) | **PASS**, finished at 38 min | 0 | **0** | none | 0 |
+| `mbc075r` w2 (3512740157434848104) | timeout 82 min, wet (611 water + 112 lava): from minute 40 the bot was in an aquifer under holes the pit had opened in the floor at y -27, 81 rescues 'to the shore (stuck)' (no water cell beside it with a solid face, the dry floor two above the water), kept alive by the breath reflex | 45 | **0** | none | 0 |
+| `mbc075s` w3 (-9550732655681071, KILL_AT_END) | killed 0.3 s into its own end; the respawned bot finished the end in about 4 min (set 8: 30 min) and the job finished at 62 min | 3 (1 glow lichen at y -27, 4 cobblestone lake fills at y 61-62 kept as holding water back) | **0** | none | 1 (the kill) |
+
+Over sets 4-9 (18 new worlds): **0 temporary blocks left on all 18** by the server scan; no fall and no lava death; two whole-test passes (set 8 w2, set 9 w1) plus set 5 w3 under the
+fixtures rule. Open: a bot that falls into an aquifer under the dug floor still cannot get out when the only dry ground is two above the water and no water cell near it has a solid face
+(set 9 w2): the floor fill under a cell opened over water (`floorFill`) did not close those holes; fills that hold water back at the top of the box and glow lichen stay in the box.
+
 move_a's 10 pumpkins on seed 7601 (`ma075s`) were a wild pumpkin patch: the same 10 cells (x 663-675, y 67) are pumpkins in an untouched world of that seed (scan.js). move_a now
 grades only cells that turned into a temporary-block kind during the run (a block update seen by the bot, never a chunk load).
 
