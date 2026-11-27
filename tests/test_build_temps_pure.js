@@ -461,6 +461,28 @@ test('a stance on a bridge block off its own pillar: the way back is that pillar
     assert.strictEqual(await mv2.walkBack({ cancelled: false }), 3); assert.deepStrictEqual(order2, ['down'], 'the built floor is not dug: only the pillar, from on top of it');
 });
 
+test('a stance on its own bridge block beside its pillar: back onto the column top and the bridge block dug when the work is done from there (b081w4/w5: the column beside the next stance was left); negative control: refused, nothing moves', async () => {
+    const M = require('../src/build/move');
+    const mk = () => {
+        const w = new Map(); for (let x = -3; x <= 4; x++) for (let z = -3; z <= 3; z++) w.set(`${x},69,${z}`, { name: 'stone' });
+        for (let y = 70; y <= 72; y++) w.set(`0,${y},0`, { name: 'pumpkin' }); w.set('1,72,0', { name: 'pumpkin' });
+        const bot = fakeBot(w, { x: 1.5, y: 73, z: 0.5 }), mv = Object.create(M.Mover.prototype), dug = [];
+        Object.assign(mv, { bot, mine: new Map([['0,70,0', 'pumpkin'], ['0,71,0', 'pumpkin'], ['0,72,0', 'pumpkin'], ['1,72,0', 'pumpkin']]), mineHow: new Map([['0,70,0', 'pillar'], ['0,71,0', 'pillar'], ['0,72,0', 'pillar'], ['1,72,0', 'bridge']]), rules: { canDig: () => true }, trace: [] });
+        mv.walkTo = async (c) => { bot.entity.position.x = c.x + 0.5; bot.entity.position.z = c.z + 0.5; return true; };
+        mv.dig = async (c) => { w.delete(`${c.x},${c.y},${c.z}`); dug.push(`${c.x},${c.y},${c.z}`); return true; };
+        return { mv, bot, dug };
+    };
+    const a = mk(); let asked = null;
+    assert.strictEqual(await a.mv.ontoColumn((t, b) => { asked = [t, b]; return true; }), true);
+    assert.deepStrictEqual(asked, [{ x: 0, y: 73, z: 0 }, { x: 1, y: 72, z: 0 }], 'asked with the column top and the bridge block');
+    assert.deepStrictEqual(a.dug, ['1,72,0'], 'only the bridge block');
+    assert.strictEqual(Math.floor(a.bot.entity.position.x), 0, 'on the column top');
+    assert(!a.mv.mine.has('1,72,0') && a.mv.mine.has('0,72,0'), 'the column stays the stance');
+    const n = mk();
+    assert.strictEqual(await n.mv.ontoColumn(() => false), false);
+    assert.deepStrictEqual(n.dug, []); assert.strictEqual(Math.floor(n.bot.entity.position.x), 1, 'negative control: stays on the bridge block');
+});
+
 test('a route leaves a column of its own taller than four only by its last step, onto the stance beside the top (the way back); lower ones are taken back from the landing (build_t-w121-smoke: 51-76 % of the seconds over two; negative control: no limit)', async () => {
     const M = require('../src/build/move');
     const world = (h) => { const w = new Map(); for (let x = -6; x <= 10; x++) for (let z = -3; z <= 3; z++) w.set(`${x},69,${z}`, { name: 'stone' }); for (let x = 3; x <= 8; x++) for (let z = -3; z <= 3; z++) for (let y = 70; y < 70 + h; y++) w.set(`${x},${y},${z}`, { name: 'stone' }); return w; };

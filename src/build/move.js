@@ -451,6 +451,27 @@ class Mover {
         return 0;
     }
 
+    /**
+     * Standing on a bridge block of its own beside the top of its own pillar (the route's last step off the column): back onto the column's top and the bridge block dug,
+     * when `accept(top)` says the stance's work is done from there too. The column then is the stance itself, taken down by unpillar at the release; kept beside a stance whose
+     * next step was on the bridge's column, it stood for the crew (b081w4/w5: 118 / 146 blocks 'the next stance on the column it stands on: this one beside it left').
+     */
+    async ontoColumn(accept) {
+        const f = feet(this.bot), b = { x: f.x, y: f.y - 1, z: f.z };
+        if (!this._ownFloor(f) || (this.mineHow && this.mineHow.get(key(b.x, b.y, b.z)) === 'pillar')) return false;
+        const v = this.view();
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            const t = { x: f.x + dx, y: f.y, z: f.z + dz };
+            const pil = (this.mineHow && this.mineHow.get(key(t.x, t.y - 1, t.z)) === 'pillar') || !!(this.rules.ownPillar && this.rules.ownPillar(t.x, t.y - 1, t.z));
+            if (!pil || !v.fits(t.x, t.y, t.z) || !accept(t, b)) continue;
+            if (!(await this.walkTo(t, { sneak: true, timeout: 2000 }))) return false;
+            if (await this.dig(b)) { this.mine.delete(key(b.x, b.y, b.z)); if (this.mineHow) this.mineHow.delete(key(b.x, b.y, b.z)); if (this.rules.onUntemp) this.rules.onUntemp(b); }
+            else if (this.rules.onTempFail) this.rules.onTempFail(b, 'onto the column: the dig failed');
+            return true;
+        }
+        return false;
+    }
+
     /** Does the bot stand on a temporary block of its own at cell c (the floor under c)? */
     _ownFloor(c) { if (!c) return false; const k = key(c.x, c.y - 1, c.z); return this.mine.has(k) || !!(this.rules.ownTemp && this.rules.ownTemp(c.x, c.y - 1, c.z)); }
 

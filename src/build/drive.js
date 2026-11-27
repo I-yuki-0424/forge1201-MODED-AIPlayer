@@ -279,6 +279,13 @@ async function work(job, name, bot, mv, cl, cancel) {
         return results;
     }
     job.noPath.set(name, 0);
+    // a stance on its own bridge block beside its pillar's top: the column's top is the stance when every task is done from there (two-per-bot: the column left beside it
+    // was the largest cause of columns left in b081w4/w5); the bridge block is dug from it
+    if (cl.tasks.length && typeof mv.ontoColumn === 'function') {
+        const world = require('./place').botWorld(bot), same = (a, b) => a.x === b.x && a.y === b.y && a.z === b.z;
+        const from = (t, b) => cl.tasks.every((tk) => { if (same(tk, b) || (tk.x === t.x && tk.z === t.z && tk.y >= t.y - 1 && tk.y <= t.y + 1)) return false; const w = job._way(world, tk, t); return !!w && !(w.n && w.n[0] === b.x && w.n[1] === b.y && w.n[2] === b.z); });
+        if (await mv.ontoColumn(from)) job.stats.ontoColumn = (job.stats.ontoColumn || 0) + 1;
+    }
     const here = feet(bot), at = (tk) => tk.way;
     const done = [];
     for (const tk of cl.tasks) {
