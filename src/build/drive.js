@@ -307,6 +307,9 @@ async function work(job, name, bot, mv, cl, cancel) {
         // never the block the body stands on or lands on: the first solid block under the feet in its own column, the cells between free (b081q4: Bd4g dug its pillar's top,
         // and before its position came down one an untemp task dug the bridge block it was landing on, 'below the feet' by the stale position: a fall of 39 to its death)
         { const me = feet(bot); if (!tk.descend && (tk.kind === 'clear' || tk.kind === 'untemp') && tk.x === me.x && tk.z === me.z && tk.y < me.y && [...Array(Math.max(0, me.y - 1 - tk.y)).keys()].every((i) => { const q = bot.blockAt(new Vec3(tk.x, tk.y + 1 + i, tk.z), false); return !q || q.boundingBox === 'empty'; })) { results.push({ tk, ok: false, why: 'skipped' }); continue; } }
+        // nor a block under any corner of the body (a bot at the edge of its cell stands on the neighbour too: b081y4 Bd4c dug the block beside its feet at y 119, which carried
+        // it, and fell 48 cells)
+        if (!tk.descend && (tk.kind === 'clear' || tk.kind === 'untemp') && underBody(bot, tk)) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
         // a temporary block with a crew member anywhere above it in its column is not taken (a pillar dug out under a bot on its top: falls of 40 blocks, live 2026-11-23 fy3)
         if (tk.kind === 'untemp' && !(job.ledger.get(tk) || {}).wetOk && [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]].some(([dx, dy, dz]) => FLUID(seen(bot, { x: tk.x + dx, y: tk.y + dy, z: tk.z + dz })))) { results.push({ tk, ok: false, why: 'skipped' }); continue; }          // it holds back a fluid now
         if (tk.kind === 'untemp' && crewAt(job, bot).concat(tk.descend ? [] : [bot.entity.position]).some((q) => Math.floor(q.x) === tk.x && Math.floor(q.z) === tk.z && q.y > tk.y && q.y < tk.y + 90)) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
@@ -731,6 +734,13 @@ async function bedSpawn(job, name, bot, mv, cancel) {
     job.log(`${name}: spawn set at the bed`);
 }
 
+/** Is cell c one of the blocks under the body's corners (the floor the bot's box rests on)? */
+function underBody(bot, c) {
+    const p = bot.entity && bot.entity.position; if (!p) return false;
+    const y = Math.floor(p.y + 0.01) - 1; if (c.y !== y) return false;
+    for (const dx of [-0.299, 0.299]) for (const dz of [-0.299, 0.299]) if (Math.floor(p.x + dx) === c.x && Math.floor(p.z + dz) === c.z) return true;
+    return false;
+}
 /** The crew's anchor stands, is in sight, and holds fewer than two charges (each respawn takes one: b081x5's fifth death woke in the Overworld). */
 const lowAnchor = (job, bot) => { if (!job.anchorAt) return false; const c = charges(bot, job.anchorAt); return c >= 0 && c < 2; };
 const charges = (bot, a) => { const b = bot.blockAt(new Vec3(a.x, a.y, a.z), false); return b && b.name === 'respawn_anchor' ? Number((b.getProperties() || {}).charges || 0) : -1; };
@@ -1400,4 +1410,4 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
     } finally { bot.removeListener('death', onDeath); bot.removeListener('death', onDied); bot.removeListener('blockUpdate', onBlock); job.orphanOf(name, 'left the crew'); clearInterval(sampler); clearInterval(stallWatch); unwatch(); unitems(); bot.removeListener('spawnReset', onReset); bot.__builderOwns = false; job.leave(name); if (job.pool) job.pool.leave(name); for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sneak', 'sprint']) bot.setControlState(k, false); }
 }
 
-module.exports = { lowAnchor, outOfStock, bodyIn, recoverGround, drive, work, holds, rules, pour, escape, needsFor, boxSpot, bench, release, unscaffold, touchesShape, planned, adoptWorkTemps, closesIn, recoverDrops, materials };
+module.exports = { underBody, lowAnchor, outOfStock, bodyIn, recoverGround, drive, work, holds, rules, pour, escape, needsFor, boxSpot, bench, release, unscaffold, touchesShape, planned, adoptWorkTemps, closesIn, recoverDrops, materials };

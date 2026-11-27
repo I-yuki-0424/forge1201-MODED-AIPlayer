@@ -86,4 +86,13 @@ test('the respawn anchor is charged again below two charges (b081x5: four respaw
     assert.strictEqual(D.lowAnchor(job, bot(4)), false, 'full'); assert.strictEqual(D.lowAnchor(job, bot(null)), false, 'not loaded'); assert.strictEqual(D.lowAnchor({}, bot(0)), false, 'none set');
 });
 
+test('a block under a corner of the body is not dug (b081y4: a bot at its cell edge stood on the neighbour and fell 48 when it was dug); negative control: a cell beside the body', () => {
+    const D = require('../src/build/drive');
+    const bot = { entity: { position: { x: 253.5, y: 120, z: -25.2 } } };          // feet in -26, the box reaches into -25
+    assert.strictEqual(D.underBody(bot, { x: 253, y: 119, z: -25 }), true);
+    assert.strictEqual(D.underBody(bot, { x: 253, y: 119, z: -26 }), true, 'the feet cell itself');
+    assert.strictEqual(D.underBody(bot, { x: 254, y: 119, z: -25 }), false, 'negative control: a cell beside the body');
+    assert.strictEqual(D.underBody(bot, { x: 253, y: 118, z: -25 }), false, 'negative control: lower');
+});
+
 (async () => { for (const [name, fn] of queue) { await fn(); n++; console.log(`  ok ${name}`); } console.log(`test_build_contents_pure: ${n} passed`); })().catch((e) => { console.error(e); process.exit(1); });
