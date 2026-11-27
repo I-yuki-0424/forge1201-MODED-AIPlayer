@@ -184,6 +184,9 @@ function unitCells(plan, region, u) {
 }
 
 const NAV_TRIPS = 3, NAV_TRIP_MS = 60000, NAV_UNIT_MS = 120000, CELL_MS = 60000, CANOPY_MS = 30000, UNIT_MS = 6 * 60000;          // NAV per unit at most (b081m: navS 363 s in one unit); a cell's retries end after CELL_MS          // per unit; one trip (bt075t5-7, units over 30 s: 39 trips, median 33 s, p90 81 s, max 221 s)
+// A blind dig (no line of sight) from up to the action layer's own BLIND_REACH (5.0 from the eye to the block's centre; the server allows 4.5 + 1 to the nearest point of the block):
+// the pit's gates of 4.4 / 4.6 refused a legal dig and 081's site pits sat 10-15 min behind one leased unit, an oak leaf 4.85 above the closest standing cell (b081u4, 1.21.1)
+const BLIND = require('../../skills/commands/block').BLIND_REACH;
 const reachFail = (m) => m && (m.reason === 'unreachable' || !!(m.detail && Array.isArray(m.detail.unmet) && m.detail.unmet.some((u) => u && u.need === 'in_reach')));
 const RETRY = new Set(['not_visible', 'not_confirmed', 'stuck', 'unreachable', 'target_lost', 'timeout']);
 const CELL_FAILS = new Set([...RETRY, 'invalid_target']);       // failures that belong to one cell: the rest of the tile can still be dug
@@ -262,13 +265,13 @@ async function runUnit(plan, region, u, env) {
     // the opened cell is the window onto it, so everything is filled then, the pocket first and the opened cell last.
     const liftedFor = new Set(), bridgedFor = new Set(), droppedFor = new Set(), navFor = new Set(), unitT0 = Date.now();
     // A cell the station cannot reach, whatever it holds (rock, any tree block, a snow layer, a block of the crew's own pillar): blind from where the bot stands when the eye is within
-    // the server's reach (4.6), else NAV takes the bot within reach (walk, dig, pillar, bridge, descend, the block two below; owner ruling 2026-11-26) and the mine is tried again.
+    // the action layer's blind reach (BLIND, 5.0), else NAV takes the bot within reach (walk, dig, pillar, bridge, descend, the block two below; owner ruling 2026-11-26) and the mine is tried again.
     // One trip per cell and NAV_TRIPS per unit: a unit with more such cells hands them back failed (the ledger gives the unit to the next round or bot) instead of working a whole
     // tree for minutes (081's b081k: six units ran six minutes). One root fix instead of a rule per tree shape (b081d oak canopy, b081h birch crown, b081i spruce to the snow).
     const eyeDist = (c) => { const h = env.here ? env.here() : null; return h ? Math.hypot(h.x + 0.5 - (c.x + 0.5), h.y + 1.62 - (c.y + 0.5), h.z + 0.5 - (c.z + 0.5)) : Infinity; };
     const navReach = async (c, m) => {
         if (open(c)) return m;
-        if (eyeDist(c) <= 4.6) { r.blindReach = (r.blindReach || 0) + 1; const b = await env.exec('mine', { x: c.x, y: c.y, z: c.z, collect: false, blind: true }); if (b.ok || open(c)) return b; }
+        if (eyeDist(c) <= BLIND) { r.blindReach = (r.blindReach || 0) + 1; const b = await env.exec('mine', { x: c.x, y: c.y, z: c.z, collect: false, blind: true }); if (b.ok || open(c)) return b; }
         const k = `${c.x},${c.y},${c.z}`;
         if (!env.nav || navFor.has(k) || (r.navReach || 0) >= NAV_TRIPS || (r.navMs || 0) >= NAV_UNIT_MS) return m;
         navFor.add(k); r.navReach = (r.navReach || 0) + 1;
@@ -277,7 +280,7 @@ async function runUnit(plan, region, u, env) {
         r.navMs = (r.navMs || 0) + (Date.now() - t0);
         const ni = g && g.detail && g.detail.nav; if (ni) { r.navPlanCpu = (r.navPlanCpu || 0) + (ni.planCpuMs || 0); r.navPlan = (r.navPlan || 0) + (ni.planMs || 0); r.navMove = (r.navMove || 0) + (ni.moveMs || 0); r.navSweep = (r.navSweep || 0) + (ni.sweepMs || 0); r.navWait = (r.navWait || 0) + (ni.waitMs || 0); }
         if (g && FATAL_MINE.has(g.reason)) return g;
-        const got = open(c) ? { ok: true } : await env.exec('mine', eyeDist(c) <= 4.6 ? { x: c.x, y: c.y, z: c.z, collect: false, blind: true } : mineArgs(c));
+        const got = open(c) ? { ok: true } : await env.exec('mine', eyeDist(c) <= BLIND ? { x: c.x, y: c.y, z: c.z, collect: false, blind: true } : mineArgs(c));
         if (got.ok || open(c)) await canopy();
         return got;
     };
@@ -291,7 +294,7 @@ async function runUnit(plan, region, u, env) {
         for (let dx = -4; dx <= 4; dx++) for (let dy = -3; dy <= 5; dy++) for (let dz = -4; dz <= 4; dz++) {
             const t = { x: h.x + dx, y: h.y + dy, z: h.z + dz };
             if (t.x < b.x0 || t.x > b.x1 || t.z < b.z0 || t.z > b.z1 || t.y > b.top || t.y < b.bottom) continue;
-            if (!isTreeAt(env.w, t) || eyeDist(t) > 4.4) continue;
+            if (!isTreeAt(env.w, t) || eyeDist(t) > BLIND) continue;
             if (dx === 0 && dz === 0 && dy < 0) continue;
             if (oth.some((o) => o.x === t.x && o.z === t.z && o.y - 1 === t.y)) continue;
             cand.push(t);
@@ -311,7 +314,7 @@ async function runUnit(plan, region, u, env) {
     // (out of reach from where the cell was dug: one NAV trip within reach, as for any cell, else the stalk grows back into the dug layers from its root: fr075c dark forest, 1.21.1)
     const takeRoot = async (c) => {
         const root = bambooRoot(env.w, c); if (!root || root.y >= plan.box.bottom) return;
-        const b = eyeDist(root) <= 4.4 ? await env.exec('mine', { ...root, collect: false, blind: true }) : await navReach(root, { ok: false, reason: 'unreachable' });
+        const b = eyeDist(root) <= BLIND ? await env.exec('mine', { ...root, collect: false, blind: true }) : await navReach(root, { ok: false, reason: 'unreachable' });
         if (b && (b.ok || open(root))) r.bambooRoots = (r.bambooRoots || 0) + 1;
     };
     const noteCell = (c, t0, block, res) => { const ms = Date.now() - t0; r.cellMs = (r.cellMs || 0) + ms; if (!r.slowCell || ms > r.slowCell.ms) r.slowCell = { x: c.x, y: c.y, z: c.z, block, ms, end: res === null ? 'ok' : res === 'defer' ? 'defer' : (res && res.reason) || null, steps: Object.fromEntries(Object.entries(steps).filter(([, v]) => v >= 500).map(([k, v]) => [k, Math.round(v / 1000)])) }; };
@@ -432,11 +435,11 @@ async function runUnit(plan, region, u, env) {
         const late = () => Date.now() - c0 > CELL_MS, cellEnd = () => Math.max(c0 + CELL_MS, Date.now() + 15000);
         // Bamboo: the stalk is broken at its lowest block, below the box too (bamboo grows back from its root: 95 bamboo blocks stood in the dug jungle pit bt075v3, 1.21.1;
         // breaking the lowest block takes the whole stalk and leaves nothing to grow), blind when in reach; otherwise the cell as usual and the root at the bottom layer
-        if (isBamboo(env.w, c)) { const root = bambooRoot(env.w, c); if (root && eyeDist(root) <= 4.4) { const b = await env.exec('mine', { ...root, collect: false, blind: true }); if (b.ok) r.bambooRoots = (r.bambooRoots || 0) + 1; if (open(c)) { r.mined++; return null; } } }
+        if (isBamboo(env.w, c)) { const root = bambooRoot(env.w, c); if (root && eyeDist(root) <= BLIND) { const b = await env.exec('mine', { ...root, collect: false, blind: true }); if (b.ok) r.bambooRoots = (r.bambooRoots || 0) + 1; if (open(c)) { r.mined++; return null; } } }
         // A tree block (leaf, vine, log) within the server's reach: blind at once. The aimed mine wants a face in sight, which a leaf in a crown or a vine (no collision box) often has not;
         // its retries took minutes per cell (b081m, 1.21.1: oak_leaves 627 s, a vine 373 s in one cell, no NAV trip)
         // (off its support: blind from where it stepped, the aimed mine would walk back onto it)
-        let m = (offSupport || isTreeAt(env.w, c)) && eyeDist(c) <= 4.4 ? await timed('blindTree', env.exec('mine', { x: c.x, y: c.y, z: c.z, collect: false, blind: true })) : { ok: false, reason: 'not_tried' };
+        let m = (offSupport || isTreeAt(env.w, c)) && eyeDist(c) <= BLIND ? await timed('blindTree', env.exec('mine', { x: c.x, y: c.y, z: c.z, collect: false, blind: true })) : { ok: false, reason: 'not_tried' };
         if (m.ok || open(c)) { r.blindTree = (r.blindTree || 0) + 1; } else m = await timed('mine', env.exec('mine', mineArgs(c), { deadline: c0 + CELL_MS }));
         // Out of reach from the station (unmet in_reach, 'unreachable'): no retry ladder (six tries with recoveries changed nothing and cost minutes per cell in a tree, 081's b081k);
         // blind when the eye is within the server's reach, else one NAV trip within reach (navReach below)
@@ -450,7 +453,7 @@ async function runUnit(plan, region, u, env) {
         // The same when the block is anywhere within the server's reach (about 5 blocks from the eye; the server checks the distance, not the line of sight): a cell in a one-wide shaft
         // whose neighbours are not dug (parked units above it) has no standing place with a view of it, but the pick reaches. 76 of 148 failures in 5 min were `reach block`
         // at a distance of 0.5 to 3 blocks (live pit 2026-11-09).
-        if (!m.ok && !open(c) && m.reason === 'unreachable' && env.here) { const h = env.here(), d = Math.hypot(h.x - c.x, h.y + 1.62 - (c.y + 0.5), h.z - c.z); if (d <= 4.6) { r.blind = (r.blind || 0) + 1; m = await env.exec('mine', { ...mineArgs(c), blind: true }); } }
+        if (!m.ok && !open(c) && m.reason === 'unreachable' && env.here) { const h = env.here(), d = Math.hypot(h.x - c.x, h.y + 1.62 - (c.y + 0.5), h.z - c.z); if (d <= BLIND) { r.blind = (r.blind || 0) + 1; m = await env.exec('mine', { ...mineArgs(c), blind: true }); } }
         // Nothing to walk on from where the bot stands (a one-block pillar over a void: the search expands a single node) and the block is out of reach: the server puts
         // the bot on a standable cell next to the block (env.lift), once per cell. Live pit 2026-11-07: two bots stood on leftover pillars and failed 'unreachable' for good.
         if (!m.ok && !open(c) && m.reason === 'unreachable' && env.lift && !liftedFor.has(`${c.x},${c.y},${c.z}`) && !late()) {

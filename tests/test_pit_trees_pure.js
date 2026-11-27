@@ -481,5 +481,27 @@ const left = (w, box = BOX) => scan(w, box).length;
         const b = await run(false); assert.deepStrictEqual(b.left.sort(), ['3,61,3', '3,62,3', '3,63,3'], 'negative control: the root under the box stays');
     });
 
+    await test('a leaf 4.98 from the eye goes by one blind mine (the action layer allows 5.0; b081u4: site pits sat 10-15 min behind one leased unit for it); negative control: at 5.08 no blind mine is sent', async () => {
+        const pit = require('../src/work/jobs/pit');
+        const run = async (lx) => {
+            const leaf = { x: lx, y: 6, z: 3 }; let present = true; const calls = [];
+            const here = { x: 3, y: 0, z: 2 };
+            const eye = (a) => Math.hypot(here.x + 0.5 - (a.x + 0.5), here.y + 1.62 - (a.y + 0.5), here.z + 0.5 - (a.z + 0.5));
+            const w = { nameAt: (x, y, z) => (present && x === leaf.x && y === leaf.y && z === leaf.z ? 'oak_leaves' : y < 0 ? 'stone' : 'air'), kindAt: (x, y, z) => (w.nameAt(x, y, z) === 'air' ? 'air' : 'solid') };
+            const job = pit.createPitJob({ x0: 0, z0: 0, x1: 7, z1: 7, top: leaf.y, bottom: leaf.y }, {}, { method: 'rows', road: false }), region = job.plan.regions[0];
+            const env = { w, have: () => 9, pause: async () => {}, recover: async () => {}, here: () => ({ ...here }),
+                exec: async (n, a) => { if (n !== 'mine') return { ok: true }; calls.push(a.blind ? `blind ${eye(a).toFixed(2)}` : 'aimed');
+                    if (a.blind && eye(a) <= 5.0) { present = false; return { ok: true }; }
+                    return { ok: false, reason: 'precondition_failed', detail: { unmet: [{ need: 'in_reach', dist: eye(a), max: 4.2 }] } }; } };
+            process.env.PIT_TREES = '0';
+            try { for (let u = 0; u < region.layers * region.rows; u++) await job.runUnit(region.id, { unit: u }, env); } finally { delete process.env.PIT_TREES; }
+            return { present, calls, d: eye(leaf) };
+        };
+        const a = await run(3);
+        assert.ok(a.d > 4.6 && a.d <= 5.0, `distance ${a.d}`); assert.strictEqual(a.present, false, JSON.stringify(a.calls)); assert.ok(a.calls[0].startsWith('blind'), JSON.stringify(a.calls));
+        const b = await run(4);
+        assert.ok(b.d > 5.0, `distance ${b.d}`); assert.strictEqual(b.present, true); assert.ok(!b.calls.some((c) => c.startsWith('blind')), `negative control: ${JSON.stringify(b.calls)}`);
+    });
+
     console.log('\npit trees: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

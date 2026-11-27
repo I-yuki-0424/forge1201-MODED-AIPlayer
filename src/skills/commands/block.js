@@ -481,4 +481,4 @@ async function tunnel(ctx, { dir, dy }) {
     return { to: end, mined, tools };
 }
 
-module.exports = { refusal, moveTo, lookAt, mine, place, pour, activate, tunnel, tunnelCells, tunnelProblem, bestTool, faceToward, dropOf, supports, overlaps, REPLACEABLE, DIRS };
+module.exports = { BLIND_REACH, refusal, moveTo, lookAt, mine, place, pour, activate, tunnel, tunnelCells, tunnelProblem, bestTool, faceToward, dropOf, supports, overlaps, REPLACEABLE, DIRS };
