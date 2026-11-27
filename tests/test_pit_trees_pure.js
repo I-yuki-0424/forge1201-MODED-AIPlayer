@@ -348,6 +348,30 @@ const left = (w, box = BOX) => scan(w, box).length;
         assert.deepStrictEqual((await run('jungle_log')).sort(), ['3,61,3', '3,62,3', '3,63,3'], 'a log below the box stays');
     });
 
+    await test('a cell\'s late steps (lift, bridge, descend) are skipped once its time is over, and their mines carry the deadline (bt075w3 jungle: cells of 547-698 s with no NAV trip); within its time the bridge is tried (negative control)', async () => {
+        const pit = require('../src/work/jobs/pit');
+        const real = Date.now;
+        const run = async (msPerMine) => {
+            let t = real(); Date.now = () => t;
+            try {
+                const cells = new Map([['10,64,3', 'stone']]);
+                const w = { nameAt: (x, y, z) => cells.get(`${x},${y},${z}`) || (y < 64 ? 'stone' : 'air'), kindAt: (x, y, z) => ((cells.get(`${x},${y},${z}`) || (y < 64 ? 'stone' : 'air')) === 'air' ? 'air' : 'solid') };
+                const job = pit.createPitJob({ x0: 0, z0: 0, x1: 15, z1: 15, top: 64, bottom: 64 }, {}, { method: 'rows', road: false }), region = job.plan.regions[0];
+                const calls = [];
+                const env = { w, have: () => 9, pause: async () => {}, recover: async () => {}, here: () => ({ x: 3, y: 65, z: 3 }),
+                    lift: async () => { calls.push('lift'); return { ok: false, reason: 'refused' }; },
+                    bridgeToward: async () => { calls.push('bridge'); return { ok: false, reason: 'unreachable' }; },
+                    exec: async (n, a, o = {}) => { if (n === 'mine') { calls.push(o.deadline ? 'mine+deadline' : 'mine'); t += msPerMine; return { ok: false, reason: 'unreachable' }; } return { ok: true }; } };
+                for (let u = 0; u < region.layers * region.rows; u++) await job.runUnit(region.id, { unit: u }, env);
+                return calls;
+            } finally { Date.now = real; }
+        };
+        const slow = await run(70000);
+        assert.ok(!slow.includes('bridge') && !slow.includes('lift'), `no late steps after the cell's time: ${slow.join(',')}`);
+        const quick = await run(1000);
+        assert.ok(quick.includes('bridge'), `within its time the bridge is tried: ${quick.join(',')}`);
+    });
+
     await test('a pit unit ends after 6 min whatever its method (bt075w4: one sweep unit ran 15 min, the stall cap ended the pit); a fast unit is not cut (negative control)', async () => {
         const pit = require('../src/work/jobs/pit');
         const real = Date.now;

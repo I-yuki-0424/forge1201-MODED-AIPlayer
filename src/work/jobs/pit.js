@@ -413,6 +413,9 @@ async function runUnit(plan, region, u, env) {
         // Success is what the world shows: a `mine` that ended in the drop pickup (target_lost: the item was picked up by another
         // bot or despawned) has still opened the cell. Transient reasons (another bot in the crosshair, a slipped aim) get retries.
         const c0 = Date.now();
+        // the cell's time (CELL_MS): every step after the first tries is skipped once it is over, and each mine after them ends with it (at least 15 s); bt075w3 (jungle) had cells of
+        // 547-698 s with no NAV trip: the lift, bridge, descend and unplug mines had no deadline
+        const late = () => Date.now() - c0 > CELL_MS, cellEnd = () => Math.max(c0 + CELL_MS, Date.now() + 15000);
         // Bamboo: the stalk is broken at its lowest block, below the box too (bamboo grows back from its root: 95 bamboo blocks stood in the dug jungle pit bt075v3, 1.21.1;
         // breaking the lowest block takes the whole stalk and leaves nothing to grow), blind when in reach; otherwise the cell as usual and the root at the bottom layer
         if (isBamboo(env.w, c)) { const root = bambooRoot(env.w, c); if (root && eyeDist(root) <= 4.4) { const b = await env.exec('mine', { ...root, collect: false, blind: true }); if (b.ok) r.bambooRoots = (r.bambooRoots || 0) + 1; if (open(c)) { r.mined++; return null; } } }
@@ -436,33 +439,33 @@ async function runUnit(plan, region, u, env) {
         if (!m.ok && !open(c) && m.reason === 'unreachable' && env.here) { const h = env.here(), d = Math.hypot(h.x - c.x, h.y + 1.62 - (c.y + 0.5), h.z - c.z); if (d <= 4.6) { r.blind = (r.blind || 0) + 1; m = await env.exec('mine', { ...mineArgs(c), blind: true }); } }
         // Nothing to walk on from where the bot stands (a one-block pillar over a void: the search expands a single node) and the block is out of reach: the server puts
         // the bot on a standable cell next to the block (env.lift), once per cell. Live pit 2026-11-07: two bots stood on leftover pillars and failed 'unreachable' for good.
-        if (!m.ok && !open(c) && m.reason === 'unreachable' && env.lift && !liftedFor.has(`${c.x},${c.y},${c.z}`)) {
+        if (!m.ok && !open(c) && m.reason === 'unreachable' && env.lift && !liftedFor.has(`${c.x},${c.y},${c.z}`) && !late()) {
             liftedFor.add(`${c.x},${c.y},${c.z}`);
             const l = await env.lift(c, { skipSame: true });
-            if (l.ok) { r.lifted = (r.lifted || 0) + 1; m = await env.exec('mine', mineArgs(c)); }
+            if (l.ok) { r.lifted = (r.lifted || 0) + 1; m = await timed('lift', env.exec('mine', mineArgs(c), { deadline: cellEnd() })); }
         }
         // A block out of reach across a gap in the bot's own layer (a ledge or a column that the dig around it left: the floor between the bot and it is dug away, or the bot stands on a lone
         // column): no walk, lift or pillar gets there, a level bridge does (bot/bridge.js, one block under each next cell, up to the block). Not decided by `gapOn`: that only sees a void down to the
         // world's floor, and a dug pit has rock far below. Within 14 blocks and two levels, once per cell. Live 2026-11-10: 383 of 854 problems in 15 min were `mine: reach block` 6-9 blocks over such a gap.
-        if (!m.ok && !open(c) && m.reason === 'unreachable' && env.bridgeToward && env.here && !bridgedFor.has(`${c.x},${c.y},${c.z}`)) {
+        if (!m.ok && !open(c) && m.reason === 'unreachable' && env.bridgeToward && env.here && !bridgedFor.has(`${c.x},${c.y},${c.z}`) && !late()) {
             const h = env.here(), dist = Math.hypot(h.x - c.x, h.z - c.z), dy = c.y - h.y;
             if (dist > 3 && dist <= 14 && dy >= -2 && dy <= 2) {
                 bridgedFor.add(`${c.x},${c.y},${c.z}`);
-                const br = await env.bridgeToward({ x: c.x, z: c.z });
-                if (br.ok) { r.bridged = (r.bridged || 0) + br.placed; m = await env.exec('mine', mineArgs(c)); }
+                const br = await timed('bridge', env.bridgeToward({ x: c.x, z: c.z }));
+                if (br.ok) { r.bridged = (r.bridged || 0) + br.placed; m = await timed('bridge', env.exec('mine', mineArgs(c), { deadline: cellEnd() })); }
             }
         }
         // The block lies 3 or more levels below the bot, within a few blocks across, and nothing can be walked to it: the bot stands high on a leftover block or column ("no way down, no place to bridge to",
         // and then it was killed). It goes down the way it came up, reversed (moves.js `descend`: a block put blind under the block it stands on, that one broken, one level at a time, no fall longer
         // than a block, no block lost), to the block's level, then the mine is tried again. Never with fluid or an unloaded cell below (descendStep); once per cell. Natural ground is not dug through:
         // only when there are two cells of air under the block it stands on (isHigh).
-        if (!m.ok && !open(c) && m.reason === 'unreachable' && env.run && env.here && !droppedFor.has(`${c.x},${c.y},${c.z}`)) {
+        if (!m.ok && !open(c) && m.reason === 'unreachable' && env.run && env.here && !droppedFor.has(`${c.x},${c.y},${c.z}`) && !late()) {
             const h = env.here(), dy = c.y - h.y;
             if (dy <= -3 && Math.hypot(h.x - c.x, h.z - c.z) <= 6 && isHigh((x, y, z) => env.w.kindAt(x, y, z), h)) {
                 droppedFor.add(`${c.x},${c.y},${c.z}`);
-                const d = await env.run('descend', { levels: Math.min(80, h.y - c.y) });
+                const d = await timed('descend', env.run('descend', { levels: Math.min(80, h.y - c.y) }));
                 const got = (d.detail && d.detail.levels) || 0;
-                if (got) { r.descended = (r.descended || 0) + got; m = await env.exec('mine', mineArgs(c)); }
+                if (got) { r.descended = (r.descended || 0) + got; m = await timed('descend', env.exec('mine', mineArgs(c), { deadline: cellEnd() })); }
             }
         }
         if (!m.ok && !open(c) && !FATAL_MINE.has(m.reason) && m.reason !== 'protected') m = await timed('navLast', navReach(c, m));
@@ -475,7 +478,7 @@ async function runUnit(plan, region, u, env) {
             if (!s.ok) return s.reason === 'missing_item' && !last ? 'defer' : fail(s, c, 'seal_after');
             if (!s.n && open(c)) break;
             if (!open(c) && env.w.kindAt(c.x, c.y, c.z) === 'solid') {          // a plug; water still running in is filled by the next round
-                const m2 = await env.exec('mine', mineArgs(c));
+                const m2 = await timed('unplug', env.exec('mine', mineArgs(c), { deadline: cellEnd() }));
                 if (!m2.ok && !open(c)) return fail(m2, c, 'unplug');
             }
         }
