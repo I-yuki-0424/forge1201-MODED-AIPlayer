@@ -820,3 +820,14 @@ None of these is re-measured live yet.
 | `fg-on` / `fg-off`, `fg-trace` | 98c687bc+ | the fall guard on every work bot (98c687bc) held the pit bot 1192-1962 times and no unit was done; off: 8 units in 15 min. The stops are real: at 16,67,9, a hole 6 deep just outside the box, the walkers' paths cut past it. The guard is opt-in now (0a5ec9c7, setting `fallGuard`, `FALL_GUARD=1`) until the action layer's walk and NAV keep their paths off such cells |
 
 move_a seed 7601 (`ma075s`, 97ac3537, Normal): 3/4. The east bot stopped again on the east line (688,71,7) after two deaths at night, and left 10 pumpkins at y 67. `scripts/t26/nav_probe.js` on Peaceful walked one bot 640,7 → 760,7 through the same zone in 34 s, so the stop is night survival, not a NAV move.
+
+**Forest closing runs on 0a5ec9c7 / 3eaeb98c (`bt075w1-w4`, 1.21.1, native physics, Peaceful, fall guard off), tree blocks by server scan of the pit box.**
+
+| Site | Cells | Budget (cells/7 x 1.5) | Pit | Tree blocks left |
+| :-- | --: | --: | :-- | :-- |
+| `bt075w1` old_growth_spruce_taiga | 7251 | 1554 s | round 1 4037 s (the last 2 units 30 min, a fern out of reach), round 2 8 cells | **0** |
+| `bt075w2` dark_forest | 13229 | 2835 s | round 1 2618 s (5.05 cells/s, 0.72 of 7), round 2 5 cells 496 s: 3114 s | **0** |
+| `bt075w3` jungle | 10473 | 2244 s | cut at 3620 s, 3510/4464 units | 1284 (unfinished) |
+| `bt075w4` bamboo_jungle | 4755 | 1019 s | 081's stall cap after 15 min with 1 unit leased: 4210/4320 at 2958 s | 2 vines (bamboo: 0) |
+
+Units over 30 s: spruce 102 (9798 s, median 68 s), dark forest 73 (4890 s, median 49 s), jungle 126 (18 221 s, median 77 s, p90 341 s, some cells 560-700 s), bamboo 63 (6089 s, median 61 s). NAV is 10-20 % of it, the planner's CPU 6-25 s per run. After these runs: every pit unit bounded to 6 min, the canopy sweep to 30 s (39e4917e). **Not met:** zero tree blocks on every site, and a pace of 0.8 of rock (dark forest 0.72; the others over budget).
