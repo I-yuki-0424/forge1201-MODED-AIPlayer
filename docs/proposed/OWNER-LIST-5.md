@@ -52,7 +52,7 @@ section; the elaboration below them is the orchestrator's and binds the subagent
 | 8 | 077 |
 | 9 | 080 |
 
-Ports: test world N on the tailnet `100.77.246.23:(25620+N)`; the 1.21.1 creative standing server `25620`, its console `3034`.
+Ports: test world N on the tailnet `100.77.246.23:(25620+N)`; the 1.21.1 creative standing server `25620`, its console `3034`; the 1.21.1 survival (Hard, locked) standing server `25630`, its console `3035` (2026-11-27).
 
 ## File ownership
 

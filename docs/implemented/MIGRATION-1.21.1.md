@@ -54,6 +54,23 @@ by SAYMYNAME_UPIIISHER / Disgrade): it opens **other players' inventories** (by 
 1.21.1 build were not checked), so the owner can look into a bot's pack from the game. It must be on the server and the client (both done). Its page warns of conflicts with mods that change GUI logic, naming Inventory Profiles Next,
 which the owner's instance has: to be checked by the owner in the game.
 
+## The 1.21.1 survival standing server and console (owner 2026-11-27)
+
+Owner: only two servers outside the development infrastructure, both Fabric 1.21.1 with seed 1359280: the existing creative one, and a fully survival one locked to Hard where
+the owner holds only the minimum OP. `docker/tw/survival.yaml`, `scripts/t26/survival.sh up|down|status|restart-console|rcon`: `fabric121-survival-hard` on
+**100.77.246.23:25630** (outside the test-world range 25621-25629), survival forced, Hard, `DifficultyLocked` set in `level.dat` on the first start (`scripts/t26/lock-difficulty.js`;
+a dedicated server has no property for it, and `/difficulty` needs level 2, which nobody holds), hardcore off, command blocks off, same mods as the test worlds; the only operator
+is **Seia_Y at level 1** (spawn-protection bypass only: no `/gamemode`, `/give`, `/tp`, `/difficulty`). Carpet defaults as on 26.1.2's servers: `stackableShulkerBoxes`,
+`hopperShulkerStacking`, `clientShulkerSync`, `antiCheatDisabled` true (world/carpet.conf). Console `fabric121-console-survival-hard` on **100.77.246.23:3035** (main checkout
+read-only, data `/mnt/data/forgeaip-play/survival121/console-data/survival`). Checked 2026-11-27: seed 1359280, `The difficulty is Hard`, level.dat locked; `ss -ltn` shows
+25630 and 3035 on the tailnet address only, the public address refuses both; console page 200, `/api/state`, `/api/jobs`, `POST /api/jobs` 401, `X-Forwarded-For` 403.
+
+Removed the same day (owner: "You may delete the Forge world along with its backup"): the Forge play world `forgeaip-play` + console, volume `forgeaip-play_data`, its restic
+repo (97 GB) and snapshots, the two crontab lines and the systemd unit (disabled; its file and the sudoers rule wait for the owner, vps-dashboard NEEDS_ROOT.md section 13),
+the real-world copy (`forgeaip-real_*`), `forgeaip-demo`, `forgeaip-accept-*`, `forgeaip-world_test-data`, and the three 26.1.2 servers with consoles (creative kept as an archive,
+TEST-WORLDS-T26.md). The stopped Forge build world `forgeaip-world` lost its container; its volume `forgeaip-world_data` and `/mnt/data/forgeaip/snapshots` wait for the owner's answer.
+Disk 83 % -> 49 %.
+
 ## The 1.21.1 creative standing server and console
 
 `docker/tw/creative.yaml`, `scripts/t26/creative.sh up|down|status|restart-console|rcon`: `fabric121-creative` on **100.77.246.23:25620** (seed 1359280, creative, forced game mode,

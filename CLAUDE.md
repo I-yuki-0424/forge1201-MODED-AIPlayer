@@ -19,6 +19,7 @@ random starts and targets in natural terrain (and the End pit), graded from the 
 The simulator (`rl3/`), `scripts/work/*_live.js` arenas and anything built with `/fill` are smoke tests, never evidence: the "28/28 live worlds" of MOVE-v3 were the simulator's own generators
 and the running pit failed more than half of its units. State the world with every number.
 `scripts/real/up|down|refresh` live in `/mnt/data/forgeaip-play/real/` (container `forgeaip-real`, 127.0.0.1:25572); `scripts/real/run.sh real_move.js|real_escape.js|real_pit.js`.
+The real-world copy's volumes (`forgeaip-real_pristine`, `forgeaip-real_data`) were deleted with the play world on 2026-11-27 (owner): these scripts are history.
 
 ## Boot Protocol
 
@@ -108,8 +109,10 @@ scripts/moe/pc.sh run NAME train --tag TAG [--experts a,b] [--par 8] [--only-sce
 scripts/moe/pc.sh run NAME assemble --into TAG --sources p1,p2 ; run NAME router --tag TAG ; run NAME chain --tag TAG --scenario chain-placed --router rules|xgb --experts net|solver [--greedy-stall]
 ```
 
-Pure bots (docs/proposed/WORKERS-v1.md; `src/work/`, map in src/work/README.md, not part of the RL action space): live pit check on a disposable server. The owner's play world
-is NOT in this repo: compose, scripts and jars are all in `/mnt/data/forgeaip-play/` (own folder and local git repo, see its README.md):
+Pure bots (docs/proposed/WORKERS-v1.md; `src/work/`, map in src/work/README.md, not part of the RL action space): live pit check on a disposable server. The owner's Forge play world
+(`forgeaip-play`, its console on 3020/3021, its restic backups and the systemd unit) was **deleted on 2026-11-27** (owner, schedule `sch_ZBtRD9GIw9NsH6X4`); the scripts below stay in
+`/mnt/data/forgeaip-play/` as history. The standing servers now are Fabric 1.21.1 only: creative `scripts/t26/creative.sh` (25620, console 3034) and survival Hard locked
+`scripts/t26/survival.sh` (25630, console 3035), docs/implemented/MIGRATION-1.21.1.md:
 
 ```bash
 scripts/world/test-up.sh latest ; (cd docker/world-server && docker compose --profile bench run --rm -T -e MC_HOST=world-test -e RCON_HOST=world-test --entrypoint node bench scripts/work/pit_live.js --run-id p1 --bots 4 --kill 1) ; scripts/world/test-down.sh
@@ -121,7 +124,7 @@ scripts/world/test-up.sh latest ; (cd docker/world-server && docker compose --pr
 The work console (`src/work/web/`, `src/work/service/`, `public/work/`, docs/implemented/WORK-CONSOLE-v1.md; file map `src/work/README.md`) has no access token since 2026-11-10 (the network, i.e. loopback and the tailnet, or Cloudflare Access decides; a request with proxy headers and no valid Access assertion is refused; `WORK_REQUIRE_TOKEN=1` brings the token back),
 reaches RCON, and is NOT the old WebUI: keep its session, CSRF, Host/Origin checks, the proxy-header refusal and closed validation when changing it. Bots there use the
 play world's own table (`BOT_MOD_TABLE`). `aux_console/` (mod `aipconsole`: F12 web view of the console, Tag Tool item; build command in its README) is
-installed on the play server and the owner's PC; `aux_mod/` is an older, unused project.
+installed on the owner's PC (the play server it was on is gone); `aux_mod/` is an older, unused project.
 
 On the owner's PC (Windows/WSL2): `npm ci`, `npm test`, `npm run test:e2e`, `node index.js` (or `run.bat` / `./run.sh`).
 Running the bot needs a Forge 1.20.1 server and an Ollama-compatible endpoint, which exist only on the owner's PC.

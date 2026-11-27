@@ -32,14 +32,15 @@ spelling the server accepts, so test code may write either.
 **Version probe** (`scripts/t26/run.sh N version_probe.js`): login in the profile's protocol, inventory (bot and server agree), item components (an enchanted pickaxe), dig, drops into the pack, a full
 pack drops on the ground, a pumpkin placed, a short walk, chat; PASS/FAIL per check, graded by the server. 2026-11-25 on 1.21.1 world 1 (seed -8840818871772942392): **9/9**.
 
-**The frozen 26.x set (2026-11-25, TASK-20261125-074).** Stopped, nothing deleted:
+**The frozen 26.x set (2026-11-25, TASK-20261125-074).** Stopped, nothing deleted then. **2026-11-27 (owner): the three standing 26.1.2 servers and their consoles were removed** with their volumes;
+the creative world is kept as one archive, `/mnt/data/fabric26-worlds/archive/fabric26-creative_data-20261127.tar.gz` (274 MB, the volume's `/data`). The T26 worlds below stay (test infrastructure):
 
 | What | Volume / data | Start again |
 | :-- | :-- | :-- |
 | T26 worlds 1-4 (`forgeaip-t26-1..4`, watchers `forgeaip-t26-dev-1..4`; 5-9 were not running) | `forgeaip-t26-1_data` .. `forgeaip-t26-6_data` | `TW_PROFILE=fabric-26.1.2 scripts/t26/up.sh N` |
 | `fabric26-survival-hard`, `fabric26-survival-op` (exited since 2026-11-23) | `fabric26-worlds_survival_hard_data`, `fabric26-worlds_survival_op_data` | `docker compose -f /mnt/data/fabric26-worlds/compose.yaml start survival-hard survival-op` |
 | `fabric26-console-survival-hard`, `fabric26-console-survival-op` (stopped 2026-11-25 23:15 JST; survival-op's job `j2` (pit 16x16x140, 0 of 70 units done, no bots) was paused first through the console's API) | `/mnt/data/fabric26-worlds/console-data/survival-*` | `docker compose -f /mnt/data/fabric26-worlds/compose.yaml start console-survival-hard console-survival-op` |
-| KEPT RUNNING: `fabric26-creative` (25601) and `fabric26-console-creative` (3031), data untouched | `fabric26-worlds_creative_data` | - |
+| `fabric26-creative` (25601) and `fabric26-console-creative` (3031): kept running until 2026-11-27, then removed | archive above | restore the archive into a new volume |
 
 The map view reads both world layouts itself (classic `region`, `DIM-1/region` and 26.x `dimensions/minecraft/<dim>/region`, `src/work/world/maps.js`), so a 1.21.1 console mounts the world folder directly.
 
@@ -84,7 +85,7 @@ TW_PROFILE=fabric-26.1.2 /home/coder/projects/forge1201-MODED-AIPlayer/scripts/t
 `NAV_TRACE=1` prints every plan segment and step of the walker. Containers (tag `w121` on 1.21.1, `t26` on 26.x): `forgeaip-<tag>-N` (server, 4 GB cap), `forgeaip-<tag>-dev-N` (watcher), `live-<tag>-N-<pid>` (a test run).
 `REPO=/path/to/worktree` runs a script's harness and watcher from another checkout (the worktree needs a `node_modules` directory as a mount point; the main checkout's modules are mounted).
 
-## The owner's three standing Fabric servers (2026-11-16)
+## The owner's three standing Fabric servers (2026-11-16; removed 2026-11-27, history)
 
 Before the Forge MODs the system is verified on vanilla: three standing Fabric 26.1.2 servers, seed 1359280 (compose project `fabric26-worlds`, `/mnt/data/fabric26-worlds`, same server-side mod set as the T26 worlds), each with its own work console
 (the repo is mounted read-only at `/app`: **a console restart deploys the committed code**; `docker compose -f /mnt/data/fabric26-worlds/compose.yaml restart console-creative console-survival-hard console-survival-op`).
