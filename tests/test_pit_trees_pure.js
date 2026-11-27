@@ -334,5 +334,15 @@ const left = (w, box = BOX) => scan(w, box).length;
         assert.ok(fast.r.ok, JSON.stringify(fast.r).slice(0, 160));
     });
 
+    await test('a column the walk on foot cannot reach is reached by one NAV trip and the aerial block goes (mb075r w2: 249 hanging fills "no progress from the columns"); negative control: without NAV the block is given up', async () => {
+        const mk = () => { const w = world([[5, GROUND + 9, 5, 'oak_leaves']]); const f = fakeEnv(w, { x: 0, y: GROUND + 1, z: 0 }); const mv = f.env.exec; f.env.exec = async (n, a) => (n === 'move_to' ? { ok: false, reason: 'unreachable' } : mv(n, a)); return { w, ...f }; };
+        const a = mk(); let trips = 0;
+        a.env.nav = async (t) => { trips++; a.pos.x = t.x; a.pos.y = t.y; a.pos.z = t.z; return { ok: true }; };
+        const ra = await clearTrees(a.env, { x0: 0, x1: 15, z0: 0, z1: 15, top: GROUND + 12 });
+        assert.strictEqual(a.w.kindAt(5, GROUND + 9, 5), 'air', JSON.stringify(ra).slice(0, 200)); assert.ok(trips >= 1); assert.strictEqual(cobble(a.w), 0, 'the pillar is gone');
+        const b = mk(); const rb = await clearTrees(b.env, { x0: 0, x1: 15, z0: 0, z1: 15, top: GROUND + 12 });
+        assert.strictEqual(b.w.kindAt(5, GROUND + 9, 5), 'solid', 'negative control: the leaf stays'); assert.ok(rb.failed.length >= 1);
+    });
+
     console.log('\npit trees: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

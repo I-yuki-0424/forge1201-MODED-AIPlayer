@@ -19,7 +19,7 @@ const STAGE = 2;             // levels risen between two rounds of mining
 const REACH = 4.1;           // from the eyes (feet + 1.62), blind: the server's own limit is about 4.5-5
 const RADIUS = 3.6;          // horizontal distance from the pillar column up to which blocks are taken from it
 const SCAN_DOWN = 48;        // how far below the box top a column is scanned for tree blocks
-const MAX_CELLS = 1200, MAX_MS = 420000, TRIES = 4;
+const MAX_CELLS = 1200, MAX_MS = 420000, TRIES = 4, NAV_MS = 60000;
 
 const solidish = (k) => k === 'solid' || k === 'partial';
 
@@ -106,13 +106,21 @@ async function clearTrees(env, box, { maxMs = MAX_MS, maxCells = MAX_CELLS, find
         // 2. an aerial block: the lowest one first (a column that rises to it takes the ones around it on the way), the nearest of those
         const t = all.sort((a, b) => a.y - b.y || Math.hypot(a.x - here.x, a.z - here.z) - Math.hypot(b.x - here.x, b.z - here.z))[0];
         const cols = columnsFor(w, t, here).slice(0, TRIES);
-        let done = false;
+        let done = false, navs = 0;
         for (const col of cols) {
             if (stop()) break;
             const start = { x: col.x, y: col.gy + 1, z: col.z };
             if (Math.hypot(here.x - start.x, here.z - start.z) > 0.6 || Math.abs(here.y - start.y) > 0.6) {
-                const mv = await env.exec('move_to', start);
+                let mv = await env.exec('move_to', start);
                 if (dead(mv)) { res.ok = false; res.reason = mv.reason; return finish(); }
+                // the walk goes on foot only: a column it cannot reach (a dug pit floor under a hanging block, a crown's leaves in the way) is reached by NAV (dig, pillar, descend,
+                // bridge), once per target, bounded (mb075r w2, 1.21.1: 249 hanging lake-fill blocks left 'no progress from the columns' at the end of a wet pit)
+                if (!mv.ok && env.nav && navs < 1) {
+                    navs++; res.navTrips = (res.navTrips || 0) + 1;
+                    mv = await env.nav(start, { near: 0, nearY: 0, why: 'tree pass: to a column', deadline: Date.now() + NAV_MS }).catch((e) => ({ ok: false, reason: 'internal', detail: { error: String(e && e.message || e) } }));
+                    if (dead(mv)) { res.ok = false; res.reason = mv.reason; return finish(); }
+                    const h = env.here(); if (mv.ok && !(h.x === start.x && h.z === start.z && h.y === start.y)) mv = { ok: false, reason: 'not_there' };
+                }
                 if (!mv.ok) continue;
             }
             res.columns++;
