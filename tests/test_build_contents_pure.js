@@ -95,4 +95,15 @@ test('a block under a corner of the body is not dug (b081y4: a bot at its cell e
     assert.strictEqual(D.underBody(bot, { x: 253, y: 118, z: -25 }), false, 'negative control: lower');
 });
 
+test('a sector counts as busy only by bots that hold a claim now (b081y4: two stale stations closed the sector of the last 332 ready cells); negative control: a bot with a claim counts', () => {
+    const t = new Target(bp(), { x: 10, y: 64, z: 10 }), job = new BuildJob(t, {});
+    const st = (x, z) => ({ station: [{ x, y: 65, z }, { x, y: 66, z }] });
+    job.bots.set('b', st(11, 11)); job.bots.set('c', st(11, 11));
+    job.sectorOf('a'); const si = job.sectorAt(11, 11); assert(si >= 0, 'the sectors are planned');
+    assert.strictEqual(job._busySectors('a').get(si), undefined, 'stale stations: nobody at work there');
+    job.claims.set('11,65,11', 'b');
+    assert.strictEqual(job._busySectors('a').get(si), 1, 'negative control: the bot with a claim counts');
+    assert.strictEqual(job._busySectors('b').get(si), undefined, 'the asking bot itself is left out');
+});
+
 (async () => { for (const [name, fn] of queue) { await fn(); n++; console.log(`  ok ${name}`); } console.log(`test_build_contents_pure: ${n} passed`); })().catch((e) => { console.error(e); process.exit(1); });

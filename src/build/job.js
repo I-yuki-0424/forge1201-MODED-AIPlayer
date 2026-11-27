@@ -407,6 +407,13 @@ class BuildJob {
         return f.n < FEW_LEFT && !!f.since && now - f.since >= FEW_MS;
     }
 
+    /** Bots at work per area, `name` left out: sector index -> bots whose stance lies in it and that hold a claim now. */
+    _busySectors(name) {
+        const active = new Set(this.claims.values()), busy = new Map();
+        for (const [n, b] of this.bots) { if (n === name || !b.station || !active.has(n)) continue; const o = b.station[0], si = this.sectorAt(o.x, o.z); if (si >= 0) busy.set(si, (busy.get(si) || 0) + 1); }
+        return busy;
+    }
+
     /** The machine rule for tk (machine.js): why it waits, or null. */
     _machineWaits(tk, now) {
         return MC.waits(this.t, tk, (j) => { const c = this.t.cell(j), k = key(c.x, c.y, c.z), q = this.tasks.get(k); return !!q && q !== tk && (q.kind === 'place' || q.kind === 'fix') && !this.parked.has(k); }, now);
@@ -694,7 +701,9 @@ class BuildJob {
         this._offerTemps(now);
         const sec = this.sectorOf(name), inSec = (tk) => tk.x >= sec.x0 && tk.x <= sec.x1 && tk.z >= sec.z0 && tk.z <= sec.z1;
         // bots at work per area (by their stances): an area with PER_SECTOR of them takes no more helpers (owner 2026-11-23 list 4 problem 7)
-        const busy = new Map(); for (const o of others) { const si = this.sectorAt(o.x, o.z); if (si >= 0) busy.set(si, (busy.get(si) || 0) + 1); }
+        // (only bots that hold a claim now: a station is kept after its work ends, and in b081y4's tail two such stale stations closed the sector all 332 ready cells lay in,
+        // 'nothing ready' for 25 minutes while 1 000 claims a minute came back empty)
+        const busy = this._busySectors(name);
         const full = (tk) => { if (inSec(tk)) return false; const si = this.sectorAt(tk.x, tk.z); return si >= 0 && (busy.get(si) || 0) >= PER_SECTOR; };
         // the bot's own sector first, nearest first within it; the rest of the box after it (helping where a sector is done or its bot is gone)
         const keys = [...this.buckets.keys()].map((k) => { const [x, y, z] = k.split(',').map(Number), mine = x * G + G - 1 >= sec.x0 && x * G <= sec.x1 && z * G + G - 1 >= sec.z0 && z * G <= sec.z1; return { k, d: Math.hypot(x * G + G / 2 - me.x, (y * G + G / 2 - me.y) * 1.5, z * G + G / 2 - me.z) + (mine ? 0 : 1000) }; }).sort((a, b) => a.d - b.d);
