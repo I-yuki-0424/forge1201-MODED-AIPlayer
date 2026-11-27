@@ -605,13 +605,22 @@ test('a bot that leaves the crew alive (pause, stop) takes its own blocks away f
         const bot = fakeBot(w, { x: 0.5, y: withBlocks ? 67 : 64, z: 0.5 }); bot.health = health; bot._client = { ended: false };
         let down = 0;
         const mv = { walkBack: async () => 0, unpillar: async () => { down++; for (let y = 66; y >= 64; y--) job.dropTemp({ x: 0, y, z: 0 }); return 3; }, dig: async () => true, mine: new Map() };
-        return { job, bot, mv, get down() { return down; } };
+        return { job, bot, mv, w, get down() { return down; } };
     };
     const a = mk(20, true);
     assert.notStrictEqual(await D.leaving(a.job, 'a', a.bot, a.mv), null); assert.strictEqual(a.down, 1, 'down its pillar before it goes');
     assert.strictEqual(a.job.ledger.of('a').length, 0, 'nothing of its own left to orphan');
     const dead = mk(0, true);
     assert.strictEqual(await D.leaving(dead.job, 'a', dead.bot, dead.mv), null); assert.strictEqual(dead.down, 0, 'negative control: a dead bot does nothing (its blocks are orphaned for the crew)');
+    // on a one-block bridge of its own over a gap (no way down): off it onto the build, then that block is dug from beside
+    const b = mk(20, false); const br = { x: 0, y: 66, z: 0 }; b.job.addTemp(br, 'bridge', 'a', 'pumpkin'); b.job.ledger.observe(br, 'pumpkin'); b.bot.entity.position.y = 67; b.w.set('0,66,0', { name: 'pumpkin' });
+    for (let y = 64; y <= 66; y++) b.w.set(`1,${y},0`, { name: 'stone' });
+    const calls = []; let dug = 0;
+    b.mv.unpillar = async () => 0; b.mv.dig = async (c) => { calls.push(`dig ${c.x},${c.y},${c.z}`); dug++; return true; };
+    b.mv.goto = async (to, o) => { calls.push('goto'); assert(!o.goal(0, 67, 0) && o.goal(1, 67, 0), 'the goal is a floor that is not its own temporary block'); b.bot.entity.position.x = 1.5; return { ok: true }; };
+    await D.leaving(b.job, 'a', b.bot, b.mv);
+    assert.strictEqual(calls[0], 'goto', `off the block first (${calls})`);
+    assert(calls.includes('dig 0,66,0') && !b.job.ledger.has(br), `then dug from beside (${calls})`);
     const none = mk(20, false);
     assert.strictEqual(await D.leaving(none.job, 'a', none.bot, none.mv), null); assert.strictEqual(none.down, 0, 'negative control: nothing of its own');
 });

@@ -477,7 +477,27 @@ async function release(job, name, bot, mv, cancel, next = null, label = 'step') 
 /** A bot leaves the crew alive and connected (pause, stop): its own blocks go as at a step's end (release, LEAVE_MS). Returns the blocks dug, or null when it does not apply (dead, gone, nothing of its own). */
 async function leaving(job, name, bot, mv) {
     if (!bot.entity || (bot._client && bot._client.ended) || !((bot.health || 0) > 0) || !job.ledger.of(name).some((e) => !e.orphan)) return null;
-    try { const n = await release(job, name, bot, mv, within({ cancelled: false }, LEAVE_MS), null, 'leave'); job.stats.leaveRelease = (job.stats.leaveRelease || 0) + n; return n; }
+    try {
+        const cancel = within({ cancelled: false }, LEAVE_MS);
+        let n = await release(job, name, bot, mv, cancel, null, 'leave');
+        // still on a block of its own that had no way down (a bridge block or a short pillar over a gap: 'under its placer (no way down)', 1-3 a run in pc075a and b081*): off it
+        // onto ground or the build within six cells, then the release again from there (the wrap-up's idle step does the same while there is time)
+        const f = feet(bot), under = job.ledger.get({ x: f.x, y: f.y - 1, z: f.z });
+        if (under && under.by === name && typeof mv.goto === 'function' && !cancel.cancelled) {
+            const r = await mv.goto(f, { goal: (x, y, z) => !job.ledger.has({ x, y: y - 1, z }) && Math.hypot(x - f.x, z - f.z) <= 6, cancel, maxNodes: 2000, tries: 1 });
+            if (r && r.ok) {
+                // its blocks (released by now) within reach whose face it sees, top-down, from the new floor
+                const P = require('./place'), world = P.botWorld(bot), me = feet(bot), eye = eyeOf(bot.entity.position);
+                for (const e of job.ledger.of(name).filter((q) => !q.orphan && q.state !== 'pending' && q.how !== 'seal' && q.how !== 'fill').sort((a, b) => b.y - a.y)) {
+                    if (cancel.cancelled) break;
+                    const c = { x: e.x, y: e.y, z: e.z };
+                    if (boxDist(eye, c) > job.o.reach || (c.x === me.x && c.z === me.z && c.y === me.y - 1) || underCrew(job, bot, c.x, c.y, c.z) || holdsFluid(bot, c.x, c.y, c.z) || !P.clickable(world, c, me)) continue;
+                    if (await mv.dig(c)) { job.dropTemp(c); job.stats.untemp++; n++; } else job.ledger.fail(c, 'the dig failed');
+                }
+            }
+        }
+        job.stats.leaveRelease = (job.stats.leaveRelease || 0) + n; return n;
+    }
     catch (e) { job.log(`${name}: release on leaving: ${e.message}`); return 0; }
 }
 
