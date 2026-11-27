@@ -21,16 +21,16 @@ const { SESSION_MS, safeEq, hostAllowed, send, fail, json, Raw } = require('./ht
 const PUBLIC = path.join(__dirname, '..', '..', '..', 'public', 'work');
 const TYPES = { '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' };
 const STATIC_NAME = /^\/([a-z0-9_]{1,24})\.(js|css)$/;               // a file of public/work/, nothing else (no directories, no dots)
-const ROUTES = ['state', 'bots', 'jobs', 'structures', 'inventory', 'assets', 'stuck'];
+const ROUTES = ['state', 'bots', 'jobs', 'structures', 'inventory', 'assets', 'stuck', 'ci'];
 
 const PROXY_HEADERS = ['cf-ray', 'cf-connecting-ip', 'x-forwarded-for', 'x-forwarded-host', 'forwarded', 'cf-access-jwt-assertion'];
 
-function createConsole({ service, token = null, allowedHosts = [], publicHost = null, access = null, assets = null, stuckDir = null, now = Date.now }) {
+function createConsole({ service, token = null, allowedHosts = [], publicHost = null, access = null, assets = null, stuckDir = null, ciDir = null, now = Date.now }) {
     publicHost = publicHost ? String(publicHost).toLowerCase() : null;
     if (publicHost) allowedHosts = [...allowedHosts, publicHost];
     const sessions = new Map(), fails = new Map();
     const reap = () => { for (const [k, s] of sessions) if (s.until < now()) sessions.delete(k); };
-    const handlers = ROUTES.map((r) => require(`./routes/${r}`)(service, { assets, stuckDir }));          // assets: the game's pictures (assets/store.js), or null; stuckDir: the stuck snapshots (src/debug/stuck.js)
+    const handlers = ROUTES.map((r) => require(`./routes/${r}`)(service, { assets, stuckDir, ciDir }));          // assets: the game's pictures (assets/store.js), or null; stuckDir: the stuck snapshots (src/debug/stuck.js); ciDir: the CI history (scripts/ci/history.js)
     const cookieOf = (req) => { const m = /(?:^|;\s*)wc_session=([0-9a-f]{64})/.exec(req.headers.cookie || ''); return m ? m[1] : null; };
     const setCookie = (sid) => ({ 'Set-Cookie': `wc_session=${sid}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_MS / 1000}` });
 

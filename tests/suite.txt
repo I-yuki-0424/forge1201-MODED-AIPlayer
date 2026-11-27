@@ -94,3 +94,4 @@ tests/test_build_ground_pure.js
 tests/test_build_contents_pure.js
 tests/test_debug_snapshots_pure.js
 tests/test_ci_history_pure.js
+tests/test_ci_route_pure.js

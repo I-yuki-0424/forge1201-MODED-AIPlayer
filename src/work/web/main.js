@@ -33,7 +33,7 @@ async function main() {
     // the game's pictures for the inventory: the client jar of the server's version (WORK_MC_VERSION, else the version the bots connected with), cached in WORK_ASSETS
     const { AssetStore } = require('./assets/store');
     const assets = new AssetStore({ root: path.resolve(env.WORK_ASSETS || path.join(dataDir, 'assets')), version: () => env.WORK_MC_VERSION || ([...service.bots.values()].find((r) => r.bot && r.bot.version) || { bot: {} }).bot.version || null });
-    const { server } = createConsole({ service, token, access, assets, stuckDir: path.resolve(env.WORK_STUCK_DIR || path.join(dataDir, 'stuck')), publicHost: env.WORK_PUBLIC_HOST || null, allowedHosts: (env.WORK_ALLOWED_HOSTS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean) });
+    const { server } = createConsole({ service, token, access, assets, stuckDir: path.resolve(env.WORK_STUCK_DIR || path.join(dataDir, 'stuck')), ciDir: path.resolve(env.WORK_CI_DIR || path.join(dataDir, 'ci')), publicHost: env.WORK_PUBLIC_HOST || null, allowedHosts: (env.WORK_ALLOWED_HOSTS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean) });
     const bind = env.WORK_BIND || '127.0.0.1', port = Number(env.WORK_PORT) || 3020;
     server.listen(port, bind, () => console.log(`[console] http://${bind}:${port}  server ${service.o.host}:${service.o.port}  table ${service.known ? table : 'none (vanilla names only)'}  rcon ${service.o.rcon ? 'on' : 'off'}  ${token ? `token file ${tokenFile}` : 'no token (network / Access)'}`));
     // A loop that never yields would freeze every bot at once (2026-11-09): a second thread notices, writes where it was and kills the process; the container restarts it.

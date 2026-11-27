@@ -80,6 +80,7 @@ services:
       WORK_WORLD: /world/world
       WORK_ASSETS: /mc-assets
       WORK_STUCK_DIR: /stuck
+      WORK_CI_DIR: /ci             # the CI history (scripts/ci/history.js, TASK-20261125-080): the CI page, read-only
       WORK_MC_VERSION: ${TW_MC:?}
     volumes:
       - survival_data:/world:ro
@@ -87,6 +88,7 @@ services:
       - /mnt/data/forgeaip-play/survival121/console-data/survival:/work
       - /mnt/data/forgeaip/mc-assets:/mc-assets:ro
       - /mnt/data/forgeaip-play/t26/out/stuck:/stuck:ro
+      - /mnt/data/forgeaip-play/t26/out/ci:/ci:ro
     ports: [ "100.77.246.23:3035:3020" ]
 
 volumes:

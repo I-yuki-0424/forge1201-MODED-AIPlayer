@@ -78,6 +78,7 @@ services:
       WORK_WORLD: /world/world     # the world folder itself: the map view reads either version's layout (src/work/world/maps.js)
       WORK_ASSETS: /mc-assets      # the game's pictures for the inventory view (TASK-20261125-077), per game version
       WORK_STUCK_DIR: /stuck       # the stuck snapshots of the harness runs (src/debug/stuck.js, TASK-20261127-084): the Snapshots page, read-only; the one copy Nextcloud shows too
+      WORK_CI_DIR: /ci             # the CI history (scripts/ci/history.js, TASK-20261125-080): the CI page, read-only
       WORK_MC_VERSION: ${TW_MC:?}
     volumes:
       - creative_data:/world:ro
@@ -85,6 +86,7 @@ services:
       - /mnt/data/forgeaip-play/creative121/console-data/creative:/work
       - /mnt/data/forgeaip/mc-assets:/mc-assets:ro
       - /mnt/data/forgeaip-play/t26/out/stuck:/stuck:ro
+      - /mnt/data/forgeaip-play/t26/out/ci:/ci:ro
     ports: [ "100.77.246.23:3034:3020" ]
 
 volumes:

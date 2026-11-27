@@ -137,3 +137,4 @@ body.kiosk .btn, body.kiosk .tab { min-height:40px; } body.kiosk input:not([type
 .snap-line { white-space: pre-wrap; word-break: break-word; max-height: 4.5em; overflow: auto; }
 .snap-thumb { width: 96px; height: auto; image-rendering: pixelated; cursor: zoom-in; border: 1px solid var(--border, #ccc); }
 .snap-full { max-width: 100%; height: auto; image-rendering: pixelated; }
+.scroll-x { overflow-x:auto; }                                    /* the CI page (TASK-20261125-080): a wide history table scrolls inside its panel */
