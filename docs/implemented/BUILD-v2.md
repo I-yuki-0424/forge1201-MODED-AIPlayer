@@ -832,6 +832,29 @@ move_a seed 7601 (`ma075s`, 97ac3537, Normal): 3/4. The east bot stopped again o
 
 Units over 30 s: spruce 102 (9798 s, median 68 s), dark forest 73 (4890 s, median 49 s), jungle 126 (18 221 s, median 77 s, p90 341 s, some cells 560-700 s), bamboo 63 (6089 s, median 61 s). NAV is 10-20 % of it, the planner's CPU 6-25 s per run. After these runs: every pit unit bounded to 6 min, the canopy sweep to 30 s (39e4917e). **Not met:** zero tree blocks on every site, and a pace of 0.8 of rock (dark forest 0.72; the others over budget).
 
+**The fall guard for every bot (2026-11-27, 1.21.1, native physics, Peaceful; seed 474407178230372896, the seed where the guard had stopped the pit).** The guard was not wrong:
+the movers asked for moves it rightly refused, or failed with and without it. Each stop is now recorded with who moved the body (`bot.__moveTag`, set by `runner.run` for every
+command and move, and the walk's path node; `fallguard.js` episodes, mine_b `[guard]` lines; the fall reflex names the command too). What the trace found, in order:
+
+| Cause | Evidence | Fix |
+| :-- | :-- | :-- |
+| NAV planned digs `mine` refuses: leaves at y 71 over a box top of 67 ('outside the work area'), the same plan made and refused 8 segments per goal | fg075c: the first 6 minutes of every run on the seed, guard on or off ('unit:walk still 60', 0 units) | `block.js refusal()`: one predicate for `mine` and NAV's `protectedFor`; a cell refused on a walk is not planned again on it (8ceaa45e) |
+| A walk whose start cell is no planner node while the body stands on the edge of the next column nudged toward its own cell's centre, over the hole | fg075d guard on: 2 092 stops at -1.74,66,16.5; guard off: the same nudge is a fall (fg075e: 8 falls of 13-22 blocks in 6 min) | `motion.supportCell`: the walk starts from the cell that holds the body (1bb48a9d) |
+| The walk on foot cannot reach a station two cells away when the bot is boxed in by the leaves of a tree it half took down | fg075h: `moveFail 'unreachable (cell 13,67,7)'` from 11,67,9; 13-14 'could not stand at the station' per run, on or off | the station walk goes once by NAV (dig, pillar, descend, bridge) before the corridor ladder (eb2f9c60) |
+| A climbable cell (ladder, vine: BlockTags.CLIMBABLE) under the body holds it in vanilla; the guard did not count it, and the walk plans climb nodes | planner/guard comparison (no live case measured) | the guard counts it (7cee44f3) |
+
+| Run (20 min at x3) | Code | Units at 18 min | Guard stops | Falls (reflex) | Pumpkins left (scan) | Station failures |
+| :-- | :-- | --: | --: | --: | --: | --: |
+| `fg-on` / `fg-off` | 0a5ec9c7 | 0 / 8 (15 min) | 1 192-1 962 / - | 0 / 6 | | |
+| `fg075f` on / `fg075g` off | 1bb48a9d | 0 / 4 (16 min) | 171 / - | 5 / 5 | 0 / 2 | 13 / 14 |
+| `fg075i` on / `fg075j` off | eb2f9c60 | 12 / 14 | 8 / - | 0 / 6 | 0 / 2 | 3 / 2 |
+
+The guard is on for every work bot again (`src/work/service/bots.js`; setting `fallGuard: false` or `FALL_GUARD=0` turns it off for an A/B). The remaining stops are single ticks
+(a slide along an edge) and raw key holds of the recovery fixes (`sidestep`, `back_off`: forward held 0.8 s toward a cell checked one ahead), which the guard bounds.
+
+move_a's 10 pumpkins on seed 7601 (`ma075s`) were a wild pumpkin patch: the same 10 cells (x 663-675, y 67) are pumpkins in an untouched world of that seed (scan.js). move_a now
+grades only cells that turned into a temporary-block kind during the run (a block update seen by the bot, never a chunk load).
+
 **Where TASK-081 stands (2026-11-27 12:30; Fabric 1.21.1 test worlds 4 and 5, iron-farm-34, 8 bots).** No run finished cell-correct, so the Done-when is not met.
 - The best runs: `b081q5` (mineflayer) placed 7 332 of 7 608 blocks in 194 min of placing. The judge found 1 923 wrong cells; 1 512 of them are the 36 portals, never lit because the place stage never ended. The other 411: 141 smooth stone, 59 glass, 50 slabs, 26 obsidian, 24 torches and the redstone block (waiting for their machine, by the new rule), 23 repeaters, 18 beds, 14 wires, 8 pistons, 8 trapdoors, 5 comparators, plus 32 smooth stones one cell over their own in front of pistons.
 - `b081q4` (native) judged 3 999 wrong (2 273 not placed).
