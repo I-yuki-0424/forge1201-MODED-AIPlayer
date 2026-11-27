@@ -11,6 +11,7 @@ const { SOLID, ROCK, WATER, AIR, N, H } = M;
 // MAX_FAILS_ROW: stations in a row that could not be reached or dug, then the unit fails with the first reason; UNIT_MS: one unit's stations at most this long
 // (mine_b mb075m w1, 1.21.1: a unit walked between two stations for 25 min)
 const MAX_FAILS_ROW = 6, UNIT_MS = 6 * 60000;
+const LAST_CELLS = 8;                 // at most this many cells left go through the cell rule when no station reaches them (lastResort)
 
 /**
  * The best station by dig count minus a soft distance cost over EVERY column of the chunk that can be stood on (not only those the model's step-by-step walk reaches), or null.
@@ -103,6 +104,18 @@ async function runExpert(c) {
     const failedCols = new Set(), failures = [], supports = new Set();                      // supports: the blocks the bot stood on at its stations
     let lastN = 0, failsRow = 0, first = null;
     const tUnit = Date.now();
+    // The expert's stations stand inside the chunk; a few cells left that no station reaches (a block hanging at the box edge over the dug pit, beside the rock outside it) go one by one
+    // through the cell rule (pit.js handle: the router finds a standing cell anywhere, the rim outside the box included), once per unit: one stone at 14,87,0 on the box edge of a mountain
+    // box stayed for good, 13 'could not stand at the station' (mbc075t w2, seed -4932457127435196195, 1.21.1)
+    const leftCells = () => c.cells.filter((cell) => !open(cell) && !c.UNBREAKABLE.test(String(env.w.nameAt(cell.x, cell.y, cell.z) || '')) && !c.aerialTree(cell));
+    let lastTried = false;
+    const lastResort = async () => {
+        const rest = leftCells();
+        if (lastTried || !rest.length || rest.length > LAST_CELLS) return null;
+        lastTried = true; stats.lastResort = rest.length;
+        for (const cell of rest) { const res = await handle(cell, true); if (res && res !== 'defer' && ['died', 'disconnected', 'cancelled', 'wrong_dimension'].includes(res.reason)) return res; }
+        return leftCells().length ? null : { ok: true, reason: null, detail: { ...r, lastResort: rest.length } };
+    };
     for (let t = 0; t < M.MAX_STATIONS; t++) {
         if (env.cancel && env.cancel.cancelled) return { ok: false, reason: 'cancelled', detail: { ...r } };
         if (Date.now() - tUnit > UNIT_MS) return first || { ok: false, reason: 'timeout', detail: { why: `the unit's stations took more than ${UNIT_MS / 60000} min`, stage: 'expert', ...r } };
@@ -140,6 +153,7 @@ async function runExpert(c) {
                     break;
                 }
             }
+            { const lr = await lastResort(); if (lr) return lr; }
             return first || { ok: false, reason: 'unreachable', detail: { why: `${left} cells of the band are left and no station can reach them`, stage: 'expert', left, ...r } };
         }
         const { f } = M.columns(m), fz = q.footing ? q.fy : f[q.x][q.z], S = { x: ox + q.x, y: yb + fz, z: oz + q.z };
@@ -151,7 +165,8 @@ async function runExpert(c) {
         if (g) {                                                        // this place cannot be reached: another one, four in a row end the unit
             first = first || g; stats.fails++;
             for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++) failedCols.add(`${q.x + dx},${q.z + dz}`);          // what cannot be reached is usually a whole corner: not its neighbours either
-            if (g.reason === 'died' || g.reason === 'disconnected' || g.reason === 'cancelled' || g.reason === 'wrong_dimension' || ++failsRow >= MAX_FAILS_ROW) return g;
+            if (g.reason === 'died' || g.reason === 'disconnected' || g.reason === 'cancelled' || g.reason === 'wrong_dimension') return g;
+            if (++failsRow >= MAX_FAILS_ROW) { const lr = await lastResort(); return lr || g; }
             continue;
         }
         failsRow = 0;

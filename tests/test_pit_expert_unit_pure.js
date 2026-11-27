@@ -98,6 +98,20 @@ function voidEnv(w, start) {
         await job.runUnit(reg.id, { unit: 0 }, env2); assert.strictEqual(w2.kindAt(5, 100, 5), 'solid', 'outside the box stays');
     });
 
+    await test('runUnit: a few cells no station reaches (a stone hanging on the box edge over the dug pit) go through the cell rule from where the bot stands (mbc075t w2: one stone at 14,87,0 stayed, 13 \'could not stand at the station\'); negative control: when the cell rule cannot reach them either the unit fails as before', async () => {
+        const b = { x0: 0, z0: 0, x1: 15, z1: 15, top: 99, bottom: 98 };
+        const run = async (start) => {
+            const job = pit.createPitJob(b, {}, { method: 'expert', road: false }), reg = job.plan.regions[0];
+            const w = fakeWorld(97, { '5,99,0': 'stone' }), env = fakeEnv(w, start, { canWalk: () => false });
+            const r = await job.runUnit(reg.id, { unit: 0 }, env);
+            return { r, left: w.nameAt(5, 99, 0) };
+        };
+        const a = await run({ x: 5, y: 99, z: -2 });          // on the rim outside the box, the stone within the arm's reach
+        assert.strictEqual(a.left, 'air', JSON.stringify(a.r).slice(0, 300)); assert.ok(a.r.ok, JSON.stringify(a.r).slice(0, 300));
+        const c = await run({ x: 5, y: 99, z: -12 });         // too far for the arm
+        assert.strictEqual(c.left, 'stone'); assert.strictEqual(c.r.ok, false, 'negative control: the unit still fails visibly');
+    });
+
     await test('runUnit: a station that cannot be reached is not tried again, six in a row end the unit with the walk\'s reason', async () => {
         const job = pit.createPitJob(box, {}, { method: 'expert', road: false }), reg = job.plan.regions[0];
         const w = fakeWorld(99), env = fakeEnv(w, { x: 0, y: 100, z: 0 }, { canWalk: () => false });
