@@ -893,6 +893,17 @@ one in a closed pocket after it); pumpkins left on 4 of 9 worlds (2, 3, 2, 3); t
 changed since (set 1's pair at x 17 was placed before the history existed). Guard stops per world 0-1 on set 2 and 3. **Not met:** zero on all three worlds of one set; the wet boxes (lake fills kept or hanging, drowning, NAV 'stuck' into
 a wet box) are the open part.
 
+**Forest runs on 849e35e0 / 428d0965 (2026-11-27 17:30-18:40, 1.21.1, native physics, guard on, Peaceful, build_t `SITE_BIOME`, the pit stage only; the build stage was stopped).**
+
+| Site | Cells | Budget (cells/7 x 1.5) | Pit | Tree blocks left (scan of the pit box) |
+| :-- | --: | --: | :-- | :-- |
+| `fr075b` old_growth_spruce_taiga | 5 081 | 1 089 s | finished 634 s (8.0 cells/s), stuck 0 | **0** (the box all air) |
+| `fr075a` jungle (a mountain site, y 111-142) | 19 678 | 4 217 s | finished 3 593 s (5.5 cells/s), stuck 0 | **0**; 4 pumpkins in one column at -893,111..114,-883 (the build stage had started: not attributed) |
+| `fr075c` dark_forest | 6 272 | 1 344 s | finished 1 800 s (3.5 cells/s), stuck 0 | 5 mushroom blocks (not in the pit's tree list), 20 bamboo, 1 pumpkin |
+
+In the jungle the crew ran out of diamond pickaxes (two per bot in the supply: 'tool_held diamond_pickaxe' 27 times), and the slowest cells' time went to NAV trips
+(139 s), pauses (69 s) and recovers (53 s), not to the late steps any more. **Not met:** the dark forest (mushroom blocks and bamboo left, 0.5 of rock pace).
+
 move_a's 10 pumpkins on seed 7601 (`ma075s`) were a wild pumpkin patch: the same 10 cells (x 663-675, y 67) are pumpkins in an untouched world of that seed (scan.js). move_a now
 grades only cells that turned into a temporary-block kind during the run (a block update seen by the bot, never a chunk load).
 
