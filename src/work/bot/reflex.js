@@ -117,8 +117,10 @@ function attach(bot, { world, enabled = () => true, onEvent = () => {} } = {}) {
                 try { await bot.equip(mat, 'hand'); } catch (_) { /* hold what is held */ }
                 // The block goes in a few cells BELOW the feet (the bot is faster than the packet: 1 to 2 blocks per tick after the first second), against the wall beside that cell;
                 // a placement that does not answer within 250 ms is given up for the next, lower, try.
+                // (one block the server confirmed is the catch: the body lands on it; the loop went on while the body came down to it and put up to two more into the column under
+                // it, out of reach and in nobody's way, as the job ended: mbc075v w3, seed -8199092734754490801, 1.21.1, three reflex pumpkins at -145,-35..-32,-65 32 ms apart)
                 let placed = 0;
-                while (!bot.entity.onGround && Date.now() - t0 < 3000 && placed < 3) {
+                while (!bot.entity.onGround && Date.now() - t0 < 3000 && !placed) {
                     const f = feet(), vy = Math.abs(bot.entity.velocity ? bot.entity.velocity.y : 1);
                     const c = { x: f.x, y: f.y - Math.min(4, 2 + Math.floor(vy * 3)), z: f.z };
                     if (kind(c.x, c.y, c.z) === 'air') {

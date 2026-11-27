@@ -46,6 +46,27 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         a.rf.detach();
     });
 
+    await test('a fall without a bucket: one block the server confirms is the catch, no more go into the column under it (mbc075v w3: three reflex pumpkins 32 ms apart, two left under the catch); negative control: unconfirmed clicks go on trying lower', async () => {
+        const mk = (confirm) => {
+            const bot = new EventEmitter(), solid = new Set(), regs = [];
+            const pos = { x: 0.5, y: 20, z: 0.5 };
+            pos.floored = () => ({ x: 0, y: Math.floor(pos.y), z: 0, offset: (dx, dy, dz) => ({ x: dx, y: Math.floor(pos.y) + dy, z: dz }) });
+            Object.assign(bot, { entity: { position: pos, onGround: false, velocity: { y: -1.5 }, isInWater: false }, inventory: { items: () => [{ name: 'cobblestone', count: 64 }] }, health: 20, entities: {}, username: 'p',
+                __temps: { add: (e) => regs.push(e.y) },
+                blockAt: (v) => ({ name: 'stone', position: v }), equip: async () => {}, look: async () => {}, setControlState() {}, setQuickBarSlot() {},
+                placeBlock: async (ref, f) => { if (!confirm) throw new Error('no answer'); solid.add(ref.position.y); } });
+            const kindAt = (x, y, z) => (x !== 0 || z !== 0 ? 'solid' : y <= -40 || solid.has(y) ? 'solid' : 'air');
+            const rf = attach(bot, { world: { kindAt }, onEvent: () => {} });
+            // the body falls half a block every 20 ms, onto the first solid cell under it
+            const iv = setInterval(() => { if (bot.entity.onGround) return; const below = Math.floor(pos.y) - 1; if (kindAt(0, below, 0) === 'solid' && pos.y - (below + 1) < 0.5) { pos.y = below + 1; bot.entity.onGround = true; return; } pos.y -= 0.5; }, 20);
+            return { bot, rf, regs, stop: () => { clearInterval(iv); rf.detach(); } };
+        };
+        const a = mk(true); a.bot.emit('physicsTick'); await sleep(1500);
+        assert.strictEqual(a.regs.length, 1, `one block for the catch (${a.regs})`); assert.ok(a.bot.entity.onGround, 'landed on it'); a.stop();
+        const n = mk(false); n.bot.emit('physicsTick'); await sleep(1200);
+        assert.ok(n.regs.length > 1, `negative control: without an answer it tries again lower (${n.regs})`); n.stop();
+    });
+
     await test('buried: a full block in the eye cell (gravel fell on the bot: mbc075n w2, suffocated in a wall) is dug after three ticks, again while one stands there; negative controls: air at the eye, a chest, a slab', async () => {
         const mk = (names) => {
             const bot = new EventEmitter(), events = [], dug = [];
