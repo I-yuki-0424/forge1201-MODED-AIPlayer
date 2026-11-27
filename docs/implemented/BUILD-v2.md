@@ -958,6 +958,19 @@ w3's water had no cell beside the body with a solid face to click, so no footing
 water cell within two across at the feet's level with air over it and a solid face, nearest first. Over sets 4-6 (nine new worlds): **0 temporary blocks left on all nine** by the
 server scan, no fall and no lava death; drownings 7 / 1 / 0, each set's cause changed before the next.
 
+**mine_b closing set 7 (2026-11-28 00:08-01:31, code 4bb721d8: + the open-water footing; same conditions).**
+
+| Run (world, seed) | End | Dirty layers | Pumpkins (scan, 0 unloaded) | Fills left (registered) | Deaths (server log) |
+| :-- | :-- | --: | --: | --: | :-- |
+| `mbc075n` w1 (-7899867675806188954) | finished at 53 min, dry | 3 | **0** | 2 | 0 |
+| `mbc075n` w2 (-3279954857076817950) | timeout 81 min, wet (191 water) | 107 | **0** | 76 | 1 'suffocated in a wall' (gravel onto the bot at y 42) |
+| `mbc075o` w3 (-4848465169380292267, KILL_AT_END) | finished at 43 min, killed during the job's own end, the end done after the respawn | 5 (y -59..-55: 5 seals and 39 lake fills hold lava back) | **0** | 44 | 1 (the kill) |
+
+No drowning and no 'to the shore (stuck)' rescue in the set. Change after it (30c4640e, test with negative controls): a buried reflex digs a full block in the eye cell
+after three ticks, again while more comes down; never a fixture or bedrock. **Over sets 4-7 (twelve new worlds, 1.21.1): 0 temporary blocks left on all twelve by the server
+scan, two killed-in-the-end runs among them; no fall and no lava death.** Open: the wet boxes still time out (dirty layers, lake fills registered: the pit's pace in water, not a
+temporary-block matter); a natural chest in the box is a fixture the grader counts as dirty (mbc075k w3).
+
 move_a's 10 pumpkins on seed 7601 (`ma075s`) were a wild pumpkin patch: the same 10 cells (x 663-675, y 67) are pumpkins in an untouched world of that seed (scan.js). move_a now
 grades only cells that turned into a temporary-block kind during the run (a block update seen by the bot, never a chunk load).
 
