@@ -18,9 +18,15 @@ function boxHolds(bot, it) {
 /** What the bot carries: { item: count } (shulker boxes count as boxes, not as what is inside). */
 function carried(bot) { const o = {}; for (const it of bot.inventory.items()) o[it.name] = (o[it.name] || 0) + it.count; return o; }
 const freeSlots = (bot) => 36 - bot.inventory.items().filter((i) => i.slot >= 9 && i.slot < 45).length;
-// the supply's boxes the bot carries (with something inside); an empty box is a building material like any other block (the Nether blueprint has shulker boxes in it)
-const boxes = (bot) => bot.inventory.items().filter((i) => SHULKER.test(i.name) && Object.keys(boxHolds(bot, i)).length > 0);
+// an empty box is a building material like any other block (the Nether blueprint has shulker boxes in it)
 const emptyBox = (bot, it) => SHULKER.test(it.name) && Object.keys(boxHolds(bot, it)).length === 0;
+/**
+ * The supply's boxes in the pack, told by name as well as by contents: a box whose contents the client does not show (its container component not read for a slot of the pack)
+ * is the supply's unless the blueprint builds with that box (`build`: the blueprint's items). Told by contents alone, such a box was 'not out of the chest' and stayed in the
+ * pack for the whole run, never put back: in every run 3-4 'did not come out' (b081t5, 1.21.1, mineflayer inventory: Bd5d carried a box of 27 stacks of smooth stone, the
+ * ledger 1 664 smooth stone unaccounted; b081t4, native: Bd4d carried three boxes of beds).
+ */
+const supplyBoxes = (bot, build = null) => bot.inventory.items().filter((i) => SHULKER.test(i.name) && (Object.keys(boxHolds(bot, i)).length > 0 || !(build && build.has(i.name))));
 
 /** Open the container at c (the mover has brought the bot within reach). */
 async function open(bot, c) {
@@ -96,9 +102,9 @@ async function deposit(bot, site, names) {
 }
 
 /** Every shulker box the bot carries back into the container at site. */
-async function putBack(bot, site) {
+async function putBack(bot, site, build = null) {
     const win = await open(bot, site);
-    try { for (const it of boxes(bot)) await shift(bot, win.inventoryStart + (it.slot - 9)); await sleep(200); storeRead(bot, site, win); }
+    try { for (const it of supplyBoxes(bot, build)) await shift(bot, win.inventoryStart + (it.slot - 9)); await sleep(200); storeRead(bot, site, win); }
     finally { bot.closeWindow(win); }
 }
 
@@ -114,7 +120,7 @@ const counts = (w) => { const o = {}; for (const it of w.containerItems()) o[it.
  * What it got is counted from the pack (another bot may have taken a stack a moment before). `mover`: the bot's Mover; `spot()`: a free cell for the next depot box.
  * Returns { got: {item: n}, short: {item: n}, absent: [item] }.
  */
-async function fetch(bot, site, needs, mover, spot, { log = () => {}, depot = [], locks = new Map(), me = bot.username, cancel = { cancelled: false } } = {}) {
+async function fetch(bot, site, needs, mover, spot, { log = () => {}, depot = [], locks = new Map(), me = bot.username, cancel = { cancelled: false }, build = null } = {}) {
     const before = carried(bot), want = { ...needs }, present = {};
     const end = Date.now() + 120000;          // a trip has two minutes at the supply; the turn goes to the next bot
     const over = () => cancel.cancelled || Date.now() > end;
@@ -167,8 +173,8 @@ async function fetch(bot, site, needs, mover, spot, { log = () => {}, depot = []
                 complete = false; log(`supply: depot box at ${c.x},${c.y},${c.z}: ${e.message}`);
                 // a box that does not open (something on its lid we may not dig, a bot on it): broken with what it holds (a shulker box keeps it), picked up and put back into
                 // the chest, from where the next trip sets it down somewhere free (the crew's last dirt sat in a box that never opened: trips came back empty, live 2026-11-24 ha18 w4)
-                const n0 = boxes(bot).length;
-                if (await mover.dig(c)) { for (let i = 0; i < 30 && boxes(bot).length <= n0; i++) await sleep(100); const k = depot.indexOf(c); if (k >= 0) depot.splice(k, 1); if (boxes(bot).length > n0) { reshelve = true; log(`supply: the box from ${c.x},${c.y},${c.z} was taken up to be set down again`); } }
+                const n0 = supplyBoxes(bot, build).length;
+                if (await mover.dig(c)) { for (let i = 0; i < 30 && supplyBoxes(bot, build).length <= n0; i++) await sleep(100); const k = depot.indexOf(c); if (k >= 0) depot.splice(k, 1); if (supplyBoxes(bot, build).length > n0) { reshelve = true; log(`supply: the box from ${c.x},${c.y},${c.z} was taken up to be set down again`); } }
                 return;
             }
         }
@@ -210,20 +216,21 @@ async function fetch(bot, site, needs, mover, spot, { log = () => {}, depot = []
     for (const bx of useful) {
         if (!still().length || freeSlots(bot) <= 2 || over()) break;
         if (!still().some(([k]) => bx.h[k] > 0)) continue;          // what it held was taken from other boxes meanwhile
-        const n0 = boxes(bot).length;
+        const s0 = new Set(supplyBoxes(bot, build).map((i) => i.slot));
         await near(bot, mover, site);                 // back beside the chest (the last box may have been set down a few cells away)
         if (!(await waitLock(site, 20000))) break;
         try { const win = await open(bot, site); try { const cur = win.slots[bx.slot]; if (cur && SHULKER.test(cur.name) && !emptyBox(bot, cur)) await shift(bot, bx.slot); await sleep(150); storeRead(bot, site, win); } finally { bot.closeWindow(win); await sleep(250); } } finally { unlock(site); }
-        const box = boxes(bot).find((i) => i.slot !== undefined);
-        if (!box || boxes(bot).length <= n0) { log(`supply: the box in slot ${bx.slot} did not come out (another bot took it)`); continue; }
+        // (the pack's slot may come a moment after the click: looked for up to 1.5 s, by name; contents as the chest showed them, bx.h)
+        let box = null; for (let i = 0; i < 15 && !box; i++) { box = supplyBoxes(bot, build).find((q) => q.slot !== undefined && !s0.has(q.slot)) || null; if (!box) await sleep(100); }
+        if (!box) { log(`supply: the box in slot ${bx.slot} did not come out (another bot took it)`); continue; }
         const at = await spot(), pr = at ? await mover.placeItem(box.name, at, { facing: at.facing || 'up' }) : 'no free cell for the depot';          // facing up: a box opens toward its facing (one set down sideways against rock never opened, live 2026-11-22)
-        if (pr !== true) { log(`supply: could not set a box down${at ? ` at ${at.x},${at.y},${at.z}` : ''}: ${pr}`); await near(bot, mover, site); await putBack(bot, site); break; }
+        if (pr !== true) { log(`supply: could not set a box down${at ? ` at ${at.x},${at.y},${at.z}` : ''}: ${pr}`); await near(bot, mover, site); await putBack(bot, site, build); break; }
         const c = { ...at, holds: { ...bx.h } };
         depot.push(c);
         if (lock(c)) { try { await useBox(c); } finally { unlock(c); } }
     }
     // emptied boxes back into the chest (they are the supply's, and the Nether blueprint builds with shulker boxes)
-    if (reshelve && (await waitLock(site, 20000))) { try { await near(bot, mover, site); await putBack(bot, site); } catch (e) { log(`supply: the box not put back: ${e.message}`); } finally { unlock(site); } }
+    if (reshelve && (await waitLock(site, 20000))) { try { await near(bot, mover, site); await putBack(bot, site, build); } catch (e) { log(`supply: the box not put back: ${e.message}`); } finally { unlock(site); } }
     if (retired && (await waitLock(site, 20000))) { try { await near(bot, mover, site); await depositEmpty(bot, site, retired); } catch (e) { log(`supply: empty boxes not put back: ${e.message}`); } finally { unlock(site); } }
     // whole stacks over the need go back into the chest (whatever the windows did)
     await sleep(400);
@@ -244,7 +251,7 @@ async function depositEmpty(bot, site, n) {
 }
 
 /** The end of a build: every depot box broken (the bot next to it: the drop lands in its reach) and put back into the chest. Returns the boxes not brought back. */
-async function repack(bot, site, depot, mover, { log = () => {} } = {}) {
+async function repack(bot, site, depot, mover, { log = () => {}, build = null } = {}) {
     let lost = 0;
     for (const c of [...depot]) {
         const b = bot.blockAt(new Vec3(c.x, c.y, c.z));
@@ -252,14 +259,14 @@ async function repack(bot, site, depot, mover, { log = () => {} } = {}) {
         const v = mover.view(), p = bot.entity.position;
         const adj = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => ({ x: c.x + dx, y: c.y, z: c.z + dz })).filter((q) => v.fits(q.x, q.y, q.z) && v.stands(q.x, q.y - 1, q.z)).sort((a, q) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(q.x - p.x, q.z - p.z))[0];
         if (adj) await mover.goto(adj, { maxNodes: 5000 });
-        const n0 = boxes(bot).length;
+        const n0 = supplyBoxes(bot, build).length;
         await mover.dig(c);
-        for (let i = 0; i < 30 && boxes(bot).length <= n0; i++) await sleep(100);
-        if (boxes(bot).length <= n0) { lost++; log(`supply: the depot box from ${c.x},${c.y},${c.z} was not picked up`); }
+        for (let i = 0; i < 30 && supplyBoxes(bot, build).length <= n0; i++) await sleep(100);
+        if (supplyBoxes(bot, build).length <= n0) { lost++; log(`supply: the depot box from ${c.x},${c.y},${c.z} was not picked up`); }
         depot.splice(depot.indexOf(c), 1);
-        if (boxes(bot).length >= 6 || !depot.length) await putBack(bot, site);
+        if (supplyBoxes(bot, build).length >= 6 || !depot.length) await putBack(bot, site, build);
     }
-    if (boxes(bot).length) await putBack(bot, site);
+    if (supplyBoxes(bot, build).length) await putBack(bot, site, build);
     return lost;
 }
 
@@ -275,4 +282,4 @@ async function dropRubble(bot, keep, { minFree = 6 } = {}) {
 const TEMPS = ['dirt', 'cobblestone', 'pumpkin', 'netherrack', 'cobbled_deepslate', 'stone', 'andesite', 'diorite', 'granite', 'oak_planks', 'spruce_planks', 'birch_planks'];
 const tempFrom = (totals, used) => { const o = require('../work/bot/tempblocks').only(); return (o.length ? o : TEMPS).find((s) => totals[s] > 0 && !used.has(s)) || null; };
 
-module.exports = { readSupply, fetch, repack, putBack, deposit, depositEmpty, dropRubble, boxHolds, carried, freeSlots, stackOf, tempFrom, TEMPS, SHULKER, TOOL };
+module.exports = { supplyBoxes, readSupply, fetch, repack, putBack, deposit, depositEmpty, dropRubble, boxHolds, carried, freeSlots, stackOf, tempFrom, TEMPS, SHULKER, TOOL };

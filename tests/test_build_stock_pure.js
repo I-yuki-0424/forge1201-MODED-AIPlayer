@@ -84,5 +84,14 @@ function world(rep) {
         assert.deepStrictEqual([...D.outOfStock(job)], [], 'no trip saw the containers without it');
     }
     console.log('  ok an item is out only when no container, no pack and no stack on the site has it');
-    console.log('test_build_stock_pure: 2 passed');
+    // supply boxes in the pack told by name too (supply.supplyBoxes): a box whose contents the client does not show is the supply's unless the blueprint builds with it
+    {
+        const SUP = require('../src/build/supply');
+        const box = (slot, contents) => ({ name: 'white_shulker_box', slot, count: 1, components: contents ? [{ type: 'container', data: { contents: contents.map(([id, n]) => ({ itemId: id, itemCount: n })) } }] : [] });
+        const bot = { registry: { items: { 1: { name: 'smooth_stone' } } }, inventory: { items: () => [box(10, null), box(11, [[1, 64]]), { name: 'glass', slot: 12, count: 64 }] } };
+        assert.deepStrictEqual(SUP.supplyBoxes(bot, new Set(['glass'])).map((i) => i.slot), [10, 11], 'a box with no contents shown is the supply\'s (not a blueprint item)');
+        assert.deepStrictEqual(SUP.supplyBoxes(bot, new Set(['white_shulker_box'])).map((i) => i.slot), [11], 'negative control: the blueprint builds with that box: only the one with contents');
+    }
+    console.log('  ok a supply box in the pack is told by name when its contents are not shown');
+    console.log('test_build_stock_pure: 3 passed');
 })().catch((e) => { console.error(e); process.exit(1); });

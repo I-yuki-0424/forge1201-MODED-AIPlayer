@@ -742,7 +742,7 @@ async function supplyTrip(job, name, bot, mv, need, cancel) {
             else if (r.region && /no more cells/.test(String(r.why))) { const ok = await escape(job, name, bot, mv, cancel, r.region); if (ok && job.stage === 'place') { job.log(`${name}: dug out of a closed part of the build; the box is surveyed again`); job.stage = 'survey'; } }
             return false;
         }
-        if (bot.inventory.items().some((i) => /shulker_box$/.test(i.name))) await SUP.putBack(bot, site);          // boxes it carries (picked up somewhere) go back first
+        if (SUP.supplyBoxes(bot, job.t.items).length) await SUP.putBack(bot, site, job.t.items);          // boxes it carries (picked up somewhere) go back first
         const spot = () => boxSpot(job, bot, site, mv);
         await SUP.dropRubble(bot, keepRubble(job), { minFree: 12 });          // room in the pack first (a pack full of rubble brought nothing back)
         // what the ready work asks for, and what its sector needs over the next layers (each capped by the fair share in needsFor)
@@ -773,7 +773,7 @@ async function supplyTrip(job, name, bot, mv, need, cancel) {
               job.depot.push({ x, y, z, fx: f[0], fy: f[1], fz: f[2] }); job.stats.depotFound = (job.stats.depotFound || 0) + 1;
               job.log(`supply: a box at ${x},${y},${z} the depot list did not hold is the depot's again`);
           } }
-        const res = await SUP.fetch(bot, site, wants, mv, spot, { log: job.log, depot: job.depot, locks: job.boxLocks || (job.boxLocks = new Map()), me: name, cancel });
+        const res = await SUP.fetch(bot, site, wants, mv, spot, { log: job.log, depot: job.depot, locks: job.boxLocks || (job.boxLocks = new Map()), me: name, cancel, build: job.t.items });
         job.stats.trips++;
         job.log(`${name}: supply trip for ${JSON.stringify(wants).slice(0, 160)}: got ${JSON.stringify(res.got).slice(0, 200)}${Object.keys(res.short).length ? `; short ${JSON.stringify(res.short).slice(0, 200)}` : ''}`);
         // what it came back without, the chest has none of (left): not asked for again for ten minutes (a crew went every minute for nothing, live 2026-11-22 sF w3)
@@ -1130,7 +1130,7 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
                 // the depot's boxes back into the chest, by one bot (alone at the chest: a box it breaks drops into its own reach)
                 if (job.depot && job.depot.length && !job.repacking && job.sites[0]) {
                     job.repacking = name;
-                    try { await mv.goto(job.sites[0], { goal: nearContainer(job.sites[0]), cancel, maxNodes: 40000 }); const lost = await SUP.repack(bot, job.sites[0], job.depot, mv, { log: job.log }); job.log(`${name}: depot boxes put back into the chest${lost ? `, ${lost} not picked up` : ''}`); }
+                    try { await mv.goto(job.sites[0], { goal: nearContainer(job.sites[0]), cancel, maxNodes: 40000 }); const lost = await SUP.repack(bot, job.sites[0], job.depot, mv, { log: job.log, build: job.t.items }); job.log(`${name}: depot boxes put back into the chest${lost ? `, ${lost} not picked up` : ''}`); }
                     catch (e) { job.log(`${name}: repacking failed: ${e.message}`); }
                 }
                 return { ended: 'finished' };
