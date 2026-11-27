@@ -503,5 +503,21 @@ const left = (w, box = BOX) => scan(w, box).length;
         assert.ok(b.d > 5.0, `distance ${b.d}`); assert.strictEqual(b.present, true); assert.ok(!b.calls.some((c) => c.startsWith('blind')), `negative control: ${JSON.stringify(b.calls)}`);
     });
 
+    await test('a budding amethyst just outside the box beside a dug cell is broken too, so no bud grows back into the box (mbc075p w1); negative control: an amethyst block there stays', async () => {
+        const pit = require('../src/work/jobs/pit');
+        const run = async (outside) => {
+            const cells = new Map([['3,64,3', 'stone'], ['8,64,3', outside]]);
+            const w = { nameAt: (x, y, z) => cells.get(`${x},${y},${z}`) || (y < 64 ? 'stone' : 'air'), kindAt: (x, y, z) => ((cells.get(`${x},${y},${z}`) || (y < 64 ? 'stone' : 'air')) === 'air' ? 'air' : 'solid') };
+            const job = pit.createPitJob({ x0: 0, z0: 0, x1: 7, z1: 7, top: 64, bottom: 64 }, {}, { method: 'rows', road: false }), region = job.plan.regions[0];
+            for (let z = 0; z <= 7; z++) for (let x = 0; x <= 7; x++) if (!cells.has(`${x},64,${z}`)) cells.set(`${x},64,${z}`, 'stone');
+            const env = { w, have: () => 9, pause: async () => {}, here: () => ({ x: 6, y: 65, z: 3 }), exec: async (n, a) => { if (n === 'mine') cells.delete(`${a.x},${a.y},${a.z}`); return { ok: true }; } };
+            process.env.PIT_TREES = '0';
+            try { for (let u = 0; u < region.layers * region.rows; u++) await job.runUnit(region.id, { unit: u }, env); } finally { delete process.env.PIT_TREES; }
+            return cells.get('8,64,3') || 'air';
+        };
+        assert.strictEqual(await run('budding_amethyst'), 'air', 'the budding amethyst is gone');
+        assert.strictEqual(await run('amethyst_block'), 'amethyst_block', 'negative control: an amethyst block outside the box stays');
+    });
+
     console.log('\npit trees: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

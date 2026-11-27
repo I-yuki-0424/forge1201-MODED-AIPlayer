@@ -317,6 +317,18 @@ async function runUnit(plan, region, u, env) {
         const b = eyeDist(root) <= BLIND ? await env.exec('mine', { ...root, collect: false, blind: true }) : await navReach(root, { ok: false, reason: 'unreachable' });
         if (b && (b.ok || open(root))) r.bambooRoots = (r.bambooRoots || 0) + 1;
     };
+    // A budding amethyst just outside the box beside an opened cell grows a bud into it again (mbc075p w1, seed -7932703511306839322, 1.21.1: buds at the box edge x 15 from budding
+    // amethyst at x 16, the only blocks left in y -34): it is broken too (it drops nothing; within mine's work area of two cells round the box), blind when in reach, else one NAV trip
+    const takeBudding = async (c) => {
+        const b = plan.box; if (!b || !env.w.nameAt) return;
+        for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0], [0, 1, 0]]) {
+            const q = { x: c.x + dx, y: c.y + dy, z: c.z + dz };
+            if (q.x >= b.x0 && q.x <= b.x1 && q.z >= b.z0 && q.z <= b.z1 && q.y >= b.bottom && q.y <= b.top) continue;          // inside: its own cell's task
+            if (String(env.w.nameAt(q.x, q.y, q.z) || '').replace(/^minecraft:/, '') !== 'budding_amethyst') continue;
+            const m = eyeDist(q) <= BLIND ? await env.exec('mine', { ...q, collect: false, blind: true }) : await navReach(q, { ok: false, reason: 'unreachable' });
+            if (m && (m.ok || open(q))) r.budding = (r.budding || 0) + 1;
+        }
+    };
     const noteCell = (c, t0, block, res) => { const ms = Date.now() - t0; r.cellMs = (r.cellMs || 0) + ms; if (!r.slowCell || ms > r.slowCell.ms) r.slowCell = { x: c.x, y: c.y, z: c.z, block, ms, end: res === null ? 'ok' : res === 'defer' ? 'defer' : (res && res.reason) || null, steps: Object.fromEntries(Object.entries(steps).filter(([, v]) => v >= 500).map(([k, v]) => [k, Math.round(v / 1000)])) }; };
     // A placement the bot cannot reach a face for (unreachable) or that ends in a swim it cannot get out of (stuck): the same walk is not tried again. The server puts the bot on a standable
     // cell beside the fluid cell, once per cell, and the placement is tried from there (a different approach); if that fails too, the failure goes up and the unit is parked.
@@ -511,6 +523,7 @@ async function runUnit(plan, region, u, env) {
         steps = {};
         const res = await handleCell(c, last);
         if (res === null && /^bamboo/.test(String(b0 || '').replace(/^minecraft:/, '')) && c.y === plan.box.bottom) await takeRoot(c).catch(() => { /* the end's sweep looks again */ });          // (the root under the box's bottom)
+        if (res === null && open(c)) await takeBudding(c).catch(() => { /* the end's sweep looks again */ });
         if (res === null && open(c)) await timed('floor', floorFill(c).catch(() => { /* a floor that cannot be laid now is tried again at the next cell */ }));
         noteCell(c, t0, b0, res); return res;
     };
