@@ -157,6 +157,12 @@ async function open(names, settings = {}, difficulty = 'peaceful') {
     CURRENT_DIFFICULTY = diff; console.log(`[t26] difficulty ${diff}, profile ${PROFILE}, temporary block ${TEMP_BLOCK}`);
     // FALL_GUARD=0: the work service's fall guard off for one run (an A/B of the guard; never evidence of a pass)
     const svc = await L.openService(shared, names, { teleport: 'off', tempBlock: TEMP_BLOCK, ...(process.env.FALL_GUARD === '0' ? { fallGuard: false } : process.env.FALL_GUARD === '1' ? { fallGuard: true } : {}), ...settings });
+    // the two-per-bot measure of the work registry, once a second of wall time (TASK-20261125-075; Temps.sample), printed when the service stops
+    if (svc.temps && typeof svc.temps.sample === 'function') {
+        const iv = setInterval(() => { try { svc.temps.sample(1); } catch (_) { /* a measure only */ } }, 1000); iv.unref();
+        const stop0 = svc.stop.bind(svc);
+        svc.stop = async (...a) => { clearInterval(iv); const o = svc.temps.over || { seconds: 0, samples: 0, by: {}, how: {}, cellBound: 0 }; console.log(`[temps] over two: ${o.seconds} bot-seconds of ${o.samples} s sampled; by bot ${JSON.stringify(o.by)}; by what was held ${JSON.stringify(o.how)}; cell-bound peak ${o.cellBound}`); return stop0(...a); };
+    }
     return { shared, S, svc, seed, difficulty: diff };
 }
 

@@ -135,5 +135,24 @@ const botOf = (name, x, z, dim = 'minecraft:overworld') => ({ username: name, ga
         assert.ok(out.cluster >= 3, JSON.stringify(out));
     });
 
+    await test('the two-per-bot measure: the pillar under the feet is one structure, water blocks are the cell\'s, more than two of a bot\'s own count each second (negative control: the same blocks with the bot off its column count three)', () => {
+        let spot = { name: 'a', x: 0.5, y: 75, z: 0.5 };
+        const T = new Temps().attach({ others: () => [spot] });
+        for (let y = 70; y <= 74; y++) T.add({ x: 0, y, z: 0, kind: 'pillar', by: 'a' });          // five high, the bot on top
+        T.add({ x: 1, y: 74, z: 0, kind: 'bridge', by: 'a' });
+        for (let i = 0; i < 4; i++) T.add({ x: 5 + i, y: 60, z: 0, kind: 'lake', by: 'a' });
+        T.add({ x: 9, y: 60, z: 0, kind: 'seal', by: 'a' });
+        let o = T.sample();
+        assert.strictEqual(o.seconds, 0, `column (1) + bridge (1) = two: ${JSON.stringify(o)}`);
+        assert.strictEqual(o.cellBound, 5, 'lake and seal counted apart');
+        T.add({ x: 3, y: 71, z: 0, kind: 'pillar', by: 'a' });                                     // a pillar left elsewhere: three
+        o = T.sample();
+        assert.strictEqual(o.seconds, 1); assert.deepStrictEqual(o.by, { a: 1 }); assert.deepStrictEqual(o.how, { 'bridge:1,column:1,pillar:1': 1 });
+        spot = { name: 'a', x: 2.5, y: 70, z: 0.5 };                                                // off its column: every block counts
+        o = T.sample();
+        assert.strictEqual(o.by.a, 2); assert.strictEqual(o.how['bridge:1,pillar:6'], 1, JSON.stringify(o.how));
+        assert.strictEqual(o.samples, 3);
+    });
+
     console.log('ALL OK'); process.exit(0);
 })().catch((e) => { console.error(e); process.exit(1); });

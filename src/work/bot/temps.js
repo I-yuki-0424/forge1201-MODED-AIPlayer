@@ -14,6 +14,7 @@ const KINDS = new Set(['seal', 'pillar', 'scaffold', 'reflex', 'rescue', 'lake',
 const CLEAN_NEAR = new Set(['pillar', 'scaffold', 'reflex', 'bridge']);            // movement blocks: taken away by the bot that placed them, as soon as it has passed; by another only when the placer is gone (orphans)
 const ORPHAN_MS = 20000, ORPHAN_CLEAR = 3;                                         // an orphan is taken after this long, and never while another bot is within this many blocks
 const HOLDS_BACK = new Set(['seal', 'rescue', 'lake']);                                    // blocks that stop water: taken away only when no fluid lies beside or above them, and only by the pit's own cleanup (a first version let every bot that passed remove the water rescue's fills: 369 listed, the pit flooded again, rescue time went from 27-108 to 273-404 bot-s a minute)
+const CELL_BOUND = new Set(['seal', 'rescue', 'lake', 'road']);                    // the two-per-bot measure: blocks bound to their cell or the job, not to a bot (ruling (b) of 2026-11-26)
 const dimOf = fixtures.dimOf;
 const keyOf = (dim, x, y, z) => `${dim}|${x},${y},${z}`;
 
@@ -46,6 +47,36 @@ class Temps {
     /** Kept in state.json: the oldest are dropped past MAX and past three days (the world is the truth, a stale entry is checked against it before anything is broken). */
     toJSON() { const t = this.now(); return this.list((r) => t - r.at < MAX_AGE_MS).slice(-MAX).map(({ dim, x, y, z, item, kind, by, job, at }) => ({ dim, x, y, z, item, kind, by, job, at })); }
     load(list) { for (const r of Array.isArray(list) ? list.slice(-MAX) : []) { if (r && [r.x, r.y, r.z].every(Number.isInteger) && typeof r.dim === 'string' && r.dim.length < 80) { const rec = this.add(r); if (rec && Number.isFinite(r.at)) rec.at = r.at; } } }
+
+    /**
+     * One second of the two-per-bot measure (owner list 5 Large 1, the orchestrator's ruling of 2026-11-26): for every bot, the movement blocks it has in place, the pillar under
+     * its feet counting as one (the column it stands on while it climbs is one structure in use); blocks bound to a cell or a job (seal, rescue, lake, road) are not a bot's and are
+     * counted apart. Adds `dt` seconds to `over` for each bot with more than two: { seconds, by: {bot: s}, how: {'pillar:3,bridge:1': s}, cellBound: peak count }. Returns `over`.
+     */
+    sample(dt = 1) {
+        const o = this.over || (this.over = { seconds: 0, samples: 0, by: {}, how: {}, cellBound: 0 }), per = new Map(), spots = new Map();
+        for (const q of (this.others ? this.others() : []) || []) spots.set(q.name, { x: Math.floor(q.x), y: Math.floor(q.y + 0.16), z: Math.floor(q.z) });
+        let bound = 0;
+        for (const r of this.map.values()) {
+            if (CELL_BOUND.has(r.kind)) { bound++; continue; }
+            if (!r.by) continue;
+            const f = spots.get(r.by), h = per.get(r.by) || {};
+            // the column under the feet: one structure (its blocks from the feet down, contiguous)
+            if (f && r.kind === 'pillar' && r.x === f.x && r.z === f.z && r.y < f.y && this._column(r, f)) { h.column = 1; per.set(r.by, h); continue; }
+            h[r.kind] = (h[r.kind] || 0) + 1; per.set(r.by, h);
+        }
+        o.samples++; if (bound > o.cellBound) o.cellBound = bound;
+        for (const [by, h] of per) {
+            const n = Object.values(h).reduce((a, b) => a + b, 0);
+            if (n <= 2) continue;
+            o.seconds += dt; o.by[by] = (o.by[by] || 0) + dt;
+            const k = Object.entries(h).map(([a, b]) => `${a}:${b}`).sort().join(',');
+            o.how[k] = (o.how[k] || 0) + dt;
+        }
+        return o;
+    }
+    /** Is `r` part of the unbroken column of registered blocks from just under the feet `f` down? */
+    _column(r, f) { for (let y = f.y - 1; y > r.y; y--) if (!this.map.has(keyOf(r.dim, r.x, y, r.z))) return false; return true; }
 
     /** A claim so that two bots do not walk to the same block: true when `who` may take it (a claim ends after `ms`). */
     claim(dim, c, who, ms = 30000) {
