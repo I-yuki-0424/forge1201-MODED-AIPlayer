@@ -250,7 +250,9 @@ async function fetch(bot, site, needs, mover, spot, { log = () => {}, depot = []
         if (lock(c)) { try { await useBox(c); } finally { unlock(c); } }
     }
     // emptied boxes back into the chest (they are the supply's, and the Nether blueprint builds with shulker boxes)
-    if (reshelve && (await waitLock(site, 20000))) { try { await near(bot, mover, site); await putBack(bot, site, build); } catch (e) { log(`supply: the box not put back: ${e.message}`); } finally { unlock(site); } }
+    // (and any supply box still in the pack: a box that came out of the chest after the wait for it, or the second of two alike boxes when the depot's set-down placed the
+    // first, went away with its bot; b081w4, native, 1.21.1: Bd4e carried 1 728 glass and Bd4g 506 obsidian in boxes from the chest, the ledger 'other' 1 765 and 508)
+    if ((reshelve || supplyBoxes(bot, build).length) && (await waitLock(site, 20000))) { try { await near(bot, mover, site); await putBack(bot, site, build); } catch (e) { log(`supply: the box not put back: ${e.message}`); } finally { unlock(site); } }
     if (retired && (await waitLock(site, 20000))) { try { await near(bot, mover, site); await depositEmpty(bot, site, retired); } catch (e) { log(`supply: empty boxes not put back: ${e.message}`); } finally { unlock(site); } }
     // whole stacks over the need go back into the chest (whatever the windows did)
     await sleep(400);
