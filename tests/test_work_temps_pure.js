@@ -119,5 +119,21 @@ const botOf = (name, x, z, dim = 'minecraft:overworld') => ({ username: name, ga
         assert.deepStrictEqual(no.calls, ['mine']); assert.strictEqual(no.left, 1);
     });
 
+    await test('the end (reach): after a NAV trip every other listed block within reach goes too, blind (mbc075d w3: 134 lake fills of a wet box left, one trip per block); negative control: a block out of reach of that place waits for its own trip', async () => {
+        const TM = require('../src/work/bot/temps');
+        const temps = new TM.Temps();
+        const cells = [[10, 12, 1], [11, 12, 1], [12, 12, 1], [10, 12, 2], [30, 12, 1]];
+        for (const [x, y, z] of cells) temps.add({ x, y, z, kind: 'lake', by: 'P', item: 'cobblestone' });
+        const solid = new Set(cells.map((c) => c.join(','))), pos = { x: 10, y: 69, z: -1 }, calls = [];
+        const env = { temps, bot: { username: 'P', game: { dimension: 'overworld' } }, here: () => ({ ...pos }),
+            w: { kindAt: (x, y, z) => (solid.has(`${x},${y},${z}`) ? 'solid' : 'air'), nameAt: (x, y, z) => (solid.has(`${x},${y},${z}`) ? 'cobblestone' : 'air') },
+            nav: async (t) => { calls.push(`nav ${t.x}`); pos.x = t.x; pos.y = t.y + 1; pos.z = t.z - 1; return { ok: true }; },
+            exec: async (n, a) => { const d = Math.hypot(pos.x - a.x, pos.y + 1.62 - a.y, pos.z - a.z); if (d > 5) return { ok: false, reason: 'stuck' }; calls.push(a.blind ? 'blind' : 'mine'); solid.delete(`${a.x},${a.y},${a.z}`); return { ok: true }; } };
+        const out = await TM.cleanTemps(env, { box: { x0: 0, x1: 40, z0: -5, z1: 15, top: 70, bottom: 0 }, reach: true, max: 10, maxMs: 600000 });
+        assert.strictEqual(solid.size, 0, JSON.stringify({ calls, out }));
+        assert.strictEqual(calls.filter((c) => c.startsWith('nav')).length, 2, `two trips for five blocks: ${calls.join(',')}`);
+        assert.ok(out.cluster >= 3, JSON.stringify(out));
+    });
+
     console.log('ALL OK'); process.exit(0);
 })().catch((e) => { console.error(e); process.exit(1); });

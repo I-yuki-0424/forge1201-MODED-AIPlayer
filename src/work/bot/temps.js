@@ -96,6 +96,7 @@ async function cleanTemps(env, o = {}) {
     const todo = temps.list((r) => r.dim === dim && kinds.has(r.kind) && inBox(r) && (box || Math.hypot(f0.x - r.x, f0.z - r.z) <= (o.radius || 12))).sort((a, b) => Math.hypot(a.x - f0.x, a.z - f0.z) - Math.hypot(b.x - f0.x, b.z - f0.z));
     for (const r of todo) {
         if (out.tried >= max || Date.now() - t0 > maxMs || (env.cancelled && env.cancelled())) break;
+        if (!temps.has(dim, r)) continue;                                                        // taken already with a cluster after a trip
         const kind = env.w.kindAt(r.x, r.y, r.z);
         if (kind === 'unknown') continue;                                                      // not in view: the next bot that passes
         if (kind !== 'solid') { if (temps.now() - (r.at || 0) >= LATE_MS) { temps.remove(dim, r); out.forgotten++; } continue; }              // gone already (or replaced by water): nothing to break; (not within a placement's late window: it may still come, TASK-075)
@@ -118,6 +119,20 @@ async function cleanTemps(env, o = {}) {
                 if (!(h.x === r.x && h.z === r.z && h.y === r.y + 1)) m = await env.exec('mine', { x: r.x, y: r.y, z: r.z, collect: false, ...(d <= 4.5 ? { blind: true } : {}) });
             }
             if (m.ok || env.w.kindAt(r.x, r.y, r.z) !== 'solid') out.navBroken = (out.navBroken || 0) + 1;
+            // where the trip has brought the bot, every other block of the list within the arm's reach goes too, blind (the lake fill's blocks lie together: one trip per block
+            // could not finish 134 of them in the end's time, mbc075d w3, 1.21.1), never the block under the body, never one that still holds a fluid back
+            if (!['died', 'disconnected', 'cancelled'].includes(m.reason)) {
+                const h = env.here(), eye = { x: h.x + 0.5, y: h.y + 1.62, z: h.z + 0.5 };
+                const near = todo.filter((q) => q !== r && env.w.kindAt(q.x, q.y, q.z) === 'solid' && Math.hypot(q.x + 0.5 - eye.x, q.y + 0.5 - eye.y, q.z + 0.5 - eye.z) <= 4.4 && !(q.x === h.x && q.z === h.z && q.y === h.y - 1)
+                    && (!HOLDS_BACK.has(q.kind) || holdsNothingBack(env.w, q)) && (HOLDS_BACK.has(q.kind) || (temps.mayClean && temps.mayClean(env.bot, q))));
+                near.sort((a, b) => b.y - a.y);
+                for (const q of near) {
+                    if (Date.now() - t0 > maxMs) break;
+                    const mm = await env.exec('mine', { x: q.x, y: q.y, z: q.z, collect: false, blind: true });
+                    if (mm && ['died', 'disconnected', 'cancelled'].includes(mm.reason)) break;
+                    if (env.w.kindAt(q.x, q.y, q.z) !== 'solid') { temps.remove(dim, q); out.broken++; out.cluster = (out.cluster || 0) + 1; }
+                }
+            }
         }
         if (m.ok || env.w.kindAt(r.x, r.y, r.z) !== 'solid') { temps.remove(dim, r); out.broken++; continue; }
         if (m.reason) { out.fails = out.fails || {}; out.fails[m.reason] = (out.fails[m.reason] || 0) + 1; out.firstFail = out.firstFail || { cell: [r.x, r.y, r.z], reason: m.reason, at: [f.x, f.y, f.z], detail: JSON.stringify(m.detail || {}).slice(0, 240) }; }
