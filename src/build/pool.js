@@ -177,7 +177,8 @@ class Pool {
                 r.fetching = true;
                 const a = asker.entity.position, af = { x: Math.floor(a.x), y: Math.floor(a.y + 0.16), z: Math.floor(a.z) };
                 this.job.log(`pool: ${name} goes to ${r.from}, who cannot get up to it`);
-                const res = await mv.goto(af, { goal: near(af, mv.view()), cancel: { get cancelled() { return cancel.cancelled || r.state !== 'coming'; } }, maxNodes: 20000, tries: 3 });
+                const res = await mv.goto(af, { goal: near(af, mv.view(), { floors: false }),          // (the giver's cell: the floor rule is the asker's)
+                 cancel: { get cancelled() { return cancel.cancelled || r.state !== 'coming'; } }, maxNodes: 20000, tries: 3 });
                 if (!res.ok) { this.close(r, 'failed', `neither could get to the other (${String(res.why).slice(0, 80)})`); return; }
                 end = Date.now() + 10000;          // there: a moment to throw (a third bot beside the asker passes)
                 continue;
@@ -290,15 +291,18 @@ function room(bot, items) {
 
 /**
  * A cell for the asker: two to three cells from the giver (horizontally), at about its height, nothing between them at the height the toss flies (the cell half way, at the
- * giver's feet and head): the toss lands there.
+ * giver's feet and head), and a floor under it and under the cell beyond it (the giver's own rule before it throws, serve: the toss lands at the asker's feet or a cell
+ * further). Without the floor rule here the asker waited where the giver would not throw: b081z4 (1.21.1) Bd4d on a pumpkin 2.8 from Bd4f with air beyond, 172 refusals
+ * 'no floor' in 96 s; 46 of b081y4's 92 requests ended 'did not meet' after about 100 s.
  */
-function near(gf, view = null) {
+function near(gf, view = null, { floors = true } = {}) {
     return (x, y, z) => {
-        const d = Math.hypot(x - gf.x, z - gf.z);
+        const dx = x - gf.x, dz = z - gf.z, d = Math.hypot(dx, dz);
         if (d < 2 || d > 3.1 || Math.abs(y - gf.y) > 1) return false;
         if (!view) return true;
         const mx = Math.round((x + gf.x) / 2), mz = Math.round((z + gf.z) / 2);
-        return view.free(mx, gf.y, mz) && view.free(mx, gf.y + 1, mz);
+        if (!view.free(mx, gf.y, mz) || !view.free(mx, gf.y + 1, mz)) return false;
+        return !floors || (view.stands(x, y - 1, z) && view.stands(Math.floor(x + 0.5 + dx / d), y - 1, Math.floor(z + 0.5 + dz / d)));
     };
 }
 

@@ -197,6 +197,18 @@ test('pool: a toss the asker does not get is taken back by the giver (walks onto
     }
 });
 
+test('pool: the asker\'s cell has the giver\'s floor rule, under it and the cell beyond (b081z4: Bd4d waited on a pumpkin 2.8 from its giver with air beyond, 172 refusals in 96 s); negative control: with a floor beyond, the cell is good', () => {
+    const { near } = require('../src/build/pool');
+    for (const beyondFloor of [false, true]) {
+        const solid = new Set(['3,69,0', '0,69,0']); if (beyondFloor) solid.add('4,69,0');
+        const view = { free: () => true, stands: (x, y, z) => solid.has(`${x},${y},${z}`) };
+        const ok = near({ x: 0, y: 70, z: 0 }, view)(3, 70, 0);
+        assert.strictEqual(ok, beyondFloor, beyondFloor ? 'negative control: floor beyond' : 'no floor beyond: not a cell for the asker');
+    }
+    const view = { free: () => true, stands: () => false };
+    assert.strictEqual(near({ x: 0, y: 70, z: 0 }, view)(3, 70, 0), false, 'no floor under the asker');
+});
+
 test('pool: no toss to an asker whose floor ends at its feet (a stance in the air: b081w4, 43 glass fell 38 cells and despawned); negative control: on ground the toss goes', async () => {
     for (const ground of [false, true]) {
         const job = { tasks: new Map(), claims: new Map(), t: { items: new Map() }, log: () => {}, _itemOf: () => null, _addNeeds: (need) => need };
