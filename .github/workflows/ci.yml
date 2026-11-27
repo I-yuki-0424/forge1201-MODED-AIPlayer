@@ -22,6 +22,8 @@ jobs:
         with: { node-version: '20', cache: npm }
       - run: npm ci
       - run: npm test
+      - name: shell syntax of the live suite and test-world scripts (they run only on the VPS)
+        run: for f in scripts/ci/*.sh scripts/t26/*.sh; do bash -n "$f" || exit 1; done
   sim:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
