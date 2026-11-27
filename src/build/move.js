@@ -477,27 +477,29 @@ class Mover {
      * stance is on top of this pillar or beside its top (then the pillar is used again). Returns the blocks taken down.
      */
     async unpillar(to, goal, cancel, { any = false } = {}) {
-        let n = 0;
+        let n = 0; this.unpillarWhy = null;
+        const stop = (why) => { this.unpillarWhy = why; };
         while (n < 80 && !cancel.cancelled) {
             // (any: every temporary block of the crew, rules.isTemp; a column nobody could take down from beside its top is dug down from on it)
             // its own: this mover's, or the bot's by the ledger (a column an escape or an earlier mover of the same bot put up)
             const f = feet(this.bot), k = key(f.x, f.y - 1, f.z), name = this.mine.has(k) ? this.mine.get(k) : ((any || (this.rules.ownTemp && this.rules.ownTemp(f.x, f.y - 1, f.z))) && this.rules.isTemp && this.rules.isTemp(f.x, f.y - 1, f.z) ? null : undefined);
-            if (name === undefined || goal(f.x, f.y, f.z)) break;
+            if (name === undefined) { stop(n ? null : 'not on a temporary block of its own'); break; }
+            if (goal(f.x, f.y, f.z)) break;
             // only the next step on this same column keeps the pillar (dug down to its height when that is lower): one left for a stance beside its top became a column the crew
             // never took down (owner 2026-11-23 V4); "a next stance near it at about its height" kept columns for stances that never came (owner list 5 Large 1: removed)
-            if (to && to.x === f.x && to.z === f.z && to.y >= f.y - 1) break;
+            if (to && to.x === f.x && to.z === f.z && to.y >= f.y - 1) { stop('the next stance is on this column'); break; }
             const b = this.bot.blockAt(new Vec3(f.x, f.y - 1, f.z), false);
-            if (!b || (name && b.name !== name)) { this.mine.delete(k); break; }
+            if (!b || (name && b.name !== name)) { this.mine.delete(k); stop(`the block under it is ${b ? b.name : 'not loaded'}`); break; }
             const v = this.view();
-            if (!v.stands(f.x, f.y - 2, f.z) || v.nearLava(f.x, f.y - 1, f.z)) break;          // a gap or lava under it: the crew's untemp task takes it later
-            if ([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => { const q = v.raw(f.x + dx, f.y - 1, f.z + dz); return q && (q.name === 'water' || q.name === 'lava'); })) break;      // it holds back a fluid
+            if (!v.stands(f.x, f.y - 2, f.z) || v.nearLava(f.x, f.y - 1, f.z)) { stop(v.nearLava(f.x, f.y - 1, f.z) ? 'lava beside it' : `a gap under it (${(v.raw(f.x, f.y - 2, f.z) || {}).name || '?'})`); break; }          // a gap or lava under it: the crew's untemp task takes it later
+            if ([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => { const q = v.raw(f.x + dx, f.y - 1, f.z + dz); return q && (q.name === 'water' || q.name === 'lava'); })) { stop('it holds back a fluid'); break; }      // it holds back a fluid
             // never a block another bot's route stands on (a bot climbed down its pillar while another walked across its top: falls of 25, live 2026-11-24 ha22 w1)
-            if (this.rules.mayDig && !this.rules.mayDig(f.x, f.y - 1, f.z)) break;
-            if (!(await this.dig({ x: f.x, y: f.y - 1, z: f.z }))) { if (this.rules.onTempFail) this.rules.onTempFail({ x: f.x, y: f.y - 1, z: f.z }, 'unpillar: the dig failed'); break; }
+            if (this.rules.mayDig && !this.rules.mayDig(f.x, f.y - 1, f.z)) { stop('a crew member on it or its route'); break; }
+            if (!(await this.dig({ x: f.x, y: f.y - 1, z: f.z }))) { if (this.rules.onTempFail) this.rules.onTempFail({ x: f.x, y: f.y - 1, z: f.z }, 'unpillar: the dig failed'); stop('the dig failed'); break; }
             this.mine.delete(k); if (this.rules.onUntemp) this.rules.onUntemp({ x: f.x, y: f.y - 1, z: f.z });
             // landed on the next block before the next dig (the position comes down a few ticks after the dig; dug on the old position, the block it was landing on went too)
             for (let i = 0; i < 40 && !(feet(this.bot).y <= f.y - 1 && this.bot.entity.onGround); i++) await sleep(50);
-            if (!(feet(this.bot).y <= f.y - 1 && this.bot.entity.onGround)) break;
+            if (!(feet(this.bot).y <= f.y - 1 && this.bot.entity.onGround)) { stop('did not land'); break; }
             n++;
         }
         if (n) this.note(`unpillar ${n}`);
