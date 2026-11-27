@@ -904,6 +904,22 @@ a wet box) are the open part.
 In the jungle the crew ran out of diamond pickaxes (two per bot in the supply: 'tool_held diamond_pickaxe' 27 times), and the slowest cells' time went to NAV trips
 (139 s), pauses (69 s) and recovers (53 s), not to the late steps any more. **Not met:** the dark forest (mushroom blocks and bamboo left, 0.5 of rock pace).
 
+**mine_b closing set 4 (2026-11-27 18:45-20:10, code main 6a1e7213, the harness ran the main checkout; same conditions as sets 1-3: 1.21.1, native physics, guard on, Peaceful, 240 game min at x3).**
+
+| Run (world, seed) | End | Dirty layers | Pumpkins (scan, 0 cells unloaded) | Fills left (registered) | Deaths (server log) |
+| :-- | :-- | --: | --: | --: | :-- |
+| `mbc075h` w1 (4331971738747880703) | timeout 80 min, very wet (6 040 water + 116 lava cells in box and ring: an aquifer y 29-62 under the box) | 122 | **0** | 667 | 7 drowned |
+| `mbc075h` w2 (-3225010002522430521) | timeout 80 min, wet (1 884 water) | 86 | **0** | 705 | 0 |
+| `mbc075i` w3 (3038448690598417856, KILL_AT_END, a mountain box, spawn y 184) | timeout 85 min, killed in the end, the wrap ran its 5 min after the respawn | 69 | **0** | 0 | 1 (the kill) |
+
+The first set with zero temporary blocks on all three worlds by the server scan, no fall and no lava death; the wet boxes are still the open part (seven drownings on w1, both wet
+boxes timed out with their lake fills registered: the pit's intended terrain, contract point 5). The cause of the drownings: from the bottom of the aquifer neither the shore search
+(14 cells) nor NAV (it swims only in the surface band) found a way, so the rescue answered 'stuck' and the bot sank again after every breath reflex. Changes after set 4, each with a
+test and a negative control: the rescue goes up first from deep water or a closed pocket (`env.surface`, 6d607692; `scripts/t26/water_probe.js`: a pool 20 deep PASS in 4 s, a roofed
+pocket PASS in 34 s, the code before FAIL 'stuck', `CONTROL=noop` FAIL); a pit worker gathers only what `mine` may break and goes back to its box for an item instead of exploring
+away (f39cb329; mbc075e w2's 100-block cobblestone loop after its drowning); the pit's blind digs reach the action layer's 5.0 (5d2c4a9e; 081's b081u4 tail behind one leaf at 4.85);
+the tree pass takes huge mushroom blocks and a bamboo stalk by its root, and a root under the box bottom by one NAV trip (1fd57956; fr075c).
+
 move_a's 10 pumpkins on seed 7601 (`ma075s`) were a wild pumpkin patch: the same 10 cells (x 663-675, y 67) are pumpkins in an untouched world of that seed (scan.js). move_a now
 grades only cells that turned into a temporary-block kind during the run (a block update seen by the bot, never a chunk load).
 
