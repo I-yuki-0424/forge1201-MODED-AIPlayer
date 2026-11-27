@@ -1000,3 +1000,43 @@ were 'a gap under it (pumpkin)'. The block under the bot was a released block of
   - the claim's flood and the claim itself: 1.8 % and 1.5 %.
   Record: `/mnt/data/forgeaip-play/t26/out/b081-records/b081w5-profile.txt`.
 - *The finishing pair*: `b081w4` (native) and `b081w5` (mineflayer), from `/mnt/data/forgeaip-play/t26/snap-081h` (b5b79c85), forest sites, `LIMIT_MIN` 240 + judge. At job minute ~107 they had placed 5 408 and 4 939 blocks, with no deaths. Their judges are read by the successor (the progress note in the knowledge-DB).
+
+### Round 3 (2026-11-27 evening): the finishing pair's verdict, the tail, container contents
+
+**The pair b081w4 / b081w5** (`snap-081h` = b5b79c85, forest sites, 8 bots, `LIMIT_MIN` 240, 250.4 minutes each, judged by the server cell by cell). Neither passed:
+
+| | b081w4 (native physics, the 1.21.1 default) | b081w5 (`NATIVE_*=0`, mineflayer) |
+| :-- | :-- | :-- |
+| Blueprint blocks placed | 6 620 | 6 701 |
+| Wrong cells | 1 693: 1 512 unlit portal cells, 181 others | 1 642: 1 512 unlit portal cells, 130 others |
+| Of the others | smooth stone missing 50, smooth stone one cell high 34 (pistons retracted: their sources never placed), redstone torches 24, slabs 18, trapdoors 15, wires 11, beds 10 | smooth stone 45, one cell high 35, torches 24, slabs 11, trapdoors 6 |
+| Temporary blocks left (scan after) | 10 (8 orphaned and not yet tried, 2 under their placer) | 6 |
+| Deaths | 0 | 1 |
+
+Both stalled in the tail from about minute 145. In b081w4, 53 cells were left in the place stage, all at stances 70-118 blocks high. Their walks were parked after `no plan (time, 13-29 thousand cells)` while the crew made about 1 100 empty claims a minute. The same pattern held b081w5's last 33 cells, with `nodes` as the limit. Behind those cells, the machine rule held 25 power sources. A cell given up is parked and tried again in turn, and while it is back on the list the rule counts it, so the sources never went in. The place stage never ended, so the late stage never lit the 36 portals. Those portals are 1 512 of the wrong cells.
+
+The glass that vanished in b081w4 was one hand-over. Bd4a, on a stance in the air, threw 43 glass and 30 redstone to an asker. The toss fell 38 cells to the ground, nobody reached it, and it despawned. The 30 redstone were then missing at the end, and 11 cells were parked 'out of stock: redstone'.
+
+**Fixes after the pair:**
+- *A stance on its own bridge block beside its pillar's top* (034bfc99): when every task of the claim can be done from the column top, the bot moves back onto it and digs the bridge block. The column is then the stance itself, and `unpillar` takes it down at the release. `columnsLeft` 'the next stance on the column it stands on: this one beside it left' was the largest class under the two-per-bot ruling: 118 blocks in w4 and 146 in w5. Bot-seconds over two under the ruling: w4 25 120, w5 8 169.
+- *A hand-over toss goes only onto solid floor* (0df0650d): the asker's floor and the floor one cell beyond it must both be solid.
+- *The tail's walks* (e5408ecd): under 400 tasks, a walk to a stance gets 6 s and 80 000 cells of search instead of 1.5 s and 30 000. The CPU is free then.
+- *A stall lifts the machine rule* (b8d15e88): when nothing is ready for anybody and the order rules are relaxed, power sources go in too.
+
+**Container contents (owner addendum 3; e21e3560, 9915ac84).** `Target.contents` holds one goal per container and item, built with 076's `blueprintContainers`, and the goals' items are part of the bill. A task of kind `contents` sets the slots through the action layer's `set_contents`, from the stance, at a reach of 4.2. It is late-stage work, because a filter hopper locks only once its circuit stands. The exception is a *closed* container, one with no air face in the finished build. Its goal becomes work as soon as the container is placed, and the block that would close its last open face waits until the contents are set. `build_t` judges every goal container's `Items` from the server, exactly. A trial passes only when they are right.
+
+The owner's Nether blueprint (not in the repo) has 73 goals in 61 containers. Nine of them are closed. The goals hold 3 634 iron ingots, 722 poppies, 107 shulker boxes, 64 sticks and 2 white shulker boxes.
+
+**Pause table, before and after** (the first 30 placing minutes of each run; `scripts/t26/pause_report.py`):
+
+| | b081a (before, 2867180a) | b081w4 (after, native) | b081w5 (after, mineflayer) |
+| :-- | --: | --: | --: |
+| Pauses over 0.5 s | 1 405, 1 962 s | 1 437, 3 280 s | 1 490, 2 847 s |
+| Blueprint blocks placed in the window | 1 247 | 2 127 | 1 859 |
+| Pause seconds per block placed | 1.57 | 1.54 (1.15 without the pit's 839 s) | 1.53 |
+| `drive sleep` | 453 s | none | 116 s |
+| `cpu: plan` / `retry: cpu: plan` | 606 / 481 s | 141 / 802 s | 123 / 697 s |
+| The claim's flood (`cpu: flood` + `server: cpu: flood`) | none | 1 045 s | 829 s |
+| `server: mover tick wait` | 114 s | 101 s | 412 s |
+
+The crew placed 50-70 % more per minute for about the same pause time per block. What is left: planner retries, and the claim's flood, which is new since the flood routes. Both are on TASK-082's hot-path list.
