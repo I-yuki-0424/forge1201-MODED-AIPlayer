@@ -568,6 +568,21 @@ const left = (w, box = BOX) => scan(w, box).length;
         assert.strictEqual(b.fill, 'cobblestone', 'negative control: the fill still holds the water back and stays'); assert.strictEqual(b.ring, 'water');
     });
 
+    await test('the hanging pass never mines the block the bot stands on (mbc075t w1: it mined a hanging block under its feet 40 over the dug floor and fell to its death); negative control: the same block with the bot beside it is mined', async () => {
+        const run = async (onIt) => {
+            const w = world([[5, 80, 5, 'cobblestone'], [6, 80, 5, 'cobblestone']]);
+            const f = fakeEnv(w, onIt ? { x: 5, y: 81, z: 5 } : { x: 6, y: 81, z: 5 }), under = [];
+            const mv = f.env.exec; f.env.exec = async (n, a) => { if (n === 'mine') { const h = f.env.here(); if (a.x === h.x && a.z === h.z && a.y === h.y - 1) under.push([a.x, a.y, a.z]); } return mv(n, a); };
+            const find = (ww) => (ww.kindAt(5, 80, 5) === 'solid' ? [{ x: 5, y: 80, z: 5, gy: GROUND }] : []);
+            await clearTrees(f.env, { x0: 0, x1: 15, z0: 0, z1: 15, top: 90 }, { find, maxMs: 3000, done: (c) => w.kindAt(c.x, c.y, c.z) !== 'solid' });
+            return { under, left: w.nameAt(5, 80, 5) };
+        };
+        const a = await run(true);
+        assert.deepStrictEqual(a.under, [], `never the block under the feet: ${JSON.stringify(a)}`);
+        const b = await run(false);
+        assert.strictEqual(b.left, 'air', 'negative control: from beside it the block is mined');
+    });
+
     await test('the tree pass ends after three NAV trips in a row that got nowhere (mbc075q w3: the respawned bot spent 30 min of the job\'s end on futile trips); negative control: trips that arrive go on', async () => {
         const mk = () => { const b = []; for (let i = 0; i < 8; i++) b.push([2 + i, GROUND + 9, 5, 'oak_leaves']); const w = world(b); const f = fakeEnv(w, { x: 0, y: GROUND + 1, z: 0 }); const mv = f.env.exec; f.env.exec = async (n, a) => (n === 'move_to' ? { ok: false, reason: 'unreachable' } : mv(n, a)); return { ...f, w }; };
         const a = mk(); let trips = 0; a.env.nav = async () => { trips++; return { ok: false, reason: 'stuck' }; };

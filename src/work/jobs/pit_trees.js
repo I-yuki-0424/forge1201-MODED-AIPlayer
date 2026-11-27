@@ -89,6 +89,9 @@ async function clearTrees(env, box, { maxMs = MAX_MS, maxCells = MAX_CELLS, find
     const lowTried = new Set();
     let navFails = 0;
     const give = (c, why) => { failed.set(`${c.x},${c.y},${c.z}`, { x: c.x, y: c.y, z: c.z, why }); };
+    // never the block the body stands on (the one under the feet, or one that holds it at an edge: pit.js supportsBody): the end's hanging pass mined a hanging block it stood on, 40 blocks
+    // over the dug floor, and the bot fell to its death (mbc075t w1, seed -9081138306293114222, 1.21.1, 'fell from a high place'); the pillar's own blocks go on the way down (down())
+    const holds = (c) => { const h = env.here(); return (c.x === h.x && c.z === h.z && c.y === h.y - 1) || require('./pit').supportsBody(env, c); };
     const gone = (c) => (done ? done(c) : (() => { const k = w.kindAt(c.x, c.y, c.z); return k === 'air' || !isTree(w.nameAt(c.x, c.y, c.z)); })());
 
     // the bot's own position may be unloaded around the box: go there first (same as the layer gate)
@@ -102,7 +105,7 @@ async function clearTrees(env, box, { maxMs = MAX_MS, maxCells = MAX_CELLS, find
         // 1. blocks within reach of the ground: logs first (the leaves decay on their own once no log is near), nearest first
         // (a low block that `mine` could not take from the ground, a leaf inside the crown with no line of sight to it, goes the aerial way: a column beside it, mined blind;
         // given up after one try it stayed for good, the birch of 081's b081h at 204,75,305 with 7 leaves round it through three pit rounds)
-        const low = all.filter((c) => c.y - c.gy <= LOW && !lowTried.has(`${c.x},${c.y},${c.z}`)).sort((a, b) => (/_log|_wood|_stem/.test(bare(w.nameAt(b.x, b.y, b.z))) ? 1 : 0) - (/_log|_wood|_stem/.test(bare(w.nameAt(a.x, a.y, a.z))) ? 1 : 0) || Math.hypot(a.x - here.x, a.z - here.z) - Math.hypot(b.x - here.x, b.z - here.z));
+        const low = all.filter((c) => c.y - c.gy <= LOW && !lowTried.has(`${c.x},${c.y},${c.z}`) && !holds(c)).sort((a, b) => (/_log|_wood|_stem/.test(bare(w.nameAt(b.x, b.y, b.z))) ? 1 : 0) - (/_log|_wood|_stem/.test(bare(w.nameAt(a.x, a.y, a.z))) ? 1 : 0) || Math.hypot(a.x - here.x, a.z - here.z) - Math.hypot(b.x - here.x, b.z - here.z));
         if (low.length) {
             const c = low[0];
             // within the arm's reach from where the bot stands: blind at once (the server checks the distance, not the line; leaves hide each other), else the aimed mine walks to it
@@ -142,7 +145,7 @@ async function clearTrees(env, box, { maxMs = MAX_MS, maxCells = MAX_CELLS, find
             for (let stage = 0; stage < 40 && !stop(); stage++) {
                 // everything of the tree within reach of the eyes, nearest first (blind: the server checks the distance, not the line)
                 for (;;) {
-                    const e = eye(), near = look(new Set(failed.keys())).filter((c) => Math.hypot(c.x + 0.5 - (col.x + 0.5), c.z + 0.5 - (col.z + 0.5)) <= RADIUS && inReach(c));
+                    const e = eye(), near = look(new Set(failed.keys())).filter((c) => Math.hypot(c.x + 0.5 - (col.x + 0.5), c.z + 0.5 - (col.z + 0.5)) <= RADIUS && inReach(c) && !holds(c));
                     if (!near.length || stop()) break;
                     near.sort((a, b) => Math.hypot(a.x + 0.5 - e.x, a.y + 0.5 - e.y, a.z + 0.5 - e.z) - Math.hypot(b.x + 0.5 - e.x, b.y + 0.5 - e.y, b.z + 0.5 - e.z));
                     const c = near[0], m = await env.exec('mine', { x: c.x, y: c.y, z: c.z, collect: false, blind: true });
