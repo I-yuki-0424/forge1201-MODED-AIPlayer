@@ -12,7 +12,7 @@
 // on a bot's tick. Each kind has its own limit (one per bot or build per interval, a cap per run); at most `queue` waiting. A byte budget for the whole folder (default 2 GB):
 // the oldest events go first. Pictures are indexed PNGs (256 colours).
 //
-// Environment: STUCK_SNAPSHOTS=1 turns it on (default off), STUCK_DIR (default /out/stuck, else <data>/stuck), RUN (the run's name),
+// Environment: STUCK_SNAPSHOTS=1 / 0 turns it on / off (default: on in a harness container, i.e. where /out exists), STUCK_DIR (default /out/stuck, else <data>/stuck), RUN (the run's name),
 // STUCK_BUDGET_MB (default 2048), STUCK_MAX (scales every kind's cap, default 1), STUCK_PROGRESS_MIN (default 10), STUCK_ASSETS (the texture cache root; default WORK_ASSETS,
 // /mc-assets, /out/mc-assets, /mnt/data/forgeaip/mc-assets).
 const fs = require('fs');
@@ -277,8 +277,9 @@ class StuckWatch {
 function optional(m) { try { return require(m); } catch (_) { return null; } }
 
 const watches = new WeakMap();
-// off unless asked for (STUCK_SNAPSHOTS=1): not yet checked live on a harness world (the RCON truth sends ~900 commands per event), so the running tasks' runs stay as they were
-function enabled(env = process.env) { return env.STUCK_SNAPSHOTS === '1'; }
+// On by default in harness runs (a container with /out: scripts/t26/run.sh), off elsewhere (the consoles); STUCK_SNAPSHOTS=1 / 0 forces it. Measured on test world 8
+// (docs/implemented/STUCK-SNAPSHOTS-v1.md section 4): the server check 100-175 ms of RCON for 774-1477 commands per event, no rise of the server's ms per tick, 12-37 KB.
+function enabled(env = process.env, harness = fs.existsSync('/out')) { return env.STUCK_SNAPSHOTS === '1' || (env.STUCK_SNAPSHOTS !== '0' && harness); }
 /** The hook (WorkService.note): one watcher per service, made on its first line. Never throws. */
 function observe(service, e) {
     try {

@@ -168,7 +168,7 @@ function scene(slab = [[0, 0, 0, 1, 0.5, 1]]) {
         { const { Mover } = require('../src/build/move'), b = { entity: { position: { x: 1, y: 2, z: 3 } } }, a = { bot: b, trace: [] }, c = { bot: b, trace: [] };
           Mover.prototype.note.call(a, 'step'); assert.strictEqual(b.__mover, a, 'the mover that noted a step is the bot\'s');
           Mover.prototype.note.call(c, 'dig'); assert.strictEqual(b.__mover, c, 'the last one wins'); assert.notStrictEqual(b.__mover, a, 'not the earlier one (control)'); }
-        assert.strictEqual(W.enabled({}), false, 'off by default'); assert.strictEqual(W.enabled({ STUCK_SNAPSHOTS: '0' }), false); assert.strictEqual(W.enabled({ STUCK_SNAPSHOTS: '1' }), true);
+        assert.strictEqual(W.enabled({}, false), false, 'off outside a harness (the consoles)'); assert.strictEqual(W.enabled({}, true), true, 'on in a harness run'); assert.strictEqual(W.enabled({ STUCK_SNAPSHOTS: '0' }, true), false, 'off when asked'); assert.strictEqual(W.enabled({ STUCK_SNAPSHOTS: '1' }, false), true, 'on when asked');
     });
 
     await test('console routes: 401 without a session; runs, index, event and pictures with one; traversal, other names and a symlink out of the folder refused (a real file is served: control)', async () => {
