@@ -925,7 +925,9 @@ async function checkLayer(plan, ledger, byId, state, env, ck, now) {
         if (!c.wrong.length) continue;
         const key = `${ck.region}:${u}`, n = state.layer.get(key) || 0;
         if (n >= LAYER_ROUNDS) { res.leftover++; res.first = res.first || { unit: u, cells: c.wrong.slice(0, 4), leftover: true }; continue; }
-        if (ledger.requeueUnit(ck.region, u, now, { holdMs: LAYER_HOLD_MS * (n + 1) })) { state.layer.set(key, n + 1); res.reopened++; res.first = res.first || { unit: u, cells: c.wrong.slice(0, 4), round: n + 1 }; }
+        // held only when the unit failed (parked): a unit that was done and still shows a block (water ran back, gravel fell) is a fresh task, and its hold only kept a lone bot idle
+        // (wet mine_b boxes, 1.21.1: 'idle' was 12-23 % of bot time, about 8 s per layer reopening, wp075a/wp075b)
+        if (ledger.requeueUnit(ck.region, u, now, { holdMs: st === STUCK ? LAYER_HOLD_MS * (n + 1) : 0 })) { state.layer.set(key, n + 1); res.reopened++; res.first = res.first || { unit: u, cells: c.wrong.slice(0, 4), round: n + 1 }; }
     }
     return res;
 }

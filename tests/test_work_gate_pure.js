@@ -62,6 +62,22 @@ const P = { x: 0, z: 0 };
         const r5 = await job.checkLayer(env, ck2, 301); assert.strictEqual(r5.reopened, 0, JSON.stringify(r5));
     });
 
+    await test('pit check: a done unit that still shows a block goes back claimable at once (no hold: a lone bot idled about 8 s per reopening, wp075a); negative control: a parked unit keeps its hold', async () => {
+        const box = { x0: 0, x1: 4, z0: 0, z1: 4, top: 10, bottom: 9 }, job = pit.createPitJob(box, { gate: true }, { method: 'sweep', road: false });
+        const solid = new Set(['1,10,1']), w = { kindAt: (x, y, z) => (solid.has(`${x},${y},${z}`) ? 'solid' : 'air'), nameAt: (x, y, z) => (solid.has(`${x},${y},${z}`) ? 'stone' : 'air') };
+        const L = job.ledger; L.join('A'); const reg = [...L.regions.values()][0], env = { w, here: () => ({ x: 2, y: 10, z: 2 }) };
+        const c = L.claim('A', P, 0); L.done('A', reg.id, c.units[0].unit, 1);
+        let ck = L.needCheck('A', 10); assert.strictEqual((await job.checkLayer(env, ck, 10)).reopened, 1); L.checkDone('A', reg.id, 0, 10, false);
+        assert.ok(L.claim('A', P, 11), 'claimable at once');
+        const job2 = pit.createPitJob(box, { gate: true }, { method: 'sweep', road: false }), L2 = job2.ledger; L2.join('A'); const reg2 = [...L2.regions.values()][0];
+        const c2 = L2.claim('A', P, 0); for (let i = 0; i < 20 && reg2.state[c2.units[0].unit] !== 3; i++) { L2.fail('A', reg2.id, c2.units[0].unit, 'unreachable', i + 1); const again = L2.claim('A', P, 1e6 * (i + 1)); if (!again) break; }
+        assert.strictEqual(reg2.state[c2.units[0].unit], 3, 'the unit is parked');
+        {          // parked (STUCK)
+            ck = L2.needCheck('A', 2e7); assert.strictEqual((await job2.checkLayer(env, ck, 2e7)).reopened, 1); L2.checkDone('A', reg2.id, 0, 2e7, false);
+            assert.strictEqual(L2.claim('A', P, 2e7 + 1), null, 'negative control: a parked unit is held');
+        }
+    });
+
     await test('worker: a bot that leaves one block in layer 0 is sent back to it before anybody starts layer 1 (the whole loop on a fake world)', async () => {
         const box = { x0: 0, x1: 4, z0: 0, z1: 4, top: 10, bottom: 9 }, job = pit.createPitJob(box, { gate: true, leaseMs: 60000 }, { method: 'sweep', road: false });
         const solid = new Set(), log = [], w = { kindAt: (x, y, z) => (solid.has(`${x},${y},${z}`) ? 'solid' : 'air'), nameAt: (x, y, z) => (solid.has(`${x},${y},${z}`) ? 'stone' : 'air') };
