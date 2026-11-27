@@ -45,13 +45,16 @@ class Target {
         // stands and every block does (the late stage: a filter hopper locks only once its circuit stands); its items are part of the bill
         this.contents = [];
         for (const g of CT.blueprintContainers(bp, origin)) {
+            // closed: no face of it is air in the finished build, so its screen is opened while it is built (the place stage), before its last open face is placed
+            const closed = ![[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].some(([dx, dy, dz]) => { const q = this.at(g.x + dx, g.y + dy, g.z + dz); return !q || S.AIR.has(S.bare(q.name)); });
             const per = new Map(); for (const c of g.args.contents) (per.get(c.item) || per.set(c.item, []).get(c.item)).push(c);
             for (const [item, slots] of per) {
                 const count = slots.reduce((a, c) => a + c.count, 0);
-                this.contents.push({ k: `contents@${g.x},${g.y},${g.z}:${item}`, x: g.x, y: g.y, z: g.z, i: this.idx(g.x, g.y, g.z), item, count, slots, all: g.args.contents });
+                this.contents.push({ k: `contents@${g.x},${g.y},${g.z}:${item}`, x: g.x, y: g.y, z: g.z, i: this.idx(g.x, g.y, g.z), item, count, slots, all: g.args.contents, closed });
                 this.items.set(item, (this.items.get(item) || 0) + count);
             }
         }
+        this.contentsAt = new Map(); for (const g of this.contents) { const ck = `${g.x},${g.y},${g.z}`; (this.contentsAt.get(ck) || this.contentsAt.set(ck, []).get(ck)).push(g); }
         this.pistons = P.pistonsOf(this);
     }
 

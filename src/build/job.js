@@ -103,7 +103,7 @@ class BuildJob {
             // a seal (outside the box) that holds no fluid back any more goes at the end; one that still does is part of the result and is counted as kept (the only kept rule)
             if (this.wrapping || !sv.tasks.some((tk) => STAGE_OF[tk.kind] === 'prepare' || STAGE_OF[tk.kind] === 'place' || STAGE_OF[tk.kind] === 'late')) for (const e of this.ledger.list((q) => q.how === 'seal' && !q.released)) { const into = wetAround(bot, e) ? this._floodsInto(e) : null; if (into) this.ledger.keep(e, `seal: the fluid behind it would run into the finished box at ${into}`); else { e.released = { at: Date.now(), why: 'the box is done' }; e.wetOk = true; if (!sv.tasks.some((tk) => tk.k === e.k)) sv.tasks.push({ k: e.k, kind: 'untemp', i: -1, x: e.x, y: e.y, z: e.z }); } }
             // the blueprint's container contents: a goal per container and item, once its container stands as the blueprint has it (late stage: when every block does)
-            for (const g of this.t.contents || []) { const h = sv.have[g.i]; if (!(this.contentsDone && this.contentsDone.has(g.k)) && h && S.matches(this.t.stateOf(g.i), h)) sv.tasks.push({ ...g, kind: 'contents' }); }
+            for (const g of this.t.contents || []) { const h = sv.have[g.i]; if (!(this.contentsDone && this.contentsDone.has(g.k)) && h && S.matches(this.t.stateOf(g.i), h)) sv.tasks.push(this._contentsTask(g)); }
             for (const tk of sv.tasks) {
                 if (this.parked.has(tk.k)) continue;
                 if (tk.kind !== 'seal' && tk.kind !== 'ignite' && this.available && !this._itemOk(tk)) { const it = this._itemOf(tk); if (this.outOfStock && this.outOfStock.has(it)) this._park(tk, `out of stock: ${it}`); else this.parked.set(tk.k, `missing_item ${it}`); continue; }
@@ -163,6 +163,28 @@ class BuildJob {
     }
 
     _itemOf(tk) { if (tk.kind === 'fill' || tk.kind === 'seal' || tk.kind === 'scaffold') return this.tempItem || this.sealItem; if (tk.kind === 'ignite') return 'flint_and_steel'; if (tk.kind === 'contents') return tk.item; const r = tk.i >= 0 ? this.t.recipeOf(tk) : null; return r && r.item; }
+    /** A container goal as a task: a closed one (no face of it open in the finished build) in the place stage, the rest late. */
+    _contentsTask(g) { return { ...g, kind: 'contents', ...(g.closed ? { stageAs: 'place' } : {}) }; }
+    /** The container just placed at tk: its closed goals are work now (the next survey may come too late: its last open face is placed meanwhile). */
+    _contentsAfter(tk) {
+        for (const g of (this.t.contentsAt && this.t.contentsAt.get(tk.k)) || []) {
+            if (!g.closed || (this.contentsDone && this.contentsDone.has(g.k)) || this.tasks.has(g.k) || this.parked.has(g.k)) continue;
+            const t = this._contentsTask(g); this.tasks.set(t.k, t);
+            const bk = `${Math.floor(t.x / 8)},${Math.floor(t.y / 8)},${Math.floor(t.z / 8)}`; (this.buckets.get(bk) || this.buckets.set(bk, []).get(bk)).push(t);
+        }
+    }
+    /** Would placing tk close the last open face of a closed container whose contents are not set yet? (it waits for them; a goal parked or given up does not hold it) */
+    _closesUnfilled(tk, bot) {
+        const at = this.t.contentsAt; if (!at || !at.size) return false;
+        const N6 = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+        for (const [dx, dy, dz] of N6) {
+            const c = { x: tk.x + dx, y: tk.y + dy, z: tk.z + dz }, gs = at.get(key(c.x, c.y, c.z));
+            if (!gs || !gs.some((g) => g.closed && !(this.contentsDone && this.contentsDone.has(g.k)) && !this.parked.has(g.k))) continue;
+            const open = N6.filter(([ex, ey, ez]) => { const q = { x: c.x + ex, y: c.y + ey, z: c.z + ez }, h = seen(bot, q); return !h || S.AIR.has(h.name) || SV.REPLACEABLE.test(h.name); });
+            if (open.length === 1 && open[0][0] === -dx && open[0][1] === -dy && open[0][2] === -dz) return true;
+        }
+        return false;
+    }
     /** How many of its item a task needs: a container's goal its count, a block one. */
     _countOf(tk) { return tk.kind === 'contents' ? tk.count : 1; }
     _itemOk(tk) { if (tk.kind === 'clear' || tk.kind === 'fix') return true; const it = this._itemOf(tk); return !it || this.available.has(it); }
@@ -246,6 +268,8 @@ class BuildJob {
             return true;
         }
         if (tk.kind === 'place' || tk.kind === 'fix') {
+            // never the last open face of a closed container before its contents are set (the owner's Nether blueprint: droppers and hoppers with no face open when built)
+            if (tk.kind === 'place' && this._closesUnfilled(tk, bot)) return false;
             // a block dug out to open a closed-in cell goes back after that cell is placed (or given up)
             if (tk.waitFor && this.tasks.has(tk.waitFor) && !this.parked.has(tk.waitFor)) return false;
             if (tk.y > this.topAt(tk.x, tk.z)) return false;
@@ -1087,7 +1111,7 @@ class BuildJob {
             this.claims.delete(tk.k);
             if (ok && tk.after) { const o = this.tasks.get(tk.k); if (o) { o.kind = tk.after; delete o.after; this.cool.set(tk.k, now + 500); } this.stats.cleared++; continue; }
             if (ok && tk.kind === 'place') { const it = this._itemOf(tk); if (it) { const u = this.used || (this.used = new Map()); (u.get(name) || u.set(name, new Map()).get(name)).set(it, now); } }
-            if (ok) { this.tasks.delete(tk.k); this.stats[{ seal: 'sealed', fill: 'filled', clear: 'cleared', scaffold: 'scaffolds', place: 'placed', fix: 'fixed', pour: 'poured', ignite: 'lit', contents: 'contents', untemp: 'untemp' }[tk.kind]]++; if (tk.kind === 'contents') (this.contentsDone || (this.contentsDone = new Set())).add(tk.k); if (tk.kind === 'untemp') this.ledger.check(tk, 'air'); if (tk.kind === 'scaffold') { (this.scaffolds = this.scaffolds || new Set()).add(tk.k); if (tk.for) (this.scafNext || (this.scafNext = new Map())).set(name, tk.for); } if (tk.kind === 'place') this._scaffoldServed(tk.k, 'its block stands'); if (tk.kind === 'fill') this._afterFill(tk); if (tk.kind === 'fill' || tk.kind === 'seal') this.fluidLeft = [...this.tasks.values()].some((q) => q.kind === 'fill' || q.kind === 'seal'); if (tk.kind === 'place' || tk.kind === 'fix' || tk.kind === 'clear') this._lowered(tk); continue; }
+            if (ok) { this.tasks.delete(tk.k); this.stats[{ seal: 'sealed', fill: 'filled', clear: 'cleared', scaffold: 'scaffolds', place: 'placed', fix: 'fixed', pour: 'poured', ignite: 'lit', contents: 'contents', untemp: 'untemp' }[tk.kind]]++; if (tk.kind === 'contents') (this.contentsDone || (this.contentsDone = new Set())).add(tk.k); if (tk.kind === 'untemp') this.ledger.check(tk, 'air'); if (tk.kind === 'scaffold') { (this.scaffolds = this.scaffolds || new Set()).add(tk.k); if (tk.for) (this.scafNext || (this.scafNext = new Map())).set(name, tk.for); } if (tk.kind === 'place') { this._scaffoldServed(tk.k, 'its block stands'); this._contentsAfter(tk); } if (tk.kind === 'fill') this._afterFill(tk); if (tk.kind === 'fill' || tk.kind === 'seal') this.fluidLeft = [...this.tasks.values()].some((q) => q.kind === 'fill' || q.kind === 'seal'); if (tk.kind === 'place' || tk.kind === 'fix' || tk.kind === 'clear') this._lowered(tk); continue; }
             if (why === 'skipped') {
                 // skipped over and over (out of reach, its own floor, no item at hand) counts as a failure in the end: a task skipped for ever held a stage (live 2026-11-22)
                 const sk = (this.skips.get(tk.k) || 0) + 1; this.skips.set(tk.k, sk);

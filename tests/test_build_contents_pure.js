@@ -49,4 +49,23 @@ test('a container\'s contents: a goal per item with its slots, in the bill; a la
     assert.deepStrictEqual([...job.tasks.values()].filter((tk) => tk.kind === 'contents').map((tk) => tk.item), ['stick'], 'a done goal comes back no more');
 });
 
+test('a closed container (no face open in the finished build): its goal is place-stage work as soon as it is placed, and the block that would close its last open face waits for it; negative controls: two faces open, or the goal done', async () => {
+    const palette = [{ name: 'minecraft:air', props: {} }, { name: 'minecraft:stone', props: {} }, { name: 'minecraft:dropper', props: { facing: 'up', triggered: 'false' } }];
+    const blocks = []; for (let x = 0; x < 3; x++) for (let y = 0; y < 3; y++) for (let z = 0; z < 3; z++) blocks.push({ x, y, z, s: x === 1 && y === 1 && z === 1 ? 2 : 1 });
+    blocks.find((b) => b.s === 2).nbt = { Items: [{ Slot: 4, id: 'minecraft:iron_ingot', count: 64 }] };
+    const t = new Target({ size: [3, 3, 3], palette, blocks }, { x: 0, y: 64, z: 0 });
+    assert.strictEqual(t.contents.length, 1); assert.strictEqual(t.contents[0].closed, true);
+    const w = new Map(); for (let x = 0; x < 3; x++) for (let y = 64; y < 67; y++) for (let z = 0; z < 3; z++) w.set(`${x},${y},${z}`, { name: 'stone' });
+    w.set('1,65,1', { name: 'dropper', props: { facing: 'up', triggered: 'false' } }); w.delete('1,66,1'); w.delete('1,65,0');
+    const job = new BuildJob(t, {}), bot = fakeBot(w);
+    const top = { k: '1,66,1', x: 1, y: 66, z: 1, kind: 'place' };
+    assert.strictEqual(job._closesUnfilled(top, bot), false, 'negative control: two faces open, this one is not the last');
+    w.set('1,65,0', { name: 'stone' });
+    assert.strictEqual(job._closesUnfilled(top, bot), true, 'the last open face waits');
+    job.buckets = new Map(); job._contentsAfter({ k: '1,65,1' });
+    const ct = job.tasks.get('contents@1,65,1:iron_ingot'); assert(ct && ct.stageAs === 'place', 'place-stage work at its placement');
+    (job.contentsDone = new Set()).add(ct.k);
+    assert.strictEqual(job._closesUnfilled(top, bot), false, 'negative control: the goal done, the face may close');
+});
+
 (async () => { for (const [name, fn] of queue) { await fn(); n++; console.log(`  ok ${name}`); } console.log(`test_build_contents_pure: ${n} passed`); })().catch((e) => { console.error(e); process.exit(1); });
