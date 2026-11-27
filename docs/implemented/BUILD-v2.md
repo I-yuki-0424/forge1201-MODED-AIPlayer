@@ -934,6 +934,18 @@ The pumpkins in these boxes at the stop (12 and 41 in pillars of the place stage
 reached their target (a movement result, deaths: 7 by mobs at Normal, 1 drowned, none by a fall or lava); **0 pumpkins** left by the run on all 12 trials (the scan grades only cells
 that became pumpkins during the run).
 
+**mine_b closing set 5 (2026-11-27 21:16-22:39, code 08ab6efb: the rescue goes up first; same conditions).**
+
+| Run (world, seed) | End | Dirty layers | Pumpkins (scan, 0 unloaded) | Fills left (registered) | Deaths (server log) |
+| :-- | :-- | --: | --: | --: | :-- |
+| `mbc075j` w1 (2261401093455771374) | timeout 81 min, very wet (3 256 water + 63 lava) | 102 | **0** | 42 | 0 |
+| `mbc075j` w2 (2254152221898428075) | timeout 80 min, wet (1 244 water) | 103 | **0** | 967 | 1 drowned, after 23 rescues 'to the shore (stuck)' |
+| `mbc075k` w3 (7117985389101595608, KILL_AT_END) | finished at 41 min (the end pass was shorter than the harness's poll: the kill did not fire) | 4 (y -15..-12: one natural chest, a fixture the bots never break by the owner's rule; the grader counts it) | **0** | 0 | 0 |
+
+w2's drowning: the bot came up, but the only dry ground was two above the water's top cell under a ledge, and neither NAV nor the walk climbs that out of the water. Change
+(7e34b75b, test with a negative control): a rescue still in the water places a block into a water cell beside the body with air over it (a footing one step up) and tries again
+(`water_probe.js LEDGE=1`: PASS in 4 s; the code before FAIL 'stuck').
+
 move_a's 10 pumpkins on seed 7601 (`ma075s`) were a wild pumpkin patch: the same 10 cells (x 663-675, y 67) are pumpkins in an untouched world of that seed (scan.js). move_a now
 grades only cells that turned into a temporary-block kind during the run (a block update seen by the bot, never a chunk load).
 
