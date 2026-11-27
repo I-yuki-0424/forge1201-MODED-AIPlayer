@@ -946,6 +946,18 @@ w2's drowning: the bot came up, but the only dry ground was two above the water'
 (7e34b75b, test with a negative control): a rescue still in the water places a block into a water cell beside the body with air over it (a footing one step up) and tries again
 (`water_probe.js LEDGE=1`: PASS in 4 s; the code before FAIL 'stuck').
 
+**mine_b closing set 6 (2026-11-27 22:42 - 11-28 00:08, code 7e34b75b: + the footing beside the body; same conditions).**
+
+| Run (world, seed) | End | Dirty layers | Pumpkins (scan, 0 unloaded) | Fills left (registered) | Deaths (server log) |
+| :-- | :-- | --: | --: | --: | :-- |
+| `mbc075l` w1 (-2964649716384181853) | finished at 54 min, wet (385 water) | 10 (lake fills and seals that hold the water back) | **0** | 48 (lake 44, seal 2, rescue 2) | 0 |
+| `mbc075l` w2 (-6444645784404374713) | timeout 84 min, wet | 121 | **0** | 373 | 0 |
+| `mbc075m` w3 (-6630574979378290520, KILL_AT_END) | timeout 80 min: the bot sat about 60 min in open water (60+ rescues 'to the shore (stuck)', kept alive by the breath reflex), killed in the end, the wrap ran after the respawn | 111 | **0** | 172 | 1 (the kill) |
+
+w3's water had no cell beside the body with a solid face to click, so no footing could be placed. Change (4bb721d8, test with a negative control): the footing may be any
+water cell within two across at the feet's level with air over it and a solid face, nearest first. Over sets 4-6 (nine new worlds): **0 temporary blocks left on all nine** by the
+server scan, no fall and no lava death; drownings 7 / 1 / 0, each set's cause changed before the next.
+
 move_a's 10 pumpkins on seed 7601 (`ma075s`) were a wild pumpkin patch: the same 10 cells (x 663-675, y 67) are pumpkins in an untouched world of that seed (scan.js). move_a now
 grades only cells that turned into a temporary-block kind during the run (a block update seen by the bot, never a chunk load).
 
