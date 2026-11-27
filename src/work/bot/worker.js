@@ -36,6 +36,8 @@ async function runWorker(job, id, env, { cancel = { cancelled: false }, policy =
             let died = false; const onDeath = () => { died = true; };
             if (bot && bot.on) bot.on('death', onDeath);
             const t0 = Date.now();
+            // the bot announces its end pass (a test harness arms its kill-in-the-end on it: mine_b KILL_AT_END missed a 3 s end between two polls, mbc075k)
+            if (bot && bot.emit) try { bot.emit('work_end_pass', { id, round }); } catch (_) { /* a listener's error is not the job's */ }
             try {
                 if (job.cleanup) await job.cleanup(env);
                 if (!died && env.navOn && env.navOn()) await require('../../nav/go').sweep(env);

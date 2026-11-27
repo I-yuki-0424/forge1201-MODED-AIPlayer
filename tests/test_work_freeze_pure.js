@@ -33,6 +33,21 @@ async function until(cond, ms = 10000) { const t0 = Date.now(); while (!cond()) 
         assert.ok(ticks >= 3, `timers ran while the worker did (${ticks} ticks in ${Date.now() - t0} ms)`);
     });
 
+    await test('worker: the end pass is announced on the bot (work_end_pass) once the ledger is finished, before its cleanup runs (mine_b KILL_AT_END missed a 3 s end, mbc075k); negative control: a worker that never finishes announces nothing', async () => {
+        const run = async (ok) => {
+            const ledger = new Ledger({ leaseMs: 1e9, maxAttempts: 2 }); ledger.addRegion({ id: 'r', anchor: { x: 0, z: 0 }, layers: 1, rows: 1 });
+            const seen = [], bot = new EventEmitter(); bot.username = 'b'; bot.on('work_end_pass', (e) => seen.push(['event', e.round]));
+            const job = { ledger, runUnit: async () => (ok ? { ok: true } : { ok: false, reason: 'cancelled' }), cleanup: async () => { seen.push(['cleanup']); } };
+            const env = { bot, pos: () => ({ x: 0, z: 0 }), defend: async () => ({ fought: 0, killed: 0 }), recover: async () => {}, threat: () => false, rememberGood: () => {} };
+            const res = await runWorker(job, 'b', env, { pollMs: 1, backoff: () => 1 });
+            return { res, seen };
+        };
+        const a = await run(true);
+        assert.strictEqual(a.res.ended, 'finished'); assert.deepStrictEqual(a.seen.slice(0, 2), [['event', 0], ['cleanup']], JSON.stringify(a.seen));
+        const b = await run(false);
+        assert.ok(!b.seen.some((x) => x[0] === 'event'), `negative control: ${JSON.stringify(b.seen)}`);
+    });
+
     await test('worker: a real fight (something attacked) still claims again at once and is not a failure streak', async () => {
         const ledger = new Ledger({ leaseMs: 1e9, maxAttempts: 6 }); ledger.addRegion({ id: 'r', anchor: { x: 0, z: 0 }, layers: 1, rows: 2 });
         let n = 0, fights = 0;
