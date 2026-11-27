@@ -652,6 +652,16 @@ async function goToStation(S, handle, env, open, r) {
                 r.navFail = `${g && g.reason}${g && g.detail && g.detail.why ? ` (${String(g.detail.why).slice(0, 60)})` : ''}`;
             }
         }
+        // The station cell itself is still closed (the layer above it not dug there yet, a leaf, snow) and the bot stands away from it, outside the box (the corridor below digs only
+        // inside the box: mbc075d w3, 1.21.1: 'could not stand at the station' 99,69,3 from 115,69,8, 'outside'): NAV digs its way there, once per walk, bounded
+        if (!open(S) && env.nav && navs < 1 && Math.hypot(here.x - S.x, here.z - S.z) > 2) {
+            navs++;
+            const t0 = Date.now(), g = await env.nav({ x: S.x, y: S.y, z: S.z }, { near: 0, nearY: 0, why: 'pit: to a closed station', deadline: Date.now() + NAV_TRIP_MS }).catch((e) => ({ ok: false, reason: 'internal', detail: { error: String(e && e.message || e) } }));
+            r.navMs = (r.navMs || 0) + (Date.now() - t0); r.navStation = (r.navStation || 0) + 1;
+            if (g && FATAL_MINE.has(g.reason)) return { ok: false, reason: g.reason, detail: { ...(g.detail || {}), botSide: true, stage: 'station_nav', cell: S, ...r } };
+            if (g && g.ok) continue;
+            r.navFail = `${g && g.reason}${g && g.detail && g.detail.why ? ` (${String(g.detail.why).slice(0, 60)})` : ''}`;
+        }
         // The station is three or more levels above the bot and there is no way up on foot (a shaft, a cave under a layer that is still closed): rise by pillar,
         // breaking what is overhead (by hand if no tool fits), and dig the corridor to the station from that layer. Live pit 2026-11-07: four bots stood under an
         // undug slab, 5-26 levels below their units, and failed 'unreachable' for ten minutes. Another bot in the same cell blocks the first block: sidestep, again.

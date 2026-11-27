@@ -190,6 +190,10 @@ function endWorld() {
         assert.deepStrictEqual(a.env.here(), S, 'NAV brought it to the station'); assert.strictEqual(navCalls, 1); assert.strictEqual(r.navStation, 1); assert.ok(/unreachable/.test(r.moveFail));
         const b = mk(undefined), r2 = {}; await pit.goToStation(S, async () => null, b.env, () => true, r2);
         assert.notDeepStrictEqual(b.env.here(), S, 'negative control: without NAV the bot is not at the station');
+        // a station whose cell is still closed, the bot outside the box 16 away (mbc075d w3: 'outside'): NAV digs its way there
+        const c = mk(async (t) => { c.bot.x = t.x; c.bot.y = t.y; c.bot.z = t.z; return { ok: true }; }), r3 = {};
+        c.bot.x = 29; c.env.within = { x0: 0, x1: 15, z0: 0, z1: 15, top: 70, bottom: 0 };
+        assert.strictEqual(await pit.goToStation(S, async () => null, c.env, () => false, r3), null); assert.deepStrictEqual(c.env.here(), S); assert.strictEqual(r3.navStation, 1);
     });
 
     await test('the pit does not dig the block that holds the body over a fall (mbc075b w2: its own support at the box edge, a 13-block fall); it steps onto a cell that still holds it and digs from there; negative control: a block under a body held by another column is dug as it is', async () => {
