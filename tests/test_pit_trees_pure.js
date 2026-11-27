@@ -313,5 +313,26 @@ const left = (w, box = BOX) => scan(w, box).length;
         assert.deepStrictEqual((await run('jungle_log')).sort(), ['3,61,3', '3,62,3', '3,63,3'], 'a log below the box stays');
     });
 
+    await test('a pit unit ends after 6 min whatever its method (bt075w4: one sweep unit ran 15 min, the stall cap ended the pit); a fast unit is not cut (negative control)', async () => {
+        const pit = require('../src/work/jobs/pit');
+        const real = Date.now;
+        const run = async (msPerMine) => {
+            let t = real(); Date.now = () => t;
+            try {
+                const cells = new Map(); for (let x = 0; x < 8; x++) for (let z = 0; z < 8; z++) cells.set(`${x},64,${z}`, 'stone');
+                const w = { nameAt: (x, y, z) => cells.get(`${x},${y},${z}`) || (y < 64 ? 'stone' : 'air'), kindAt: (x, y, z) => ((cells.get(`${x},${y},${z}`) || (y < 64 ? 'stone' : 'air')) === 'air' ? 'air' : 'solid') };
+                const job = pit.createPitJob({ x0: 0, z0: 0, x1: 7, z1: 7, top: 64, bottom: 64 }, {}, { method: 'sweep', road: false }), region = job.plan.regions[0];
+                let mines = 0;
+                const env = { w, have: () => 9, pause: async () => {}, here: () => ({ x: 3, y: 65, z: 3 }), exec: async (n, a) => { if (n === 'mine') { mines++; t += msPerMine; cells.delete(`${a.x},${a.y},${a.z}`); } return { ok: true }; } };
+                const r = await job.runUnit(region.id, { unit: 0 }, env);
+                return { r, mines };
+            } finally { Date.now = real; }
+        };
+        const slow = await run(60000);
+        assert.ok(!slow.r.ok && slow.r.reason === 'timeout', JSON.stringify(slow.r).slice(0, 160)); assert.ok(slow.mines <= 8, `${slow.mines} mines`);
+        const fast = await run(100);
+        assert.ok(fast.r.ok, JSON.stringify(fast.r).slice(0, 160));
+    });
+
     console.log('\npit trees: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

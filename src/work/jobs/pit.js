@@ -183,7 +183,7 @@ function unitCells(plan, region, u) {
     return out;
 }
 
-const NAV_TRIPS = 3, NAV_TRIP_MS = 60000, NAV_UNIT_MS = 120000, CELL_MS = 60000;          // NAV per unit at most (b081m: navS 363 s in one unit); a cell's retries end after CELL_MS          // per unit; one trip (bt075t5-7, units over 30 s: 39 trips, median 33 s, p90 81 s, max 221 s)
+const NAV_TRIPS = 3, NAV_TRIP_MS = 60000, NAV_UNIT_MS = 120000, CELL_MS = 60000, CANOPY_MS = 30000, UNIT_MS = 6 * 60000;          // NAV per unit at most (b081m: navS 363 s in one unit); a cell's retries end after CELL_MS          // per unit; one trip (bt075t5-7, units over 30 s: 39 trips, median 33 s, p90 81 s, max 221 s)
 const reachFail = (m) => m && (m.reason === 'unreachable' || !!(m.detail && Array.isArray(m.detail.unmet) && m.detail.unmet.some((u) => u && u.need === 'in_reach')));
 const RETRY = new Set(['not_visible', 'not_confirmed', 'stuck', 'unreachable', 'target_lost', 'timeout']);
 const CELL_FAILS = new Set([...RETRY, 'invalid_target']);       // failures that belong to one cell: the rest of the tile can still be dug
@@ -251,7 +251,7 @@ async function runUnit(plan, region, u, env) {
     // Fill what sealPlan lists. `before`: only fluid that can be seen now (a pocket sealed inside stone cannot be clicked, and it
     // cannot flow until the cell next to it opens: live run p4, a water cell in the wall next to the last stone); after the dig
     // the opened cell is the window onto it, so everything is filled then, the pocket first and the opened cell last.
-    const liftedFor = new Set(), bridgedFor = new Set(), droppedFor = new Set(), navFor = new Set();
+    const liftedFor = new Set(), bridgedFor = new Set(), droppedFor = new Set(), navFor = new Set(), unitT0 = Date.now();
     // A cell the station cannot reach, whatever it holds (rock, any tree block, a snow layer, a block of the crew's own pillar): blind from where the bot stands when the eye is within
     // the server's reach (4.6), else NAV takes the bot within reach (walk, dig, pillar, bridge, descend, the block two below; owner ruling 2026-11-26) and the mine is tried again.
     // One trip per cell and NAV_TRIPS per unit: a unit with more such cells hands them back failed (the ledger gives the unit to the next round or bot) instead of working a whole
@@ -288,9 +288,12 @@ async function runUnit(plan, region, u, env) {
             cand.push(t);
         }
         cand.sort((p, q) => q.y - p.y);              // from the top: nothing is cut from under a block still to come
+        // CANOPY_MS at most, each mine with that deadline: the sweep counted into its cell's time and some jungle cells took 560-700 s (bt075w3, 1.21.1)
+        const end = Date.now() + CANOPY_MS;
         for (const t of cand.slice(0, 48)) {
+            if (Date.now() > end) { r.canopyCut = (r.canopyCut || 0) + 1; break; }
             if (!isTreeAt(env.w, t)) continue;
-            const m = await env.exec('mine', { x: t.x, y: t.y, z: t.z, collect: false, blind: true });
+            const m = await env.exec('mine', { x: t.x, y: t.y, z: t.z, collect: false, blind: true }, { deadline: end });
             if (m && FATAL_MINE.has(m.reason)) return;
             if (m && m.ok) r.canopy = (r.canopy || 0) + 1;
         }
@@ -458,6 +461,9 @@ async function runUnit(plan, region, u, env) {
     };
     // One cell: the dig with the water rule, then the floor under it (a cell that is open now and has water under it gets its floor block).
     const handle = async (c, last) => {
+        // a unit's cells end after UNIT_MS, whatever the method (the expert's stations have the same bound): the rest goes back with the unit (bt075w4, bamboo jungle, 1.21.1: one sweep
+        // unit ran 15 min, 081's stall cap ended the pit with 109 units pending)
+        if (Date.now() - unitT0 > UNIT_MS && !open(c)) return { ok: false, reason: 'timeout', detail: { why: `the unit's cells took more than ${UNIT_MS / 60000} min`, stage: 'unit', cell: c, ...r } };
         const t0 = Date.now(), b0 = env.w.nameAt ? env.w.nameAt(c.x, c.y, c.z) : null;
         const res = await handleCell(c, last);
         if (res === null && /^bamboo/.test(String(b0 || '').replace(/^minecraft:/, '')) && c.y === plan.box.bottom) await takeRoot(c).catch(() => { /* the end's sweep looks again */ });          // (the root under the box's bottom)
