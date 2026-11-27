@@ -75,6 +75,13 @@ const LIMIT_MIN = Number(process.env.LIMIT_MIN || 240), DEPTH = Number(process.e
     // temporary blocks (pumpkins) around the box before the job: the end scan counts only new ones (TASK-20261125-075)
     const TB = require('../../src/work/bot/tempblocks'), scanArea = { x0: x0 - 12, x1: x1 + 12, z0: z0 - 12, z1: z1 + 12, y0: bottom - 4, y1: top + 24 };
     const scan0 = TB.scanBox(bot, scanArea), before0 = new Set(scan0.cells.map((c) => `${c.x},${c.y},${c.z}`));
+    // The history of every cell that turned into a temporary-block kind during the run (TASK-075's cause table: placed by which command, registered or not, removed from the
+    // registry by which code path): printed at the end for each block the scan still finds
+    const hist = new Map(), kinds0 = new Set(TB.only()), kOf = (c) => `${c.x},${c.y},${c.z}`;
+    bot.on('blockUpdate', (o, b) => { if (!b || !b.position) return; const k = kOf(b.position); if (kinds0.has(b.name) && (!o || o.name !== b.name)) hist.set(k, { at: Date.now(), tag: bot.__moveTag || null, last: bot.__lastCmd || null, reg: null, rm: null }); else if (hist.has(k) && o && kinds0.has(o.name) && !kinds0.has(b.name)) hist.get(k).gone = Date.now(); });
+    { const T = svc.temps, add0 = T.add.bind(T), rm0 = T.remove.bind(T);
+      T.add = (e) => { const r = add0(e); if (r) { const h = hist.get(kOf(r)) || {}; h.reg = { kind: r.kind, by: r.by, at: Date.now() }; hist.set(kOf(r), h); } return r; };
+      T.remove = (dim, c) => { const h = hist.get(kOf(c)); if (h && T.has(dim, c)) h.rm = { at: Date.now(), by: String(new Error().stack).split('\n').slice(2, 4).map((l) => l.trim().replace(/^at /, '').replace(/\(\/app\//, '(')).join(' < ') }; return rm0(dim, c); }; }
     const t0 = Date.now();
     let state = 'control';
     if (!T.CONTROL) {
@@ -108,6 +115,7 @@ const LIMIT_MIN = Number(process.env.LIMIT_MIN || 240), DEPTH = Number(process.e
     const tempsLeft = svc.temps.list((r) => r.x >= x0 - 2 && r.x <= x1 + 2 && r.z >= z0 - 2 && r.z <= z1 + 2).map((r) => [r.x, r.y, r.z, r.kind]);
     const tempScan = TB.scanBox(svc.bots.get(name).bot, scanArea, null, before0);
     console.log(`[temps] ${tempScan.cells.length} temporary blocks left around the box (${tempScan.unloaded} cells not loaded): ${JSON.stringify(tempScan.cells.slice(0, 20))}`);
+    for (const c of tempScan.cells.slice(0, 20)) { const h = hist.get(kOf(c)); console.log(`[temps] left ${kOf(c)}: ${h ? JSON.stringify({ ago: Math.round((Date.now() - h.at) / 1000), tag: h.tag, last: h.last, reg: h.reg, rm: h.rm }).slice(0, 600) : 'no block update seen (placed out of view, or a world block)'}`); }
     if (deaths.read) await deaths.read();
     rep.trial(name, controlOk && left.length === 0 && !moves[name], { tempScanLeft: tempScan.cells.length, tempScanCells: tempScan.cells.slice(0, 40), spawn: p0, pond, lakeFill: process.env.PIT_LAKE !== '0', method: process.env.METHOD || 'default', fluid, sec: Math.round((Date.now() - t0) / 1000), jobEnd, box, controlDirtyLayers: before.length, state, min: Math.round((Date.now() - t0) / 60000), dirtyLayers: left.length, firstDirty: left.slice(0, 12), registeredTempsLeft: tempsLeft.length, temps: tempsLeft.slice(0, 20), deaths: deaths[name], serverMoves: moves[name] || 0, guardStops: ((svc.bots.get(name) || {}).bot || {}).__fallGuard ? svc.bots.get(name).bot.__fallGuard.stops : null, nativePhysics: process.env.NATIVE_PHYSICS !== '0' });
     await S.cmd(`forceload remove ${x0} ${z0} ${x1} ${z1}`);
