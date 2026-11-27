@@ -848,6 +848,11 @@ command and move, and the walk's path node; `fallguard.js` episodes, mine_b `[gu
 | `fg-on` / `fg-off` | 0a5ec9c7 | 0 / 8 (15 min) | 1 192-1 962 / - | 0 / 6 | | |
 | `fg075f` on / `fg075g` off | 1bb48a9d | 0 / 4 (16 min) | 171 / - | 5 / 5 | 0 / 2 | 13 / 14 |
 | `fg075i` on / `fg075j` off | eb2f9c60 | 12 / 14 | 8 / - | 0 / 6 | 0 / 2 | 3 / 2 |
+| `nm075a` native / `nm075b` mineflayer physics (`NATIVE_PHYSICS=0`), guard on in both | e1251fe7 | 14 / 15 | 589 (582 in one 10 s episode) / 7 | 0 / 0 | 0 / 0 | 3 / 3 |
+
+The native-against-mineflayer pit pair of the morning (`mbab-native` / `mbab-mf`) was void (the guard on in both held the pit); the pair above replaces it: the same units with
+either physics. The one long native episode was a walk settling onto its own goal cell 8,62,11, which the planner called standable and the guard did not hold (582 ticks, until
+the walk's tick budget ended it); a guard episode now names the blocks under the body (9bf7f331) to find which block the two read differently.
 
 The guard is on for every work bot again (`src/work/service/bots.js`; setting `fallGuard: false` or `FALL_GUARD=0` turns it off for an A/B). The remaining stops are single ticks
 (a slide along an edge) and raw key holds of the recovery fixes (`sidestep`, `back_off`: forward held 0.8 s toward a cell checked one ahead), which the guard bounds.
