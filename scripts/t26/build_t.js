@@ -68,7 +68,7 @@ async function main() {
     const groundYAt = (x, z) => { for (let y = 200; y > -60; y--) { const b = at(x, y, z); if (b && !/^(air|cave_air|void_air|.*_leaves|.*_log|vine|short_grass|tall_grass|snow)$/.test(b)) return y; } return null; };
     // SITE_BIOME=<biome id> (TASK-075, a site with a given kind of trees: old_growth_spruce_taiga, snowy_taiga, dark_forest, jungle, birch_forest ...): the server's `locate biome` from the
     // spawn gives the first draws' centre (each later draw a little farther from it), else the random draw
-    let around = null;
+    let around = null; const SITE_DRAWS = Math.max(1, Math.min(6, Number(process.env.SITE_DRAWS || 1))), dryDraws = [];
     if (process.env.SITE_BIOME && !NETHER) {
         const out = T.strip(await srv.cmd(`execute positioned ${Math.floor(sp.x)} 100 ${Math.floor(sp.z)} run locate biome minecraft:${process.env.SITE_BIOME.replace(/[^a-z_]/g, '')}`)), mm = /\[(-?\d+), [~\-\d]+, (-?\d+)\]/.exec(out);
         console.log(`[build_t] locate biome ${process.env.SITE_BIOME}: ${out.slice(0, 160)}`);
@@ -96,8 +96,21 @@ async function main() {
             if (n >= 0.9 * want && groundYAt(cx, cz) !== null) break;
             await sleep(4000);
         }
-        if (n && n >= 0.9 * want && wet / n <= 0.1 && !snowy && groundYAt(cx, cz) !== null) { dry = true; break; }
+        if (n && n >= 0.9 * want && wet / n <= 0.1 && !snowy && groundYAt(cx, cz) !== null) {
+            // SITE_DRAWS=k (Overworld): of the first k dry draws the one with the least to clear (tree and terrain cells over the centre's ground, sampled every 4 columns)
+            if (SITE_DRAWS > 1 && !NETHER) {
+                const g0 = groundYAt(cx, cz); let cost = 0;
+                for (let x = cx - Math.floor(sx / 2); x < cx + sx / 2; x += 4) for (let z = cz - Math.floor(sz / 2); z < cz + sz / 2; z += 4) { let top = null; for (let y = 200; y > -60; y--) { const b = at(x, y, z); if (b && !/^(air|cave_air|void_air)$/.test(b)) { top = y; break; } } if (top !== null) cost += Math.max(0, top - g0); }
+                dryDraws.push({ cx, cz, cost }); console.log(`[build_t] dry draw ${dryDraws.length}/${SITE_DRAWS} at ${cx} ${cz}: ${cost} cells over the centre's ground (sampled)`);
+                if (dryDraws.length < SITE_DRAWS) continue;
+                const best = dryDraws.sort((a, b) => a.cost - b.cost)[0]; cx = best.cx; cz = best.cz;
+                await srv.must(`tp ${names[0]} ${cx + 0.5} 250 ${cz + 0.5}`); await sleep(9000);
+                console.log(`[build_t] site: the dry draw with the least to clear, ${cx} ${cz} (${best.cost})`);
+            }
+            dry = true; break;
+        }
     }
+    if (!dry && dryDraws.length) { const best = dryDraws.sort((a, b) => a.cost - b.cost)[0]; cx = best.cx; cz = best.cz; await srv.must(`tp ${names[0]} ${cx + 0.5} 250 ${cz + 0.5}`); await sleep(9000); dry = true; }
     // no draw was dry land: the run does not start in the sea (two crews got ocean sites with 55 000 cells of water to fill and drowned, live 2026-11-23 ha8); multi.sh draws again
     if (!NETHER && !dry) throw new Error('no dry site in 30 draws');
     const GROUNDLESS = /^(air|cave_air|void_air|.*_leaves|.*_log|.*_wood|vine|short_grass|tall_grass|fern|large_fern|.*_flower|dandelion|poppy|snow|water|lava|bamboo|sugar_cane)$/;
