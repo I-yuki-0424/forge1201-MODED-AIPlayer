@@ -164,7 +164,7 @@ function scene(slab = [[0, 0, 0, 1, 0.5, 1]]) {
         const ix = JSON.parse(fs.readFileSync(path.join(root, 'unit_run', 'index.json'), 'utf8'));
         assert.deepStrictEqual(ix.byKind, { stall: ['001-stall-B1'] }); assert.strictEqual(ix.refused['stall:interval'], 1);
         assert.ok(JSON.parse(fs.readFileSync(path.join(root, 'status.json'), 'utf8')).bytes > 0, 'status with the folder size');
-        assert.strictEqual(W.enabled({ STUCK_SNAPSHOTS: '0' }), false); assert.strictEqual(W.enabled({ STUCK_SNAPSHOTS: '1' }), true);
+        assert.strictEqual(W.enabled({}), false, 'off by default'); assert.strictEqual(W.enabled({ STUCK_SNAPSHOTS: '0' }), false); assert.strictEqual(W.enabled({ STUCK_SNAPSHOTS: '1' }), true);
     });
 
     await test('console routes: 401 without a session; runs, index, event and pictures with one; traversal, other names and a symlink out of the folder refused (a real file is served: control)', async () => {

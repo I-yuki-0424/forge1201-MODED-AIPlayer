@@ -12,7 +12,7 @@
 // on a bot's tick. Each kind has its own limit (one per bot or build per interval, a cap per run); at most `queue` waiting. A byte budget for the whole folder (default 2 GB):
 // the oldest events go first. Pictures are indexed PNGs (256 colours).
 //
-// Environment: STUCK_SNAPSHOTS 1 | 0 (default: on when /out exists, i.e. in a harness container), STUCK_DIR (default /out/stuck, else <data>/stuck), RUN (the run's name),
+// Environment: STUCK_SNAPSHOTS=1 turns it on (default off), STUCK_DIR (default /out/stuck, else <data>/stuck), RUN (the run's name),
 // STUCK_BUDGET_MB (default 2048), STUCK_MAX (scales every kind's cap, default 1), STUCK_PROGRESS_MIN (default 10), STUCK_ASSETS (the texture cache root; default WORK_ASSETS,
 // /mc-assets, /out/mc-assets, /mnt/data/forgeaip/mc-assets).
 const fs = require('fs');
@@ -272,7 +272,8 @@ class StuckWatch {
 function optional(m) { try { return require(m); } catch (_) { return null; } }
 
 const watches = new WeakMap();
-function enabled(env = process.env) { return env.STUCK_SNAPSHOTS === '1' || (env.STUCK_SNAPSHOTS !== '0' && fs.existsSync('/out')); }
+// off unless asked for (STUCK_SNAPSHOTS=1): not yet checked live on a harness world (the RCON truth sends ~900 commands per event), so the running tasks' runs stay as they were
+function enabled(env = process.env) { return env.STUCK_SNAPSHOTS === '1'; }
 /** The hook (WorkService.note): one watcher per service, made on its first line. Never throws. */
 function observe(service, e) {
     try {
