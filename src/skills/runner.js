@@ -139,6 +139,8 @@ async function run(bot, command, args, { maxTicks = 1200, cancel, onEvent, atomi
         if (bot.currentWindow) try { bot.closeWindow(bot.currentWindow); } catch (_) { /* ditto */ }
         ctx.dispose();
         bot.__moveTag = prevTag;
+        // the last command that ended, with its target: a fall that starts after a command returned (the floor it broke goes on the next tick) names it (the fall reflex's log)
+        try { bot.__lastCmd = { cmd: label || command.name || '?', at: Date.now(), ...(args && Number.isInteger(args.x) ? { x: args.x, y: args.y, z: args.z } : {}), ...(args && args.blind ? { blind: true } : {}), ok: !!(out && out.ok) }; } catch (_) { /* a record only */ }
     }
     return { ...out, ticks: ctx.t, ms: Date.now() - t0, phases: ctx.phases, trace: ctx.trace };
 }

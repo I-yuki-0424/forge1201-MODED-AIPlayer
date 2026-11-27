@@ -192,5 +192,27 @@ function endWorld() {
         assert.notDeepStrictEqual(b.env.here(), S, 'negative control: without NAV the bot is not at the station');
     });
 
+    await test('the pit does not dig the block that holds the body over a fall (mbc075b w2: its own support at the box edge, a 13-block fall); it steps onto a cell that still holds it and digs from there; negative control: a block under a body held by another column is dug as it is', async () => {
+        const STONE = { name: 'stone', shapes: [[0, 0, 0, 1, 1, 1]] }, AIR = { name: 'air', shapes: [] };
+        // ground at y 40 for x <= 0 (z any); a ledge block at (1, 52, 0) the body stands on the edge of; air elsewhere down to y 40
+        const solid = new Set(['1,52,0']); for (let x = -6; x <= 0; x++) for (let z = -3; z <= 3; z++) for (let y = 40; y <= 52; y++) solid.add(`${x},${y},${z}`);
+        const blockAt = (v) => (solid.has(`${Math.floor(v.x)},${Math.floor(v.y)},${Math.floor(v.z)}`) ? STONE : AIR);
+        const w = { kindAt: (x, y, z) => (solid.has(`${x},${y},${z}`) ? 'solid' : 'air'), nameAt: (x, y, z) => (solid.has(`${x},${y},${z}`) ? 'stone' : 'air') };
+        const mk = (x, z) => { const pos = { x, y: 53, z }, moves = []; return { pos, moves, env: { w, bot: { entity: { position: pos }, blockAt }, here: () => ({ x: Math.floor(pos.x), y: Math.floor(pos.y), z: Math.floor(pos.z) }),
+            exec: async (n, a) => { if (n === 'move_to') { moves.push(a); pos.x = a.x + 0.5; pos.y = a.y; pos.z = a.z + 0.5; return { ok: true }; } return { ok: true }; } } }; };
+        // the body's centre over column 1 is held only by the ledge block itself (nothing within 3 below it): digging it drops the body
+        const a = mk(1.5, 0.5);
+        assert.strictEqual(pit.supportsBody(a.env, { x: 1, y: 52, z: 0 }), true);
+        assert.strictEqual(await pit.stepOffSupport(a.env, { x: 1, y: 52, z: 0 }), true, 'a cell on the ground beside it');
+        assert.ok(a.pos.x < 1, `stepped onto x ${a.pos.x}`); assert.strictEqual(pit.supportsBody(a.env, { x: 1, y: 52, z: 0 }), false);
+        // the body's centre over the open column 2, its box on the ledge's edge (the case standsOnFloater does not see: the centre is not over the block)
+        const e = mk(2.1, 0.5);
+        assert.strictEqual(pit.standsOnFloater(e.env, { x: 1, y: 52, z: 0 }), false, 'the old test misses it');
+        assert.strictEqual(pit.supportsBody(e.env, { x: 1, y: 52, z: 0 }), true);
+        // negative control: a body whose centre is over the ground (x 0.8, its box over the ledge too) is held without the ledge: the ledge is no support
+        const b = mk(0.8, 0.5);
+        assert.strictEqual(pit.supportsBody(b.env, { x: 1, y: 52, z: 0 }), false);
+    });
+
     console.log('ALL OK'); process.exit(0);
 })().catch((e) => { console.error(e); process.exit(1); });

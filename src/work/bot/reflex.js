@@ -64,7 +64,7 @@ function attach(bot, { world, enabled = () => true, onEvent = () => {} } = {}) {
         const held = bot.heldItem, quick = bot.quickBarSlot;
         // where it began and who moved the body (src/skills/runner.js tag; null = raw controls outside any command): a fall the movers did not plan names its mover
         const p0 = bot.entity.position;
-        onEvent('reflex', { kind: 'fall', drop, bucket: !!bucket, at: [p0.x, p0.y, p0.z].map((v) => Math.round(v * 100) / 100), by: bot.__moveTag ? JSON.stringify(bot.__moveTag).slice(0, 200) : null });
+        onEvent('reflex', { kind: 'fall', drop, bucket: !!bucket, at: [p0.x, p0.y, p0.z].map((v) => Math.round(v * 100) / 100), by: bot.__moveTag ? JSON.stringify(bot.__moveTag).slice(0, 200) : null, last: bot.__lastCmd ? JSON.stringify({ ...bot.__lastCmd, ago: Date.now() - bot.__lastCmd.at }).slice(0, 200) : null });
         if (bucket) {
             try { await bot.equip(bucket, 'hand'); } catch (_) { /* the hand is busy: try with what is held */ }
             await bot.look(bot.entity.yaw, -Math.PI / 2, true);

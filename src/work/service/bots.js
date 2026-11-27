@@ -88,7 +88,7 @@ class BotsPart {
         }
     }
     _reflexEvent(rec, name, d) {
-        if (name === 'reflex') { rec.reflex = { kind: d.kind, at: Date.now() }; rec.reflexes = (rec.reflexes || 0) + 1; this.note('warn', `${rec.name}: reflex ${d.kind}${d.drop ? ` (${d.drop} blocks of air below)` : ''}${d.kind === 'fall' ? (d.bucket ? ', water bucket' : ', no bucket') : ''}${d.at ? ` at ${d.at.join(' ')} by ${d.by}` : ''}`); this._dirty(); }
+        if (name === 'reflex') { rec.reflex = { kind: d.kind, at: Date.now() }; rec.reflexes = (rec.reflexes || 0) + 1; this.note('warn', `${rec.name}: reflex ${d.kind}${d.drop ? ` (${d.drop} blocks of air below)` : ''}${d.kind === 'fall' ? (d.bucket ? ', water bucket' : ', no bucket') : ''}${d.at ? ` at ${d.at.join(' ')} by ${d.by}${d.by ? '' : ` last ${d.last}`}` : ''}`); this._dirty(); }
         else if (name === 'reflex_end') this.note('info', `${rec.name}: reflex ${d.name} over${d.error ? ' (failed)' : ''}; the work goes on`);
     }
     /** The server moved a bot (tp): said in the log and in the bot's row, so that a jump is never a mystery. */

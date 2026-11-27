@@ -391,6 +391,12 @@ async function runUnit(plan, region, u, env) {
         // The block the bot stands on, with nothing solid within three cells under it: breaking it drops the bot into the open pit (86 blocks, dead; live pit 2026-11-07, a lone
         // cobblestone pillar at layer 30 killed a bot four times). Left in place: nothing can be done about it from the side, and a floating block hurts nobody.
         if (standsOnFloater(env, c)) { r.skipped++; r.floating = (r.floating || 0) + 1; leave(c); return null; }
+        // The block holds the body over a fall of more than three though the body's centre is over another column (the body on its edge: the fall guard's own support test,
+        // fallguard.held, with the block taken away): the bot steps onto a cell that still holds it with the block gone, within reach of it, and digs it from there; with no such
+        // cell it is left like a floater. A dig of its own support dropped Pit2 13 blocks at the box edge (mbc075b w2, 1.21.1, native, guard on: the guard lets a body fall whose
+        // floor is taken away) and the fall reflex's two blocks were left in the box.
+        let offSupport = false;
+        if (supportsBody(env, c)) { const off = await stepOffSupport(env, c); if (!off) { r.skipped++; r.floating = (r.floating || 0) + 1; r.support = (r.support || 0) + 1; leave(c); return null; } r.steppedOff = (r.steppedOff || 0) + 1; offSupport = true; }
         // Success is what the world shows: a `mine` that ended in the drop pickup (target_lost: the item was picked up by another
         // bot or despawned) has still opened the cell. Transient reasons (another bot in the crosshair, a slipped aim) get retries.
         const c0 = Date.now();
@@ -399,7 +405,8 @@ async function runUnit(plan, region, u, env) {
         if (isBamboo(env.w, c)) { const root = bambooRoot(env.w, c); if (root && eyeDist(root) <= 4.4) { const b = await env.exec('mine', { ...root, collect: false, blind: true }); if (b.ok) r.bambooRoots = (r.bambooRoots || 0) + 1; if (open(c)) { r.mined++; return null; } } }
         // A tree block (leaf, vine, log) within the server's reach: blind at once. The aimed mine wants a face in sight, which a leaf in a crown or a vine (no collision box) often has not;
         // its retries took minutes per cell (b081m, 1.21.1: oak_leaves 627 s, a vine 373 s in one cell, no NAV trip)
-        let m = isTreeAt(env.w, c) && eyeDist(c) <= 4.4 ? await timed('blindTree', env.exec('mine', { x: c.x, y: c.y, z: c.z, collect: false, blind: true })) : { ok: false, reason: 'not_tried' };
+        // (off its support: blind from where it stepped, the aimed mine would walk back onto it)
+        let m = (offSupport || isTreeAt(env.w, c)) && eyeDist(c) <= 4.4 ? await timed('blindTree', env.exec('mine', { x: c.x, y: c.y, z: c.z, collect: false, blind: true })) : { ok: false, reason: 'not_tried' };
         if (m.ok || open(c)) { r.blindTree = (r.blindTree || 0) + 1; } else m = await timed('mine', env.exec('mine', mineArgs(c), { deadline: c0 + CELL_MS }));
         // Out of reach from the station (unmet in_reach, 'unreachable'): no retry ladder (six tries with recoveries changed nothing and cost minutes per cell in a tree, 081's b081k);
         // blind when the eye is within the server's reach, else one NAV trip within reach (navReach below)
@@ -672,6 +679,33 @@ async function goToStation(S, handle, env, open, r) {
     return null;
 }
 
+/** A world for the fall guard's test (src/build/fallguard.js held) with the cell `gone` taken away (air). */
+function without(bot, gone) {
+    const AIR = { name: 'air', shapes: [] };
+    return { getBlock: (v) => (Math.floor(v.x) === gone.x && Math.floor(v.y) === gone.y && Math.floor(v.z) === gone.z ? AIR : bot.blockAt(v, false)) };
+}
+/** Breaking `c` would drop the body more than three: the body is held now (by the guard's test) and is not without `c`. */
+function supportsBody(env, c) {
+    const bot = env.bot, e = bot && bot.entity; if (!e || !e.position || typeof bot.blockAt !== 'function') return false;
+    const FG = require('../../build/fallguard'), p = e.position, real = { getBlock: (v) => bot.blockAt(v, false) };
+    if (c.y > Math.floor(p.y + 1e-3) - 1 || c.y < Math.floor(p.y) - 4) return false;
+    return FG.held(real, p.x, p.y, p.z, 3) && !FG.held(without(bot, c), p.x, p.y, p.z, 3);
+}
+/** Step onto a standing cell next to the bot that holds a body with `c` gone and from which `c` is within reach; true when the bot stands there. */
+async function stepOffSupport(env, c) {
+    const { standable } = require('../../skills/world'), FG = require('../../build/fallguard'), w = env.w, f = env.here(), gone = without(env.bot, c);
+    const cand = [];
+    for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) for (const dy of [0, 1, -1]) {
+        const x = f.x + dx, y = f.y + dy, z = f.z + dz;
+        if ((x === c.x && z === c.z) || !standable(w, x, y, z) || !FG.held(gone, x + 0.5, y, z + 0.5, 3)) continue;
+        const d = Math.hypot(x + 0.5 - (c.x + 0.5), y + 1.62 - (c.y + 0.5), z + 0.5 - (c.z + 0.5)); if (d > 4.3) continue;
+        cand.push({ x, y, z, k: Math.hypot(dx, dz) + Math.abs(dy) });
+    }
+    cand.sort((a, b) => a.k - b.k);
+    for (const t of cand.slice(0, 3)) { const m = await env.exec('move_to', { x: t.x, y: t.y, z: t.z }, { maxTicks: 200 }); if (m.ok && !supportsBody(env, c)) return true; }
+    return false;
+}
+
 /** The bot stands on block `c` and nothing solid lies within three cells below it: breaking `c` would drop the bot into the open pit. Pure. */
 function standsOnFloater(env, c) {
     if (!env.here) return false;
@@ -875,4 +909,4 @@ function createPitJob(box, ledgerOpts = {}, { lanes = 0, method = 'rows', tile =
             await cleanLakeBlocks(plan, env); rep.seals = await TM.cleanTemps(env, { box: plan.box, reach: true, max: 20, maxMs: 120000, kinds: new Set(['seal', 'rescue', 'lake']) }); return t; }, runUnit: (regionId, unit, env) => runUnit(plan, byId.get(regionId), unit, env), audit: (env, now, opts) => (plan.wrapping ? { checked: 0, reopened: [], gaveUp: [] } : audit(plan, ledger, env.w, now, auditState, opts)), sweep: (env, now) => (plan.wrapping ? {} : sweep(env, now)), rescue: (env, why) => require('../bot/water').rescue(env, plan.box, { why }) };
 }
 
-module.exports = { cleanTrees, cleanHanging, cleanLakeBlocks, sealItem, MAX_UNITS, goToStation, checkLayer, LAYER_ROUNDS, standsOnFloater, aerialTree, planPit, laneBoxes, planRoad, stationsOf, lineCells, unitCells, sealPlan, orderFill, isFluid, exposed, runUnit, wrongCells, cellState, audit, createPitJob, SEAL_ITEMS, CHUNK, TILE, SWEEP_R };
+module.exports = { cleanTrees, cleanHanging, cleanLakeBlocks, sealItem, MAX_UNITS, goToStation, checkLayer, LAYER_ROUNDS, standsOnFloater, supportsBody, stepOffSupport, aerialTree, planPit, laneBoxes, planRoad, stationsOf, lineCells, unitCells, sealPlan, orderFill, isFluid, exposed, runUnit, wrongCells, cellState, audit, createPitJob, SEAL_ITEMS, CHUNK, TILE, SWEEP_R };
