@@ -222,6 +222,23 @@ test('release: the step is over: own blocks in reach and sight are dug, the rest
     assert(job.tasks.has('0,69,0'));
 });
 
+test('release on its own bridge block beside its pillar, the next stance over the bridge: back onto the pillar and down it, nothing left beside (b081x4); negative control: without the step the pillar stays', async () => {
+    for (const step of [true, false]) {
+        const t = new Target(tiny(), { x: 100, y: 64, z: 100 });
+        const job = new BuildJob(t, {}); job.stage = 'place';
+        const w = new Map(); for (let x = -3; x <= 5; x++) for (let z = -3; z <= 3; z++) w.set(`${x},63,${z}`, { name: 'stone' });
+        for (let y = 64; y <= 69; y++) { const c = { x: 0, y, z: 0 }; w.set(`0,${y},0`, { name: 'pumpkin' }); job.addTemp(c, 'pillar', 'a', 'pumpkin'); job.ledger.observe(c, 'pumpkin'); }
+        const br = { x: 1, y: 69, z: 0 }; w.set('1,69,0', { name: 'pumpkin' }); job.addTemp(br, 'bridge', 'a', 'pumpkin'); job.ledger.observe(br, 'pumpkin');
+        const bot = fakeBot(w, { x: 1.5, y: 70, z: 0.5 });
+        let down = 0;
+        const mv = { walkBack: async () => 0, unpillar: async () => { down++; return 6; }, dig: async () => true, mine: new Map() };
+        if (step) mv.ontoColumn = async (accept) => { assert(accept({ x: 0, y: 70, z: 0 }, br)); bot.entity.position.x = 0.5; return true; };
+        await D.release(job, 'a', bot, mv, { cancelled: false }, { x: 1, y: 72, z: 0 }, 'claim');
+        if (step) { assert.strictEqual(down, 1, 'down the pillar from its top'); assert.strictEqual(job.stats.ontoColumnRelease, 1); }
+        else assert.strictEqual(down, 0, 'negative control: the pillar stays beside the next stance');
+    }
+});
+
 test('release beside its own tall pillar: the walk back is taken even when the next stance is over the bot\'s own cell, and the column is never dug from beside (bt075b w3: 5 of 7 left); every walk walks back first', async () => {
     const t = new Target(tiny(), { x: 100, y: 64, z: 100 });
     const job = new BuildJob(t, {}); job.stage = 'place';

@@ -78,4 +78,12 @@ test('the walk to a stance: 1.5 s and 30 000 cells while the build is large, 6 s
     }
 });
 
+test('the respawn anchor is charged again below two charges (b081x5: four respawns used its charges, the fifth woke in the Overworld); negative controls: full, not loaded, none set', () => {
+    const D = require('../src/build/drive');
+    const bot = (c) => ({ blockAt: () => (c === null ? null : { name: 'respawn_anchor', getProperties: () => ({ charges: String(c) }) }) });
+    const job = { anchorAt: { x: 1, y: 2, z: 3 } };
+    assert.strictEqual(D.lowAnchor(job, bot(1)), true); assert.strictEqual(D.lowAnchor(job, bot(0)), true);
+    assert.strictEqual(D.lowAnchor(job, bot(4)), false, 'full'); assert.strictEqual(D.lowAnchor(job, bot(null)), false, 'not loaded'); assert.strictEqual(D.lowAnchor({}, bot(0)), false, 'none set');
+});
+
 (async () => { for (const [name, fn] of queue) { await fn(); n++; console.log(`  ok ${name}`); } console.log(`test_build_contents_pure: ${n} passed`); })().catch((e) => { console.error(e); process.exit(1); });

@@ -421,7 +421,10 @@ async function release(job, name, bot, mv, cancel, next = null, label = 'step') 
     // (the column kept for the next stance is the one the bot stands ON: beside its pillar's top, with the next stance on the cell it stands on, the walk back was skipped and
     // the pillar dug from beside as far as it could be seen: 5 of 7 left standing, bt075b w3 "leaves a column of 5 at 62,26 ... walkBack null")
     const f0 = feet(bot), onOwn = !!(L.get({ x: f0.x, y: f0.y - 1, z: f0.z }) || {}).by && L.get({ x: f0.x, y: f0.y - 1, z: f0.z }).by === name;
-    const sameCol = !!next && next.x === f0.x && next.z === f0.z && onOwn;
+    let sameCol = !!next && next.x === f0.x && next.z === f0.z && onOwn;
+    // (the next stance on the bridge block's column while its pillar stands beside: the bot goes back onto the pillar, digs the bridge block and the pillar comes down with
+    // it; the next stance's own column is put up anew. Kept, the pillar stood beside the new column: the largest class of columns left, b081w4/w5 118 / 146 blocks, b081x4 39)
+    if (sameCol && typeof mv.ontoColumn === 'function' && (await mv.ontoColumn(() => true))) { sameCol = false; job.stats.ontoColumnRelease = (job.stats.ontoColumnRelease || 0) + 1; }
     const tr = Date.now();
     let wb = null, up = null;
     if (!sameCol) { wb = await mv.walkBack(cancel); up = await mv.unpillar(null, () => false, cancel); }
@@ -640,7 +643,7 @@ const untell = (job, name) => { if (job.told) job.told.delete(name); };
 const inNether = (bot) => /nether/.test(String(bot.game && bot.game.dimension));
 async function anchor(job, name, bot, mv, cancel) {
     if (!inNether(bot) || !job.available || !job.available.has('respawn_anchor') || !job.sites[0]) return;
-    if (job.spawnSet && job.spawnSet.has(name) && !(job.anchorAt && charges(bot, job.anchorAt) < 2 && bot.inventory.items().some((i) => i.name === 'glowstone'))) return;
+    if (job.spawnSet && job.spawnSet.has(name) && !lowAnchor(job, bot)) return;
     if (!job.anchorAt) {
         if (job.anchorBusy) return;                      // another bot sets it down; this one works meanwhile
         job.anchorBusy = name;
@@ -728,6 +731,8 @@ async function bedSpawn(job, name, bot, mv, cancel) {
     job.log(`${name}: spawn set at the bed`);
 }
 
+/** The crew's anchor stands, is in sight, and holds fewer than two charges (each respawn takes one: b081x5's fifth death woke in the Overworld). */
+const lowAnchor = (job, bot) => { if (!job.anchorAt) return false; const c = charges(bot, job.anchorAt); return c >= 0 && c < 2; };
 const charges = (bot, a) => { const b = bot.blockAt(new Vec3(a.x, a.y, a.z), false); return b && b.name === 'respawn_anchor' ? Number((b.getProperties() || {}).charges || 0) : -1; };
 
 /**
@@ -1237,6 +1242,8 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
             if (!inNether(bot) && job.available.has(SPAWN_BED) && !(job.spawnSet && job.spawnSet.has(name)) && !job.anchorBusy && Date.now() - ((job.anchorTry && job.anchorTry.get(name)) || 0) > 120000) { (job.anchorTry || (job.anchorTry = new Map())).set(name, Date.now()); await settle(null, 'bed'); await bedSpawn(job, name, bot, mv, cancel); }
             // far from its site (it woke at the world's spawn after a death): it leaves the crew instead of working another crew's site (live 2026-11-23 ha11 w3)
             { const b0 = job.t.box, p = bot.entity.position, d = Math.hypot(p.x - (b0.x + b0.sx / 2), p.z - (b0.z + b0.sz / 2)); if (d > 200) { job.log(`${name} is ${Math.round(d)} blocks from the site (respawned far away): it leaves the crew`); return { ended: 'too_far' }; } }
+            // (and whenever the anchor runs low, by the bot nearest to it, at most once a minute for the crew: nobody charged it again after the first four)
+            if (inNether(bot) && job.available.has('respawn_anchor') && lowAnchor(job, bot) && !job.anchorBusy && Date.now() - (job.rechargeAt || 0) > 60000 && bot.entity.position.distanceTo(new Vec3(job.anchorAt.x, job.anchorAt.y, job.anchorAt.z)) < 32) { job.rechargeAt = Date.now(); job.log(`${name}: the respawn anchor holds ${charges(bot, job.anchorAt)} charges: charged again`); await settle(null, 'anchor'); await anchor(job, name, bot, mv, cancel); }
             if (inNether(bot) && job.available.has('respawn_anchor') && !(job.spawnSet && job.spawnSet.has(name)) && !job.anchorBusy && Date.now() - ((job.anchorTry && job.anchorTry.get(name)) || 0) > 120000) { (job.anchorTry || (job.anchorTry = new Map())).set(name, Date.now()); await settle(null, 'anchor'); await anchor(job, name, bot, mv, cancel); }
             if (job.drops && job.drops.some((d) => !d.done)) await recoverDrops(job, name, bot, mv, cancel);
             // the build's items lying about: picked up before they despawn (at most every 10 s per bot)
@@ -1393,4 +1400,4 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
     } finally { bot.removeListener('death', onDeath); bot.removeListener('death', onDied); bot.removeListener('blockUpdate', onBlock); job.orphanOf(name, 'left the crew'); clearInterval(sampler); clearInterval(stallWatch); unwatch(); unitems(); bot.removeListener('spawnReset', onReset); bot.__builderOwns = false; job.leave(name); if (job.pool) job.pool.leave(name); for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sneak', 'sprint']) bot.setControlState(k, false); }
 }
 
-module.exports = { outOfStock, bodyIn, recoverGround, drive, work, holds, rules, pour, escape, needsFor, boxSpot, bench, release, unscaffold, touchesShape, planned, adoptWorkTemps, closesIn, recoverDrops, materials };
+module.exports = { lowAnchor, outOfStock, bodyIn, recoverGround, drive, work, holds, rules, pour, escape, needsFor, boxSpot, bench, release, unscaffold, touchesShape, planned, adoptWorkTemps, closesIn, recoverDrops, materials };
