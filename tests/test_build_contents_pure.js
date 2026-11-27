@@ -70,10 +70,10 @@ test('a closed container (no face open in the finished build): its goal is place
 
 test('the walk to a stance: 1.5 s and 30 000 cells while the build is large, 6 s and 80 000 in the tail (b081w4: the last 53 cells parked after searches ran out of time); negative control: a large task list keeps the short budget', async () => {
     const D = require('../src/build/drive');
-    for (const [size, want] of [[10, [80000, 6000]], [5000, [30000, 1500]]]) {
+    for (const [size, want, kind] of [[10, [80000, 6000]], [5000, [30000, 1500]], [5000, [80000, 6000], 'contents']]) {
         const job = { tasks: new Map(Array.from({ length: size }, (_, i) => [String(i), {}])), noPath: new Map(), time: { walk: 0 }, log: () => {}, avoid: () => {} };
         let got = null; const mv = { goto: async (_, o) => { got = [o.maxNodes, o.budgetMs]; return { ok: false, why: 'test', nodes: 500 }; } };
-        await D.work(job, 'a', {}, mv, { station: { x: 0, y: 70, z: 0 }, tasks: [] }, { cancelled: false });
+        await D.work(job, 'a', {}, mv, { station: { x: 0, y: 70, z: 0 }, tasks: kind ? [{ kind, k: 'c', x: 0, y: 70, z: 1 }] : [] }, { cancelled: false });
         assert.deepStrictEqual(got, want);
     }
 });
