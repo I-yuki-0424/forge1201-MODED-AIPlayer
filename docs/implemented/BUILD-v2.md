@@ -920,6 +920,20 @@ pocket PASS in 34 s, the code before FAIL 'stuck', `CONTROL=noop` FAIL); a pit w
 away (f39cb329; mbc075e w2's 100-block cobblestone loop after its drowning); the pit's blind digs reach the action layer's 5.0 (5d2c4a9e; 081's b081u4 tail behind one leaf at 4.85);
 the tree pass takes huge mushroom blocks and a bamboo stalk by its root, and a root under the box bottom by one NAV trip (1fd57956; fr075c).
 
+**Forest pit reruns on 08ab6efb (2026-11-27 20:16-20:50, 1.21.1, native physics, guard on, Peaceful, build_t `SITE_BIOME`, the pit stage only: the run was stopped once the place stage began; tree blocks by scan.js of the pit box).**
+
+| Site (world, run) | Cells | Pit | Tree blocks left in the pit box |
+| :-- | --: | :-- | :-- |
+| `fr0757` dark_forest (w1) | 5 690 | finished 601 s (**9.5 cells/s**; fr075c: 3.5), no round 2 | **0** (fr075c: 5 mushroom blocks, 20 bamboo) |
+| `fr0755` bamboo_jungle (w2) | 12 145 | finished 1 711 s (7.1 cells/s) | 0 bamboo; 1 dark oak leaf, 1 dark oak log (with 4 ground cells: the survey's round 2 of 6 cells) |
+| `fr0756` jungle (w3) | 2 726 | finished 394 s (6.9 cells/s), no round 2 | **0** |
+
+The pumpkins in these boxes at the stop (12 and 41 in pillars of the place stage) were the build's columns in use when the run was killed: not an end of a run, not graded.
+
+**move_a with the fall guard on by default (`ma075t`, 08ab6efb, worlds 1-3, seeds -4019488374594719835 / -2861098968409133656 / 5143323563178732455, speed x1).** 7 of 12 bots
+reached their target (a movement result, deaths: 7 by mobs at Normal, 1 drowned, none by a fall or lava); **0 pumpkins** left by the run on all 12 trials (the scan grades only cells
+that became pumpkins during the run).
+
 move_a's 10 pumpkins on seed 7601 (`ma075s`) were a wild pumpkin patch: the same 10 cells (x 663-675, y 67) are pumpkins in an untouched world of that seed (scan.js). move_a now
 grades only cells that turned into a temporary-block kind during the run (a block update seen by the bot, never a chunk load).
 
