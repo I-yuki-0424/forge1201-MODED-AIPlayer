@@ -946,3 +946,17 @@ stone at +1. With the sources in, the pistons extend into the empty head cells.
 
 **A column left by its bot (c062e27b, e8e9ba34).** `stats.columnsLeft` counts the blocks of columns a bot leaves standing, by why `unpillar` stopped. In b081t4's first 45 minutes, 50 of 80 such blocks
 were 'a gap under it (pumpkin)'. The block under the bot was a released block of its own column that another bot had claimed to take away, so it read 'doomed'. The way down now reads that block as it stands.
+
+**After the first pairs of round 2 (b081t, u, v: each stopped early for a leak found live).**
+- *Out of stock*: an item is out only when the chest and the depot also hold none of it as last read. A trip whose pack filled before it reached the boxes no longer reports what those boxes hold as 'absent' (b5b79c85). In b081v4 (native), the 24 torch cells, the machine's power sources, were parked out of stock at minute 29 while the chest's boxes held all 26 torches.
+- *Routes*: a walk's route stops holding the cells under it when the outermost walk ends. Before, it held them for 30 s, and the columns that other bots put up under it in that time could not be taken back by their placers (01b8347d). Of the 166 columns `_behind` left in b081t4/t5/u4, 107 had the reason 'a crew member on it or its route'.
+- *Supply boxes*: a supply trip ends with no supply box in the pack (36e98e13). In b081w4/w5, bots carried boxes of glass, obsidian and beds for up to an hour, and the boxes came back only at the bot's next trip.
+- *Clears*: a clear of the build's own block in the place stage is counted by what was dug and what its cell wants (`stats.clears`), and an item the crew does not get back goes into the ledger's dug column (3b02a0f9). In b081w4, 107 clears happened while 113 glass went missing with nothing on the ground. Glass dug without Silk Touch is gone.
+- *Hot paths for TASK-082*, from a CPU profile of b081w5 (mineflayer physics, minute 100, 120 s, 64 % busy):
+  - the builder's A*, `move.js plan0`: 49 % of all CPU, 77 % of the busy time;
+  - inside the A*, the cell classification `View.raw` / `kind` / `fits` / `free`, with Map caches keyed by strings: about 25 %;
+  - `tempCost` -> `touchesShape`: 7.7 %;
+  - `deadly` / `nearLava` / `_lavaRegions`: about 5 %;
+  - the claim's flood and the claim itself: 1.8 % and 1.5 %.
+  Record: `/mnt/data/forgeaip-play/t26/out/b081-records/b081w5-profile.txt`.
+- *The finishing pair*: `b081w4` (native) and `b081w5` (mineflayer), from `/mnt/data/forgeaip-play/t26/snap-081h` (b5b79c85), forest sites, `LIMIT_MIN` 240 + judge. At job minute ~107 they had placed 5 408 and 4 939 blocks, with no deaths. Their judges are read by the successor (the progress note in the knowledge-DB).
