@@ -132,7 +132,7 @@ async function run(deps, goal) {
     const done = (r) => (chain.length ? { ...r, detail: { ...(r.detail || {}), router: chain } } : r);
     // the state before anything else: night under the open sky -> dig in first (nav/shelter.js; a no-op by day or under a roof)
     if (deps.night) { const n = await deps.night(); if (n && n.waited) chain.push({ do: 'shelter', waited: n.waited, ok: !!n.ok }); }
-    const late = () => deps.deadline && Date.now() > deps.deadline;          // the caller's deadline (TASK-075: the pit's bound per cell)
+    const clock = deps.now || Date.now, late = () => deps.deadline && clock() > deps.deadline;          // the caller's deadline (TASK-075: the pit's bound per cell); deps.now: a clock for tests
     for (let i = 0; i < MAX_STEPS; i++) {
         if (deps.cancelled && deps.cancelled()) return done({ ok: false, reason: 'cancelled', detail: {} });
         if (i > 0 && late()) return done({ ok: false, reason: 'timeout', detail: { why: 'the caller\'s deadline passed', last: last && last.detail } });

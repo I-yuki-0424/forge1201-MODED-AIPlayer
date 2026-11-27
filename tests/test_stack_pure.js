@@ -156,8 +156,10 @@ function fakeBot(scene, pos, { pack = [], held = null, entities = {} } = {}) {
 
     await test('router: the caller\'s deadline ends the chain (timeout, no further step) and goes with its travel; without one the chain runs to the instruction (negative control) (TASK-075: one pit leaf took 627 s inside one mine)', async () => {
         const s = sandbox({ ...STONE_AT(12, 0) }, { x: 0, y: 1, z: 0 }), d = deps(s); let seen = null;
-        const ex = d.exec; d.exec = async (n, a, o) => { if (n === 'move_to') { s.calls.push(['move_to', 'slow']); await new Promise((res) => setTimeout(res, 120)); return { ok: false, reason: 'unreachable', detail: {} }; } return ex(n, a, o); };
-        d.deadline = Date.now() + 60;
+        // a clock of the test's own (no wall time: under load the first decision alone outran a 60 ms deadline, a flaky failure in 081's npm test): a move costs 120, the deadline is 60 ahead
+        let clock = 1000; d.now = () => clock;
+        const ex = d.exec; d.exec = async (n, a, o) => { if (n === 'move_to') { s.calls.push(['move_to', 'slow']); clock += 120; return { ok: false, reason: 'unreachable', detail: {} }; } return ex(n, a, o); };
+        d.deadline = clock + 60;
         const r = await router.run(d, { name: 'mine', args: { x: 12, y: 1, z: 0 } });
         assert.strictEqual(r.reason, 'timeout', JSON.stringify(r));
         assert.strictEqual(s.calls.filter((c) => c[0] === 'move_to').length, 1, 'no step after the deadline: ' + JSON.stringify(s.calls));

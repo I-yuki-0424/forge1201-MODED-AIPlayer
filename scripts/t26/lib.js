@@ -155,7 +155,8 @@ async function open(names, settings = {}, difficulty = 'peaceful') {
     await S.cmd('gamerule keep_inventory false'); await S.cmd(`difficulty ${diff}`);
     for (const g of ['send_command_feedback', 'log_admin_commands']) await S.cmd(`gamerule ${g} false`).catch(() => {});      // no "[Rcon: ...]" echo of the display's and the harness's commands
     CURRENT_DIFFICULTY = diff; console.log(`[t26] difficulty ${diff}, profile ${PROFILE}, temporary block ${TEMP_BLOCK}`);
-    const svc = await L.openService(shared, names, { teleport: 'off', tempBlock: TEMP_BLOCK, ...settings });
+    // FALL_GUARD=0: the work service's fall guard off for one run (an A/B of the guard; never evidence of a pass)
+    const svc = await L.openService(shared, names, { teleport: 'off', tempBlock: TEMP_BLOCK, ...(process.env.FALL_GUARD === '0' ? { fallGuard: false } : {}), ...settings });
     return { shared, S, svc, seed, difficulty: diff };
 }
 
