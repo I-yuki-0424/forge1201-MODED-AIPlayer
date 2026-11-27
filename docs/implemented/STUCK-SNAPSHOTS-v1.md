@@ -4,8 +4,8 @@ When a bot gets stuck, loses time without an error, or a build's interval is ove
 PNGs with the facts of the moment, under a hard byte budget, in one folder on disk that the work console's Snapshots page and Nextcloud both read.
 
 Owner (2026-11-27, schedule sch_WbOh5Ca6lamorfKy): 2D first; events = the stuck signals, slow-but-not-error phenomena and a progress picture per crew
-every ~10 min, each rate-limited; a hard total budget of about 2 GB and small PNGs; one copy on disk, visible in Nextcloud for the account Claude only
-(never admin); a viewing page in the work console behind its session. The 3D replay is TASK-085 (deferred).
+every ~10 min, each rate-limited; a hard total budget of about 2 GB and small PNGs; one copy on disk, visible in Nextcloud (the account Claude; Claude never logs in as admin,
+but the owner's own login sees the folder too, 2026-11-28); a viewing page in the work console behind its session. The 3D replay is TASK-085 (deferred).
 
 ## 1. What is drawn
 
@@ -41,7 +41,8 @@ PNGs (256 colours). The folder is gitignored (`stuck/`, `data/work/stuck/`).
   followed) inside `WORK_STUCK_DIR`. The consoles of `docker/tw/creative.yaml` and `docker/tw/survival.yaml` mount the folder read-only at `/stuck`
   (`WORK_STUCK_DIR=/stuck`). Unauthenticated requests: 401 (measured on 3034/3035 for `/api/stuck/runs`, an image path and a traversal attempt).
 - **Nextcloud**: external storage `aiplayer-snapshots` (mount id 3), a read-only bind of the same folder into the Nextcloud app and cron containers
-  (`/srv/aiplayer-snapshots`, vps-containers `nextcloud/compose.yaml`), applicable to the user `Claude@i-yuki.com` only (no admin, no group). Set up
+  (`/srv/aiplayer-snapshots`, vps-containers `nextcloud/compose.yaml`), applicable to the users `Claude@i-yuki.com` and `admin` (the owner browses it in his own login, like `market-data`; no group), rescanned on
+  access (`filesystem_check_changes 1`; without it Nextcloud kept showing only the first run: fixed 2026-11-28, vps-containers d3178bf). Set up
   2026-11-27 through the credential broker's root route after a `vps-backup`; vps-containers README "AIPlayer snapshots", `deploy/nc-test.sh` checks it.
   One copy on disk: nothing is uploaded or duplicated.
 
