@@ -268,7 +268,9 @@ async function work(job, name, bot, mv, cl, cancel) {
         if (!h || !way) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
         // in the death report's trace too (30 of ha30's 54 deaths showed a pillar as the last move: what the bot did at the stance was not in it)
         mv.note(`task ${tk.kind} ${tk.k}${way.lean ? ` lean ${way.lean.join(',')}` : ''}${way.sneak ? ' sneak' : ''}`);
-        { const me = feet(bot); if (!tk.descend && (tk.kind === 'clear' || tk.kind === 'untemp') && tk.x === me.x && tk.z === me.z && tk.y === me.y - 1) { results.push({ tk, ok: false, why: 'skipped' }); continue; } }
+        // never the block the body stands on or lands on: the first solid block under the feet in its own column, the cells between free (b081q4: Bd4g dug its pillar's top,
+        // and before its position came down one an untemp task dug the bridge block it was landing on, 'below the feet' by the stale position: a fall of 39 to its death)
+        { const me = feet(bot); if (!tk.descend && (tk.kind === 'clear' || tk.kind === 'untemp') && tk.x === me.x && tk.z === me.z && tk.y < me.y && [...Array(Math.max(0, me.y - 1 - tk.y)).keys()].every((i) => { const q = bot.blockAt(new Vec3(tk.x, tk.y + 1 + i, tk.z), false); return !q || q.boundingBox === 'empty'; })) { results.push({ tk, ok: false, why: 'skipped' }); continue; } }
         // a temporary block with a crew member anywhere above it in its column is not taken (a pillar dug out under a bot on its top: falls of 40 blocks, live 2026-11-23 fy3)
         if (tk.kind === 'untemp' && !(job.ledger.get(tk) || {}).wetOk && [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]].some(([dx, dy, dz]) => FLUID(seen(bot, { x: tk.x + dx, y: tk.y + dy, z: tk.z + dz })))) { results.push({ tk, ok: false, why: 'skipped' }); continue; }          // it holds back a fluid now
         if (tk.kind === 'untemp' && crewAt(job, bot).concat(tk.descend ? [] : [bot.entity.position]).some((q) => Math.floor(q.x) === tk.x && Math.floor(q.z) === tk.z && q.y > tk.y && q.y < tk.y + 90)) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
@@ -967,6 +969,40 @@ function adoptWorkTemps(job, name, bot, box, margin = 24) {
     return n;
 }
 
+/**
+ * A dead crew member's pack, picked up where it fell before it despawns (five minutes), as a player goes back for their things: the respawned bot itself, or after 20 s the
+ * first other bot to come by its loop. Counted: what was dropped and what came back (stats.drops). The trip is given up after 3 minutes or 4.5 minutes after the death.
+ */
+async function recoverDrops(job, name, bot, mv, cancel) {
+    const now = Date.now();
+    for (const d of job.drops) {
+        if (d.done) continue;
+        if (now - d.at > 270000) { d.done = true; job.log(`drops: the pack of ${d.by} at ${d.x},${d.y},${d.z} was not picked up in time (${d.n} items)`); continue; }
+        if (d.claimed && d.claimed !== name) continue;
+        if (!d.claimed && d.by !== name && now - d.at < 20000) continue;
+        d.claimed = name;
+        const before = SUP.carried(bot), t0 = Date.now(), c = { x: d.x, y: d.y, z: d.z };
+        job.log(`drops: ${name} goes for the pack of ${d.by} at ${c.x},${c.y},${c.z} (${d.n} items)`);
+        try {
+            await PZ.within('trip: a dead bot\'s pack', async () => {
+                await mv.goto(c, { goal: (x, y, z) => Math.abs(x - c.x) <= 1 && Math.abs(z - c.z) <= 1 && Math.abs(y - c.y) <= 2, cancel, maxNodes: 30000, tries: 3 });
+                // each stack lying within six cells: walked onto (the server hands an item to the body that touches it)
+                for (let k = 0; k < 24 && !cancel.cancelled && Date.now() - t0 < 180000; k++) {
+                    const p = bot.entity.position, lying = Object.values(bot.entities).filter((e) => e.name === 'item' && e.position.distanceTo(new Vec3(c.x + 0.5, c.y, c.z + 0.5)) < 6).sort((a, b) => a.position.distanceTo(p) - b.position.distanceTo(p))[0];
+                    if (!lying) break;
+                    const q = { x: Math.floor(lying.position.x), y: Math.floor(lying.position.y + 0.2), z: Math.floor(lying.position.z) };
+                    await mv.goto(q, { goal: (x, y, z) => x === q.x && z === q.z && Math.abs(y - q.y) <= 1, cancel, maxNodes: 3000, tries: 1 });
+                    await sleep(600, 'server: the pickup');
+                }
+            });
+        } catch (e) { job.log(`drops: ${name}: ${e.message}`); }
+        const after = SUP.carried(bot); let got = 0; for (const [k, n] of Object.entries(d.items)) got += Math.max(0, Math.min(n, (after[k] || 0) - (before[k] || 0)));
+        d.done = true; job.stats.drops.recovered += got;
+        job.log(`drops: ${name} picked up ${got} of the ${d.n} items ${d.by} dropped`);
+        return;
+    }
+}
+
 /** One bot of the crew, its pauses classified (pauses.js): the drive runs in the bot's own store. */
 function drive(job, name, bot, opts = {}) {
     const stop = PZ.attach(bot, name);
@@ -984,7 +1020,9 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
     const onDeath = () => { const p = bot.entity && bot.entity.position, f = p ? feet(bot) : null, around = f ? [-1, 0, 1].map((dy) => (seen(bot, { x: f.x, y: f.y + dy, z: f.z }) || {}).name).join('/') : '?'; job.stats.deaths = (job.stats.deaths || 0) + 1; const gs = mv.guard && mv.guard.lastStop; job.log(`${name} died at ${f ? `${f.x},${f.y},${f.z}` : '?'} (${around}), stage ${job.stage}${gs ? `; fall guard last held it ${Math.round((Date.now() - gs.at) / 1000)} s ago at ${gs.x},${gs.y},${gs.z}` : ''}; last: ${mv.trace.join(' | ')}`); };
     bot.on('death', onDeath);
     // a dead bot's temporary blocks are the crew's at once (owner list 5 Large 1, point 4: nothing is orphaned); the respawned bot takes them like any other
-    const onDied = () => { job.orphanOf(name, 'died'); mv.mine.clear(); };
+    // the pack it dropped (keep_inventory off): where and what, for the crew to pick up before it despawns (recoverDrops; b081q4: Bd4g's full pack lay at the foot of its fall)
+    let lastPack = {};
+    const onDied = () => { job.orphanOf(name, 'died'); mv.mine.clear(); const p = bot.entity && bot.entity.position; if (p) { const n = Object.values(lastPack).reduce((a, k) => a + k, 0); (job.drops || (job.drops = [])).push({ x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z), at: Date.now(), by: name, items: { ...lastPack }, n, claimed: null, done: false }); const st = job.stats.drops || (job.stats.drops = { packs: 0, dropped: 0, recovered: 0 }); st.packs++; st.dropped += n; } };
     bot.on('death', onDied);
     // the server's word on every block change this bot sees: confirms or ends temporary blocks, whoever placed or broke them (temps.js)
     // a temporary block that comes into the world with no ledger entry (cause a of the end scan: 1 / 1 / 13 of the leftovers of build_t-w121-smoke, no code path known): the
@@ -1002,7 +1040,7 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
     const unwatch = require('./machine').attach(job, bot, job.log);          // the build's pistons that fire and the cells they move (target zero)
     // once a second: how many of its temporary blocks stand beyond the column it stands on (the owner's two-per-bot standard, temps.js sample)
     let looseLog = 0;
-    const sampler = setInterval(() => { try { if (bot.entity && job.ledger.size) { const f = feet(bot), n = job.ledger.sample(name, f); if (n > 2 && Date.now() - looseLog > 60000) { looseLog = Date.now(); job.log(`[temps] ${name} at ${f.x},${f.y},${f.z} holds ${n} beyond its column: ${job.ledger.lastLoose.join('; ')}; last moves ${mv.trace.slice(-3).join(' | ')}`); } } } catch (_) { /* a sample is only a count */ } }, 1000);
+    const sampler = setInterval(() => { try { if (bot.inventory) lastPack = SUP.carried(bot); } catch (_) { /* the next second */ } try { if (bot.entity && job.ledger.size) { const f = feet(bot), n = job.ledger.sample(name, f); if (n > 2 && Date.now() - looseLog > 60000) { looseLog = Date.now(); job.log(`[temps] ${name} at ${f.x},${f.y},${f.z} holds ${n} beyond its column: ${job.ledger.lastLoose.join('; ')}; last moves ${mv.trace.slice(-3).join(' | ')}`); } } } catch (_) { /* a sample is only a count */ } }, 1000);
     // the step is over: the bot's own temporary blocks go before it does anything else (release)
     // a bot without any action for a minute (no packet, no step): once per pause, where it is, what it is in and its mover's last steps (b081k: 33 pauses of 70-360 s
     // in the mover's tick waits that no other line explained)
@@ -1070,6 +1108,7 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
             // far from its site (it woke at the world's spawn after a death): it leaves the crew instead of working another crew's site (live 2026-11-23 ha11 w3)
             { const b0 = job.t.box, p = bot.entity.position, d = Math.hypot(p.x - (b0.x + b0.sx / 2), p.z - (b0.z + b0.sz / 2)); if (d > 200) { job.log(`${name} is ${Math.round(d)} blocks from the site (respawned far away): it leaves the crew`); return { ended: 'too_far' }; } }
             if (inNether(bot) && job.available.has('respawn_anchor') && !(job.spawnSet && job.spawnSet.has(name)) && !job.anchorBusy && Date.now() - ((job.anchorTry && job.anchorTry.get(name)) || 0) > 120000) { (job.anchorTry || (job.anchorTry = new Map())).set(name, Date.now()); await settle(null, 'anchor'); await anchor(job, name, bot, mv, cancel); }
+            if (job.drops && job.drops.some((d) => !d.done)) await recoverDrops(job, name, bot, mv, cancel);
             if (job.exhausted()) { await PZ.within('cpu: survey', () => job.resurvey(bot, `${name}: stage ${job.stage} done`)); continue; }
             // the terrain first, by the pit (after the first survey, with the tools of the first trip in the pack)
             // (only with its tools and temporary blocks in the pack: the trip before the pit fetches those and nothing else; b081b: two bots went in with an empty pack after a
@@ -1218,4 +1257,4 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
     } finally { bot.removeListener('death', onDeath); bot.removeListener('death', onDied); bot.removeListener('blockUpdate', onBlock); job.orphanOf(name, 'left the crew'); clearInterval(sampler); clearInterval(stallWatch); unwatch(); bot.removeListener('spawnReset', onReset); bot.__builderOwns = false; job.leave(name); if (job.pool) job.pool.leave(name); for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sneak', 'sprint']) bot.setControlState(k, false); }
 }
 
-module.exports = { drive, work, holds, rules, pour, escape, needsFor, boxSpot, bench, release, unscaffold, touchesShape, planned, adoptWorkTemps, closesIn };
+module.exports = { drive, work, holds, rules, pour, escape, needsFor, boxSpot, bench, release, unscaffold, touchesShape, planned, adoptWorkTemps, closesIn, recoverDrops };

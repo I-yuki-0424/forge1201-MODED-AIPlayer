@@ -495,7 +495,9 @@ class Mover {
             if (this.rules.mayDig && !this.rules.mayDig(f.x, f.y - 1, f.z)) break;
             if (!(await this.dig({ x: f.x, y: f.y - 1, z: f.z }))) { if (this.rules.onTempFail) this.rules.onTempFail({ x: f.x, y: f.y - 1, z: f.z }, 'unpillar: the dig failed'); break; }
             this.mine.delete(k); if (this.rules.onUntemp) this.rules.onUntemp({ x: f.x, y: f.y - 1, z: f.z });
-            for (let i = 0; i < 20 && feet(this.bot).y > f.y - 1; i++) await sleep(50);
+            // landed on the next block before the next dig (the position comes down a few ticks after the dig; dug on the old position, the block it was landing on went too)
+            for (let i = 0; i < 40 && !(feet(this.bot).y <= f.y - 1 && this.bot.entity.onGround); i++) await sleep(50);
+            if (!(feet(this.bot).y <= f.y - 1 && this.bot.entity.onGround)) break;
             n++;
         }
         if (n) this.note(`unpillar ${n}`);

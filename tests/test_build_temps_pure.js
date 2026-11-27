@@ -288,6 +288,36 @@ test('work: no click on a block that is gone since the way was chosen (the serve
     assert.strictEqual(calls.length, 1, 'negative control: the block stands, the click goes');
 });
 
+test('work: never the block the bot is landing on (its own column, the cells between free: b081q4, a fall of 39 after its position lagged a dig); negative control: from the column beside, it may go', async () => {
+    const t = new Target(tiny(), { x: 0, y: 64, z: 0 });
+    const job = new BuildJob(t, {}); job.stage = 'place';
+    const w = new Map(); w.set('1,98,1', { name: 'pumpkin' });          // the bridge block it lands on, nothing under it; the pillar block over it (99) already dug
+    const bot = fakeBot(w, { x: 1.5, y: 100, z: 1.5 }); bot.players = {}; bot.inventory = { items: () => [] };
+    const dug = [];
+    const mv = { goto: async () => ({ ok: true }), note: () => {}, hold: async () => true, holdNothing: async () => true, dig: async (c) => { dug.push(c.y); return true; }, click: async () => {}, lean: async () => {}, unlean: async () => {}, unpillar: async () => 0, mine: new Map() };
+    const tk = { k: '1,98,1', x: 1, y: 98, z: 1, kind: 'clear', way: { at: [1, 98, 1] } };          // (an untemp has its own rule: no crew member over it in its column)
+    const res = await D.work(job, 'a', bot, mv, { station: { x: 1, y: 100, z: 1 }, tasks: [tk] }, { cancelled: false });
+    assert.strictEqual((res[0] || {}).why, 'skipped'); assert.deepStrictEqual(dug, []);
+    w.set('2,99,1', { name: 'stone' });
+    const bot2 = fakeBot(w, { x: 2.5, y: 100, z: 1.5 }); bot2.players = {}; bot2.inventory = { items: () => [] };
+    const res2 = await D.work(job, 'a', bot2, mv, { station: { x: 2, y: 100, z: 1 }, tasks: [{ ...tk }] }, { cancelled: false });
+    assert.notStrictEqual((res2[0] || {}).why, 'skipped', 'negative control: from the column beside, on its own floor, the block may go');
+});
+
+test('a dead bot\'s pack: the respawned bot goes to where it fell and walks onto each stack; what came back is counted; too late or another\'s claim (negative controls): left alone', async () => {
+    const { Vec3 } = require('vec3');
+    const job = { log: () => {}, stats: { drops: { packs: 1, dropped: 70, recovered: 0 } }, drops: [{ x: 10, y: 64, z: 10, at: Date.now(), by: 'a', items: { smooth_stone: 64, repeater: 6 }, n: 70, claimed: null, done: false }] };
+    const inv = [];
+    const ents = { 1: { name: 'item', position: new Vec3(10.5, 64, 10.5), give: { name: 'smooth_stone', count: 64 } }, 2: { name: 'item', position: new Vec3(11.5, 64, 10.5), give: { name: 'repeater', count: 6 } } };
+    const bot = { username: 'a', entity: { position: new Vec3(0.5, 64, 0.5) }, entities: ents, inventory: { items: () => inv } };
+    const mv = { goto: async (c) => { bot.entity.position = new Vec3(c.x + 0.5, c.y, c.z + 0.5); for (const [id, e] of Object.entries(ents)) if (Math.floor(e.position.x) === c.x && Math.floor(e.position.z) === c.z) { inv.push({ name: e.give.name, count: e.give.count }); delete ents[id]; } return { ok: true }; } };
+    await D.recoverDrops(job, 'a', bot, mv, { cancelled: false });
+    assert.strictEqual(job.stats.drops.recovered, 70, JSON.stringify(job.stats)); assert(job.drops[0].done);
+    const late = { log: () => {}, stats: { drops: { packs: 1, dropped: 5, recovered: 0 } }, drops: [{ x: 1, y: 64, z: 1, at: Date.now() - 280000, by: 'a', items: { glass: 5 }, n: 5, claimed: null, done: false }, { x: 1, y: 64, z: 1, at: Date.now(), by: 'b', items: { glass: 5 }, n: 5, claimed: 'b', done: false }] };
+    let went = 0; await D.recoverDrops(late, 'a', bot, { goto: async () => { went++; return { ok: true }; } }, { cancelled: false });
+    assert.strictEqual(went, 0, 'negative controls: too late, and another bot\'s claim'); assert(late.drops[0].done && !late.drops[1].done);
+});
+
 test('pit: fluid fills use the dug rubble first, the operator\'s temporary block only without it; at the time limit the pit wraps up (no claim, finished for the worker, its end cleans the movement blocks only)', async () => {
     const pit = require('../src/work/jobs/pit');
     const have = { cobblestone: 20, pumpkin: 128 }, env = { have: (x) => have[x] || 0 };
