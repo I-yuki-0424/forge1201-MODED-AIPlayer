@@ -240,7 +240,15 @@ async function plan0(view, start, goal, h, { maxNodes = 40000, temps = 0, box = 
     // flood: no goal, no estimate (Dijkstra): every cell the bot can get to within maxNodes, with its cost (the claim offers stances only among them, Mover.flood)
     const hh = flood ? () => 0 : (x, y, z) => W * ((Math.abs(x - h.x) + Math.abs(z - h.z)) * COST.walk * 0.9 + (h.y > y ? (h.y - y) * (temps > 0 ? COST.pillar + COST.temp : COST.up) * 0.9 : (y - h.y) * COST.drop * 0.5));
     // the column of its own the bot stands on (a pillar it climbed, kept for a next stance on the same column): its height decides how the route may leave it
-    let col0 = 0; if (view.rules.ownTemp) while (col0 < 64 && view.rules.ownTemp(start.x, start.y - 1 - col0, start.z)) col0++;
+    // (and under every cell a route steps onto: a column of its own it comes back to is the same column, b081y4 Bd4d stepped off a scaffold onto its 53-block pillar's top, the
+    // plan counted 0 there, and the next step, one up and sideways, left the column standing to the end of the run: 45 of the run's 60 temporary blocks)
+    const colMemo = new Map(), ownCol = (x, y, z) => {
+        if (!view.rules.ownTemp) return 0;
+        const k = key(x, y, z); let n = colMemo.get(k);
+        if (n === undefined) { n = 0; while (n < 64 && view.rules.ownTemp(x, y - n, z)) n++; colMemo.set(k, n); }
+        return n;
+    };
+    const col0 = ownCol(start.x, start.y - 1, start.z);
     open.push({ x: start.x, y: start.y, z: start.z, g: 0, f: hh(start.x, start.y, start.z), t: 0, p: null, move: 'start', col: col0, off: false });
     best.set(key(start.x, start.y, start.z), 0);
     // (a cell reached by the last step off a tall column is kept apart from the same cell reached otherwise: it is a stance only, nothing is planned on from it)
@@ -294,7 +302,8 @@ async function plan0(view, start, goal, h, { maxNodes = 40000, temps = 0, box = 
                 const how = leaveColumn(c.col, move, Math.abs(x - c.x) + Math.abs(z - c.z) === 1, y === c.y, leanDepth);
                 if (!how) return;
                 off = how === 'last';
-                col = move === 'bridge' && !own ? 1 : 0;
+                const base = move === 'bridge' && !own ? 1 : 0;
+                col = base + ownCol(x, y - 1 - base, z);
             }
             const g = c.g + cost + extraCost, k = bkey(x, y, z, off);
             if (g >= (best.get(k) ?? Infinity)) return;
@@ -436,20 +445,28 @@ class Mover {
      */
     async walkBack(cancel) {
         const f = feet(this.bot), own = (x, y, z) => this.mine.has(key(x, y, z)) || !!(this.rules.ownTemp && this.rules.ownTemp(x, y, z));
+        this.walkBackWhy = null;
         if (own(f.x, f.y - 1, f.z) && this.mineHow && this.mineHow.get(key(f.x, f.y - 1, f.z)) === 'pillar') return 0;          // on the pillar itself: unpillar's
         const floorOwn = own(f.x, f.y - 1, f.z);
         const v = this.view();
+        let why = 'no pillar top of its own beside it';
         for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
             const t = { x: f.x + dx, y: f.y, z: f.z + dz };
             const pil = (this.mineHow && this.mineHow.get(key(t.x, t.y - 1, t.z)) === 'pillar') || !!(this.rules.ownPillar && this.rules.ownPillar(t.x, t.y - 1, t.z));
-            if (!pil || !v.fits(t.x, t.y, t.z) || own(t.x, t.y - 2, t.z) === false && !v.stands(t.x, t.y - 2, t.z)) continue;
-            if (!(await this.walkTo(t, { sneak: true, timeout: 2000 }))) return 0;
+            if (!pil) continue;
+            if (!v.fits(t.x, t.y, t.z)) { why = `the pillar top ${t.x},${t.y},${t.z} is not free (${(v.raw(t.x, t.y, t.z) || {}).name || '?'} / ${(v.raw(t.x, t.y + 1, t.z) || {}).name || '?'})`; continue; }
+            if (own(t.x, t.y - 2, t.z) === false && !v.stands(t.x, t.y - 2, t.z)) { why = 'a one-block pillar over a gap'; continue; }
+            // (sneaking first, as a player steps across at a height; a sneaking walk that does not arrive is tried once upright, the fall guard under it: a failed walk back left a
+            // column of 53 standing for the rest of b081y4, its only way down untried; walkBack 0 with no reason in the log)
+            if (!(await this.walkTo(t, { sneak: true, timeout: 2000 })) && !(await this.walkTo(t, { timeout: 2000 }))) {
+                const p = this.bot.entity.position; this.walkBackWhy = `the walk onto ${t.x},${t.y},${t.z} did not arrive (at ${p.x.toFixed(2)},${p.y.toFixed(2)},${p.z.toFixed(2)})`; return 0; }
             const b = { x: f.x, y: f.y - 1, z: f.z };
             if (!floorOwn) return await this.unpillar(null, () => false, cancel);          // a stance on the build or the ground beside the pillar's top: only the pillar
             if (await this.dig(b)) { this.mine.delete(key(b.x, b.y, b.z)); if (this.mineHow) this.mineHow.delete(key(b.x, b.y, b.z)); if (this.rules.onUntemp) this.rules.onUntemp(b); }
             else if (this.rules.onTempFail) this.rules.onTempFail(b, 'walk back: the dig failed');
             return 1 + (await this.unpillar(null, () => false, cancel));
         }
+        this.walkBackWhy = why;
         return 0;
     }
 

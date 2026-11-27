@@ -442,6 +442,7 @@ async function release(job, name, bot, mv, cancel, next = null, label = 'step') 
     const tr = Date.now();
     let wb = null, up = null;
     if (!sameCol) { wb = await mv.walkBack(cancel); up = await mv.unpillar(null, () => false, cancel); }
+    if (!sameCol && !wb && !up && !cancel.cancelled && typeof mv.goto === 'function') { const r = await backOntoTall(job, name, bot, mv, cancel); if (r !== null) up = r; }
     const me = feet(bot), eye = eyeOf(bot.entity.position), P = require('./place'), world = P.botWorld(bot);
     const column = (e) => sameCol && e.x === me.x && e.z === me.z && e.y < me.y;
     const ownLife = (e) => e.how === 'seal' || e.how === 'fill' || e.how === 'scaffold' || e.how === 'fixture';
@@ -466,11 +467,39 @@ async function release(job, name, bot, mv, cancel, next = null, label = 'step') 
     const left = L.release(name, { stay: (e) => ownLife(e) || column(e), why: `${label} begins` });
     // a pillar of its own left standing when its step ends (it should have been the way down): where, how high, and what the bot did (the first 40 of the job)
     { const cols = new Map(); for (const e of left) if (e.how === 'pillar') { const ck = `${e.x},${e.z}`, c0 = cols.get(ck); if (!c0 || e.y > c0.top) cols.set(ck, { top: e.y, n: (c0 ? c0.n : 0) + 1, step: e.step, age: Math.round((Date.now() - e.at) / 1000) }); else c0.n++; }
-      for (const [ck, c] of cols) if (c.n >= 2) { const lw = job.stats.columnsLeft || (job.stats.columnsLeft = {}), wk = wb === null && up === null ? 'the next stance on the column it stands on: this one beside it left' : (mv.unpillarWhy || (wb ? 'walked back, not all dug' : 'not beside or on it')); lw[wk] = (lw[wk] || 0) + c.n; } for (const [ck, c] of cols) if (c.n >= 2 && (job.leftLog = (job.leftLog || 0) + 1) <= 120) job.log(`[temps] ${name} leaves a column of ${c.n} at ${ck} (top ${c.top}, placed in step ${c.step} ${c.age} s ago) as ${label} begins, standing at ${me.x},${me.y},${me.z}; walkBack ${wb} unpillar ${up}${mv.unpillarWhy ? ` (${mv.unpillarWhy})` : ''}; last moves ${(mv.trace || []).slice(-4).join(' | ')}`); }
+      for (const [ck, c] of cols) if (c.n >= 2) { const lw = job.stats.columnsLeft || (job.stats.columnsLeft = {}), wk = wb === null && up === null ? 'the next stance on the column it stands on: this one beside it left' : (mv.unpillarWhy || (wb ? 'walked back, not all dug' : 'not beside or on it')); lw[wk] = (lw[wk] || 0) + c.n; } for (const [ck, c] of cols) if (c.n >= 2 && (job.leftLog = (job.leftLog || 0) + 1) <= 120) job.log(`[temps] ${name} leaves a column of ${c.n} at ${ck} (top ${c.top}, placed in step ${c.step} ${c.age} s ago) as ${label} begins, standing at ${me.x},${me.y},${me.z}; walkBack ${wb}${mv.walkBackWhy ? ` (${mv.walkBackWhy})` : ''} unpillar ${up}${mv.unpillarWhy ? ` (${mv.unpillarWhy})` : ''}; last moves ${(mv.trace || []).slice(-4).join(' | ')}`); }
     if (left.length) job._offerTemps(Date.now(), true);
     L.begin(name, label);
     job.time.walk += Date.now() - tr;
     return n;
+}
+
+/**
+ * A column of its own taller than the landing takes back (move.js LEAN_DEPTH), whose top is near the bot (three cells, its height within one) when the step ends and walkBack did not
+ * get onto it: a planned way onto its top (what is in the way dug, the plan's own rules), then the column dug down as the bot comes down. Such a column has no other way down: the
+ * crew's untemp task for it needs a stance on its top, which only its placer standing there has (b081y4: Bd4d's 53-block pillar at 291,-40, walkBack 0 from the scaffold beside its
+ * top; 'no stance for the first 1 (untemp 291,119,-40)' for 70 minutes; 45 of the 60 temporary blocks at the end). Returns the blocks dug, or null when there is no such column.
+ */
+async function backOntoTall(job, name, bot, mv, cancel) {
+    const L = job.ledger, f = feet(bot), { LEAN_DEPTH } = require('./move'), tops = new Map();
+    for (const e of L.of(name)) {
+        if (e.how !== 'pillar' || e.released || e.orphan || e.state === 'pending') continue;
+        const ck = `${e.x},${e.z}`, t = tops.get(ck); if (!t || e.y > t.y) tops.set(ck, { x: e.x, y: e.y, z: e.z });
+    }
+    let best = null;
+    for (const t of tops.values()) {
+        const d = Math.abs(t.x - f.x) + Math.abs(t.z - f.z);
+        if (!d || d > 3 || Math.abs(t.y + 1 - f.y) > 1) continue;
+        let h = 0; while (h < 64 && (L.get({ x: t.x, y: t.y - h, z: t.z }) || {}).by === name) h++;
+        if (h > LEAN_DEPTH && (!best || d < best.d)) best = { ...t, d, h };
+    }
+    if (!best) return null;
+    const to = { x: best.x, y: best.y + 1, z: best.z }, r = await mv.goto(to, { cancel, tries: 2, maxNodes: 3000, budgetMs: 1000 });
+    job.stats.tallBack = job.stats.tallBack || { tried: 0, on: 0 }; job.stats.tallBack.tried++;
+    const at = feet(bot);
+    if (!r.ok || at.x !== to.x || at.z !== to.z) { job.log(`[temps] ${name} could not get back onto its column of ${best.h} at ${best.x},${best.z} (top ${best.y}) from ${f.x},${f.y},${f.z}: ${r.why || 'not there'}`); return 0; }
+    job.stats.tallBack.on++;
+    return mv.unpillar(null, () => false, cancel);
 }
 
 /**

@@ -537,4 +537,63 @@ test('the column beside the floor that the bot is taking back top-down is in use
     L.release('a'); assert.strictEqual(L.sample('a', { x: 1, y: 74, z: 0 }), 2, 'released (the step is over): loose wherever the bot is');
 });
 
+test('a route that steps back onto a tall column of its own counts that column (b081y4: off a scaffold onto its 53-block pillar\'s top and one up sideways, the column left for the rest of the run); negative control: no ownTemp rule, the old count 0', async () => {
+    const M = require('../src/build/move');
+    const w = new Map(); for (let x = -4; x <= 6; x++) for (let z = -3; z <= 3; z++) w.set(`${x},69,${z}`, { name: 'stone' });
+    for (let y = 70; y <= 75; y++) { w.set(`2,${y},0`, { name: 'stone' }); w.set(`1,${y},0`, { name: 'pumpkin' }); }          // the bot's stand (the build) and its own pillar beside
+    for (let y = 70; y <= 76; y++) w.set(`0,${y},0`, { name: 'stone' });                                                        // one higher on the other side: the goal on top
+    const own = (x, y, z) => x === 1 && z === 0 && y >= 70 && y <= 75;
+    const route = (rules) => M.plan(new M.View(fakeBot(w), { canDig: () => true, ...rules }), { x: 2, y: 76, z: 0 }, (x, y, z) => x === 0 && y === 77 && z === 0, { x: 0, y: 77, z: 0 }, { temps: 0, maxNodes: 20000 });
+    const offTop = (r) => (r || []).some((q, i) => i && r[i - 1].x === 1 && r[i - 1].y === 76 && q.x !== 1);
+    const old = await route({});
+    assert(old && offTop(old), `negative control: the old count lets the route go up off the column top (${(old || []).map((q) => `${q.x},${q.y}${q.move[0]}`)})`);
+    const now = await route({ ownTemp: own });
+    assert(!offTop(now), `the route does not leave the six-high column sideways (${(now || []).map((q) => `${q.x},${q.y}${q.move[0]}`)})`);
+    assert.strictEqual(now, null, 'without blocks to pillar on: no way over the column at all');
+    // its way down: the column dug as the bot comes down ('down' steps), never left from its top
+    const down = await M.plan(new M.View(fakeBot(w), { canDig: () => true, ownTemp: own }), { x: 2, y: 76, z: 0 }, (x, y, z) => x === -2 && y === 70 && z === 0, { x: -2, y: 70, z: 0 }, { temps: 0, maxNodes: 20000 });
+    assert(down && !offTop(down), `to the ground: not off the column's top sideways (${(down || []).map((q) => `${q.x},${q.y}${q.move[0]}`)})`);
+});
+
+test('walk back: a sneaking walk onto the pillar top that does not arrive is tried once upright; both failing, the reason is kept (b081y4 "walkBack 0" with no reason); negative control: no pillar beside', async () => {
+    const M = require('../src/build/move');
+    const mk = (okSneak, okUp) => {
+        const w = new Map(); for (let x = -3; x <= 4; x++) for (let z = -3; z <= 3; z++) w.set(`${x},69,${z}`, { name: 'stone' });
+        for (let y = 70; y <= 75; y++) w.set(`0,${y},0`, { name: 'pumpkin' }); w.set('1,75,0', { name: 'pumpkin' });
+        const bot = fakeBot(w, { x: 1.5, y: 76, z: 0.5 }), mv = Object.create(M.Mover.prototype), walks = [];
+        const mine = new Map(), how = new Map(); for (let y = 70; y <= 75; y++) { mine.set(`0,${y},0`, 'pumpkin'); how.set(`0,${y},0`, 'pillar'); }
+        mine.set('1,75,0', 'pumpkin'); how.set('1,75,0', 'scaffold');
+        Object.assign(mv, { bot, mine, mineHow: how, rules: { canDig: () => true }, trace: [] });
+        mv.walkTo = async (c, o = {}) => { walks.push(o.sneak ? 'sneak' : 'upright'); const ok = o.sneak ? okSneak : okUp; if (ok) bot.entity.position.x = c.x + 0.5; return ok; };
+        mv.dig = async () => true; mv.unpillar = async () => 6;
+        return { mv, walks };
+    };
+    const a = mk(false, true);
+    assert.strictEqual(await a.mv.walkBack({ cancelled: false }), 7, 'upright: onto the top, the scaffold dug, down the pillar');
+    assert.deepStrictEqual(a.walks, ['sneak', 'upright']);
+    const b = mk(false, false);
+    assert.strictEqual(await b.mv.walkBack({ cancelled: false }), 0);
+    assert(/did not arrive/.test(b.mv.walkBackWhy), b.mv.walkBackWhy);
+    const c = mk(true, true); c.mv.mineHow = new Map(); c.mv.mine = new Map();
+    assert.strictEqual(await c.mv.walkBack({ cancelled: false }), 0); assert.deepStrictEqual(c.walks, [], 'negative control: nothing to walk back to');
+    assert(/no pillar top/.test(c.mv.walkBackWhy), c.mv.walkBackWhy);
+});
+
+test('release: walkBack did not get onto a tall column of its own whose top is beside the bot: a planned way onto the top and down it (b081y4: 45 of 60 left as "a tall column: from its top"); negative control: a short column stays the lean\'s', async () => {
+    for (const h of [6, 3]) {
+        const t = new Target(tiny(), { x: 100, y: 64, z: 100 });
+        const job = new BuildJob(t, {}); job.stage = 'place';
+        const w = new Map(); for (let x = -3; x <= 5; x++) for (let z = -3; z <= 3; z++) w.set(`${x},63,${z}`, { name: 'stone' });
+        const top = 63 + h;
+        for (let y = 64; y <= top; y++) { w.set(`1,${y},0`, { name: 'stone' }); const c = { x: 0, y, z: 0 }; w.set(`0,${y},0`, { name: 'pumpkin' }); job.addTemp(c, 'pillar', 'a', 'pumpkin'); job.ledger.observe(c, 'pumpkin'); }
+        const bot = fakeBot(w, { x: 1.5, y: top + 1, z: 0.5 });
+        const calls = [];
+        const mv = { walkBack: async () => 0, unpillar: async () => { calls.push(`down@${Math.floor(bot.entity.position.x)}`); return Math.floor(bot.entity.position.x) === 0 ? h : 0; }, dig: async () => true, mine: new Map(),
+            goto: async (to) => { calls.push(`goto ${to.x},${to.y},${to.z}`); bot.entity.position.x = to.x + 0.5; return { ok: true }; } };
+        await D.release(job, 'a', bot, mv, { cancelled: false }, null, 'claim');
+        if (h > 4) { assert.deepStrictEqual(calls, ['down@1', `goto 0,${top + 1},0`, 'down@0'], calls.join(' | ')); assert.deepStrictEqual(job.stats.tallBack, { tried: 1, on: 1 }); }
+        else assert(!calls.some((q) => q.startsWith('goto')), `negative control: a column of ${h} is taken back from beside (${calls})`);
+    }
+});
+
 (async () => { for (const [name, fn] of queue) { await fn(); n++; console.log(`  ok ${name}`); } console.log(`test_build_temps_pure: ${n} passed`); })().catch((e) => { console.error(e); process.exit(1); });
