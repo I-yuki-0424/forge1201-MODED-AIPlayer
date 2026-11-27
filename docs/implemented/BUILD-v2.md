@@ -1022,6 +1022,22 @@ fixtures rule. Open: a bot that falls into an aquifer under the dug floor still 
 - The rules, one sentence each (tests in `test_pit_trees_pure.js` and `test_pit_expert_unit_pure.js`): a lake fill inside the box is work, so the water it holds back is filled one cell
   further out (outside the box) and then the fill is broken, and only a fill outside the box stays; glow lichen (any plant) in a box that must end empty is a block to break.
 
+**mine_b set 10 (2026-11-28 05:44-07:08, code 0d8d80bf: floor first, deep-water exit, bank step, plant model, tool stock; same conditions, x3).** The
+unbreakable-stock fix showed live: no first-life stock-tools line took a pickaxe from the chest any more.
+
+| Run (world, seed) | End | Dirty layers | Pumpkins | Fixtures kept | Deaths |
+| :-- | :-- | --: | --: | :-- | :-- |
+| `mbc075t` w1 (-9081138306293114222) | finished at 56 min, then in the job's end the bot fell 40 blocks right after a `mine` at 6.56,48.89,14.28 ('fell from a high place'); the box then flooded (628 water cells, from y 50-51 at the z 15 edge), 41 units were sent back and the respawned bot found nothing claimable until the timeout (80 min) | 115 | **0** | none | 1 (fall) |
+| `mbc075t` w2 (-4932457127435196195) | finished at 63 min, a mountain box (top 117) | 1 (one stone at 14,87,0 on the box edge, 13 'could not stand at the station') | **0** | none | 0 |
+| `mbc075u` w3 (-484423623663198395, KILL_AT_END) | wet (374 water + 136 lava); killed in its end; the respawned bot's hanging pass left 457 lake fills ('no progress from the columns'), timeout 85 min | 31 | **0** | none | 1 (the kill) |
+
+Over sets 4-10 (21 new worlds): **0 temporary blocks left on all 21**. Fixed after set 10 (tests with negative controls): the expert's last few cells that no station reaches
+go through the cell rule (9eea401f, the w2 stone); the tree/hanging pass never mines the block that holds the body (32940e4a; defensive, the w1 fall's cause is not proven).
+Also from 081's Nether runs: a block another player stands on is never mined (9e5d28fa, b081x5's rim fall) and under a ceiling the stuck escape leads toward the work instead of
+stairs up to a sky that never comes (b736921c, b081y5: 8 bots stranded 20-30 over their box, the pit wrapped up at 626 of 2 432 units, the builder parked the 11 182 cells left).
+Open: the w1 flood in the end (which block let the water in), the hanging pass in a wet box after a death (w3: 457 fills), units that sit about 7 min in 'unit:plan' (planner
+answers none ~95 times a minute, w1 and w3, set 9 w2), the hc1 pace comparison on equal terms.
+
 move_a's 10 pumpkins on seed 7601 (`ma075s`) were a wild pumpkin patch: the same 10 cells (x 663-675, y 67) are pumpkins in an untouched world of that seed (scan.js). move_a now
 grades only cells that turned into a temporary-block kind during the run (a block update seen by the bot, never a chunk load).
 
