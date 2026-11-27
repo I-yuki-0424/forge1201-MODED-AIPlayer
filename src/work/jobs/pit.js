@@ -300,7 +300,7 @@ async function runUnit(plan, region, u, env) {
     };
     // time in cells (the rest of a unit is its walks to stations) and the slowest cell with what it held and how it ended, for the log of slow units (construct.js)
     const takeRoot = async (c) => { const root = bambooRoot(env.w, c); if (root && root.y < plan.box.bottom && eyeDist(root) <= 4.4) { const b = await env.exec('mine', { ...root, collect: false, blind: true }); if (b.ok) r.bambooRoots = (r.bambooRoots || 0) + 1; } };
-    const noteCell = (c, t0, block, res) => { const ms = Date.now() - t0; r.cellMs = (r.cellMs || 0) + ms; if (!r.slowCell || ms > r.slowCell.ms) r.slowCell = { x: c.x, y: c.y, z: c.z, block, ms, end: res === null ? 'ok' : res === 'defer' ? 'defer' : (res && res.reason) || null }; };
+    const noteCell = (c, t0, block, res) => { const ms = Date.now() - t0; r.cellMs = (r.cellMs || 0) + ms; if (!r.slowCell || ms > r.slowCell.ms) r.slowCell = { x: c.x, y: c.y, z: c.z, block, ms, end: res === null ? 'ok' : res === 'defer' ? 'defer' : (res && res.reason) || null, steps: Object.fromEntries(Object.entries(steps).filter(([, v]) => v >= 500).map(([k, v]) => [k, Math.round(v / 1000)])) }; };
     // A placement the bot cannot reach a face for (unreachable) or that ends in a swim it cannot get out of (stuck): the same walk is not tried again. The server puts the bot on a standable
     // cell beside the fluid cell, once per cell, and the placement is tried from there (a different approach); if that fails too, the failure goes up and the unit is parked.
     const placeAt = async (f, item) => {
@@ -378,11 +378,14 @@ async function runUnit(plan, region, u, env) {
         r.floorLeft = seeds.filter((q) => isFluid(env.w, q.x, q.y, q.z)).length;
         } finally { floorBusy = false; }
     };
+    // where a cell's time goes (the slow-unit log): each step of handleCell by name, in ms (bt075w3 jungle: cells of 547-698 s with no NAV trip at all, cause not visible)
+    let steps = {};
+    const timed = async (k, p) => { const t = Date.now(); try { return await p; } finally { steps[k] = (steps[k] || 0) + Date.now() - t; } };
     const handleCell = async (c, last) => {
         // the region's tree pass is running (another bot): its tree blocks are its, the unit leaves them (the layer check sends the unit back if one is still there afterwards)
         if (treeBusy() && isTreeAt(env.w, c)) { r.skipped++; r.treeWait = (r.treeWait || 0) + 1; return null; }
-        await lakeFill(c);
-        let s = await seal(c, true);
+        await timed('lake', lakeFill(c));
+        let s = await timed('seal', seal(c, true));
         if (!s.ok) return s.reason === 'missing_item' && !last ? 'defer' : fail(s, c, 'seal');
         if (open(c)) { r.skipped++; return null; }
         // The block the bot stands on, with nothing solid within three cells under it: breaking it drops the bot into the open pit (86 blocks, dead; live pit 2026-11-07, a lone
@@ -396,15 +399,15 @@ async function runUnit(plan, region, u, env) {
         if (isBamboo(env.w, c)) { const root = bambooRoot(env.w, c); if (root && eyeDist(root) <= 4.4) { const b = await env.exec('mine', { ...root, collect: false, blind: true }); if (b.ok) r.bambooRoots = (r.bambooRoots || 0) + 1; if (open(c)) { r.mined++; return null; } } }
         // A tree block (leaf, vine, log) within the server's reach: blind at once. The aimed mine wants a face in sight, which a leaf in a crown or a vine (no collision box) often has not;
         // its retries took minutes per cell (b081m, 1.21.1: oak_leaves 627 s, a vine 373 s in one cell, no NAV trip)
-        let m = isTreeAt(env.w, c) && eyeDist(c) <= 4.4 ? await env.exec('mine', { x: c.x, y: c.y, z: c.z, collect: false, blind: true }) : { ok: false, reason: 'not_tried' };
-        if (m.ok || open(c)) { r.blindTree = (r.blindTree || 0) + 1; } else m = await env.exec('mine', mineArgs(c), { deadline: c0 + CELL_MS });
+        let m = isTreeAt(env.w, c) && eyeDist(c) <= 4.4 ? await timed('blindTree', env.exec('mine', { x: c.x, y: c.y, z: c.z, collect: false, blind: true })) : { ok: false, reason: 'not_tried' };
+        if (m.ok || open(c)) { r.blindTree = (r.blindTree || 0) + 1; } else m = await timed('mine', env.exec('mine', mineArgs(c), { deadline: c0 + CELL_MS }));
         // Out of reach from the station (unmet in_reach, 'unreachable'): no retry ladder (six tries with recoveries changed nothing and cost minutes per cell in a tree, 081's b081k);
         // blind when the eye is within the server's reach, else one NAV trip within reach (navReach below)
-        if (!m.ok && !open(c) && reachFail(m)) m = await navReach(c, m);
+        if (!m.ok && !open(c) && reachFail(m)) m = await timed('navReach', navReach(c, m));
         // A few seconds between attempts (something in the way moves on, the server catches up), and a small fix before each one:
         // jump, sidestep, go back to where the bot last worked (env.recover; the worker's ladder).
         // Retrying a cell nobody can reach changes nothing: one more look for 'unreachable', then the unit fails and is tried again later (repair passes).
-        for (let tries = 0; !m.ok && !open(c) && tries < (m.reason === 'unreachable' || reachFail(m) ? 1 : 6) && RETRY.has(m.reason) && Date.now() - c0 < CELL_MS; tries++) { if (env.recover) await env.recover(Math.min(tries + 2, 4), m); await (env.pause ? env.pause(10 + 10 * tries) : null); m = await env.exec('mine', mineArgs(c), { deadline: Math.max(c0 + CELL_MS, Date.now() + 15000) }); }
+        for (let tries = 0; !m.ok && !open(c) && tries < (m.reason === 'unreachable' || reachFail(m) ? 1 : 6) && RETRY.has(m.reason) && Date.now() - c0 < CELL_MS; tries++) { if (env.recover) await timed('recover', env.recover(Math.min(tries + 2, 4), m)); await timed('pause', env.pause ? env.pause(10 + 10 * tries) : null); m = await timed('retry', env.exec('mine', mineArgs(c), { deadline: Math.max(c0 + CELL_MS, Date.now() + 15000) })); }
         // The bot stands on the block (the `mine` command never stands above its target; on a one-block pillar there is no other cell): dig it from where it stands, blind. It drops one
         // block onto the pillar below (the floor check above guarantees there is one within three cells). Live pit 2026-11-07: bots walked between the rim and such pillars for an hour.
         // The same when the block is anywhere within the server's reach (about 5 blocks from the eye; the server checks the distance, not the line of sight): a cell in a one-wide shaft
@@ -442,7 +445,7 @@ async function runUnit(plan, region, u, env) {
                 if (got) { r.descended = (r.descended || 0) + got; m = await env.exec('mine', mineArgs(c)); }
             }
         }
-        if (!m.ok && !open(c) && !FATAL_MINE.has(m.reason) && m.reason !== 'protected') m = await navReach(c, m);
+        if (!m.ok && !open(c) && !FATAL_MINE.has(m.reason) && m.reason !== 'protected') m = await timed('navLast', navReach(c, m));
         if (!m.ok && m.reason === 'protected') { r.skipped++; r.protected = (r.protected || 0) + 1; leave(c); return null; }       // the owner's chest or a tagged block inside the box: left standing (src/skills/fixtures.js)
         if (!m.ok && !open(c)) return fail(m, c, 'mine');
         r.mined++;
@@ -465,9 +468,10 @@ async function runUnit(plan, region, u, env) {
         // unit ran 15 min, 081's stall cap ended the pit with 109 units pending)
         if (Date.now() - unitT0 > UNIT_MS && !open(c)) return { ok: false, reason: 'timeout', detail: { why: `the unit's cells took more than ${UNIT_MS / 60000} min`, stage: 'unit', cell: c, ...r } };
         const t0 = Date.now(), b0 = env.w.nameAt ? env.w.nameAt(c.x, c.y, c.z) : null;
+        steps = {};
         const res = await handleCell(c, last);
         if (res === null && /^bamboo/.test(String(b0 || '').replace(/^minecraft:/, '')) && c.y === plan.box.bottom) await takeRoot(c).catch(() => { /* the end's sweep looks again */ });          // (the root under the box's bottom)
-        if (res === null && open(c)) await floorFill(c).catch(() => { /* a floor that cannot be laid now is tried again at the next cell */ });
+        if (res === null && open(c)) await timed('floor', floorFill(c).catch(() => { /* a floor that cannot be laid now is tried again at the next cell */ }));
         noteCell(c, t0, b0, res); return res;
     };
     const deferred = [];
