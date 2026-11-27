@@ -20,7 +20,11 @@ function result(root, id, name, kind) {
     let d; try { d = JSON.parse(fs.readFileSync(files[0], 'utf8')); } catch (_) { return null; }
     const trials = Array.isArray(d.trials) ? d.trials : [];
     const k = trials.filter((t) => t.ok).length;
+    // wrong cells of a build test (place_c, build_t: detail.wrongBy {block: n} or a number `wrong`): a failing build's trend, compared when the rate is unchanged
+    let wrong = null;
+    for (const t of trials) { const d0 = t.detail || {}, w = d0.wrongBy && typeof d0.wrongBy === 'object' ? Object.values(d0.wrongBy).reduce((a, x) => a + (Number(x) || 0), 0) : Number.isFinite(d0.wrong) ? d0.wrong : null; if (w !== null) wrong = (wrong || 0) + w; }
     return {
+        wrong,
         k, n: trials.length, sec: Number.isFinite(d.sec) ? d.sec : null, seedReported: d.seed ? String(d.seed).replace(/\D*(-?\d+).*/s, '$1') : null, speed: d.speed || null,
         fails: trials.filter((t) => !t.ok).slice(0, 4).map((t) => `${t.bot}: ${JSON.stringify(t.detail).slice(0, 240)}`),
     };
@@ -35,7 +39,7 @@ function record(runDir, root) {
         const t = { name, kind, seed, status: st === 'ran' ? 'ran' : st === 'skip' ? 'skipped' : 'no_world', wall: Number(wall) || null, exit: rc === undefined ? null : Number(rc), speed: speed ? Number(speed) : null };
         if (st === 'ran') {
             const r = result(root, id, name, kind);
-            if (r) Object.assign(t, { k: r.k, n: r.n, rate: r.n ? r.k / r.n : 0, sec: r.sec, fails: r.fails });
+            if (r) Object.assign(t, { k: r.k, n: r.n, rate: r.n ? r.k / r.n : 0, sec: r.sec, wrong: r.wrong, fails: r.fails });
             else t.status = 'no_result';                                     // it crashed or hit the wall cap before writing its report
         }
         t.verdict = t.status !== 'ran' ? t.status : t.n > 0 && t.k === t.n ? 'pass' : 'fail';
@@ -56,7 +60,9 @@ function change(t, b) {
         if (t.sec > b.sec * TIME_WORSE && t.sec - b.sec >= TIME_MIN_SEC) time = 'worse';
         else if (t.sec * TIME_WORSE < b.sec && b.sec - t.sec >= TIME_MIN_SEC) time = 'better';
     }
-    return { against: b.run, rate: dr < -1e-9 ? 'worse' : dr > 1e-9 ? 'better' : 'same', time, was: { verdict: b.verdict, k: b.k, n: b.n, sec: b.sec }, sameSeed: same };
+    let rate = dr < -1e-9 ? 'worse' : dr > 1e-9 ? 'better' : 'same';
+    if (rate === 'same' && t.wrong != null && b.wrong != null && Math.abs(t.wrong - b.wrong) > Math.max(3, 0.05 * b.wrong)) rate = t.wrong > b.wrong ? 'worse' : 'better';     // the same verdict, fewer or more wrong cells
+    return { against: b.run, rate, time, was: { verdict: b.verdict, k: b.k, n: b.n, sec: b.sec, wrong: b.wrong ?? null }, sameSeed: same };
 }
 
 function main() {
@@ -76,13 +82,13 @@ function main() {
     fs.mkdirSync(path.join(ciDir, 'runs'), { recursive: true });
     fs.writeFileSync(path.join(ciDir, 'runs', `${rec.id}.json`), JSON.stringify(rec, null, 1));
     const line = { id: rec.id, sha: rec.sha, label: rec.label, subject: rec.subject.slice(0, 160), started: rec.started, ended: rec.ended, pass: rec.pass, ran: rec.ran, worse: rec.worse, better: rec.better,
-        tests: rec.tests.map((t) => ({ name: t.name, kind: t.kind, verdict: t.verdict, k: t.k ?? null, n: t.n ?? null, sec: t.sec ?? null })) };
+        tests: rec.tests.map((t) => ({ name: t.name, kind: t.kind, verdict: t.verdict, k: t.k ?? null, n: t.n ?? null, sec: t.sec ?? null, wrong: t.wrong ?? null })) };
     fs.appendFileSync(histF, JSON.stringify(line) + '\n');
     // the report
     const out = [`CI run ${rec.id}${rec.label ? ` [${rec.label}]` : ''}: ${rec.sha.slice(0, 8)} "${rec.subject.slice(0, 90)}" on ${rec.profile}, test world 9: ${rec.pass}/${rec.ran} tests passed${rec.baseline ? `; against ${rec.baseline}` : '; first run (no baseline)'}`];
     for (const t of rec.tests) {
         const c = t.change, ch = c ? ` | rate ${c.rate}${c.rate !== 'same' ? ` (was ${c.was.k ?? '-'}/${c.was.n ?? '-'} ${c.was.verdict})` : ''}, time ${c.time}${c.was.sec && t.sec ? ` (${c.was.sec} -> ${t.sec} s)` : ''}${c.sameSeed ? '' : ' [other seed]'}` : '';
-        out.push(`  ${t.verdict.toUpperCase().padEnd(9)} ${t.name.padEnd(12)} ${t.kind.padEnd(6)} seed ${t.seed}${t.speed ? ` x${t.speed}` : ''}: ${t.n !== undefined ? `${t.k}/${t.n}` : '-'}${t.sec ? ` in ${t.sec} s` : ''}${ch}`);
+        out.push(`  ${t.verdict.toUpperCase().padEnd(9)} ${t.name.padEnd(12)} ${t.kind.padEnd(6)} seed ${t.seed}${t.speed ? ` x${t.speed}` : ''}: ${t.n !== undefined ? `${t.k}/${t.n}` : '-'}${t.sec ? ` in ${t.sec} s` : ''}${t.wrong != null ? `, ${t.wrong} wrong cells${c && c.was.wrong != null ? ` (was ${c.was.wrong})` : ''}` : ''}${ch}`);
         for (const f of (t.fails || []).slice(0, 2)) out.push(`      ${f.slice(0, 200)}`);
     }
     out.push(`  worse: ${rec.worse.join(', ') || 'none'} | better: ${rec.better.join(', ') || 'none'}`);

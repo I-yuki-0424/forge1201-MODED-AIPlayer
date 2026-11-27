@@ -51,7 +51,11 @@ run('r3', '', [{ line: 'ran place_a fixed 5 60 0 4', name: 'place_a', sec: 118, 
 assert.strictEqual(JSON.parse(fs.readFileSync(path.join(ci, 'runs', 'r3.json'), 'utf8')).baseline, 'r2');
 assert.strictEqual(fs.readFileSync(path.join(ci, 'history.jsonl'), 'utf8').trim().split('\n').length, 4);
 
-// 4. change(): a random seed says so; no baseline -> null
+// 4. change(): a failing build with fewer wrong cells is better, with more worse; a random seed says so; no baseline -> null
+const fb = (w) => ({ verdict: 'fail', rate: 0, kind: 'fixed', seed: '1', wrong: w, run: 'x' });
+assert.strictEqual(change(fb(400), fb(571)).rate, 'better');
+assert.strictEqual(change(fb(700), fb(571)).rate, 'worse');
+assert.strictEqual(change(fb(575), fb(571)).rate, 'same');
 assert.strictEqual(change({ verdict: 'pass', rate: 1, kind: 'fixed', seed: '1' }, null), null);
 assert.strictEqual(change({ verdict: 'pass', rate: 1, kind: 'random', seed: '1', sec: 10 }, { verdict: 'pass', rate: 1, kind: 'random', seed: '2', sec: 10, run: 'x' }).sameSeed, false);
 assert.ok(record);

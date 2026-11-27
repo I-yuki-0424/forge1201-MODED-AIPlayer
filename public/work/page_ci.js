@@ -6,7 +6,7 @@ function ciPage() {
     const status = h('span', { class: 'muted small' }), box = h('div', { class: 'stack' });
     const when = (s) => (s ? new Date(s * 1000).toLocaleString() : '');
     const mark = (r, t) => (r.worse || []).includes(`${t.name}/${t.kind}`) ? 'error' : (r.better || []).includes(`${t.name}/${t.kind}`) ? 'ok' : '';
-    const cell = (t) => (t.verdict === 'pass' || t.verdict === 'fail' ? `${t.k}/${t.n}${t.sec ? ` ${t.sec}s` : ''}` : t.verdict.replace('_', ' '));
+    const cell = (t) => (t.verdict === 'pass' || t.verdict === 'fail' ? `${t.k}/${t.n}${t.sec ? ` ${t.sec}s` : ''}${t.wrong != null ? ` ${t.wrong} wrong` : ''}` : t.verdict.replace('_', ' '));
     async function load() {
         let r; try { r = await api('GET', '/api/ci/runs'); } catch (_) { return; }
         const runs = r.runs || [];
