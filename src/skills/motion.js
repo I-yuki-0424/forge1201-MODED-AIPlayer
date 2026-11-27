@@ -154,6 +154,7 @@ async function walk(ctx, goal, { sprint = true } = {}) {
             && clearLine(w, pos, centre(path[j + 1]), cell.y)) j++;
         const tgt = centre(path[j]);
         const d = hdist(pos, tgt);
+        if (bot.__moveTag) bot.__moveTag.walk = { goal: goal.label, idx, next: [next.x, next.y, next.z, next.move], tgt: [path[j].x, path[j].y, path[j].z], j };
         const progress = idx + 1 / (1 + hdist(pos, centre(next)));
         if (progress > best + 0.02) { best = progress; lastGain = ctx.t; }
         if (ctx.t - lastGain > STUCK_TICKS) { replan('no progress'); continue; }

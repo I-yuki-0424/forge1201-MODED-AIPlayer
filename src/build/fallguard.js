@@ -60,7 +60,7 @@ function install(bot, { maxFall = 3 } = {}) {
     if (bot.__fallGuard) return bot.__fallGuard;
     const ph = bot.physics;
     if (!ph || typeof ph.simulatePlayer !== 'function') return null;
-    const g = { on: true, allow: null, maxFall, stops: 0, lastStop: null };
+    const g = { on: true, allow: null, maxFall, stops: 0, lastStop: null, episodes: [] };
     const orig = ph.simulatePlayer.bind(ph);
     ph.simulatePlayer = (state, world) => {
         const x0 = state.pos.x, y0 = state.pos.y, z0 = state.pos.z;
@@ -80,11 +80,24 @@ function install(bot, { maxFall = 3 } = {}) {
             else if (held(world, x0, s.pos.y, z, g.maxFall)) { s.pos.x = x0; s.vel.x = 0; }
             else { s.pos.x = x0; s.pos.z = z0; s.vel.x = 0; s.vel.z = 0; }
             g.stops++; g.lastStop = { at: Date.now(), x: Math.floor(x), y: Math.floor(s.pos.y), z: Math.floor(z) };
+            note(g, bot, x0, y0, z0, x, s.pos.y, z);
         } catch (_) { /* the guard never breaks the physics tick */ }
         return out;
     };
     bot.__fallGuard = g;
     return g;
+}
+
+/**
+ * One record per episode of stops (the same mover, within a second of the last stop): where the body was, where the move would have taken it, how often, and who moved it
+ * (bot.__moveTag: the action-layer command and, in a walk, the path node it steered to). What tells a mover that plans into a fall from a body that was pushed.
+ */
+function note(g, bot, x0, y0, z0, x, y, z) {
+    const now = Date.now(), tag = bot.__moveTag ? JSON.stringify(bot.__moveTag).slice(0, 300) : null, e = g.episodes[g.episodes.length - 1];
+    if (e && now - e.last < 1000 && e.tag === tag) { e.n++; e.last = now; return; }
+    const r2 = (v) => Math.round(v * 100) / 100;
+    g.episodes.push({ at: now, last: now, n: 1, from: [r2(x0), r2(y0), r2(z0)], to: [r2(x), r2(y), r2(z)], tag });
+    if (g.episodes.length > 16) g.episodes.shift();
 }
 
 /** Run fn with the columns `cols` ({x, z, depth}: a fall of at most `depth`) open for a planned drop; the guard closes them again afterwards. */
