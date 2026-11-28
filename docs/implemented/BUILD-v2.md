@@ -1126,6 +1126,30 @@ clear). The code had `8ff1c77f` (its `tallBack` counters are in the log); whethe
 - Not zero yet. The orphan is a column of 3 left by Bd1a, who walked away from it ('no pillar top of its own beside it', 'a gap under it (air)') while other bots stood on its
   route ('a crew member on it or its route'). The single tall-column block lost its lower blocks to other bots.
 
+**After the rulings (2026-11-28 midday).** All runs from the branch, REPO=worktree, 1.21.1.
+- *mine_b `mbc075x`* (code c61dcee5/3a08b0e4).
+  - w1 (seed 845445254878860767, a lake box): 0 left, 0 registered, 951 converted to terrain.
+  - w2 (2254152221898428075): 3 pumpkins left (2 pillars and a reflex block of a bot that ran out of pickaxes and waited from minute 40); 4 registered at the end, all movement
+    blocks; 501 converted.
+  - w3 (-9023813696792488419): 1 pillar left; 2 registered; 237 converted.
+  - On w3 the wrap-up came while the bot was in a unit walk. The walk went on for five minutes, so the end's cleanup missed the harness's 300 s ('job running') ->
+    `8f9e12bf`: the wrap-up stops the unit in progress (`env` cause 'wrap-up', cleared when that unit returns).
+- *mine_b `mbc075y`* (with 8f9e12bf; the wraps now end in 3-6 s).
+  - w1 (845445254878860767): 0 left, 0 registered, 88 converted.
+  - w2 (-7121308894759546987): 0 left, 0 registered, 104 converted.
+  - w3 (2254152221898428075): 2 pillar pumpkins left. The bot was between units when the wrap-up came, so it carried the stop flag into its end, and the end's one mine was
+    'cancelled' -> `fc98f6c7`: the end pass starts with the stop cleared. The test fails on the previous worker.
+- Over the six mine_b worlds no seal, rescue or lake block was left as a temporary block: 0 registered of those kinds at the end, 3 130 converted.
+- *build_t `bt075n`* (3 new worlds, the cheapest of 4 dry site draws, LIMIT_MIN=30, code 3a08b0e4; world 2 redrawn after an ocean seed had 'no place for the chest').
+  - w1 (seed 1607678720484025067): 4 left.
+    - 3 'orphaned (left the crew), not tried yet' at the pause. Two are scaffolds under floating obsidian placements (208,75,142 and 208,75,146: obsidian above, air on
+      every other side). Bd1a placed them and walked 30 blocks away still holding them; the crew parked them as 'no stance reaches it'.
+    - 1 'scaffold: a crew member on it'.
+  - w2 (-7749859886955748799): 0 left, pit stage only.
+  - w3 (3505297226192648926): 4 left (3 orphaned at the pause, 1 under its placer).
+  - The 'holds a fluid back' class did not occur. Bot-seconds over two: 337 / 162 / 923, that is 2.3 / 1.1 / 6.4 % of 8 bots x 30 min. Placed at minute 29: 875 / 0 / 775.
+  - What is left at the builder's end is scaffolds that outlived their claim (ruling (c)); TASK-081 brings them down to two per bot.
+
 **Pace against hc1.**
 
 `pc075a`: one new world, seed -2772186784472861426, 1.21.1, x1; two Overworld crews of 8 plus one Nether crew of 2; LIMIT_MIN=35; code 8ff1c77f.
