@@ -1041,6 +1041,93 @@ answers none ~95 times a minute, w1 and w3, set 9 w2), the hc1 pace comparison o
 move_a's 10 pumpkins on seed 7601 (`ma075s`) were a wild pumpkin patch: the same 10 cells (x 663-675, y 67) are pumpkins in an untouched world of that seed (scan.js). move_a now
 grades only cells that turned into a temporary-block kind during the run (a block update seen by the bot, never a chunk load).
 
+### Stage D (2026-11-28 morning): the build's leftovers, the two-per-bot ledger, the pace against hc1
+
+**Why 081's runs ended with temporary blocks (cause table from the end scans, Fabric 1.21.1 test worlds 4-5, iron-farm-34, 8 bots).**
+
+| Run | Left (server scan) | a | b | c, by reason | d |
+| :-- | --: | --: | --: | :-- | --: |
+| `b081w4` | 10 | 0 | 0 | orphaned (left the crew), not tried yet 8; under its placer (no way down) 2 | 0 |
+| `b081x4` | 5 | 0 | 0 | orphaned (left the crew) 4; under its placer 1 | 0 |
+| `b081y4` | 60 | 0 | 0 | **a tall column: from its top 45**; orphaned (left the crew) 9; a crew member on it 4; no face in sight 1; under its placer 1 | 0 |
+| `b081w5` / `x5` / `y5` | 6 / 0 / 17 | 0 | 0 | orphaned (left the crew / by the pit) 3 / 0 / 15; under its placer 3 / 0 / 1; a crew member on it 0 / 0 / 1 | 0 |
+
+Two causes, both in the release path:
+- *The tall column of b081y4* (45 of 60). Bd4d pillared from y 72 to 125 at 291,-40. It then stepped sideways onto its scaffold 291,124,-39 to place a trapdoor under it; the
+  planner allows that as the route's last step, the column being the way back. At the release `walkBack` returned 0, with no reason in the log, and `unpillar` stopped at 'a gap
+  under it (spruce_trapdoor)'. The release marked the column 'a tall column: from its top': an untemp task whose only stance is the column's own top, which nobody else can
+  reach. The log then shows 'no stance for the first 1 (untemp 291,119,-40)' for 70 minutes. A later route stepped back onto the top and went one up sideways. The planner
+  counted the bot's own column only under the start cell (`col0`), so a cell reached by a step had column 0. The 'up' move off a 53-block column was allowed, and the column
+  stood to the end.
+- *Orphaned at the pause* (2-15 a run) and *under its placer* (1-3). After the wrap-up's ten minutes the harness pauses the job. Each bot's drive loop ended, and the `finally`
+  orphaned whatever the bot still held: the pillar it stood on and the blocks of its last claim. Nobody was left to take them.
+
+Fixes (on branch `t/075-temp-blocks`; `src/build` is TASK-081's code and lands on main with 081's acceptance):
+- `8ff1c77f`: `plan0` counts the bot's own column under every cell a route steps onto. A route back onto a tall column leaves it only by 'down' steps (dug as the bot comes down)
+  or a last step. `walkBack` tries the walk once upright after a sneaking walk that does not arrive, and says why it did not walk back (`walkBackWhy`, in the 'leaves a column'
+  line). A release that finds a tall column of its own whose top is within three cells plans a way onto that top and digs the column down (`backOntoTall`, `stats.tallBack`).
+- `32d344d7`, `fcf41481`: a bot that leaves the crew alive (pause, stop) releases its own blocks first, as at a step's end (`leaving`, up to 30 s). If it still stands on a block
+  of its own with no way down, it steps off onto ground or the build within six cells and digs its blocks from there. `build_t` waits after the pause until the ledger is still.
+- Tests with negative controls: without the column rule the old route goes up off the top; with a short column there is no `goto`; a dead bot does nothing on leaving.
+
+**The work layer (pit, move tests).**
+- `8aed4145`: the fall reflex put up to three blocks into the column of one fall. It went on placing while the body came down onto the first block the server had confirmed.
+  `mbc075v` w3 (mine_b, seed -8199092734754490801): a fall after the job had finished left three reflex pumpkins at -145,-35..-32,-65, placed 32 ms apart. They were the run's only
+  temporary blocks. One confirmed block now ends the catch. The test gives 3 blocks with the old code and 1 now.
+- `6893cb12`: the work registry now measures the two-per-bot rule (`Temps.sample`, once a second). The pillar under the feet counts as one structure. Seal, rescue, lake and road
+  blocks belong to their cell and are counted apart. Every t26 harness prints `[temps] over two: ...` when its service stops. Before this, mine_b, move_a and move_b had no such
+  measure, so sets 4-10 have no over-two numbers.
+
+**Bot-seconds over two (the ruling of 2026-11-26).**
+
+| Run | Over two | Share of bot time | Largest classes |
+| :-- | --: | --: | :-- |
+| `b081w4` (239 min) | 25 120 s | 22 % | scaffolds beyond the one allowed: 'scaffold:3' 6 215, 'pillar:1,scaffold:5' 6 200, 'bridge:1,pillar:1,scaffold:1' 5 866 |
+| `b081x4` (229 min) | 17 458 s | 16 % | a bridge block beside a column: 'bridge:1,pillar:5' 6 548, 'bridge:1,pillar:3' 2 894, 'pillar:4' 1 920 |
+| `b081y4` (258 min) | 17 495 s | 14 % | the tall column above: 'pillar:48,scaffold:1' 3 612, 'bridge:1,pillar:48,scaffold:1' 734; 'pillar:1,scaffold:3' 3 473 |
+| `pc075a` c1 (35 min, 8 bots; raw `looseOver2s`) | 805 s | 4.8 % | |
+| `pc075a` c0 (35 min, pit stage only; raw) | 592 s | 3.5 % | 'pillar:5-7' (the pit's pillars, 566 s) |
+| `mbc075v` w2 / w3 (mine_b, 1 bot) | 0 / 39 s | 0 / 1.7 % | w3: bridges of 3-4 blocks (26 s), the three reflex blocks (4 s) |
+| `ma075u` w2 / w3 (move_a, 4 bots each) | 0 / 0 s | 0 % | |
+| **`bt075m`** (build_t, 60 min, the column fix) | 401 s (raw 763) | **1.4 %** | 'bridge:2,pillar:1' 85, 'bridge:1,pillar:2' 65, 'pillar:5,scaffold:1' 52 |
+
+No exception is proposed for the pit or the move tests: their share is 0-1.7 %.
+
+Two candidate exceptions for the builder, for the orchestrator to accept or refuse:
+- *A stance on a bridge block beside the top of its own column.* The column is that stance's way back down, the same structure as the column under the feet. Upper bound in
+  x4: 10 470 s ('bridge:1,pillar:3-5'). The log does not tell which of these bridge blocks are beside the column's top.
+- None for the scaffolds. Ruling (c) allows one per bot, and the claim's batches hold three to six (w4: about 18 000 s). That is the builder's claim (081): one scaffold-needing
+  block per batch, or the scaffold dug before the next one is placed.
+
+**A build with the column fix (`bt075m`).** World 1, seed 1643949612115061210, 1.21.1, x1, iron-farm-34, 8 bots, LIMIT_MIN=60, SITE_DRAWS=4 (the dry draw with the least to
+clear). The code had `8ff1c77f` (its `tallBack` counters are in the log); whether `32d344d7` had been loaded is not in the log, and `fcf41481` had not. 3 594 blocks placed in 58 minutes; the job timed out as planned (judge: 4 908 wrong cells, the build unfinished).
+- The end scan found **2 temporary blocks** (b081 runs: 5-60). Both class c: 'orphaned (left the crew), not tried yet' at 666,135,915 and 'a tall column: from its top' at
+  673,129,892.
+- `tallBack` tried 2 and got onto the column top 2 times. `ontoColumnRelease` fired 8 times.
+- Only 4 'leaves a column' lines, columns of 3-5.
+- Bot-seconds over two under the ruling: 401 (1.4 % of bot time; b081: 14-22 %).
+- Not zero yet. The orphan is a column of 3 left by Bd1a, who walked away from it ('no pillar top of its own beside it', 'a gap under it (air)') while other bots stood on its
+  route ('a crew member on it or its route'). The single tall-column block lost its lower blocks to other bots.
+
+**Pace against hc1.**
+
+`pc075a`: one new world, seed -2772186784472861426, 1.21.1, x1; two Overworld crews of 8 plus one Nether crew of 2; LIMIT_MIN=35; code 8ff1c77f.
+
+| | c0 (Overworld) | c1 (Overworld) | hc1 (26.1.2, eight Overworld crews) |
+| :-- | --: | --: | --: |
+| blueprint blocks placed at minute 30 | 0 | 381 | 424-2 795, median about 1 430 |
+
+c0's site held 23 383 cells to clear (the site draws had 11-29 columns of powder snow). Its pit did not finish in 35 minutes. c1's pit ended at about minute 18. c1 placed 381 in minutes 20-30 and
+91 a minute in minutes 30-34. hc1 cleared with the builder while it placed. Since 081 the pit clears the whole box before the first block, so at equal minutes from the start
+the pace is worse than hc1. The cause is the clearing order (081's design), not the temporary-block rules. Once placing, c1 placed 91 a minute, and b081y4 placed 92 a minute
+in its minutes 20-30. On `bt075m`'s cheaper site (SITE_DRAWS=4) the crew placed **1 662 at minute 30**, above hc1's median of about 1 430. So at equal minutes the pace is
+inside hc1's range, above its median on a site with little to clear, and below its range when the pit has the whole box to clear first. The game version cannot match: 26.1.2 is
+frozen and the test worlds are 1.21.1.
+
+End scans of `pc075a`: c2 (Nether) 0. c1 5: orphaned (left the crew) 4 and under its placer 1, the classes `32d344d7`/`fcf41481` remove; the run started before those
+commits. c0 7, all outside the box: 6 class d 'holds a fluid back' (seals at y 88 holding water away from the box) and 1 under its placer. 4 600 cells were not loaded at the
+scan.
+
 **Where TASK-081 stands (2026-11-27 12:30; Fabric 1.21.1 test worlds 4 and 5, iron-farm-34, 8 bots).** No run finished cell-correct, so the Done-when is not met.
 - The best runs: `b081q5` (mineflayer) placed 7 332 of 7 608 blocks in 194 min of placing. The judge found 1 923 wrong cells; 1 512 of them are the 36 portals, never lit because the place stage never ended. The other 411: 141 smooth stone, 59 glass, 50 slabs, 26 obsidian, 24 torches and the redstone block (waiting for their machine, by the new rule), 23 repeaters, 18 beds, 14 wires, 8 pistons, 8 trapdoors, 5 comparators, plus 32 smooth stones one cell over their own in front of pistons.
 - `b081q4` (native) judged 3 999 wrong (2 273 not placed).
