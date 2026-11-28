@@ -97,3 +97,4 @@ tests/test_debug_snapshots_pure.js
 tests/test_ci_history_pure.js
 tests/test_ci_route_pure.js
 tests/test_t26_fixtures_kept_pure.js
+tests/test_pit_stairdown_pure.js
