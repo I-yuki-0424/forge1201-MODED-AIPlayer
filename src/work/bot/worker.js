@@ -29,6 +29,9 @@ async function runWorker(job, id, env, { cancel = { cancelled: false }, policy =
     // does it again, up to three times (TASK-20261125-075 item 4: a bot that died during the end cleanup left its last two pumpkins for good, mine_b mb075g w2).
     const endPass = async () => {
         const bot = env && env.bot;
+        // the wrap-up's stop is for a unit in progress only; a bot that was between units when it came must not carry it into its end (mbc075y w3: the end's one mine
+        // 'cancelled', two pillar pumpkins left)
+        if (bot) bot.__stopUnit = false;
         // (and again when the round itself put down a movement block of this bot: the sweep's walks can fall, and the fall reflex's blocks came after the cleanup and stayed,
         // mbc075b w2, 1.21.1: two 'reflex' pumpkins in the box at the end)
         const T = bot && bot.__temps, me = bot && bot.username, MOVES = new Set(['pillar', 'bridge', 'scaffold', 'reflex']);

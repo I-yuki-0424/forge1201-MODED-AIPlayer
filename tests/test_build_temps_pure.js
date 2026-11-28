@@ -404,6 +404,16 @@ test('wrap-up: the unit a working bot is in stops at once (cause "wrap-up"), onc
     assert.strictEqual(eA.unitCancel.cancelled, false, 'the end\'s own commands run');
 });
 
+test('wrap-up: a bot between units when the wrap-up came starts its end with the stop cleared (mbc075y w3: the end\'s mine "cancelled", two pillars left); negative control: the flag set, a command is cancelled', async () => {
+    const { runWorker } = require('../src/work/bot/worker');
+    const bot = { username: 'A', __stopUnit: true, on() {}, removeListener() {}, emit() {} };
+    let seen = null;
+    const job = { ledger: { finished: () => true, join() {}, leave() {}, claim: () => null, progress: () => ({ leased: 0 }), checkBusy: () => false }, cleanup: async () => { seen = bot.__stopUnit; } };
+    const r = await runWorker(job, 'A', { bot, pos: () => ({ x: 0, z: 0 }), here: () => ({ x: 0, y: 64, z: 0 }) }, { cancel: { cancelled: false }, pollMs: 1 }).catch((e) => ({ error: e.message }));
+    assert.strictEqual(r.ended, 'finished', JSON.stringify(r));
+    assert.strictEqual(seen, false, 'the end ran with the stop cleared');
+});
+
 test('the operator\'s only temporary block (TEMP_BLOCK) is kept whole when the pack is trimmed, not one stack (mine_b mb075g w2: the kit\'s second stack thrown away); without it, one stack (negative control)', () => {
     const { execFileSync } = require('child_process');
     const code = "const T=require('./src/work/bot/tempblocks');process.stdout.write(JSON.stringify([...T.reserve(new Map([['pumpkin',128],['cobblestone',200]]))]))";
