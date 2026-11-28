@@ -276,7 +276,8 @@ class BuildJob {
             return true;
         }
         // a wrong block dug out of a cell to place (kind clear, `after` place) belongs to the place stage: it was never ready there and held the crew idle for good (live 2026-11-23 fx1 w1)
-        if (stageOf(tk) !== this.stage && !(tk.after && STAGE_OF[tk.after] === this.stage)) return false;
+        // a portal whose frame stands is lit in the place stage too: cells that no stance reaches (parked, tried again every 90 s) held that stage 100 min with 36 portals unlit (b081ac5 w5)
+        if (stageOf(tk) !== this.stage && !(tk.after && STAGE_OF[tk.after] === this.stage) && !this._lightsEarly(tk, bot)) return false;
         // relaxed (a stall): the order rules go, never the fluid rule (relaxed clearing dug the rock round lava pockets and the lava ran through the dug box: five deaths in six
         // seconds, live 2026-11-23 fz8 w5)
         // a machine is not powered while it is built: its power sources last, an observer after the cell it watches (machine.js)
@@ -435,6 +436,25 @@ class BuildJob {
         return f.n < FEW_LEFT && !!f.since && now - f.since >= FEW_MS;
     }
 
+    /**
+     * Rule: a portal is lit as soon as every block round its opening stands, even while unrelated cells of the place stage are still open (only the late stage lit before).
+     * Cells outside the frame (a trapdoor, glass, a scaffold no stance reaches) cannot keep the lighting from starting.
+     */
+    _lightsEarly(tk, bot) {
+        if (tk.kind !== 'ignite' || this.stage !== 'place' || !tk.portal) return false;
+        const p = tk.portal, t = this.t, own = new Set(p.cells);
+        for (const j of p.cells) {
+            const c = t.cell(j);
+            for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
+                if (p.axis === 'x' ? dz : dx) continue;          // along the portal's thickness is the open side, not the frame
+                const x = c.x + dx, y = c.y + dy, z = c.z + dz; if (!t.inside(x, y, z) || own.has(t.idx(x, y, z))) continue;
+                const want = t.at(x, y, z), h = seen(bot, { x, y, z });
+                if (!want || !h || !S.matches(want, h)) return false;
+            }
+        }
+        return true;
+    }
+
     /** Bots at work per area, `name` left out: sector index -> bots whose stance lies in it and that hold a claim now. */
     _busySectors(name) {
         const active = new Set(this.claims.values()), busy = new Map();
@@ -452,7 +472,7 @@ class BuildJob {
         if (this.parked.has(tk.k)) return 'parked';
         { const mw = (tk.kind === 'place' || tk.kind === 'fix') ? this._machineWaits(tk, now) : null; if (mw) return mw; }
         if ((this.cool.get(tk.k) || 0) > now) return 'cooling';
-        if (stageOf(tk) !== this.stage && !(tk.after && STAGE_OF[tk.after] === this.stage)) return this.stage === 'prepare' ? 'the site is being cleared (the pit)' : `stage ${STAGE_OF[tk.kind]}`;
+        if (stageOf(tk) !== this.stage && !(tk.after && STAGE_OF[tk.after] === this.stage) && !this._lightsEarly(tk, bot)) return this.stage === 'prepare' ? 'the site is being cleared (the pit)' : `stage ${STAGE_OF[tk.kind]}`;
         if ((tk.kind === 'place' || tk.kind === 'fix') && tk.y > this.topAt(tk.x, tk.z)) return `above the window (local top ${this.topAt(tk.x, tk.z)})`;
         const r = tk.i >= 0 ? this.t.recipeOf(tk) : null;
         if (tk.kind === 'place' && r) for (const d of r.deps) {
@@ -745,6 +765,11 @@ class BuildJob {
             if (this.claims.has(tk.k) || Math.hypot(tk.x - me.x, tk.y - me.y, tk.z - me.z) > (this.wrapping || (this.ledger.get(tk) || {}).by === name ? 200 : 24)) continue;
             if (this._already(tk, bot)) { this.tasks.delete(tk.k); this.untemps.delete(tk); this.ledger.check(tk, 'air'); continue; }
             if (this.ready(tk, bot, now)) ready.push(tk);
+        }
+        // the portals whose frames stand, in the place stage (below the window, so the bucket scan below would skip them)
+        if (this.stage === 'place' && !this.wrapping) {
+            if (!this._ign || this._ign.b !== this.buckets) this._ign = { b: this.buckets, l: [...this.tasks.values()].filter((tk) => tk.kind === 'ignite') };
+            for (const tk of this._ign.l) if (this.tasks.get(tk.k) === tk && !this.claims.has(tk.k) && this.ready(tk, bot, now)) ready.push(tk);
         }
         const lo = this.stage === 'place' ? this.frontier : -Infinity, hi = this.stage === 'place' ? this.frontierMax + this.win() : Infinity;
         const tScan = Date.now();
