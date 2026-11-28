@@ -192,5 +192,36 @@ const botOf = (name, x, z, dim = 'minecraft:overworld') => ({ username: name, ga
         assert.ok((await run(false)).has('5,10,8'), 'without reach it stays');
     });
 
+    // mbc075aa w1 (seed 3714918393350838199), TASK-20261125-075: three pumpkins left at the end. (c) a registered pillar block: the wrap's one try was cancelled by the bot's own reflex breath and
+    // never repeated; (a) two blocks no longer registered: a cell read as 'unknown' / still water (the placement not yet applied) was forgotten by the bot's tidy (cleanTemp) and by finishPillar.
+    await test('cleanTemps: a mine cancelled by a reflex is tried again (three times); a cancel of the job itself ends the pass at once', async () => {
+        const run = async (jobCancelled, cancels) => {
+            const w = world({ '7,86,20': 'pumpkin' }), T = new Temps(), calls = []; T.add({ dim: 'overworld', x: 7, y: 86, z: 20, item: 'pumpkin', kind: 'pillar', by: 'A' });
+            let left = cancels;
+            const env = { bot: botOf('A', 7, 20), temps: T, w, retryMs: 1, cancelled: () => jobCancelled, here: () => ({ x: 13, y: 86, z: 13 }), exec: async (n, a) => { calls.push(n); if (left-- > 0) return { ok: false, reason: 'cancelled' }; w.set(a.x, a.y, a.z, null); return { ok: true }; } };
+            const out = await cleanTemps(env, { box: { x0: 0, x1: 15, z0: 0, z1: 15, top: 89, bottom: -59 }, reach: true }); return { out, T, calls };
+        };
+        const a = await run(false, 2); assert.strictEqual(a.out.broken, 1, JSON.stringify(a.out)); assert.ok(!a.T.has('overworld', { x: 7, y: 86, z: 20 })); assert.strictEqual(a.calls.length, 3);
+        const c = await run(false, 9); assert.strictEqual(c.calls.length, 4, 'three repeats at most: ' + c.calls.length); assert.ok(c.T.has('overworld', { x: 7, y: 86, z: 20 }), 'still listed when it never worked');
+        // negative control: the job's own cancel is not retried (the old code stopped at the first cancel too; the repeat must not outlive the job)
+        const b = await run(true, 9); assert.ok(b.calls.length <= 1, 'job cancelled: ' + b.calls.length); assert.ok(b.T.has('overworld', { x: 7, y: 86, z: 20 }));
+    });
+
+    await test('moves.cleanTemp / finishPillar: a block that is not in view or whose placement is not applied yet stays listed; a block that is really gone is forgotten', async () => {
+        const moves = require('../src/work/bot/moves'), mk = (name, at) => {
+            const w = world(name ? { '3,66,3': name } : {}), T = new Temps(), bot = botOf('A', 0, 0); T.add({ dim: 'overworld', x: 3, y: 66, z: 3, item: 'pumpkin', kind: 'pillar', by: 'A' }); T.get('overworld', { x: 3, y: 66, z: 3 }).at = at;
+            return { w, T, env: { bot, w, temps: T, temp: T.view(bot), here: () => ({ x: 0, y: 66, z: 0 }), exec: async () => ({ ok: false, reason: 'unreachable' }) } };
+        };
+        let q = mk('unknown', 0); await moves.cleanTemp(q.env); assert.ok(q.T.has('overworld', { x: 3, y: 66, z: 3 }), 'unknown is not gone');
+        q = mk('water', Date.now()); await moves.cleanTemp(q.env); assert.ok(q.T.has('overworld', { x: 3, y: 66, z: 3 }), 'water over a placement from this second: it may still come');
+        q = mk('water', Date.now() - 60000); await moves.cleanTemp(q.env); assert.ok(!q.T.has('overworld', { x: 3, y: 66, z: 3 }), 'negative control: an old placement that never came is forgotten');
+        q = mk(null, 0); await moves.cleanTemp(q.env); assert.ok(!q.T.has('overworld', { x: 3, y: 66, z: 3 }), 'negative control: air is gone');
+        q = mk('pumpkin', 0); q.w.set(3, 66, 3, 'unknown'); await moves.cleanTemp(q.env); assert.ok(q.T.has('overworld', { x: 3, y: 66, z: 3 }));
+        // a mine that fails while the cell cannot be read afterwards does not forget it
+        q = mk('pumpkin', 0); q.env.exec = async () => { q.w.set(3, 66, 3, 'unknown'); return { ok: false, reason: 'cancelled' }; }; q.env.here = () => ({ x: 0, y: 66, z: 0 }); await moves.cleanTemp(q.env); assert.ok(q.T.has('overworld', { x: 3, y: 66, z: 3 }), 'a failed mine, then unreadable: still listed');
+        const f = await moves.finishPillar({ w: world({ '3,66,3': 'unknown' }), exec: async () => ({ ok: true }) }, { x: 3, y: 66, z: 3 }); assert.strictEqual(f.ok, false, 'finishPillar: not in view is not done');
+        assert.strictEqual((await moves.finishPillar({ w: world({}), exec: async () => ({ ok: true }) }, { x: 3, y: 66, z: 3 })).ok, true, 'negative control: air is done');
+    });
+
     console.log('ALL OK'); process.exit(0);
 })().catch((e) => { console.error(e); process.exit(1); });

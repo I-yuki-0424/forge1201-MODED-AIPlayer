@@ -97,7 +97,7 @@ class Temps {
             set(key, c) { self.add({ dim: dimOf(bot), x: c.x, y: c.y, z: c.z, item: c.item, kind: 'pillar', by: bot.username }); return this; },
             delete(key) { const m = /^(-?\d+),(-?\d+),(-?\d+)$/.exec(String(key)); return m ? self.remove(dimOf(bot), { x: +m[1], y: +m[2], z: +m[3] }) : false; },
             has(key) { const m = /^(-?\d+),(-?\d+),(-?\d+)$/.exec(String(key)); return !!m && self.has(dimOf(bot), { x: +m[1], y: +m[2], z: +m[3] }); },
-            [Symbol.iterator]() { return list().map((r) => [`${r.x},${r.y},${r.z}`, { x: r.x, y: r.y, z: r.z }])[Symbol.iterator](); },
+            [Symbol.iterator]() { return list().map((r) => [`${r.x},${r.y},${r.z}`, { x: r.x, y: r.y, z: r.z, at: r.at }])[Symbol.iterator](); },
         };
     }
 }
@@ -128,7 +128,9 @@ async function cleanTemps(env, o = {}) {
     const inBox = (r) => !box || (r.x >= box.x0 - 2 && r.x <= box.x1 + 2 && r.z >= box.z0 - 2 && r.z <= box.z1 + 2 && r.y <= box.top + 3 && r.y >= box.bottom - 3) || own(r);
     const f0 = env.here();
     const todo = temps.list((r) => r.dim === dim && kinds.has(r.kind) && inBox(r) && (box || Math.hypot(f0.x - r.x, f0.z - r.z) <= (o.radius || 12))).sort((a, b) => Math.hypot(a.x - f0.x, a.z - f0.z) - Math.hypot(b.x - f0.x, b.z - f0.z));
-    for (const r of todo) {
+    const retried = new Map();                                                                   // tries a block was cancelled in by something other than the job (a reflex: breath, a fall)
+    for (let i = 0; i < todo.length; i++) {
+        const r = todo[i];
         if (out.tried >= max || Date.now() - t0 > maxMs || (env.cancelled && env.cancelled())) break;
         if (!temps.has(dim, r)) continue;                                                        // taken already with a cluster after a trip
         const kind = env.w.kindAt(r.x, r.y, r.z);
@@ -169,6 +171,9 @@ async function cleanTemps(env, o = {}) {
             }
         }
         if (m.ok || env.w.kindAt(r.x, r.y, r.z) !== 'solid') { temps.remove(dim, r); out.broken++; continue; }
+        // cancelled while the job goes on (mbc075aa w1, seed 3714918393350838199: the reflex breath cancelled the one try of the wrap, a pumpkin 5 blocks outside the box stayed registered): the
+        // cancel is the bot's own reflex, not the end of the work; the same block is tried again after a pause, three times at most
+        if (m.reason === 'cancelled' && !(env.cancelled && env.cancelled()) && (retried.get(r) || 0) < 3) { retried.set(r, (retried.get(r) || 0) + 1); out.retried = (out.retried || 0) + 1; out.tried--; await new Promise((res) => setTimeout(res, env.retryMs ?? 1500)); i--; continue; }
         if (m.reason) { out.fails = out.fails || {}; out.fails[m.reason] = (out.fails[m.reason] || 0) + 1; out.firstFail = out.firstFail || { cell: [r.x, r.y, r.z], reason: m.reason, at: [f.x, f.y, f.z], detail: JSON.stringify(m.detail || {}).slice(0, 240) }; }
         if (['died', 'disconnected', 'cancelled'].includes(m.reason)) break;
         if (m.reason === 'protected') temps.remove(dim, r);                                     // it became a fixture: not ours to break
