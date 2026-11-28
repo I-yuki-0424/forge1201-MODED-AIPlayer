@@ -602,6 +602,51 @@ function lineCells(from, to, y) {
     return out;
 }
 
+const STAIR_STEPS = 260, STAIR_MS = 15 * 60000;
+const STAIR_DIRS = [['north', 0, -1], ['east', 1, 0], ['south', 0, 1], ['west', -1, 0]];
+/**
+ * A bot far above its station (it respawned on the surface, a canopy at y 74, with the station 60-130 levels down) gets back by a survival-legal way down, never a drop of more than
+ * three: the column of air under it first (moves.js `descend`: the block under the one it stands on, one level at a time), else a staircase it digs (the `tunnel` instruction, dy -1: one
+ * step down per call) inside the pit's box, turning at the box wall and when a step is refused. A fluid in the way (the step is refused 'fluid behind' / 'cell holds ...') is dealt with by
+ * the pit's own cell handler (`handle`: seal, fill, then dig). mbc075z (1.21.1): w2 (seed 2254152221898428075) sat 45 min on a canopy, w3 (seed 4887029512323168954) failed 'too far from the
+ * station' five times from y 69 to a unit at y -57: NAV (one trip of 60 s) and the walk on foot never go down 120 levels. Returns { ok, steps } or { ok: false, reason, steps }.
+ */
+async function stairDown(S, handle, env, r) {
+    const bx = env.within, inBox = (x, z) => !bx || (x >= bx.x0 && x <= bx.x1 && z >= bx.z0 && z <= bx.z1);
+    const cell = () => { const h = env.here(); return { x: Math.floor(h.x), y: Math.floor(h.y), z: Math.floor(h.z) }; };
+    if (!inBox(cell().x, cell().z) && env.travel) await env.travel({ x: S.x, z: S.z }, { near: 1 });          // on the surface, level: no dig outside the box
+    let h = cell(); if (!inBox(h.x, h.z)) return { ok: false, reason: 'outside', steps: 0 };
+    const t0 = Date.now(); let steps = 0, fails = 0, handledAt = '', dir = -1;
+    while (steps < STAIR_STEPS && Date.now() - t0 < STAIR_MS) {
+        if (env.cancel && env.cancel.cancelled) return { ok: false, reason: 'cancelled', steps };
+        h = cell(); if (S.y - h.y > -3) return { ok: true, steps };
+        if (env.run && isHigh((x, y, z) => env.w.kindAt(x, y, z), h)) {
+            const d = await env.run('descend', { levels: Math.min(80, h.y - S.y) }), got = (d.detail && d.detail.levels) || 0;
+            if (got) { steps++; fails = 0; continue; }
+        }
+        const ok = (i) => inBox(h.x + STAIR_DIRS[i][1], h.z + STAIR_DIRS[i][2]);
+        if (dir < 0) { const dx = S.x - h.x, dz = S.z - h.z; dir = !dx && !dz ? 0 : Math.abs(dx) >= Math.abs(dz) ? (dx > 0 ? 1 : 3) : (dz > 0 ? 2 : 0); }
+        for (let k = 0; k < 4 && !ok(dir); k++) dir = (dir + 1) % 4;
+        const [name, dx, dz] = STAIR_DIRS[dir];
+        const t = await env.exec('tunnel', { dir: name, dy: -1 });
+        if (t.ok) { steps++; fails = 0; continue; }
+        if (['died', 'disconnected', 'cancelled'].includes(t.reason)) return { ok: false, reason: t.reason, steps };
+        r.stairWhy = `${t.reason}${t.detail && t.detail.why ? ` (${String(t.detail.why).slice(0, 40)})` : ''}`;
+        if (++fails >= 4 && handledAt !== `${h.x},${h.y},${h.z}`) {         // every heading refused: what is in the way (a fluid, a cell that keeps filling) goes through the pit's own cell handler once here
+            handledAt = `${h.x},${h.y},${h.z}`;
+            for (const c of [{ x: h.x + dx, y: h.y + 1, z: h.z + dz }, { x: h.x + dx, y: h.y, z: h.z + dz }, { x: h.x + dx, y: h.y - 1, z: h.z + dz }]) {
+                if (env.w.kindAt(c.x, c.y, c.z) === 'air') continue;
+                const res = await handle(c, true);
+                if (res && res !== 'defer' && FATAL_MINE.has(res.reason)) return { ok: false, reason: res.reason, steps };
+            }
+            continue;
+        }
+        if (fails >= 10) return { ok: false, reason: t.reason || 'stuck', steps };
+        dir = (dir + 1) % 4;
+    }
+    return { ok: false, reason: 'timeout', steps };
+}
+
 /**
  * Stand in the middle of the tile. The station cell is open when the layer above was dug and this one is entered from above; when
  * the bot comes from another station the cells in between may still be solid: dig the first closed cell on the way and try again.
@@ -615,6 +660,7 @@ async function goToStation(S, handle, env, open, r) {
     let descents = 0;                    // at most two descents per walk to a station (moves.js `descend`)
     let lifts = 0;                       // at most two server lifts per walk to a station: a lift that lands in the same cell again changes nothing (live: Work17 lifted 0 blocks every 20 s)
     let walks = 0;                       // learned walks to the exact station cell (void dimensions), at most two
+    let stairs = 0;                      // walks down by stair (stairDown), at most two per walk to a station
     let navs = 0;                        // NAV trips to the station when the walk on foot cannot get there, at most one
     for (let t = 0; t < 10; t++) {
         // What a rise left behind (the last pillar block) is taken away as soon as the bot has stepped off it, not at the next unit (owner 2026-11-11: "prevent forgetting to destroy scaffolding").
@@ -731,6 +777,15 @@ async function goToStation(S, handle, env, open, r) {
             r.descended = (r.descended || 0) + got;
             if (got) continue;
             r.descendFail = d.reason;
+        }
+        // The station is four levels or more BELOW the bot and nothing above got it there (no lift, no walk, NAV's one trip of 60 s): a way down inside the box, never a drop over three (above).
+        if (env.exec && above <= -4 && stairs < 2) {
+            stairs++;
+            const st = await stairDown(S, handle, env, r);
+            r.stairSteps = (r.stairSteps || 0) + st.steps;
+            if (st.ok && st.steps) continue;
+            if (!st.ok && ['died', 'disconnected', 'cancelled'].includes(st.reason)) return { ok: false, reason: st.reason, detail: { botSide: true, stage: 'stairs', cell: S, ...r } };
+            r.stairFail = st.reason;
         }
         if (env.rejoin && (Math.hypot(here.x - S.x, here.z - S.z) > 24 || Math.abs(above) > 24)) {
             // Last resort before giving up (the commonest pit failure of 2026-11-09/10, 1,800 records): the chunk-exit router walks toward the station's column and level (the haul road, round what the
@@ -1026,4 +1081,4 @@ function createPitJob(box, ledgerOpts = {}, { lanes = 0, method = 'rows', tile =
             rep.terrain = await TM.toTerrain(env, { box: plan.box, rubble: SEAL_ITEMS, maxMs: 120000 }); return t; }, runUnit: async (regionId, unit, env) => { const res = await runUnit(plan, byId.get(regionId), unit, env); if (env.bot) env.bot.__stopUnit = false; await unitTidy(env).catch(() => { /* the end's passes look again */ }); return res; }, audit: (env, now, opts) => (plan.wrapping ? { checked: 0, reopened: [], gaveUp: [] } : audit(plan, ledger, env.w, now, auditState, opts)), sweep: (env, now) => (plan.wrapping ? {} : sweep(env, now)), rescue: (env, why) => require('../bot/water').rescue(env, plan.box, { why }) };
 }
 
-module.exports = { cleanTrees, cleanHanging, cleanLakeBlocks, sealItem, MAX_UNITS, goToStation, checkLayer, LAYER_ROUNDS, standsOnFloater, supportsBody, stepOffSupport, unitTidy, aerialTree, planPit, laneBoxes, planRoad, stationsOf, lineCells, unitCells, sealPlan, orderFill, isFluid, exposed, runUnit, wrongCells, cellState, audit, createPitJob, SEAL_ITEMS, CHUNK, TILE, SWEEP_R };
+module.exports = { stairDown, cleanTrees, cleanHanging, cleanLakeBlocks, sealItem, MAX_UNITS, goToStation, checkLayer, LAYER_ROUNDS, standsOnFloater, supportsBody, stepOffSupport, unitTidy, aerialTree, planPit, laneBoxes, planRoad, stationsOf, lineCells, unitCells, sealPlan, orderFill, isFluid, exposed, runUnit, wrongCells, cellState, audit, createPitJob, SEAL_ITEMS, CHUNK, TILE, SWEEP_R };
