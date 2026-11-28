@@ -183,4 +183,36 @@ async function uncover(env, box) {
     return false;
 }
 
-module.exports = { Temps, dimOf, cleanTemps, uncover, holdsNothingBack, KINDS, CLEAN_NEAR };
+/**
+ * The job's end (finished, or wrapped up at its time limit): every seal, rescue and lake block of the box still registered is a water countermeasure that is still needed, and it is
+ * not left as a temporary block (the orchestrator's ruling of 2026-11-28, contract item 5 as for lake fills): a block of the box's rubble is terrain from now on and leaves the list
+ * as 'converted'; one of the operator's temporary-block items (a pumpkin on the test worlds) is dug and the rubble put into its cell at once, then it leaves the list the same way.
+ * `env`: exec, here, w, bot, temps, have(item), nav? `o`: { box, kinds, maxMs, rubble: [names], only: the operator's names (default tempblocks.only()) }. Returns { converted, replaced, left, fails }.
+ */
+async function toTerrain(env, o = {}) {
+    const temps = env.temps, out = { converted: 0, replaced: 0, left: 0, fails: {} };
+    if (!temps || !env.bot) return out;
+    const dim = dimOf(env.bot), box = o.box || null, kinds = o.kinds || HOLDS_BACK, t0 = Date.now(), maxMs = o.maxMs || 120000;
+    const only = new Set(o.only || require('./tempblocks').only()), bare = (n) => String(n || '').replace(/^minecraft:/, '');
+    const inBox = (r) => !box || (r.x >= box.x0 - 2 && r.x <= box.x1 + 2 && r.z >= box.z0 - 2 && r.z <= box.z1 + 2 && r.y <= box.top + 3 && r.y >= box.bottom - 3);
+    const rubble = () => (o.rubble || []).find((n) => !only.has(n) && env.have && env.have(n) > 0) || null;
+    const fail = (why) => { out.fails[why] = (out.fails[why] || 0) + 1; out.left++; };
+    for (const r of temps.list((q) => q.dim === dim && kinds.has(q.kind) && inBox(q))) {
+        const name = env.w.nameAt ? bare(env.w.nameAt(r.x, r.y, r.z)) : null, kind = env.w.kindAt(r.x, r.y, r.z);
+        if (kind === 'unknown') { fail('not loaded'); continue; }
+        if (kind !== 'solid') { temps.remove(dim, r); continue; }                                     // gone already: nothing to convert
+        if (!only.has(name) && !only.has(bare(r.item))) { temps.remove(dim, r); out.converted++; temps.converted = (temps.converted || 0) + 1; continue; }
+        if (Date.now() - t0 > maxMs) { fail('time'); continue; }
+        // the operator's block: dug and replaced by rubble from where the bot can reach it
+        const item = rubble(); if (!item) { fail('no rubble'); continue; }
+        const h = env.here(); if (Math.hypot(h.x + 0.5 - (r.x + 0.5), h.y + 1.62 - (r.y + 0.5), h.z + 0.5 - (r.z + 0.5)) > 4.4 && env.nav) await env.nav({ x: r.x, y: r.y, z: r.z }, { near: 2, nearY: 2, why: 'end: a water block to terrain', deadline: Date.now() + Math.min(60000, maxMs) }).catch(() => null);
+        const m = await env.exec('mine', { x: r.x, y: r.y, z: r.z, collect: false, blind: true });
+        if (!m.ok && env.w.kindAt(r.x, r.y, r.z) === 'solid') { fail(`mine: ${m.reason}`); continue; }
+        const p = await env.exec('place', { x: r.x, y: r.y, z: r.z, item, fluid: true, blind: true });
+        if (!p.ok && env.w.kindAt(r.x, r.y, r.z) !== 'solid') { temps.remove(dim, r); fail(`place: ${p.reason}`); continue; }
+        temps.remove(dim, r); out.replaced++; out.converted++; temps.converted = (temps.converted || 0) + 1;
+    }
+    return out;
+}
+
+module.exports = { Temps, dimOf, cleanTemps, toTerrain, uncover, holdsNothingBack, KINDS, CLEAN_NEAR };

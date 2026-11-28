@@ -154,5 +154,28 @@ const botOf = (name, x, z, dim = 'minecraft:overworld') => ({ username: name, ga
         assert.strictEqual(o.samples, 3);
     });
 
+    await test('the job\'s end: water blocks still holding water back become terrain (rubble leaves the list as converted, a pumpkin is dug and replaced by rubble); negative control: without the pass they stay registered', async () => {
+        const { toTerrain } = require('../src/work/bot/temps');
+        const mk = () => {
+            const w = world({ '1,64,1': 'cobblestone', '2,64,1': 'pumpkin', '3,64,1': 'dirt', '1,64,2': 'water', '2,64,2': 'water' }), T = new Temps(), calls = [];
+            T.add({ dim: 'overworld', x: 1, y: 64, z: 1, item: 'cobblestone', kind: 'seal', by: 'P' });
+            T.add({ dim: 'overworld', x: 2, y: 64, z: 1, item: 'pumpkin', kind: 'rescue', by: 'P' });
+            T.add({ dim: 'overworld', x: 3, y: 64, z: 1, item: 'dirt', kind: 'lake', by: 'P' });
+            T.add({ dim: 'overworld', x: 4, y: 64, z: 1, item: 'cobblestone', kind: 'pillar', by: 'P' }); w.set(4, 64, 1, 'cobblestone');
+            const env = { bot: botOf('P', 2, 0), temps: T, w, here: () => ({ x: 2, y: 64, z: 0 }), have: (n) => (n === 'cobblestone' ? 10 : 0),
+                exec: async (n, a) => { calls.push(`${n} ${a.x},${a.y},${a.z}${a.item ? ' ' + a.item : ''}`); w.set(a.x, a.y, a.z, n === 'mine' ? 'water' : a.item); return { ok: true }; } };
+            return { w, T, env, calls };
+        };
+        const a = mk(), r = await toTerrain(a.env, { box: { x0: 0, x1: 10, z0: 0, z1: 10, top: 70, bottom: 60 }, rubble: ['cobblestone', 'dirt'], only: ['pumpkin'] });
+        assert.deepStrictEqual({ converted: r.converted, replaced: r.replaced, left: r.left }, { converted: 3, replaced: 1, left: 0 }, JSON.stringify(r));
+        assert.deepStrictEqual(a.calls, ['mine 2,64,1', 'place 2,64,1 cobblestone'], 'only the pumpkin is dug, and rubble goes into its cell at once');
+        assert.strictEqual(a.w.nameAt(2, 64, 1), 'cobblestone'); assert.deepStrictEqual(a.T.counts(), { pillar: 1 }, 'the movement block is not this pass\'s (cleanTemps takes it)');
+        assert.strictEqual(a.T.converted, 3);
+        const n = mk(); assert.deepStrictEqual(n.T.counts(), { seal: 1, rescue: 1, lake: 1, pillar: 1 }, 'negative control: before the pass, all registered (mbc075w w3: 611 at the end)');
+        // no rubble in the pack: the pumpkin stays registered and is reported
+        const c = mk(); c.env.have = () => 0; const rc = await toTerrain(c.env, { rubble: ['cobblestone'], only: ['pumpkin'] });
+        assert.strictEqual(rc.left, 1); assert.strictEqual(rc.fails['no rubble'], 1); assert.ok(c.T.has('overworld', { x: 2, y: 64, z: 1 }));
+    });
+
     console.log('ALL OK'); process.exit(0);
 })().catch((e) => { console.error(e); process.exit(1); });
