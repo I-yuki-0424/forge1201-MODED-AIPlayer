@@ -1292,3 +1292,41 @@ The crew placed 50-70 % more per minute for about the same pause time per block.
   - the respawn anchor is charged again below two charges, and a release on a bridge block goes back onto the pillar beside it (f22534a3; that commit is in `snap-081k` but not in `snap-081j`);
   - the portal pair and the scans from a bot in the build's dimension (30ff1c1f).
 - *Two-per-bot and the owner's line.* Standing on the top of its own column is a vanilla survival move (pillaring up), so it is inside the line. `TempLedger.loose` leaves the column underfoot out of the count, so a column of three or more that the bot stands on needs no cap. What counts is the columns left beside, which are now taken down at the release.
+
+### Round 5 (2026-11-28 day): the tail stalls found with the inspector, hand-overs, bridges off slabs, closed containers
+
+Runs on Fabric 1.21.1, iron-farm-34, 8 bots, `SITE_DRAWS=4`, `LIMIT_MIN` 260 + wrap-up + server judge. Each harness ran with `NODE_ARGS=--inspect=127.0.0.1:9229`, which binds inside the container only. `/out/tools-081/cdp.js FN.js`, run with `docker exec` in the container, finds every live `BuildJob` (`Runtime.queryObjects`) and evaluates a function on it. That is how the tails below were diagnosed. Where a run was patched live with a rule that was committed at the same moment, the row says so. Those runs are debugging runs, not suite evidence.
+
+| Run | World, seed, code | Verdict (server) | Placed | Temporary blocks left | Deaths |
+| :-- | :-- | :-- | --: | :-- | --: |
+| b081z4 | w4, native, 7152761058459563180, `snap-081l` = c2e73e9f | stopped at minute ~160: 900 cells left, the crew starved by failed hand-overs | 5 799 | ledger 15 at the stop, no column of 5 or more | 0 |
+| b081z5 | w5, mineflayer (`NATIVE_*=0`) twin of z4, same seed and site | FAIL: 1 634 wrong = 1 512 unlit portal cells + 122 | 6 755 | 9 (6 orphaned, not tried; 3 under their placer) | 0 |
+| b081ab4 | w4, native, -8523168568430055030, `snap-081n` = 0becad83, patched live with 7213d972, d4875c03 and 4b2c314c | FAIL: 1 561 wrong = 1 512 portal cells + 49 | 6 782 | 21 (8 left by the pit, 7 orphaned when bots left the crew, 3 under their placer, 3 placed again after their entry ended) | 0 |
+
+Native and mineflayer, same seed and site (z4/z5): mineflayer placed faster (5 734 against 4 632 at minute 119). Part of that is z4's extra 10 minutes in pit rounds 2 and 3. Both had the same tail and the same hand-over problem. Native is not ahead on a build.
+
+**Pause table, first 30 placing minutes** (pauses over 0.5 s, all bots; before = b081a, 2867180a):
+
+| | b081a (before) | b081z5 (after, mineflayer, min 38-69) | b081ab4 (after, native, min 17-48) |
+| :-- | --: | --: | --: |
+| Pauses, seconds | 1 405, 1 962 s | 1 633, 2 583 s | 1 497, 3 337 s (807 s of it the pit's tail) |
+| Blocks placed in the window | 1 247 | about 2 660 | about 2 400 |
+| Pause seconds per block | 1.57 | 0.97 | 1.05 without the pit's 807 s |
+| Largest classes | `cpu: plan` 606, `retry: cpu: plan` 481, `drive sleep` 453 | `retry: cpu: plan` 598, the claim's flood 998, `mover tick wait` 353 | `retry: cpu: plan` 1 007, the claim's flood 1 095 |
+
+Placing per minute roughly doubled, and pause time per block fell by about a third. What is left are planner retries (A* searches to stances that run out of nodes or time) and the claim's flood. Both are on TASK-082's hot-path list.
+
+**Root causes found and fixed this round:**
+
+- *The tail stalls (b081y4, b081z5): an empty claim band.* `_frontier` set `frontierMax` to -Infinity when every remaining place cell was an old tile-lowest one (three minutes its tile's lowest, so it no longer holds the window). The claim's bucket band `[frontier, frontierMax + window]` was then empty, and the scan read nothing while `whyNot` called the cells ready. In z5 there were 142 such cells, every one skipped by 'window 116..-Infinity'. The stale-station guess of round 4 (b8c14b20) was not the cause. Fixed in 0becad83 for the high end and 4b2c314c for the low end (ab4: 'frontier -', `scanned 0`, when every cell left was one no stance had reached for 15 s). Checked live: z5's instance, patched at minute ~190, went from 0 cells scanned to 91 and 10 claims at once.
+- *A cycle in the under-the-feet rule.* Under 3047130b, a cell that can only be clicked from the block above it waits for that block. When the block above rests on the cell (a redstone torch, a repeater or a wire on smooth stone), neither is ever placed. ab4's last torch tower at 126,70..111,200 had six stones and six torches stuck like this. Fixed in 7213d972 (`_restsOn`), and checked live: the tower was built within minutes of the patch.
+- *A parked cell held the place stage for good.* A cell no stance reaches was revived every 90 s and parked again, so the 36 portals of the late stage could not be lit. Now it is revived at most three times per stage, then waits for the end rounds (d4875c03).
+- *Hand-overs that never met.* 46 of b081y4's 92 requests ended 'did not meet' after about 100 s, 4 932 s in all, the largest pause class. The inspector showed the cause: every stuck asker stood on its own pumpkin pillar top next to its giver, with air beyond it, and the giver refused 100-170 times for 'no floor'. The asker's goal now has the giver's floor rule (24ba7d45), and refusals are counted by reason (91cdea22). After the fix the pool served 166 of 190 requests in ab4 and 45 of 57 in ac5, against 25 of 92 in y4.
+- *Bridges off a slab.* A bot on a floating bottom slab leaned over the edge to bridge. Its body then stood in the next cell, below the new block's top, and the server refused the block every time: z5's Bd5b failed 258 bridges in a row, y4's Bd4b and Bd4h 641 and 528. From a partial floor the lean now stays inside the bot's own cell (c5f97481).
+- *Pit rounds 2 and 3 over the whole site for one or two cells.* In z4 these rounds took 718 s and 744 s. A round's box is now the columns of the cells left (69253f93).
+- *Retried cells get the tail's search budget* (12465668). z5 had parked cells 30-40 above the chest after 8 'no plan (time)' tries.
+- *Two temporary blocks per bot for scaffolds* (the orchestrator's ruling (b), 44271921). Before a scaffold, the claim's served scaffolds come down; with two of the bot's own still loose, the scaffold waits. Ruling (a), one bridge block beside the bot's own way-down column, is what `TempLedger.loose` already leaves out.
+- *Closed containers* (the owner's Nether blueprint): a closed container is placed by a bot that carries its contents too, and is filled from the same stance (859ffc2c). This has not been run live yet.
+- *Merged from TASK-075* (reviewed against these changes, npm test green): a21cb467, 0950e475 and 8b482653 (tall own columns, leaving the crew, a bot on its own block with no way down), as 46ce181e, 8cc6c5c9 and 96e5dc23 on main.
+
+**Leftover temporary blocks (for TASK-075, through the orchestrator).** No tall column was left in this round. b081ab4's 21: 8 'orphaned (left by the pit)', 7 'orphaned (left the crew), not tried yet' (bots leaving at the wrap-up's pause; 0950e475 was not in that snapshot), 3 'under its placer (no way down)', and 3 'placed again after its entry ended'. b081z5's 9: 6 orphaned when bots left the crew, 3 under their placer.
