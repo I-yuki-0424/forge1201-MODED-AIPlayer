@@ -98,6 +98,20 @@ test('the walk to a stance: 1.5 s and 30 000 cells while the build is large, 6 s
     }
 });
 
+test('two temporary blocks per bot: a scaffold waits while two of the bot\'s own stand (owner ruling 2026-11-28 (b): claims held 3-6, b081w4 ~18 000 bot-s over two); negative control: with one standing it is placed', async () => {
+    const D = require('../src/build/drive');
+    for (const [n, want] of [[2, 'skipped'], [1, 'placed']]) {
+        let clicked = 0;
+        const bot = { username: 'a', entity: { position: { x: 0.5, y: 70, z: 0.5 }, onGround: false }, blockAt: () => ({ name: 'air', boundingBox: 'empty', getProperties: () => ({}) }), inventory: { items: () => [] } };
+        const job = { tasks: new Map(), noPath: new Map(), time: { walk: 0, place: 0, dig: 0 }, stats: {}, log: () => {}, avoid: () => {}, fails: new Map(), o: { reach: 4.5 },
+            ledger: { loose: () => ({ n }), list: () => [], get: () => null, has: () => false }, addTemp: () => {}, _scaffoldServed: () => {}, tempItem: 'pumpkin' };
+        const mv = { goto: async () => ({ ok: true }), note: () => {}, rules: { temp: () => 'pumpkin' }, hold: async () => true, click: async () => { clicked++; }, holdNothing: async () => {} };
+        const res = await D.work(job, 'a', bot, mv, { station: { x: 0, y: 70, z: 0 }, tasks: [{ kind: 'scaffold', k: '1,70,0', x: 1, y: 70, z: 0, way: { n: [1, 69, 0], face: 'up', hit: [1.5, 70, 0.5] } }] }, { cancelled: false });
+        if (want === 'skipped') { assert.strictEqual(clicked, 0); assert.deepStrictEqual(res.map((r) => r.why), ['skipped']); assert.strictEqual(job.stats.scaffoldWaits, 1); }
+        else assert.strictEqual(clicked, 1, 'negative control: placed');
+    }
+});
+
 test('the respawn anchor is charged again below two charges (b081x5: four respawns used its charges, the fifth woke in the Overworld); negative controls: full, not loaded, none set', () => {
     const D = require('../src/build/drive');
     const bot = (c) => ({ blockAt: () => (c === null ? null : { name: 'respawn_anchor', getProperties: () => ({ charges: String(c) }) }) });

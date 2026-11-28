@@ -333,6 +333,13 @@ async function work(job, name, bot, mv, cl, cancel) {
         // (never a block of its own pillar while its step lasts, dug from beside by a clear task: the top went and the rest stood, bt075c w2 "task clear 67,72,9 / dig pumpkin")
         if ((tk.kind === 'clear' || tk.kind === 'untemp') && !S.AIR.has(h.name)) { const own = job.ledger.get(tk); if (own && own.by === name && own.how === 'pillar' && !own.released && !(feet(bot).x === tk.x && feet(bot).z === tk.z)) { results.push({ tk, ok: false, why: 'skipped' }); continue; } }
         if (tk.kind === 'clear' || tk.kind === 'untemp') { if (S.AIR.has(h.name)) { results.push({ tk, ok: true }); continue; } if (underCrew(job, bot, tk.x, tk.y, tk.z) || onRouteOfOther(job, name, tk.x, tk.y, tk.z)) { results.push({ tk, ok: false, why: 'skipped' }); continue; } if (tk.kind === 'clear') noteClear(job, name, bot, tk, h); const td = Date.now(); await mv.dig(tk); job.time.dig += Date.now() - td; done.push(tk); continue; }
+        // two temporary blocks per bot (owner ruling 2026-11-28 (b), no exception for scaffold batching: claims held 3-6 at once, b081w4 ~18 000 bot-s over two): before a
+        // scaffold, the scaffolds whose blocks this claim has placed come down from here; with two still standing the scaffold waits for the next claim
+        if (tk.kind === 'scaffold') {
+            const over = () => job.ledger.loose(name, feet(bot)).n >= 2;
+            if (over()) { for (const d of done) if (d.kind === 'place' && holds(job, bot, d).ok) job._scaffoldServed(d.k, 'its block stands'); await unscaffold(job, bot, mv); }
+            if (over()) { job.stats.scaffoldWaits = (job.stats.scaffoldWaits || 0) + 1; results.push({ tk, ok: false, why: 'skipped' }); continue; }
+        }
         // seals, fills and scaffolds are temporary blocks too: registered before the click (a scaffold in a box cell was in no list and stood to the end, hc1)
         if (tk.kind === 'seal' || tk.kind === 'fill' || tk.kind === 'scaffold') { const it = mv.rules.temp() || job.tempItem; if (!(await mv.hold(it))) { results.push({ tk, ok: false, why: 'skipped' }); continue; } job.addTemp(tk, tk.kind, name, it); await click(mv, way); done.push(tk); continue; }
         if (tk.kind === 'fix') { await mv.holdNothing(); await mv.click([tk.x, tk.y, tk.z], way.click.face, way.click.hit); for (let k = 1; k < tk.clicks; k++) await mv.click([tk.x, tk.y, tk.z], way.click.face, way.click.hit); done.push(tk); continue; }
