@@ -1088,6 +1088,7 @@ Fixes (on branch `t/075-temp-blocks`; `src/build` is TASK-081's code and lands o
 | `pc075a` c1 (35 min, 8 bots; raw `looseOver2s`) | 805 s | 4.8 % | |
 | `pc075a` c0 (35 min, pit stage only; raw) | 592 s | 3.5 % | 'pillar:5-7' (the pit's pillars, 566 s) |
 | `mbc075v` w2 / w3 (mine_b, 1 bot) | 0 / 39 s | 0 / 1.7 % | w3: bridges of 3-4 blocks (26 s), the three reflex blocks (4 s) |
+| `mbc075w` w2 / w3 (mine_b, 1 bot) | 68 / 0 s | 2.9 / 0 % | w2: a pillar of 3-11 beside the column the bot stood on ('column:1,pillar:N') |
 | `ma075u` w2 / w3 (move_a, 4 bots each) | 0 / 0 s | 0 % | |
 | **`bt075m`** (build_t, 60 min, the column fix) | 401 s (raw 763) | **1.4 %** | 'bridge:2,pillar:1' 85, 'bridge:1,pillar:2' 65, 'pillar:5,scaffold:1' 52 |
 
@@ -1098,6 +1099,17 @@ Two candidate exceptions for the builder, for the orchestrator to accept or refu
   x4: 10 470 s ('bridge:1,pillar:3-5'). The log does not tell which of these bridge blocks are beside the column's top.
 - None for the scaffolds. Ruling (c) allows one per bot, and the claim's batches hold three to six (w4: about 18 000 s). That is the builder's claim (081): one scaffold-needing
   block per batch, or the scaffold dug before the next one is placed.
+
+**End scans of the move and pit runs.** All of these ran on the branch code, REPO=worktree, 1.21.1.
+- move_b `mb075v`: w2 (seed -3248122835109763178) PASS, w3 (-2603742853990070375) a creeper death. 0 temporary blocks on both.
+- move_a `ma075u`: w2 (-3527460106405136664) 3/4 reached (MvS2 killed by a creeper and a skeleton), w3 (7554465379861769496) 4/4. 0 temporary blocks on all 8 trials.
+- mine_b `mbc075v`: w2 (6635453882250198535) finished in 34 min with 0. w3 (-8199092734754490801) left 3 reflex blocks (fixed in `8aed4145`, above).
+- mine_b `mbc075w`: w2 (1553548566202039385) 0; w3 (845445254878860767) 0 pumpkins, but a lake box (917 water cells) that timed out at 85 min with 3 of 64 units done.
+  Its time went to walks ('unit:walk' 2 191 s; failures 'not_confirmed' 21, 'timeout' 7).
+
+The scan sees only pumpkins. In a wet box the fills are made of the box's own rubble first (`d9effaee`), so they are invisible to it. `mbc075w` w3 ended with 611 entries still
+in the registry: lake 332, seal 63, rescue 216. Lake fills are the job's intended terrain (contract item 5). The seals and the water rescue's blocks are water countermeasures,
+and the registry still held them when the run timed out with the box flooded. A wet box that times out is therefore not shown clean by this scan.
 
 **A build with the column fix (`bt075m`).** World 1, seed 1643949612115061210, 1.21.1, x1, iron-farm-34, 8 bots, LIMIT_MIN=60, SITE_DRAWS=4 (the dry draw with the least to
 clear). The code had `8ff1c77f` (its `tallBack` counters are in the log); whether `32d344d7` had been loaded is not in the log, and `fcf41481` had not. 3 594 blocks placed in 58 minutes; the job timed out as planned (judge: 4 908 wrong cells, the build unfinished).
