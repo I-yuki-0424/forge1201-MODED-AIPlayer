@@ -100,10 +100,11 @@ class BuildJob {
             // temporary blocks whose step is over and that still stand: untemp tasks (inside the box only where the cell is to be empty: elsewhere the survey's own clear-then-place
             // task has it); the rest belong to a bot's step that is still going on
             // nothing but temporary blocks left: every step of the build is over, so every block of every bot is due now (a bot's column at the last stance included)
+            this.endgame = !sv.tasks.some((tk) => STAGE_OF[tk.kind] === 'prepare' || STAGE_OF[tk.kind] === 'place' || STAGE_OF[tk.kind] === 'late');
             if (this.wrapping || !sv.tasks.some((tk) => STAGE_OF[tk.kind] === 'prepare' || STAGE_OF[tk.kind] === 'place' || STAGE_OF[tk.kind] === 'late')) for (const e of this.ledger.list((q) => q.how !== 'seal')) { if (!e.released && !e.orphan) { e.released = { at: Date.now(), why: 'the build is done' }; this.ledger.n.released++; } e.wetOk = !this._floodsInto(e); }
-            for (const e of this.ledger.list()) { const c = { x: e.x, y: e.y, z: e.z }, h = seen(bot, c); if (e.keep && e.how !== 'seal') e.keep = null; if (h) this.ledger.check(c, h.name); if (!this.ledger.has(c) || !this._offerable(e)) continue; sv.tasks.push({ k: e.k, kind: 'untemp', i: -1, x: e.x, y: e.y, z: e.z }); }
+            for (const e of this.ledger.list()) { const c = { x: e.x, y: e.y, z: e.z }, h = seen(bot, c); if (e.keep && (e.how !== 'seal' || this.wrapping || this.endgame)) e.keep = null; if (h) this.ledger.check(c, h.name); if (!this.ledger.has(c) || !this._offerable(e)) continue; sv.tasks.push({ k: e.k, kind: 'untemp', i: -1, x: e.x, y: e.y, z: e.z }); }
             // a seal (outside the box) that holds no fluid back any more goes at the end; one that still does is part of the result and is counted as kept (the only kept rule)
-            if (this.wrapping || !sv.tasks.some((tk) => STAGE_OF[tk.kind] === 'prepare' || STAGE_OF[tk.kind] === 'place' || STAGE_OF[tk.kind] === 'late')) for (const e of this.ledger.list((q) => q.how === 'seal' && !q.released)) { const into = wetAround(bot, e) ? this._floodsInto(e) : null; if (into) this.ledger.keep(e, `seal: the fluid behind it would run into the finished box at ${into}`); else { e.released = { at: Date.now(), why: 'the box is done' }; e.wetOk = true; if (!sv.tasks.some((tk) => tk.k === e.k)) sv.tasks.push({ k: e.k, kind: 'untemp', i: -1, x: e.x, y: e.y, z: e.z }); } }
+            if (this.wrapping || !sv.tasks.some((tk) => STAGE_OF[tk.kind] === 'prepare' || STAGE_OF[tk.kind] === 'place' || STAGE_OF[tk.kind] === 'late')) for (const e of this.ledger.list((q) => q.how === 'seal' && !q.released)) { const into = wetAround(bot, e) ? this._floodsInto(e) : null; if (into) { e.convert = `seal: the fluid behind it would run into the finished box at ${into}`; if (!sv.tasks.some((tk) => tk.k === e.k)) sv.tasks.push({ k: e.k, kind: 'untemp', i: -1, x: e.x, y: e.y, z: e.z, convert: true }); } else { e.released = { at: Date.now(), why: 'the box is done' }; e.wetOk = true; if (!sv.tasks.some((tk) => tk.k === e.k)) sv.tasks.push({ k: e.k, kind: 'untemp', i: -1, x: e.x, y: e.y, z: e.z }); } }
             // the blueprint's container contents: a goal per container and item, once its container stands as the blueprint has it (late stage: when every block does)
             for (const g of this.t.contents || []) { const h = sv.have[g.i]; if (!(this.contentsDone && this.contentsDone.has(g.k)) && h && S.matches(this.t.stateOf(g.i), h)) sv.tasks.push(this._contentsTask(g)); }
             for (const tk of sv.tasks) {
@@ -272,6 +273,10 @@ class BuildJob {
             if (this.tasks.has(key(tk.x, tk.y + 1, tk.z)) && this.tasks.get(key(tk.x, tk.y + 1, tk.z)).kind === 'untemp') return false;
             // one that holds a fluid back now is kept by that named rule (counted, looked at again at the next survey), not offered for ever; a seal whose fluid cannot reach a
             // box cell that must stay open goes anyway (the owner wants a clean site: a seal is a temporary block too)
+            // at the job's end (the wrap-up, or nothing of the build left) such a block is not kept: it is turned into terrain, dug and replaced by the box's own rubble at once
+            // (the orchestrator's ruling of 2026-11-28, contract item 5 as for lake fills: pc075a c0 ended with six pumpkins 'holds a fluid back' outside the box)
+            if (tk.convert) return true;
+            if (wetAround(bot, tk) && !(this.ledger.get(tk) || {}).wetOk && (this.wrapping || this.endgame)) { tk.convert = true; return true; }
             if (wetAround(bot, tk) && !(this.ledger.get(tk) || {}).wetOk) { this.ledger.keep(tk, 'holds a fluid back'); if (this.tasks.get(tk.k) === tk) this.tasks.delete(tk.k); this.untemps.delete(tk); return false; }
             return true;
         }

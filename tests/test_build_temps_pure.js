@@ -182,8 +182,11 @@ test('the end of the build: a seal goes unless the fluid behind it would run int
     await job.resurvey(bot, 'test');
     const low = job.ledger.get({ x: 9, y: 64, z: 10 }), high = job.ledger.get({ x: 9, y: 65, z: 10 });
     assert(low.released && !low.keep && job.tasks.has('9,64,10'), 'beside stone only: it goes');
+    // the one whose fluid would run into the box is not kept (ruling of 2026-11-28): it is turned into terrain, the case named; the one under it waits for it (top of a stack first)
+    assert(/run into the finished box at 10,65,10/.test(high.convert || ''), `converted with the case: ${high.convert} (keep ${high.keep})`);
+    assert(!high.keep && job.tasks.get('9,65,10') && job.tasks.get('9,65,10').convert, 'an untemp task that converts');
+    job.tasks.delete('9,65,10');
     assert(job.ready(job.tasks.get('9,64,10'), bot, Date.now()), 'ready though water is beside it');
-    assert(/run into the finished box at 10,65,10/.test(high.keep || ''), `kept with the case: ${high.keep}`);
     const oldRule = [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]].some(([dx, dy, dz]) => /water/.test((w.get(`${9 + dx},${64 + dy},${10 + dz}`) || {}).name || ''));
     assert(oldRule, 'negative control: the seal beside stone holds water and the old rule kept it');
 });
@@ -651,6 +654,31 @@ test('a bot that leaves the crew alive (pause, stop) takes its own blocks away f
     assert(calls.includes('dig 0,66,0') && !b.job.ledger.has(br), `then dug from beside (${calls})`);
     const none = mk(20, false);
     assert.strictEqual(await D.leaving(none.job, 'a', none.bot, none.mv), null); assert.strictEqual(none.down, 0, 'negative control: nothing of its own');
+});
+
+test('the job\'s end: a temporary block that still holds a fluid back is turned into terrain (dug, rubble in its cell at once, counted converted) instead of kept (pc075a c0: six pumpkins "holds a fluid back"); negative controls: before the end it is kept; no rubble in the pack, nothing is dug', async () => {
+    const mk = (rubble) => {
+        const t = new Target(tiny(), { x: 100, y: 64, z: 100 });
+        const job = new BuildJob(t, {}); job.stage = 'place';
+        const w = new Map(); for (let x = -3; x <= 5; x++) for (let z = -3; z <= 3; z++) w.set(`${x},63,${z}`, { name: 'stone' });
+        const c = { x: 2, y: 64, z: 0 }; w.set('2,64,0', { name: 'pumpkin' }); w.set('3,64,0', { name: 'water' }); job.addTemp(c, 'pillar', 'a', 'pumpkin'); job.ledger.observe(c, 'pumpkin');
+        const bot = fakeBot(w, { x: 0.5, y: 64, z: 0.5 }); bot.inventory = { items: () => (rubble ? [{ name: 'cobblestone', count: 5 }] : []) };
+        const calls = [];
+        const mv = { dig: async (q) => { calls.push(`dig ${q.x},${q.y},${q.z}`); w.set(`${q.x},${q.y},${q.z}`, { name: 'water' }); job.ledger.observe(q, 'water'); return true; }, hold: async (it) => { calls.push(`hold ${it}`); return true; },
+            click: async (n) => { calls.push(`click ${n}`); w.set('2,64,0', { name: 'cobblestone' }); }, lean: async () => {}, unlean: async () => {} };
+        return { job, bot, mv, calls, w, c };
+    };
+    const a = mk(true), r = await D.toTerrain(a.job, 'a', a.bot, a.mv, { ...a.c, kind: 'untemp', convert: true });
+    assert(r.ok, JSON.stringify(r)); assert.deepStrictEqual(a.calls.slice(0, 2), ['dig 2,64,0', 'hold cobblestone']); assert(a.calls[2] && a.calls[2].startsWith('click'), a.calls.join(' | '));
+    assert.strictEqual(a.w.get('2,64,0').name, 'cobblestone'); assert(!a.job.ledger.has(a.c), 'not in the ledger: terrain'); assert.strictEqual(a.job.stats.converted, 1);
+    const n = mk(false), rn = await D.toTerrain(n.job, 'a', n.bot, n.mv, { ...n.c, kind: 'untemp', convert: true });
+    assert(!rn.ok && /no rubble/.test(rn.why)); assert.deepStrictEqual(n.calls, [], 'negative control: nothing dug without rubble to put back');
+    // the job: before the end such a block is kept; at the end (wrapping) the same block is ready as a conversion
+    const b = mk(true), tk = { k: '2,64,0', kind: 'untemp', i: -1, x: 2, y: 64, z: 0 };
+    b.job.ledger.release('a');
+    assert.strictEqual(b.job.ready({ ...tk }, b.bot, Date.now()), false, 'negative control: in the build, kept'); assert(b.job.ledger.get(b.c).keep);
+    b.job.wrapping = true; const tk2 = { ...tk };
+    assert.strictEqual(b.job.ready(tk2, b.bot, Date.now()), true); assert.strictEqual(tk2.convert, true, 'at the wrap-up: converted, not kept');
 });
 
 (async () => { for (const [name, fn] of queue) { await fn(); n++; console.log(`  ok ${name}`); } console.log(`test_build_temps_pure: ${n} passed`); })().catch((e) => { console.error(e); process.exit(1); });

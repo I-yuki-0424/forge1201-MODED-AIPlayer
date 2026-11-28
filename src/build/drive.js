@@ -313,6 +313,7 @@ async function work(job, name, bot, mv, cl, cancel) {
         // it, and fell 48 cells)
         if (!tk.descend && (tk.kind === 'clear' || tk.kind === 'untemp') && underBody(bot, tk)) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
         // a temporary block with a crew member anywhere above it in its column is not taken (a pillar dug out under a bot on its top: falls of 40 blocks, live 2026-11-23 fy3)
+        if (tk.kind === 'untemp' && tk.convert) { const r = await toTerrain(job, name, bot, mv, tk); results.push({ tk, ok: r.ok, why: r.why }); continue; }
         if (tk.kind === 'untemp' && !(job.ledger.get(tk) || {}).wetOk && [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]].some(([dx, dy, dz]) => FLUID(seen(bot, { x: tk.x + dx, y: tk.y + dy, z: tk.z + dz })))) { results.push({ tk, ok: false, why: 'skipped' }); continue; }          // it holds back a fluid now
         if (tk.kind === 'untemp' && crewAt(job, bot).concat(tk.descend ? [] : [bot.entity.position]).some((q) => Math.floor(q.x) === tk.x && Math.floor(q.z) === tk.z && q.y > tk.y && q.y < tk.y + 90)) { results.push({ tk, ok: false, why: 'skipped' }); continue; }
         // lava within two of the cell or of the bot, now (it runs in through cells opened a moment ago, from a pool two or three away: seven deaths in clearing batches,
@@ -479,6 +480,36 @@ async function release(job, name, bot, mv, cancel, next = null, label = 'step') 
     L.begin(name, label);
     job.time.walk += Date.now() - tr;
     return n;
+}
+
+// the box's own rubble, as a player fills with what it digs (pit.js SEAL_ITEMS): the block a water countermeasure becomes at the job's end
+const RUBBLE = ['cobblestone', 'cobbled_deepslate', 'dirt', 'netherrack', 'stone', 'andesite', 'diorite', 'granite', 'tuff', 'deepslate', 'blackstone', 'basalt', 'end_stone', 'sandstone'];
+/**
+ * A temporary block that still holds a fluid back at the job's end is turned into terrain (the orchestrator's ruling of 2026-11-28, contract item 5 as for lake fills): dug, and the
+ * box's own rubble put into its cell at once from where the bot stands, so the fluid never comes in; the ledger counts it 'converted', never as a leftover. A temporary-block item
+ * is never the rubble (on the test worlds a pumpkin would stand again). Returns { ok, why }.
+ */
+async function toTerrain(job, name, bot, mv, tk) {
+    const only = new Set(require('../work/bot/tempblocks').only());
+    const item = RUBBLE.find((n) => !only.has(n) && !job.t.items.has(n) && bot.inventory.items().some((i) => i.name === n));
+    if (!item) return { ok: false, why: 'to terrain: no rubble in the pack' };
+    const c = { x: tk.x, y: tk.y, z: tk.z }, h = seen(bot, c);
+    if (!h || S.AIR.has(h.name)) { job.dropTemp(c); return { ok: true }; }
+    if (underCrew(job, bot, c.x, c.y, c.z)) return { ok: false, why: 'skipped' };
+    if (h.name === item) { job.dropTemp(c); job.stats.converted = (job.stats.converted || 0) + 1; job.ledger.n.converted = (job.ledger.n.converted || 0) + 1; return { ok: true }; }
+    const P = require('./place'), me = feet(bot);
+    // the click that will put the rubble back: against a neighbour that stays (not the block itself), seen from here, before anything is dug
+    const way0 = () => P.ways(P.botWorld(bot, new Map([[`${c.x},${c.y},${c.z}`, P.AIR]])), c, { name: item, props: {} }, item, [me], { max: 1 })[0] || null;
+    if (!way0()) return { ok: false, why: 'to terrain: no face to put the rubble against' };
+    if (!(await mv.dig(c))) return { ok: false, why: 'to terrain: the dig failed' };
+    const way = P.ways(P.botWorld(bot), c, { name: item, props: {} }, item, [me], { max: 1 })[0] || way0();
+    if (!(await mv.hold(item))) return { ok: false, why: 'to terrain: could not hold the rubble' };
+    await click(mv, way);
+    for (let i = 0; i < 10; i++) { const q = seen(bot, c); if (q && q.name === item) break; await sleep(50); }
+    const q = seen(bot, c);
+    if (!q || q.name !== item) return { ok: false, why: `to terrain: the rubble did not go in (${q ? q.name : '?'})` };
+    job.dropTemp(c); job.stats.converted = (job.stats.converted || 0) + 1; job.ledger.n.converted = (job.ledger.n.converted || 0) + 1;
+    return { ok: true };
 }
 
 /** A bot leaves the crew alive and connected (pause, stop): its own blocks go as at a step's end (release, LEAVE_MS). Returns the blocks dug, or null when it does not apply (dead, gone, nothing of its own). */
@@ -1489,4 +1520,4 @@ async function drive0(job, name, bot, { cancel = { cancelled: false }, supplySit
     } finally { bot.removeListener('death', onDeath); bot.removeListener('death', onDied); bot.removeListener('blockUpdate', onBlock); job.orphanOf(name, 'left the crew'); clearInterval(sampler); clearInterval(stallWatch); unwatch(); unitems(); bot.removeListener('spawnReset', onReset); bot.__builderOwns = false; job.leave(name); if (job.pool) job.pool.leave(name); for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sneak', 'sprint']) bot.setControlState(k, false); }
 }
 
-module.exports = { underBody, lowAnchor, outOfStock, bodyIn, recoverGround, drive, work, holds, rules, pour, escape, needsFor, boxSpot, bench, release, leaving, unscaffold, touchesShape, planned, adoptWorkTemps, closesIn, recoverDrops, materials };
+module.exports = { underBody, lowAnchor, outOfStock, bodyIn, recoverGround, drive, work, holds, rules, pour, escape, needsFor, boxSpot, bench, release, leaving, toTerrain, unscaffold, touchesShape, planned, adoptWorkTemps, closesIn, recoverDrops, materials };
