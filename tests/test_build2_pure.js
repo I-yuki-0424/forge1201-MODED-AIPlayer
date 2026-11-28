@@ -285,6 +285,20 @@ test('areas: cut where the work is sparse, about equal work each; the layer wind
     assert.strictEqual(job.topAt(2, 4), 64 + job.win(), 'the first unit: its own');
     assert.strictEqual(job.topAt(20, 4), Infinity, 'nothing to place around the gap');
 });
+test('the claim\'s layer band stays open when every cell left is an old lowest one (b081z5 / b081y4 tails: frontierMax -Infinity, the scan read nothing, 142 / 332 cells ready by whyNot); negative control: a fresh lowest cell bounds it', () => {
+    const t = new Target(tiny(), { x: 0, y: 64, z: 0 });
+    t.box = { x: 0, y: 64, z: 0, sx: 20, sy: 30, sz: 8 };
+    t.inside = (x, y, z) => x >= 0 && x < 20 && z >= 0 && z < 8 && y >= 64 && y < 94;
+    const job = new BuildJob(t, {});
+    for (const [x, y] of [[2, 70], [2, 71], [12, 80]]) job.tasks.set(`${x},${y},2`, { k: `${x},${y},2`, kind: 'place', x, y, z: 2, i: -1 });
+    job._frontier();
+    assert.strictEqual(job.frontierMax, 80, 'negative control: fresh lowest cells bound the band at the highest tile low');
+    for (const tk of job.tasks.values()) tk.lowSince = Date.now() - 200000;
+    job._frontier();
+    assert.strictEqual(job.frontier, 70);
+    assert.strictEqual(job.frontierMax, Infinity, 'every cell old: no upper bound (the scan reads them)');
+    assert.strictEqual(job.topAt(2, 2), Infinity, 'topAt agrees');
+});
 test('parked cells come back while the build runs once the crew has nothing ready (gh1 w1)', () => {
     const t = new Target(tiny(), { x: 10, y: 64, z: 10 });
     const job = new BuildJob(t, {});
