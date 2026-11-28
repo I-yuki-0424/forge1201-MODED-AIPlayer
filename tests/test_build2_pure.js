@@ -299,6 +299,18 @@ test('the claim\'s layer band stays open when every cell left is an old lowest o
     assert.strictEqual(job.frontierMax, Infinity, 'every cell old: no upper bound (the scan reads them)');
     assert.strictEqual(job.topAt(2, 2), Infinity, 'topAt agrees');
 });
+test('a cell does not wait for the block over it when that block rests on it (b081ab4: a torch tower, each stone waiting for the torch above, each torch for the stone under it); negative control: a block over it that does not rest on it is waited for', () => {
+    const t = new Target(tiny(), { x: 0, y: 64, z: 0 });
+    const job = new BuildJob(t, {});
+    const stone = { k: '1,70,1', x: 1, y: 70, z: 1, i: 5, kind: 'place' }, above = { k: '1,71,1', x: 1, y: 71, z: 1, i: 6, kind: 'place' };
+    for (const [deps, rests] of [[[[0, -1, 0]], true], [[[1, 0, 0]], false]]) {
+        t.recipeOf = (tk) => (tk.i === 6 ? { item: 'x', deps } : { item: 'stone', deps: [] });
+        assert.strictEqual(job._restsOn(above, stone), rests);
+        job.tasks = new Map([[stone.k, { ...stone, waitFor: above.k }], [above.k, above]]);
+        job.stage = 'place'; job.topAt = () => Infinity; job._machineWaits = () => null; job._closesUnfilled = () => false;
+        assert.strictEqual(job.ready(job.tasks.get(stone.k), { blockAt: () => null }, Date.now()), rests, rests ? 'a cycle: not waited for' : 'negative control: waited for');
+    }
+});
 test('parked cells come back while the build runs once the crew has nothing ready (gh1 w1)', () => {
     const t = new Target(tiny(), { x: 10, y: 64, z: 10 });
     const job = new BuildJob(t, {});

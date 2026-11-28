@@ -292,7 +292,8 @@ class BuildJob {
             // never the last open face of a closed container before its contents are set (the owner's Nether blueprint: droppers and hoppers with no face open when built)
             if (tk.kind === 'place' && this._closesUnfilled(tk, bot)) return false;
             // a block dug out to open a closed-in cell goes back after that cell is placed (or given up)
-            if (tk.waitFor && this.tasks.has(tk.waitFor) && !this.parked.has(tk.waitFor)) return false;
+            // (never a wait on a block that itself rests on this one: a cycle, nobody places either)
+            if (tk.waitFor && this.tasks.has(tk.waitFor) && !this.parked.has(tk.waitFor) && !this._restsOn(this.tasks.get(tk.waitFor), tk)) return false;
             if (tk.y > this.topAt(tk.x, tk.z)) return false;
             const r = this.t.recipeOf(tk);
             if (tk.kind === 'place' && r) for (const d of r.deps) {
@@ -375,6 +376,8 @@ class BuildJob {
     /** Items of `item` the supply holds beyond what the blueprint needs, less those lost by dig-outs (the harness fills the chest with about 5 % more). */
     spareOf(item) { const tot = (this.supply && this.supply.totals[item]) || 0, need = this.t.items.get(item) || 0; return tot - need - ((this.lost && this.lost.get(item)) || 0); }
 
+    /** Does the block of place task a need the cell of b (a dependency of its recipe: its support, the cell it faces)? */
+    _restsOn(a, b) { const r = a.i >= 0 ? this.t.recipeOf(a) : null; return !!r && r.deps.some((d) => a.x + d[0] === b.x && a.y + d[1] === b.y && a.z + d[2] === b.z); }
     /** A scaffold task in a cell beside tk that is to end up empty (below first), unless one is there already. */
     _scaffoldFor(tk) {
         // only a cell whose block, clicked, gives the wanted state (Target.supportsOf): a trapdoor facing west, top half, goes against the block east of it or above it, never
@@ -384,7 +387,9 @@ class BuildJob {
         // instead of a scaffold in the air (b081k: scaffolds of the floating trapdoors were 75 % of the bot-seconds over two temporary blocks)
         if (sup && sup.some(([x, y, z]) => x === tk.x && y === tk.y + 1 && z === tk.z)) {
             const ak = key(tk.x, tk.y + 1, tk.z), at = this.tasks.get(ak);
-            if (at && at.kind === 'place' && !this.parked.has(ak)) { tk.waitFor = ak; this.log(`${S.bare(this.t.wantOf(tk).name)} at ${tk.k} waits for the block over it (${S.bare(this.t.wantOf(at).name)}), then goes in under the feet`); return true; }
+            // (not when the block over it rests on this cell: a redstone torch, a repeater or a wire on the stone waited for, which waited for its support for good: b081ab4's
+            // last torch tower at 126,70..111,200, six stones and six torches 'ready' and never claimable, 1.21.1)
+            if (at && at.kind === 'place' && !this.parked.has(ak) && !this._restsOn(at, tk)) { tk.waitFor = ak; this.log(`${S.bare(this.t.wantOf(tk).name)} at ${tk.k} waits for the block over it (${S.bare(this.t.wantOf(at).name)}), then goes in under the feet`); return true; }
         }
         const dirs = sup ? sup.map(([x, y, z]) => [x - tk.x, y - tk.y, z - tk.z]).sort((a, b) => (a[1] < 0 ? 0 : a[1] > 0 ? 1 : 2) - (b[1] < 0 ? 0 : b[1] > 0 ? 1 : 2)) : [[0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]];          // below first when it gives the state, then above (the bot stands on the scaffold and puts the block in under its feet, owner ruling 2026-11-26), then beside
         for (const [dx, dy, dz] of dirs) {
