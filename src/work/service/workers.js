@@ -206,6 +206,8 @@ class WorkersPart {
         const job = this.jobs.get(id);
         if (!job || job.state !== 'running' || !job.impl || !job.impl.wrapUp) return false;
         job.impl.wrapUp();
+        // the unit each bot is in stops now (env.js causeNow 'wrap-up'), so the end's cleanup starts at once, not after a walk of minutes
+        for (const n of job.bots) { const rec = this.bots.get(n); if (rec && rec.worker && rec.bot) rec.bot.__stopUnit = true; }
         this.note('info', `job ${job.id}: wrapping up (the run's time is over)`);
         if (![...job.bots].some((n) => this.bots.get(n)?.worker)) this._maybeFinish(job); else this._endPass(job);
         this._dirty();

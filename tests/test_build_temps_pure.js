@@ -386,6 +386,24 @@ test('service: a pit\'s end and its wrap-up put a bot that is out of its loop (w
     fake._endPass(job); assert.deepStrictEqual(started, [], 'once per job: no second start after their end');
 });
 
+test('wrap-up: the unit a working bot is in stops at once (cause "wrap-up"), once, so the end\'s cleanup starts (mbc075x w3: a unit walked on for five minutes after the wrap-up, a pillar left); negative control: a bot out of its loop is not flagged, and the flag off the unit runs on', () => {
+    const { WorkService } = require('../src/work/service'), { EventEmitter } = require('events'), { botEnv } = require('../src/work/bot/env');
+    const pit = require('../src/work/jobs/pit').createPitJob({ x0: 0, z0: 0, x1: 15, z1: 15, top: 70, bottom: 60 });
+    const mkBot = (name) => { const b = new EventEmitter(); Object.assign(b, { username: name, registry: { blocksByName: {}, itemsByName: {} }, entity: { position: { x: 0.5, y: 64, z: 0.5, floored: () => ({ x: 0, y: 64, z: 0 }) }, onGround: true }, blockAt: () => null, inventory: { items: () => [] } }); return b; };
+    const A = mkBot('A'), B = mkBot('B');
+    const job = { id: 'j1', state: 'running', kind: 'pit', bots: new Set(['A', 'B']), impl: pit, repairs: 0 };
+    const recs = { A: { name: 'A', state: 'online', bot: A, worker: { cancel: {} }, job: 'j1' }, B: { name: 'B', state: 'online', bot: B, retired: 'waiting for a pickaxe', job: 'j1' } };
+    const fake = { jobs: new Map([['j1', job]]), bots: new Map(Object.entries(recs)), note: () => {}, _dirty: () => {}, _startWorker() {} };
+    for (const k of ['_endPass', 'wrapJob', '_maybeFinish']) fake[k] = WorkService.prototype[k];
+    const eA = botEnv(A, { cancel: { cancelled: false } });
+    assert.strictEqual(eA.unitCancel.cancelled, false, 'negative control: before the wrap-up the unit runs');
+    fake.wrapJob('j1');
+    assert.strictEqual(A.__stopUnit, true); assert(!B.__stopUnit, 'negative control: a bot without a worker has no unit to stop');
+    assert.strictEqual(eA.unitCancel.cancelled, true); assert.strictEqual(eA.takeCancelCause(), 'wrap-up');
+    A.__stopUnit = false;                                    // the worker clears it when the unit returns
+    assert.strictEqual(eA.unitCancel.cancelled, false, 'the end\'s own commands run');
+});
+
 test('the operator\'s only temporary block (TEMP_BLOCK) is kept whole when the pack is trimmed, not one stack (mine_b mb075g w2: the kit\'s second stack thrown away); without it, one stack (negative control)', () => {
     const { execFileSync } = require('child_process');
     const code = "const T=require('./src/work/bot/tempblocks');process.stdout.write(JSON.stringify([...T.reserve(new Map([['pumpkin',128],['cobblestone',200]]))]))";

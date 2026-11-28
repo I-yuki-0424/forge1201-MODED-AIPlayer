@@ -74,7 +74,9 @@ function botEnv(bot, { cancel = { cancelled: false }, rcon = null, avoid = null,
     let stopCause = null;
     // Drowning stops a unit only for a WORKER (guard: true): the water rescue that follows is the worker's. An operator command (journey, obtain, mine ...) has no rescue to hand over to: cancelling it just left a bot
     // that swam a sea or dug into an aquifer with every later command cancelled at once (acceptance worlds 5 and 7, 2026-11-12).
-    const causeNow = () => cancel.cancelled ? 'operator' : (gd && defendOn && gd.interrupt.cancelled) ? 'attacked' : ((worker || withGuard) && drowning()) ? 'drowning' : null;
+    // (and the job's wrap-up at the time limit, once, for the unit in progress: a unit walking for minutes held the end's cleanup out of the harness's five minutes, mbc075x w3,
+    // 1.21.1, seed -9023813696792488419: 'wrap 300 s, job running', a pillar left; the flag is cleared when that unit returns, so the end's own commands run)
+    const causeNow = () => cancel.cancelled ? 'operator' : bot.__stopUnit ? 'wrap-up' : (gd && defendOn && gd.interrupt.cancelled) ? 'attacked' : ((worker || withGuard) && drowning()) ? 'drowning' : null;
     const unitCancel = { get cancelled() { const c = causeNow(); if (c && !stopCause) stopCause = c; return !!c; } };
     /** A cell with air for the body and solid below, and no drop of more than three beside it (no ledge, tree top or pillar edge to walk off: two bots fell to their death after a lift). */
     const safeStand = (x, y, z) => {

@@ -150,6 +150,7 @@ async function runWorker(job, id, env, { cancel = { cancelled: false }, policy =
                 const t0 = now();
                 act('unit');
                 const r = await job.runUnit(claim.region, u, env);
+                if (env.bot) env.bot.__stopUnit = false;                               // the wrap-up's stop is for that unit only
                 onEvent('unit', { id, region: claim.region, unit: u.unit, role: claim.role, ok: r.ok, reason: r.reason, ms: now() - t0, detail: r.reason === 'cancelled' && env.takeCancelCause ? { ...(r.detail || {}), cause: env.takeCancelCause() || 'unknown' } : r.detail });
                 sinceAudit++;
                 // A build unit that placed what it could and waits for cells other units place: handed back, not done (idempotent), not a failure.
