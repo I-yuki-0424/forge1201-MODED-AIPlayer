@@ -319,6 +319,11 @@ test('parked cells come back while the build runs once the crew has nothing read
     assert.strictEqual(job._revive(Date.now()), 0, 'not at once');
     job.parkedTk.get(tk.k).at -= 200000; job._reviveAt = 0;
     assert.strictEqual(job._revive(Date.now()), 1); assert(job.tasks.has(tk.k) && !job.parked.has(tk.k));
+    // at most three times while the stage lasts (b081ab4: one cell no stance reaches came back every 90 s and the place stage never ended); the end rounds reset it
+    for (let i = 0; i < 2; i++) { job.tasks.delete(tk.k); job._park(tk, 'no stance'); job.tasks.delete(tk.k); job.parkedTk.get(tk.k).at -= 200000; job._reviveAt = 0; assert.strictEqual(job._revive(Date.now()), 1, `revival ${i + 2}`); }
+    job.tasks.delete(tk.k); job._park(tk, 'no stance'); job.tasks.delete(tk.k); job.parkedTk.get(tk.k).at -= 200000; job._reviveAt = 0;
+    assert.strictEqual(job._revive(Date.now()), 0, 'the fourth time it waits for the end rounds');
+    job.revived.clear(); job._reviveAt = 0; assert.strictEqual(job._revive(Date.now()), 1, 'negative control: after the end rounds reset it comes back');
 });
 test('merit: tasks that held count up, failures and empty supply turns down (list 4 problem 6)', () => {
     const job = new BuildJob(new Target(tiny(), { x: 0, y: 64, z: 0 }), {});

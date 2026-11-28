@@ -24,7 +24,8 @@ const BATCH = 64;                  // tasks per claim (everything within reach o
 const ROUNDS = 3;                  // extra rounds for parked cells before the build ends with them reported
 const PER_SECTOR = 2;              // bots working in one area at a time (its own bot and one helper; the rest wait out of the way: eight bots crowded a one-chunk Nether build, owner 2026-11-23 list 4 problem 7)
 const TILE = 4;                    // columns per side of a tile: the ground plan's unit for areas and for the local layer window
-const REVIVE_MS = 90000;           // parked cells come back while the build runs (not only in the end rounds) once they have waited this long and the crew has nothing ready
+const REVIVE_MS = 90000;
+const REVIVE_MAX = 3;               // revivals of one cell while its stage lasts; after them it waits for the end rounds (_finish), so the stage can end           // parked cells come back while the build runs (not only in the end rounds) once they have waited this long and the crew has nothing ready
 const PIT_ROUNDS = 3;               // pit jobs over the site's terrain (job.planPit): the first, and up to two more over what a pit left
 const FEW_LEFT = 150, FEW_MS = 300000;   // the place stage's tail: under this many place tasks for this long, the machine rule goes (job._fewLeft)
 const STALL_MS = 40000;            // nothing ready for anybody this long while work is left: the ordering rules are relaxed (a dependency that cannot be met)
@@ -216,6 +217,7 @@ class BuildJob {
         if (this.parked.size && this.rounds < ROUNDS) {
             this.rounds++;
             this.log(`round ${this.rounds + 1}: ${this.parked.size} parked cells are tried again`);
+            if (this.revived) this.revived.clear();
             this.parked.clear(); this.fails.clear(); this.cool.clear(); if (this.parkedTk) this.parkedTk.clear();
             this.stage = 'survey';
             return;
@@ -1203,6 +1205,11 @@ class BuildJob {
         for (const [k, { tk, at }] of this.parkedTk) {
             if (now - at < REVIVE_MS || this.tasks.has(k)) continue;
             if (OUT_OF_STOCK.test(this.parked.get(k) || '')) continue;          // back only when its item is (stock)
+            // (a cell no stance reaches came back every 90 s, was parked again, and held the place stage for good: the 36 portals of the late stage were never lit; b081ab4,
+            // native, 1.21.1, minute ~195: one smooth stone under a bed, 'no stance reaches it', the crew idle for 50 minutes)
+            const rv = this.revived || (this.revived = new Map()), nr = (rv.get(k) || 0) + 1;
+            if (nr > REVIVE_MAX) continue;
+            rv.set(k, nr);
             this._unpark(k, tk);
             n++;
         }
