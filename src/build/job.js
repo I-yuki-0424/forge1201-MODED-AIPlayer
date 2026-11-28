@@ -230,10 +230,11 @@ class BuildJob {
 
     /** The lowest layer that still has blocks to place (the window starts there), and the highest that still has blocks to clear. */
     _frontier() {
-        let f = Infinity, c = -Infinity; const now = Date.now(), b = this.t.box, nx = Math.ceil(b.sx / TILE), nz = Math.ceil(b.sz / TILE), own = new Float64Array(nx * nz).fill(Infinity), lowTk = new Array(nx * nz), work = new Uint8Array(nx * nz);
+        let f = Infinity, fAll = Infinity, c = -Infinity; const now = Date.now(), b = this.t.box, nx = Math.ceil(b.sx / TILE), nz = Math.ceil(b.sz / TILE), own = new Float64Array(nx * nz).fill(Infinity), lowTk = new Array(nx * nz), work = new Uint8Array(nx * nz);
         for (const tk of this.tasks.values()) {
             if (this.parked.has(tk.k)) continue;
             if ((tk.kind === 'place' || tk.kind === 'fix') && this.t.inside(tk.x, tk.y, tk.z)) work[Math.floor((tk.x - b.x) / TILE) + Math.floor((tk.z - b.z) / TILE) * nx] = 1;
+            if ((tk.kind === 'place' || tk.kind === 'fix') && tk.y < fAll) fAll = tk.y;
             // a cell no stance has reached for 15 s does not hold the window (four unreachable cells in the lowest layer left eight bots idle with 7 500 blocks above, live
             // 2026-11-23 fy1 w2); it is still offered and tried, and parked after two minutes
             const ns = this.noStance.get(tk.k); if (ns && now - ns > 15000 && (tk.kind === 'place' || tk.kind === 'fix')) continue;
@@ -255,7 +256,9 @@ class BuildJob {
         // as -Infinity, every remaining cell old, the scan read nothing: b081z5 (mineflayer, 1.21.1) and b081y4 (native) tails, 142 / 332 cells whyNot called ready, claims
         // 'nothing ready' for 25+ minutes, 1 000 empty claims a minute; the stale-station guess of b8c14b20 was not it)
         this._local = { nx, nz, low }; this.frontierMax = hi === -Infinity ? Infinity : hi; this._frontDirty = false; this._frontAt = Date.now();
-        this.frontier = f; this.clearTop = c;
+        // (every cell left one no stance reaches: the band's low end is the lowest of them, not Infinity, or the scan read nothing: b081ab4's last 5 cells, 'frontier -',
+        // 'scanned 0' for the run's last 15 minutes)
+        this.frontier = Number.isFinite(f) ? f : fAll; this.clearTop = c;
     }
 
     // ---- what may be done now --------------------------------------------------------------------------------------------------------------------------------------------

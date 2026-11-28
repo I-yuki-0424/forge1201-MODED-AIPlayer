@@ -298,6 +298,11 @@ test('the claim\'s layer band stays open when every cell left is an old lowest o
     assert.strictEqual(job.frontier, 70);
     assert.strictEqual(job.frontierMax, Infinity, 'every cell old: no upper bound (the scan reads them)');
     assert.strictEqual(job.topAt(2, 2), Infinity, 'topAt agrees');
+    // every cell one no stance reaches for 15 s: the low end is their lowest, not Infinity (b081ab4: 'frontier -', the scan read nothing)
+    for (const tk of job.tasks.values()) job.noStance.set(tk.k, Date.now() - 20000);
+    job._frontier();
+    assert.strictEqual(job.frontier, 70, 'the lowest of the no-stance cells');
+    job.noStance.clear(); job._frontier(); assert.strictEqual(job.frontier, 70, 'negative control: the same without the no-stance rule');
 });
 test('a cell does not wait for the block over it when that block rests on it (b081ab4: a torch tower, each stone waiting for the torch above, each torch for the stone under it); negative control: a block over it that does not rest on it is waited for', () => {
     const t = new Target(tiny(), { x: 0, y: 64, z: 0 });
