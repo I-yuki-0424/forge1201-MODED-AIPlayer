@@ -1094,11 +1094,16 @@ Fixes (on branch `t/075-temp-blocks`; `src/build` is TASK-081's code and lands o
 
 No exception is proposed for the pit or the move tests: their share is 0-1.7 %.
 
-Two candidate exceptions for the builder, for the orchestrator to accept or refuse:
-- *A stance on a bridge block beside the top of its own column.* The column is that stance's way back down, the same structure as the column under the feet. Upper bound in
-  x4: 10 470 s ('bridge:1,pillar:3-5'). The log does not tell which of these bridge blocks are beside the column's top.
-- None for the scaffolds. Ruling (c) allows one per bot, and the claim's batches hold three to six (w4: about 18 000 s). That is the builder's claim (081): one scaffold-needing
-  block per batch, or the scaffold dug before the next one is placed.
+**Rulings of the orchestrator (2026-11-28) on these measurements.**
+- *Accepted exception (d): a bridge block beside the top of the bot's own column.* While the column is the bot's way down, the bridge block and the column count as the one
+  structure in use. They are released when the bot steps back onto the column (`ontoColumn`, `walkBack`). Measured share: at most 10 470 bot-seconds in `b081x4` (9.5 % of its
+  bot time: 'bridge:1,pillar:3-5', an upper bound, since the log does not tell which bridge blocks sit beside a top); in `bt075m` 'bridge:1,pillar:2' 65 s (0.2 %).
+- *Scaffolds: no exception.* The claim's batches hold three to six, about 18 000 s in `b081w4`. TASK-081 brings that down to two.
+- *Water countermeasures still needed at the job's end are not temporary blocks left standing.* At the end of a job, and at a pit's time limit, each is turned into terrain:
+  rubble stays and leaves the registry, and an operator's temporary-block item is dug and replaced by rubble at once. The scan counts these as 'converted to terrain', never as
+  leftovers, the same rule as lake fills (contract item 5). Work layer: `Temps` `toTerrain`, run at the end of the pit's end passes and in its time-limit wrap-up (`c61dcee5`).
+  Builder: `toTerrain` in `drive.js`; a kept block becomes a converting untemp task once the job wraps up or nothing of the build is left (`3a08b0e4`). The tests have negative
+  controls: before the end such a block is kept, and with no rubble in the pack nothing is dug.
 
 **End scans of the move and pit runs.** All of these ran on the branch code, REPO=worktree, 1.21.1.
 - move_b `mb075v`: w2 (seed -3248122835109763178) PASS, w3 (-2603742853990070375) a creeper death. 0 temporary blocks on both.
