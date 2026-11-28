@@ -19,6 +19,8 @@ const key = (x, y, z) => `${x},${y},${z}`;
 // how far the centre goes out when leaning over an edge: 0.1 beyond it, 0.2 of the body still on the block (at 0.25 beyond it, 0.05 on, bots slipped off pit edges, live
 // 2026-11-22 sK2 w5); the support's side face is in sight from there
 const LEAN = 0.6;
+/** How far past its cell's middle a bridging body leans toward the gap: over the edge from a full floor; from a partial one (top under 1) no further than its own cell. */
+const bridgeLean = (supportTop) => (supportTop < 0.99 ? 0.5 - 0.3 - 0.01 : LEAN);
 const CLIMB = /^(vine|ladder|scaffolding|twisting_vines|twisting_vines_plant|weeping_vines|weeping_vines_plant|cave_vines|cave_vines_plant)$/;
 const AVOID_IN = /^(lava|fire|soul_fire|nether_portal|end_portal|end_gateway|cobweb|sweet_berry_bush|bubble_column|wither_rose|magma_block|campfire|soul_campfire|pointed_dripstone|cactus|moving_piston)$/;
 const NO_STAND = /^(magma_block|campfire|soul_campfire|cactus|.*_fence|.*_wall|.*_fence_gate|pointed_dripstone|honey_block|slime_block|powder_snow|scaffolding|.*_bed|hopper|composter)$/;
@@ -801,7 +803,10 @@ class Mover {
             // sneak out over the edge (the body keeps 0.05 on the support), then click the support's side face toward the gap: its block goes under the next cell
             const b = this.bot, dx = s.x - prev.x, dz = s.z - prev.z, own = this.rules.buildBlock ? this.rules.buildBlock(s.place.x, s.place.y, s.place.z) : null, item = own || this.rules.temp();
             if (!item || !(await this.hold(item))) return { ok: false, why: 'bridge: no temporary block' };
-            const edge = { x: prev.x + 0.5 + dx * LEAN, z: prev.z + 0.5 + dz * LEAN };
+            // (off a partial floor the body stays inside its own cell: leaning out it stood in the next cell below the new block's top, the server refused the block, and the
+            // bridge failed every time: b081z5 Bd5b on a floating bottom slab, 258 'bridge place' in a row; b081y4 Bd4b / Bd4h 641 / 528, both at y .5)
+            const sup0 = b.blockAt(new Vec3(prev.x, prev.y - 1, prev.z), false), top0 = sup0 && Array.isArray(sup0.shapes) && sup0.shapes.length ? Math.max(...sup0.shapes.map((q) => q[4])) : 1;
+            const lean = bridgeLean(top0), edge = { x: prev.x + 0.5 + dx * lean, z: prev.z + 0.5 + dz * lean };
             b.setControlState('sneak', true);
             try {
                 for (let i = 0; i < 60; i++) {
@@ -1008,4 +1013,4 @@ class Mover {
     }
 }
 
-module.exports = { PLANS, Mover, View, plan, feet, COST, LEAN, LEAN_DEPTH, leaveColumn };
+module.exports = { PLANS, Mover, View, plan, feet, COST, LEAN, LEAN_DEPTH, bridgeLean, leaveColumn };

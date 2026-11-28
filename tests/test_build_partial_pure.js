@@ -106,5 +106,12 @@ function fakeBot(world, pos, onGround = true) {
         assert.strictEqual(done, 2, 'cleared after a walk that threw too');
     }
     console.log('  ok a route is cleared when its outermost walk ends');
-    console.log('test_build_partial_pure: 5 passed');
+    // the bridging body off a partial floor stays in its own cell (b081z5 Bd5b on a floating slab: 258 'bridge place' failures in a row, the leaning body stood where the
+    // block goes, below its top); negative control: off a full floor it leans over the edge as before
+    { const M = require('../src/build/move'), half = 0.3;
+      assert.ok(0.5 + M.bridgeLean(0.5) + half < 1, 'off a slab the body keeps out of the next cell');
+      assert.strictEqual(M.bridgeLean(1), M.LEAN, 'negative control: a full floor leans over the edge');
+      assert.ok(0.5 + M.bridgeLean(1) + half > 1, 'negative control: (the full-floor lean reaches into the next cell)'); }
+    console.log('  ok off a partial floor the bridging body stays in its own cell; off a full one it leans over');
+    console.log('test_build_partial_pure: 6 passed');
 })().catch((e) => { console.error(e); process.exit(1); });
