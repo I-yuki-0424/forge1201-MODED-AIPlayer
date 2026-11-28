@@ -299,6 +299,25 @@ const left = (w, box = BOX) => scan(w, box).length;
         assert.ok(solid.has('7,63,5'), 'negative control: the other bot\'s block stays');
     });
 
+    await test('after a unit the bot walks once to its own movement block that is out of reach (within 24) and takes it (mbc075z w2: a pillar pumpkin 12 levels above stayed 60 min); negative controls: no NAV = it stays, a failed trip is not repeated, a block 40 away is not walked to', async () => {
+        const pit = require('../src/work/jobs/pit'); const { Temps } = require('../src/work/bot/temps');
+        const run = async (navOk, far) => {
+            const solid = new Set([far ? '60,63,5' : '5,75,5']); for (let x = 0; x < 80; x++) for (let z = 0; z < 12; z++) solid.add(`${x},62,${z}`);
+            const T = new Temps(); const c = far ? [60, 63, 5] : [5, 75, 5]; T.add({ x: c[0], y: c[1], z: c[2], kind: 'pillar', by: 'P', item: 'pumpkin' });
+            const pos = { x: 5.5, y: 63, z: 5.5 }; let navs = 0;
+            const w = { kindAt: (x, y, z) => (solid.has(`${x},${y},${z}`) ? 'solid' : 'air'), nameAt: (x, y, z) => (solid.has(`${x},${y},${z}`) ? (y === c[1] && x === c[0] ? 'pumpkin' : 'stone') : 'air') };
+            const env = { w, bot: { username: 'P', game: { dimension: 'overworld' }, __temps: T, entity: { position: pos } }, here: () => ({ x: Math.floor(pos.x), y: Math.floor(pos.y), z: Math.floor(pos.z) }),
+                ...(navOk === null ? {} : { nav: async (t) => { navs++; if (navOk) { pos.x = t.x + 0.5 - 2; pos.y = t.y; pos.z = t.z + 0.5; } return { ok: navOk }; } }),
+                exec: async (n, a) => { if (n === 'mine') { solid.delete(`${a.x},${a.y},${a.z}`); return { ok: true }; } return { ok: true }; } };
+            await pit.unitTidy(env); await pit.unitTidy(env);
+            return { gone: !solid.has(c.join(',')), navs };
+        };
+        const yes = await run(true, false); assert.ok(yes.gone && yes.navs === 1, JSON.stringify(yes));
+        assert.ok(!(await run(null, false)).gone, 'no NAV: it stays');
+        const bad = await run(false, false); assert.ok(!bad.gone && bad.navs === 1, 'a failed trip is made once: ' + JSON.stringify(bad));
+        const f = await run(true, true); assert.ok(!f.gone && f.navs === 0, 'a block 55 away is not walked to: ' + JSON.stringify(f));
+    });
+
     await test('pace: a reach failure skips the retry ladder, NAV goes at most three times per unit and a unit with more such cells hands them back (081 b081k: six tree units ran six minutes)', async () => {
         const pit = require('../src/work/jobs/pit');
         const cells = new Map(); for (let x = 1; x <= 6; x++) cells.set(`${x},64,3`, 'oak_leaves');

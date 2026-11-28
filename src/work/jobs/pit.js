@@ -775,6 +775,17 @@ async function unitTidy(env) {
             if (moved) { td = await go.tidy(env); break; }
         }
     }
+    // an own movement block left out of reach (not the one under the feet) is walked to once, within 24 blocks, and taken: the registry's release only comes when the bot passes by,
+    // and the bot never passed again (mbc075z w2, seed 2254152221898428075: a pillar pumpkin 12 levels above the work stayed 60 min, 'tried' only at the end from a stranded bot)
+    if (env.nav && !(env.cancel && env.cancel.cancelled)) {
+        const h2 = env.here(), d2 = (r) => Math.hypot(r.x - h2.x, r.z - h2.z);
+        const far = (td.left || []).filter((r) => !(r.x === h2.x && r.z === h2.z && r.y === h2.y - 1) && !r.tidyTrip && T.has(dim, r) && d2(r) <= 24 && Math.abs(r.y - h2.y) <= 40).sort((a, b) => d2(a) - d2(b))[0];
+        if (far) {
+            far.tidyTrip = true;                                                                 // one trip per block: a failed one is not repeated after every unit
+            const g = await env.nav({ x: far.x, y: far.y, z: far.z }, { near: 2, nearY: 2, why: 'pit: to its own temporary block', deadline: Date.now() + 30000 }).catch(() => null);
+            if (g && g.ok) td = await go.tidy(env);
+        }
+    }
     return td;
 }
 

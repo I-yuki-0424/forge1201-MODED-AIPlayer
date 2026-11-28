@@ -122,7 +122,10 @@ async function cleanTemps(env, o = {}) {
     const temps = env.temps, out = { broken: 0, forgotten: 0, kept: 0, tried: 0 };
     if (!temps || !env.bot) return out;
     const dim = dimOf(env.bot), t0 = Date.now(), box = o.box || null, kinds = o.kinds || KINDS, max = o.max || 40, maxMs = o.maxMs || 90000;
-    const inBox = (r) => !box || (r.x >= box.x0 - 2 && r.x <= box.x1 + 2 && r.z >= box.z0 - 2 && r.z <= box.z1 + 2 && r.y <= box.top + 3 && r.y >= box.bottom - 3);
+    // the end (reach): the bot's own movement blocks count wherever they stand, not only in the box and two cells around it (mbc075z w1, seed 845445254878860767: a NAV pillar pumpkin
+    // 3 cells outside the box stayed registered 'pillar' to the end and was never tried)
+    const own = (r) => !!o.reach && r.by === env.bot.username && CLEAN_NEAR.has(r.kind);
+    const inBox = (r) => !box || (r.x >= box.x0 - 2 && r.x <= box.x1 + 2 && r.z >= box.z0 - 2 && r.z <= box.z1 + 2 && r.y <= box.top + 3 && r.y >= box.bottom - 3) || own(r);
     const f0 = env.here();
     const todo = temps.list((r) => r.dim === dim && kinds.has(r.kind) && inBox(r) && (box || Math.hypot(f0.x - r.x, f0.z - r.z) <= (o.radius || 12))).sort((a, b) => Math.hypot(a.x - f0.x, a.z - f0.z) - Math.hypot(b.x - f0.x, b.z - f0.z));
     for (const r of todo) {

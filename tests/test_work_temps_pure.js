@@ -177,5 +177,20 @@ const botOf = (name, x, z, dim = 'minecraft:overworld') => ({ username: name, ga
         assert.strictEqual(rc.left, 1); assert.strictEqual(rc.fails['no rubble'], 1); assert.ok(c.T.has('overworld', { x: 2, y: 64, z: 1 }));
     });
 
+    await test('the end (reach): the bot\'s own movement block outside the box and its two-cell margin is released too (mbc075z w1: a NAV pillar pumpkin 3 cells outside stayed to the end); negative controls: without reach it stays, another bot\'s block outside stays', async () => {
+        const TM = require('../src/work/bot/temps');
+        const run = async (reach) => {
+            const temps = new TM.Temps(); temps.add({ x: 5, y: 10, z: 8, kind: 'pillar', by: 'P', item: 'pumpkin' }); temps.add({ x: 5, y: 10, z: 9, kind: 'pillar', by: 'Q', item: 'pumpkin' });
+            const solid = new Set(['5,10,8', '5,10,9']), pos = { x: 10, y: 11, z: 8 };
+            const env = { temps, bot: { username: 'P', game: { dimension: 'overworld' } }, here: () => ({ ...pos }),
+                w: { kindAt: (x, y, z) => (solid.has(`${x},${y},${z}`) ? 'solid' : 'air'), nameAt: (x, y, z) => (solid.has(`${x},${y},${z}`) ? 'pumpkin' : 'air') },
+                exec: async (n, a) => { solid.delete(`${a.x},${a.y},${a.z}`); return { ok: true }; } };
+            await TM.cleanTemps(env, { box: { x0: 10, x1: 25, z0: 0, z1: 15, top: 30, bottom: 0 }, ...(reach ? { reach: true } : {}) });
+            return solid;
+        };
+        const yes = await run(true); assert.ok(!yes.has('5,10,8'), 'its own block outside the box is taken'); assert.ok(yes.has('5,10,9'), 'another bot\'s block outside the box stays');
+        assert.ok((await run(false)).has('5,10,8'), 'without reach it stays');
+    });
+
     console.log('ALL OK'); process.exit(0);
 })().catch((e) => { console.error(e); process.exit(1); });
